@@ -4,7 +4,26 @@ import { db } from './db';
 
 async function migrate() {
   try {
-    console.log('Starting database migration...');
+    console.log('Checking database schema...');
+    
+    // Check if tables already exist
+    const checkResult = await db.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'public' 
+        AND table_name = 'users'
+      );
+    `);
+    
+    const tablesExist = checkResult.rows[0].exists;
+    
+    if (tablesExist) {
+      console.log('✅ Database schema already exists, skipping migration');
+      process.exit(0);
+      return;
+    }
+    
+    console.log('Running database migration...');
     
     const schemaPath = join(__dirname, 'schema.sql');
     const schema = readFileSync(schemaPath, 'utf-8');
