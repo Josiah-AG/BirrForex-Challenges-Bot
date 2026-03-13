@@ -344,6 +344,10 @@ export class Bot {
 
       if (data.startsWith('admin_delete_')) {
         const challengeId = parseInt(data.replace('admin_delete_', ''));
+        if (isNaN(challengeId)) {
+          await ctx.answerCbQuery('Invalid challenge ID');
+          return;
+        }
         await adminHandler.handleDeleteChallenge(ctx, challengeId);
         return;
       }
