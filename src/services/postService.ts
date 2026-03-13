@@ -39,36 +39,39 @@ export class PostService {
   /**
      * Generate challenge channel terms post (10 AM)
      */
-    generateTermsPost() {
-          const text = `<b>📖 How to Join:</b>
+    generateTermsPost(challenge: Challenge) {
+        const text = `<b>🎯 BirrForex Challenges - ${challenge.day.charAt(0).toUpperCase() + challenge.day.slice(1)} Round</b>
+    <b>Today ${formatChallengeTime(challenge.challenge_time)}</b>
 
-      • Check out the content posted on our main channel @${config.mainChannelUsername} and get ready
-      • Challenge questions will come directly from that content
-      • The challenge will stay open for only <b>${config.challengeDurationMinutes} minutes</b> ⏰
-      • Be the first to answer correctly and win a reward! 🎁
+    <b>📖 How to Join:</b>
 
-      <b>📝 Terms & Conditions</b>
+    • Check out the content posted on our main channel @${config.mainChannelUsername} and get ready
+    • Challenge questions will come directly from that content
+    • The challenge will stay open for only <b>${config.challengeDurationMinutes} minutes</b> ⏰
+    • Be the first to answer correctly and win a reward! 🎁
 
-      👉 Rewards will be sent <b>ONLY</b> via internal transfer on Exness to users who are verified and registered through the links shared in our channel. 😊
+    <b>📝 Terms & Conditions</b>
 
-      💡 <i>Already joined from our past challenges or social media links? You're all set!</i> ✅
+    👉 Rewards will be sent <b>ONLY</b> via internal transfer on Exness to users who are verified and registered through the links shared in our channel. 😊
 
-      <b>🎯 Note:</b>
-      If the first winner is not eligible, the reward will go to the next eligible participant (up to the ${getOrdinal(config.backupListSize + 1)} person).
+    💡 <i>Already joined from our past challenges or social media links? You're all set!</i> ✅
 
-      <b>📌 Ready to join the fun? Open your Exness account here 👇</b>
+    <b>🎯 Note:</b>
+    If the first winner is not eligible, the reward will go to the next eligible participant (up to the ${getOrdinal(config.backupListSize + 1)} person).
 
-      <b>ARE YOU READY? TAP 🔥 if you are</b>
+    <b>📌 Ready to join the fun? Open your Exness account here 👇</b>
 
-      #TurnKnowledgeToProfit`;
+    <b>ARE YOU READY? TAP 🔥 if you are</b>
 
-          const keyboard = Markup.inlineKeyboard([
-            [Markup.button.url('💰 Open Exness Account', config.exnessSignupLink)],
-            [Markup.button.url('📋 Read Full Rules', `https://t.me/${config.challengeChannelUsername}`)]
-          ]);
+    #TurnKnowledgeToProfit`;
 
-          return { text, keyboard, parse_mode: 'HTML' as const };
-        }
+        const keyboard = Markup.inlineKeyboard([
+          [Markup.button.url('💰 Open Exness Account', config.exnessSignupLink)],
+          [Markup.button.url('📋 Read Full Rules', `https://t.me/${config.challengeChannelUsername}`)]
+        ]);
+
+        return { text, keyboard, parse_mode: 'HTML' as const };
+      }
 
   /**
    * Generate 2-hour reminder post

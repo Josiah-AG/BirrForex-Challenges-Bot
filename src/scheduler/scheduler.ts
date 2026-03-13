@@ -129,7 +129,7 @@ export class Scheduler {
       }
 
       // Challenge channel terms post
-      const termsPost = postService.generateTermsPost();
+      const termsPost = postService.generateTermsPost(challenge);
       await this.bot.bot.telegram.sendMessage(
         config.challengeChannelId,
         termsPost.text,
