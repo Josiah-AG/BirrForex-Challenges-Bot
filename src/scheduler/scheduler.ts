@@ -159,63 +159,96 @@ export class Scheduler {
    */
   private async checkChallengeSchedules() {
     try {
-      const today = new Date();
-      const challenges = await challengeService.getChallengesByDate(today);
-
-      if (challenges.length === 0) return;
-
-      // Get current time in EAT timezone
+      // Get current time in EAT timezone (UTC+3)
       const now = new Date();
       const eatOffset = 3; // EAT is UTC+3
       const eatTime = new Date(now.getTime() + (eatOffset * 60 * 60 * 1000));
       const currentTime = `${eatTime.getUTCHours().toString().padStart(2, '0')}:${eatTime.getUTCMinutes().toString().padStart(2, '0')}`;
+      
+      // Create date strings in YYYY-MM-DD format for database comparison
+      const currentDateStr = `${eatTime.getUTCFullYear()}-${(eatTime.getUTCMonth() + 1).toString().padStart(2, '0')}-${eatTime.getUTCDate().toString().padStart(2, '0')}`;
+      const today = new Date(currentDateStr);
+      
+      const tomorrowEat = new Date(eatTime);
+      tomorrowEat.setUTCDate(tomorrowEat.getUTCDate() + 1);
+      const tomorrowDateStr = `${tomorrowEat.getUTCFullYear()}-${(tomorrowEat.getUTCMonth() + 1).toString().padStart(2, '0')}-${tomorrowEat.getUTCDate().toString().padStart(2, '0')}`;
+      const tomorrow = new Date(tomorrowDateStr);
+      
+      const todayChallenges = await challengeService.getChallengesByDate(today);
+      const tomorrowChallenges = await challengeService.getChallengesByDate(tomorrow);
+      const allChallenges = [...todayChallenges, ...tomorrowChallenges];
 
-      for (const challenge of challenges) {
+      if (allChallenges.length === 0) return;
+      
+      // Log found challenges (only once per minute to avoid spam)
+      if (eatTime.getUTCSeconds() === 0) {
+        console.log(`📅 Scheduler check at ${currentTime} EAT - Found ${allChallenges.length} challenge(s)`);
+        allChallenges.forEach(c => {
+          console.log(`  - Challenge ID ${c.id}: ${c.day} at ${c.challenge_time}, status: ${c.status}`);
+        });
+      }
+
+      const currentDate = new Date(eatTime.getUTCFullYear(), eatTime.getUTCMonth(), eatTime.getUTCDate());
+
+      for (const challenge of allChallenges) {
+        const challengeDate = new Date(challenge.date);
         const challengeTime = challenge.challenge_time;
         const [hours, minutes] = challengeTime.split(':').map(Number);
         
         // Calculate 2-hour reminder time
         let twoHourHours = hours - 2;
-        if (twoHourHours < 0) twoHourHours += 24;
+        let twoHourDate = new Date(challengeDate);
+        if (twoHourHours < 0) {
+          twoHourHours += 24;
+          twoHourDate.setDate(twoHourDate.getDate() - 1); // Previous day
+        }
         const twoHourTime = `${twoHourHours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
         
         // Calculate 30-min reminder time
         let thirtyMinHours = hours;
         let thirtyMinMinutes = minutes - 30;
+        let thirtyMinDate = new Date(challengeDate);
         if (thirtyMinMinutes < 0) {
           thirtyMinMinutes += 60;
           thirtyMinHours -= 1;
-          if (thirtyMinHours < 0) thirtyMinHours += 24;
+          if (thirtyMinHours < 0) {
+            thirtyMinHours += 24;
+            thirtyMinDate.setDate(thirtyMinDate.getDate() - 1); // Previous day
+          }
         }
         const thirtyMinTime = `${thirtyMinHours.toString().padStart(2, '0')}:${thirtyMinMinutes.toString().padStart(2, '0')}`;
         
         // Calculate end time (10 minutes after start)
         let endHours = hours;
         let endMinutes = minutes + 10;
+        let endDate = new Date(challengeDate);
         if (endMinutes >= 60) {
           endMinutes -= 60;
           endHours += 1;
-          if (endHours >= 24) endHours -= 24;
+          if (endHours >= 24) {
+            endHours -= 24;
+            endDate.setDate(endDate.getDate() + 1); // Next day
+          }
         }
         const endTimeStr = `${endHours.toString().padStart(2, '0')}:${endMinutes.toString().padStart(2, '0')}`;
 
-        // 2-hour reminder
-        if (currentTime === twoHourTime && challenge.status === 'scheduled') {
+        // 2-hour reminder (check if it's the right date and time)
+        if (currentDate.getTime() === twoHourDate.getTime() && currentTime === twoHourTime && challenge.status === 'scheduled') {
           await this.send2HourReminder(challenge.id);
         }
 
         // 30-minute reminder
-        if (currentTime === thirtyMinTime && challenge.status === 'scheduled') {
+        if (currentDate.getTime() === thirtyMinDate.getTime() && currentTime === thirtyMinTime && challenge.status === 'scheduled') {
           await this.send30MinReminder(challenge.id);
         }
 
         // Start challenge
-        if (currentTime === challengeTime && challenge.status === 'scheduled') {
+        if (currentDate.getTime() === challengeDate.getTime() && currentTime === challengeTime && challenge.status === 'scheduled') {
           await this.startChallenge(challenge.id);
         }
 
         // End challenge
-        if (currentTime === endTimeStr && challenge.status === 'active') {
+        if (currentDate.getTime() === endDate.getTime() && currentTime === endTimeStr && challenge.status === 'active') {
           await this.endChallenge(challenge.id);
         }
       }
