@@ -1,0 +1,31 @@
+{
+  "name": "birrforex-challenges-bot",
+  "version": "1.0.0",
+  "description": "BirrForex Weekly Challenge Bot - Automated quiz challenges with prizes",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "migrate": "ts-node src/database/migrate.ts"
+  },
+  "keywords": ["telegram", "bot", "quiz", "challenge"],
+  "author": "BirrForex",
+  "license": "MIT",
+  "dependencies": {
+    "telegraf": "^4.15.0",
+    "pg": "^8.11.3",
+    "dotenv": "^16.3.1",
+    "node-cron": "^3.0.3",
+    "date-fns": "^2.30.0",
+    "date-fns-tz": "^2.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.6",
+    "@types/pg": "^8.10.9",
+    "@types/node-cron": "^3.0.11",
+    "typescript": "^5.3.3",
+    "ts-node": "^10.9.2",
+    "ts-node-dev": "^2.0.0"
+  }
+}
