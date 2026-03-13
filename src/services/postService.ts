@@ -8,30 +8,30 @@ export class PostService {
    * Generate main channel announcement post (10 AM)
    */
   generateMainChannelPost(challenge: Challenge, numQuestions: number) {
-    const text = `<b>🎯 BirrForex Weekly Challenge - ${challenge.day.charAt(0).toUpperCase() + challenge.day.slice(1)} Round</b>
+      const text = `<b>🎯 BirrForex Weekly Challenge - ${challenge.day.charAt(0).toUpperCase() + challenge.day.slice(1)} Round</b>
 
-<b>📚 Topic:</b> <a href="${challenge.topic_link}">${challenge.topic}</a>
+  <b>📚 Topic:</b> <a href="${challenge.topic_link}">${challenge.topic}</a>
 
-<i>${challenge.short_text}</i>
+  <i>${challenge.short_text}</i>
 
-<b>⏰ Challenge Details:</b>
-🔹 Posted on ${config.challengeChannelId} at <b>${formatChallengeTime(challenge.challenge_time)}</b> sharp
-🔹 Contains <b>${numQuestions} questions</b> from the topic
-🔹 First correct answer wins <b>$${challenge.prize_amount}</b> 🎁
+  <b>⏰ Challenge Details:</b>
+  🔹 Posted on @${config.challengeChannelUsername} at <b>${formatChallengeTime(challenge.challenge_time)}</b> sharp
+  🔹 Contains <b>${numQuestions} questions</b> from the topic
+  🔹 First correct answer wins <b>${challenge.prize_amount}</b> 🎁
 
-👉 <b>Study the topic and get ready!</b>
+  👉 <b>Study the topic and get ready!</b>
 
-<b>Good luck, traders!</b> 🍀`;
+  <b>Good luck, traders!</b> 🍀`;
 
-    const keyboard = Markup.inlineKeyboard([
-      [
-        Markup.button.url(`📊 ${challenge.topic}`, challenge.topic_link),
-        Markup.button.url('🚀 Join Challenge', `https://t.me/${config.challengeChannelId.replace('@', '')}`)
-      ]
-    ]);
+      const keyboard = Markup.inlineKeyboard([
+        [
+          Markup.button.url(`📊 ${challenge.topic}`, challenge.topic_link),
+          Markup.button.url('🚀 Join Challenge', `https://t.me/${config.challengeChannelUsername}`)
+        ]
+      ]);
 
-    return { text, keyboard, parse_mode: 'HTML' as const };
-  }
+      return { text, keyboard, parse_mode: 'HTML' as const };
+    }
 
   /**
    * Generate challenge channel terms post (10 AM)
@@ -40,89 +40,89 @@ export class PostService {
      * Generate challenge channel terms post (10 AM)
      */
     generateTermsPost() {
-      const text = `<b>📖 How to Join:</b>
+          const text = `<b>📖 How to Join:</b>
 
-  • Check out the content posted on our main channel ${config.mainChannelId} and get ready
-  • Challenge questions will come directly from that content
-  • The challenge will stay open for only <b>${config.challengeDurationMinutes} minutes</b> ⏰
+      • Check out the content posted on our main channel @${config.mainChannelUsername} and get ready
+      • Challenge questions will come directly from that content
+      • The challenge will stay open for only <b>${config.challengeDurationMinutes} minutes</b> ⏰
+      • Be the first to answer correctly and win a reward! 🎁
+
+      <b>📝 Terms & Conditions</b>
+
+      👉 Rewards will be sent <b>ONLY</b> via internal transfer on Exness to users who are verified and registered through the links shared in our channel. 😊
+
+      💡 <i>Already joined from our past challenges or social media links? You're all set!</i> ✅
+
+      <b>🎯 Note:</b>
+      If the first winner is not eligible, the reward will go to the next eligible participant (up to the ${getOrdinal(config.backupListSize + 1)} person).
+
+      <b>📌 Ready to join the fun? Open your Exness account here 👇</b>
+
+      <b>ARE YOU READY? TAP 🔥 if you are</b>
+
+      #TurnKnowledgeToProfit`;
+
+          const keyboard = Markup.inlineKeyboard([
+            [Markup.button.url('💰 Open Exness Account', config.exnessSignupLink)],
+            [Markup.button.url('📋 Read Full Rules', `https://t.me/${config.challengeChannelUsername}`)]
+          ]);
+
+          return { text, keyboard, parse_mode: 'HTML' as const };
+        }
+
+  /**
+   * Generate 2-hour reminder post
+   */
+  generate2HourReminder(challenge: Challenge) {
+      const text = `<b>⏰ 2 HOURS Remaining for Today's Challenge</b>
+
+  <b>📖 How to Join:</b>
+
+  • Study the topic content <a href="${challenge.topic_link}"><b>${challenge.topic}</b></a> (Questions will be from it)
+  • Join 👉 @${config.challengeChannelUsername}
+  • The challenge will be posted sharp at <b>${formatChallengeTime(challenge.challenge_time)}</b> ⏰
   • Be the first to answer correctly and win a reward! 🎁
 
-  <b>📝 Terms & Conditions</b>
+  <a href="https://t.me/${config.challengeChannelUsername}">📝 <b>Read the Terms & Conditions before you start</b></a>
 
-  👉 Rewards will be sent <b>ONLY</b> via internal transfer on Exness to users who are verified and registered through the links shared in our channel. 😊
-
-  💡 <i>Already joined from our past challenges or social media links? You're all set!</i> ✅
-
-  <b>🎯 Note:</b>
-  If the first winner is not eligible, the reward will go to the next eligible participant (up to the ${getOrdinal(config.backupListSize + 1)} person).
-
-  <b>📌 Ready to join the fun? Open your Exness account here 👇</b>
-
-  <b>ARE YOU READY? TAP 🔥 if you are</b>
-
-  #TurnKnowledgeToProfit`;
+  👉 <b>Not ready yet? Check it out now:</b>`;
 
       const keyboard = Markup.inlineKeyboard([
-        [Markup.button.url('💰 Open Exness Account', config.exnessSignupLink)],
-        [Markup.button.url('📋 Read Full Rules', `https://t.me/${config.challengeChannelId.replace('@', '')}`)]
+        [
+          Markup.button.url(`📊 ${challenge.topic}`, challenge.topic_link),
+          Markup.button.url('🚀 Join Challenge', `https://t.me/${config.challengeChannelUsername}`)
+        ]
       ]);
 
       return { text, keyboard, parse_mode: 'HTML' as const };
     }
 
   /**
-   * Generate 2-hour reminder post
-   */
-  generate2HourReminder(challenge: Challenge) {
-    const text = `<b>⏰ 2 HOURS Remaining for Today's Challenge</b>
-
-<b>📖 How to Join:</b>
-
-• Study the topic content <a href="${challenge.topic_link}"><b>${challenge.topic}</b></a> (Questions will be from it)
-• Join 👉 ${config.challengeChannelId}
-• The challenge will be posted sharp at <b>${formatChallengeTime(challenge.challenge_time)}</b> ⏰
-• Be the first to answer correctly and win a reward! 🎁
-
-<a href="https://t.me/${config.challengeChannelId.replace('@', '')}">📝 <b>Read the Terms & Conditions before you start</b></a>
-
-👉 <b>Not ready yet? Check it out now:</b>`;
-
-    const keyboard = Markup.inlineKeyboard([
-      [
-        Markup.button.url(`📊 ${challenge.topic}`, challenge.topic_link),
-        Markup.button.url('🚀 Join Challenge', `https://t.me/${config.challengeChannelId.replace('@', '')}`)
-      ]
-    ]);
-
-    return { text, keyboard, parse_mode: 'HTML' as const };
-  }
-
-  /**
    * Generate 30-minute reminder post
    */
   generate30MinReminder(challenge: Challenge) {
-    const text = `<b>⏰ 30 MIN Remaining for Today's Challenge</b>
+      const text = `<b>⏰ 30 MIN Remaining for Today's Challenge</b>
 
-<b>📖 How to Join:</b>
+  <b>📖 How to Join:</b>
 
-• Study the topic content <a href="${challenge.topic_link}"><b>${challenge.topic}</b></a> (Questions will be from it)
-• Join 👉 ${config.challengeChannelId}
-• The challenge will be posted sharp at <b>${formatChallengeTime(challenge.challenge_time)}</b> ⏰
-• Be the first to answer correctly and win a reward! 🎁
+  • Study the topic content <a href="${challenge.topic_link}"><b>${challenge.topic}</b></a> (Questions will be from it)
+  • Join 👉 @${config.challengeChannelUsername}
+  • The challenge will be posted sharp at <b>${formatChallengeTime(challenge.challenge_time)}</b> ⏰
+  • Be the first to answer correctly and win a reward! 🎁
 
-<a href="https://t.me/${config.challengeChannelId.replace('@', '')}">📝 <b>Read the Terms & Conditions before you start</b></a>
+  <a href="https://t.me/${config.challengeChannelUsername}">📝 <b>Read the Terms & Conditions before you start</b></a>
 
-<b>⚡ Get ready! Challenge starts soon!</b>`;
+  <b>⚡ Get ready! Challenge starts soon!</b>`;
 
-    const keyboard = Markup.inlineKeyboard([
-      [
-        Markup.button.url(`📊 ${challenge.topic}`, challenge.topic_link),
-        Markup.button.url('🚀 Join Challenge', `https://t.me/${config.challengeChannelId.replace('@', '')}`)
-      ]
-    ]);
+      const keyboard = Markup.inlineKeyboard([
+        [
+          Markup.button.url(`📊 ${challenge.topic}`, challenge.topic_link),
+          Markup.button.url('🚀 Join Challenge', `https://t.me/${config.challengeChannelUsername}`)
+        ]
+      ]);
 
-    return { text, keyboard, parse_mode: 'HTML' as const };
-  }
+      return { text, keyboard, parse_mode: 'HTML' as const };
+    }
 
   /**
    * Generate challenge live post (8 PM)

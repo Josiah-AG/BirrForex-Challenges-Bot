@@ -11,6 +11,10 @@ export const config = {
   mainChannelId: process.env.MAIN_CHANNEL_ID || '@BirrForex',
   challengeChannelId: process.env.CHALLENGE_CHANNEL_ID || '@BirrForex_Challenges',
   
+  // Channel usernames (for links and display) - without @ symbol
+  mainChannelUsername: process.env.MAIN_CHANNEL_USERNAME || 'BirrForex',
+  challengeChannelUsername: process.env.CHALLENGE_CHANNEL_USERNAME || 'BirrForex_Challenges',
+  
   // Database
   databaseUrl: process.env.DATABASE_URL || '',
   
