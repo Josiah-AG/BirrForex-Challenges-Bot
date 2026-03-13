@@ -6,7 +6,7 @@ import { userService } from '../services/userService';
 import { challengeService } from '../services/challengeService';
 import { participantService } from '../services/participantService';
 import { winnerService } from '../services/winnerService';
-import { parseChallengeDeepLink, isAdmin } from '../utils/helpers';
+import { parseChallengeDeepLink, isAdmin, formatChallengeTime } from '../utils/helpers';
 
 export class Bot {
   public bot: Telegraf;
@@ -550,10 +550,14 @@ Use the buttons below to manage challenges:`;
 
   🔔 Enable notifications to stay updated.`;
       } else {
+        // Get the actual challenge to show correct time
+        const nextChallenge = await challengeService.getChallengeByDate(nextDate);
+        const challengeTime = nextChallenge?.challenge_time || config.challengeTime;
+        
         text = `📅 NEXT CHALLENGE
 
   🗓️ Date: ${new Date(nextDate).toDateString()}
-  ⏰ Time: ${config.challengeTime} EAT
+  ⏰ Time: ${formatChallengeTime(challengeTime)}
   📊 Topic: TBA (will be announced on challenge day)
 
   🔔 Stay updated with notifications!`;
