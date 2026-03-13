@@ -20,10 +20,24 @@ class Database {
     try {
       const result = await this.pool.query(text, params);
       const duration = Date.now() - start;
-      console.log('Executed query', { text, duration, rows: result.rowCount });
+      
+      // Only log query details in development, sanitize in production
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('Executed query', { text, duration, rows: result.rowCount });
+      } else {
+        // In production, only log query type and performance metrics
+        const queryType = text.trim().split(' ')[0].toUpperCase();
+        console.log('Query executed', { type: queryType, duration, rows: result.rowCount });
+      }
+      
       return result;
     } catch (error) {
-      console.error('Database query error:', error);
+      // Don't log full error details in production
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('Database query error:', error);
+      } else {
+        console.error('Database query failed');
+      }
       throw error;
     }
   }
