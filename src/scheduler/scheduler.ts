@@ -174,6 +174,11 @@ export class Scheduler {
       const tomorrowDateStr = `${tomorrowEat.getUTCFullYear()}-${(tomorrowEat.getUTCMonth() + 1).toString().padStart(2, '0')}-${tomorrowEat.getUTCDate().toString().padStart(2, '0')}`;
       const tomorrow = new Date(tomorrowDateStr);
       
+      // Log what we're searching for (only at :00 seconds)
+      if (eatTime.getUTCSeconds() === 0) {
+        console.log(`🔍 Scheduler searching for challenges on: ${currentDateStr} and ${tomorrowDateStr}`);
+      }
+      
       const todayChallenges = await challengeService.getChallengesByDate(today);
       const tomorrowChallenges = await challengeService.getChallengesByDate(tomorrow);
       const allChallenges = [...todayChallenges, ...tomorrowChallenges];
@@ -182,9 +187,10 @@ export class Scheduler {
       
       // Log found challenges (only once per minute to avoid spam)
       if (eatTime.getUTCSeconds() === 0) {
-        console.log(`📅 Scheduler check at ${currentTime} EAT - Found ${allChallenges.length} challenge(s)`);
+        console.log(`📅 Found ${allChallenges.length} challenge(s) at ${currentTime} EAT`);
         allChallenges.forEach(c => {
-          console.log(`  - Challenge ID ${c.id}: ${c.day} at ${c.challenge_time}, status: ${c.status}`);
+          const challengeDateStr = new Date(c.date).toISOString().split('T')[0];
+          console.log(`  - ID ${c.id}: ${c.day} ${challengeDateStr} at ${c.challenge_time}, status: ${c.status}`);
         });
       }
 

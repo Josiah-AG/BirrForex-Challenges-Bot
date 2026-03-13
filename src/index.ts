@@ -20,8 +20,27 @@ async function main() {
     // Pass scheduler to bot for testing
     bot.setScheduler(scheduler);
 
-    // Launch bot
-    await bot.launch();
+    // Launch bot with retry logic for 409 conflicts
+    let retries = 0;
+    const maxRetries = 3;
+    
+    while (retries < maxRetries) {
+      try {
+        await bot.launch();
+        break; // Success, exit retry loop
+      } catch (error: any) {
+        if (error?.response?.error_code === 409 && retries < maxRetries - 1) {
+          retries++;
+          const waitTime = retries * 5000; // 5s, 10s, 15s
+          console.log(`⚠️  Bot conflict detected (409). Waiting ${waitTime/1000}s before retry ${retries}/${maxRetries}...`);
+          await new Promise(resolve => setTimeout(resolve, waitTime));
+        } else {
+          throw error; // Re-throw if not 409 or max retries reached
+        }
+      }
+    }
+
+    console.log('✅ Bot launched successfully');
 
     // Graceful shutdown
     process.once('SIGINT', () => {
