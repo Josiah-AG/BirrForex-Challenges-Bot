@@ -115,18 +115,24 @@ export function isAdmin(telegramId: number): boolean {
 
 /**
  * Format time in 24-hour format for EAT timezone
- * Converts "20:00" to "20:00 EAT" or "01:00" to "01:00 EAT"
+ * Converts "20:00" to "8:00 PM" or "01:00" to "1:00 AM"
  */
 export function formatTimeEAT(time: string): string {
-  return `${time} EAT`;
+  const [hours, minutes] = time.split(':').map(Number);
+  const period = hours >= 12 ? 'PM' : 'AM';
+  const displayHours = hours % 12 || 12;
+  return `${displayHours}:${minutes.toString().padStart(2, '0')} ${period}`;
 }
 
 /**
- * Format time from HH:MM to readable 24-hour format
- * e.g., "20:00" -> "20:00 EAT", "01:00" -> "01:00 EAT"
+ * Format time from HH:MM to readable AM/PM format
+ * e.g., "20:00" -> "8:00 PM", "01:00" -> "1:00 AM"
  */
 export function formatChallengeTime(time: string): string {
-  return `${time} EAT`;
+  const [hours, minutes] = time.split(':').map(Number);
+  const period = hours >= 12 ? 'PM' : 'AM';
+  const displayHours = hours % 12 || 12;
+  return `${displayHours}:${minutes.toString().padStart(2, '0')} ${period}`;
 }
 
 /**
