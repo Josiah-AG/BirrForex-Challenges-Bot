@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS challenges (
     prize_amount DECIMAL(10, 2) DEFAULT 20.00,
     num_winners INTEGER DEFAULT 1,
     backup_list_size INTEGER DEFAULT 5,
+    challenge_time TIME DEFAULT '20:00:00',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     started_at TIMESTAMP,
