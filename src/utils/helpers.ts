@@ -114,6 +114,22 @@ export function isAdmin(telegramId: number): boolean {
 }
 
 /**
+ * Format time in 24-hour format for EAT timezone
+ * Converts "20:00" to "20:00 EAT" or "01:00" to "01:00 EAT"
+ */
+export function formatTimeEAT(time: string): string {
+  return `${time} EAT`;
+}
+
+/**
+ * Format time from HH:MM to readable 24-hour format
+ * e.g., "20:00" -> "20:00 EAT", "01:00" -> "01:00 EAT"
+ */
+export function formatChallengeTime(time: string): string {
+  return `${time} EAT`;
+}
+
+/**
  * Sleep for specified milliseconds
  */
 export function sleep(ms: number): Promise<void> {

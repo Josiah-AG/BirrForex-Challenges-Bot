@@ -164,27 +164,40 @@ export class Scheduler {
 
       if (challenges.length === 0) return;
 
+      // Get current time in EAT timezone
       const now = new Date();
-      const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+      const eatOffset = 3; // EAT is UTC+3
+      const eatTime = new Date(now.getTime() + (eatOffset * 60 * 60 * 1000));
+      const currentTime = `${eatTime.getUTCHours().toString().padStart(2, '0')}:${eatTime.getUTCMinutes().toString().padStart(2, '0')}`;
 
       for (const challenge of challenges) {
         const challengeTime = challenge.challenge_time;
         const [hours, minutes] = challengeTime.split(':').map(Number);
         
         // Calculate 2-hour reminder time
-        const twoHourBefore = new Date(now);
-        twoHourBefore.setHours(hours - 2, minutes, 0, 0);
-        const twoHourTime = `${twoHourBefore.getHours().toString().padStart(2, '0')}:${twoHourBefore.getMinutes().toString().padStart(2, '0')}`;
+        let twoHourHours = hours - 2;
+        if (twoHourHours < 0) twoHourHours += 24;
+        const twoHourTime = `${twoHourHours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
         
         // Calculate 30-min reminder time
-        const thirtyMinBefore = new Date(now);
-        thirtyMinBefore.setHours(hours, minutes - 30, 0, 0);
-        const thirtyMinTime = `${thirtyMinBefore.getHours().toString().padStart(2, '0')}:${thirtyMinBefore.getMinutes().toString().padStart(2, '0')}`;
+        let thirtyMinHours = hours;
+        let thirtyMinMinutes = minutes - 30;
+        if (thirtyMinMinutes < 0) {
+          thirtyMinMinutes += 60;
+          thirtyMinHours -= 1;
+          if (thirtyMinHours < 0) thirtyMinHours += 24;
+        }
+        const thirtyMinTime = `${thirtyMinHours.toString().padStart(2, '0')}:${thirtyMinMinutes.toString().padStart(2, '0')}`;
         
         // Calculate end time (10 minutes after start)
-        const endTime = new Date(now);
-        endTime.setHours(hours, minutes + 10, 0, 0);
-        const endTimeStr = `${endTime.getHours().toString().padStart(2, '0')}:${endTime.getMinutes().toString().padStart(2, '0')}`;
+        let endHours = hours;
+        let endMinutes = minutes + 10;
+        if (endMinutes >= 60) {
+          endMinutes -= 60;
+          endHours += 1;
+          if (endHours >= 24) endHours -= 24;
+        }
+        const endTimeStr = `${endHours.toString().padStart(2, '0')}:${endMinutes.toString().padStart(2, '0')}`;
 
         // 2-hour reminder
         if (currentTime === twoHourTime && challenge.status === 'scheduled') {

@@ -1,6 +1,6 @@
 import { Challenge, Participant, Winner } from '../types';
 import { config } from '../config';
-import { formatTime, formatDateWithDay, getOrdinal, calculatePercentage } from '../utils/helpers';
+import { formatTime, formatDateWithDay, getOrdinal, calculatePercentage, formatChallengeTime } from '../utils/helpers';
 import { Markup } from 'telegraf';
 
 export class PostService {
@@ -15,7 +15,7 @@ export class PostService {
 <i>${challenge.short_text}</i>
 
 <b>⏰ Challenge Details:</b>
-🔹 Posted on ${config.challengeChannelId} at <b>${config.challengeTime}</b> sharp
+🔹 Posted on ${config.challengeChannelId} at <b>${formatChallengeTime(challenge.challenge_time)}</b> sharp
 🔹 Contains <b>${numQuestions} questions</b> from the topic
 🔹 First correct answer wins <b>$${challenge.prize_amount}</b> 🎁
 
@@ -80,7 +80,7 @@ export class PostService {
 
 • Study the topic content <a href="${challenge.topic_link}"><b>${challenge.topic}</b></a> (Questions will be from it)
 • Join 👉 ${config.challengeChannelId}
-• The challenge will be posted sharp at <b>${config.challengeTime}</b> ⏰
+• The challenge will be posted sharp at <b>${formatChallengeTime(challenge.challenge_time)}</b> ⏰
 • Be the first to answer correctly and win a reward! 🎁
 
 <a href="https://t.me/${config.challengeChannelId.replace('@', '')}">📝 <b>Read the Terms & Conditions before you start</b></a>
@@ -107,7 +107,7 @@ export class PostService {
 
 • Study the topic content <a href="${challenge.topic_link}"><b>${challenge.topic}</b></a> (Questions will be from it)
 • Join 👉 ${config.challengeChannelId}
-• The challenge will be posted sharp at <b>${config.challengeTime}</b> ⏰
+• The challenge will be posted sharp at <b>${formatChallengeTime(challenge.challenge_time)}</b> ⏰
 • Be the first to answer correctly and win a reward! 🎁
 
 <a href="https://t.me/${config.challengeChannelId.replace('@', '')}">📝 <b>Read the Terms & Conditions before you start</b></a>
@@ -128,7 +128,7 @@ export class PostService {
    * Generate challenge live post (8 PM)
    */
   generateChallengeLivePost(challenge: Challenge, numQuestions: number, botUsername: string) {
-    const endTime = this.calculateEndTime(config.challengeTime, config.challengeDurationMinutes);
+    const endTime = this.calculateEndTime(challenge.challenge_time, config.challengeDurationMinutes);
     
     const text = `<b>🎯 BIRRFOREX WEEKLY CHALLENGE 🎯</b>
 <b>${challenge.day.charAt(0).toUpperCase() + challenge.day.slice(1)} Round is LIVE NOW!</b>
@@ -146,7 +146,7 @@ export class PostService {
 ✓ Fastest correct submission wins
 ✓ No consecutive wins allowed
 
-<b>⏱️ Challenge closes at ${endTime}</b>`;
+<b>⏱️ Challenge closes at ${formatChallengeTime(endTime)}</b>`;
 
     const keyboard = Markup.inlineKeyboard([
       [Markup.button.url('🚀 JOIN CHALLENGE NOW', `https://t.me/${botUsername}?start=challenge_${challenge.id}`)]
@@ -258,8 +258,10 @@ The prize has been passed to the <b>${positions[newWinner.position - 1]}</b> bac
   }
 
   private getNextChallengeDay(currentDay: string): string {
-    return currentDay.toLowerCase() === 'wednesday' ? 'Sunday, 8:00 PM' : 'Wednesday, 8:00 PM';
-  }
+      // This should ideally get the actual next challenge from database
+      // For now, return generic message
+      return currentDay.toLowerCase() === 'wednesday' ? 'Sunday' : 'Wednesday';
+    }
 }
 
 export const postService = new PostService();
