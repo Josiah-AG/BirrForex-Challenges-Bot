@@ -19,19 +19,7 @@ export class Scheduler {
    * Start all scheduled jobs
    */
   start() {
-    // Admin reminders (8 AM on challenge days)
-    cron.schedule('0 8 * * 0,3', () => this.sendAdminReminder('first'));
-
-    // Admin reminders (4 PM on challenge days)
-    cron.schedule('0 16 * * 0,3', () => this.sendAdminReminder('second'));
-
-    // Morning posts (10 AM on challenge days)
-    cron.schedule('0 10 * * 0,3', () => this.sendMorningPosts());
-
-    // User notifications (2 PM on challenge days)
-    cron.schedule('0 14 * * 0,3', () => this.sendUserNotifications());
-
-    // Check every minute for challenges that need reminders or to start
+    // Check every minute for all scheduled actions (reminders, morning posts, start/end)
     cron.schedule('* * * * *', () => this.checkChallengeSchedules());
 
     console.log('✅ Scheduler started');
@@ -259,6 +247,17 @@ export class Scheduler {
         // 30-minute reminder
         if (currentDateStr2 === thirtyMinDateStr && currentTime === thirtyMinTime && challenge.status === 'scheduled') {
           await this.send30MinReminder(challenge.id);
+        }
+
+        // Morning post (10:00 AM EAT on challenge day)
+        if (currentDateStr2 === challengeDateStr && currentTime === '10:00' && challenge.status === 'scheduled') {
+          await this.sendMorningPostsForChallenge(challenge.id);
+        }
+
+        // User notifications (2:00 PM EAT on challenge day)
+        if (currentDateStr2 === challengeDateStr && currentTime === '14:00' && challenge.status === 'scheduled') {
+          await notificationService.sendChallengeNotifications(this.bot);
+          console.log('✅ User notifications sent');
         }
 
         // Start challenge
