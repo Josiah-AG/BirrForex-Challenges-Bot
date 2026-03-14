@@ -1,6 +1,6 @@
 {
   "name": "birrforex-challenges-bot",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "BirrForex Weekly Challenge Bot - Automated quiz challenges with prizes",
   "main": "dist/index.js",
   "scripts": {
