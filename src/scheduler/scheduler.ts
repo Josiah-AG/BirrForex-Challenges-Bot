@@ -197,13 +197,15 @@ export class Scheduler {
       const currentDate = new Date(eatTime.getUTCFullYear(), eatTime.getUTCMonth(), eatTime.getUTCDate());
 
       for (const challenge of allChallenges) {
-        const challengeDate = new Date(challenge.date);
+        const challengeDateRaw = new Date(challenge.date);
+        // Normalize challenge date to midnight (strip time component)
+        const challengeDate = new Date(challengeDateRaw.getFullYear(), challengeDateRaw.getMonth(), challengeDateRaw.getDate());
         const challengeTime = challenge.challenge_time;
         const [hours, minutes] = challengeTime.split(':').map(Number);
         
         // Calculate 2-hour reminder time
         let twoHourHours = hours - 2;
-        let twoHourDate = new Date(challengeDate);
+        let twoHourDate = new Date(challengeDate.getTime());
         if (twoHourHours < 0) {
           twoHourHours += 24;
           twoHourDate.setDate(twoHourDate.getDate() - 1); // Previous day
@@ -213,7 +215,7 @@ export class Scheduler {
         // Calculate 30-min reminder time
         let thirtyMinHours = hours;
         let thirtyMinMinutes = minutes - 30;
-        let thirtyMinDate = new Date(challengeDate);
+        let thirtyMinDate = new Date(challengeDate.getTime());
         if (thirtyMinMinutes < 0) {
           thirtyMinMinutes += 60;
           thirtyMinHours -= 1;
@@ -227,7 +229,7 @@ export class Scheduler {
         // Calculate end time (10 minutes after start)
         let endHours = hours;
         let endMinutes = minutes + 10;
-        let endDate = new Date(challengeDate);
+        let endDate = new Date(challengeDate.getTime());
         if (endMinutes >= 60) {
           endMinutes -= 60;
           endHours += 1;
@@ -238,23 +240,34 @@ export class Scheduler {
         }
         const endTimeStr = `${endHours.toString().padStart(2, '0')}:${endMinutes.toString().padStart(2, '0')}`;
 
+        // Use date strings for comparison (avoids timezone mismatch)
+        const currentDateStr2 = `${currentDate.getFullYear()}-${(currentDate.getMonth()+1).toString().padStart(2,'0')}-${currentDate.getDate().toString().padStart(2,'0')}`;
+        const challengeDateStr = `${challengeDate.getFullYear()}-${(challengeDate.getMonth()+1).toString().padStart(2,'0')}-${challengeDate.getDate().toString().padStart(2,'0')}`;
+        const twoHourDateStr = `${twoHourDate.getFullYear()}-${(twoHourDate.getMonth()+1).toString().padStart(2,'0')}-${twoHourDate.getDate().toString().padStart(2,'0')}`;
+        const thirtyMinDateStr = `${thirtyMinDate.getFullYear()}-${(thirtyMinDate.getMonth()+1).toString().padStart(2,'0')}-${thirtyMinDate.getDate().toString().padStart(2,'0')}`;
+        const endDateStr = `${endDate.getFullYear()}-${(endDate.getMonth()+1).toString().padStart(2,'0')}-${endDate.getDate().toString().padStart(2,'0')}`;
+
+        // Log comparison details once per minute
+        if (eatTime.getUTCSeconds() === 0) {
+          console.log(`⏰ Challenge ${challenge.id}: now=${currentDateStr2} ${currentTime} | start=${challengeDateStr} ${challengeTime} | end=${endDateStr} ${endTimeStr} | status=${challenge.status}`);
+        }
         // 2-hour reminder (check if it's the right date and time)
-        if (currentDate.getTime() === twoHourDate.getTime() && currentTime === twoHourTime && challenge.status === 'scheduled') {
+        if (currentDateStr2 === twoHourDateStr && currentTime === twoHourTime && challenge.status === 'scheduled') {
           await this.send2HourReminder(challenge.id);
         }
 
         // 30-minute reminder
-        if (currentDate.getTime() === thirtyMinDate.getTime() && currentTime === thirtyMinTime && challenge.status === 'scheduled') {
+        if (currentDateStr2 === thirtyMinDateStr && currentTime === thirtyMinTime && challenge.status === 'scheduled') {
           await this.send30MinReminder(challenge.id);
         }
 
         // Start challenge
-        if (currentDate.getTime() === challengeDate.getTime() && currentTime === challengeTime && challenge.status === 'scheduled') {
+        if (currentDateStr2 === challengeDateStr && currentTime === challengeTime && challenge.status === 'scheduled') {
           await this.startChallenge(challenge.id);
         }
 
         // End challenge
-        if (currentDate.getTime() === endDate.getTime() && currentTime === endTimeStr && challenge.status === 'active') {
+        if (currentDateStr2 === endDateStr && currentTime === endTimeStr && challenge.status === 'active') {
           await this.endChallenge(challenge.id);
         }
       }
