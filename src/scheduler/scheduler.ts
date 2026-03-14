@@ -200,7 +200,7 @@ export class Scheduler {
         const challengeDateRaw = new Date(challenge.date);
         // Normalize challenge date to midnight (strip time component)
         const challengeDate = new Date(challengeDateRaw.getFullYear(), challengeDateRaw.getMonth(), challengeDateRaw.getDate());
-        const challengeTime = challenge.challenge_time;
+        const challengeTime = challenge.challenge_time.substring(0, 5); // Strip seconds if present (e.g., "06:00:00" -> "06:00")
         const [hours, minutes] = challengeTime.split(':').map(Number);
         
         // Calculate 2-hour reminder time
