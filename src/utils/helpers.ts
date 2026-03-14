@@ -24,6 +24,41 @@ export function formatTime(seconds: number): string {
 }
 
 /**
+ * Smart format time - shows milliseconds only when needed to break ties
+ * participants: array of participants to check for same-second ties
+ * currentParticipant: the participant whose time we're formatting
+ */
+export function formatTimeSmart(participant: any, allParticipants: any[], challengeStartedAt: Date): string {
+  const completedAt = new Date(participant.completed_at);
+  const startedAt = new Date(challengeStartedAt);
+  const diffMs = completedAt.getTime() - startedAt.getTime();
+  const totalSeconds = Math.floor(diffMs / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const secs = totalSeconds % 60;
+
+  // Check if any other participant has the same whole-second time
+  const hasTie = allParticipants.some(p => {
+    if (p.telegram_id === participant.telegram_id) return false;
+    const otherDiffMs = new Date(p.completed_at).getTime() - startedAt.getTime();
+    const otherTotalSeconds = Math.floor(otherDiffMs / 1000);
+    return otherTotalSeconds === totalSeconds;
+  });
+
+  if (hasTie) {
+    const ms = diffMs % 1000;
+    if (minutes > 0) {
+      return `${minutes}m ${secs}.${ms.toString().padStart(3, '0')}s`;
+    }
+    return `${secs}.${ms.toString().padStart(3, '0')}s`;
+  }
+
+  if (minutes > 0) {
+    return `${minutes}m ${secs}s`;
+  }
+  return `${secs}s`;
+}
+
+/**
  * Format time with milliseconds from completed_at timestamp
  * Shows format like "55.234s" or "1m 23.456s"
  */

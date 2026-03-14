@@ -1,6 +1,6 @@
 import { Challenge, Participant, Winner } from '../types';
 import { config } from '../config';
-import { formatTime, formatDateWithDay, getOrdinal, calculatePercentage, formatChallengeTime } from '../utils/helpers';
+import { formatTime, formatTimeSmart, formatDateWithDay, getOrdinal, calculatePercentage, formatChallengeTime } from '../utils/helpers';
 import { Markup } from 'telegraf';
 
 export class PostService {
@@ -171,13 +171,13 @@ const text = `<b>⏰ BirrForex Weekly Challenge - ${challenge.day.charAt(0).toUp
 <i>${formatDateWithDay(challenge.date)}</i>
 
 <b>🏆 WINNER:</b>
-${winners[0] ? `<b>@${winners[0].username || 'user'}</b> - <b>${backups[0]?.score}/${backups[0]?.total_questions}</b> in <b>${formatTime(backups[0]?.completion_time_seconds || 0)}</b>` : 'No winner'}
+${winners[0] ? `<b>@${winners[0].username || 'user'}</b> - <b>${backups[0]?.score}/${backups[0]?.total_questions}</b> in <b>${challenge.started_at ? formatTimeSmart(backups[0], backups, challenge.started_at) : formatTime(backups[0]?.completion_time_seconds || 0)}</b>` : 'No winner'}
 
 <b>💰 Prize: $${challenge.prize_amount}</b>
 
 <b>📋 BACKUP LIST (Perfect Scores):</b>
 ${backups.slice(1, config.backupListSize + 1).map((p, i) => 
-  `${this.getPositionEmoji(i + 2)} <b>@${p.username || 'user'}</b> - <b>${p.score}/${p.total_questions}</b> in <b>${formatTime(p.completion_time_seconds)}</b>`
+  `${this.getPositionEmoji(i + 2)} <b>@${p.username || 'user'}</b> - <b>${p.score}/${p.total_questions}</b> in <b>${challenge.started_at ? formatTimeSmart(p, backups, challenge.started_at) : formatTime(p.completion_time_seconds)}</b>`
 ).join('\n')}
 
 <b>📈 STATS:</b>
