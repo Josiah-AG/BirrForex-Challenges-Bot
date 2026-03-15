@@ -8,30 +8,28 @@ export class PostService {
    * Generate main channel announcement post (10 AM)
    */
   generateMainChannelPost(challenge: Challenge, numQuestions: number) {
-const text = `<b>🎯 BirrForex Weekly Challenge - ${challenge.day.charAt(0).toUpperCase() + challenge.day.slice(1)} Round</b>
+  const text = `<b>🎯 BirrForex Weekly Challenge - ${challenge.day.charAt(0).toUpperCase() + challenge.day.slice(1)} Round</b>
 
-<b>📚 Topic:</b> <a href="${challenge.topic_link}">${challenge.topic}</a>
+  <b>📚 Topic:</b> <a href="${challenge.topic_link}">${challenge.topic}</a>
 
-<i>${challenge.short_text}</i>
+  <i>${challenge.short_text}</i>
 
-<b>⏰ Challenge Details:</b>
-➡️ Posted on <b>@${config.challengeChannelUsername}</b> at <b>${formatChallengeTime(challenge.challenge_time)}</b> sharp
-➡️ Contains <b>${numQuestions} questions</b> from the topic
-➡️ First correct answer wins <b>${challenge.prize_amount}</b> 🎁
+  <b>⏰ Challenge Details:</b>
+  ➡️ Posted on <b>@${config.challengeChannelUsername}</b> at <b>${formatChallengeTime(challenge.challenge_time)}</b> sharp
+  ➡️ Contains <b>${numQuestions} questions</b> from the topic
+  ➡️ First correct answer wins <b>${challenge.prize_amount}</b> 🎁
 
-👉 <b>Study the topic and get ready!</b>
+  👉 <b>Study the topic and get ready!</b>
 
-<b>Good luck, traders!</b> 🍀`;
+  <b>Good luck, traders!</b> 🍀`;
 
-    const keyboard = Markup.inlineKeyboard([
-      [
-        Markup.button.url(`📊 ${challenge.topic}`, challenge.topic_link),
-        Markup.button.url('🚀 Join Challenge', `https://t.me/${config.challengeChannelUsername}`)
-      ]
-    ]);
+      const keyboard = Markup.inlineKeyboard([
+        [Markup.button.url(`📊 ${challenge.topic}`, challenge.topic_link)],
+        [Markup.button.url('🚀 Join Challenge', `https://t.me/${config.challengeChannelUsername}`)]
+      ]);
 
-    return { text, keyboard, parse_mode: 'HTML' as const };
-  }
+      return { text, keyboard, parse_mode: 'HTML' as const };
+    }
 
   /**
    * Generate challenge channel terms post (10 AM)
@@ -74,55 +72,51 @@ ${config.exnessSignupLink}
    * Generate 2-hour reminder post
    */
   generate2HourReminder(challenge: Challenge) {
-const text = `<b>⏰ 2 HOURS Remaining for Today's Challenge</b>
+  const text = `<b>⏰ 2 HOURS Remaining for Today's Challenge</b>
 
-<b>📖 How to Join:</b>
+  <b>📖 How to Join:</b>
 
-➡️ Study the topic content <a href="${challenge.topic_link}"><b>${challenge.topic}</b></a> (Questions will be from it)
-➡️ Join 👉 <b>@${config.challengeChannelUsername}</b>
-➡️ The challenge will be posted sharp at <b>${formatChallengeTime(challenge.challenge_time)}</b> ⏰
-➡️ Be the first to answer correctly and win a reward! 🎁
+  ➡️ Study the topic content <a href="${challenge.topic_link}"><b>${challenge.topic}</b></a> (Questions will be from it)
+  ➡️ Join 👉 <b>@${config.challengeChannelUsername}</b>
+  ➡️ The challenge will be posted sharp at <b>${formatChallengeTime(challenge.challenge_time)}</b> ⏰
+  ➡️ Be the first to answer correctly and win a reward! 🎁
 
-<a href="https://t.me/${config.challengeChannelUsername}">📝 <b>Read the Terms & Conditions before you start</b></a>
+  <a href="https://t.me/${config.challengeChannelUsername}">📝 <b>Read the Terms & Conditions before you start</b></a>
 
-👉 <b>Not ready yet? Check it out now:</b>`;
+  👉 <b>Not ready yet? Check it out now:</b>`;
 
-    const keyboard = Markup.inlineKeyboard([
-      [
-        Markup.button.url(`📊 ${challenge.topic}`, challenge.topic_link),
-        Markup.button.url('🚀 Join Challenge', `https://t.me/${config.challengeChannelUsername}`)
-      ]
-    ]);
+      const keyboard = Markup.inlineKeyboard([
+        [Markup.button.url(`📊 ${challenge.topic}`, challenge.topic_link)],
+        [Markup.button.url('🚀 Join Challenge', `https://t.me/${config.challengeChannelUsername}`)]
+      ]);
 
-    return { text, keyboard, parse_mode: 'HTML' as const };
-  }
+      return { text, keyboard, parse_mode: 'HTML' as const };
+    }
 
   /**
    * Generate 30-minute reminder post
    */
   generate30MinReminder(challenge: Challenge) {
-const text = `<b>⏰ 30 MIN Remaining for Today's Challenge</b>
+  const text = `<b>⏰ 30 MIN Remaining for Today's Challenge</b>
 
-<b>📖 How to Join:</b>
+  <b>📖 How to Join:</b>
 
-➡️ Study the topic content <a href="${challenge.topic_link}"><b>${challenge.topic}</b></a> (Questions will be from it)
-➡️ Join 👉 <b>@${config.challengeChannelUsername}</b>
-➡️ The challenge will be posted sharp at <b>${formatChallengeTime(challenge.challenge_time)}</b> ⏰
-➡️ Be the first to answer correctly and win a reward! 🎁
+  ➡️ Study the topic content <a href="${challenge.topic_link}"><b>${challenge.topic}</b></a> (Questions will be from it)
+  ➡️ Join 👉 <b>@${config.challengeChannelUsername}</b>
+  ➡️ The challenge will be posted sharp at <b>${formatChallengeTime(challenge.challenge_time)}</b> ⏰
+  ➡️ Be the first to answer correctly and win a reward! 🎁
 
-<a href="https://t.me/${config.challengeChannelUsername}">📝 <b>Read the Terms & Conditions before you start</b></a>
+  <a href="https://t.me/${config.challengeChannelUsername}">📝 <b>Read the Terms & Conditions before you start</b></a>
 
-<b>⚡ Get ready! Challenge starts soon!</b>`;
+  <b>⚡ Get ready! Challenge starts soon!</b>`;
 
-    const keyboard = Markup.inlineKeyboard([
-      [
-        Markup.button.url(`📊 ${challenge.topic}`, challenge.topic_link),
-        Markup.button.url('🚀 Join Challenge', `https://t.me/${config.challengeChannelUsername}`)
-      ]
-    ]);
+      const keyboard = Markup.inlineKeyboard([
+        [Markup.button.url(`📊 ${challenge.topic}`, challenge.topic_link)],
+        [Markup.button.url('🚀 Join Challenge', `https://t.me/${config.challengeChannelUsername}`)]
+      ]);
 
-    return { text, keyboard, parse_mode: 'HTML' as const };
-  }
+      return { text, keyboard, parse_mode: 'HTML' as const };
+    }
 
   /**
    * Generate challenge live post
@@ -182,46 +176,44 @@ const text = `<b>⏰ 30 MIN Remaining for Today's Challenge</b>
    * Generate results post
    */
   generateResultsPost(
-    challenge: Challenge,
-    winners: Winner[],
-    backups: Participant[],
-    stats: any,
-    botUsername: string
-  ) {
-const text = `<b>⏰ BirrForex Weekly Challenge - ${challenge.day.charAt(0).toUpperCase() + challenge.day.slice(1)} Round IS CLOSED</b>
+      challenge: Challenge,
+      winners: Winner[],
+      backups: Participant[],
+      stats: any,
+      botUsername: string
+    ) {
+  const text = `<b>⏰ BirrForex Weekly Challenge - ${challenge.day.charAt(0).toUpperCase() + challenge.day.slice(1)} Round IS CLOSED</b>
 
-<b>📊 CHALLENGE RESULTS 📊</b>
-<i>${formatDateWithDay(challenge.date)}</i>
+  <b>📊 CHALLENGE RESULTS 📊</b>
+  <i>${formatDateWithDay(challenge.date)}</i>
 
-<b>🏆 WINNER:</b>
-${winners[0] ? `<b>@${winners[0].username || 'user'}</b> - <b>${backups[0]?.score}/${backups[0]?.total_questions}</b> in <b>${challenge.started_at ? formatTimeSmart(backups[0], backups, challenge.started_at) : formatTime(backups[0]?.completion_time_seconds || 0)}</b>` : 'No winner'}
+  <b>🏆 WINNER:</b>
+  ${winners[0] ? `<b>@${winners[0].username || 'user'}</b> - <b>${backups[0]?.score}/${backups[0]?.total_questions}</b> in <b>${challenge.started_at ? formatTimeSmart(backups[0], backups, challenge.started_at) : formatTime(backups[0]?.completion_time_seconds || 0)}</b>` : 'No winner'}
 
-<b>💰 Prize: $${challenge.prize_amount}</b>
+  <b>💰 Prize: $${challenge.prize_amount}</b>
 
-<b>📋 BACKUP LIST (Perfect Scores):</b>
-${backups.slice(1, config.backupListSize + 1).map((p, i) => 
-  `${this.getPositionEmoji(i + 2)} <b>@${p.username || 'user'}</b> - <b>${p.score}/${p.total_questions}</b> in <b>${challenge.started_at ? formatTimeSmart(p, backups, challenge.started_at) : formatTime(p.completion_time_seconds)}</b>`
-).join('\n')}
+  <b>📋 BACKUP LIST (Perfect Scores):</b>
+  ${backups.slice(1, config.backupListSize + 1).map((p, i) => 
+    `${this.getPositionEmoji(i + 2)} <b>@${p.username || 'user'}</b> - <b>${p.score}/${p.total_questions}</b> in <b>${challenge.started_at ? formatTimeSmart(p, backups, challenge.started_at) : formatTime(p.completion_time_seconds)}</b>`
+  ).join('\n')}
 
-<b>📈 STATS:</b>
-➡️ <b>Total Participants:</b> ${stats.total_participants}
-➡️ <b>Perfect Scores:</b> ${stats.perfect_scores} (${calculatePercentage(stats.perfect_scores, stats.total_participants)}%)
-➡️ <b>Average Score:</b> ${stats.avg_score?.toFixed(1)}/${backups[0]?.total_questions || 5}
-➡️ <b>Average Completion Time:</b> ${formatTime(Math.round(stats.avg_time))}
+  <b>📈 STATS:</b>
+  ➡️ <b>Total Participants:</b> ${stats.total_participants}
+  ➡️ <b>Perfect Scores:</b> ${stats.perfect_scores} (${calculatePercentage(stats.perfect_scores, stats.total_participants)}%)
+  ➡️ <b>Average Score:</b> ${parseFloat(stats.avg_score).toFixed(1)}/${stats.total_questions || backups[0]?.total_questions || 5}
+  ➡️ <b>Average Completion Time:</b> ${formatTime(Math.round(stats.avg_time))}
 
-<b>🎉 Congratulations to the winner!</b>
+  <b>🎉 Congratulations to the winner!</b>
 
-<b>Next Challenge:</b> ${this.getNextChallengeDay(challenge.day)}`;
+  <b>Next Challenge:</b> ${this.getNextChallengeDay(challenge.day)}`;
 
-    const keyboard = Markup.inlineKeyboard([
-      [
-        Markup.button.url('📖 VIEW CORRECT ANSWERS', `https://t.me/${botUsername}?start=answers_${challenge.id}`),
-        Markup.button.url('🏅 VIEW YOUR RANK', `https://t.me/${botUsername}?start=rank_${challenge.id}`)
-      ]
-    ]);
+      const keyboard = Markup.inlineKeyboard([
+        [Markup.button.url('📖 VIEW CORRECT ANSWERS', `https://t.me/${botUsername}?start=answers_${challenge.id}`)],
+        [Markup.button.url('🏅 VIEW YOUR RANK', `https://t.me/${botUsername}?start=rank_${challenge.id}`)]
+      ]);
 
-    return { text, keyboard, parse_mode: 'HTML' as const };
-  }
+      return { text, keyboard, parse_mode: 'HTML' as const };
+    }
 
   /**
    * Generate cancellation post
@@ -281,7 +273,13 @@ The prize has been passed to the <b>${positions[newWinner.position - 1]}</b> bac
   }
 
   private getNextChallengeDay(currentDay: string): string {
-    return currentDay.toLowerCase() === 'wednesday' ? 'Sunday' : 'Wednesday';
+    if (currentDay.toLowerCase() === 'wednesday') {
+      return 'Sunday 8:00 PM';
+    } else if (currentDay.toLowerCase() === 'sunday') {
+      return 'Wednesday 8:00 PM';
+    } else {
+      return `will be announced on @${config.mainChannelUsername}`;
+    }
   }
 }
 

@@ -634,10 +634,14 @@ export class Scheduler {
       const perfectScorers = await participantService.getPerfectScorers(challengeId);
       const winners = await winnerService.getWinners(challengeId);
 
+      const { formatChallengeTime } = require('../utils/helpers');
+      const challengeTimeFormatted = formatChallengeTime(challenge!.challenge_time.substring(0, 5));
+      const endTime = new Date(challenge!.ended_at!);
+      
       let report = `📊 ADMIN REPORT\n${challenge?.day} Challenge - ${new Date(challenge?.date!).toDateString()}\n\n`;
-      report += `⏰ TIMING:\n• Started: 8:00 PM\n• Ended: 8:10 PM\n• Duration: 10 minutes\n\n`;
+      report += `⏰ TIMING:\n• Started: ${challengeTimeFormatted}\n• Duration: ${config.challengeDurationMinutes} minutes\n\n`;
       report += `👥 PARTICIPATION:\n• Total Attempts: ${stats.total_participants}\n\n`;
-      report += `🎯 SCORING:\n• Perfect Scores: ${stats.perfect_scores}\n• Average Score: ${(stats.avg_score * 5).toFixed(1)}/5\n\n`;
+      report += `🎯 SCORING:\n• Perfect Scores: ${stats.perfect_scores}\n• Average Score: ${parseFloat(stats.avg_score).toFixed(1)}/${stats.total_questions || 5}\n\n`;
       report += `🏆 WINNERS:\n`;
       
       if (winners.length > 0) {

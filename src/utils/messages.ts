@@ -175,6 +175,14 @@ One attempt per challenge is allowed.
 };
 
 function getNextChallengeDay(): string {
-  // This will be implemented with actual logic
-  return 'Sunday, 2:00 PM';
+  const today = new Date();
+  const dayOfWeek = today.getDay(); // 0=Sun, 3=Wed
+  
+  if (dayOfWeek === 0) {
+    return 'Wednesday 8:00 PM';
+  } else if (dayOfWeek === 3) {
+    return 'Sunday 8:00 PM';
+  } else {
+    return `will be announced on @${config.mainChannelUsername}`;
+  }
 }

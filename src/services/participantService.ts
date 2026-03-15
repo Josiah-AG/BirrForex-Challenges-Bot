@@ -161,7 +161,8 @@ export class ParticipantService {
       `SELECT 
          COUNT(*) as total_participants,
          COUNT(CASE WHEN score = total_questions THEN 1 END) as perfect_scores,
-         AVG(CAST(score AS FLOAT) / total_questions) as avg_score,
+         AVG(score) as avg_score,
+         MAX(total_questions) as total_questions,
          AVG(completion_time_seconds) as avg_time
        FROM participants
        WHERE challenge_id = $1`,
