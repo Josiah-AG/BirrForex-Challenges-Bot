@@ -128,32 +128,55 @@ const text = `<b>⏰ 30 MIN Remaining for Today's Challenge</b>
    * Generate challenge live post
    */
   generateChallengeLivePost(challenge: Challenge, numQuestions: number, botUsername: string) {
-    const endTime = this.calculateEndTime(challenge.challenge_time, config.challengeDurationMinutes);
+      const endTime = this.calculateEndTime(challenge.challenge_time, config.challengeDurationMinutes);
 
-const text = `<b>🎯 BIRRFOREX WEEKLY CHALLENGE 🎯</b>
-<b>${challenge.day.charAt(0).toUpperCase() + challenge.day.slice(1)} Round is LIVE NOW!</b>
+  const text = `<b>🎯 BIRRFOREX WEEKLY CHALLENGE 🎯</b>
+  <b>${challenge.day.charAt(0).toUpperCase() + challenge.day.slice(1)} Round</b>
 
-<b>💰 Prize:</b> $${challenge.prize_amount}
-<b>⏰ Time Limit:</b> ${config.challengeDurationMinutes} Minutes
-<b>📝 Questions:</b> ${numQuestions}
-<b>🏆 Winners:</b> ${challenge.num_winners}
+  <b>💰 Prize:</b> $${challenge.prize_amount}
+  <b>⏰ Time Limit:</b> ${config.challengeDurationMinutes} Minutes
+  <b>📝 Questions:</b> ${numQuestions}
+  <b>🏆 Winners:</b> ${challenge.num_winners}
 
-<b>📊 Topic:</b> <i>${challenge.topic}</i>
+  <b>📊 Topic:</b> <i>${challenge.topic}</i>
 
-<b>⚡ RULES:</b>
-✓ Perfect score (${numQuestions}/${numQuestions}) required to win
-✓ One attempt only
-✓ Fastest correct submission wins
-✓ No consecutive wins allowed
+  <b>⚡ RULES:</b>
+  ✓ Perfect score (${numQuestions}/${numQuestions}) required to win
+  ✓ One attempt only
+  ✓ Fastest correct submission wins
+  ✓ No consecutive wins allowed
 
-<b>⏱️ Challenge closes at ${formatChallengeTime(endTime)}</b>`;
+  <b>⏱️ Challenge closes at ${formatChallengeTime(endTime)}</b>`;
 
-    const keyboard = Markup.inlineKeyboard([
-      [Markup.button.url('🚀 JOIN CHALLENGE NOW', `https://t.me/${botUsername}?start=challenge_${challenge.id}`)]
-    ]);
+      const keyboard = Markup.inlineKeyboard([
+        [Markup.button.url('🚀 JOIN CHALLENGE NOW', `https://t.me/${botUsername}?start=challenge_${challenge.id}`)]
+      ]);
 
-    return { text, keyboard, parse_mode: 'HTML' as const };
-  }
+      return { text, keyboard, parse_mode: 'HTML' as const };
+    }
+
+    /**
+     * Generate countdown post text
+     */
+    generateCountdownPost(minutesLeft: number, secondsLeft: number): string {
+      const timeStr = `${minutesLeft}:${secondsLeft.toString().padStart(2, '0')}`;
+  return `<b>⏰ COUNTDOWN BEGINS</b>
+
+  <b>⏳ ${timeStr} remaining</b>
+
+  Are you ready?
+
+  Tap 🔥 if you are ready!`;
+    }
+
+    /**
+     * Generate countdown final post (when it hits 0:00)
+     */
+    generateCountdownLivePost(): string {
+  return `<b>🚀 CHALLENGE IS LIVE NOW!</b>
+
+  Go go go! Start the challenge 👇`;
+    }
 
   /**
    * Generate results post

@@ -3,6 +3,7 @@ import { Bot } from '../bot/bot';
 import { challengeService } from '../services/challengeService';
 import { participantService } from '../services/participantService';
 import { winnerService } from '../services/winnerService';
+import { sleep } from '../utils/helpers';
 import { userService } from '../services/userService';
 import { postService } from '../services/postService';
 import { notificationService } from '../services/notificationService';
@@ -10,6 +11,7 @@ import { config } from '../config';
 
 export class Scheduler {
   private bot: Bot;
+  private activeCountdowns: Set<number> = new Set(); // Track active countdowns by challenge ID
 
   constructor(bot: Bot) {
     this.bot = bot;
@@ -260,6 +262,25 @@ export class Scheduler {
           console.log('✅ User notifications sent');
         }
 
+        // 5-minute countdown (calculate 5 min before challenge time)
+        let fiveMinHours = hours;
+        let fiveMinMinutes = minutes - 5;
+        let fiveMinDate = new Date(challengeDate.getTime());
+        if (fiveMinMinutes < 0) {
+          fiveMinMinutes += 60;
+          fiveMinHours -= 1;
+          if (fiveMinHours < 0) {
+            fiveMinHours += 24;
+            fiveMinDate.setDate(fiveMinDate.getDate() - 1);
+          }
+        }
+        const fiveMinTime = `${fiveMinHours.toString().padStart(2, '0')}:${fiveMinMinutes.toString().padStart(2, '0')}`;
+        const fiveMinDateStr = `${fiveMinDate.getFullYear()}-${(fiveMinDate.getMonth()+1).toString().padStart(2,'0')}-${fiveMinDate.getDate().toString().padStart(2,'0')}`;
+
+        if (currentDateStr2 === fiveMinDateStr && currentTime === fiveMinTime && challenge.status === 'scheduled') {
+          await this.startCountdown(challenge.id);
+        }
+
         // Start challenge
         if (currentDateStr2 === challengeDateStr && currentTime === challengeTime && challenge.status === 'scheduled') {
           await this.startChallenge(challenge.id);
@@ -364,6 +385,78 @@ export class Scheduler {
       console.error('Error starting challenge:', error);
     }
   }
+  /**
+   * Start 5-minute countdown on challenge channel
+   */
+  private async startCountdown(challengeId: number) {
+    try {
+      // Prevent duplicate countdowns
+      if (this.activeCountdowns.has(challengeId)) return;
+      this.activeCountdowns.add(challengeId);
+
+      const challenge = await challengeService.getChallengeById(challengeId);
+      if (!challenge) return;
+
+      // Post initial countdown message
+      const initialText = postService.generateCountdownPost(5, 0);
+      const sentMessage = await this.bot.bot.telegram.sendMessage(
+        config.challengeChannelId,
+        initialText,
+        { parse_mode: 'HTML' }
+      );
+
+      const messageId = sentMessage.message_id;
+      const chatId = config.challengeChannelId;
+
+      console.log(`⏰ Countdown started for challenge ${challengeId}`);
+
+      // Update every 10 seconds for 5 minutes (30 updates)
+      let totalSeconds = 5 * 60; // 300 seconds
+
+      for (let i = 0; i < 30; i++) {
+        await sleep(10000); // Wait 10 seconds
+        totalSeconds -= 10;
+
+        if (totalSeconds <= 0) {
+          // Final edit - LIVE NOW
+          const liveText = postService.generateCountdownLivePost();
+          await this.bot.bot.telegram.editMessageText(
+            chatId,
+            messageId,
+            undefined,
+            liveText,
+            { parse_mode: 'HTML' }
+          );
+          console.log(`🚀 Countdown finished for challenge ${challengeId}`);
+          break;
+        }
+
+        const mins = Math.floor(totalSeconds / 60);
+        const secs = totalSeconds % 60;
+        const countdownText = postService.generateCountdownPost(mins, secs);
+
+        try {
+          await this.bot.bot.telegram.editMessageText(
+            chatId,
+            messageId,
+            undefined,
+            countdownText,
+            { parse_mode: 'HTML' }
+          );
+        } catch (editError) {
+          // Ignore edit errors (e.g., message not modified)
+          console.log('Countdown edit skipped');
+        }
+      }
+
+      this.activeCountdowns.delete(challengeId);
+    } catch (error) {
+      this.activeCountdowns.delete(challengeId);
+      console.error('Error in countdown:', error);
+    }
+  }
+
+
 
   /**
    * End challenge and post results
