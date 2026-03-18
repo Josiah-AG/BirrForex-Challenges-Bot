@@ -200,7 +200,7 @@ ${config.exnessSignupLink}
   <b>📈 STATS:</b>
   ➡️ <b>Total Participants:</b> ${stats.total_participants}
   ➡️ <b>Perfect Scores:</b> ${stats.perfect_scores} (${calculatePercentage(stats.perfect_scores, stats.total_participants)}%)
-  ➡️ <b>Average Score:</b> ${parseFloat(stats.avg_score).toFixed(1)}/${stats.total_questions || backups[0]?.total_questions || 5}
+  ➡️ <b>Average Score:</b> ${parseFloat(stats.avg_score).toFixed(1)}/${stats.total_questions}
   ➡️ <b>Average Completion Time:</b> ${formatTime(Math.round(stats.avg_time))}
 
   <b>🎉 Congratulations to the winner!</b>

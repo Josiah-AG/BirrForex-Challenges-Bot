@@ -641,7 +641,7 @@ export class Scheduler {
       let report = `📊 ADMIN REPORT\n${challenge?.day} Challenge - ${new Date(challenge?.date!).toDateString()}\n\n`;
       report += `⏰ TIMING:\n• Started: ${challengeTimeFormatted}\n• Duration: ${config.challengeDurationMinutes} minutes\n\n`;
       report += `👥 PARTICIPATION:\n• Total Attempts: ${stats.total_participants}\n\n`;
-      report += `🎯 SCORING:\n• Perfect Scores: ${stats.perfect_scores}\n• Average Score: ${parseFloat(stats.avg_score).toFixed(1)}/${stats.total_questions || 5}\n\n`;
+      report += `🎯 SCORING:\n• Perfect Scores: ${stats.perfect_scores}\n• Average Score: ${parseFloat(stats.avg_score).toFixed(1)}/${stats.total_questions}\n\n`;
       report += `🏆 WINNERS:\n`;
       
       if (winners.length > 0) {

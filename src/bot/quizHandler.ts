@@ -120,21 +120,36 @@ export class QuizHandler {
       text: optionMap[letter],
     }));
 
-    const text = messages.question(
-      questionIndex + 1,
-      questions.length,
-      question.question_text,
-      {}
-    );
+    // Check if any option is too long for button labels (>35 chars with prefix)
+    const hasLongOption = shuffledOptions.some(opt => `${opt.display}) ${opt.text}`.length > 35);
 
-    const keyboard = Markup.inlineKeyboard(
-      shuffledOptions.map(opt => [
-        Markup.button.callback(
-          `${opt.display}) ${opt.text}`,
-          `answer_${challengeId}_${question.id}_${opt.actual}`
-        )
-      ])
-    );
+    let text: string;
+    let keyboard;
+
+    if (hasLongOption) {
+      // Long options: show full text in message body, short A/B/C/D buttons
+      const optionsText = shuffledOptions.map(opt => `${opt.display}) ${opt.text}`).join('\n\n');
+      text = `Question ${questionIndex + 1}/${questions.length} ⏱️\n\n${question.question_text}\n\n${optionsText}`;
+      keyboard = Markup.inlineKeyboard(
+        shuffledOptions.map(opt => [
+          Markup.button.callback(
+            `${opt.display}`,
+            `answer_${challengeId}_${question.id}_${opt.actual}`
+          )
+        ])
+      );
+    } else {
+      // Short options: full text on buttons (original layout)
+      text = `Question ${questionIndex + 1}/${questions.length} ⏱️\n\n${question.question_text}`;
+      keyboard = Markup.inlineKeyboard(
+        shuffledOptions.map(opt => [
+          Markup.button.callback(
+            `${opt.display}) ${opt.text}`,
+            `answer_${challengeId}_${question.id}_${opt.actual}`
+          )
+        ])
+      );
+    }
 
     await ctx.reply(text, keyboard);
   }

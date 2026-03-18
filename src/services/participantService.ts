@@ -162,14 +162,22 @@ export class ParticipantService {
          COUNT(*) as total_participants,
          COUNT(CASE WHEN score = total_questions THEN 1 END) as perfect_scores,
          AVG(score) as avg_score,
-         MAX(total_questions) as total_questions,
          AVG(completion_time_seconds) as avg_time
        FROM participants
        WHERE challenge_id = $1`,
       [challengeId]
     );
 
-    return result.rows[0];
+    // Get actual question count from questions table (not from participant data)
+    const qCount = await db.query(
+      `SELECT COUNT(*) as total_questions FROM questions WHERE challenge_id = $1`,
+      [challengeId]
+    );
+
+    return {
+      ...result.rows[0],
+      total_questions: parseInt(qCount.rows[0].total_questions) || 5,
+    };
   }
 
   /**
