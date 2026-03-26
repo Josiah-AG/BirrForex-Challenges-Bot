@@ -58,6 +58,7 @@ export class Bot {
       { command: 'regsummary', description: 'Registration summary' },
       { command: 'deletetradingchallenge', description: 'Delete a trading challenge' },
       { command: 'testtradingposts', description: 'Test trading challenge posts' },
+      { command: 'additionalpost', description: 'Post custom content to channels' },
     ], {
       scope: { type: 'chat', chat_id: parseInt(config.adminUserId) }
     });
