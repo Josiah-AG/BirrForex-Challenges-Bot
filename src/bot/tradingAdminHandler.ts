@@ -1403,6 +1403,7 @@ export class TradingAdminHandler {
           [Markup.button.callback('⏰ Deadline Closed Post', `tc_test_deadline_${challenge.id}`)],
           [Markup.button.callback('🏆 Winner Announcement', `tc_test_winners_${challenge.id}`)],
           [Markup.button.callback('🚀 Run ALL Posts in Sequence', `tc_test_all_${challenge.id}`)],
+          [Markup.button.callback('⏩ Post All REMAINING Posts', `tc_test_remaining_${challenge.id}`)],
         ]),
       }
     );
@@ -1551,9 +1552,98 @@ export class TradingAdminHandler {
           await ctx.reply('✅ All test posts sent!');
           break;
         }
+        case 'remaining': {
+          // Calculate which day the challenge is on based on start date
+          const now = new Date();
+          const startDate = new Date(challenge.start_date);
+          const endDate = new Date(challenge.end_date);
+          const delay = () => new Promise(r => setTimeout(r, 2000));
+
+          // Determine what phase we're in and what's remaining
+          const postsToSend: { label: string; fn: () => Promise<void> }[] = [];
+
+          if (now < startDate) {
+            // Pre-challenge: countdowns
+            const daysUntilStart = Math.ceil((startDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+            if (daysUntilStart <= 3 && daysUntilStart >= 1) {
+              for (let d = daysUntilStart; d >= 1; d--) {
+                const label = d === 1 ? '🚨 Last Chance' : `⏰ ${d}-Day Countdown`;
+                postsToSend.push({ label, fn: () => tradingScheduler.postCountdown(challenge, d) });
+              }
+            }
+            // Then all daily posts
+            for (let day = 1; day <= 10; day++) {
+              postsToSend.push({ label: `☀️ Day ${day} Morning`, fn: () => tradingScheduler.postMorningMessage(challenge, day) });
+              postsToSend.push({ label: `🌙 Day ${day} Evening`, fn: () => tradingScheduler.postEveningMessage(challenge, day) });
+            }
+            postsToSend.push({ label: '🏁 Challenge End', fn: () => tradingScheduler.endChallenge(challenge) });
+          } else if (now >= startDate && now <= endDate) {
+            // During challenge: figure out which working day we're on
+            let workingDay = 0;
+            const cursor = new Date(startDate);
+            while (cursor <= now && workingDay < 10) {
+              const dow = cursor.getDay();
+              if (dow >= 1 && dow <= 5) workingDay++;
+              cursor.setDate(cursor.getDate() + 1);
+            }
+
+            // Check if morning or evening has passed (8AM / 8PM EAT = UTC+3)
+            const eatHour = (now.getUTCHours() + 3) % 24;
+            const morningDone = eatHour >= 8;
+            const eveningDone = eatHour >= 20;
+
+            // Add remaining posts for current day
+            if (workingDay > 0 && workingDay <= 10) {
+              if (!morningDone) {
+                postsToSend.push({ label: `☀️ Day ${workingDay} Morning`, fn: () => tradingScheduler.postMorningMessage(challenge, workingDay) });
+              }
+              if (!eveningDone) {
+                postsToSend.push({ label: `🌙 Day ${workingDay} Evening`, fn: () => tradingScheduler.postEveningMessage(challenge, workingDay) });
+              }
+            }
+
+            // Add all future days
+            for (let day = workingDay + 1; day <= 10; day++) {
+              postsToSend.push({ label: `☀️ Day ${day} Morning`, fn: () => tradingScheduler.postMorningMessage(challenge, day) });
+              postsToSend.push({ label: `🌙 Day ${day} Evening`, fn: () => tradingScheduler.postEveningMessage(challenge, day) });
+            }
+            postsToSend.push({ label: '🏁 Challenge End', fn: () => tradingScheduler.endChallenge(challenge) });
+          } else {
+            // Post-challenge
+            postsToSend.push({ label: '🏁 Challenge End', fn: () => tradingScheduler.endChallenge(challenge) });
+          }
+
+          // Always add deadline + winners at the end
+          postsToSend.push({
+            label: '⏰ Deadline Closed',
+            fn: async () => {
+              const t = `<b>⏰ SUBMISSION DEADLINE HAS ENDED</b>\n\nThe 48-hour submission window for <b>${challenge.title}</b> is now closed.\n\n<b>No further submissions will be accepted.</b>\n\nOur team will now review all submissions and announce the results soon.\n\n<i>Thank you for your patience!</i> 🙏\n\n@${config.mainChannelUsername}`;
+              const o = { parse_mode: 'HTML' as const, link_preview_options: { is_disabled: true } };
+              await ctx.telegram.sendMessage(config.mainChannelId, t, o);
+              await ctx.telegram.sendMessage(config.challengeChannelId, t, o);
+            }
+          });
+          postsToSend.push({ label: '🏆 Winner Announcement', fn: () => this.postTestWinnerAnnouncement(ctx, challenge) });
+
+          if (postsToSend.length === 0) {
+            await ctx.reply('✅ No remaining posts to send.');
+            break;
+          }
+
+          await ctx.reply(`⏩ Posting <b>${postsToSend.length}</b> remaining posts (2s delay)...`, { parse_mode: 'HTML' });
+
+          for (const post of postsToSend) {
+            await ctx.reply(`${post.label}`);
+            await post.fn();
+            await delay();
+          }
+
+          await ctx.reply(`✅ All ${postsToSend.length} remaining posts sent!`);
+          break;
+        }
       }
 
-      if (testType !== 'all') {
+      if (testType !== 'all' && testType !== 'remaining') {
         await ctx.reply(`✅ Test post sent: ${testType}`);
       }
     } catch (e) {
