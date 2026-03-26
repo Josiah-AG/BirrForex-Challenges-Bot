@@ -15,6 +15,7 @@ export interface TradingChallenge {
   demo_winners_count: number;
   real_prizes: number[] | null;
   demo_prizes: number[] | null;
+  prize_pool_text: string | null;
   announcement_posted: boolean;
   submission_deadline: Date | null;
   created_at: Date;
@@ -72,12 +73,13 @@ class TradingChallengeService {
     demo_winners_count: number;
     real_prizes: number[];
     demo_prizes: number[];
+    prize_pool_text?: string;
   }): Promise<TradingChallenge> {
     const result = await db.query(
       `INSERT INTO trading_challenges 
        (title, type, status, start_date, end_date, starting_balance, target_balance,
-        pdf_url, video_url, real_winners_count, demo_winners_count, real_prizes, demo_prizes)
-       VALUES ($1, $2, 'draft', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        pdf_url, video_url, real_winners_count, demo_winners_count, real_prizes, demo_prizes, prize_pool_text)
+       VALUES ($1, $2, 'draft', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
        RETURNING *`,
       [
         data.title, data.type, data.start_date, data.end_date,
@@ -85,6 +87,7 @@ class TradingChallengeService {
         data.pdf_url || null, data.video_url || null,
         data.real_winners_count, data.demo_winners_count,
         JSON.stringify(data.real_prizes), JSON.stringify(data.demo_prizes),
+        data.prize_pool_text || null,
       ]
     );
     return result.rows[0];
@@ -125,6 +128,13 @@ class TradingChallengeService {
     await db.query(
       'UPDATE trading_challenges SET video_url = $1, updated_at = NOW() WHERE id = $2',
       [videoUrl, id]
+    );
+  }
+
+  async updateChallengePrizePool(id: number, prizePoolText: string): Promise<void> {
+    await db.query(
+      'UPDATE trading_challenges SET prize_pool_text = $1, updated_at = NOW() WHERE id = $2',
+      [prizePoolText, id]
     );
   }
 

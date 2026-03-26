@@ -98,23 +98,26 @@ export class TradingScheduler {
     }
   }
   private getPrizeSummary(challenge: TradingChallenge): string {
-    const realPrizes = typeof challenge.real_prizes === 'string' ? JSON.parse(challenge.real_prizes) : (challenge.real_prizes || []);
-    const demoPrizes = typeof challenge.demo_prizes === 'string' ? JSON.parse(challenge.demo_prizes) : (challenge.demo_prizes || []);
-    const allPrizes = [...realPrizes, ...demoPrizes];
+      // Use admin-provided prize pool text if available
+      if (challenge.prize_pool_text) {
+        return `<b>🏆 PRIZE POOL</b>\n\n${challenge.prize_pool_text}`;
+      }
 
-    // Check if all prizes are numeric (cash)
-    const numericPrizes = allPrizes.map((p: any) => parseFloat(String(p))).filter((n: number) => !isNaN(n));
+      // Fallback: auto-generate from individual prizes
+      const realPrizes = typeof challenge.real_prizes === 'string' ? JSON.parse(challenge.real_prizes) : (challenge.real_prizes || []);
+      const demoPrizes = typeof challenge.demo_prizes === 'string' ? JSON.parse(challenge.demo_prizes) : (challenge.demo_prizes || []);
+      const allPrizes = [...realPrizes, ...demoPrizes];
 
-    if (numericPrizes.length === allPrizes.length && numericPrizes.length > 0) {
-      // All cash — show total prize pool
-      const total = numericPrizes.reduce((sum: number, n: number) => sum + n, 0);
-      return `🏆 <b>Prize Pool: $${total}</b>`;
-    } else if (allPrizes.length > 0) {
-      // Mixed or non-cash — list prizes
-      return `🏆 <b>Prizes:</b> ${allPrizes.join(', ')}`;
+      const numericPrizes = allPrizes.map((p: any) => parseFloat(String(p))).filter((n: number) => !isNaN(n));
+
+      if (numericPrizes.length === allPrizes.length && numericPrizes.length > 0) {
+        const total = numericPrizes.reduce((sum: number, n: number) => sum + n, 0);
+        return `🏆 <b>Prize Pool: $${total}</b>`;
+      } else if (allPrizes.length > 0) {
+        return `🏆 <b>Prizes:</b> ${allPrizes.join(', ')}`;
+      }
+      return '';
     }
-    return '';
-  }
 
   // ==================== CHALLENGE START ====================
 

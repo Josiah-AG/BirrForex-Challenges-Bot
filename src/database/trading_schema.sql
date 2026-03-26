@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS trading_challenges (
     demo_winners_count INTEGER DEFAULT 0,
     real_prizes JSONB,
     demo_prizes JSONB,
+    prize_pool_text TEXT,
     announcement_posted BOOLEAN DEFAULT false,
     submission_deadline TIMESTAMP,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

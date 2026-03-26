@@ -282,6 +282,13 @@ export class TradingAdminHandler {
           return;
         }
         session.data.target_balance = target;
+        session.step = 'tc_enter_prize_pool_text';
+        await ctx.reply('🏆 Send the <b>Prize Pool</b> text:\n\n<i>This will be displayed on announcement, promo, and countdown posts exactly as you write it.</i>\n\nExample:\n🥇 1st: $400\n🥈 2nd: $350\n🥉 3rd: $300', { parse_mode: 'HTML' });
+        break;
+      }
+
+      case 'tc_enter_prize_pool_text': {
+        session.data.prize_pool_text = text;
         session.step = 'tc_enter_pdf';
         await ctx.reply('📄 Send the <b>Rules PDF link</b> (or send /skip):', { parse_mode: 'HTML' });
         break;
@@ -314,6 +321,14 @@ export class TradingAdminHandler {
         await tradingChallengeService.updateChallengeVideo(challengeId, text);
         tradingAdminSessions.delete(telegramId);
         await ctx.reply('✅ Video link updated!');
+        break;
+      }
+
+      case 'tc_update_prize_pool_input': {
+        const challengeId = session.data.update_challenge_id;
+        await tradingChallengeService.updateChallengePrizePool(challengeId, text);
+        tradingAdminSessions.delete(telegramId);
+        await ctx.reply('✅ Prize Pool text updated!');
         break;
       }
 
@@ -406,6 +421,7 @@ export class TradingAdminHandler {
       `💰 <b>Starting Balance:</b> $${d.starting_balance}\n` +
       `🎯 <b>Target:</b> $${d.target_balance}\n` +
       prizesText + '\n' +
+      `🏆 <b>Prize Pool:</b> ${d.prize_pool_text ? '✅ Set' : '⏭️ Not set'}\n` +
       `📄 <b>PDF:</b> ${d.pdf_url ? '✅ Linked' : '⏭️ Skipped'}\n` +
       `🎥 <b>Video:</b> ${d.video_url ? '✅ Linked' : '⏭️ Skipped'}`;
 
@@ -439,6 +455,7 @@ export class TradingAdminHandler {
         demo_winners_count: d.demo_winners_count || 0,
         real_prizes: d.real_prizes || [],
         demo_prizes: d.demo_prizes || [],
+        prize_pool_text: d.prize_pool_text,
       });
 
       tradingAdminSessions.delete(telegramId);
@@ -541,22 +558,26 @@ export class TradingAdminHandler {
     const startStr = new Date(c.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
     const endStr = new Date(c.end_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 
-    let prizesText = '';
-    const medals = ['🥇', '🥈', '🥉', '4️⃣', '5️⃣'];
-
-    if (c.type === 'hybrid' || c.type === 'real') {
-      const prizes = typeof c.real_prizes === 'string' ? JSON.parse(c.real_prizes) : (c.real_prizes || []);
-      prizesText += '\n<b>Real Account:</b>\n';
-      prizes.forEach((p: number, i: number) => {
-        prizesText += `${medals[i] || (i+1)+'️⃣'} ${this.getOrdinal(i + 1)} Place: ${this.formatPrize(p)}\n`;
-      });
-    }
-    if (c.type === 'hybrid' || c.type === 'demo') {
-      const prizes = typeof c.demo_prizes === 'string' ? JSON.parse(c.demo_prizes) : (c.demo_prizes || []);
-      prizesText += '\n<b>Demo Account:</b>\n';
-      prizes.forEach((p: number, i: number) => {
-        prizesText += `${medals[i] || (i+1)+'️⃣'} ${this.getOrdinal(i + 1)} Place: ${this.formatPrize(p)}\n`;
-      });
+    let prizesSection = '';
+    if (c.prize_pool_text) {
+      prizesSection = `<b>🏆 PRIZE POOL</b>\n\n${c.prize_pool_text}\n`;
+    } else {
+      // Fallback: auto-generate from individual prizes
+      const medals = ['🥇', '🥈', '🥉', '4️⃣', '5️⃣'];
+      if (c.type === 'hybrid' || c.type === 'real') {
+        const prizes = typeof c.real_prizes === 'string' ? JSON.parse(c.real_prizes) : (c.real_prizes || []);
+        prizesSection += '\n<b>Real Account:</b>\n';
+        prizes.forEach((p: number, i: number) => {
+          prizesSection += `${medals[i] || (i+1)+'️⃣'} ${this.getOrdinal(i + 1)} Place: ${this.formatPrize(p)}\n`;
+        });
+      }
+      if (c.type === 'hybrid' || c.type === 'demo') {
+        const prizes = typeof c.demo_prizes === 'string' ? JSON.parse(c.demo_prizes) : (c.demo_prizes || []);
+        prizesSection += '\n<b>Demo Account:</b>\n';
+        prizes.forEach((p: number, i: number) => {
+          prizesSection += `${medals[i] || (i+1)+'️⃣'} ${this.getOrdinal(i + 1)} Place: ${this.formatPrize(p)}\n`;
+        });
+      }
     }
 
     let linksText = '';
@@ -568,8 +589,7 @@ export class TradingAdminHandler {
       `📊 <b>Type:</b> ${typeLabel}\n` +
       `📅 <b>Period:</b> ${startStr} - ${endStr}\n` +
       `💰 <b>Start:</b> $${c.starting_balance} → 🎯 <b>Target:</b> $${c.target_balance}\n\n` +
-      `<b>🏆 PRIZES</b>\n` +
-      prizesText + '\n' +
+      prizesSection + '\n' +
       `<b>🎁 BONUS</b>\n` +
       `➡️ All Real Account participants will be invited to join <b>BirrForex Live Trading Team</b>\n` +
       `➡️ Demo traders who hit the target will get an invitation to join <b>BirrForex Live Trading Team</b>\n\n` +
@@ -617,6 +637,7 @@ export class TradingAdminHandler {
       await ctx.reply('What do you want to update?', Markup.inlineKeyboard([
         [Markup.button.callback('📄 Replace Rules PDF', `tc_update_pdf_${challengeId}`)],
         [Markup.button.callback('🎥 Replace Video Link', `tc_update_video_${challengeId}`)],
+        [Markup.button.callback('🏆 Update Prize Pool Text', `tc_update_prize_pool_${challengeId}`)],
       ]));
       return true;
     }
@@ -634,6 +655,14 @@ export class TradingAdminHandler {
       tradingAdminSessions.set(telegramId, { step: 'tc_update_video_input', data: { update_challenge_id: challengeId } });
       await ctx.answerCbQuery();
       await ctx.reply('Send the new video link:');
+      return true;
+    }
+
+    if (data.startsWith('tc_update_prize_pool_')) {
+      const challengeId = parseInt(data.replace('tc_update_prize_pool_', ''));
+      tradingAdminSessions.set(telegramId, { step: 'tc_update_prize_pool_input', data: { update_challenge_id: challengeId } });
+      await ctx.answerCbQuery();
+      await ctx.reply('Send the new <b>Prize Pool</b> text:\n\n<i>This will be displayed exactly as you write it on announcement, promo, and countdown posts.</i>', { parse_mode: 'HTML' });
       return true;
     }
 
@@ -1102,12 +1131,14 @@ export class TradingAdminHandler {
     if (c.pdf_url) links += `\n📄 Challenge Rules: <a href="${c.pdf_url}">Download PDF</a>`;
     if (c.video_url) links += `\n🎥 Challenge Guide: <a href="${c.video_url}">Watch Video</a>`;
 
+    const prizePoolSection = c.prize_pool_text ? `\n<b>🏆 PRIZE POOL</b>\n\n${c.prize_pool_text}\n` : '';
+
     if (promoNum === 1) {
-      return `<b>🎯 BIRRFOREX TRADING CHALLENGE IS HERE!</b>\n\n<b>${c.title}</b>\n\n💰 Start with <b>$${c.starting_balance}</b> → 🎯 Hit <b>$${c.target_balance}</b>\n🏆 Win up to <b>${this.getTopPrize(c)}!</b>\n\n📅 <b>Challenge Period:</b> ${periodStr}\n\nOpen to Demo & Real account traders!\nRegister now and show your trading skills 💪\n${links}`;
+      return `<b>🎯 BIRRFOREX TRADING CHALLENGE IS HERE!</b>\n\n<b>${c.title}</b>\n\n💰 Start with <b>$${c.starting_balance}</b> → 🎯 Hit <b>$${c.target_balance}</b>\n\n📅 <b>Challenge Period:</b> ${periodStr}\n${prizePoolSection}\nOpen to Demo & Real account traders!\nRegister now and show your trading skills 💪\n${links}`;
     } else if (promoNum === 2) {
-      return `<b>📢 HAVE YOU REGISTERED YET?</b>\n\n<b>${c.title}</b> is coming up!\n\n🏆 <b>Real Account Prizes:</b> ${this.formatPrizeList(c, 'real')}\n🏆 <b>Demo Account Prizes:</b> ${this.formatPrizeList(c, 'demo')}\n\nRegistration is <b>FREE</b> and takes 2 minutes!\n\nDon't miss your chance to compete 🔥\n${links}`;
+      return `<b>📢 HAVE YOU REGISTERED YET?</b>\n\n<b>${c.title}</b> is coming up!\n${prizePoolSection}\nRegistration is <b>FREE</b> and takes 2 minutes!\n\nDon't miss your chance to compete 🔥\n${links}`;
     } else {
-      return `<b>⏰ DEADLINE IS APPROACHING!</b>\n\n<b>${c.title}</b> registration is closing soon!\n\n📅 <b>Start:</b> ${startStr}\n\nAfter the challenge starts, registration closes.\nDon't wait until the last minute!\n\nSecure your spot <b>NOW</b> 🚀\n${links}`;
+      return `<b>⏰ DEADLINE IS APPROACHING!</b>\n\n<b>${c.title}</b> registration is closing soon!\n\n📅 <b>Start:</b> ${startStr}\n${prizePoolSection}\nAfter the challenge starts, registration closes.\nDon't wait until the last minute!\n\nSecure your spot <b>NOW</b> 🚀\n${links}`;
     }
   }
 
@@ -1231,6 +1262,7 @@ export class TradingAdminHandler {
       `➡️ Demo traders who hit the target are invited to join <b>BirrForex Live Trading Team</b>\n\n` +
       `👥 <b>Total Participants:</b> ${counts.total} (Real: ${counts.real} | Demo: ${counts.demo})\n` +
       `📋 <b>Submissions Received:</b> ${subCounts.total} (Real: ${subCounts.real} | Demo: ${subCounts.demo})\n\n` +
+      `📌 <b>NB:</b> <i>The balance shown is the net qualified profit after deducting trades against the rules. Winners' trade history exports and prize delivery proof will be posted at</i> <b>@${config.challengeChannelUsername}</b>\n\n` +
       `<i>Congratulations to all winners!</i> 🎉\n` +
       `<i>Thank you to everyone who participated!</i>\n\n` +
       `Stay tuned for the next challenge on <b>@${config.mainChannelUsername}</b>`;
@@ -1564,6 +1596,7 @@ export class TradingAdminHandler {
       `➡️ Demo traders who hit the target are invited to join <b>BirrForex Live Trading Team</b>\n\n` +
       `👥 <b>Total Participants:</b> ${counts.total} (Real: ${counts.real} | Demo: ${counts.demo})\n` +
       `📋 <b>Submissions Received:</b> ${subCounts.total} (Real: ${subCounts.real} | Demo: ${subCounts.demo})\n\n` +
+      `📌 <b>NB:</b> <i>The balance shown is the net qualified profit after deducting trades against the rules. Winners' trade history exports and prize delivery proof will be posted at</i> <b>@${config.challengeChannelUsername}</b>\n\n` +
       `<i>Congratulations to all winners!</i> 🎉\n<i>Thank you to everyone who participated!</i>\n\nStay tuned for the next challenge on <b>@${config.mainChannelUsername}</b>`;
 
     const opts = { parse_mode: 'HTML' as const, link_preview_options: { is_disabled: true } };

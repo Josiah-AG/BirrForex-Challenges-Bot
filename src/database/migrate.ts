@@ -18,6 +18,12 @@ async function migrate() {
       const tradingSchema = readFileSync(tradingSchemaPath, 'utf-8');
       await db.query(tradingSchema);
       console.log('✅ Trading challenge schema OK');
+
+      // Add prize_pool_text column if missing (safe migration for existing DBs)
+      await db.query(`
+        ALTER TABLE trading_challenges ADD COLUMN IF NOT EXISTS prize_pool_text TEXT;
+      `).catch(() => { /* column already exists or table doesn't exist yet */ });
+      console.log('✅ Trading schema migrations OK');
     } catch (err: any) {
       if (err.code === 'ENOENT') {
         console.log('⏭️ Trading schema file not found, skipping');
