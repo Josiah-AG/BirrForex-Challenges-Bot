@@ -20,6 +20,48 @@ export class TradingAdminHandler {
     return true;
   }
 
+  /**
+   * Convert Telegram message entities to HTML string
+   */
+  private entitiesToHtml(text: string, entities?: any[]): string {
+    if (!entities || entities.length === 0) return text;
+
+    const sorted = [...entities].sort((a, b) => b.offset - a.offset);
+
+    let result = text;
+    for (const entity of sorted) {
+      const start = entity.offset;
+      const end = entity.offset + entity.length;
+      const content = result.substring(start, end);
+
+      let replacement = content;
+      switch (entity.type) {
+        case 'bold':
+          replacement = `<b>${content}</b>`; break;
+        case 'italic':
+          replacement = `<i>${content}</i>`; break;
+        case 'underline':
+          replacement = `<u>${content}</u>`; break;
+        case 'strikethrough':
+          replacement = `<s>${content}</s>`; break;
+        case 'code':
+          replacement = `<code>${content}</code>`; break;
+        case 'pre':
+          replacement = `<pre>${content}</pre>`; break;
+        case 'text_link':
+          replacement = `<a href="${entity.url}">${content}</a>`; break;
+        case 'text_mention':
+          replacement = `<a href="tg://user?id=${entity.user?.id}">${content}</a>`; break;
+        case 'spoiler':
+          replacement = `<tg-spoiler>${content}</tg-spoiler>`; break;
+      }
+
+      result = result.substring(0, start) + replacement + result.substring(end);
+    }
+
+    return result;
+  }
+
   hasActiveSession(telegramId: number): boolean {
     return tradingAdminSessions.has(telegramId);
   }
@@ -392,7 +434,8 @@ export class TradingAdminHandler {
       }
 
       case 'tc_additional_post_text': {
-        session.data.post_text = text;
+        const entities = (ctx.message as any)?.entities;
+        session.data.post_text = this.entitiesToHtml(text, entities);
         session.data.photo_file_id = null;
         session.step = 'tc_additional_post_target';
 
@@ -1416,7 +1459,8 @@ export class TradingAdminHandler {
 
     if (session.step === 'tc_additional_post_text') {
       session.data.photo_file_id = fileId;
-      session.data.post_text = caption || '';
+      const captionEntities = (ctx.message as any)?.caption_entities;
+      session.data.post_text = caption ? this.entitiesToHtml(caption, captionEntities) : '';
       session.step = 'tc_additional_post_target';
 
       await ctx.reply('📸 Photo received! Where do you want to post?', Markup.inlineKeyboard([
