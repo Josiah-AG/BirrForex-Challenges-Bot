@@ -1,6 +1,8 @@
 import { Bot } from './bot/bot';
 import { Scheduler } from './scheduler/scheduler';
+import { TradingScheduler } from './scheduler/tradingScheduler';
 import { db } from './database/db';
+import { exnessService } from './services/exnessService';
 
 async function main() {
   try {
@@ -10,6 +12,9 @@ async function main() {
     await db.query('SELECT NOW()');
     console.log('✅ Database connected');
 
+    // Initialize Exness API
+    await exnessService.initialize();
+
     // Initialize bot
     const bot = new Bot();
 
@@ -17,8 +22,13 @@ async function main() {
     const scheduler = new Scheduler(bot);
     scheduler.start();
 
-    // Pass scheduler to bot for testing
+    // Initialize trading scheduler
+    const tradingScheduler = new TradingScheduler(bot);
+    tradingScheduler.start();
+
+    // Pass schedulers to bot for testing
     bot.setScheduler(scheduler);
+    bot.setTradingScheduler(tradingScheduler);
 
     // Launch bot with retry logic for 409 conflicts
     let retries = 0;

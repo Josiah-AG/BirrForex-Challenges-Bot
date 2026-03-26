@@ -4,37 +4,31 @@ import { db } from './db';
 
 async function migrate() {
   try {
-    console.log('Checking database schema...');
-    
-    // Check if tables already exist
-    const checkResult = await db.query(`
-      SELECT EXISTS (
-        SELECT FROM information_schema.tables 
-        WHERE table_schema = 'public' 
-        AND table_name = 'users'
-      );
-    `);
-    
-    const tablesExist = checkResult.rows[0].exists;
-    
-    if (tablesExist) {
-      console.log('✅ Database schema already exists, skipping migration');
-      process.exit(0);
-      return;
-    }
-    
     console.log('Running database migration...');
     
+    // Run weekly quiz schema (CREATE TABLE IF NOT EXISTS — safe to re-run)
     const schemaPath = join(__dirname, 'schema.sql');
     const schema = readFileSync(schemaPath, 'utf-8');
-    
-    // Execute migration without logging schema content
-    const result = await db.query(schema);
-    
+    await db.query(schema);
+    console.log('✅ Weekly quiz schema OK');
+
+    // Run trading challenge schema (CREATE TABLE IF NOT EXISTS — safe to re-run)
+    const tradingSchemaPath = join(__dirname, 'trading_schema.sql');
+    try {
+      const tradingSchema = readFileSync(tradingSchemaPath, 'utf-8');
+      await db.query(tradingSchema);
+      console.log('✅ Trading challenge schema OK');
+    } catch (err: any) {
+      if (err.code === 'ENOENT') {
+        console.log('⏭️ Trading schema file not found, skipping');
+      } else {
+        throw err;
+      }
+    }
+
     console.log('✅ Database migration completed successfully!');
     process.exit(0);
   } catch (error) {
-    // Don't expose detailed error information
     console.error('❌ Database migration failed');
     if (process.env.NODE_ENV !== 'production') {
       console.error('Error details:', error);

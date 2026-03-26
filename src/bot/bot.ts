@@ -2,6 +2,7 @@ import { Telegraf, Context, Markup } from 'telegraf';
 import { config } from '../config';
 import { quizHandler } from './quizHandler';
 import { adminHandler, adminSessions } from './adminHandler';
+import { tradingAdminHandler, tradingAdminSessions } from './tradingAdminHandler';
 import { userService } from '../services/userService';
 import { challengeService } from '../services/challengeService';
 import { participantService } from '../services/participantService';
@@ -10,7 +11,8 @@ import { parseChallengeDeepLink, isAdmin, formatChallengeTime } from '../utils/h
 
 export class Bot {
   public bot: Telegraf;
-  private scheduler: any; // Will be set by index.ts
+  private scheduler: any;
+  private tradingScheduler: any;
 
   constructor() {
     this.bot = new Telegraf(config.botToken);
@@ -20,6 +22,10 @@ export class Bot {
 
   setScheduler(scheduler: any) {
     this.scheduler = scheduler;
+  }
+
+  setTradingScheduler(tradingScheduler: any) {
+    this.tradingScheduler = tradingScheduler;
   }
 
   private async setupBotCommands() {
@@ -39,6 +45,19 @@ export class Bot {
       { command: 'cancelchallenge', description: 'Cancel today\'s challenge' },
       { command: 'testposts', description: 'Test scheduled posts' },
       { command: 'settings', description: 'View bot settings' },
+      { command: 'createtradingchallenge', description: 'Create trading challenge' },
+      { command: 'postchallenge', description: 'Post trading challenge announcement' },
+      { command: 'updatechallenge', description: 'Update PDF/video link' },
+      { command: 'tradingchallenges', description: 'View all trading challenges' },
+      { command: 'unregister', description: 'Remove a registration' },
+      { command: 'selectwinners', description: 'Select trading challenge winners' },
+      { command: 'messageuser', description: 'Message a participant' },
+      { command: 'disqualify', description: 'Disqualify a participant' },
+      { command: 'promo', description: 'Post promo message' },
+      { command: 'exportregistrations', description: 'Export registrations CSV' },
+      { command: 'regsummary', description: 'Registration summary' },
+      { command: 'deletetradingchallenge', description: 'Delete a trading challenge' },
+      { command: 'testtradingposts', description: 'Test trading challenge posts' },
     ], {
       scope: { type: 'chat', chat_id: parseInt(config.adminUserId) }
     });
@@ -77,6 +96,23 @@ export class Bot {
             await this.showRank(ctx, id);
             return;
           }
+
+          // Handle trading challenge registration deep link
+          if (startParam.startsWith('tc_register_')) {
+            const challengeId = parseInt(startParam.replace('tc_register_', ''));
+            // Import dynamically to avoid circular deps
+            const { tradingRegistrationHandler } = require('./tradingRegistrationHandler');
+            await tradingRegistrationHandler.startRegistration(ctx, challengeId);
+            return;
+          }
+
+          // Handle trading challenge submission deep link
+          if (startParam.startsWith('tc_submit_')) {
+            const challengeId = parseInt(startParam.replace('tc_submit_', ''));
+            const { tradingRegistrationHandler } = require('./tradingRegistrationHandler');
+            await tradingRegistrationHandler.startSubmission(ctx, challengeId);
+            return;
+          }
         }
 
         // If we get here with a param we don't recognize
@@ -98,6 +134,21 @@ export class Bot {
     this.bot.command('settings', (ctx) => this.showSettings(ctx));
     this.bot.command('testposts', (ctx) => this.testPosts(ctx));
 
+    // Trading challenge admin commands
+    this.bot.command('createtradingchallenge', (ctx) => tradingAdminHandler.createTradingChallenge(ctx));
+    this.bot.command('postchallenge', (ctx) => tradingAdminHandler.postChallenge(ctx));
+    this.bot.command('updatechallenge', (ctx) => tradingAdminHandler.updateChallenge(ctx));
+    this.bot.command('tradingchallenges', (ctx) => tradingAdminHandler.listTradingChallenges(ctx));
+    this.bot.command('unregister', (ctx) => tradingAdminHandler.unregister(ctx));
+    this.bot.command('selectwinners', (ctx) => tradingAdminHandler.selectWinners(ctx));
+    this.bot.command('messageuser', (ctx) => tradingAdminHandler.messageUser(ctx));
+    this.bot.command('disqualify', (ctx) => tradingAdminHandler.disqualify(ctx));
+    this.bot.command('promo', (ctx) => tradingAdminHandler.promo(ctx));
+    this.bot.command('exportregistrations', (ctx) => tradingAdminHandler.exportRegistrations(ctx));
+    this.bot.command('regsummary', (ctx) => tradingAdminHandler.regSummary(ctx));
+    this.bot.command('deletetradingchallenge', (ctx) => tradingAdminHandler.listTradingChallenges(ctx));
+    this.bot.command('testtradingposts', (ctx) => tradingAdminHandler.testTradingPosts(ctx));
+
     // User commands
     this.bot.command('mystats', (ctx) => this.showMyStats(ctx));
     this.bot.command('winners', (ctx) => this.showWinners(ctx));
@@ -109,6 +160,24 @@ export class Bot {
     // Callback query handlers
     this.bot.on('callback_query', async (ctx) => {
       const data = (ctx.callbackQuery as any).data;
+
+      // Trading challenge callbacks (tc_ prefix)
+      if (data && data.startsWith('tc_')) {
+        // Test post callbacks
+        if (data.startsWith('tc_test_') && isAdmin(ctx.from!.id)) {
+          const handled = await tradingAdminHandler.handleTestCallback(ctx, data, this.tradingScheduler);
+          if (handled) return;
+        }
+
+        if (isAdmin(ctx.from!.id)) {
+          const handled = await tradingAdminHandler.handleCallback(ctx, data);
+          if (handled) return;
+        }
+        // User-facing trading callbacks (registration flow)
+        const { tradingRegistrationHandler } = require('./tradingRegistrationHandler');
+        const handled = await tradingRegistrationHandler.handleCallback(ctx, data);
+        if (handled) return;
+      }
 
       // Quiz callbacks
       if (data.startsWith('start_quiz_')) {
@@ -418,9 +487,33 @@ export class Bot {
     this.bot.on('text', async (ctx) => {
       const telegramId = ctx.from.id;
       
-      // Check if admin has active session
+      // Check if admin has active trading challenge session
+      if (isAdmin(telegramId) && tradingAdminHandler.hasActiveSession(telegramId)) {
+        await tradingAdminHandler.handleTextInput(ctx, ctx.message.text);
+        return;
+      }
+
+      // Check if admin has active weekly quiz session
       if (isAdmin(telegramId) && adminSessions.has(telegramId)) {
         await adminHandler.handleTextInput(ctx, ctx.message.text);
+        return;
+      }
+
+      // Check if user has active trading registration session
+      const { tradingRegistrationHandler } = require('./tradingRegistrationHandler');
+      if (tradingRegistrationHandler.hasActiveSession(telegramId)) {
+        await tradingRegistrationHandler.handleTextInput(ctx, ctx.message.text);
+        return;
+      }
+    });
+
+    // Photo handler (for trading challenge screenshots)
+    this.bot.on('photo', async (ctx) => {
+      const telegramId = ctx.from.id;
+      const { tradingRegistrationHandler } = require('./tradingRegistrationHandler');
+      if (tradingRegistrationHandler.hasActiveSession(telegramId)) {
+        const photo = ctx.message.photo[ctx.message.photo.length - 1]; // Largest size
+        await tradingRegistrationHandler.handlePhoto(ctx, photo.file_id);
       }
     });
 

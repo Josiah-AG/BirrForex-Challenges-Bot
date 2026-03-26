@@ -28,6 +28,17 @@ export const config = {
   // External Links
   exnessSignupLink: process.env.EXNESS_SIGNUP_LINK || '',
   
+  // Exness Partnership API
+  exnessApiBaseUrl: process.env.EXNESS_API_BASE_URL || 'https://my.exnessaffiliates.com',
+  exnessPartnerEmail: process.env.EXNESS_PARTNER_EMAIL || '',
+  exnessPartnerPassword: process.env.EXNESS_PARTNER_PASSWORD || '',
+  
+  // Trading Challenge Links
+  exnessPartnerSignupLink: process.env.EXNESS_PARTNER_SIGNUP_LINK || 'https://one.exnesstrack.org/boarding/sign-up/a/bqsuza6sq1/?campaign=32092',
+  exnessPartnerChangeLink: process.env.EXNESS_PARTNER_CHANGE_LINK || 'https://one.exnessonelink.com/a/bqsuza6sq1/?campaign=32092',
+  partnerChangeGuideLink: process.env.PARTNER_CHANGE_GUIDE_LINK || '',
+  investorPasswordGuideLink: process.env.INVESTOR_PASSWORD_GUIDE_LINK || '',
+  
   // Schedule
   morningPostTime: process.env.MORNING_POST_TIME || '10:00',
   twoHourReminderTime: process.env.TWO_HOUR_REMINDER_TIME || '18:00',
