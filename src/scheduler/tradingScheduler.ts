@@ -79,7 +79,8 @@ export class TradingScheduler {
     if (challenge.pdf_url) links += `\n📄 Challenge Rules: <a href="${challenge.pdf_url}">Download PDF</a>`;
     if (challenge.video_url) links += `\n🎥 Challenge Guide: <a href="${challenge.video_url}">Watch Video</a>`;
 
-    const text = `${header}\n\n${body}\n\n📅 <b>Start:</b> ${startStr}\n💰 $${challenge.starting_balance} → 🎯 $${challenge.target_balance}\n${links}`;
+        const prizeText = this.getPrizeSummary(challenge);
+    const text = `${header}\n\n${body}\n\n📅 <b>Start:</b> ${startStr}\n💰 $${challenge.starting_balance} → 🎯 $${challenge.target_balance}\n${prizeText}\n${links}`;
 
     const keyboard = Markup.inlineKeyboard([
       [Markup.button.url('🚀 Join Challenge', `https://t.me/${botInfo.username}?start=tc_register_${challenge.id}`)],
@@ -95,6 +96,24 @@ export class TradingScheduler {
     } catch (e) {
       console.error('Error posting countdown:', e);
     }
+  }
+  private getPrizeSummary(challenge: TradingChallenge): string {
+    const realPrizes = typeof challenge.real_prizes === 'string' ? JSON.parse(challenge.real_prizes) : (challenge.real_prizes || []);
+    const demoPrizes = typeof challenge.demo_prizes === 'string' ? JSON.parse(challenge.demo_prizes) : (challenge.demo_prizes || []);
+    const allPrizes = [...realPrizes, ...demoPrizes];
+
+    // Check if all prizes are numeric (cash)
+    const numericPrizes = allPrizes.map((p: any) => parseFloat(String(p))).filter((n: number) => !isNaN(n));
+
+    if (numericPrizes.length === allPrizes.length && numericPrizes.length > 0) {
+      // All cash — show total prize pool
+      const total = numericPrizes.reduce((sum: number, n: number) => sum + n, 0);
+      return `🏆 <b>Prize Pool: $${total}</b>`;
+    } else if (allPrizes.length > 0) {
+      // Mixed or non-cash — list prizes
+      return `🏆 <b>Prizes:</b> ${allPrizes.join(', ')}`;
+    }
+    return '';
   }
 
   // ==================== CHALLENGE START ====================
