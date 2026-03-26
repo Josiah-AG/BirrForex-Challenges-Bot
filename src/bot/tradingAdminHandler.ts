@@ -1354,12 +1354,22 @@ export class TradingAdminHandler {
           [Markup.button.callback('🚨 1-Day (Last Chance)', `tc_test_countdown1_${challenge.id}`)],
           [Markup.button.callback('🚀 Day 1 Morning', `tc_test_morning1_${challenge.id}`)],
           [Markup.button.callback('🔥 Day 1 Evening', `tc_test_evening1_${challenge.id}`)],
+          [Markup.button.callback('📈 Day 2 Morning', `tc_test_morning2_${challenge.id}`)],
+          [Markup.button.callback('🔥 Day 2 Evening', `tc_test_evening2_${challenge.id}`)],
+          [Markup.button.callback('📊 Day 3 Morning', `tc_test_morning3_${challenge.id}`)],
+          [Markup.button.callback('💪 Day 4 Morning', `tc_test_morning4_${challenge.id}`)],
+          [Markup.button.callback('🏁 Day 5 Morning', `tc_test_morning5_${challenge.id}`)],
           [Markup.button.callback('🔥 Day 5 Evening (Week 1 End)', `tc_test_evening5_${challenge.id}`)],
           [Markup.button.callback('🚀 Day 6 Morning (Week 2)', `tc_test_morning6_${challenge.id}`)],
+          [Markup.button.callback('🔥 Day 7 Morning', `tc_test_morning7_${challenge.id}`)],
+          [Markup.button.callback('⚡ Day 8 Morning', `tc_test_morning8_${challenge.id}`)],
+          [Markup.button.callback('🎯 Day 9 Morning', `tc_test_morning9_${challenge.id}`)],
+          [Markup.button.callback('🔥 Day 9 Evening', `tc_test_evening9_${challenge.id}`)],
           [Markup.button.callback('🏁 Day 10 Morning (Final)', `tc_test_morning10_${challenge.id}`)],
           [Markup.button.callback('⏰ Day 10 Evening (Wrap Up)', `tc_test_evening10_${challenge.id}`)],
           [Markup.button.callback('🏁 Challenge End Post', `tc_test_end_${challenge.id}`)],
           [Markup.button.callback('⏰ Deadline Closed Post', `tc_test_deadline_${challenge.id}`)],
+          [Markup.button.callback('🏆 Winner Announcement', `tc_test_winners_${challenge.id}`)],
           [Markup.button.callback('🚀 Run ALL Posts in Sequence', `tc_test_all_${challenge.id}`)],
         ]),
       }
@@ -1399,17 +1409,44 @@ export class TradingAdminHandler {
         case 'morning1':
           await tradingScheduler.postMorningMessage(challenge, 1);
           break;
-        case 'evening1':
-          await tradingScheduler.postEveningMessage(challenge, 1);
+        case 'morning2':
+          await tradingScheduler.postMorningMessage(challenge, 2);
           break;
-        case 'evening5':
-          await tradingScheduler.postEveningMessage(challenge, 5);
+        case 'morning3':
+          await tradingScheduler.postMorningMessage(challenge, 3);
+          break;
+        case 'morning4':
+          await tradingScheduler.postMorningMessage(challenge, 4);
+          break;
+        case 'morning5':
+          await tradingScheduler.postMorningMessage(challenge, 5);
           break;
         case 'morning6':
           await tradingScheduler.postMorningMessage(challenge, 6);
           break;
+        case 'morning7':
+          await tradingScheduler.postMorningMessage(challenge, 7);
+          break;
+        case 'morning8':
+          await tradingScheduler.postMorningMessage(challenge, 8);
+          break;
+        case 'morning9':
+          await tradingScheduler.postMorningMessage(challenge, 9);
+          break;
         case 'morning10':
           await tradingScheduler.postMorningMessage(challenge, 10);
+          break;
+        case 'evening1':
+          await tradingScheduler.postEveningMessage(challenge, 1);
+          break;
+        case 'evening2':
+          await tradingScheduler.postEveningMessage(challenge, 2);
+          break;
+        case 'evening5':
+          await tradingScheduler.postEveningMessage(challenge, 5);
+          break;
+        case 'evening9':
+          await tradingScheduler.postEveningMessage(challenge, 9);
           break;
         case 'evening10':
           await tradingScheduler.postEveningMessage(challenge, 10);
@@ -1428,29 +1465,60 @@ export class TradingAdminHandler {
           await ctx.telegram.sendMessage(config.challengeChannelId, text, opts);
           break;
         }
-        case 'all':
-          await ctx.reply('🚀 Running all posts in sequence (3s delay between each)...');
+        case 'winners':
+          await this.postTestWinnerAnnouncement(ctx, challenge);
+          break;
+        case 'all': {
+          const delay = () => new Promise(r => setTimeout(r, 2000));
+          await ctx.reply('🚀 Running ALL posts in sequence (2s delay)...');
+
+          await ctx.reply('📢 — Announcement');
+          await this.postAnnouncementToAdmin(ctx, challenge);
+          await delay();
+
+          await ctx.reply('⏰ — 3 Days Countdown');
           await tradingScheduler.postCountdown(challenge, 3);
-          await new Promise(r => setTimeout(r, 3000));
+          await delay();
+
+          await ctx.reply('⏰ — 2 Days Countdown');
           await tradingScheduler.postCountdown(challenge, 2);
-          await new Promise(r => setTimeout(r, 3000));
+          await delay();
+
+          await ctx.reply('🚨 — 1 Day (Last Chance)');
           await tradingScheduler.postCountdown(challenge, 1);
-          await new Promise(r => setTimeout(r, 3000));
-          await tradingScheduler.postMorningMessage(challenge, 1);
-          await new Promise(r => setTimeout(r, 3000));
-          await tradingScheduler.postEveningMessage(challenge, 1);
-          await new Promise(r => setTimeout(r, 3000));
-          await tradingScheduler.postMorningMessage(challenge, 5);
-          await new Promise(r => setTimeout(r, 3000));
-          await tradingScheduler.postEveningMessage(challenge, 5);
-          await new Promise(r => setTimeout(r, 3000));
-          await tradingScheduler.postMorningMessage(challenge, 6);
-          await new Promise(r => setTimeout(r, 3000));
-          await tradingScheduler.postMorningMessage(challenge, 10);
-          await new Promise(r => setTimeout(r, 3000));
-          await tradingScheduler.postEveningMessage(challenge, 10);
+          await delay();
+
+          for (let day = 1; day <= 10; day++) {
+            await ctx.reply(`☀️ — Day ${day} Morning`);
+            await tradingScheduler.postMorningMessage(challenge, day);
+            await delay();
+
+            await ctx.reply(`🌙 — Day ${day} Evening`);
+            await tradingScheduler.postEveningMessage(challenge, day);
+            await delay();
+          }
+
+          await ctx.reply('🏁 — Challenge End Post');
+          await tradingScheduler.endChallenge(challenge);
+          await delay();
+
+          const deadlineText = `<b>⏰ SUBMISSION DEADLINE HAS ENDED</b>\n\n` +
+            `The 48-hour submission window for <b>${challenge.title}</b> is now closed.\n\n` +
+            `<b>No further submissions will be accepted.</b>\n\n` +
+            `Our team will now review all submissions and announce the results soon.\n\n` +
+            `<i>Thank you for your patience!</i> 🙏\n\n@${config.mainChannelUsername}`;
+          await ctx.reply('⏰ — Deadline Closed Post');
+          const deadlineOpts = { parse_mode: 'HTML' as const, link_preview_options: { is_disabled: true } };
+          await ctx.telegram.sendMessage(config.mainChannelId, deadlineText, deadlineOpts);
+          await ctx.telegram.sendMessage(config.challengeChannelId, deadlineText, deadlineOpts);
+          await delay();
+
+          await ctx.reply('🏆 — Winner Announcement');
+          await this.postTestWinnerAnnouncement(ctx, challenge);
+
           await ctx.reply('✅ All test posts sent!');
           break;
+        }
       }
 
       if (testType !== 'all') {
@@ -1462,6 +1530,45 @@ export class TradingAdminHandler {
     }
 
     return true;
+  }
+
+  private async postTestWinnerAnnouncement(ctx: Context, challenge: TradingChallenge) {
+    const counts = await tradingChallengeService.getRegistrationCounts(challenge.id);
+    const subCounts = await tradingChallengeService.getSubmissionCount(challenge.id);
+    const periodStr = `${new Date(challenge.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${new Date(challenge.end_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
+
+    const realPrizes = typeof challenge.real_prizes === 'string' ? JSON.parse(challenge.real_prizes) : (challenge.real_prizes || []);
+    const demoPrizes = typeof challenge.demo_prizes === 'string' ? JSON.parse(challenge.demo_prizes) : (challenge.demo_prizes || []);
+    const medals = ['🥇', '🥈', '🥉', '4️⃣', '5️⃣'];
+
+    let text = `<b>🏆 TRADING CHALLENGE RESULTS 🏆</b>\n<b>${challenge.title}</b>\n\n📅 <b>Period:</b> ${periodStr}\n\n`;
+
+    if (challenge.type === 'hybrid' || challenge.type === 'real') {
+      text += `<b>🏆 REAL ACCOUNT WINNERS</b>\n\n`;
+      for (let i = 0; i < (challenge.real_winners_count || 0); i++) {
+        text += `${medals[i] || (i+1)+'️⃣'} <b>${this.getOrdinal(i + 1)} Place:</b> @sample_user - $XX.XX → <b>Prize: ${this.formatPrize(realPrizes[i] || 'TBD')}</b>\n`;
+      }
+      text += '\n';
+    }
+
+    if (challenge.type === 'hybrid' || challenge.type === 'demo') {
+      text += `<b>🏆 DEMO ACCOUNT WINNERS</b>\n\n`;
+      for (let i = 0; i < (challenge.demo_winners_count || 0); i++) {
+        text += `${medals[i] || (i+1)+'️⃣'} <b>${this.getOrdinal(i + 1)} Place:</b> @sample_user - $XX.XX → <b>Prize: ${this.formatPrize(demoPrizes[i] || 'TBD')}</b>\n`;
+      }
+      text += '\n';
+    }
+
+    text += `<b>🎁 BONUS</b>\n` +
+      `➡️ All Real Account participants are invited to join <b>BirrForex Live Trading Team</b>\n` +
+      `➡️ Demo traders who hit the target are invited to join <b>BirrForex Live Trading Team</b>\n\n` +
+      `👥 <b>Total Participants:</b> ${counts.total} (Real: ${counts.real} | Demo: ${counts.demo})\n` +
+      `📋 <b>Submissions Received:</b> ${subCounts.total} (Real: ${subCounts.real} | Demo: ${subCounts.demo})\n\n` +
+      `<i>Congratulations to all winners!</i> 🎉\n<i>Thank you to everyone who participated!</i>\n\nStay tuned for the next challenge on <b>@${config.mainChannelUsername}</b>`;
+
+    const opts = { parse_mode: 'HTML' as const, link_preview_options: { is_disabled: true } };
+    await ctx.telegram.sendMessage(config.mainChannelId, text, opts);
+    await ctx.telegram.sendMessage(config.challengeChannelId, text, opts);
   }
 
   private async postAnnouncementToAdmin(ctx: Context, challenge: TradingChallenge) {
