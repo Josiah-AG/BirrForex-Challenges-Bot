@@ -185,9 +185,9 @@ export class TradingAdminHandler {
       }
 
       case 'tc_enter_real_prizes': {
-        const prizes = text.split(',').map(p => parseFloat(p.trim()));
-        if (prizes.some(isNaN) || prizes.length !== session.data.real_winners_count) {
-          await ctx.reply(`❌ Enter exactly ${session.data.real_winners_count} prizes, comma separated.`);
+        const prizes = text.split(',').map(p => p.trim()).filter(p => p.length > 0);
+        if (prizes.length !== session.data.real_winners_count) {
+          await ctx.reply(`❌ Enter exactly ${session.data.real_winners_count} prizes, comma separated.\nExample: 400, 350, 300 or iPhone 16, $200, AirPods`);
           return;
         }
         session.data.real_prizes = prizes;
@@ -210,9 +210,9 @@ export class TradingAdminHandler {
 
       case 'tc_enter_prizes': {
         const totalWinners = session.data.real_winners_count || session.data.demo_winners_count;
-        const prizes = text.split(',').map(p => parseFloat(p.trim()));
-        if (prizes.some(isNaN) || prizes.length !== totalWinners) {
-          await ctx.reply(`❌ Enter exactly ${totalWinners} prizes, comma separated.`);
+        const prizes = text.split(',').map(p => p.trim()).filter(p => p.length > 0);
+        if (prizes.length !== totalWinners) {
+          await ctx.reply(`❌ Enter exactly ${totalWinners} prizes, comma separated.\nExample: 400, 350, 300 or iPhone 16, $200, AirPods`);
           return;
         }
         if (session.data.type === 'demo') {
@@ -228,9 +228,9 @@ export class TradingAdminHandler {
       }
 
       case 'tc_enter_demo_prizes': {
-        const prizes = text.split(',').map(p => parseFloat(p.trim()));
-        if (prizes.some(isNaN) || prizes.length !== session.data.demo_winners_count) {
-          await ctx.reply(`❌ Enter exactly ${session.data.demo_winners_count} prizes, comma separated.`);
+        const prizes = text.split(',').map(p => p.trim()).filter(p => p.length > 0);
+        if (prizes.length !== session.data.demo_winners_count) {
+          await ctx.reply(`❌ Enter exactly ${session.data.demo_winners_count} prizes, comma separated.\nExample: 200, 100 or iPhone 16, AirPods`);
           return;
         }
         session.data.demo_prizes = prizes;
@@ -389,13 +389,13 @@ export class TradingAdminHandler {
     if (d.type === 'hybrid' || d.type === 'real') {
       prizesText += `\n🏆 <b>Real Account Winners:</b> ${d.real_winners_count}\n`;
       d.real_prizes.forEach((p: number, i: number) => {
-        prizesText += `${i + 1}st: $${p}${i < d.real_prizes.length - 1 ? ' | ' : ''}`;
+        prizesText += `${i + 1}st: ${this.formatPrize(p)}${i < d.real_prizes.length - 1 ? ' | ' : ''}`;
       });
     }
     if (d.type === 'hybrid' || d.type === 'demo') {
       prizesText += `\n🏆 <b>Demo Account Winners:</b> ${d.demo_winners_count}\n`;
       d.demo_prizes.forEach((p: number, i: number) => {
-        prizesText += `${i + 1}st: $${p}${i < d.demo_prizes.length - 1 ? ' | ' : ''}`;
+        prizesText += `${i + 1}st: ${this.formatPrize(p)}${i < d.demo_prizes.length - 1 ? ' | ' : ''}`;
       });
     }
 
@@ -548,14 +548,14 @@ export class TradingAdminHandler {
       const prizes = typeof c.real_prizes === 'string' ? JSON.parse(c.real_prizes) : (c.real_prizes || []);
       prizesText += '\n<b>Real Account:</b>\n';
       prizes.forEach((p: number, i: number) => {
-        prizesText += `${medals[i] || (i+1)+'️⃣'} ${this.getOrdinal(i + 1)} Place: $${p}\n`;
+        prizesText += `${medals[i] || (i+1)+'️⃣'} ${this.getOrdinal(i + 1)} Place: ${this.formatPrize(p)}\n`;
       });
     }
     if (c.type === 'hybrid' || c.type === 'demo') {
       const prizes = typeof c.demo_prizes === 'string' ? JSON.parse(c.demo_prizes) : (c.demo_prizes || []);
       prizesText += '\n<b>Demo Account:</b>\n';
       prizes.forEach((p: number, i: number) => {
-        prizesText += `${medals[i] || (i+1)+'️⃣'} ${this.getOrdinal(i + 1)} Place: $${p}\n`;
+        prizesText += `${medals[i] || (i+1)+'️⃣'} ${this.getOrdinal(i + 1)} Place: ${this.formatPrize(p)}\n`;
       });
     }
 
@@ -581,6 +581,13 @@ export class TradingAdminHandler {
     const s = ['th', 'st', 'nd', 'rd'];
     const v = n % 100;
     return n + (s[(v - 20) % 10] || s[v] || s[0]);
+  }
+
+  private formatPrize(p: string | number): string {
+    if (typeof p === 'number') return `$${p}`;
+    const num = parseFloat(String(p));
+    if (!isNaN(num) && String(num) === String(p).trim()) return `$${p}`;
+    return String(p);
   }
 
   // ==================== UPDATE CHALLENGE ====================
@@ -1096,7 +1103,7 @@ export class TradingAdminHandler {
     if (c.video_url) links += `\n🎥 Challenge Guide: <a href="${c.video_url}">Watch Video</a>`;
 
     if (promoNum === 1) {
-      return `<b>🎯 BIRRFOREX TRADING CHALLENGE IS HERE!</b>\n\n<b>${c.title}</b>\n\n💰 Start with <b>$${c.starting_balance}</b> → 🎯 Hit <b>$${c.target_balance}</b>\n🏆 Win up to <b>$${this.getTopPrize(c)}!</b>\n\n📅 <b>Challenge Period:</b> ${periodStr}\n\nOpen to Demo & Real account traders!\nRegister now and show your trading skills 💪\n${links}`;
+      return `<b>🎯 BIRRFOREX TRADING CHALLENGE IS HERE!</b>\n\n<b>${c.title}</b>\n\n💰 Start with <b>$${c.starting_balance}</b> → 🎯 Hit <b>$${c.target_balance}</b>\n🏆 Win up to <b>${this.getTopPrize(c)}!</b>\n\n📅 <b>Challenge Period:</b> ${periodStr}\n\nOpen to Demo & Real account traders!\nRegister now and show your trading skills 💪\n${links}`;
     } else if (promoNum === 2) {
       return `<b>📢 HAVE YOU REGISTERED YET?</b>\n\n<b>${c.title}</b> is coming up!\n\n🏆 <b>Real Account Prizes:</b> ${this.formatPrizeList(c, 'real')}\n🏆 <b>Demo Account Prizes:</b> ${this.formatPrizeList(c, 'demo')}\n\nRegistration is <b>FREE</b> and takes 2 minutes!\n\nDon't miss your chance to compete 🔥\n${links}`;
     } else {
@@ -1104,17 +1111,21 @@ export class TradingAdminHandler {
     }
   }
 
-  private getTopPrize(c: TradingChallenge): number {
+  private getTopPrize(c: TradingChallenge): string {
     const realPrizes = typeof c.real_prizes === 'string' ? JSON.parse(c.real_prizes) : (c.real_prizes || []);
     const demoPrizes = typeof c.demo_prizes === 'string' ? JSON.parse(c.demo_prizes) : (c.demo_prizes || []);
-    return Math.max(...realPrizes, ...demoPrizes, 0);
+    const allPrizes = [...realPrizes, ...demoPrizes];
+    // Try to find highest numeric prize, otherwise return first prize
+    const numericPrizes = allPrizes.map((p: any) => parseFloat(String(p))).filter((n: number) => !isNaN(n));
+    if (numericPrizes.length > 0) return `$${Math.max(...numericPrizes)}`;
+    return allPrizes[0] || 'prizes';
   }
 
   private formatPrizeList(c: TradingChallenge, category: 'real' | 'demo'): string {
     const prizes = category === 'real'
       ? (typeof c.real_prizes === 'string' ? JSON.parse(c.real_prizes) : (c.real_prizes || []))
       : (typeof c.demo_prizes === 'string' ? JSON.parse(c.demo_prizes) : (c.demo_prizes || []));
-    return prizes.map((p: number) => `$${p}`).join(' / ') || 'N/A';
+    return prizes.map((p: number) => this.formatPrize(p)).join(' / ') || 'N/A';
   }
 
   // ==================== SAVE & ANNOUNCE WINNERS ====================
