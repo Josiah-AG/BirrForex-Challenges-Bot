@@ -111,6 +111,11 @@ export class TradingAdminHandler {
       return await this.handlePromoCallback(ctx, data);
     }
 
+    // Additional post callbacks
+    if (data.startsWith('tc_addpost_')) {
+      return await this.handleAdditionalPostCallback(ctx, data);
+    }
+
     // Winner confirm callbacks
     if (data === 'tc_confirm_winners_yes') {
       await this.saveAndAnnounceWinners(ctx);
@@ -383,6 +388,20 @@ export class TradingAdminHandler {
       case 'tc_dq_reason': {
         await this.processDisqualify(ctx, session.data.target_username, text);
         tradingAdminSessions.delete(telegramId);
+        break;
+      }
+
+      case 'tc_additional_post_text': {
+        session.data.post_text = text;
+        session.data.photo_file_id = null;
+        session.step = 'tc_additional_post_target';
+
+        await ctx.reply('📝 Text received! Where do you want to post?', Markup.inlineKeyboard([
+          [Markup.button.callback('📢 Main Channel', 'tc_addpost_main')],
+          [Markup.button.callback('🎯 Challenge Channel', 'tc_addpost_challenge')],
+          [Markup.button.callback('📢 Both Channels', 'tc_addpost_both')],
+          [Markup.button.callback('❌ Cancel', 'tc_addpost_cancel')],
+        ]));
         break;
       }
     }
@@ -1363,6 +1382,116 @@ export class TradingAdminHandler {
       await ctx.reply(`✅ @${username} disqualified. Could not send DM notification.`);
     }
   }
+  // ==================== ADDITIONAL POST ====================
+
+  async additionalPost(ctx: Context) {
+    if (!this.checkAdmin(ctx)) return;
+
+    const challenges = await tradingChallengeService.getAllChallenges();
+    if (challenges.length === 0) {
+      await ctx.reply('❌ No trading challenges found. Create one first.');
+      return;
+    }
+
+    const challenge = challenges[0]; // Most recent
+    const telegramId = ctx.from!.id;
+    tradingAdminSessions.set(telegramId, {
+      step: 'tc_additional_post_text',
+      data: { challenge_id: challenge.id, challenge_title: challenge.title },
+    });
+
+    await ctx.reply(
+      `<b>📝 Additional Post</b>\n\nChallenge: <b>${challenge.title}</b>\n\nSend your post content now.\n\n` +
+      `➡️ Send <b>text</b> for a text-only post\n` +
+      `➡️ Send a <b>photo with caption</b> for a post with image\n\n` +
+      `<i>The Join Challenge and Open Exness Account buttons will be added automatically.</i>`,
+      { parse_mode: 'HTML' }
+    );
+  }
+
+  async handlePhoto(ctx: Context, fileId: string, caption: string) {
+    const telegramId = ctx.from!.id;
+    const session = tradingAdminSessions.get(telegramId);
+    if (!session) return;
+
+    if (session.step === 'tc_additional_post_text') {
+      session.data.photo_file_id = fileId;
+      session.data.post_text = caption || '';
+      session.step = 'tc_additional_post_target';
+
+      await ctx.reply('📸 Photo received! Where do you want to post?', Markup.inlineKeyboard([
+        [Markup.button.callback('📢 Main Channel', 'tc_addpost_main')],
+        [Markup.button.callback('🎯 Challenge Channel', 'tc_addpost_challenge')],
+        [Markup.button.callback('📢 Both Channels', 'tc_addpost_both')],
+        [Markup.button.callback('❌ Cancel', 'tc_addpost_cancel')],
+      ]));
+    }
+  }
+
+  private async handleAdditionalPostCallback(ctx: Context, data: string): Promise<boolean> {
+    const telegramId = ctx.from!.id;
+    const session = tradingAdminSessions.get(telegramId);
+    if (!session || !session.step.startsWith('tc_additional_post')) return false;
+
+    if (data === 'tc_addpost_cancel') {
+      tradingAdminSessions.delete(telegramId);
+      await ctx.answerCbQuery('Cancelled');
+      await ctx.reply('❌ Additional post cancelled.');
+      return true;
+    }
+
+    if (data === 'tc_addpost_main' || data === 'tc_addpost_challenge' || data === 'tc_addpost_both') {
+      await ctx.answerCbQuery('Posting...');
+
+      const challengeId = session.data.challenge_id;
+      const challenge = await tradingChallengeService.getChallengeById(challengeId);
+      if (!challenge) {
+        await ctx.reply('❌ Challenge not found.');
+        tradingAdminSessions.delete(telegramId);
+        return true;
+      }
+
+      const botInfo = await ctx.telegram.getMe();
+      const keyboard = Markup.inlineKeyboard([
+        [Markup.button.url('🚀 Join Challenge', `https://t.me/${botInfo.username}?start=tc_register_${challengeId}`)],
+        [Markup.button.url('💰 Open Exness Account', config.exnessPartnerSignupLink)],
+      ]);
+
+      const targets: string[] = [];
+      if (data === 'tc_addpost_main' || data === 'tc_addpost_both') targets.push(config.mainChannelId);
+      if (data === 'tc_addpost_challenge' || data === 'tc_addpost_both') targets.push(config.challengeChannelId);
+
+      try {
+        for (const channelId of targets) {
+          if (session.data.photo_file_id) {
+            await ctx.telegram.sendPhoto(channelId, session.data.photo_file_id, {
+              caption: session.data.post_text || undefined,
+              parse_mode: 'HTML',
+              ...keyboard,
+            });
+          } else {
+            await ctx.telegram.sendMessage(channelId, session.data.post_text, {
+              parse_mode: 'HTML',
+              link_preview_options: { is_disabled: true },
+              ...keyboard,
+            });
+          }
+        }
+
+        const targetLabel = data === 'tc_addpost_both' ? 'both channels' : data === 'tc_addpost_main' ? 'main channel' : 'challenge channel';
+        await ctx.reply(`✅ Additional post sent to ${targetLabel}!`);
+      } catch (e: any) {
+        console.error('Error sending additional post:', e);
+        await ctx.reply(`❌ Error posting: ${e.message}`);
+      }
+
+      tradingAdminSessions.delete(telegramId);
+      return true;
+    }
+
+    return false;
+  }
+
   // ==================== TEST TRADING POSTS ====================
 
   async testTradingPosts(ctx: Context) {

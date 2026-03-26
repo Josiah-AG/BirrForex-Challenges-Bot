@@ -148,6 +148,7 @@ export class Bot {
     this.bot.command('regsummary', (ctx) => tradingAdminHandler.regSummary(ctx));
     this.bot.command('deletetradingchallenge', (ctx) => tradingAdminHandler.listTradingChallenges(ctx));
     this.bot.command('testtradingposts', (ctx) => tradingAdminHandler.testTradingPosts(ctx));
+    this.bot.command('additionalpost', (ctx) => tradingAdminHandler.additionalPost(ctx));
 
     // User commands
     this.bot.command('mystats', (ctx) => this.showMyStats(ctx));
@@ -507,12 +508,22 @@ export class Bot {
       }
     });
 
-    // Photo handler (for trading challenge screenshots)
+    // Photo handler (for trading challenge screenshots and additional posts)
     this.bot.on('photo', async (ctx) => {
       const telegramId = ctx.from.id;
+
+      // Check if admin is composing an additional post
+      if (isAdmin(telegramId) && tradingAdminHandler.hasActiveSession(telegramId)) {
+        const photo = ctx.message.photo[ctx.message.photo.length - 1];
+        const caption = (ctx.message as any).caption || '';
+        await tradingAdminHandler.handlePhoto(ctx, photo.file_id, caption);
+        return;
+      }
+
+      // Trading registration screenshots
       const { tradingRegistrationHandler } = require('./tradingRegistrationHandler');
       if (tradingRegistrationHandler.hasActiveSession(telegramId)) {
-        const photo = ctx.message.photo[ctx.message.photo.length - 1]; // Largest size
+        const photo = ctx.message.photo[ctx.message.photo.length - 1];
         await tradingRegistrationHandler.handlePhoto(ctx, photo.file_id);
       }
     });
