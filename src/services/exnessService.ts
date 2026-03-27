@@ -48,6 +48,7 @@ export interface VerifyAccountResult {
   status: 'allocated_mt5' | 'allocated_not_mt5' | 'not_allocated' | 'api_error';
   message: string;
   platform?: string | null;
+  data?: { client_uid?: string } | null;
 }
 
 class ExnessService {
@@ -274,6 +275,7 @@ class ExnessService {
         status: 'allocated_mt5',
         message: 'Account verified',
         platform: 'mt5',
+        data: result.data ? { client_uid: result.data.client_uid } : null,
       };
     }
 

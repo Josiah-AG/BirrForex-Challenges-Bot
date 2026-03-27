@@ -622,7 +622,7 @@ export class TradingAdminHandler {
 
     let prizesSection = '';
     if (c.prize_pool_text) {
-      prizesSection = `<b>🏆 PRIZE POOL</b>\n\n${c.prize_pool_text}\n`;
+      prizesSection = `<b>🏆 PRIZE POOL</b>\n\n<b>${c.prize_pool_text}</b>\n`;
     } else {
       // Fallback: auto-generate from individual prizes
       const medals = ['🥇', '🥈', '🥉', '4️⃣', '5️⃣'];
@@ -1193,7 +1193,7 @@ export class TradingAdminHandler {
     if (c.pdf_url) links += `\n📄 Challenge Rules: <a href="${c.pdf_url}">Download PDF</a>`;
     if (c.video_url) links += `\n🎥 Challenge Guide: <a href="${c.video_url}">Watch Video</a>`;
 
-    const prizePoolSection = c.prize_pool_text ? `\n<b>🏆 PRIZE POOL</b>\n\n${c.prize_pool_text}\n` : '';
+    const prizePoolSection = c.prize_pool_text ? `\n<b>🏆 PRIZE POOL</b>\n\n<b>${c.prize_pool_text}</b>\n` : '';
 
     if (promoNum === 1) {
       return `<b>🎯 BIRRFOREX TRADING CHALLENGE IS HERE!</b>\n\n<b>${c.title}</b>\n\n💰 Start with <b>$${c.starting_balance}</b> → 🎯 Hit <b>$${c.target_balance}</b>\n\n📅 <b>Challenge Period:</b> ${periodStr}\n${prizePoolSection}\nOpen to Demo & Real account traders!\nRegister now and show your trading skills 💪\n${links}`;

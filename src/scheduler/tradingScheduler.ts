@@ -100,7 +100,7 @@ export class TradingScheduler {
   private getPrizeSummary(challenge: TradingChallenge): string {
       // Use admin-provided prize pool text if available
       if (challenge.prize_pool_text) {
-        return `<b>🏆 PRIZE POOL</b>\n\n${challenge.prize_pool_text}`;
+        return `<b>🏆 PRIZE POOL</b>\n\n<b>${challenge.prize_pool_text}</b>`;
       }
 
       // Fallback: auto-generate from individual prizes
