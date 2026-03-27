@@ -12,17 +12,32 @@ export class TradingScheduler {
   }
 
   start() {
-    // Check every minute for trading challenge events
     cron.schedule('* * * * *', () => this.checkTradingSchedules());
     console.log('✅ Trading scheduler started');
   }
 
-  private getEATTime(): { dateStr: string; timeStr: string; eatTime: Date; dayOfWeek: number } {
+  /**
+   * Get current time in EAT (UTC+3) — same approach as weekly scheduler
+   */
+  private getEATTime() {
     const now = new Date();
     const eatTime = new Date(now.getTime() + 3 * 60 * 60 * 1000);
     const dateStr = `${eatTime.getUTCFullYear()}-${(eatTime.getUTCMonth() + 1).toString().padStart(2, '0')}-${eatTime.getUTCDate().toString().padStart(2, '0')}`;
     const timeStr = `${eatTime.getUTCHours().toString().padStart(2, '0')}:${eatTime.getUTCMinutes().toString().padStart(2, '0')}`;
-    return { dateStr, timeStr, eatTime, dayOfWeek: eatTime.getUTCDay() };
+    const dayOfWeek = eatTime.getUTCDay();
+    return { dateStr, timeStr, eatTime, dayOfWeek };
+  }
+
+  /**
+   * Convert a stored date to EAT date/time strings
+   * Stored dates are in EAT but parsed as UTC by PostgreSQL
+   * So we just extract directly without offset
+   */
+  private toEATStrings(date: Date): { dateStr: string; timeStr: string } {
+    const d = new Date(date);
+    const dateStr = `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, '0')}-${d.getDate().toString().padStart(2, '0')}`;
+    const timeStr = `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+    return { dateStr, timeStr };
   }
 
   private async checkTradingSchedules() {
@@ -30,7 +45,18 @@ export class TradingScheduler {
       const { dateStr, timeStr, eatTime, dayOfWeek } = this.getEATTime();
       const challenges = await tradingChallengeService.getAllChallenges();
 
+      // Log once per minute at :00 seconds
+      if (eatTime.getUTCSeconds() === 0 && challenges.length > 0) {
+        const active = challenges.filter(c => !['draft', 'completed'].includes(c.status));
+        if (active.length > 0) {
+          console.log(`🔍 Trading scheduler: ${dateStr} ${timeStr} EAT | ${active.length} active challenge(s)`);
+          active.forEach(c => console.log(`  - ${c.title} [${c.status}]`));
+        }
+      }
+
       for (const challenge of challenges) {
+        if (challenge.status === 'draft' || challenge.status === 'completed') continue;
+
         await this.checkCountdowns(challenge, dateStr, timeStr, eatTime);
         await this.checkChallengeStart(challenge, dateStr, timeStr);
         await this.checkDailyPosts(challenge, dateStr, timeStr, dayOfWeek);
@@ -47,13 +73,15 @@ export class TradingScheduler {
 
   private async checkCountdowns(challenge: TradingChallenge, dateStr: string, timeStr: string, eatTime: Date) {
     if (challenge.status !== 'registration_open') return;
-    if (timeStr !== '08:00') return; // Only at 8:00 AM EAT
+    if (timeStr !== '08:00') return;
 
-    const startDate = new Date(challenge.start_date);
-    const diffMs = startDate.getTime() - eatTime.getTime();
-    const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
+    const start = this.toEATStrings(challenge.start_date);
+    const startMs = new Date(start.dateStr).getTime();
+    const nowMs = new Date(dateStr).getTime();
+    const diffDays = Math.round((startMs - nowMs) / (1000 * 60 * 60 * 24));
 
-    if (diffDays === 3 || diffDays === 2 || diffDays === 1) {
+    if (diffDays >= 1 && diffDays <= 3) {
+      console.log(`⏰ Trading countdown: ${diffDays} days before ${challenge.title}`);
       await this.postCountdown(challenge, diffDays);
     }
   }
@@ -79,7 +107,7 @@ export class TradingScheduler {
     if (challenge.pdf_url) links += `\n📄 Challenge Rules: <a href="${challenge.pdf_url}">Download PDF</a>`;
     if (challenge.video_url) links += `\n🎥 Challenge Guide: <a href="${challenge.video_url}">Watch Video</a>`;
 
-        const prizeText = this.getPrizeSummary(challenge);
+    const prizeText = this.getPrizeSummary(challenge);
     const text = `${header}\n\n${body}\n\n📅 <b>Start:</b> ${startStr}\n💰 $${challenge.starting_balance} → 🎯 $${challenge.target_balance}\n${prizeText}\n${links}`;
 
     const keyboard = Markup.inlineKeyboard([
@@ -97,40 +125,34 @@ export class TradingScheduler {
       console.error('Error posting countdown:', e);
     }
   }
+
   private getPrizeSummary(challenge: TradingChallenge): string {
-      // Use admin-provided prize pool text if available
-      if (challenge.prize_pool_text) {
-        return `<b>🏆 PRIZE POOL</b>\n\n<b>${challenge.prize_pool_text}</b>`;
-      }
-
-      // Fallback: auto-generate from individual prizes
-      const realPrizes = typeof challenge.real_prizes === 'string' ? JSON.parse(challenge.real_prizes) : (challenge.real_prizes || []);
-      const demoPrizes = typeof challenge.demo_prizes === 'string' ? JSON.parse(challenge.demo_prizes) : (challenge.demo_prizes || []);
-      const allPrizes = [...realPrizes, ...demoPrizes];
-
-      const numericPrizes = allPrizes.map((p: any) => parseFloat(String(p))).filter((n: number) => !isNaN(n));
-
-      if (numericPrizes.length === allPrizes.length && numericPrizes.length > 0) {
-        const total = numericPrizes.reduce((sum: number, n: number) => sum + n, 0);
-        return `🏆 <b>Prize Pool: $${total}</b>`;
-      } else if (allPrizes.length > 0) {
-        return `🏆 <b>Prizes:</b> ${allPrizes.join(', ')}`;
-      }
-      return '';
+    if (challenge.prize_pool_text) {
+      return `<b>🏆 PRIZE POOL</b>\n\n<b>${challenge.prize_pool_text}</b>`;
     }
+    const realPrizes = typeof challenge.real_prizes === 'string' ? JSON.parse(challenge.real_prizes) : (challenge.real_prizes || []);
+    const demoPrizes = typeof challenge.demo_prizes === 'string' ? JSON.parse(challenge.demo_prizes) : (challenge.demo_prizes || []);
+    const allPrizes = [...realPrizes, ...demoPrizes];
+    const numericPrizes = allPrizes.map((p: any) => parseFloat(String(p))).filter((n: number) => !isNaN(n));
+    if (numericPrizes.length === allPrizes.length && numericPrizes.length > 0) {
+      const total = numericPrizes.reduce((sum: number, n: number) => sum + n, 0);
+      return `🏆 <b>Prize Pool: $${total}</b>`;
+    } else if (allPrizes.length > 0) {
+      return `🏆 <b>Prizes:</b> ${allPrizes.join(', ')}`;
+    }
+    return '';
+  }
 
   // ==================== CHALLENGE START ====================
 
   private async checkChallengeStart(challenge: TradingChallenge, dateStr: string, timeStr: string) {
     if (challenge.status !== 'registration_open') return;
 
-    const startDate = new Date(challenge.start_date);
-    const startDateStr = `${startDate.getFullYear()}-${(startDate.getMonth() + 1).toString().padStart(2, '0')}-${startDate.getDate().toString().padStart(2, '0')}`;
-    const startTimeStr = `${startDate.getHours().toString().padStart(2, '0')}:${startDate.getMinutes().toString().padStart(2, '0')}`;
+    const start = this.toEATStrings(challenge.start_date);
 
-    if (dateStr === startDateStr && timeStr === startTimeStr) {
+    if (dateStr === start.dateStr && timeStr === start.timeStr) {
       await tradingChallengeService.updateChallengeStatus(challenge.id, 'active');
-      console.log(`✅ Trading challenge ${challenge.id} is now active`);
+      console.log(`✅ Trading challenge ${challenge.id} "${challenge.title}" is now ACTIVE (${dateStr} ${timeStr} EAT)`);
     }
   }
 
@@ -138,30 +160,33 @@ export class TradingScheduler {
 
   private async checkDailyPosts(challenge: TradingChallenge, dateStr: string, timeStr: string, dayOfWeek: number) {
     if (challenge.status !== 'active') return;
-    // Skip weekends (0=Sun, 6=Sat)
-    if (dayOfWeek === 0 || dayOfWeek === 6) return;
+    if (dayOfWeek === 0 || dayOfWeek === 6) return; // Skip weekends
 
     const tradingDay = this.getTradingDay(challenge, dateStr);
     if (tradingDay < 1 || tradingDay > 10) return;
 
     if (timeStr === '08:00') {
+      console.log(`☀️ Trading morning post: Day ${tradingDay} for ${challenge.title}`);
       await this.postMorningMessage(challenge, tradingDay);
     }
     if (timeStr === '20:00') {
+      console.log(`🌙 Trading evening post: Day ${tradingDay} for ${challenge.title}`);
       await this.postEveningMessage(challenge, tradingDay);
     }
   }
 
   private getTradingDay(challenge: TradingChallenge, currentDateStr: string): number {
-    const startDate = new Date(challenge.start_date);
-    const current = new Date(currentDateStr);
+    const start = this.toEATStrings(challenge.start_date);
+    const startDate = new Date(start.dateStr);
+    const currentDate = new Date(currentDateStr);
     let tradingDay = 0;
     const d = new Date(startDate);
 
-    while (d <= current) {
+    while (d <= currentDate) {
       const dow = d.getDay();
       if (dow !== 0 && dow !== 6) tradingDay++;
-      if (d.toISOString().split('T')[0] === currentDateStr) break;
+      const dStr = `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, '0')}-${d.getDate().toString().padStart(2, '0')}`;
+      if (dStr === currentDateStr) break;
       d.setDate(d.getDate() + 1);
     }
     return tradingDay;
@@ -197,7 +222,6 @@ export class TradingScheduler {
     const text = `${header}\n${links}\n\n@${config.mainChannelUsername}`;
     const opts = { parse_mode: 'HTML' as const, link_preview_options: { is_disabled: true } };
 
-    // Day 1, 6, 10 → BOTH channels. Others → challenge channel only
     const bothChannels = day === 1 || day === 6 || day === 10;
 
     try {
@@ -205,26 +229,23 @@ export class TradingScheduler {
         await this.bot.bot.telegram.sendMessage(config.mainChannelId, text, opts);
       }
       await this.bot.bot.telegram.sendMessage(config.challengeChannelId, text, opts);
-      console.log(`✅ Trading morning post Day ${day} for ${challenge.title}`);
     } catch (e) {
-      console.error('Error posting morning message:', e);
+      console.error(`Error posting morning Day ${day}:`, e);
     }
   }
 
   async postEveningMessage(challenge: TradingChallenge, day: number) {
     const dayWords = ['', 'ONE', 'TWO', 'THREE', 'FOUR', 'FIVE', 'SIX', 'SEVEN', 'EIGHT', 'NINE', 'TEN'];
 
-    let text = '';
     let links = '';
     if (challenge.pdf_url) links = `\n📄 Rules: <a href="${challenge.pdf_url}">Download PDF</a>`;
 
+    let text = '';
     if (day === 5) {
-      // Week 1 end — BOTH channels
       text = `<b>🔥 WEEK 1 IS ALMOST OVER!</b>\n\nHow was the week, traders?\n\nReact below:\n🔥 If you crushed it this week!\n😎 If it was decent, but there's room for more\n👍 If you had a tough week, but still in the game\n✍️ If you hit your drawdown limit\n\nEnjoy the weekend and come back stronger! 💪\n\n<b>DON'T FORGET — NO WEEKEND TRADING!</b>\n${links}\n\n@${config.mainChannelUsername}`;
     } else if (day === 9) {
       text = `<b>🔥 DAY ${dayWords[day]} IS ALMOST OVER</b>\n\nHow was the Day, traders?\n\nReact below:\n🔥 If you crushed it today!\n😎 If it was decent, but there's room for more\n👍 If you had a tough day, but still in the game\n✍️ If you hit your daily drawdown\n\n<b>TOMORROW IS THE FINAL DAY!</b> 🏁\n${links}\n\n@${config.mainChannelUsername}`;
     } else if (day === 10) {
-      // Final day — BOTH channels
       text = `<b>⏰ CHALLENGE IS ALMOST OVER!</b>\n\n<b>${challenge.title}</b>\n\nWrap it up, traders!\nThe challenge closes in a few hours.\n\nMake your final trades and secure your position.\n\n⚠️ <b>No trades after the challenge ends will be counted.</b>\n\n<i>Good luck on your final trades!</i> 🍀\n${links}\n\n@${config.mainChannelUsername}`;
     } else {
       text = `<b>🔥 DAY ${dayWords[day]} IS ALMOST OVER</b>\n\nHow was the Day, traders?\n\nReact below:\n🔥 If you crushed it today!\n😎 If it was decent, but there's room for more\n👍 If you had a tough day, but still in the game\n✍️ If you hit your daily drawdown\n\nLet's keep pushing 💪\n\n<b>DON'T FORGET TO KEEP THE RULES!</b>\n${links}\n\n@${config.mainChannelUsername}`;
@@ -238,9 +259,8 @@ export class TradingScheduler {
         await this.bot.bot.telegram.sendMessage(config.mainChannelId, text, opts);
       }
       await this.bot.bot.telegram.sendMessage(config.challengeChannelId, text, opts);
-      console.log(`✅ Trading evening post Day ${day} for ${challenge.title}`);
     } catch (e) {
-      console.error('Error posting evening message:', e);
+      console.error(`Error posting evening Day ${day}:`, e);
     }
   }
 
@@ -249,22 +269,27 @@ export class TradingScheduler {
   private async checkChallengeEnd(challenge: TradingChallenge, dateStr: string, timeStr: string) {
     if (challenge.status !== 'active') return;
 
-    const endDate = new Date(challenge.end_date);
-    const endDateStr = `${endDate.getFullYear()}-${(endDate.getMonth() + 1).toString().padStart(2, '0')}-${endDate.getDate().toString().padStart(2, '0')}`;
-    const endTimeStr = `${endDate.getHours().toString().padStart(2, '0')}:${endDate.getMinutes().toString().padStart(2, '0')}`;
+    const end = this.toEATStrings(challenge.end_date);
 
-    // Check if we've passed the end date (next day at 00:00 for Friday 11:59 PM end)
-    const nextDay = new Date(endDate);
-    nextDay.setDate(nextDay.getDate() + 1);
-    const nextDayStr = `${nextDay.getFullYear()}-${(nextDay.getMonth() + 1).toString().padStart(2, '0')}-${nextDay.getDate().toString().padStart(2, '0')}`;
+    // End at the exact end time, or at midnight the next day (for 23:59 end times)
+    if (dateStr === end.dateStr && timeStr === end.timeStr) {
+      console.log(`🏁 Trading challenge ending: ${challenge.title} (${dateStr} ${timeStr} EAT)`);
+      await this.endChallenge(challenge);
+      return;
+    }
 
-    if ((dateStr === endDateStr && timeStr === endTimeStr) || (dateStr === nextDayStr && timeStr === '00:00')) {
+    // Also check next day 00:00 for challenges ending at 23:59
+    const endDate = new Date(end.dateStr);
+    endDate.setDate(endDate.getDate() + 1);
+    const nextDayStr = `${endDate.getFullYear()}-${(endDate.getMonth() + 1).toString().padStart(2, '0')}-${endDate.getDate().toString().padStart(2, '0')}`;
+
+    if (dateStr === nextDayStr && timeStr === '00:00') {
+      console.log(`🏁 Trading challenge ending (midnight): ${challenge.title}`);
       await this.endChallenge(challenge);
     }
   }
 
   async endChallenge(challenge: TradingChallenge) {
-    // Set submission deadline (48 hours from now)
     const deadline = new Date(Date.now() + 48 * 60 * 60 * 1000);
     await tradingChallengeService.setSubmissionDeadline(challenge.id, deadline);
     await tradingChallengeService.updateChallengeStatus(challenge.id, 'submission_open');
@@ -298,7 +323,7 @@ export class TradingScheduler {
     try {
       await this.bot.bot.telegram.sendMessage(config.mainChannelId, text, opts);
       await this.bot.bot.telegram.sendMessage(config.challengeChannelId, text, opts);
-      console.log(`✅ Trading challenge ${challenge.id} ended, submission open`);
+      console.log(`✅ Trading challenge ${challenge.id} ended, submission open until ${deadlineStr}`);
     } catch (e) {
       console.error('Error posting challenge end:', e);
     }
@@ -309,14 +334,12 @@ export class TradingScheduler {
   private async checkSubmissionDeadline(challenge: TradingChallenge, dateStr: string, timeStr: string) {
     if (challenge.status !== 'submission_open' || !challenge.submission_deadline) return;
 
-    const deadline = new Date(challenge.submission_deadline);
-    const deadlineDateStr = `${deadline.getFullYear()}-${(deadline.getMonth() + 1).toString().padStart(2, '0')}-${deadline.getDate().toString().padStart(2, '0')}`;
-    const deadlineTimeStr = `${deadline.getHours().toString().padStart(2, '0')}:${deadline.getMinutes().toString().padStart(2, '0')}`;
+    const dl = this.toEATStrings(challenge.submission_deadline);
 
-    if (dateStr === deadlineDateStr && timeStr === deadlineTimeStr) {
+    if (dateStr === dl.dateStr && timeStr === dl.timeStr) {
+      console.log(`⏰ Submission deadline reached: ${challenge.title}`);
       await tradingChallengeService.updateChallengeStatus(challenge.id, 'reviewing');
 
-      // Post deadline closed message
       const text = `<b>⏰ SUBMISSION DEADLINE HAS ENDED</b>\n\n` +
         `The 48-hour submission window for <b>${challenge.title}</b> is now closed.\n\n` +
         `<b>No further submissions will be accepted.</b>\n\n` +
@@ -332,7 +355,6 @@ export class TradingScheduler {
         console.error('Error posting deadline message:', e);
       }
 
-      // Send admin report
       await this.sendAdminReport(challenge);
     }
   }
@@ -344,7 +366,6 @@ export class TradingScheduler {
     const subCounts = await tradingChallengeService.getSubmissionCount(challenge.id);
     const startStr = new Date(challenge.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
     const endStr = new Date(challenge.end_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-
     const typeLabel = challenge.type === 'hybrid' ? 'Hybrid (Demo & Real)' : challenge.type === 'demo' ? 'Demo' : 'Real';
 
     const text = `<b>📊 TRADING CHALLENGE REPORT</b>\n<b>${challenge.title}</b>\n\n` +
@@ -358,7 +379,6 @@ export class TradingScheduler {
     try {
       await this.bot.bot.telegram.sendMessage(config.adminUserId, text, { parse_mode: 'HTML' });
 
-      // Generate and send CSV
       const csv = await this.generateCSV(challenge.id);
       if (csv) {
         await this.bot.bot.telegram.sendDocument(config.adminUserId, {
@@ -366,7 +386,6 @@ export class TradingScheduler {
           filename: `${challenge.title.replace(/\s+/g, '_')}_report.csv`,
         });
       }
-
       console.log(`✅ Admin report sent for ${challenge.title}`);
     } catch (e) {
       console.error('Error sending admin report:', e);
@@ -375,13 +394,25 @@ export class TradingScheduler {
 
   private async generateCSV(challengeId: number): Promise<string> {
     const submissions = await tradingChallengeService.getSubmissions(challengeId);
+    const realSubs = submissions.filter(s => s.account_type === 'real').sort((a, b) => b.final_balance - a.final_balance);
+    const demoSubs = submissions.filter(s => s.account_type === 'demo').sort((a, b) => b.final_balance - a.final_balance);
 
-    let csv = 'Position,Username,Email,Type,Account Number,MT5 Server,Investor Password,Final Balance,Submitted At\n';
-
-    submissions.forEach((s, i) => {
-      csv += `${i + 1},@${s.username || 'unknown'},${s.email},${s.account_type},${s.account_number},${s.mt5_server || 'N/A'},${s.investor_password},${s.final_balance},${new Date(s.submitted_at).toISOString()}\n`;
-    });
-
+    let csv = '';
+    if (realSubs.length > 0) {
+      csv += '=== REAL ACCOUNT SUBMISSIONS ===\n';
+      csv += '#,Username,Email,Account,Server,Password,Balance,Screenshot,Submitted\n';
+      realSubs.forEach((s, i) => {
+        csv += `${i + 1},@${s.username || 'unknown'},${s.email},${s.account_number},${s.mt5_server || 'N/A'},${s.investor_password},${s.final_balance},${(s as any).screenshot_link || 'N/A'},${new Date(s.submitted_at).toISOString()}\n`;
+      });
+      csv += '\n';
+    }
+    if (demoSubs.length > 0) {
+      csv += '=== DEMO ACCOUNT SUBMISSIONS ===\n';
+      csv += '#,Username,Email,Account,Server,Password,Balance,Screenshot,Submitted\n';
+      demoSubs.forEach((s, i) => {
+        csv += `${i + 1},@${s.username || 'unknown'},${s.email},${s.account_number},${s.mt5_server || 'N/A'},${s.investor_password},${s.final_balance},${(s as any).screenshot_link || 'N/A'},${new Date(s.submitted_at).toISOString()}\n`;
+      });
+    }
     return csv;
   }
 
@@ -391,7 +422,6 @@ export class TradingScheduler {
     if (challenge.status !== 'registration_open') return;
     if (timeStr !== '08:00') return;
 
-    // Get yesterday's date
     const yesterday = new Date(dateStr);
     yesterday.setDate(yesterday.getDate() - 1);
     const yesterdayStr = `${yesterday.getFullYear()}-${(yesterday.getMonth() + 1).toString().padStart(2, '0')}-${yesterday.getDate().toString().padStart(2, '0')}`;
@@ -399,7 +429,6 @@ export class TradingScheduler {
     const dailyStats = await tradingChallengeService.getDailyStats(challenge.id, yesterdayStr);
     const totalStats = await tradingChallengeService.getTotalStats(challenge.id);
     const counts = await tradingChallengeService.getRegistrationCounts(challenge.id);
-
     const startStr = new Date(challenge.start_date).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
 
     let text = `<b>📊 DAILY REGISTRATION SUMMARY</b>\n<b>${challenge.title}</b>\n` +
@@ -431,6 +460,7 @@ export class TradingScheduler {
 
     try {
       await this.bot.bot.telegram.sendMessage(config.adminUserId, text, { parse_mode: 'HTML' });
+      console.log(`✅ Daily admin summary sent for ${challenge.title}`);
     } catch (e) {
       console.error('Error sending daily summary:', e);
     }
