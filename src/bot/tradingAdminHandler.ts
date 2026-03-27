@@ -1098,6 +1098,65 @@ export class TradingAdminHandler {
     }
   }
 
+  async exportSubmissions(ctx: Context) {
+    if (!this.checkAdmin(ctx)) return;
+
+    const challenges = await tradingChallengeService.getAllChallenges();
+    if (challenges.length === 0) {
+      await ctx.reply('❌ No challenges found.');
+      return;
+    }
+
+    const challenge = challenges[0];
+    const submissions = await tradingChallengeService.getSubmissions(challenge.id);
+
+    if (submissions.length === 0) {
+      await ctx.reply('❌ No submissions found for this challenge.');
+      return;
+    }
+
+    // Separate by category
+    const realSubs = submissions.filter(s => s.account_type === 'real').sort((a, b) => b.final_balance - a.final_balance);
+    const demoSubs = submissions.filter(s => s.account_type === 'demo').sort((a, b) => b.final_balance - a.final_balance);
+
+    let csv = '';
+
+    if (realSubs.length > 0) {
+      csv += '=== REAL ACCOUNT SUBMISSIONS (sorted by balance) ===\n';
+      csv += '#,Username,Email,Account Number,MT5 Server,Investor Password,Final Balance,Submitted At\n';
+      realSubs.forEach((s, i) => {
+        csv += `${i + 1},@${s.username || 'unknown'},${s.email},${s.account_number},${s.mt5_server || 'N/A'},${s.investor_password},${s.final_balance},${new Date(s.submitted_at).toISOString()}\n`;
+      });
+      csv += '\n';
+    }
+
+    if (demoSubs.length > 0) {
+      csv += '=== DEMO ACCOUNT SUBMISSIONS (sorted by balance) ===\n';
+      csv += '#,Username,Email,Account Number,MT5 Server,Investor Password,Final Balance,Submitted At\n';
+      demoSubs.forEach((s, i) => {
+        csv += `${i + 1},@${s.username || 'unknown'},${s.email},${s.account_number},${s.mt5_server || 'N/A'},${s.investor_password},${s.final_balance},${new Date(s.submitted_at).toISOString()}\n`;
+      });
+    }
+
+    try {
+      await ctx.replyWithDocument({
+        source: Buffer.from(csv),
+        filename: `${challenge.title.replace(/\s+/g, '_')}_submissions.csv`,
+      });
+      await ctx.reply(
+        `📊 <b>Submissions Export</b>\n\n` +
+        `📋 <b>Challenge:</b> ${challenge.title}\n` +
+        `📊 <b>Real submissions:</b> ${realSubs.length}\n` +
+        `📊 <b>Demo submissions:</b> ${demoSubs.length}\n` +
+        `📊 <b>Total:</b> ${submissions.length}`,
+        { parse_mode: 'HTML' }
+      );
+    } catch (e) {
+      console.error('Error exporting submissions:', e);
+      await ctx.reply('❌ Error generating export.');
+    }
+  }
+
   // ==================== REG SUMMARY ====================
 
   async regSummary(ctx: Context) {
