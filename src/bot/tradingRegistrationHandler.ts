@@ -381,11 +381,38 @@ export class TradingRegistrationHandler {
 
         // Save submission
         try {
+          // Post screenshot to private submission channel and get link
+          let screenshotLink: string | null = null;
+          if (session.data.screenshot_file_id && config.submissionChannelId) {
+            try {
+              const acctLabel = session.data.account_type === 'demo' ? 'Demo' : 'Real';
+              const caption = `<b>📋 Submission</b>\n\n` +
+                `👤 @${ctx.from!.username || 'unknown'}\n` +
+                `📧 ${session.data.email}\n` +
+                `🏦 ${acctLabel}: ${session.data.account_number}\n` +
+                `🖥️ Server: ${session.data.mt5_server || 'N/A'}\n` +
+                `💰 Balance: $${session.data.final_balance.toFixed(2)}\n` +
+                `🔑 Password: <code>${session.data.investor_password}</code>`;
+
+              const sent = await ctx.telegram.sendPhoto(config.submissionChannelId, session.data.screenshot_file_id, {
+                caption,
+                parse_mode: 'HTML',
+              });
+
+              // Build message link: t.me/c/{channel_id_without_-100}/{message_id}
+              const channelIdStr = String(config.submissionChannelId).replace('-100', '');
+              screenshotLink = `https://t.me/c/${channelIdStr}/${sent.message_id}`;
+            } catch (e) {
+              console.error('Error posting screenshot to submission channel:', e);
+            }
+          }
+
           await tradingChallengeService.createSubmission({
             registration_id: session.data.registration_id,
             challenge_id: session.data.challenge_id,
             final_balance: session.data.final_balance,
             balance_screenshot_file_id: session.data.screenshot_file_id || null,
+            screenshot_link: screenshotLink,
             investor_password: session.data.investor_password,
           });
 

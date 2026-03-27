@@ -42,6 +42,7 @@ export interface TradingSubmission {
   challenge_id: number;
   final_balance: number;
   balance_screenshot_file_id: string | null;
+  screenshot_link: string | null;
   investor_password: string;
   submitted_at: Date;
 }
@@ -258,14 +259,15 @@ class TradingChallengeService {
     challenge_id: number;
     final_balance: number;
     balance_screenshot_file_id: string | null;
+    screenshot_link: string | null;
     investor_password: string;
   }): Promise<TradingSubmission> {
     const result = await db.query(
       `INSERT INTO trading_submissions
-       (registration_id, challenge_id, final_balance, balance_screenshot_file_id, investor_password)
-       VALUES ($1, $2, $3, $4, $5)
+       (registration_id, challenge_id, final_balance, balance_screenshot_file_id, screenshot_link, investor_password)
+       VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING *`,
-      [data.registration_id, data.challenge_id, data.final_balance, data.balance_screenshot_file_id, data.investor_password]
+      [data.registration_id, data.challenge_id, data.final_balance, data.balance_screenshot_file_id, data.screenshot_link, data.investor_password]
     );
     return result.rows[0];
   }

@@ -49,6 +49,7 @@ CREATE TABLE IF NOT EXISTS trading_submissions (
     challenge_id INTEGER REFERENCES trading_challenges(id) ON DELETE CASCADE,
     final_balance DECIMAL(10, 2) NOT NULL,
     balance_screenshot_file_id TEXT,
+    screenshot_link TEXT,
     investor_password VARCHAR(255) NOT NULL,
     submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(registration_id)

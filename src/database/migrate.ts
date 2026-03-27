@@ -23,6 +23,10 @@ async function migrate() {
       await db.query(`
         ALTER TABLE trading_challenges ADD COLUMN IF NOT EXISTS prize_pool_text TEXT;
       `).catch(() => { /* column already exists or table doesn't exist yet */ });
+      // Add screenshot_link column if missing
+      await db.query(`
+        ALTER TABLE trading_submissions ADD COLUMN IF NOT EXISTS screenshot_link TEXT;
+      `).catch(() => { /* column already exists */ });
       console.log('✅ Trading schema migrations OK');
     } catch (err: any) {
       if (err.code === 'ENOENT') {

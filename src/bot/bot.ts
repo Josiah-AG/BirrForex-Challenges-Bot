@@ -56,6 +56,7 @@ export class Bot {
       { command: 'promo', description: 'Post promo message' },
       { command: 'exportregistrations', description: 'Export registrations CSV' },
       { command: 'exportsubmissions', description: 'Export submissions CSV (with passwords)' },
+      { command: 'viewsubmissions', description: 'View submissions with screenshots' },
       { command: 'regsummary', description: 'Registration summary' },
       { command: 'deletetradingchallenge', description: 'Delete a trading challenge' },
       { command: 'testtradingposts', description: 'Test trading challenge posts' },
@@ -148,6 +149,7 @@ export class Bot {
     this.bot.command('promo', (ctx) => tradingAdminHandler.promo(ctx));
     this.bot.command('exportregistrations', (ctx) => tradingAdminHandler.exportRegistrations(ctx));
     this.bot.command('exportsubmissions', (ctx) => tradingAdminHandler.exportSubmissions(ctx));
+    this.bot.command('viewsubmissions', (ctx) => tradingAdminHandler.viewSubmissions(ctx));
     this.bot.command('regsummary', (ctx) => tradingAdminHandler.regSummary(ctx));
     this.bot.command('deletetradingchallenge', (ctx) => tradingAdminHandler.listTradingChallenges(ctx));
     this.bot.command('testtradingposts', (ctx) => tradingAdminHandler.testTradingPosts(ctx));

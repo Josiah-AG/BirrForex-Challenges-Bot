@@ -39,6 +39,9 @@ export const config = {
   partnerChangeGuideLink: process.env.PARTNER_CHANGE_GUIDE_LINK || '',
   investorPasswordGuideLink: process.env.INVESTOR_PASSWORD_GUIDE_LINK || '',
   
+  // Private channel for storing submission screenshots
+  submissionChannelId: process.env.SUBMISSION_CHANNEL_ID || '',
+  
   // Schedule
   morningPostTime: process.env.MORNING_POST_TIME || '10:00',
   twoHourReminderTime: process.env.TWO_HOUR_REMINDER_TIME || '18:00',

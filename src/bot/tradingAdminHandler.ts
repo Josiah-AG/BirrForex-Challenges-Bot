@@ -1123,18 +1123,18 @@ export class TradingAdminHandler {
 
     if (realSubs.length > 0) {
       csv += '=== REAL ACCOUNT SUBMISSIONS (sorted by balance) ===\n';
-      csv += '#,Username,Email,Account Number,MT5 Server,Investor Password,Final Balance,Submitted At\n';
+      csv += '#,Username,Email,Account Number,MT5 Server,Investor Password,Final Balance,Screenshot,Submitted At\n';
       realSubs.forEach((s, i) => {
-        csv += `${i + 1},@${s.username || 'unknown'},${s.email},${s.account_number},${s.mt5_server || 'N/A'},${s.investor_password},${s.final_balance},${new Date(s.submitted_at).toISOString()}\n`;
+        csv += `${i + 1},@${s.username || 'unknown'},${s.email},${s.account_number},${s.mt5_server || 'N/A'},${s.investor_password},${s.final_balance},${(s as any).screenshot_link || 'N/A'},${new Date(s.submitted_at).toISOString()}\n`;
       });
       csv += '\n';
     }
 
     if (demoSubs.length > 0) {
       csv += '=== DEMO ACCOUNT SUBMISSIONS (sorted by balance) ===\n';
-      csv += '#,Username,Email,Account Number,MT5 Server,Investor Password,Final Balance,Submitted At\n';
+      csv += '#,Username,Email,Account Number,MT5 Server,Investor Password,Final Balance,Screenshot,Submitted At\n';
       demoSubs.forEach((s, i) => {
-        csv += `${i + 1},@${s.username || 'unknown'},${s.email},${s.account_number},${s.mt5_server || 'N/A'},${s.investor_password},${s.final_balance},${new Date(s.submitted_at).toISOString()}\n`;
+        csv += `${i + 1},@${s.username || 'unknown'},${s.email},${s.account_number},${s.mt5_server || 'N/A'},${s.investor_password},${s.final_balance},${(s as any).screenshot_link || 'N/A'},${new Date(s.submitted_at).toISOString()}\n`;
       });
     }
 
@@ -1184,6 +1184,64 @@ export class TradingAdminHandler {
       `⏰ <b>Challenge starts:</b> ${startStr}`;
 
     await ctx.reply(text, { parse_mode: 'HTML' });
+  }
+
+  async viewSubmissions(ctx: Context) {
+    if (!this.checkAdmin(ctx)) return;
+
+    const challenges = await tradingChallengeService.getAllChallenges();
+    const challenge = challenges[0];
+
+    if (!challenge) {
+      await ctx.reply('❌ No challenges found.');
+      return;
+    }
+
+    const submissions = await tradingChallengeService.getSubmissions(challenge.id);
+
+    if (submissions.length === 0) {
+      await ctx.reply('❌ No submissions found for this challenge.');
+      return;
+    }
+
+    const realSubs = submissions.filter(s => s.account_type === 'real').sort((a, b) => b.final_balance - a.final_balance);
+    const demoSubs = submissions.filter(s => s.account_type === 'demo').sort((a, b) => b.final_balance - a.final_balance);
+
+    const sendCategory = async (subs: typeof submissions, label: string) => {
+      if (subs.length === 0) return;
+      await ctx.reply(`<b>📊 ${label} SUBMISSIONS (${subs.length})</b>\n<i>Sorted by balance, highest first</i>`, { parse_mode: 'HTML' });
+
+      for (let i = 0; i < subs.length; i++) {
+        const s = subs[i];
+        const caption = `<b>#${i + 1} — @${s.username || 'unknown'}</b>\n\n` +
+          `📧 <b>Email:</b> ${s.email}\n` +
+          `🏦 <b>Account:</b> ${s.account_number}\n` +
+          `🖥️ <b>Server:</b> ${s.mt5_server || 'N/A'}\n` +
+          `💰 <b>Final Balance:</b> $${Number(s.final_balance).toFixed(2)}\n` +
+          `🔑 <b>Password:</b> <code>${s.investor_password}</code>`;
+
+        try {
+          if (s.balance_screenshot_file_id) {
+            await ctx.replyWithPhoto(s.balance_screenshot_file_id, {
+              caption,
+              parse_mode: 'HTML',
+            });
+          } else {
+            await ctx.reply(caption + '\n📸 <i>No screenshot</i>', { parse_mode: 'HTML' });
+          }
+        } catch (e) {
+          await ctx.reply(caption + '\n📸 <i>Screenshot unavailable</i>', { parse_mode: 'HTML' });
+        }
+
+        // Small delay to avoid rate limits
+        if (i < subs.length - 1) await new Promise(r => setTimeout(r, 500));
+      }
+    };
+
+    await sendCategory(realSubs, 'REAL ACCOUNT');
+    await sendCategory(demoSubs, 'DEMO ACCOUNT');
+
+    await ctx.reply(`✅ <b>All ${submissions.length} submissions displayed.</b>`, { parse_mode: 'HTML' });
   }
 
   // ==================== PROMO HANDLER ====================
