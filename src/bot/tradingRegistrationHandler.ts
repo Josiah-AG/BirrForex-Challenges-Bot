@@ -272,6 +272,24 @@ export class TradingRegistrationHandler {
       return true;
     }
 
+    // Submit email retry button
+    if (data.startsWith('tc_submit_retry_email_')) {
+      const challengeId = parseInt(data.replace('tc_submit_retry_email_', ''));
+      const session = userSessions.get(telegramId);
+      if (session) {
+        session.step = 'tc_submit_email';
+      } else {
+        const challenge = await tradingChallengeService.getChallengeById(challengeId);
+        userSessions.set(telegramId, {
+          step: 'tc_submit_email',
+          data: { challenge_id: challengeId, target_balance: challenge?.target_balance || 0 },
+        });
+      }
+      await ctx.answerCbQuery();
+      await ctx.reply('📧 Please enter your <b>Exness email</b> to verify your identity:', { parse_mode: 'HTML' });
+      return true;
+    }
+
     return false;
   }
 
@@ -376,15 +394,27 @@ export class TradingRegistrationHandler {
         const reg = await tradingChallengeService.getRegistrationByEmail(session.data.challenge_id, email);
 
         if (!reg) {
-          userSessions.delete(telegramId);
-          await ctx.reply('❌ <b>This email is not registered for this challenge.</b>\n\nOnly registered participants can submit results.', { parse_mode: 'HTML' });
+          await ctx.reply(
+            '❌ <b>This email is not registered for this challenge.</b>\n\n' +
+            'Please check if you misspelled your email and try again.\n' +
+            '<i>Only registered participants can submit results.</i>',
+            { parse_mode: 'HTML', ...Markup.inlineKeyboard([
+              [Markup.button.callback('📧 Submit Email Again', `tc_submit_retry_email_${session.data.challenge_id}`)],
+            ]) }
+          );
           return;
         }
 
         // Compare as strings to avoid BigInt vs number mismatch
         if (String(reg.telegram_id) !== String(telegramId)) {
-          userSessions.delete(telegramId);
-          await ctx.reply('❌ <b>This email is registered under a different account.</b>\n\nPlease use the Telegram account you registered with.', { parse_mode: 'HTML' });
+          await ctx.reply(
+            '❌ <b>This email is registered under a different account.</b>\n\n' +
+            'Please check if you misspelled your email and try again.\n' +
+            '<i>Use the Telegram account you registered with.</i>',
+            { parse_mode: 'HTML', ...Markup.inlineKeyboard([
+              [Markup.button.callback('📧 Submit Email Again', `tc_submit_retry_email_${session.data.challenge_id}`)],
+            ]) }
+          );
           return;
         }
 
