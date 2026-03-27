@@ -43,6 +43,7 @@ export interface TradingSubmission {
   final_balance: number;
   balance_screenshot_file_id: string | null;
   screenshot_link: string | null;
+  screenshot_message_id: number | null;
   investor_password: string;
   submitted_at: Date;
 }
@@ -260,14 +261,15 @@ class TradingChallengeService {
     final_balance: number;
     balance_screenshot_file_id: string | null;
     screenshot_link: string | null;
+    screenshot_message_id: number | null;
     investor_password: string;
   }): Promise<TradingSubmission> {
     const result = await db.query(
       `INSERT INTO trading_submissions
-       (registration_id, challenge_id, final_balance, balance_screenshot_file_id, screenshot_link, investor_password)
-       VALUES ($1, $2, $3, $4, $5, $6)
+       (registration_id, challenge_id, final_balance, balance_screenshot_file_id, screenshot_link, screenshot_message_id, investor_password)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING *`,
-      [data.registration_id, data.challenge_id, data.final_balance, data.balance_screenshot_file_id, data.screenshot_link, data.investor_password]
+      [data.registration_id, data.challenge_id, data.final_balance, data.balance_screenshot_file_id, data.screenshot_link, data.screenshot_message_id, data.investor_password]
     );
     return result.rows[0];
   }
@@ -284,14 +286,15 @@ class TradingChallengeService {
     final_balance: number;
     balance_screenshot_file_id: string | null;
     screenshot_link: string | null;
+    screenshot_message_id: number | null;
     investor_password: string;
   }): Promise<TradingSubmission> {
     const result = await db.query(
       `UPDATE trading_submissions
-       SET final_balance = $1, balance_screenshot_file_id = $2, screenshot_link = $3, investor_password = $4, submitted_at = NOW()
-       WHERE registration_id = $5
+       SET final_balance = $1, balance_screenshot_file_id = $2, screenshot_link = $3, screenshot_message_id = $4, investor_password = $5, submitted_at = NOW()
+       WHERE registration_id = $6
        RETURNING *`,
-      [data.final_balance, data.balance_screenshot_file_id, data.screenshot_link, data.investor_password, registrationId]
+      [data.final_balance, data.balance_screenshot_file_id, data.screenshot_link, data.screenshot_message_id, data.investor_password, registrationId]
     );
     return result.rows[0];
   }

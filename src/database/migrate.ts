@@ -27,6 +27,9 @@ async function migrate() {
       await db.query(`
         ALTER TABLE trading_submissions ADD COLUMN IF NOT EXISTS screenshot_link TEXT;
       `).catch(() => { /* column already exists */ });
+      await db.query(`
+        ALTER TABLE trading_submissions ADD COLUMN IF NOT EXISTS screenshot_message_id INTEGER;
+      `).catch(() => { /* column already exists */ });
       console.log('✅ Trading schema migrations OK');
     } catch (err: any) {
       if (err.code === 'ENOENT') {

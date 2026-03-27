@@ -435,7 +435,20 @@ export class TradingRegistrationHandler {
         try {
           // Post screenshot to private submission channel and get link
           let screenshotLink: string | null = null;
+          let screenshotMessageId: number | null = null;
           const isOverride = session.data.is_override === true;
+
+          // If override, delete old screenshot message from submission channel
+          if (isOverride && config.submissionChannelId) {
+            try {
+              const oldSub = await tradingChallengeService.getSubmissionByRegistration(session.data.registration_id);
+              if (oldSub && oldSub.screenshot_message_id) {
+                await ctx.telegram.deleteMessage(config.submissionChannelId, oldSub.screenshot_message_id);
+              }
+            } catch (e) {
+              // Old message may already be deleted, ignore
+            }
+          }
 
           if (session.data.screenshot_file_id && config.submissionChannelId) {
             try {
@@ -457,6 +470,7 @@ export class TradingRegistrationHandler {
               // Build message link: t.me/c/{channel_id_without_-100}/{message_id}
               const channelIdStr = String(config.submissionChannelId).replace('-100', '');
               screenshotLink = `https://t.me/c/${channelIdStr}/${sent.message_id}`;
+              screenshotMessageId = sent.message_id;
             } catch (e) {
               console.error('Error posting screenshot to submission channel:', e);
             }
@@ -467,6 +481,7 @@ export class TradingRegistrationHandler {
               final_balance: session.data.final_balance,
               balance_screenshot_file_id: session.data.screenshot_file_id || null,
               screenshot_link: screenshotLink,
+              screenshot_message_id: screenshotMessageId,
               investor_password: session.data.investor_password,
             });
           } else {
@@ -476,6 +491,7 @@ export class TradingRegistrationHandler {
               final_balance: session.data.final_balance,
               balance_screenshot_file_id: session.data.screenshot_file_id || null,
               screenshot_link: screenshotLink,
+              screenshot_message_id: screenshotMessageId,
               investor_password: session.data.investor_password,
             });
           }

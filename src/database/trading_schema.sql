@@ -50,6 +50,7 @@ CREATE TABLE IF NOT EXISTS trading_submissions (
     final_balance DECIMAL(10, 2) NOT NULL,
     balance_screenshot_file_id TEXT,
     screenshot_link TEXT,
+    screenshot_message_id INTEGER,
     investor_password VARCHAR(255) NOT NULL,
     submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(registration_id)
