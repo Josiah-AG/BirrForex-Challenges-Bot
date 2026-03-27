@@ -97,6 +97,33 @@ export class TradingRegistrationHandler {
       return;
     }
 
+    // Check if user already has a submission
+    const reg = await tradingChallengeService.getRegistration(challengeId, telegramId);
+    if (reg) {
+      const existingSub = await tradingChallengeService.getSubmissionByRegistration(reg.id);
+      if (existingSub) {
+        userSessions.set(telegramId, {
+          step: 'tc_submit_override_confirm',
+          data: { challenge_id: challengeId, target_balance: challenge.target_balance, registration_id: reg.id, challenge_title: challenge.title },
+        });
+
+        await ctx.reply(
+          `⚠️ <b>You have already submitted your results for ${challenge.title}.</b>\n\n` +
+          `📋 <b>Previous Submission:</b>\n` +
+          `💰 <b>Balance:</b> $${Number(existingSub.final_balance).toFixed(2)}\n` +
+          `📸 <b>Screenshot:</b> ✅\n` +
+          `🔑 <b>Password:</b> ✅\n\n` +
+          `Do you want to <b>override</b> your previous submission?\n` +
+          `<i>Only do this if there was an error in your previous submission. The previous data will be overwritten.</i>`,
+          { parse_mode: 'HTML', ...Markup.inlineKeyboard([
+            [Markup.button.callback('✅ Yes, Submit Again', `tc_submit_override_yes_${challengeId}`)],
+            [Markup.button.callback('❌ No, Keep Previous', `tc_submit_override_no`)],
+          ]) }
+        );
+        return;
+      }
+    }
+
     userSessions.set(telegramId, {
       step: 'tc_submit_email',
       data: { challenge_id: challengeId, target_balance: challenge.target_balance },
@@ -217,6 +244,31 @@ export class TradingRegistrationHandler {
         await ctx.answerCbQuery();
         await this.verifyEmail(ctx, telegramId);
       }
+      return true;
+    }
+
+    // Submission override callbacks
+    if (data.startsWith('tc_submit_override_yes_')) {
+      const challengeId = parseInt(data.replace('tc_submit_override_yes_', ''));
+      const session = userSessions.get(telegramId);
+      if (session) {
+        session.data.is_override = true;
+        session.step = 'tc_submit_email';
+      } else {
+        userSessions.set(telegramId, {
+          step: 'tc_submit_email',
+          data: { challenge_id: challengeId, is_override: true },
+        });
+      }
+      await ctx.answerCbQuery();
+      await ctx.reply('📧 Please enter your <b>Exness email</b> to verify your identity:', { parse_mode: 'HTML' });
+      return true;
+    }
+
+    if (data === 'tc_submit_override_no') {
+      userSessions.delete(telegramId);
+      await ctx.answerCbQuery();
+      await ctx.reply('✅ Your previous submission has been kept.');
       return true;
     }
 
@@ -383,10 +435,13 @@ export class TradingRegistrationHandler {
         try {
           // Post screenshot to private submission channel and get link
           let screenshotLink: string | null = null;
+          const isOverride = session.data.is_override === true;
+
           if (session.data.screenshot_file_id && config.submissionChannelId) {
             try {
               const acctLabel = session.data.account_type === 'demo' ? 'Demo' : 'Real';
-              const caption = `<b>📋 Submission</b>\n\n` +
+              const overrideTag = isOverride ? ' (UPDATED)' : '';
+              const caption = `<b>📋 Submission${overrideTag}</b>\n\n` +
                 `👤 @${ctx.from!.username || 'unknown'}\n` +
                 `📧 ${session.data.email}\n` +
                 `🏦 ${acctLabel}: ${session.data.account_number}\n` +
@@ -407,14 +462,23 @@ export class TradingRegistrationHandler {
             }
           }
 
-          await tradingChallengeService.createSubmission({
-            registration_id: session.data.registration_id,
-            challenge_id: session.data.challenge_id,
-            final_balance: session.data.final_balance,
-            balance_screenshot_file_id: session.data.screenshot_file_id || null,
-            screenshot_link: screenshotLink,
-            investor_password: session.data.investor_password,
-          });
+          if (isOverride) {
+            await tradingChallengeService.updateSubmission(session.data.registration_id, {
+              final_balance: session.data.final_balance,
+              balance_screenshot_file_id: session.data.screenshot_file_id || null,
+              screenshot_link: screenshotLink,
+              investor_password: session.data.investor_password,
+            });
+          } else {
+            await tradingChallengeService.createSubmission({
+              registration_id: session.data.registration_id,
+              challenge_id: session.data.challenge_id,
+              final_balance: session.data.final_balance,
+              balance_screenshot_file_id: session.data.screenshot_file_id || null,
+              screenshot_link: screenshotLink,
+              investor_password: session.data.investor_password,
+            });
+          }
 
           const acctLabel = session.data.account_type === 'demo' ? 'Demo' : 'Real';
           userSessions.delete(telegramId);
@@ -434,7 +498,7 @@ export class TradingRegistrationHandler {
           );
         } catch (error: any) {
           if (error.code === '23505') {
-            await ctx.reply('⚠️ You have already submitted results for this challenge.', { parse_mode: 'HTML' });
+            await ctx.reply('⚠️ You have already submitted results for this challenge. Use the Submit Results button again to override.', { parse_mode: 'HTML' });
           } else {
             console.error('Submission error:', error);
             await ctx.reply('❌ Error saving submission. Please try again.');

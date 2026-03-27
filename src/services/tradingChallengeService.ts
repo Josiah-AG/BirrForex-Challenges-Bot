@@ -272,6 +272,30 @@ class TradingChallengeService {
     return result.rows[0];
   }
 
+  async getSubmissionByRegistration(registrationId: number): Promise<TradingSubmission | null> {
+    const result = await db.query(
+      'SELECT * FROM trading_submissions WHERE registration_id = $1',
+      [registrationId]
+    );
+    return result.rows[0] || null;
+  }
+
+  async updateSubmission(registrationId: number, data: {
+    final_balance: number;
+    balance_screenshot_file_id: string | null;
+    screenshot_link: string | null;
+    investor_password: string;
+  }): Promise<TradingSubmission> {
+    const result = await db.query(
+      `UPDATE trading_submissions
+       SET final_balance = $1, balance_screenshot_file_id = $2, screenshot_link = $3, investor_password = $4, submitted_at = NOW()
+       WHERE registration_id = $5
+       RETURNING *`,
+      [data.final_balance, data.balance_screenshot_file_id, data.screenshot_link, data.investor_password, registrationId]
+    );
+    return result.rows[0];
+  }
+
   async getSubmissions(challengeId: number): Promise<(TradingSubmission & TradingRegistration)[]> {
     const result = await db.query(
       `SELECT s.*, r.telegram_id, r.username, r.account_type, r.email, r.account_number, r.mt5_server
