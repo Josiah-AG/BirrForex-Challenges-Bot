@@ -334,8 +334,14 @@ export class TradingRegistrationHandler {
         // Check if email already registered for this challenge
         const existing = await tradingChallengeService.getRegistrationByEmail(session.data.challenge_id, session.data.email);
         if (existing) {
-          userSessions.delete(telegramId);
-          await ctx.reply('⚠️ This email is already registered for this challenge.\n\nIf you believe this is an error, please contact @birrFXadmin.');
+          await ctx.reply(
+            '⚠️ <b>This email is already registered for this challenge.</b>\n\n' +
+            'If you have another email, you can submit it below.\n' +
+            '<i>If you believe this is an error, please contact @birrFXadmin.</i>',
+            { parse_mode: 'HTML', ...Markup.inlineKeyboard([
+              [Markup.button.callback('📧 Submit Another Email', `tc_retry_email_${session.data.challenge_id}`)],
+            ]) }
+          );
           return;
         }
 
