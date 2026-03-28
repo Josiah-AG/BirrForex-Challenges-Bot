@@ -353,6 +353,17 @@ export class TradingRegistrationHandler {
 
       case 'tc_enter_account_number': {
         session.data.account_number = text.trim();
+        session.step = 'tc_confirm_account_number';
+        await ctx.reply(`🔑 Please enter your account number <b>again</b> to confirm:\n<i>(${session.data.account_number})</i>`, { parse_mode: 'HTML' });
+        break;
+      }
+
+      case 'tc_confirm_account_number': {
+        if (text.trim() !== session.data.account_number) {
+          session.step = 'tc_enter_account_number';
+          await ctx.reply(`❌ <b>Account numbers don't match.</b> Please try again.\n\nSend your <b>MT5 ${session.data.account_type === 'demo' ? 'Demo' : 'Real'} Account Number:</b>`, { parse_mode: 'HTML' });
+          return;
+        }
         session.step = 'tc_enter_server';
         const example = session.data.account_type === 'demo' ? 'ExnessMT5Trial9' : 'ExnessMT5Real9';
         await ctx.reply(`Please send your <b>MT5 Trading Server:</b>\nExample: <code>${example}</code>\n⚠️ <i>Only MT5 servers are allowed.</i>`, { parse_mode: 'HTML' });

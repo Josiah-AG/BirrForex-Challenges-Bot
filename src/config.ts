@@ -42,6 +42,9 @@ export const config = {
   // Private channel for storing submission screenshots
   submissionChannelId: process.env.SUBMISSION_CHANNEL_ID || '',
   
+  // Toggle equity/balance check for real account registration
+  realAccountEquityCheck: process.env.REAL_ACCOUNT_EQUITY_CHECK !== 'false',
+  
   // Schedule
   morningPostTime: process.env.MORNING_POST_TIME || '10:00',
   twoHourReminderTime: process.env.TWO_HOUR_REMINDER_TIME || '18:00',

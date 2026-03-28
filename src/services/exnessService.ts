@@ -228,8 +228,8 @@ class ExnessService {
       return { success: false, status: 'kyc_failed', message: 'KYC not verified' };
     }
 
-    // Step 4: Balance check (real only)
-    if (accountType === 'real') {
+    // Step 4: Balance check (real only, if enabled)
+    if (accountType === 'real' && config.realAccountEquityCheck) {
       if (clientInfo.client_balance === 0 || !clientInfo.ftd_received) {
         return { success: false, status: 'balance_failed', message: 'No positive equity' };
       }
