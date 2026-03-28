@@ -59,11 +59,32 @@ export class TradingRegistrationHandler {
     // Start registration flow
     if (challenge.type === 'hybrid') {
       userSessions.set(telegramId, { step: 'tc_select_type', data: { challenge_id: challengeId } });
+
+      const medals = ['🥇', '🥈', '🥉', '4️⃣', '5️⃣'];
+      const formatPrize = (p: any) => { const n = parseFloat(String(p)); return isNaN(n) ? String(p) : `$${n}`; };
+      const realPrizes = typeof challenge.real_prizes === 'string' ? JSON.parse(challenge.real_prizes) : (challenge.real_prizes || []);
+      const demoPrizes = typeof challenge.demo_prizes === 'string' ? JSON.parse(challenge.demo_prizes) : (challenge.demo_prizes || []);
+
+      let prizesText = '';
+      if (realPrizes.length > 0) {
+        prizesText += `\n<b>🏆 Real Account Category Prizes:</b>\n`;
+        realPrizes.forEach((p: any, i: number) => { prizesText += `${medals[i] || (i+1)+'️⃣'} ${i+1}${['st','nd','rd'][i] || 'th'} Place: <b>${formatPrize(p)}</b>\n`; });
+      }
+      if (demoPrizes.length > 0) {
+        prizesText += `\n<b>🏆 Demo Account Category Prizes:</b>\n`;
+        demoPrizes.forEach((p: any, i: number) => { prizesText += `${medals[i] || (i+1)+'️⃣'} ${i+1}${['st','nd','rd'][i] || 'th'} Place: <b>${formatPrize(p)}</b>\n`; });
+      }
+
       await ctx.reply(
-        `<b>🎯 BIRRFOREX TRADING CHALLENGE</b>\n<b>${challenge.title}</b>\n\nSelect your account type:`,
+        `<b>🎯 BIRRFOREX TRADING CHALLENGE</b>\n<b>${challenge.title}</b>\n\n` +
+        `This is a <b>Hybrid Challenge</b> — you can participate\n` +
+        `with either a <b>Demo</b> or <b>Real</b> account.\n\n` +
+        `⚠️ <i>You can only compete in one category.</i>\n` +
+        prizesText +
+        `\nChoose your category:`,
         { parse_mode: 'HTML', ...Markup.inlineKeyboard([
-          [Markup.button.callback('Demo Account', `tc_reg_demo_${challengeId}`)],
-          [Markup.button.callback('Real Account', `tc_reg_real_${challengeId}`)],
+          [Markup.button.callback('🏦 Demo Account Challenge', `tc_reg_demo_${challengeId}`)],
+          [Markup.button.callback('💰 Real Account Challenge', `tc_reg_real_${challengeId}`)],
         ]) }
       );
     } else {
