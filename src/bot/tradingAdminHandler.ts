@@ -1068,30 +1068,31 @@ export class TradingAdminHandler {
     if (!this.checkAdmin(ctx)) return;
 
     const challenges = await tradingChallengeService.getAllChallenges();
-    if (challenges.length === 0) {
-      await ctx.reply('❌ No challenges found.');
-      return;
-    }
+    if (challenges.length === 0) { await ctx.reply('❌ No challenges found.'); return; }
 
-    // Use most recent challenge with registrations
     const challenge = challenges[0];
     const registrations = await tradingChallengeService.getAllRegistrations(challenge.id);
+    if (registrations.length === 0) { await ctx.reply('❌ No registrations found.'); return; }
 
-    if (registrations.length === 0) {
-      await ctx.reply('❌ No registrations found.');
-      return;
-    }
-
-    let csv = 'Username,Telegram ID,Email,Type,Account Number,MT5 Server,Status,Registered At\n';
-    registrations.forEach(r => {
-      csv += `@${r.username || 'unknown'},${r.telegram_id},${r.email},${r.account_type},${r.account_number},${r.mt5_server || 'N/A'},${r.status},${new Date(r.registered_at).toISOString()}\n`;
-    });
+    const header = 'Username,Telegram ID,Email,Type,Account Number,MT5 Server,Status,Registered At\n';
+    const toRow = (r: any) => `@${r.username || 'unknown'},${r.telegram_id},${r.email},${r.account_type},${r.account_number},${r.mt5_server || 'N/A'},${r.status},${new Date(r.registered_at).toISOString()}\n`;
+    const prefix = challenge.title.replace(/\s+/g, '_');
 
     try {
-      await ctx.replyWithDocument({
-        source: Buffer.from(csv),
-        filename: `${challenge.title.replace(/\s+/g, '_')}_registrations.csv`,
-      });
+      if (challenge.type === 'hybrid') {
+        const realRegs = registrations.filter(r => r.account_type === 'real');
+        const demoRegs = registrations.filter(r => r.account_type === 'demo');
+
+        if (realRegs.length > 0) {
+          await ctx.replyWithDocument({ source: Buffer.from(header + realRegs.map(toRow).join('')), filename: `${prefix}_real_registrations.csv` });
+        }
+        if (demoRegs.length > 0) {
+          await ctx.replyWithDocument({ source: Buffer.from(header + demoRegs.map(toRow).join('')), filename: `${prefix}_demo_registrations.csv` });
+        }
+        await ctx.reply(`📊 <b>Registrations Export</b>\n\n📋 <b>${challenge.title}</b>\n📊 <b>Real:</b> ${realRegs.length}\n📊 <b>Demo:</b> ${demoRegs.length}\n📊 <b>Total:</b> ${registrations.length}`, { parse_mode: 'HTML' });
+      } else {
+        await ctx.replyWithDocument({ source: Buffer.from(header + registrations.map(toRow).join('')), filename: `${prefix}_registrations.csv` });
+      }
     } catch (e) {
       console.error('Error exporting registrations:', e);
       await ctx.reply('❌ Error generating export.');
@@ -1102,47 +1103,32 @@ export class TradingAdminHandler {
     if (!this.checkAdmin(ctx)) return;
 
     const challenges = await tradingChallengeService.getAllChallenges();
-    if (challenges.length === 0) {
-      await ctx.reply('❌ No challenges found.');
-      return;
-    }
+    if (challenges.length === 0) { await ctx.reply('❌ No challenges found.'); return; }
 
     const challenge = challenges[0];
     const submissions = await tradingChallengeService.getSubmissions(challenge.id);
+    if (submissions.length === 0) { await ctx.reply('❌ No submissions found for this challenge.'); return; }
 
-    if (submissions.length === 0) {
-      await ctx.reply('❌ No submissions found for this challenge.');
-      return;
-    }
-
-    // Separate by category
     const realSubs = submissions.filter(s => s.account_type === 'real').sort((a, b) => b.final_balance - a.final_balance);
     const demoSubs = submissions.filter(s => s.account_type === 'demo').sort((a, b) => b.final_balance - a.final_balance);
 
-    let csv = '';
-
-    if (realSubs.length > 0) {
-      csv += '=== REAL ACCOUNT SUBMISSIONS (sorted by balance) ===\n';
-      csv += '#,Username,Email,Account Number,MT5 Server,Investor Password,Final Balance,Screenshot,Submitted At\n';
-      realSubs.forEach((s, i) => {
-        csv += `${i + 1},@${s.username || 'unknown'},${s.email},${s.account_number},${s.mt5_server || 'N/A'},${s.investor_password},${s.final_balance},${(s as any).screenshot_link || 'N/A'},${new Date(s.submitted_at).toISOString()}\n`;
-      });
-      csv += '\n';
-    }
-
-    if (demoSubs.length > 0) {
-      csv += '=== DEMO ACCOUNT SUBMISSIONS (sorted by balance) ===\n';
-      csv += '#,Username,Email,Account Number,MT5 Server,Investor Password,Final Balance,Screenshot,Submitted At\n';
-      demoSubs.forEach((s, i) => {
-        csv += `${i + 1},@${s.username || 'unknown'},${s.email},${s.account_number},${s.mt5_server || 'N/A'},${s.investor_password},${s.final_balance},${(s as any).screenshot_link || 'N/A'},${new Date(s.submitted_at).toISOString()}\n`;
-      });
-    }
+    const header = '#,Username,Email,Account Number,MT5 Server,Investor Password,Final Balance,Screenshot,Submitted At\n';
+    const toRow = (s: any, i: number) => `${i + 1},@${s.username || 'unknown'},${s.email},${s.account_number},${s.mt5_server || 'N/A'},${s.investor_password},${s.final_balance},${s.screenshot_link || 'N/A'},${new Date(s.submitted_at).toISOString()}\n`;
+    const prefix = challenge.title.replace(/\s+/g, '_');
 
     try {
-      await ctx.replyWithDocument({
-        source: Buffer.from(csv),
-        filename: `${challenge.title.replace(/\s+/g, '_')}_submissions.csv`,
-      });
+      if (challenge.type === 'hybrid') {
+        if (realSubs.length > 0) {
+          await ctx.replyWithDocument({ source: Buffer.from(header + realSubs.map(toRow).join('')), filename: `${prefix}_real_submissions.csv` });
+        }
+        if (demoSubs.length > 0) {
+          await ctx.replyWithDocument({ source: Buffer.from(header + demoSubs.map(toRow).join('')), filename: `${prefix}_demo_submissions.csv` });
+        }
+      } else {
+        const allSorted = submissions.sort((a, b) => b.final_balance - a.final_balance);
+        await ctx.replyWithDocument({ source: Buffer.from(header + allSorted.map(toRow).join('')), filename: `${prefix}_submissions.csv` });
+      }
+
       await ctx.reply(
         `📊 <b>Submissions Export</b>\n\n` +
         `📋 <b>Challenge:</b> ${challenge.title}\n` +

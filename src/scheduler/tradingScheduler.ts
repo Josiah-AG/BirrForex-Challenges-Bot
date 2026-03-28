@@ -379,13 +379,35 @@ export class TradingScheduler {
     try {
       await this.bot.bot.telegram.sendMessage(config.adminUserId, text, { parse_mode: 'HTML' });
 
-      const csv = await this.generateCSV(challenge.id);
-      if (csv) {
+      const prefix = challenge.title.replace(/\s+/g, '_');
+      const submissions = await tradingChallengeService.getSubmissions(challenge.id);
+      const header = '#,Username,Email,Account,Server,Password,Balance,Screenshot,Submitted\n';
+      const toRow = (s: any, i: number) => `${i + 1},@${s.username || 'unknown'},${s.email},${s.account_number},${s.mt5_server || 'N/A'},${s.investor_password},${s.final_balance},${s.screenshot_link || 'N/A'},${new Date(s.submitted_at).toISOString()}\n`;
+
+      if (challenge.type === 'hybrid') {
+        const realSubs = submissions.filter(s => s.account_type === 'real').sort((a, b) => b.final_balance - a.final_balance);
+        const demoSubs = submissions.filter(s => s.account_type === 'demo').sort((a, b) => b.final_balance - a.final_balance);
+
+        if (realSubs.length > 0) {
+          await this.bot.bot.telegram.sendDocument(config.adminUserId, {
+            source: Buffer.from(header + realSubs.map(toRow).join('')),
+            filename: `${prefix}_real_submissions.csv`,
+          });
+        }
+        if (demoSubs.length > 0) {
+          await this.bot.bot.telegram.sendDocument(config.adminUserId, {
+            source: Buffer.from(header + demoSubs.map(toRow).join('')),
+            filename: `${prefix}_demo_submissions.csv`,
+          });
+        }
+      } else if (submissions.length > 0) {
+        const sorted = submissions.sort((a, b) => b.final_balance - a.final_balance);
         await this.bot.bot.telegram.sendDocument(config.adminUserId, {
-          source: Buffer.from(csv),
-          filename: `${challenge.title.replace(/\s+/g, '_')}_report.csv`,
+          source: Buffer.from(header + sorted.map(toRow).join('')),
+          filename: `${prefix}_submissions.csv`,
         });
       }
+
       console.log(`✅ Admin report sent for ${challenge.title}`);
     } catch (e) {
       console.error('Error sending admin report:', e);
