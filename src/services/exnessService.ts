@@ -179,7 +179,7 @@ class ExnessService {
         const account = data[0] as AccountData;
         return {
           allocated: true,
-          isMT5: account.platform === 'mt5',
+          isMT5: account.platform !== 'mt4',
           data: account,
         };
       }
