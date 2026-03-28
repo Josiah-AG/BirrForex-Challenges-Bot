@@ -138,6 +138,59 @@ export class TradingAdminHandler {
 
     // Challenge list selection
     if (data.startsWith('tc_view_')) {
+      // View registrations from challenge details
+      if (data.startsWith('tc_view_regs_')) {
+        const challengeId = parseInt(data.replace('tc_view_regs_', ''));
+        await ctx.answerCbQuery();
+        const regs = await tradingChallengeService.getAllRegistrations(challengeId);
+        if (regs.length === 0) {
+          await ctx.reply('❌ No registrations found.');
+          return true;
+        }
+        let text = `<b>📋 REGISTRATIONS (${regs.length})</b>\n\n`;
+        regs.forEach((r, i) => {
+          text += `${i + 1}. @${r.username || 'unknown'} — ${r.account_type === 'demo' ? '🏦 Demo' : '💰 Real'}\n📧 ${r.email} | 🏦 ${r.account_number}\n\n`;
+        });
+        // Truncate if too long for Telegram (4096 char limit)
+        if (text.length > 4000) text = text.substring(0, 4000) + '\n\n<i>... truncated. Use /exportregistrations for full list.</i>';
+        await ctx.reply(text, { parse_mode: 'HTML' });
+        return true;
+      }
+
+      // View winners from challenge details
+      if (data.startsWith('tc_view_winners_')) {
+        const challengeId = parseInt(data.replace('tc_view_winners_', ''));
+        await ctx.answerCbQuery();
+        const winners = await tradingChallengeService.getWinners(challengeId);
+        if (winners.length === 0) {
+          await ctx.reply('❌ No winners selected yet.');
+          return true;
+        }
+        const medals = ['🥇', '🥈', '🥉', '4️⃣', '5️⃣'];
+        let text = `<b>🏆 WINNERS</b>\n\n`;
+        winners.forEach((w, i) => {
+          text += `${medals[i] || (i+1)+'️⃣'} @${w.username} — ${w.category === 'demo' ? 'Demo' : 'Real'} — <b>${w.prize_amount}</b>\n`;
+        });
+        await ctx.reply(text, { parse_mode: 'HTML' });
+        return true;
+      }
+
+      // Export CSV from challenge details
+      if (data.startsWith('tc_view_export_regs_')) {
+        const challengeId = parseInt(data.replace('tc_view_export_regs_', ''));
+        await ctx.answerCbQuery();
+        // Reuse exportRegistrations logic with specific challenge
+        await this.exportRegistrationsForChallenge(ctx, challengeId);
+        return true;
+      }
+
+      if (data.startsWith('tc_view_export_subs_')) {
+        const challengeId = parseInt(data.replace('tc_view_export_subs_', ''));
+        await ctx.answerCbQuery();
+        await this.exportSubmissionsForChallenge(ctx, challengeId);
+        return true;
+      }
+
       const challengeId = parseInt(data.replace('tc_view_', ''));
       await this.showChallengeDetails(ctx, challengeId);
       return true;
@@ -788,7 +841,8 @@ export class TradingAdminHandler {
       parse_mode: 'HTML',
       ...Markup.inlineKeyboard([
         [Markup.button.callback('📋 View Registrations', `tc_view_regs_${challengeId}`)],
-        [Markup.button.callback('📎 Export CSV', `tc_export_${challengeId}`)],
+        [Markup.button.callback('📎 Export Registrations CSV', `tc_view_export_regs_${challengeId}`)],
+        [Markup.button.callback('📎 Export Submissions CSV', `tc_view_export_subs_${challengeId}`)],
         [Markup.button.callback('🏆 View Winners', `tc_view_winners_${challengeId}`)],
         [Markup.button.callback('🗑️ Delete Challenge', `tc_delete_confirm_${challengeId}`)],
       ]),
@@ -1170,6 +1224,47 @@ export class TradingAdminHandler {
       `⏰ <b>Challenge starts:</b> ${startStr}`;
 
     await ctx.reply(text, { parse_mode: 'HTML' });
+  }
+
+  private async exportRegistrationsForChallenge(ctx: Context, challengeId: number) {
+    const challenge = await tradingChallengeService.getChallengeById(challengeId);
+    if (!challenge) { await ctx.reply('❌ Challenge not found.'); return; }
+    const registrations = await tradingChallengeService.getAllRegistrations(challengeId);
+    if (registrations.length === 0) { await ctx.reply('❌ No registrations found.'); return; }
+    const header = 'Username,Telegram ID,Email,Type,Account Number,MT5 Server,Status,Registered At\n';
+    const toRow = (r: any) => `@${r.username || 'unknown'},${r.telegram_id},${r.email},${r.account_type},${r.account_number},${r.mt5_server || 'N/A'},${r.status},${new Date(r.registered_at).toISOString()}\n`;
+    const prefix = challenge.title.replace(/\s+/g, '_');
+    try {
+      if (challenge.type === 'hybrid') {
+        const realRegs = registrations.filter(r => r.account_type === 'real');
+        const demoRegs = registrations.filter(r => r.account_type === 'demo');
+        if (realRegs.length > 0) await ctx.replyWithDocument({ source: Buffer.from(header + realRegs.map(toRow).join('')), filename: `${prefix}_real_registrations.csv` });
+        if (demoRegs.length > 0) await ctx.replyWithDocument({ source: Buffer.from(header + demoRegs.map(toRow).join('')), filename: `${prefix}_demo_registrations.csv` });
+      } else {
+        await ctx.replyWithDocument({ source: Buffer.from(header + registrations.map(toRow).join('')), filename: `${prefix}_registrations.csv` });
+      }
+    } catch (e) { await ctx.reply('❌ Error generating export.'); }
+  }
+
+  private async exportSubmissionsForChallenge(ctx: Context, challengeId: number) {
+    const challenge = await tradingChallengeService.getChallengeById(challengeId);
+    if (!challenge) { await ctx.reply('❌ Challenge not found.'); return; }
+    const submissions = await tradingChallengeService.getSubmissions(challengeId);
+    if (submissions.length === 0) { await ctx.reply('❌ No submissions found.'); return; }
+    const header = '#,Username,Email,Account Number,MT5 Server,Investor Password,Final Balance,Screenshot,Submitted At\n';
+    const toRow = (s: any, i: number) => `${i + 1},@${s.username || 'unknown'},${s.email},${s.account_number},${s.mt5_server || 'N/A'},${s.investor_password},${s.final_balance},${s.screenshot_link || 'N/A'},${new Date(s.submitted_at).toISOString()}\n`;
+    const prefix = challenge.title.replace(/\s+/g, '_');
+    try {
+      if (challenge.type === 'hybrid') {
+        const realSubs = submissions.filter(s => s.account_type === 'real').sort((a, b) => b.final_balance - a.final_balance);
+        const demoSubs = submissions.filter(s => s.account_type === 'demo').sort((a, b) => b.final_balance - a.final_balance);
+        if (realSubs.length > 0) await ctx.replyWithDocument({ source: Buffer.from(header + realSubs.map(toRow).join('')), filename: `${prefix}_real_submissions.csv` });
+        if (demoSubs.length > 0) await ctx.replyWithDocument({ source: Buffer.from(header + demoSubs.map(toRow).join('')), filename: `${prefix}_demo_submissions.csv` });
+      } else {
+        const sorted = submissions.sort((a, b) => b.final_balance - a.final_balance);
+        await ctx.replyWithDocument({ source: Buffer.from(header + sorted.map(toRow).join('')), filename: `${prefix}_submissions.csv` });
+      }
+    } catch (e) { await ctx.reply('❌ Error generating export.'); }
   }
 
   async viewSubmissions(ctx: Context) {
