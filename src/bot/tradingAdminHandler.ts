@@ -298,6 +298,54 @@ export class TradingAdminHandler {
       return true;
     }
 
+    // Wait for forward
+    if (data === 'tc_mv_wait_forward') {
+      const session = tradingAdminSessions.get(telegramId);
+      if (!session) return true;
+      session.step = 'tc_mv_forward';
+      await ctx.answerCbQuery();
+      await ctx.reply(
+        `<b>Forward a message from the user</b> you want to register.\n<i>(Open their chat, long-press any message, and forward it here)</i>`,
+        { parse_mode: 'HTML' }
+      );
+      return true;
+    }
+
+    // Search by username
+    if (data === 'tc_mv_search_username') {
+      const session = tradingAdminSessions.get(telegramId);
+      if (!session) return true;
+      session.step = 'tc_mv_search';
+      await ctx.answerCbQuery();
+      await ctx.reply('Enter the user\'s <b>Telegram username</b> (without @):', { parse_mode: 'HTML' });
+      return true;
+    }
+
+    // Search result selection
+    if (data.startsWith('tc_mv_pick_')) {
+      const session = tradingAdminSessions.get(telegramId);
+      if (!session) return true;
+      const parts = data.replace('tc_mv_pick_', '').split('_');
+      const userId = parseInt(parts[0]);
+      const { tradingRegistrationHandler } = require('./tradingRegistrationHandler');
+      const knownUsers = tradingRegistrationHandler.getKnownUsers();
+      const user = knownUsers.get(userId);
+      session.data.user_telegram_id = userId;
+      session.data.username = user?.username || parts.slice(1).join('_') || 'unknown';
+      session.step = 'tc_mv_type';
+      const challengeId = session.data.challenge_id;
+      const displayName = user?.username ? `@${user.username}` : (user?.firstName || `ID: ${userId}`);
+      await ctx.answerCbQuery();
+      await ctx.reply(
+        `✅ <b>User selected:</b> ${displayName}\n<b>Telegram ID:</b> <code>${userId}</code>\n\nSelect account type:`,
+        { parse_mode: 'HTML', ...Markup.inlineKeyboard([
+          [Markup.button.callback('🏦 Demo Account', `tc_mv_type_demo_${challengeId}`)],
+          [Markup.button.callback('💰 Real Account', `tc_mv_type_real_${challengeId}`)],
+        ]) }
+      );
+      return true;
+    }
+
     // Winner confirm callbacks
     if (data === 'tc_confirm_winners_yes') {
       await this.saveAndAnnounceWinners(ctx);
@@ -577,6 +625,56 @@ export class TradingAdminHandler {
           await ctx.reply('Enter the user\'s <b>Telegram username</b> (without @):', { parse_mode: 'HTML' });
         } else {
           await ctx.reply('❌ Please <b>forward a message</b> from the user, or enter their numeric Telegram ID.', { parse_mode: 'HTML' });
+        }
+        break;
+      }
+
+      case 'tc_mv_search': {
+        const searchName = text.trim().replace('@', '').toLowerCase();
+        const { tradingRegistrationHandler } = require('../bot/tradingRegistrationHandler');
+        const knownUsers = tradingRegistrationHandler.getKnownUsers() as Map<number, { username: string | null; firstName: string | null }>;
+
+        // Search known users
+        const matches: { id: number; username: string | null; firstName: string | null }[] = [];
+        knownUsers.forEach((user, id) => {
+          if (
+            (user.username && user.username.toLowerCase().includes(searchName)) ||
+            (user.firstName && user.firstName.toLowerCase().includes(searchName))
+          ) {
+            matches.push({ id, ...user });
+          }
+        });
+
+        if (matches.length === 0) {
+          await ctx.reply(
+            `❌ No users found matching "<b>${searchName}</b>".\n\n<i>The user must have tapped "Join Challenge" at least once for the bot to know them.</i>`,
+            { parse_mode: 'HTML', ...Markup.inlineKeyboard([
+              [Markup.button.callback('🔍 Search Again', 'tc_mv_search_username')],
+              [Markup.button.callback('✍️ Enter Manually', 'tc_mv_manual_entry')],
+            ]) }
+          );
+        } else if (matches.length === 1) {
+          // Auto-select single match
+          const m = matches[0];
+          session.data.user_telegram_id = m.id;
+          session.data.username = m.username || m.firstName || 'unknown';
+          session.step = 'tc_mv_type';
+          const challengeId = session.data.challenge_id;
+          const displayName = m.username ? `@${m.username}` : (m.firstName || `ID: ${m.id}`);
+          await ctx.reply(
+            `✅ <b>User found:</b> ${displayName}\n<b>Telegram ID:</b> <code>${m.id}</code>\n\nSelect account type:`,
+            { parse_mode: 'HTML', ...Markup.inlineKeyboard([
+              [Markup.button.callback('🏦 Demo Account', `tc_mv_type_demo_${challengeId}`)],
+              [Markup.button.callback('💰 Real Account', `tc_mv_type_real_${challengeId}`)],
+            ]) }
+          );
+        } else {
+          // Multiple matches — show buttons
+          const buttons = matches.slice(0, 8).map(m => {
+            const label = m.username ? `@${m.username}` : (m.firstName || `ID: ${m.id}`);
+            return [Markup.button.callback(label, `tc_mv_pick_${m.id}_${m.username || ''}`)];
+          });
+          await ctx.reply(`Found <b>${matches.length}</b> user(s). Select one:`, { parse_mode: 'HTML', ...Markup.inlineKeyboard(buttons) });
         }
         break;
       }
@@ -1265,9 +1363,10 @@ export class TradingAdminHandler {
 
     await ctx.reply(
       `<b>📋 Manual Registration</b>\n\nChallenge: <b>${activeChallenge.title}</b>\n\n` +
-      `<b>Forward a message from the user</b> you want to register.\n` +
-      `<i>(Open their chat, long-press any message, and forward it here)</i>`,
+      `Choose how to identify the user:`,
       { parse_mode: 'HTML', ...Markup.inlineKeyboard([
+        [Markup.button.callback('🔍 Search by Username', 'tc_mv_search_username')],
+        [Markup.button.callback('📨 Forward a Message', 'tc_mv_wait_forward')],
         [Markup.button.callback('✍️ Enter Details Manually', 'tc_mv_manual_entry')],
       ]) }
     );

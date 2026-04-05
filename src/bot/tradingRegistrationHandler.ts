@@ -10,14 +10,24 @@ interface UserSession {
 
 const userSessions = new Map<number, UserSession>();
 
+// Track users who interacted with the bot (for manual verify lookup)
+const knownUsers = new Map<number, { username: string | null; firstName: string | null }>();
+
 export class TradingRegistrationHandler {
 
   hasActiveSession(telegramId: number): boolean {
     return userSessions.has(telegramId);
   }
 
+  getKnownUsers(): Map<number, { username: string | null; firstName: string | null }> {
+    return knownUsers;
+  }
+
   async startRegistration(ctx: Context, challengeId: number) {
     const telegramId = ctx.from!.id;
+    // Track this user for manual verify lookup
+    knownUsers.set(telegramId, { username: ctx.from!.username || null, firstName: ctx.from!.first_name || null });
+
     const challenge = await tradingChallengeService.getChallengeById(challengeId);
 
     if (!challenge) {
