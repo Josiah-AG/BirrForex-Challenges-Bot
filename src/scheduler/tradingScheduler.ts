@@ -111,7 +111,7 @@ export class TradingScheduler {
     if (challenge.video_url) links += `\n🎥 Challenge Guide: <a href="${challenge.video_url}">Watch Video</a>`;
 
     const prizeText = this.getPrizeSummary(challenge);
-    const text = `${header}\n\n${body}\n\n📅 <b>Start:</b> ${startStr}\n💰 $${challenge.starting_balance} → 🎯 $${challenge.target_balance}\n${prizeText}\n${links}`;
+    const text = `${header}\n\n${body}\n\n📅 <b>Start:</b> ${startStr}\n💰 $${challenge.starting_balance} → 🎯 $${challenge.target_balance}\n${prizeText}\n${links}\n\n👉 <b>Tap "Join Challenge" below to register!</b>`;
 
     const keyboard = Markup.inlineKeyboard([
       [Markup.button.url('🚀 Join Challenge', `https://t.me/${botInfo.username}?start=tc_register_${challenge.id}`)],

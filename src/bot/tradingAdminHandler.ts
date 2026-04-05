@@ -958,7 +958,8 @@ export class TradingAdminHandler {
       `➡️ All Real Account participants will be invited to join <b>BirrForex Live Trading Team</b>\n` +
       `➡️ Demo traders who hit the target will get an invitation to join <b>BirrForex Live Trading Team</b>\n\n` +
       `⚠️ <i>Please read the challenge rules carefully before you start the challenge!</i>\n` +
-      linksText;
+      linksText +
+      `\n\n👉 <b>Tap "Join Challenge" below to register!</b>`;
   }
 
   private getOrdinal(n: number): string {
@@ -1694,11 +1695,11 @@ export class TradingAdminHandler {
     const prizePoolSection = c.prize_pool_text ? `\n<b>🏆 PRIZE POOL</b>\n\n<b>${c.prize_pool_text}</b>\n` : '';
 
     if (promoNum === 1) {
-      return `<b>🎯 BIRRFOREX TRADING CHALLENGE IS HERE!</b>\n\n<b>${c.title}</b>\n\n💰 Start with <b>$${c.starting_balance}</b> → 🎯 Hit <b>$${c.target_balance}</b>\n\n📅 <b>Challenge Period:</b> ${periodStr}\n${prizePoolSection}\nOpen to Demo & Real account traders!\nRegister now and show your trading skills 💪\n${links}`;
+      return `<b>🎯 BIRRFOREX TRADING CHALLENGE IS HERE!</b>\n\n<b>${c.title}</b>\n\n💰 Start with <b>$${c.starting_balance}</b> → 🎯 Hit <b>$${c.target_balance}</b>\n\n📅 <b>Challenge Period:</b> ${periodStr}\n${prizePoolSection}\nOpen to Demo & Real account traders!\nRegister now and show your trading skills 💪\n${links}\n\n👉 <b>Tap \"Join Challenge\" below to register!</b>`;
     } else if (promoNum === 2) {
-      return `<b>📢 HAVE YOU REGISTERED YET?</b>\n\n<b>${c.title}</b> is coming up!\n${prizePoolSection}\nRegistration is <b>FREE</b> and takes 2 minutes!\n\nDon't miss your chance to compete 🔥\n${links}`;
+      return `<b>📢 HAVE YOU REGISTERED YET?</b>\n\n<b>${c.title}</b> is coming up!\n${prizePoolSection}\nRegistration is <b>FREE</b> and takes 2 minutes!\n\nDon't miss your chance to compete 🔥\n${links}\n\n👉 <b>Tap \"Join Challenge\" below to register!</b>`;
     } else {
-      return `<b>⏰ DEADLINE IS APPROACHING!</b>\n\n<b>${c.title}</b> registration is closing soon!\n\n📅 <b>Start:</b> ${startStr}\n${prizePoolSection}\nAfter the challenge starts, registration closes.\nDon't wait until the last minute!\n\nSecure your spot <b>NOW</b> 🚀\n${links}`;
+      return `<b>⏰ DEADLINE IS APPROACHING!</b>\n\n<b>${c.title}</b> registration is closing soon!\n\n📅 <b>Start:</b> ${startStr}\n${prizePoolSection}\nAfter the challenge starts, registration closes.\nDon't wait until the last minute!\n\nSecure your spot <b>NOW</b> 🚀\n${links}\n\n👉 <b>Tap \"Join Challenge\" below to register!</b>`;
     }
   }
 
