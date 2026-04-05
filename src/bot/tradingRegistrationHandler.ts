@@ -3,6 +3,9 @@ import { tradingChallengeService } from '../services/tradingChallengeService';
 import { exnessService } from '../services/exnessService';
 import { config } from '../config';
 
+// Convert stored UTC date to EAT for display
+const toEAT = (d: Date) => new Date(new Date(d).getTime() + 3 * 60 * 60 * 1000);
+
 interface UserSession {
   step: string;
   data: any;
@@ -872,7 +875,7 @@ export class TradingRegistrationHandler {
       userSessions.delete(telegramId);
 
       const acctLabel = session.data.account_type === 'demo' ? 'Demo' : 'Real';
-      const startStr = new Date(challenge.start_date).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
+      const startStr = toEAT(challenge.start_date).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
 
       let switchText = '';
       let buttons: any[][] = [

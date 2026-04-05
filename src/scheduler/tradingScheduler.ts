@@ -4,6 +4,9 @@ import { tradingChallengeService, TradingChallenge } from '../services/tradingCh
 import { config } from '../config';
 import { Markup } from 'telegraf';
 
+// Convert stored UTC date to EAT for display
+const toEAT = (d: Date) => new Date(new Date(d).getTime() + 3 * 60 * 60 * 1000);
+
 export class TradingScheduler {
   private bot: Bot;
 
@@ -87,7 +90,7 @@ export class TradingScheduler {
   }
 
   async postCountdown(challenge: TradingChallenge, daysLeft: number) {
-    const startStr = new Date(challenge.start_date).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
+    const startStr = toEAT(challenge.start_date).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
     const botInfo = await this.bot.bot.telegram.getMe();
 
     let header = '';
@@ -296,7 +299,7 @@ export class TradingScheduler {
     await tradingChallengeService.setSubmissionDeadline(challenge.id, deadline);
     await tradingChallengeService.updateChallengeStatus(challenge.id, 'submission_open');
 
-    const deadlineStr = deadline.toLocaleString('en-US', { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
+    const deadlineStr = toEAT(deadline).toLocaleString('en-US', { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
     const botInfo = await this.bot.bot.telegram.getMe();
 
     let guideLink = '';
@@ -366,8 +369,8 @@ export class TradingScheduler {
   async sendAdminReport(challenge: TradingChallenge) {
     const counts = await tradingChallengeService.getRegistrationCounts(challenge.id);
     const subCounts = await tradingChallengeService.getSubmissionCount(challenge.id);
-    const startStr = new Date(challenge.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-    const endStr = new Date(challenge.end_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    const startStr = toEAT(challenge.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    const endStr = toEAT(challenge.end_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
     const typeLabel = challenge.type === 'hybrid' ? 'Hybrid (Demo & Real)' : challenge.type === 'demo' ? 'Demo' : 'Real';
 
     const text = `<b>📊 TRADING CHALLENGE REPORT</b>\n<b>${challenge.title}</b>\n\n` +
@@ -453,7 +456,7 @@ export class TradingScheduler {
     const dailyStats = await tradingChallengeService.getDailyStats(challenge.id, yesterdayStr);
     const totalStats = await tradingChallengeService.getTotalStats(challenge.id);
     const counts = await tradingChallengeService.getRegistrationCounts(challenge.id);
-    const startStr = new Date(challenge.start_date).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
+    const startStr = toEAT(challenge.start_date).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
 
     let text = `<b>📊 DAILY REGISTRATION SUMMARY</b>\n<b>${challenge.title}</b>\n` +
       `📅 <b>Period:</b> ${yesterdayStr} 8:00 AM → ${dateStr} 8:00 AM\n\n`;

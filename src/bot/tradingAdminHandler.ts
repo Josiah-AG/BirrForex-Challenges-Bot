@@ -3,6 +3,9 @@ import { tradingChallengeService, TradingChallenge } from '../services/tradingCh
 import { isAdmin } from '../utils/helpers';
 import { config } from '../config';
 
+// Convert stored UTC date to EAT for display
+const toEAT = (d: Date) => new Date(new Date(d).getTime() + 3 * 60 * 60 * 1000);
+
 interface TradingAdminSession {
   step: string;
   data: any;
@@ -758,8 +761,8 @@ export class TradingAdminHandler {
 
     const d = session.data;
     const typeLabel = d.type.charAt(0).toUpperCase() + d.type.slice(1);
-    const startStr = d.start_date.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
-    const endStr = d.end_date.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
+    const startStr = toEAT(d.start_date).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
+    const endStr = toEAT(d.end_date).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
 
     let prizesText = '';
     if (d.type === 'hybrid' || d.type === 'real') {
@@ -916,8 +919,8 @@ export class TradingAdminHandler {
     const typeLabel = c.type === 'hybrid' ? 'Hybrid (Demo & Real Account)' :
       c.type === 'demo' ? 'Demo Account' : 'Real Account';
 
-    const startStr = new Date(c.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-    const endStr = new Date(c.end_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    const startStr = toEAT(c.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    const endStr = toEAT(c.end_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 
     let prizesSection = '';
     if (c.prize_pool_text) {
@@ -1070,8 +1073,8 @@ export class TradingAdminHandler {
     const subCounts = await tradingChallengeService.getSubmissionCount(challengeId);
     const winners = await tradingChallengeService.getWinners(challengeId);
 
-    const startStr = new Date(challenge.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-    const endStr = new Date(challenge.end_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    const startStr = toEAT(challenge.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    const endStr = toEAT(challenge.end_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 
     const text = `<b>📊 ${challenge.title}</b>\n\n` +
       `<b>Status:</b> ${challenge.status}\n` +
@@ -1509,7 +1512,7 @@ export class TradingAdminHandler {
 
     const counts = await tradingChallengeService.getRegistrationCounts(challenge.id);
     const totalStats = await tradingChallengeService.getTotalStats(challenge.id);
-    const startStr = new Date(challenge.start_date).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
+    const startStr = toEAT(challenge.start_date).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
 
     const text = `<b>📊 REGISTRATION SUMMARY</b>\n<b>${challenge.title}</b>\n\n` +
       `<b>📊 TOTALS:</b>\n` +
@@ -1681,8 +1684,8 @@ export class TradingAdminHandler {
   }
 
   private generatePromoText(c: TradingChallenge, promoNum: number, botUsername: string): string {
-    const startStr = new Date(c.start_date).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
-    const periodStr = `${new Date(c.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${new Date(c.end_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
+    const startStr = toEAT(c.start_date).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
+    const periodStr = `${toEAT(c.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${toEAT(c.end_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
 
     let links = '';
     if (c.pdf_url) links += `\n📄 Challenge Rules: <a href="${c.pdf_url}">Download PDF</a>`;
@@ -1791,7 +1794,7 @@ export class TradingAdminHandler {
     const counts = await tradingChallengeService.getRegistrationCounts(challenge.id);
     const subCounts = await tradingChallengeService.getSubmissionCount(challenge.id);
     const medals = ['🥇', '🥈', '🥉', '4️⃣', '5️⃣'];
-    const periodStr = `${new Date(challenge.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${new Date(challenge.end_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
+    const periodStr = `${toEAT(challenge.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${toEAT(challenge.end_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
 
     let text = `<b>🏆 TRADING CHALLENGE RESULTS 🏆</b>\n<b>${challenge.title}</b>\n\n📅 <b>Period:</b> ${periodStr}\n\n`;
 
@@ -2325,7 +2328,7 @@ export class TradingAdminHandler {
   private async postTestWinnerAnnouncement(ctx: Context, challenge: TradingChallenge) {
     const counts = await tradingChallengeService.getRegistrationCounts(challenge.id);
     const subCounts = await tradingChallengeService.getSubmissionCount(challenge.id);
-    const periodStr = `${new Date(challenge.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${new Date(challenge.end_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
+    const periodStr = `${toEAT(challenge.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${toEAT(challenge.end_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
 
     const realPrizes = typeof challenge.real_prizes === 'string' ? JSON.parse(challenge.real_prizes) : (challenge.real_prizes || []);
     const demoPrizes = typeof challenge.demo_prizes === 'string' ? JSON.parse(challenge.demo_prizes) : (challenge.demo_prizes || []);
