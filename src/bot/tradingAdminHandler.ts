@@ -211,6 +211,71 @@ export class TradingAdminHandler {
       return await this.handleAdditionalPostCallback(ctx, data);
     }
 
+    // Manual verify callbacks
+    if (data === 'tc_mv_confirm') {
+      const session = tradingAdminSessions.get(telegramId);
+      if (!session) return true;
+      const d = session.data;
+
+      try {
+        await tradingChallengeService.registerUser({
+          challenge_id: d.challenge_id,
+          telegram_id: d.user_telegram_id,
+          username: d.username,
+          account_type: d.account_type,
+          email: d.email,
+          account_number: d.account_number,
+          mt5_server: d.mt5_server,
+          client_uid: null,
+        });
+
+        tradingAdminSessions.delete(telegramId);
+        await ctx.answerCbQuery('Registered!');
+        await ctx.reply(`✅ <b>User manually registered!</b>\n\n@${d.username} has been registered for ${d.challenge_title}.`, { parse_mode: 'HTML' });
+
+        // Notify the user
+        try {
+          const challenge = await tradingChallengeService.getChallengeById(d.challenge_id);
+          const acctLabel = d.account_type === 'demo' ? 'Demo' : 'Real';
+          let linksText = '';
+          if (challenge?.pdf_url) linksText += `\n📄 Challenge Rules: <a href="${challenge.pdf_url}">Download PDF</a>`;
+          if (challenge?.video_url) linksText += `\n🎥 Challenge Guide: <a href="${challenge.video_url}">Watch Video</a>`;
+
+          await ctx.telegram.sendMessage(d.user_telegram_id,
+            `✅ <b>Registration Approved!</b>\n\n` +
+            `You have been registered for <b>${d.challenge_title}</b>.\n\n` +
+            `📋 <b>Your Registration:</b>\n` +
+            `📧 <b>Email:</b> ${d.email}\n` +
+            `🏦 <b>${acctLabel} Account:</b> ${d.account_number}\n` +
+            `🖥️ <b>Server:</b> ${d.mt5_server}\n` +
+            `📊 <b>Type:</b> ${acctLabel}\n\n` +
+            `⚠️ <i>Please read the rules and understand them well before starting the challenge!</i>\n` +
+            linksText,
+            { parse_mode: 'HTML', link_preview_options: { is_disabled: true } }
+          );
+          await ctx.reply('✅ User has been notified.');
+        } catch (e) {
+          await ctx.reply('⚠️ Registered but could not notify user (DMs may be closed).');
+        }
+      } catch (error: any) {
+        if (error.code === '23505') {
+          await ctx.reply('⚠️ This user is already registered for this challenge.');
+        } else {
+          console.error('Manual verify error:', error);
+          await ctx.reply('❌ Error registering user.');
+        }
+        tradingAdminSessions.delete(telegramId);
+      }
+      return true;
+    }
+
+    if (data === 'tc_mv_cancel') {
+      tradingAdminSessions.delete(telegramId);
+      await ctx.answerCbQuery('Cancelled');
+      await ctx.reply('❌ Manual registration cancelled.');
+      return true;
+    }
+
     // Winner confirm callbacks
     if (data === 'tc_confirm_winners_yes') {
       await this.saveAndAnnounceWinners(ctx);
@@ -477,6 +542,68 @@ export class TradingAdminHandler {
         session.data.target_username = text.trim().replace('@', '');
         session.step = 'tc_dq_reason';
         await ctx.reply('Enter reason for disqualification:');
+        break;
+      }
+
+      // Manual verify steps
+      case 'tc_mv_telegram_id': {
+        const tid = parseInt(text.trim());
+        if (isNaN(tid)) { await ctx.reply('❌ Enter a valid numeric Telegram ID.'); return; }
+        session.data.user_telegram_id = tid;
+        session.step = 'tc_mv_username';
+        await ctx.reply('Enter the user\'s <b>Telegram username</b> (without @):', { parse_mode: 'HTML' });
+        break;
+      }
+
+      case 'tc_mv_username': {
+        session.data.username = text.trim().replace('@', '');
+        session.step = 'tc_mv_type';
+        await ctx.reply('Account type?\n\nSend <b>demo</b> or <b>real</b>:', { parse_mode: 'HTML' });
+        break;
+      }
+
+      case 'tc_mv_type': {
+        const t = text.trim().toLowerCase();
+        if (t !== 'demo' && t !== 'real') { await ctx.reply('❌ Send <b>demo</b> or <b>real</b>.', { parse_mode: 'HTML' }); return; }
+        session.data.account_type = t;
+        session.step = 'tc_mv_email';
+        await ctx.reply('Enter the user\'s <b>Exness email:</b>', { parse_mode: 'HTML' });
+        break;
+      }
+
+      case 'tc_mv_email': {
+        session.data.email = text.trim().toLowerCase();
+        session.step = 'tc_mv_account';
+        await ctx.reply(`Enter the <b>MT5 ${session.data.account_type === 'demo' ? 'Demo' : 'Real'} Account Number:</b>`, { parse_mode: 'HTML' });
+        break;
+      }
+
+      case 'tc_mv_account': {
+        session.data.account_number = text.trim();
+        session.step = 'tc_mv_server';
+        await ctx.reply('Enter the <b>MT5 Trading Server:</b>', { parse_mode: 'HTML' });
+        break;
+      }
+
+      case 'tc_mv_server': {
+        session.data.mt5_server = text.trim();
+        // Show confirmation
+        const d = session.data;
+        const acctLabel = d.account_type === 'demo' ? 'Demo' : 'Real';
+        await ctx.reply(
+          `<b>📋 Confirm Manual Registration</b>\n\n` +
+          `👤 <b>Telegram ID:</b> ${d.user_telegram_id}\n` +
+          `👤 <b>Username:</b> @${d.username}\n` +
+          `📧 <b>Email:</b> ${d.email}\n` +
+          `🏦 <b>${acctLabel} Account:</b> ${d.account_number}\n` +
+          `🖥️ <b>Server:</b> ${d.mt5_server}\n` +
+          `📊 <b>Type:</b> ${acctLabel}\n` +
+          `📋 <b>Challenge:</b> ${d.challenge_title}`,
+          { parse_mode: 'HTML', ...Markup.inlineKeyboard([
+            [Markup.button.callback('✅ Confirm & Register', 'tc_mv_confirm')],
+            [Markup.button.callback('❌ Cancel', 'tc_mv_cancel')],
+          ]) }
+        );
         break;
       }
 
@@ -1073,6 +1200,32 @@ export class TradingAdminHandler {
     });
 
     await ctx.reply('Enter the username of the participant:');
+  }
+
+  // ==================== MANUAL VERIFY ====================
+
+  async manualVerify(ctx: Context) {
+    if (!this.checkAdmin(ctx)) return;
+
+    const challenges = await tradingChallengeService.getAllChallenges();
+    const activeChallenge = challenges.find(c => ['registration_open', 'active'].includes(c.status));
+
+    if (!activeChallenge) {
+      await ctx.reply('❌ No active challenge found with open registration.');
+      return;
+    }
+
+    const telegramId = ctx.from!.id;
+    tradingAdminSessions.set(telegramId, {
+      step: 'tc_mv_telegram_id',
+      data: { challenge_id: activeChallenge.id, challenge_title: activeChallenge.title },
+    });
+
+    await ctx.reply(
+      `<b>📋 Manual Registration</b>\n\nChallenge: <b>${activeChallenge.title}</b>\n\n` +
+      `Enter the user's <b>Telegram ID</b> (numeric):`,
+      { parse_mode: 'HTML' }
+    );
   }
 
   // ==================== DISQUALIFY ====================

@@ -53,6 +53,7 @@ export class Bot {
       { command: 'selectwinners', description: 'Select trading challenge winners' },
       { command: 'messageuser', description: 'Message a participant' },
       { command: 'disqualify', description: 'Disqualify a participant' },
+      { command: 'manualverify', description: 'Manually register a user' },
       { command: 'promo', description: 'Post promo message' },
       { command: 'exportregistrations', description: 'Export registrations CSV' },
       { command: 'exportsubmissions', description: 'Export submissions CSV (with passwords)' },
@@ -146,6 +147,7 @@ export class Bot {
     this.bot.command('selectwinners', (ctx) => tradingAdminHandler.selectWinners(ctx));
     this.bot.command('messageuser', (ctx) => tradingAdminHandler.messageUser(ctx));
     this.bot.command('disqualify', (ctx) => tradingAdminHandler.disqualify(ctx));
+    this.bot.command('manualverify', (ctx) => tradingAdminHandler.manualVerify(ctx));
     this.bot.command('promo', (ctx) => tradingAdminHandler.promo(ctx));
     this.bot.command('exportregistrations', (ctx) => tradingAdminHandler.exportRegistrations(ctx));
     this.bot.command('exportsubmissions', (ctx) => tradingAdminHandler.exportSubmissions(ctx));
