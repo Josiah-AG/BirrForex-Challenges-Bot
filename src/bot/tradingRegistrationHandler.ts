@@ -645,8 +645,11 @@ export class TradingRegistrationHandler {
       }
 
       if (result.status === 'not_allocated') {
-        userSessions.delete(telegramId);
+        session.data.allocation_fail_count = (session.data.allocation_fail_count || 0) + 1;
         const challengeId = session.data.challenge_id;
+        const contactAdmin = session.data.allocation_fail_count >= 2
+          ? `\n\n<b>If you are sure this is a mistake, contact @birrFXadmin with a screenshot of this message.</b>`
+          : '';
         await ctx.reply(
           `⚠️ Your Exness account is not registered under BirrForex.\n\n` +
           `First, please make sure you spelled your email correctly.\nIf it was wrong, you can submit it again below.\n\n` +
@@ -663,7 +666,7 @@ export class TradingRegistrationHandler {
           `➡️ Submit and verify with SMS code\n` +
           `➡️ Wait for confirmation (usually within 24 hours)\n` +
           (config.partnerChangeGuideLink ? `\n📋 Full guide: <a href="${config.partnerChangeGuideLink}">How to Change Partner</a>\n` : '') +
-          `\nAfter completing one of the options, try again:`,
+          `\nAfter completing one of the options, try again:` + contactAdmin,
           { parse_mode: 'HTML', link_preview_options: { is_disabled: true },
             ...Markup.inlineKeyboard([[Markup.button.callback('📧 Submit Email Again', `tc_retry_email_${challengeId}`)]]) }
         );
@@ -671,8 +674,11 @@ export class TradingRegistrationHandler {
       }
 
       if (result.status === 'kyc_failed') {
-        userSessions.delete(telegramId);
+        session.data.kyc_fail_count = (session.data.kyc_fail_count || 0) + 1;
         const challengeId = session.data.challenge_id;
+        const contactAdmin = session.data.kyc_fail_count >= 2
+          ? `\n\n<b>If you are sure your account is verified, contact @birrFXadmin with a screenshot of this message.</b>`
+          : '';
         await ctx.reply(
           `❌ Your Exness account is not fully verified.\n\n` +
           `Please complete your KYC verification first:\n` +
@@ -680,8 +686,8 @@ export class TradingRegistrationHandler {
           `➡️ Go to Settings → Verification\n` +
           `➡️ Upload your ID and proof of address\n` +
           `➡️ Wait for approval (usually a few minutes)\n\n` +
-          `Once verified, try again:`,
-          Markup.inlineKeyboard([[Markup.button.callback('📧 Submit Email Again', `tc_retry_email_${challengeId}`)]])
+          `Once verified, try again:` + contactAdmin,
+          { parse_mode: 'HTML', ...Markup.inlineKeyboard([[Markup.button.callback('📧 Submit Email Again', `tc_retry_email_${challengeId}`)]]) }
         );
         return;
       }
