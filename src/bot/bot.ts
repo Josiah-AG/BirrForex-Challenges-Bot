@@ -497,6 +497,12 @@ export class Bot {
       
       // Check if admin has active trading challenge session
       if (isAdmin(telegramId) && tradingAdminHandler.hasActiveSession(telegramId)) {
+        // Check if this is a forwarded message (for manual verify)
+        const fwd = (ctx.message as any).forward_from;
+        if (fwd) {
+          await tradingAdminHandler.handleForwardedMessage(ctx, fwd.id, fwd.username || null, fwd.first_name || null);
+          return;
+        }
         await tradingAdminHandler.handleTextInput(ctx, ctx.message.text);
         return;
       }

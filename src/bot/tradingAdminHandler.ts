@@ -276,6 +276,18 @@ export class TradingAdminHandler {
       return true;
     }
 
+    // Manual verify type selection
+    if (data.startsWith('tc_mv_type_demo_') || data.startsWith('tc_mv_type_real_')) {
+      const session = tradingAdminSessions.get(telegramId);
+      if (!session) return true;
+      const accountType = data.includes('_demo_') ? 'demo' : 'real';
+      session.data.account_type = accountType;
+      session.step = 'tc_mv_email';
+      await ctx.answerCbQuery();
+      await ctx.reply('Enter the user\'s <b>Exness email:</b>', { parse_mode: 'HTML' });
+      return true;
+    }
+
     // Winner confirm callbacks
     if (data === 'tc_confirm_winners_yes') {
       await this.saveAndAnnounceWinners(ctx);
@@ -546,28 +558,27 @@ export class TradingAdminHandler {
       }
 
       // Manual verify steps
-      case 'tc_mv_telegram_id': {
+      case 'tc_mv_forward': {
+        // If user typed a Telegram ID directly (fallback)
         const tid = parseInt(text.trim());
-        if (isNaN(tid)) { await ctx.reply('❌ Enter a valid numeric Telegram ID.'); return; }
-        session.data.user_telegram_id = tid;
-        session.step = 'tc_mv_username';
-        await ctx.reply('Enter the user\'s <b>Telegram username</b> (without @):', { parse_mode: 'HTML' });
+        if (!isNaN(tid)) {
+          session.data.user_telegram_id = tid;
+          session.step = 'tc_mv_username';
+          await ctx.reply('Enter the user\'s <b>Telegram username</b> (without @):', { parse_mode: 'HTML' });
+        } else {
+          await ctx.reply('❌ Please <b>forward a message</b> from the user, or enter their numeric Telegram ID.', { parse_mode: 'HTML' });
+        }
         break;
       }
 
       case 'tc_mv_username': {
         session.data.username = text.trim().replace('@', '');
         session.step = 'tc_mv_type';
-        await ctx.reply('Account type?\n\nSend <b>demo</b> or <b>real</b>:', { parse_mode: 'HTML' });
-        break;
-      }
-
-      case 'tc_mv_type': {
-        const t = text.trim().toLowerCase();
-        if (t !== 'demo' && t !== 'real') { await ctx.reply('❌ Send <b>demo</b> or <b>real</b>.', { parse_mode: 'HTML' }); return; }
-        session.data.account_type = t;
-        session.step = 'tc_mv_email';
-        await ctx.reply('Enter the user\'s <b>Exness email:</b>', { parse_mode: 'HTML' });
+        const challengeId = session.data.challenge_id;
+        await ctx.reply('Select account type:', Markup.inlineKeyboard([
+          [Markup.button.callback('🏦 Demo Account', `tc_mv_type_demo_${challengeId}`)],
+          [Markup.button.callback('💰 Real Account', `tc_mv_type_real_${challengeId}`)],
+        ]));
         break;
       }
 
@@ -1204,6 +1215,27 @@ export class TradingAdminHandler {
 
   // ==================== MANUAL VERIFY ====================
 
+  async handleForwardedMessage(ctx: Context, userId: number, username: string | null, firstName: string | null) {
+    const telegramId = ctx.from!.id;
+    const session = tradingAdminSessions.get(telegramId);
+    if (!session || session.step !== 'tc_mv_forward') return;
+
+    session.data.user_telegram_id = userId;
+    session.data.username = username || firstName || 'unknown';
+
+    const displayName = username ? `@${username}` : (firstName || `ID: ${userId}`);
+    const challengeId = session.data.challenge_id;
+    session.step = 'tc_mv_type';
+
+    await ctx.reply(
+      `✅ <b>User detected:</b> ${displayName}\n<b>Telegram ID:</b> <code>${userId}</code>\n\nSelect account type:`,
+      { parse_mode: 'HTML', ...Markup.inlineKeyboard([
+        [Markup.button.callback('🏦 Demo Account', `tc_mv_type_demo_${challengeId}`)],
+        [Markup.button.callback('💰 Real Account', `tc_mv_type_real_${challengeId}`)],
+      ]) }
+    );
+  }
+
   async manualVerify(ctx: Context) {
     if (!this.checkAdmin(ctx)) return;
 
@@ -1217,13 +1249,14 @@ export class TradingAdminHandler {
 
     const telegramId = ctx.from!.id;
     tradingAdminSessions.set(telegramId, {
-      step: 'tc_mv_telegram_id',
+      step: 'tc_mv_forward',
       data: { challenge_id: activeChallenge.id, challenge_title: activeChallenge.title },
     });
 
     await ctx.reply(
       `<b>📋 Manual Registration</b>\n\nChallenge: <b>${activeChallenge.title}</b>\n\n` +
-      `Enter the user's <b>Telegram ID</b> (numeric):`,
+      `<b>Forward a message from the user</b> you want to register.\n` +
+      `<i>(Open their chat, long-press any message, and forward it here)</i>`,
       { parse_mode: 'HTML' }
     );
   }
