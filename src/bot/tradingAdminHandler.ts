@@ -480,7 +480,7 @@ export class TradingAdminHandler {
           await ctx.reply('❌ Invalid format. Use: YYYY-MM-DD HH:MM');
           return;
         }
-        session.data.start_date = new Date(`${match[1]}T${match[2]}:00`);
+        session.data.start_date = new Date(new Date(`${match[1]}T${match[2]}:00`).getTime() - 3 * 60 * 60 * 1000);
         session.step = 'tc_enter_end_date';
         await ctx.reply('📅 Send the <b>end date and time</b>:\nFormat: YYYY-MM-DD HH:MM\nExample: 2026-04-03 23:59', { parse_mode: 'HTML' });
         break;
@@ -492,7 +492,7 @@ export class TradingAdminHandler {
           await ctx.reply('❌ Invalid format. Use: YYYY-MM-DD HH:MM');
           return;
         }
-        session.data.end_date = new Date(`${match[1]}T${match[2]}:00`);
+        session.data.end_date = new Date(new Date(`${match[1]}T${match[2]}:00`).getTime() - 3 * 60 * 60 * 1000);
         session.step = 'tc_enter_starting_balance';
         await ctx.reply('💰 What is the <b>starting balance</b>?', { parse_mode: 'HTML' });
         break;

@@ -247,7 +247,10 @@ export class TradingRegistrationHandler {
         session.step = 'tc_enter_email';
         session.data.retry_count = 0;
       } else {
-        userSessions.set(telegramId, { step: 'tc_enter_email', data: { challenge_id: challengeId, account_type: 'demo' } });
+        // Determine account type from challenge
+        const challenge = await tradingChallengeService.getChallengeById(challengeId);
+        const accountType = challenge?.type === 'real' ? 'real' : challenge?.type === 'demo' ? 'demo' : 'demo';
+        userSessions.set(telegramId, { step: 'tc_enter_email', data: { challenge_id: challengeId, account_type: accountType } });
       }
       await ctx.answerCbQuery();
       await ctx.reply('📧 Please send your <b>Exness email address:</b>', { parse_mode: 'HTML' });

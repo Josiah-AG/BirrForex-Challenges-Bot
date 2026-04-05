@@ -29,14 +29,14 @@ export class TradingScheduler {
   }
 
   /**
-   * Convert a stored date to EAT date/time strings
-   * Stored dates are in EAT but parsed as UTC by PostgreSQL
-   * So we just extract directly without offset
+   * Convert a stored UTC date to EAT date/time strings
+   * Dates are stored as real UTC (admin EAT input - 3h)
+   * Add 3h back to get EAT for comparison with getEATTime()
    */
   private toEATStrings(date: Date): { dateStr: string; timeStr: string } {
-    const d = new Date(date);
-    const dateStr = `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, '0')}-${d.getDate().toString().padStart(2, '0')}`;
-    const timeStr = `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+    const d = new Date(new Date(date).getTime() + 3 * 60 * 60 * 1000);
+    const dateStr = `${d.getUTCFullYear()}-${(d.getUTCMonth() + 1).toString().padStart(2, '0')}-${d.getUTCDate().toString().padStart(2, '0')}`;
+    const timeStr = `${d.getUTCHours().toString().padStart(2, '0')}:${d.getUTCMinutes().toString().padStart(2, '0')}`;
     return { dateStr, timeStr };
   }
 
@@ -290,6 +290,8 @@ export class TradingScheduler {
   }
 
   async endChallenge(challenge: TradingChallenge) {
+    // Deadline = 48 hours from now, stored as real UTC
+    // toEATStrings will convert it to EAT for comparison
     const deadline = new Date(Date.now() + 48 * 60 * 60 * 1000);
     await tradingChallengeService.setSubmissionDeadline(challenge.id, deadline);
     await tradingChallengeService.updateChallengeStatus(challenge.id, 'submission_open');
