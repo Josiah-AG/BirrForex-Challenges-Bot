@@ -498,9 +498,40 @@ export class Bot {
       // Check if admin has active trading challenge session
       if (isAdmin(telegramId) && tradingAdminHandler.hasActiveSession(telegramId)) {
         // Check if this is a forwarded message (for manual verify)
-        const fwd = (ctx.message as any).forward_from;
-        if (fwd) {
-          await tradingAdminHandler.handleForwardedMessage(ctx, fwd.id, fwd.username || null, fwd.first_name || null);
+        const msg = ctx.message as any;
+        const fwd = msg.forward_from;
+        const fwdOrigin = msg.forward_origin;
+        if (fwd || fwdOrigin || msg.forward_sender_name || msg.forward_date) {
+          // Try to get user info from various forward fields
+          let userId: number | null = null;
+          let username: string | null = null;
+          let firstName: string | null = null;
+
+          if (fwd) {
+            userId = fwd.id;
+            username = fwd.username || null;
+            firstName = fwd.first_name || null;
+          } else if (fwdOrigin?.type === 'user' && fwdOrigin.sender_user) {
+            userId = fwdOrigin.sender_user.id;
+            username = fwdOrigin.sender_user.username || null;
+            firstName = fwdOrigin.sender_user.first_name || null;
+          }
+
+          if (userId) {
+            await tradingAdminHandler.handleForwardedMessage(ctx, userId, username, firstName);
+          } else {
+            // Privacy settings hide the user — ask for manual ID
+            const senderName = msg.forward_sender_name || fwdOrigin?.sender_user_name || 'Unknown';
+            await ctx.reply(
+              `⚠️ <b>User's privacy settings hide their identity.</b>\n\n` +
+              `Forwarded from: <b>${senderName}</b>\n\n` +
+              `Please enter their <b>Telegram ID</b> (numeric):\n\n` +
+              `<i>Ask the user to send /myid to @userinfobot to get their ID.</i>`,
+              { parse_mode: 'HTML', ...Markup.inlineKeyboard([
+                [Markup.button.callback('✍️ Enter Details Manually', 'tc_mv_manual_entry')],
+              ]) }
+            );
+          }
           return;
         }
         await tradingAdminHandler.handleTextInput(ctx, ctx.message.text);

@@ -288,6 +288,16 @@ export class TradingAdminHandler {
       return true;
     }
 
+    // Manual entry fallback button
+    if (data === 'tc_mv_manual_entry') {
+      const session = tradingAdminSessions.get(telegramId);
+      if (!session) return true;
+      session.step = 'tc_mv_forward';
+      await ctx.answerCbQuery();
+      await ctx.reply('Enter the user\'s <b>Telegram ID</b> (numeric):', { parse_mode: 'HTML' });
+      return true;
+    }
+
     // Winner confirm callbacks
     if (data === 'tc_confirm_winners_yes') {
       await this.saveAndAnnounceWinners(ctx);
@@ -559,7 +569,7 @@ export class TradingAdminHandler {
 
       // Manual verify steps
       case 'tc_mv_forward': {
-        // If user typed a Telegram ID directly (fallback)
+        // User typed a Telegram ID directly (fallback)
         const tid = parseInt(text.trim());
         if (!isNaN(tid)) {
           session.data.user_telegram_id = tid;
@@ -1257,7 +1267,9 @@ export class TradingAdminHandler {
       `<b>📋 Manual Registration</b>\n\nChallenge: <b>${activeChallenge.title}</b>\n\n` +
       `<b>Forward a message from the user</b> you want to register.\n` +
       `<i>(Open their chat, long-press any message, and forward it here)</i>`,
-      { parse_mode: 'HTML' }
+      { parse_mode: 'HTML', ...Markup.inlineKeyboard([
+        [Markup.button.callback('✍️ Enter Details Manually', 'tc_mv_manual_entry')],
+      ]) }
     );
   }
 
