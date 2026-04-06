@@ -16,6 +16,7 @@ interface ClientData {
   client_status: string;
   client_balance: number;
   ftd_received: boolean;
+  ftt_made: boolean;
   reg_date: string;
 }
 
@@ -225,7 +226,10 @@ class ExnessService {
     }
 
     if (!clientInfo.kyc_passed) {
-      return { success: false, status: 'kyc_failed', message: 'KYC not verified' };
+      // Fallback: if FTD or FTT is true, treat as verified
+      if (!clientInfo.ftd_received && !clientInfo.ftt_made) {
+        return { success: false, status: 'kyc_failed', message: 'KYC not verified' };
+      }
     }
 
     // Step 4: Balance check (real only, if enabled)

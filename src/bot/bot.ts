@@ -50,6 +50,7 @@ export class Bot {
       { command: 'updatechallenge', description: 'Update PDF/video link' },
       { command: 'tradingchallenges', description: 'View all trading challenges' },
       { command: 'unregister', description: 'Remove a registration' },
+      { command: 'retractregistration', description: 'Retract registration (wrong acct/server)' },
       { command: 'selectwinners', description: 'Select trading challenge winners' },
       { command: 'messageuser', description: 'Message a participant' },
       { command: 'disqualify', description: 'Disqualify a participant' },
@@ -144,6 +145,7 @@ export class Bot {
     this.bot.command('updatechallenge', (ctx) => tradingAdminHandler.updateChallenge(ctx));
     this.bot.command('tradingchallenges', (ctx) => tradingAdminHandler.listTradingChallenges(ctx));
     this.bot.command('unregister', (ctx) => tradingAdminHandler.unregister(ctx));
+    this.bot.command('retractregistration', (ctx) => tradingAdminHandler.retractRegistration(ctx));
     this.bot.command('selectwinners', (ctx) => tradingAdminHandler.selectWinners(ctx));
     this.bot.command('messageuser', (ctx) => tradingAdminHandler.messageUser(ctx));
     this.bot.command('disqualify', (ctx) => tradingAdminHandler.disqualify(ctx));

@@ -199,6 +199,38 @@ export class TradingAdminHandler {
       return true;
     }
 
+    // Retract registration callbacks
+    if (data === 'tc_retract_acct' || data === 'tc_retract_server') {
+      const session = tradingAdminSessions.get(telegramId);
+      if (!session || !session.data.retract_reg) return true;
+
+      const reg = session.data.retract_reg;
+      const challengeTitle = session.data.challenge_title;
+      const reasonField = data === 'tc_retract_acct' ? 'Exness account number' : 'MT5 server';
+
+      // Delete registration
+      await tradingChallengeService.deleteRegistration(reg.id);
+      tradingAdminSessions.delete(telegramId);
+
+      await ctx.answerCbQuery('Registration retracted');
+      await ctx.reply(`✅ Registration for <b>@${reg.username}</b> has been retracted.`, { parse_mode: 'HTML' });
+
+      // Notify user
+      try {
+        await ctx.telegram.sendMessage(reg.telegram_id,
+          `⚠️ <b>Registration Retracted</b>\n\n` +
+          `Your registration for <b>${challengeTitle}</b> has been canceled because you didn't submit your <b>${reasonField}</b> properly.\n\n` +
+          `Please register again and make sure to enter the correct details.\n\n` +
+          `👉 <b>Tap "Join Challenge" on the channel post to register again.</b>`,
+          { parse_mode: 'HTML' }
+        );
+        await ctx.reply('✅ User has been notified.');
+      } catch (e) {
+        await ctx.reply('⚠️ Registration retracted but could not notify user (DMs may be closed).');
+      }
+      return true;
+    }
+
     // Promo callbacks
     if (data.startsWith('tc_promo_')) {
       if (data.startsWith('tc_promo_send_')) {
@@ -618,6 +650,32 @@ export class TradingAdminHandler {
         break;
       }
 
+      // Retract registration
+      case 'tc_retract_username': {
+        const username = text.trim().replace('@', '');
+        const regs = await tradingChallengeService.getAllRegistrations(session.data.challenge_id);
+        const reg = regs.find(r => r.username?.toLowerCase() === username.toLowerCase());
+
+        if (!reg) {
+          await ctx.reply(`❌ No registration found for <b>@${username}</b> in this challenge.`, { parse_mode: 'HTML' });
+          tradingAdminSessions.delete(telegramId);
+          return;
+        }
+
+        session.data.retract_reg = reg;
+        session.data.retract_username = username;
+        session.step = 'tc_retract_reason';
+
+        await ctx.reply(
+          `<b>Found:</b> @${reg.username}\n📧 ${reg.email}\n🏦 ${reg.account_number}\n🖥️ ${reg.mt5_server || 'N/A'}\n\nSelect the reason:`,
+          { parse_mode: 'HTML', ...Markup.inlineKeyboard([
+            [Markup.button.callback('❌ Wrong Account Number', 'tc_retract_acct')],
+            [Markup.button.callback('❌ Wrong MT5 Server', 'tc_retract_server')],
+          ]) }
+        );
+        break;
+      }
+
       // Manual verify steps
       case 'tc_mv_forward': {
         // User typed a Telegram ID directly (fallback)
@@ -954,9 +1012,6 @@ export class TradingAdminHandler {
       `📅 <b>Period:</b> ${startStr} - ${endStr}\n` +
       `💰 <b>Start:</b> $${c.starting_balance} → 🎯 <b>Target:</b> $${c.target_balance}\n\n` +
       prizesSection + '\n' +
-      `<b>🎁 BONUS</b>\n` +
-      `➡️ All Real Account participants will be invited to join <b>BirrForex Live Trading Team</b>\n` +
-      `➡️ Demo traders who hit the target will get an invitation to join <b>BirrForex Live Trading Team</b>\n\n` +
       `⚠️ <i>Please read the challenge rules carefully before you start the challenge!</i>\n` +
       linksText +
       `\n\n👉 <b>Tap "Join Challenge" below to register!</b>`;
@@ -1148,6 +1203,31 @@ export class TradingAdminHandler {
     }
 
     return false;
+  }
+
+  // ==================== RETRACT REGISTRATION ====================
+
+  async retractRegistration(ctx: Context) {
+    if (!this.checkAdmin(ctx)) return;
+
+    const challenges = await tradingChallengeService.getAllChallenges();
+    const challenge = challenges.find(c => ['registration_open', 'active'].includes(c.status)) || challenges[0];
+
+    if (!challenge) {
+      await ctx.reply('❌ No active challenge found.');
+      return;
+    }
+
+    const telegramId = ctx.from!.id;
+    tradingAdminSessions.set(telegramId, {
+      step: 'tc_retract_username',
+      data: { challenge_id: challenge.id, challenge_title: challenge.title },
+    });
+
+    await ctx.reply(
+      `<b>🔄 Retract Registration</b>\n\nChallenge: <b>${challenge.title}</b>\n\nEnter the <b>username</b> (without @):`,
+      { parse_mode: 'HTML' }
+    );
   }
 
   // ==================== UNREGISTER ====================
