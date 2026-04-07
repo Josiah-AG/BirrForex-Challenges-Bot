@@ -794,8 +794,8 @@ export class TradingAdminHandler {
       }
 
       case 'tc_additional_post_text': {
-        const entities = (ctx.message as any)?.entities;
-        session.data.post_text = this.entitiesToHtml(text, entities);
+        session.data.post_text = text;
+        session.data.post_entities = (ctx.message as any)?.entities || [];
         session.data.photo_file_id = null;
         session.step = 'tc_additional_post_target';
 
@@ -2078,8 +2078,8 @@ export class TradingAdminHandler {
 
     if (session.step === 'tc_additional_post_text') {
       session.data.photo_file_id = fileId;
-      const captionEntities = (ctx.message as any)?.caption_entities;
-      session.data.post_text = caption ? this.entitiesToHtml(caption, captionEntities) : '';
+      session.data.post_text = caption || '';
+      session.data.post_entities = (ctx.message as any)?.caption_entities || [];
       session.step = 'tc_additional_post_target';
 
       await ctx.reply('📸 Photo received! Where do you want to post?', Markup.inlineKeyboard([
@@ -2129,12 +2129,12 @@ export class TradingAdminHandler {
           if (session.data.photo_file_id) {
             await ctx.telegram.sendPhoto(channelId, session.data.photo_file_id, {
               caption: session.data.post_text || undefined,
-              parse_mode: 'HTML',
+              caption_entities: session.data.post_entities?.length > 0 ? session.data.post_entities : undefined,
               ...keyboard,
             });
           } else {
             await ctx.telegram.sendMessage(channelId, session.data.post_text, {
-              parse_mode: 'HTML',
+              entities: session.data.post_entities?.length > 0 ? session.data.post_entities : undefined,
               link_preview_options: { is_disabled: true },
               ...keyboard,
             });
