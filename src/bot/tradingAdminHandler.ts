@@ -1627,6 +1627,9 @@ export class TradingAdminHandler {
     const manualReviews = parseInt(totalStats?.total_manual_reviews || '0');
     const acctChanges = parseInt(totalStats?.total_account_changes || '0');
     const catSwitches = parseInt(totalStats?.total_category_switches || '0');
+    const allocRecov = parseInt(totalStats?.total_allocation_recoveries || '0');
+    const kycRecov = parseInt(totalStats?.total_kyc_recoveries || '0');
+    const realAcctRecov = parseInt(totalStats?.total_real_acct_recoveries || '0');
     const totalFailed = allocFail + kycFail + realAcctFail;
 
     const text = `<b>📊 FULL REGISTRATION STATS</b>\n<b>${challenge.title}</b>\n\n` +
@@ -1636,9 +1639,9 @@ export class TradingAdminHandler {
       `   └── Real: ${counts.real}\n\n` +
       `<b>❌ FAILED REGISTRATIONS:</b>\n` +
       `➡️ <b>Total Failed:</b> ${totalFailed}\n` +
-      `   ├── Allocation Failed: ${allocFail}\n` +
-      `   ├── KYC Failed: ${kycFail}\n` +
-      `   └── Real Acct Not Allocated: ${realAcctFail}\n\n` +
+      `   ├── Allocation Failed: ${allocFail}${allocRecov > 0 ? ` <i>(${allocRecov} recovered ✅)</i>` : ''}\n` +
+      `   ├── KYC Failed: ${kycFail}${kycRecov > 0 ? ` <i>(${kycRecov} recovered ✅)</i>` : ''}\n` +
+      `   └── Real Acct Not Allocated: ${realAcctFail}${realAcctRecov > 0 ? ` <i>(${realAcctRecov} recovered ✅)</i>` : ''}\n\n` +
       `<b>📋 OTHER ACTIVITY:</b>\n` +
       `➡️ <b>Manual Reviews:</b> ${manualReviews}\n` +
       `➡️ <b>Account Changes:</b> ${acctChanges}\n` +

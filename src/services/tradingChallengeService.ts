@@ -406,7 +406,12 @@ class TradingChallengeService {
          SUM(allocation_failures) as total_allocation_failures,
          SUM(kyc_failures) as total_kyc_failures,
          SUM(real_acct_failures) as total_real_acct_failures,
-         SUM(manual_reviews) as total_manual_reviews
+         SUM(manual_reviews) as total_manual_reviews,
+         SUM(account_changes) as total_account_changes,
+         SUM(category_switches) as total_category_switches,
+         SUM(allocation_recoveries) as total_allocation_recoveries,
+         SUM(kyc_recoveries) as total_kyc_recoveries,
+         SUM(real_acct_recoveries) as total_real_acct_recoveries
        FROM trading_daily_stats WHERE challenge_id = $1`,
       [challengeId]
     );

@@ -30,6 +30,15 @@ async function migrate() {
       await db.query(`
         ALTER TABLE trading_submissions ADD COLUMN IF NOT EXISTS screenshot_message_id INTEGER;
       `).catch(() => { /* column already exists */ });
+      await db.query(`
+        ALTER TABLE trading_daily_stats ADD COLUMN IF NOT EXISTS allocation_recoveries INTEGER DEFAULT 0;
+      `).catch(() => {});
+      await db.query(`
+        ALTER TABLE trading_daily_stats ADD COLUMN IF NOT EXISTS kyc_recoveries INTEGER DEFAULT 0;
+      `).catch(() => {});
+      await db.query(`
+        ALTER TABLE trading_daily_stats ADD COLUMN IF NOT EXISTS real_acct_recoveries INTEGER DEFAULT 0;
+      `).catch(() => {});
       console.log('✅ Trading schema migrations OK');
     } catch (err: any) {
       if (err.code === 'ENOENT') {

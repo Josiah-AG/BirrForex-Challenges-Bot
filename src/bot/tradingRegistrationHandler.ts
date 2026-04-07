@@ -878,6 +878,17 @@ export class TradingRegistrationHandler {
       await tradingChallengeService.updateDailyStat(session.data.challenge_id, 'new_registrations');
       await tradingChallengeService.updateDailyStat(session.data.challenge_id, statField);
 
+      // Track recoveries (user had previous failures but now succeeded)
+      if (session.data.allocation_fail_count > 0) {
+        await tradingChallengeService.updateDailyStat(session.data.challenge_id, 'allocation_recoveries');
+      }
+      if (session.data.kyc_fail_count > 0) {
+        await tradingChallengeService.updateDailyStat(session.data.challenge_id, 'kyc_recoveries');
+      }
+      if (session.data.real_acct_retry > 0) {
+        await tradingChallengeService.updateDailyStat(session.data.challenge_id, 'real_acct_recoveries');
+      }
+
       userSessions.delete(telegramId);
 
       const acctLabel = session.data.account_type === 'demo' ? 'Demo' : 'Real';

@@ -83,6 +83,9 @@ CREATE TABLE IF NOT EXISTS trading_daily_stats (
     manual_reviews INTEGER DEFAULT 0,
     account_changes INTEGER DEFAULT 0,
     category_switches INTEGER DEFAULT 0,
+    allocation_recoveries INTEGER DEFAULT 0,
+    kyc_recoveries INTEGER DEFAULT 0,
+    real_acct_recoveries INTEGER DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(challenge_id, date)
 );
