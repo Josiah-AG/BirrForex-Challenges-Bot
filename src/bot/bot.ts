@@ -61,6 +61,7 @@ export class Bot {
       { command: 'viewsubmissions', description: 'View submissions with screenshots' },
       { command: 'regsummary', description: 'Registration summary' },
       { command: 'regstats', description: 'Full registration stats (with failures)' },
+      { command: 'todaysregstat', description: 'Today\'s registration activity' },
       { command: 'deletetradingchallenge', description: 'Delete a trading challenge' },
       { command: 'testtradingposts', description: 'Test trading challenge posts' },
       { command: 'additionalpost', description: 'Post custom content to channels' },
@@ -157,6 +158,7 @@ export class Bot {
     this.bot.command('viewsubmissions', (ctx) => tradingAdminHandler.viewSubmissions(ctx));
     this.bot.command('regsummary', (ctx) => tradingAdminHandler.regSummary(ctx));
     this.bot.command('regstats', (ctx) => tradingAdminHandler.regStats(ctx));
+    this.bot.command('todaysregstat', (ctx) => tradingAdminHandler.todaysRegStat(ctx));
     this.bot.command('deletetradingchallenge', (ctx) => tradingAdminHandler.listTradingChallenges(ctx));
     this.bot.command('testtradingposts', (ctx) => tradingAdminHandler.testTradingPosts(ctx));
     this.bot.command('additionalpost', (ctx) => tradingAdminHandler.additionalPost(ctx));

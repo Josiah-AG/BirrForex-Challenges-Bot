@@ -1650,6 +1650,58 @@ export class TradingAdminHandler {
     await ctx.reply(text, { parse_mode: 'HTML' });
   }
 
+  async todaysRegStat(ctx: Context) {
+    if (!this.checkAdmin(ctx)) return;
+
+    const challenges = await tradingChallengeService.getAllChallenges();
+    const challenge = challenges.find(c => ['registration_open', 'active'].includes(c.status)) || challenges[0];
+
+    if (!challenge) {
+      await ctx.reply('❌ No challenges found.');
+      return;
+    }
+
+    // Get today's date in EAT
+    const now = new Date();
+    const eatTime = new Date(now.getTime() + 3 * 60 * 60 * 1000);
+    const todayStr = `${eatTime.getUTCFullYear()}-${(eatTime.getUTCMonth() + 1).toString().padStart(2, '0')}-${eatTime.getUTCDate().toString().padStart(2, '0')}`;
+    const dateDisplay = toEAT(now).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+
+    const stats = await tradingChallengeService.getDailyStats(challenge.id, todayStr);
+
+    if (!stats) {
+      await ctx.reply(`<b>📊 TODAY'S REGISTRATION STATS</b>\n<b>${challenge.title}</b>\n📅 ${dateDisplay}\n\n<i>No activity today.</i>`, { parse_mode: 'HTML' });
+      return;
+    }
+
+    const allocFail = stats.allocation_failures || 0;
+    const kycFail = stats.kyc_failures || 0;
+    const realAcctFail = stats.real_acct_failures || 0;
+    const totalFailed = allocFail + kycFail + realAcctFail;
+    const allocRecov = stats.allocation_recoveries || 0;
+    const kycRecov = stats.kyc_recoveries || 0;
+    const realAcctRecov = stats.real_acct_recoveries || 0;
+
+    const text = `<b>📊 TODAY'S REGISTRATION STATS</b>\n<b>${challenge.title}</b>\n📅 ${dateDisplay}\n\n` +
+      `<b>✅ New Registrations:</b> ${stats.new_registrations || 0}\n` +
+      `   ├── Demo: ${stats.demo_registrations || 0}\n` +
+      `   └── Real: ${stats.real_registrations || 0}\n\n` +
+      `<b>❌ Failed Registrations:</b> ${totalFailed}\n` +
+      `   ├── Allocation Failed: ${allocFail}\n` +
+      `   ├── KYC Failed: ${kycFail}\n` +
+      `   └── Real Acct Not Allocated: ${realAcctFail}\n\n` +
+      `<b>📋 Other Activity:</b>\n` +
+      `➡️ <b>Manual Reviews:</b> ${stats.manual_reviews || 0}\n` +
+      `➡️ <b>Account Changes:</b> ${stats.account_changes || 0}\n` +
+      `➡️ <b>Category Switches:</b> ${stats.category_switches || 0}\n\n` +
+      `<b>🔄 Recoveries:</b>\n` +
+      `   ├── After Allocation Fail: ${allocRecov}${allocRecov > 0 ? ' ✅' : ''}\n` +
+      `   ├── After KYC Fail: ${kycRecov}${kycRecov > 0 ? ' ✅' : ''}\n` +
+      `   └── After Real Acct Fail: ${realAcctRecov}${realAcctRecov > 0 ? ' ✅' : ''}`;
+
+    await ctx.reply(text, { parse_mode: 'HTML' });
+  }
+
   private async exportRegistrationsForChallenge(ctx: Context, challengeId: number) {
     const challenge = await tradingChallengeService.getChallengeById(challengeId);
     if (!challenge) { await ctx.reply('❌ Challenge not found.'); return; }
