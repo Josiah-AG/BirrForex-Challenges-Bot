@@ -16,6 +16,9 @@ const userSessions = new Map<number, UserSession>();
 // Track users who interacted with the bot (for manual verify lookup)
 const knownUsers = new Map<number, { username: string | null; firstName: string | null }>();
 
+// Store pending manual review data for approve/reject callbacks
+const pendingManualReviews = new Map<number, any>();
+
 export class TradingRegistrationHandler {
 
   hasActiveSession(telegramId: number): boolean {
@@ -307,6 +310,77 @@ export class TradingRegistrationHandler {
       userSessions.delete(telegramId);
       await ctx.answerCbQuery();
       await ctx.reply('✅ Your previous submission has been kept.');
+      return true;
+    }
+
+    // Manual review approve/reject callbacks
+    if (data.startsWith('tc_mr_approve_')) {
+      const userId = parseInt(data.replace('tc_mr_approve_', ''));
+      const review = pendingManualReviews.get(userId);
+      if (!review) {
+        await ctx.answerCbQuery('Review data expired. Use /manualverify instead.');
+        return true;
+      }
+
+      try {
+        await tradingChallengeService.registerUser(review);
+        const statField = review.account_type === 'demo' ? 'demo_registrations' : 'real_registrations';
+        await tradingChallengeService.updateDailyStat(review.challenge_id, 'new_registrations');
+        await tradingChallengeService.updateDailyStat(review.challenge_id, statField);
+        pendingManualReviews.delete(userId);
+
+        await ctx.answerCbQuery('Approved!');
+        await ctx.reply(`✅ <b>Approved!</b> @${review.username || 'user'} has been registered.`, { parse_mode: 'HTML' });
+
+        // Notify user
+        const challenge = await tradingChallengeService.getChallengeById(review.challenge_id);
+        const acctLabel = review.account_type === 'demo' ? 'Demo' : 'Real';
+        try {
+          await ctx.telegram.sendMessage(userId,
+            `✅ <b>Registration Approved!</b>\n\n` +
+            `You have been registered for <b>${challenge?.title || 'the challenge'}</b>.\n\n` +
+            `📋 <b>Your Registration:</b>\n` +
+            `📧 <b>Email:</b> ${review.email}\n` +
+            `🏦 <b>${acctLabel} Account:</b> ${review.account_number}\n` +
+            `🖥️ <b>Server:</b> ${review.mt5_server || 'N/A'}\n` +
+            `📊 <b>Type:</b> ${acctLabel}\n\n` +
+            `⚠️ <i>Please read the rules and understand them well before starting the challenge!</i>`,
+            { parse_mode: 'HTML' }
+          );
+        } catch (e) {
+          await ctx.reply('⚠️ Registered but could not notify user.');
+        }
+      } catch (e: any) {
+        if (e.code === '23505') {
+          await ctx.reply('⚠️ User is already registered.');
+        } else {
+          await ctx.reply('❌ Error registering user.');
+        }
+        pendingManualReviews.delete(userId);
+      }
+      return true;
+    }
+
+    if (data.startsWith('tc_mr_reject_')) {
+      const userId = parseInt(data.replace('tc_mr_reject_', ''));
+      const review = pendingManualReviews.get(userId);
+      pendingManualReviews.delete(userId);
+
+      await ctx.answerCbQuery('Rejected');
+      await ctx.reply(`❌ <b>Rejected.</b> User has been notified.`, { parse_mode: 'HTML' });
+
+      // Notify user
+      try {
+        await ctx.telegram.sendMessage(userId,
+          `❌ <b>Registration Rejected</b>\n\n` +
+          `Your manual verification request has been reviewed and was not approved.\n\n` +
+          `This may be because your account details could not be verified.\n\n` +
+          `<i>If you believe this is an error, please contact @birrFXadmin.</i>`,
+          { parse_mode: 'HTML' }
+        );
+      } catch (e) {
+        // User may have DMs closed
+      }
       return true;
     }
 
@@ -945,6 +1019,20 @@ export class TradingRegistrationHandler {
     if (!session) return;
 
     await tradingChallengeService.updateDailyStat(session.data.challenge_id, 'manual_reviews');
+
+    // Store pending review data for approve/reject callbacks
+    const reviewData = {
+      challenge_id: session.data.challenge_id,
+      telegram_id: telegramId,
+      username: ctx.from!.username || null,
+      account_type: session.data.account_type,
+      email: session.data.email,
+      account_number: session.data.account_number,
+      mt5_server: session.data.mt5_server || null,
+      client_uid: session.data.client_uid || null,
+    };
+    pendingManualReviews.set(telegramId, reviewData);
+
     userSessions.delete(telegramId);
 
     await ctx.reply('✅ <b>Submission received!</b>\n\nYour registration is pending manual review.\n<i>You\'ll be notified once approved.</i>', { parse_mode: 'HTML' });
@@ -952,21 +1040,27 @@ export class TradingRegistrationHandler {
     // Send to admin
     const acctLabel = session.data.account_type === 'demo' ? 'Demo' : 'Real';
     const adminText = `<b>📋 MANUAL REVIEW REQUIRED</b>\n\n` +
-      `👤 <b>User:</b> @${ctx.from!.username || 'unknown'} (ID: ${telegramId})\n` +
+      `👤 <b>User:</b> @${ctx.from!.username || 'unknown'} (ID: <code>${telegramId}</code>)\n` +
       `📧 <b>Email:</b> ${session.data.email}\n` +
       `🏦 <b>Account:</b> ${session.data.account_number}\n` +
       `🖥️ <b>Server:</b> ${session.data.mt5_server || 'N/A'}\n` +
       `📊 <b>Type:</b> ${acctLabel}\n\n` +
       `⚠️ Automatic verification failed — manual review needed`;
 
+    const keyboard = Markup.inlineKeyboard([
+      [Markup.button.callback('✅ Approve', `tc_mr_approve_${telegramId}`)],
+      [Markup.button.callback('❌ Reject', `tc_mr_reject_${telegramId}`)],
+    ]);
+
     try {
       if (session.data.screenshot_file_id) {
         await ctx.telegram.sendPhoto(config.adminUserId, session.data.screenshot_file_id, {
           caption: adminText,
           parse_mode: 'HTML',
+          ...keyboard,
         });
       } else {
-        await ctx.telegram.sendMessage(config.adminUserId, adminText, { parse_mode: 'HTML' });
+        await ctx.telegram.sendMessage(config.adminUserId, adminText, { parse_mode: 'HTML', ...keyboard });
       }
     } catch (e) {
       console.error('Error sending manual review to admin:', e);
