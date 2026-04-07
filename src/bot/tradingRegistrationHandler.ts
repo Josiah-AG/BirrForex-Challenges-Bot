@@ -230,6 +230,7 @@ export class TradingRegistrationHandler {
       const reg = await tradingChallengeService.getRegistration(challengeId, telegramId);
       if (reg) {
         await tradingChallengeService.deleteRegistration(reg.id);
+        await tradingChallengeService.updateDailyStat(challengeId, 'category_switches');
       }
       await ctx.answerCbQuery();
       // Restart registration
@@ -419,6 +420,7 @@ export class TradingRegistrationHandler {
           await this.verifyRealAccountChange(ctx, telegramId);
         } else {
           await tradingChallengeService.updateAccountNumber(session.data.registration_id, session.data.new_account_number, newServer);
+          await tradingChallengeService.updateDailyStat(session.data.challenge_id, 'account_changes');
           userSessions.delete(telegramId);
           await ctx.reply(`✅ Account number updated!\n\n🏦 <b>New Account:</b> ${session.data.new_account_number}\n🖥️ <b>Server:</b> ${newServer}`, { parse_mode: 'HTML' });
         }
@@ -662,6 +664,7 @@ export class TradingRegistrationHandler {
 
       if (result.status === 'not_allocated') {
         session.data.allocation_fail_count = (session.data.allocation_fail_count || 0) + 1;
+        await tradingChallengeService.updateDailyStat(session.data.challenge_id, 'allocation_failures');
         const challengeId = session.data.challenge_id;
         const contactAdmin = session.data.allocation_fail_count >= 2
           ? `\n\n<b>If you are sure this is a mistake, contact @birrFXadmin with a screenshot of this message.</b>`
@@ -691,6 +694,7 @@ export class TradingRegistrationHandler {
 
       if (result.status === 'kyc_failed') {
         session.data.kyc_fail_count = (session.data.kyc_fail_count || 0) + 1;
+        await tradingChallengeService.updateDailyStat(session.data.challenge_id, 'kyc_failures');
         const challengeId = session.data.challenge_id;
         const contactAdmin = session.data.kyc_fail_count >= 2
           ? `\n\n<b>If you are sure your account is verified, contact @birrFXadmin with a screenshot of this message.</b>`
@@ -787,6 +791,7 @@ export class TradingRegistrationHandler {
     if (result.status === 'not_allocated') {
       session.step = 'tc_enter_account_number';
       session.data.real_acct_retry = (session.data.real_acct_retry || 0) + 1;
+      await tradingChallengeService.updateDailyStat(session.data.challenge_id, 'real_acct_failures');
 
       if (session.data.real_acct_retry >= 2) {
         await ctx.reply(
@@ -821,6 +826,7 @@ export class TradingRegistrationHandler {
 
     if (result.status === 'allocated_mt5') {
       await tradingChallengeService.updateAccountNumber(session.data.registration_id, session.data.new_account_number, session.data.mt5_server);
+      await tradingChallengeService.updateDailyStat(session.data.challenge_id, 'account_changes');
       userSessions.delete(telegramId);
       await ctx.reply(`✅ Account number updated!\n\n🏦 <b>New Account:</b> ${session.data.new_account_number}\n🖥️ <b>Server:</b> ${session.data.mt5_server}`, { parse_mode: 'HTML' });
       return;
@@ -927,6 +933,7 @@ export class TradingRegistrationHandler {
     const session = userSessions.get(telegramId);
     if (!session) return;
 
+    await tradingChallengeService.updateDailyStat(session.data.challenge_id, 'manual_reviews');
     userSessions.delete(telegramId);
 
     await ctx.reply('✅ <b>Submission received!</b>\n\nYour registration is pending manual review.\n<i>You\'ll be notified once approved.</i>', { parse_mode: 'HTML' });

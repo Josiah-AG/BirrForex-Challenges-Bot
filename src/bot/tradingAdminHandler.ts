@@ -1607,6 +1607,46 @@ export class TradingAdminHandler {
     await ctx.reply(text, { parse_mode: 'HTML' });
   }
 
+  async regStats(ctx: Context) {
+    if (!this.checkAdmin(ctx)) return;
+
+    const challenges = await tradingChallengeService.getAllChallenges();
+    const challenge = challenges.find(c => ['registration_open', 'active'].includes(c.status)) || challenges[0];
+
+    if (!challenge) {
+      await ctx.reply('❌ No challenges found.');
+      return;
+    }
+
+    const counts = await tradingChallengeService.getRegistrationCounts(challenge.id);
+    const totalStats = await tradingChallengeService.getTotalStats(challenge.id);
+
+    const allocFail = parseInt(totalStats?.total_allocation_failures || '0');
+    const kycFail = parseInt(totalStats?.total_kyc_failures || '0');
+    const realAcctFail = parseInt(totalStats?.total_real_acct_failures || '0');
+    const manualReviews = parseInt(totalStats?.total_manual_reviews || '0');
+    const acctChanges = parseInt(totalStats?.total_account_changes || '0');
+    const catSwitches = parseInt(totalStats?.total_category_switches || '0');
+    const totalFailed = allocFail + kycFail + realAcctFail;
+
+    const text = `<b>📊 FULL REGISTRATION STATS</b>\n<b>${challenge.title}</b>\n\n` +
+      `<b>✅ SUCCESSFUL REGISTRATIONS:</b>\n` +
+      `➡️ <b>Total Registered:</b> ${counts.total}\n` +
+      `   ├── Demo: ${counts.demo}\n` +
+      `   └── Real: ${counts.real}\n\n` +
+      `<b>❌ FAILED REGISTRATIONS:</b>\n` +
+      `➡️ <b>Total Failed:</b> ${totalFailed}\n` +
+      `   ├── Allocation Failed: ${allocFail}\n` +
+      `   ├── KYC Failed: ${kycFail}\n` +
+      `   └── Real Acct Not Allocated: ${realAcctFail}\n\n` +
+      `<b>📋 OTHER ACTIVITY:</b>\n` +
+      `➡️ <b>Manual Reviews:</b> ${manualReviews}\n` +
+      `➡️ <b>Account Changes:</b> ${acctChanges}\n` +
+      `➡️ <b>Category Switches:</b> ${catSwitches}`;
+
+    await ctx.reply(text, { parse_mode: 'HTML' });
+  }
+
   private async exportRegistrationsForChallenge(ctx: Context, challengeId: number) {
     const challenge = await tradingChallengeService.getChallengeById(challengeId);
     if (!challenge) { await ctx.reply('❌ Challenge not found.'); return; }
