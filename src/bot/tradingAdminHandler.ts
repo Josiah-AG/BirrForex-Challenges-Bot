@@ -652,22 +652,25 @@ export class TradingAdminHandler {
 
       // Retract registration
       case 'tc_retract_username': {
-        const username = text.trim().replace('@', '');
+        const input = text.trim().replace('@', '').toLowerCase();
         const regs = await tradingChallengeService.getAllRegistrations(session.data.challenge_id);
-        const reg = regs.find(r => r.username?.toLowerCase() === username.toLowerCase());
+        const reg = regs.find(r =>
+          r.username?.toLowerCase() === input ||
+          r.email?.toLowerCase() === input ||
+          String(r.telegram_id) === input
+        );
 
         if (!reg) {
-          await ctx.reply(`❌ No registration found for <b>@${username}</b> in this challenge.`, { parse_mode: 'HTML' });
+          await ctx.reply(`❌ No registration found for <b>${text.trim()}</b> in this challenge.\n\n<i>You can search by username, email, or Telegram ID.</i>`, { parse_mode: 'HTML' });
           tradingAdminSessions.delete(telegramId);
           return;
         }
 
         session.data.retract_reg = reg;
-        session.data.retract_username = username;
         session.step = 'tc_retract_reason';
 
         await ctx.reply(
-          `<b>Found:</b> @${reg.username}\n📧 ${reg.email}\n🏦 ${reg.account_number}\n🖥️ ${reg.mt5_server || 'N/A'}\n\nSelect the reason:`,
+          `<b>Found:</b> @${reg.username || 'unknown'}\n📧 ${reg.email}\n🏦 ${reg.account_number}\n🖥️ ${reg.mt5_server || 'N/A'}\n\nSelect the reason:`,
           { parse_mode: 'HTML', ...Markup.inlineKeyboard([
             [Markup.button.callback('❌ Wrong Account Number', 'tc_retract_acct')],
             [Markup.button.callback('❌ Wrong MT5 Server', 'tc_retract_server')],
@@ -1225,7 +1228,7 @@ export class TradingAdminHandler {
     });
 
     await ctx.reply(
-      `<b>🔄 Retract Registration</b>\n\nChallenge: <b>${challenge.title}</b>\n\nEnter the <b>username</b> (without @):`,
+      `<b>🔄 Retract Registration</b>\n\nChallenge: <b>${challenge.title}</b>\n\nEnter <b>username</b>, <b>email</b>, or <b>Telegram ID</b>:`,
       { parse_mode: 'HTML' }
     );
   }
@@ -1402,7 +1405,7 @@ export class TradingAdminHandler {
       data: {},
     });
 
-    await ctx.reply('Enter the username of the participant:');
+    await ctx.reply('Enter <b>username</b>, <b>email</b>, or <b>Telegram ID</b> of the participant:', { parse_mode: 'HTML' });
   }
 
   // ==================== MANUAL VERIFY ====================
@@ -2041,18 +2044,23 @@ export class TradingAdminHandler {
 
   // ==================== MESSAGE USER HELPER ====================
 
-  private async sendMessageToUser(ctx: Context, username: string, message: string) {
+  private async sendMessageToUser(ctx: Context, input: string, message: string) {
     const challenges = await tradingChallengeService.getAllChallenges();
+    const searchInput = input.replace('@', '').toLowerCase();
     let reg = null;
 
     for (const c of challenges) {
       const regs = await tradingChallengeService.getAllRegistrations(c.id);
-      reg = regs.find(r => r.username?.toLowerCase() === username.toLowerCase());
+      reg = regs.find(r =>
+        r.username?.toLowerCase() === searchInput ||
+        r.email?.toLowerCase() === searchInput ||
+        String(r.telegram_id) === searchInput
+      );
       if (reg) break;
     }
 
     if (!reg) {
-      await ctx.reply(`❌ User @${username} not found in any challenge registrations.`);
+      await ctx.reply(`❌ User <b>${input}</b> not found in any challenge registrations.\n<i>You can search by username, email, or Telegram ID.</i>`, { parse_mode: 'HTML' });
       return;
     }
 
@@ -2060,9 +2068,9 @@ export class TradingAdminHandler {
 
     try {
       await ctx.telegram.sendMessage(reg.telegram_id, text, { parse_mode: 'HTML' });
-      await ctx.reply(`✅ Message sent to @${username}`);
+      await ctx.reply(`✅ Message sent to @${reg.username || reg.email}`);
     } catch (e) {
-      await ctx.reply(`❌ Could not send message to @${username}. They may have blocked the bot.`);
+      await ctx.reply(`❌ Could not send message. User may have blocked the bot.`);
     }
   }
 
