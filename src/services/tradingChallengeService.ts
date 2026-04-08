@@ -450,6 +450,26 @@ class TradingChallengeService {
     return result.rows;
   }
 
+  async getDueForEngagement(challengeId: number, isLast3Days: boolean): Promise<any[]> {
+    // First engagement: 24h after failure, no previous engagement
+    // Subsequent: every 48h (or 24h in last 3 days)
+    const interval = isLast3Days ? '24 hours' : '48 hours';
+    const result = await db.query(
+      `SELECT fa.* FROM trading_failed_attempts fa
+       LEFT JOIN trading_registrations tr ON fa.challenge_id = tr.challenge_id AND fa.telegram_id = tr.telegram_id
+       WHERE fa.challenge_id = $1
+       AND tr.id IS NULL
+       AND (
+         (fa.engage_count = 0 AND fa.attempted_at < NOW() - INTERVAL '24 hours')
+         OR
+         (fa.engage_count > 0 AND fa.last_engaged_at < NOW() - INTERVAL '${interval}')
+       )
+       ORDER BY fa.engage_count ASC, fa.attempted_at ASC`,
+      [challengeId]
+    );
+    return result.rows;
+  }
+
   async getAllFailedAttempts(challengeId: number): Promise<any[]> {
     const result = await db.query(
       `SELECT fa.*, 
@@ -463,10 +483,12 @@ class TradingChallengeService {
     return result.rows;
   }
 
-  async markEngaged(challengeId: number, telegramId: number): Promise<void> {
+  async markEngaged(challengeId: number, telegramId: number, successful: boolean): Promise<void> {
     await db.query(
-      'UPDATE trading_failed_attempts SET engaged = true WHERE challenge_id = $1 AND telegram_id = $2',
-      [challengeId, telegramId]
+      `UPDATE trading_failed_attempts 
+       SET engaged = true, engage_count = engage_count + 1, last_engaged_at = NOW(), engage_successful = $3
+       WHERE challenge_id = $1 AND telegram_id = $2`,
+      [challengeId, telegramId, successful]
     );
   }
 }

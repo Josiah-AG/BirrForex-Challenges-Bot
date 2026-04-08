@@ -1292,7 +1292,7 @@ export class TradingAdminHandler {
       if (message) {
         try {
           await ctx.telegram.sendMessage(user.telegram_id, message, { parse_mode: 'HTML', ...keyboard });
-          await tradingChallengeService.markEngaged(challenge.id, user.telegram_id);
+          await tradingChallengeService.markEngaged(challenge.id, user.telegram_id, true);
         } catch (e) {
           sent.failed++;
         }
@@ -1331,9 +1331,9 @@ export class TradingAdminHandler {
       return;
     }
 
-    const header = '#,Username,Telegram ID,Email,Failure Type,Attempted At,Later Registered,Engaged\n';
+    const header = '#,Username,Telegram ID,Email,Failure Type,Attempted At,Engage Count,Last Engaged,DM Successful,Later Registered\n';
     const rows = failed.map((f: any, i: number) =>
-      `${i + 1},@${f.username || 'unknown'},${f.telegram_id},${f.email || 'N/A'},${f.failure_type},${new Date(f.attempted_at).toISOString()},${f.later_registered ? 'Yes' : 'No'},${f.engaged ? 'Yes' : 'No'}\n`
+      `${i + 1},@${f.username || 'unknown'},${f.telegram_id},${f.email || 'N/A'},${f.failure_type},${new Date(f.attempted_at).toISOString()},${f.engage_count || 0},${f.last_engaged_at ? new Date(f.last_engaged_at).toISOString() : 'Never'},${f.engage_successful ? 'Yes' : 'No'},${f.later_registered ? 'Yes' : 'No'}\n`
     ).join('');
 
     const prefix = challenge.title.replace(/\s+/g, '_');

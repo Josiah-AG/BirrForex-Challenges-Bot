@@ -66,6 +66,7 @@ export class TradingScheduler {
         await this.checkChallengeEnd(challenge, dateStr, timeStr);
         await this.checkSubmissionDeadline(challenge, dateStr, timeStr);
         await this.checkDailyAdminSummary(challenge, dateStr, timeStr);
+        await this.checkAutoEngagement(challenge, dateStr, timeStr, eatTime);
       }
     } catch (error) {
       console.error('Trading scheduler error:', error);
@@ -441,6 +442,109 @@ export class TradingScheduler {
       });
     }
     return csv;
+  }
+
+  // ==================== AUTO ENGAGEMENT ====================
+
+  private engagementRunning = false;
+
+  private async checkAutoEngagement(challenge: TradingChallenge, dateStr: string, timeStr: string, eatTime: Date) {
+    // Only for registration_open challenges
+    if (challenge.status !== 'registration_open') return;
+
+    // Only between 8:30 AM and 9:30 PM EAT
+    const hour = eatTime.getUTCHours();
+    const minute = eatTime.getUTCMinutes();
+    const timeMinutes = hour * 60 + minute;
+    if (timeMinutes < 510 || timeMinutes > 1290) return; // 8:30=510, 21:30=1290
+
+    // Only check every 10 minutes (at :00 and :30)
+    if (minute % 10 !== 0) return;
+
+    // Don't run if already running
+    if (this.engagementRunning) return;
+
+    // Check if last 3 days before start
+    const start = this.toEATStrings(challenge.start_date);
+    const startMs = new Date(start.dateStr).getTime();
+    const nowMs = new Date(dateStr).getTime();
+    const daysUntilStart = Math.round((startMs - nowMs) / (1000 * 60 * 60 * 24));
+    const isLast3Days = daysUntilStart >= 0 && daysUntilStart <= 3;
+
+    const dueUsers = await tradingChallengeService.getDueForEngagement(challenge.id, isLast3Days);
+    if (dueUsers.length === 0) return;
+
+    // Run in background — don't block scheduler
+    this.engagementRunning = true;
+    this.sendEngagementBatch(challenge, dueUsers).finally(() => {
+      this.engagementRunning = false;
+    });
+  }
+
+  private async sendEngagementBatch(challenge: TradingChallenge, users: any[]) {
+    const botInfo = await this.bot.bot.telegram.getMe();
+    const keyboard = Markup.inlineKeyboard([
+      [Markup.button.url('🚀 Register Now', `https://t.me/${botInfo.username}?start=tc_register_${challenge.id}`)],
+    ]);
+
+    let sent = 0;
+    let failed = 0;
+
+    for (let i = 0; i < users.length; i++) {
+      const user = users[i];
+      const message = this.getEngagementMessage(challenge.title, user.failure_type, user.engage_count);
+
+      try {
+        await this.bot.bot.telegram.sendMessage(user.telegram_id, message, { parse_mode: 'HTML', ...keyboard });
+        await tradingChallengeService.markEngaged(challenge.id, user.telegram_id, true);
+        sent++;
+      } catch (e) {
+        await tradingChallengeService.markEngaged(challenge.id, user.telegram_id, false);
+        failed++;
+      }
+
+      // 2 second delay between messages
+      await new Promise(r => setTimeout(r, 2000));
+
+      // 30 second pause every 20 messages
+      if ((i + 1) % 20 === 0 && i < users.length - 1) {
+        await new Promise(r => setTimeout(r, 30000));
+      }
+    }
+
+    console.log(`✅ Auto-engagement: sent ${sent}, failed ${failed} for ${challenge.title}`);
+  }
+
+  private getEngagementMessage(title: string, failureType: string, engageCount: number): string {
+    const variant = engageCount % 3;
+    const contact = '\n\n<i>If you face any problem, contact @birrFXadmin for assistance.</i>';
+
+    if (failureType === 'allocation') {
+      if (variant === 0) {
+        return `👋 <b>Hello from BirrForex Team!</b>\n\n<b>${title}</b> starting day is approaching fast!\n\nHave you created a new Exness account or changed your partner yet?\n\nIf you have, register now before it's too late!\n\n👉 <b>Tap "Register Now" below to join the challenge.</b>${contact}`;
+      } else if (variant === 1) {
+        return `⏰ <b>Reminder from BirrForex!</b>\n\nTime is running out to join <b>${title}</b>!\n\nIf you've already changed your partner or created a new account, don't wait — register now!\n\nWe'd love to see you compete 💪${contact}`;
+      } else {
+        return `🚨 <b>Last chance!</b>\n\n<b>${title}</b> starts very soon!\n\nIf your Exness account is now under BirrForex, this is your final chance to register.\n\nDon't miss out on the prizes! 🏆${contact}`;
+      }
+    } else if (failureType === 'kyc') {
+      if (variant === 0) {
+        return `👋 <b>Hello from BirrForex Team!</b>\n\n<b>${title}</b> starting day is approaching fast!\n\nHave you completed your Exness account verification yet?\n\nIf not, verify now — it only takes a few minutes!\n➡️ Log in to Exness → Settings → Verification\n\nOnce verified, register for the challenge:${contact}`;
+      } else if (variant === 1) {
+        return `⏰ <b>Reminder from BirrForex!</b>\n\nDon't miss <b>${title}</b>!\n\nYour Exness account needs to be verified to participate. Have you completed it?\n\nVerification is quick and easy — do it now and join the challenge!${contact}`;
+      } else {
+        return `🚨 <b>Last chance!</b>\n\n<b>${title}</b> starts very soon!\n\nIf your account is now verified, register before it's too late!\n\nDon't miss out on the prizes! 🏆${contact}`;
+      }
+    } else {
+      // real_acct
+      if (variant === 0) {
+        return `👋 <b>Hello from BirrForex Team!</b>\n\n<b>${title}</b> starting day is approaching fast!\n\nHave you created a new MT5 Real Account within your Exness yet?\n\nMake sure it's under the same email you registered with.${contact}`;
+      } else if (variant === 1) {
+        return `⏰ <b>Reminder from BirrForex!</b>\n\nTime is running out to join <b>${title}</b>!\n\nIf you've created your MT5 Real Account, register now!${contact}`;
+      } else {
+        return `🚨 <b>Last chance!</b>\n\n<b>${title}</b> starts very soon!\n\nIf your MT5 Real Account is ready, this is your final chance to register.\n\nDon't miss out! 🏆${contact}`;
+      }
+    }
   }
 
   // ==================== DAILY ADMIN SUMMARY (8 AM EAT) ====================

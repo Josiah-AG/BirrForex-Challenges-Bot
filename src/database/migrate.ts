@@ -39,6 +39,10 @@ async function migrate() {
       await db.query(`
         ALTER TABLE trading_daily_stats ADD COLUMN IF NOT EXISTS real_acct_recoveries INTEGER DEFAULT 0;
       `).catch(() => {});
+      // Failed attempts table columns
+      await db.query(`ALTER TABLE trading_failed_attempts ADD COLUMN IF NOT EXISTS engage_count INTEGER DEFAULT 0;`).catch(() => {});
+      await db.query(`ALTER TABLE trading_failed_attempts ADD COLUMN IF NOT EXISTS last_engaged_at TIMESTAMP;`).catch(() => {});
+      await db.query(`ALTER TABLE trading_failed_attempts ADD COLUMN IF NOT EXISTS engage_successful BOOLEAN DEFAULT false;`).catch(() => {});
       console.log('✅ Trading schema migrations OK');
     } catch (err: any) {
       if (err.code === 'ENOENT') {
