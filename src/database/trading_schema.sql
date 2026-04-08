@@ -106,6 +106,8 @@ CREATE TABLE IF NOT EXISTS trading_failed_attempts (
     engage_count INTEGER DEFAULT 0,
     last_engaged_at TIMESTAMP,
     engage_successful BOOLEAN DEFAULT false,
+    converted BOOLEAN DEFAULT false,
+    converted_at TIMESTAMP,
     UNIQUE(challenge_id, telegram_id)
 );
 

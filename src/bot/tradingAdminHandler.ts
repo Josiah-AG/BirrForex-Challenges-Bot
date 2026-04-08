@@ -1331,9 +1331,9 @@ export class TradingAdminHandler {
       return;
     }
 
-    const header = '#,Username,Telegram ID,Email,Failure Type,Attempted At,Engage Count,Last Engaged,DM Successful,Later Registered\n';
+    const header = '#,Username,Telegram ID,Email,Failure Type,Attempted At,Engage Count,Last Engaged,DM Successful,Converted,Converted At\n';
     const rows = failed.map((f: any, i: number) =>
-      `${i + 1},@${f.username || 'unknown'},${f.telegram_id},${f.email || 'N/A'},${f.failure_type},${new Date(f.attempted_at).toISOString()},${f.engage_count || 0},${f.last_engaged_at ? new Date(f.last_engaged_at).toISOString() : 'Never'},${f.engage_successful ? 'Yes' : 'No'},${f.later_registered ? 'Yes' : 'No'}\n`
+      `${i + 1},@${f.username || 'unknown'},${f.telegram_id},${f.email || 'N/A'},${f.failure_type},${new Date(f.attempted_at).toISOString()},${f.engage_count || 0},${f.last_engaged_at ? new Date(f.last_engaged_at).toISOString() : 'Never'},${f.engage_successful ? 'Yes' : 'No'},${f.converted ? 'Yes' : 'No'},${f.converted_at ? new Date(f.converted_at).toISOString() : '-'}\n`
     ).join('');
 
     const prefix = challenge.title.replace(/\s+/g, '_');

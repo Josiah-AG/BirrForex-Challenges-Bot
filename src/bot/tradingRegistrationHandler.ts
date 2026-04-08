@@ -951,7 +951,7 @@ export class TradingRegistrationHandler {
       });
 
       // Remove from failed attempts if they were there
-      await tradingChallengeService.removeFailedAttempt(session.data.challenge_id, telegramId);
+      await tradingChallengeService.markConverted(session.data.challenge_id, telegramId);
 
       // Track daily stat
       const statField = session.data.account_type === 'demo' ? 'demo_registrations' : 'real_registrations';

@@ -430,9 +430,9 @@ class TradingChallengeService {
     );
   }
 
-  async removeFailedAttempt(challengeId: number, telegramId: number): Promise<void> {
+  async markConverted(challengeId: number, telegramId: number): Promise<void> {
     await db.query(
-      'DELETE FROM trading_failed_attempts WHERE challenge_id = $1 AND telegram_id = $2',
+      `UPDATE trading_failed_attempts SET converted = true, converted_at = NOW() WHERE challenge_id = $1 AND telegram_id = $2`,
       [challengeId, telegramId]
     );
   }
@@ -444,6 +444,7 @@ class TradingChallengeService {
        WHERE fa.challenge_id = $1
        AND fa.attempted_at < NOW() - INTERVAL '24 hours'
        AND tr.id IS NULL
+       AND fa.converted = false
        ORDER BY fa.failure_type, fa.attempted_at`,
       [challengeId]
     );
@@ -459,6 +460,7 @@ class TradingChallengeService {
        LEFT JOIN trading_registrations tr ON fa.challenge_id = tr.challenge_id AND fa.telegram_id = tr.telegram_id
        WHERE fa.challenge_id = $1
        AND tr.id IS NULL
+       AND fa.converted = false
        AND (
          (fa.engage_count = 0 AND fa.attempted_at < NOW() - INTERVAL '24 hours')
          OR
