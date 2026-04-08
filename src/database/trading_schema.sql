@@ -92,6 +92,23 @@ CREATE TABLE IF NOT EXISTS trading_daily_stats (
 
 -- Indexes for trading tables
 CREATE INDEX IF NOT EXISTS idx_tc_status ON trading_challenges(status);
+
+-- Failed attempts tracking (for re-engagement)
+CREATE TABLE IF NOT EXISTS trading_failed_attempts (
+    id SERIAL PRIMARY KEY,
+    challenge_id INTEGER REFERENCES trading_challenges(id) ON DELETE CASCADE,
+    telegram_id BIGINT NOT NULL,
+    username VARCHAR(255),
+    email VARCHAR(500),
+    failure_type VARCHAR(30) NOT NULL,
+    attempted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    engaged BOOLEAN DEFAULT false,
+    UNIQUE(challenge_id, telegram_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_tfa_challenge ON trading_failed_attempts(challenge_id);
+CREATE INDEX IF NOT EXISTS idx_tfa_type ON trading_failed_attempts(failure_type);
+
 CREATE INDEX IF NOT EXISTS idx_tc_dates ON trading_challenges(start_date, end_date);
 CREATE INDEX IF NOT EXISTS idx_tr_challenge ON trading_registrations(challenge_id);
 CREATE INDEX IF NOT EXISTS idx_tr_telegram ON trading_registrations(telegram_id);

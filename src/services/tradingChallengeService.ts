@@ -417,6 +417,58 @@ class TradingChallengeService {
     );
     return result.rows[0];
   }
+
+  // ==================== FAILED ATTEMPTS ====================
+
+  async logFailedAttempt(challengeId: number, telegramId: number, username: string | null, email: string | null, failureType: string): Promise<void> {
+    await db.query(
+      `INSERT INTO trading_failed_attempts (challenge_id, telegram_id, username, email, failure_type, attempted_at, engaged)
+       VALUES ($1, $2, $3, $4, $5, NOW(), false)
+       ON CONFLICT (challenge_id, telegram_id)
+       DO UPDATE SET failure_type = $5, email = COALESCE($4, trading_failed_attempts.email), username = COALESCE($3, trading_failed_attempts.username), attempted_at = NOW(), engaged = false`,
+      [challengeId, telegramId, username, email, failureType]
+    );
+  }
+
+  async removeFailedAttempt(challengeId: number, telegramId: number): Promise<void> {
+    await db.query(
+      'DELETE FROM trading_failed_attempts WHERE challenge_id = $1 AND telegram_id = $2',
+      [challengeId, telegramId]
+    );
+  }
+
+  async getEngageableFailedAttempts(challengeId: number): Promise<any[]> {
+    const result = await db.query(
+      `SELECT fa.* FROM trading_failed_attempts fa
+       LEFT JOIN trading_registrations tr ON fa.challenge_id = tr.challenge_id AND fa.telegram_id = tr.telegram_id
+       WHERE fa.challenge_id = $1
+       AND fa.attempted_at < NOW() - INTERVAL '24 hours'
+       AND tr.id IS NULL
+       ORDER BY fa.failure_type, fa.attempted_at`,
+      [challengeId]
+    );
+    return result.rows;
+  }
+
+  async getAllFailedAttempts(challengeId: number): Promise<any[]> {
+    const result = await db.query(
+      `SELECT fa.*, 
+       CASE WHEN tr.id IS NOT NULL THEN true ELSE false END as later_registered
+       FROM trading_failed_attempts fa
+       LEFT JOIN trading_registrations tr ON fa.challenge_id = tr.challenge_id AND fa.telegram_id = tr.telegram_id
+       WHERE fa.challenge_id = $1
+       ORDER BY fa.attempted_at DESC`,
+      [challengeId]
+    );
+    return result.rows;
+  }
+
+  async markEngaged(challengeId: number, telegramId: number): Promise<void> {
+    await db.query(
+      'UPDATE trading_failed_attempts SET engaged = true WHERE challenge_id = $1 AND telegram_id = $2',
+      [challengeId, telegramId]
+    );
+  }
 }
 
 export const tradingChallengeService = new TradingChallengeService();

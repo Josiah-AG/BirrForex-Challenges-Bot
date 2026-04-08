@@ -1233,6 +1233,129 @@ export class TradingAdminHandler {
     );
   }
 
+  // ==================== ENGAGE FAILED USERS ====================
+
+  async engageFailedUsers(ctx: Context) {
+    if (!this.checkAdmin(ctx)) return;
+
+    const challenges = await tradingChallengeService.getAllChallenges();
+    const challenge = challenges.find(c => ['registration_open', 'active'].includes(c.status)) || challenges[0];
+
+    if (!challenge) {
+      await ctx.reply('❌ No active challenge found.');
+      return;
+    }
+
+    const failed = await tradingChallengeService.getEngageableFailedAttempts(challenge.id);
+
+    if (failed.length === 0) {
+      await ctx.reply('✅ No failed users to engage (all recent or already registered).');
+      return;
+    }
+
+    const botInfo = await ctx.telegram.getMe();
+    const keyboard = Markup.inlineKeyboard([
+      [Markup.button.url('🚀 Register Now', `https://t.me/${botInfo.username}?start=tc_register_${challenge.id}`)],
+    ]);
+
+    let sent = { allocation: 0, kyc: 0, real_acct: 0, failed: 0 };
+
+    for (const user of failed) {
+      let message = '';
+
+      if (user.failure_type === 'allocation') {
+        message = `👋 <b>Hello from BirrForex Team!</b>\n\n` +
+          `<b>${challenge.title}</b> starting day is approaching fast!\n\n` +
+          `Have you created a new Exness account or changed your partner yet?\n\n` +
+          `If you have, register now before it's too late!\n\n` +
+          `👉 <b>Tap "Register Now" below to join the challenge.</b>`;
+        sent.allocation++;
+      } else if (user.failure_type === 'kyc') {
+        message = `👋 <b>Hello from BirrForex Team!</b>\n\n` +
+          `<b>${challenge.title}</b> starting day is approaching fast!\n\n` +
+          `Have you completed your Exness account verification yet?\n\n` +
+          `If not, verify your account now — it only takes a few minutes!\n` +
+          `➡️ Log in to Exness → Settings → Verification\n\n` +
+          `Once verified, register for the challenge:\n\n` +
+          `👉 <b>Tap "Register Now" below to join.</b>`;
+        sent.kyc++;
+      } else if (user.failure_type === 'real_acct') {
+        message = `👋 <b>Hello from BirrForex Team!</b>\n\n` +
+          `<b>${challenge.title}</b> starting day is approaching fast!\n\n` +
+          `Have you created a new MT5 Real Account within your Exness yet?\n\n` +
+          `Make sure your real account is under the same email you registered with.\n\n` +
+          `If you're ready, register now:\n\n` +
+          `👉 <b>Tap "Register Now" below to join the challenge.</b>`;
+        sent.real_acct++;
+      }
+
+      if (message) {
+        try {
+          await ctx.telegram.sendMessage(user.telegram_id, message, { parse_mode: 'HTML', ...keyboard });
+          await tradingChallengeService.markEngaged(challenge.id, user.telegram_id);
+        } catch (e) {
+          sent.failed++;
+        }
+        // Small delay to avoid rate limits
+        await new Promise(r => setTimeout(r, 200));
+      }
+    }
+
+    const total = sent.allocation + sent.kyc + sent.real_acct;
+    await ctx.reply(
+      `✅ <b>Engagement messages sent!</b>\n\n` +
+      `📊 <b>Total sent:</b> ${total}\n` +
+      `   ├── Allocation: ${sent.allocation}\n` +
+      `   ├── KYC: ${sent.kyc}\n` +
+      `   └── Real Acct: ${sent.real_acct}\n` +
+      (sent.failed > 0 ? `\n❌ <b>Failed to send:</b> ${sent.failed} <i>(DMs blocked)</i>` : ''),
+      { parse_mode: 'HTML' }
+    );
+  }
+
+  async exportFailedAttempts(ctx: Context) {
+    if (!this.checkAdmin(ctx)) return;
+
+    const challenges = await tradingChallengeService.getAllChallenges();
+    const challenge = challenges.find(c => ['registration_open', 'active'].includes(c.status)) || challenges[0];
+
+    if (!challenge) {
+      await ctx.reply('❌ No active challenge found.');
+      return;
+    }
+
+    const failed = await tradingChallengeService.getAllFailedAttempts(challenge.id);
+
+    if (failed.length === 0) {
+      await ctx.reply('✅ No failed attempts recorded.');
+      return;
+    }
+
+    const header = '#,Username,Telegram ID,Email,Failure Type,Attempted At,Later Registered,Engaged\n';
+    const rows = failed.map((f: any, i: number) =>
+      `${i + 1},@${f.username || 'unknown'},${f.telegram_id},${f.email || 'N/A'},${f.failure_type},${new Date(f.attempted_at).toISOString()},${f.later_registered ? 'Yes' : 'No'},${f.engaged ? 'Yes' : 'No'}\n`
+    ).join('');
+
+    const prefix = challenge.title.replace(/\s+/g, '_');
+
+    try {
+      await ctx.replyWithDocument({
+        source: Buffer.from(header + rows),
+        filename: `${prefix}_failed_attempts.csv`,
+      });
+      await ctx.reply(
+        `📊 <b>Failed Attempts Export</b>\n\n` +
+        `📋 <b>Challenge:</b> ${challenge.title}\n` +
+        `📊 <b>Total failed:</b> ${failed.length}\n` +
+        `📊 <b>Later registered:</b> ${failed.filter((f: any) => f.later_registered).length}\n` +
+        `📊 <b>Engaged:</b> ${failed.filter((f: any) => f.engaged).length}`,
+        { parse_mode: 'HTML' }
+      );
+    } catch (e) {
+      await ctx.reply('❌ Error generating export.');
+    }
+  }
+
   // ==================== UNREGISTER ====================
 
   async unregister(ctx: Context) {

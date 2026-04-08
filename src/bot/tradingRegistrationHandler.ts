@@ -739,6 +739,7 @@ export class TradingRegistrationHandler {
       if (result.status === 'not_allocated') {
         session.data.allocation_fail_count = (session.data.allocation_fail_count || 0) + 1;
         await tradingChallengeService.updateDailyStat(session.data.challenge_id, 'allocation_failures');
+        await tradingChallengeService.logFailedAttempt(session.data.challenge_id, telegramId, ctx.from!.username || null, session.data.email, 'allocation');
         const challengeId = session.data.challenge_id;
         const contactAdmin = session.data.allocation_fail_count >= 2
           ? `\n\n<b>If you are sure this is a mistake, contact @birrFXadmin with a screenshot of this message.</b>`
@@ -769,6 +770,7 @@ export class TradingRegistrationHandler {
       if (result.status === 'kyc_failed') {
         session.data.kyc_fail_count = (session.data.kyc_fail_count || 0) + 1;
         await tradingChallengeService.updateDailyStat(session.data.challenge_id, 'kyc_failures');
+        await tradingChallengeService.logFailedAttempt(session.data.challenge_id, telegramId, ctx.from!.username || null, session.data.email, 'kyc');
         const challengeId = session.data.challenge_id;
         const contactAdmin = session.data.kyc_fail_count >= 2
           ? `\n\n<b>If you are sure your account is verified, contact @birrFXadmin with a screenshot of this message.</b>`
@@ -866,6 +868,7 @@ export class TradingRegistrationHandler {
       session.step = 'tc_enter_account_number';
       session.data.real_acct_retry = (session.data.real_acct_retry || 0) + 1;
       await tradingChallengeService.updateDailyStat(session.data.challenge_id, 'real_acct_failures');
+      await tradingChallengeService.logFailedAttempt(session.data.challenge_id, telegramId, ctx.from!.username || null, session.data.email, 'real_acct');
 
       if (session.data.real_acct_retry >= 2) {
         await ctx.reply(
@@ -946,6 +949,9 @@ export class TradingRegistrationHandler {
         mt5_server: session.data.mt5_server || null,
         client_uid: session.data.client_uid || null,
       });
+
+      // Remove from failed attempts if they were there
+      await tradingChallengeService.removeFailedAttempt(session.data.challenge_id, telegramId);
 
       // Track daily stat
       const statField = session.data.account_type === 'demo' ? 'demo_registrations' : 'real_registrations';
