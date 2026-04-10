@@ -33,6 +33,11 @@ export interface TradingRegistration {
   mt5_server: string | null;
   client_uid: string | null;
   status: string;
+  partner_status: string | null;
+  partner_warned_at: Date | null;
+  disqualified: boolean;
+  disqualified_at: Date | null;
+  disqualified_reason: string | null;
   registered_at: Date;
 }
 
@@ -492,6 +497,79 @@ class TradingChallengeService {
        WHERE challenge_id = $1 AND telegram_id = $2`,
       [challengeId, telegramId, successful]
     );
+  }
+
+  // ==================== PARTNER SCREENING ====================
+
+  async getActiveRegistrations(challengeId: number): Promise<TradingRegistration[]> {
+    const result = await db.query(
+      `SELECT * FROM trading_registrations WHERE challenge_id = $1 AND disqualified = false ORDER BY id`,
+      [challengeId]
+    );
+    return result.rows;
+  }
+
+  async updateClientUid(registrationId: number, clientUid: string): Promise<void> {
+    await db.query(
+      'UPDATE trading_registrations SET client_uid = $1 WHERE id = $2',
+      [clientUid, registrationId]
+    );
+  }
+
+  async setPartnerWarning(registrationId: number): Promise<void> {
+    await db.query(
+      `UPDATE trading_registrations SET partner_status = 'CHANGING', partner_warned_at = NOW() WHERE id = $1`,
+      [registrationId]
+    );
+  }
+
+  async clearPartnerWarning(registrationId: number): Promise<void> {
+    await db.query(
+      `UPDATE trading_registrations SET partner_status = NULL, partner_warned_at = NULL WHERE id = $1`,
+      [registrationId]
+    );
+  }
+
+  async markDisqualifiedPartner(registrationId: number): Promise<void> {
+    await db.query(
+      `UPDATE trading_registrations SET disqualified = true, disqualified_at = NOW(), disqualified_reason = 'Partner changed from BirrForex', partner_status = 'LEFT' WHERE id = $1`,
+      [registrationId]
+    );
+  }
+
+  async saveScreeningResult(challengeId: number, date: string, data: any): Promise<void> {
+    await db.query(
+      `INSERT INTO trading_screening_results
+       (challenge_id, screening_date, total_screened, all_good, changing_real, changing_demo, left_real, left_demo, warnings_cleared, missed, uids_backfilled)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+       ON CONFLICT (challenge_id, screening_date)
+       DO UPDATE SET total_screened=$3, all_good=$4, changing_real=$5, changing_demo=$6, left_real=$7, left_demo=$8, warnings_cleared=$9, missed=$10, uids_backfilled=$11`,
+      [challengeId, date, data.total_screened, data.all_good, data.changing_real, data.changing_demo, data.left_real, data.left_demo, data.warnings_cleared, data.missed, data.uids_backfilled]
+    );
+  }
+
+  async getScreeningResult(challengeId: number, date: string): Promise<any> {
+    const result = await db.query(
+      'SELECT * FROM trading_screening_results WHERE challenge_id = $1 AND screening_date = $2',
+      [challengeId, date]
+    );
+    return result.rows[0] || null;
+  }
+
+  async getWarningUsers(challengeId: number): Promise<TradingRegistration[]> {
+    const result = await db.query(
+      `SELECT * FROM trading_registrations WHERE challenge_id = $1 AND partner_status = 'CHANGING' AND disqualified = false`,
+      [challengeId]
+    );
+    return result.rows;
+  }
+
+  async getNewlyDisqualified(challengeId: number, date: string): Promise<TradingRegistration[]> {
+    const result = await db.query(
+      `SELECT * FROM trading_registrations WHERE challenge_id = $1 AND disqualified = true AND disqualified_at::date = $2::date`,
+      [challengeId, date]
+    );
+    return result.rows;
   }
 }
 

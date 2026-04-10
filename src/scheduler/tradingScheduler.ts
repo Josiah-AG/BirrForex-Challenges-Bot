@@ -1,6 +1,7 @@
 import cron from 'node-cron';
 import { Bot } from '../bot/bot';
 import { tradingChallengeService, TradingChallenge } from '../services/tradingChallengeService';
+import { exnessService } from '../services/exnessService';
 import { config } from '../config';
 import { Markup } from 'telegraf';
 
@@ -67,6 +68,7 @@ export class TradingScheduler {
         await this.checkSubmissionDeadline(challenge, dateStr, timeStr);
         await this.checkDailyAdminSummary(challenge, dateStr, timeStr);
         await this.checkAutoEngagement(challenge, dateStr, timeStr, eatTime);
+        await this.checkPartnerScreening(challenge, dateStr, timeStr);
       }
     } catch (error) {
       console.error('Trading scheduler error:', error);
@@ -544,6 +546,241 @@ export class TradingScheduler {
       } else {
         return `🚨 <b>Last chance!</b>\n\n<b>${title}</b> starts very soon!\n\nIf your MT5 Real Account is ready, this is your final chance to register.\n\nDon't miss out! 🏆${contact}`;
       }
+    }
+  }
+
+  // ==================== PARTNER SCREENING (10 PM EAT) ====================
+
+  private screeningRunning = false;
+  private screeningResults: any = null;
+  private pendingMessages: { telegramId: number; message: string }[] = [];
+
+  private async checkPartnerScreening(challenge: TradingChallenge, dateStr: string, timeStr: string) {
+    if (challenge.status !== 'active') return;
+
+    // Start screening at 10:00 PM EAT
+    if (timeStr === '22:00' && !this.screeningRunning) {
+      this.screeningRunning = true;
+      this.runPartnerScreening(challenge).finally(() => { this.screeningRunning = false; });
+    }
+
+    // Send queued messages between 8:00 AM - 9:00 PM
+    const hour = parseInt(timeStr.split(':')[0]);
+    if (hour === 8 && timeStr === '08:00' && this.pendingMessages.length > 0) {
+      this.sendPendingMessages(challenge);
+    }
+
+    // Send admin report at 9:00 AM
+    if (timeStr === '09:00' && this.screeningResults) {
+      await this.sendScreeningReport(challenge, this.screeningResults);
+      this.screeningResults = null;
+    }
+  }
+
+  private async runPartnerScreening(challenge: TradingChallenge) {
+    console.log(`🔍 Partner screening started for ${challenge.title}`);
+
+    const registrations = await tradingChallengeService.getActiveRegistrations(challenge.id);
+    const stats = { total_screened: 0, all_good: 0, changing_real: 0, changing_demo: 0, left_real: 0, left_demo: 0, warnings_cleared: 0, missed: 0, uids_backfilled: 0 };
+    const changingUsers: any[] = [];
+    const leftUsers: any[] = [];
+    const clearedUsers: any[] = [];
+
+    for (const reg of registrations) {
+      try {
+        let shortUid = reg.client_uid;
+
+        // Backfill UID if missing
+        if (!shortUid) {
+          const alloc = await exnessService.checkAllocation(reg.email);
+          if (alloc && alloc.client_uid) {
+            shortUid = alloc.client_uid;
+            await tradingChallengeService.updateClientUid(reg.id, shortUid);
+            stats.uids_backfilled++;
+          } else {
+            stats.missed++;
+            await new Promise(r => setTimeout(r, 3000));
+            continue;
+          }
+        }
+
+        // Get full UUID
+        const fullUuid = await exnessService.getFullUuid(shortUid);
+        if (!fullUuid) {
+          // Retry
+          await new Promise(r => setTimeout(r, 10000));
+          const retry = await exnessService.getFullUuid(shortUid);
+          if (!retry) {
+            stats.missed++;
+            await new Promise(r => setTimeout(r, 3000));
+            continue;
+          }
+        }
+
+        const uuid = fullUuid || await exnessService.getFullUuid(shortUid);
+        if (!uuid) { stats.missed++; await new Promise(r => setTimeout(r, 3000)); continue; }
+
+        // Get client status
+        const clientInfo = await exnessService.getKycStatus(uuid);
+        if (!clientInfo) {
+          // Retry with backoff
+          await new Promise(r => setTimeout(r, 10000));
+          const retryInfo = await exnessService.getKycStatus(uuid);
+          if (!retryInfo) {
+            await new Promise(r => setTimeout(r, 30000));
+            const retryInfo2 = await exnessService.getKycStatus(uuid);
+            if (!retryInfo2) { stats.missed++; await new Promise(r => setTimeout(r, 3000)); continue; }
+          }
+        }
+
+        const info = clientInfo || await exnessService.getKycStatus(uuid!);
+        if (!info) { stats.missed++; await new Promise(r => setTimeout(r, 3000)); continue; }
+
+        stats.total_screened++;
+        const clientStatus = info.client_status;
+
+        if (clientStatus === 'CHANGING') {
+          if (!reg.partner_warned_at) {
+            // First time — warn
+            await tradingChallengeService.setPartnerWarning(reg.id);
+            const cat = reg.account_type === 'real' ? 'changing_real' : 'changing_demo';
+            (stats as any)[cat]++;
+            changingUsers.push(reg);
+
+            this.pendingMessages.push({
+              telegramId: reg.telegram_id,
+              message: `⚠️ <b>Notice from BirrForex Challenge Team</b>\n\nWe noticed a partner change request on your Exness account.\n\nAs per challenge rules, your Exness account must remain under <b>BirrForex</b> to be eligible for <b>${challenge.title}</b>.\n\nIf you want to continue competing, please <b>cancel your change request</b> in your Exness account.\n\n⚠️ <i>Your registration will be canceled when the partner change is approved.</i>\n\nIf you face any problem, contact <b>@birrFXadmin</b> for assistance.`,
+            });
+          } else {
+            // Already warned
+            const cat = reg.account_type === 'real' ? 'changing_real' : 'changing_demo';
+            (stats as any)[cat]++;
+          }
+        } else if (clientStatus === 'LEFT') {
+          // Double check allocation
+          const alloc = await exnessService.checkAllocation(reg.email);
+          if (!alloc || !alloc.affiliation) {
+            await tradingChallengeService.markDisqualifiedPartner(reg.id);
+            const cat = reg.account_type === 'real' ? 'left_real' : 'left_demo';
+            (stats as any)[cat]++;
+            leftUsers.push(reg);
+
+            this.pendingMessages.push({
+              telegramId: reg.telegram_id,
+              message: `❌ <b>Registration Canceled</b>\n\nWe're sorry to inform you that your registration for <b>${challenge.title}</b> has been canceled.\n\nSince your Exness account is no longer under BirrForex, you are no longer eligible to participate in this challenge.\n\n<i>Thank you for your interest, and we hope to see you in future challenges!</i> 🙏\n\nIf you believe this is an error, contact <b>@birrFXadmin</b> for assistance.`,
+            });
+          } else {
+            stats.all_good++;
+          }
+        } else {
+          // ACTIVE or INACTIVE — all good
+          if (reg.partner_warned_at) {
+            // Was warned but now back to active — clear warning
+            await tradingChallengeService.clearPartnerWarning(reg.id);
+            stats.warnings_cleared++;
+            clearedUsers.push(reg);
+          }
+          stats.all_good++;
+        }
+
+        // 3 second delay between checks
+        await new Promise(r => setTimeout(r, 3000));
+
+      } catch (e) {
+        console.error(`Screening error for ${reg.email}:`, e);
+        stats.missed++;
+        // Back off on error
+        await new Promise(r => setTimeout(r, 10000));
+      }
+    }
+
+    // Save results
+    const { dateStr: todayStr } = this.getEATTime();
+    await tradingChallengeService.saveScreeningResult(challenge.id, todayStr, stats);
+
+    this.screeningResults = { ...stats, changingUsers, leftUsers, clearedUsers };
+    console.log(`✅ Partner screening done: ${stats.total_screened} screened, ${stats.changing_real + stats.changing_demo} changing, ${stats.left_real + stats.left_demo} left, ${stats.missed} missed`);
+  }
+
+  private async sendPendingMessages(challenge: TradingChallenge) {
+    if (this.pendingMessages.length === 0) return;
+
+    const messages = [...this.pendingMessages];
+    this.pendingMessages = [];
+    let sent = 0;
+
+    for (const msg of messages) {
+      try {
+        await this.bot.bot.telegram.sendMessage(msg.telegramId, msg.message, { parse_mode: 'HTML' });
+        sent++;
+      } catch (e) {
+        // User blocked bot
+      }
+      await new Promise(r => setTimeout(r, 2000));
+      if (sent % 20 === 0) await new Promise(r => setTimeout(r, 10000));
+    }
+
+    console.log(`✅ Screening messages sent: ${sent}/${messages.length}`);
+  }
+
+  private async sendScreeningReport(challenge: TradingChallenge, results: any) {
+    const { dateStr } = this.getEATTime();
+    const yesterday = new Date(dateStr);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const screeningDate = `${yesterday.getFullYear()}-${(yesterday.getMonth() + 1).toString().padStart(2, '0')}-${yesterday.getDate().toString().padStart(2, '0')}`;
+
+    let text = `<b>🔍 PARTNER SCREENING REPORT</b>\n<b>${challenge.title}</b>\n📅 Screening: ${screeningDate} 10:00 PM\n\n`;
+    text += `<b>📊 SCREENING RESULTS:</b>\n`;
+    text += `➡️ <b>Total Screened:</b> ${results.total_screened}\n`;
+    text += `➡️ <b>All Good:</b> ${results.all_good}\n\n`;
+
+    const totalChanging = results.changing_real + results.changing_demo;
+    if (totalChanging > 0) {
+      text += `<b>⚠️ PARTNER CHANGING: ${totalChanging}</b>\n`;
+      text += `Real Account: ${results.changing_real}\n`;
+      results.changingUsers.filter((u: any) => u.account_type === 'real').forEach((u: any, i: number) => {
+        text += `   ${i + 1}. @${u.username || 'unknown'} — ${u.email}\n`;
+      });
+      text += `Demo Account: ${results.changing_demo}\n`;
+      results.changingUsers.filter((u: any) => u.account_type === 'demo').forEach((u: any, i: number) => {
+        text += `   ${i + 1}. @${u.username || 'unknown'} — ${u.email}\n`;
+      });
+      text += '\n';
+    }
+
+    const totalLeft = results.left_real + results.left_demo;
+    if (totalLeft > 0) {
+      text += `<b>❌ PARTNER LEFT (Disqualified): ${totalLeft}</b>\n`;
+      text += `Real Account: ${results.left_real}\n`;
+      results.leftUsers.filter((u: any) => u.account_type === 'real').forEach((u: any, i: number) => {
+        text += `   ${i + 1}. @${u.username || 'unknown'} — ${u.email}\n`;
+      });
+      text += `Demo Account: ${results.left_demo}\n`;
+      results.leftUsers.filter((u: any) => u.account_type === 'demo').forEach((u: any, i: number) => {
+        text += `   ${i + 1}. @${u.username || 'unknown'} — ${u.email}\n`;
+      });
+      text += '\n';
+    }
+
+    if (results.warnings_cleared > 0) {
+      text += `<b>🔄 Warnings Cleared: ${results.warnings_cleared}</b>\n`;
+      results.clearedUsers.forEach((u: any) => {
+        text += `   @${u.username || 'unknown'} — cancelled change request ✅\n`;
+      });
+      text += '\n';
+    }
+
+    if (results.missed > 0) text += `❌ <b>Missed (API error):</b> ${results.missed}\n`;
+    if (results.uids_backfilled > 0) text += `🔑 <b>UIDs Backfilled:</b> ${results.uids_backfilled}\n`;
+
+    if (totalChanging === 0 && totalLeft === 0 && results.warnings_cleared === 0) {
+      text += `\n✅ <i>No partner issues detected.</i>`;
+    }
+
+    try {
+      await this.bot.bot.telegram.sendMessage(config.adminUserId, text, { parse_mode: 'HTML' });
+    } catch (e) {
+      console.error('Error sending screening report:', e);
     }
   }
 

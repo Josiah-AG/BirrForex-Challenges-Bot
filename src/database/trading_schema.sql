@@ -36,6 +36,11 @@ CREATE TABLE IF NOT EXISTS trading_registrations (
     mt5_server VARCHAR(100),
     client_uid VARCHAR(100),
     status VARCHAR(30) DEFAULT 'registered',
+    partner_status VARCHAR(30),
+    partner_warned_at TIMESTAMP,
+    disqualified BOOLEAN DEFAULT false,
+    disqualified_at TIMESTAMP,
+    disqualified_reason TEXT,
     registered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(challenge_id, telegram_id),
@@ -113,6 +118,24 @@ CREATE TABLE IF NOT EXISTS trading_failed_attempts (
 
 CREATE INDEX IF NOT EXISTS idx_tfa_challenge ON trading_failed_attempts(challenge_id);
 CREATE INDEX IF NOT EXISTS idx_tfa_type ON trading_failed_attempts(failure_type);
+
+-- Screening results (daily partner check logs)
+CREATE TABLE IF NOT EXISTS trading_screening_results (
+    id SERIAL PRIMARY KEY,
+    challenge_id INTEGER REFERENCES trading_challenges(id) ON DELETE CASCADE,
+    screening_date DATE NOT NULL,
+    total_screened INTEGER DEFAULT 0,
+    all_good INTEGER DEFAULT 0,
+    changing_real INTEGER DEFAULT 0,
+    changing_demo INTEGER DEFAULT 0,
+    left_real INTEGER DEFAULT 0,
+    left_demo INTEGER DEFAULT 0,
+    warnings_cleared INTEGER DEFAULT 0,
+    missed INTEGER DEFAULT 0,
+    uids_backfilled INTEGER DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(challenge_id, screening_date)
+);
 
 CREATE INDEX IF NOT EXISTS idx_tc_dates ON trading_challenges(start_date, end_date);
 CREATE INDEX IF NOT EXISTS idx_tr_challenge ON trading_registrations(challenge_id);
