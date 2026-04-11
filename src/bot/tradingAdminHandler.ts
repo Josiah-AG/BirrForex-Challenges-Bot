@@ -796,6 +796,11 @@ export class TradingAdminHandler {
         break;
       }
 
+      case 'tc_finduser_input': {
+        await this.processFindUser(ctx, text);
+        break;
+      }
+
       case 'tc_additional_post_text': {
         session.data.post_text = text;
         session.data.post_entities = (ctx.message as any)?.entities || [];
@@ -1354,6 +1359,103 @@ export class TradingAdminHandler {
     } catch (e) {
       await ctx.reply('❌ Error generating export.');
     }
+  }
+
+  // ==================== FIND USER ====================
+
+  async findUser(ctx: Context) {
+    if (!this.checkAdmin(ctx)) return;
+    const telegramId = ctx.from!.id;
+
+    tradingAdminSessions.set(telegramId, {
+      step: 'tc_finduser_input',
+      data: {},
+    });
+
+    await ctx.reply('🔍 Enter <b>username</b>, <b>email</b>, or <b>Telegram ID</b> to search:', { parse_mode: 'HTML' });
+  }
+
+  private async processFindUser(ctx: Context, input: string) {
+    const search = input.trim().replace('@', '').toLowerCase();
+    const telegramId = ctx.from!.id;
+    tradingAdminSessions.delete(telegramId);
+
+    const challenges = await tradingChallengeService.getAllChallenges();
+    const challenge = challenges.find(c => ['registration_open', 'active', 'submission_open', 'reviewing'].includes(c.status)) || challenges[0];
+
+    if (!challenge) {
+      await ctx.reply('❌ No challenges found.');
+      return;
+    }
+
+    // Search registrations
+    const regs = await tradingChallengeService.getAllRegistrations(challenge.id);
+    const reg = regs.find(r =>
+      r.username?.toLowerCase() === search ||
+      r.email?.toLowerCase() === search ||
+      String(r.telegram_id) === search
+    );
+
+    if (reg) {
+      const acctLabel = reg.account_type === 'demo' ? 'Demo' : 'Real';
+      const regDate = toEAT(reg.registered_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+
+      let status = '✅ <b>Successfully Registered</b>';
+      let extra = '';
+
+      if (reg.disqualified) {
+        status = '❌ <b>Disqualified</b>';
+        extra = `\n❌ <b>Disqualified:</b> ${reg.disqualified_at ? toEAT(reg.disqualified_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A'}` +
+          `\n⚠️ <b>Reason:</b> ${reg.disqualified_reason || 'N/A'}`;
+      } else if (reg.partner_status === 'CHANGING') {
+        status = '⚠️ <b>Registered — Partner Changing</b>';
+        extra = `\n⚠️ <b>Warned:</b> ${reg.partner_warned_at ? toEAT(reg.partner_warned_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A'}`;
+      }
+
+      await ctx.reply(
+        `<b>🔍 USER FOUND</b>\n\n${status}\n\n` +
+        `👤 <b>Username:</b> @${reg.username || 'unknown'}\n` +
+        `🆔 <b>Telegram ID:</b> <code>${reg.telegram_id}</code>\n` +
+        `📧 <b>Email:</b> ${reg.email}\n` +
+        `📊 <b>Category:</b> ${acctLabel}\n` +
+        `🏦 <b>Account:</b> ${reg.account_number}\n` +
+        `🖥️ <b>Server:</b> ${reg.mt5_server || 'N/A'}\n` +
+        `📅 <b>Registered:</b> ${regDate}` +
+        extra +
+        `\n\n📋 <b>Challenge:</b> ${challenge.title}`,
+        { parse_mode: 'HTML' }
+      );
+      return;
+    }
+
+    // Search failed attempts
+    const failed = await tradingChallengeService.getAllFailedAttempts(challenge.id);
+    const failedUser = failed.find((f: any) =>
+      f.username?.toLowerCase() === search ||
+      f.email?.toLowerCase() === search ||
+      String(f.telegram_id) === search
+    );
+
+    if (failedUser) {
+      const attemptDate = toEAT(new Date(failedUser.attempted_at)).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+      const failLabel = failedUser.failure_type === 'allocation' ? 'Allocation' : failedUser.failure_type === 'kyc' ? 'KYC' : 'Real Account';
+
+      await ctx.reply(
+        `<b>🔍 USER FOUND</b>\n\n❌ <b>Failed Registration</b>\n\n` +
+        `👤 <b>Username:</b> @${failedUser.username || 'unknown'}\n` +
+        `🆔 <b>Telegram ID:</b> <code>${failedUser.telegram_id}</code>\n` +
+        `📧 <b>Email:</b> ${failedUser.email || 'N/A'}\n` +
+        `⚠️ <b>Failed at:</b> ${failLabel}\n` +
+        `📅 <b>Attempted:</b> ${attemptDate}\n` +
+        `📊 <b>Engaged:</b> ${failedUser.engage_count || 0} times\n` +
+        `🔄 <b>Converted:</b> ${failedUser.converted ? 'Yes ✅' : 'No'}\n\n` +
+        `📋 <b>Challenge:</b> ${challenge.title}`,
+        { parse_mode: 'HTML' }
+      );
+      return;
+    }
+
+    await ctx.reply(`<b>🔍 USER NOT FOUND</b>\n\nNo records found for "<b>${input.trim()}</b>" in any table.`, { parse_mode: 'HTML' });
   }
 
   // ==================== UNREGISTER ====================
