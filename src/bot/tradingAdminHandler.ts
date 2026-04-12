@@ -652,7 +652,7 @@ export class TradingAdminHandler {
 
       // Retract registration
       case 'tc_retract_username': {
-        const input = text.trim().replace('@', '').toLowerCase();
+        const input = text.trim().toLowerCase().replace(/^@/, '');
         const regs = await tradingChallengeService.getAllRegistrations(session.data.challenge_id);
         const reg = regs.find(r =>
           r.username?.toLowerCase() === input ||
@@ -694,7 +694,7 @@ export class TradingAdminHandler {
       }
 
       case 'tc_mv_search': {
-        const searchName = text.trim().replace('@', '').toLowerCase();
+        const searchName = text.trim().toLowerCase().replace(/^@/, '');
         const { tradingRegistrationHandler } = require('../bot/tradingRegistrationHandler');
         const knownUsers = tradingRegistrationHandler.getKnownUsers() as Map<number, { username: string | null; firstName: string | null }>;
 
@@ -1376,7 +1376,7 @@ export class TradingAdminHandler {
   }
 
   private async processFindUser(ctx: Context, input: string) {
-    const search = input.trim().replace('@', '').toLowerCase();
+    const search = input.trim().toLowerCase().replace(/^@/, '');
     const telegramId = ctx.from!.id;
     tradingAdminSessions.delete(telegramId);
 
@@ -2271,7 +2271,7 @@ export class TradingAdminHandler {
 
   private async sendMessageToUser(ctx: Context, input: string, message: string) {
     const challenges = await tradingChallengeService.getAllChallenges();
-    const searchInput = input.replace('@', '').toLowerCase();
+    const searchInput = input.toLowerCase().replace(/^@/, '');
     let reg = null;
 
     for (const c of challenges) {
