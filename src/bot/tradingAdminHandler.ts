@@ -1361,6 +1361,99 @@ export class TradingAdminHandler {
     }
   }
 
+  // ==================== VIEW SCHEDULE ====================
+
+  async viewSchedule(ctx: Context) {
+    if (!this.checkAdmin(ctx)) return;
+
+    const challenges = await tradingChallengeService.getAllChallenges();
+    const challenge = challenges.find(c => !['draft', 'completed'].includes(c.status)) || challenges[0];
+
+    if (!challenge) {
+      await ctx.reply('❌ No challenges found.');
+      return;
+    }
+
+    const now = new Date();
+    const eatNow = new Date(now.getTime() + 3 * 60 * 60 * 1000);
+    const todayStr = `${eatNow.getUTCFullYear()}-${(eatNow.getUTCMonth() + 1).toString().padStart(2, '0')}-${eatNow.getUTCDate().toString().padStart(2, '0')}`;
+
+    // Convert stored dates to EAT
+    const startEAT = new Date(new Date(challenge.start_date).getTime() + 3 * 60 * 60 * 1000);
+    const endEAT = new Date(new Date(challenge.end_date).getTime() + 3 * 60 * 60 * 1000);
+    const startDateStr = `${startEAT.getUTCFullYear()}-${(startEAT.getUTCMonth() + 1).toString().padStart(2, '0')}-${startEAT.getUTCDate().toString().padStart(2, '0')}`;
+    const startTimeStr = `${startEAT.getUTCHours().toString().padStart(2, '0')}:${startEAT.getUTCMinutes().toString().padStart(2, '0')}`;
+    const endDateStr = `${endEAT.getUTCFullYear()}-${(endEAT.getUTCMonth() + 1).toString().padStart(2, '0')}-${endEAT.getUTCDate().toString().padStart(2, '0')}`;
+    const endTimeStr = `${endEAT.getUTCHours().toString().padStart(2, '0')}:${endEAT.getUTCMinutes().toString().padStart(2, '0')}`;
+
+    let text = `<b>📅 FULL SCHEDULE</b>\n<b>${challenge.title}</b> [${challenge.status}]\n\n`;
+
+    // Countdowns
+    const startMs = new Date(startDateStr).getTime();
+    const todayMs = new Date(todayStr).getTime();
+    const daysToStart = Math.round((startMs - todayMs) / (1000 * 60 * 60 * 24));
+
+    text += `<b>⏰ COUNTDOWNS (8:00 AM EAT):</b>\n`;
+    for (let d = 3; d >= 1; d--) {
+      const countDate = new Date(startMs - d * 86400000);
+      const cStr = `${countDate.getFullYear()}-${(countDate.getMonth() + 1).toString().padStart(2, '0')}-${countDate.getDate().toString().padStart(2, '0')}`;
+      const label = d === 1 ? '🚨 Last Chance' : `⏰ ${d}-Day`;
+      const status = cStr < todayStr ? '✅ Done' : cStr === todayStr ? '🔴 TODAY' : '⏳ Pending';
+      text += `${label}: ${cStr} — ${status}\n`;
+    }
+
+    // Challenge start
+    text += `\n<b>🚀 CHALLENGE START:</b>\n`;
+    text += `${startDateStr} ${startTimeStr} EAT — ${daysToStart <= 0 ? '✅ Started' : `⏳ ${daysToStart} days`}\n`;
+
+    // Daily posts
+    text += `\n<b>📊 DAILY POSTS (8:00 AM + 8:00 PM EAT):</b>\n`;
+    const cursor = new Date(startDateStr);
+    let tradingDay = 0;
+    while (tradingDay < 10) {
+      const dow = cursor.getDay();
+      if (dow >= 1 && dow <= 5) {
+        tradingDay++;
+        const dStr = `${cursor.getFullYear()}-${(cursor.getMonth() + 1).toString().padStart(2, '0')}-${cursor.getDate().toString().padStart(2, '0')}`;
+        const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+        const both = [1, 5, 6, 10].includes(tradingDay) ? ' (BOTH)' : ' (Challenge)';
+        const status = dStr < todayStr ? '✅' : dStr === todayStr ? '🔴' : '⏳';
+        text += `Day ${tradingDay}: ${dStr} ${dayNames[dow]}${both} ${status}\n`;
+      }
+      cursor.setDate(cursor.getDate() + 1);
+    }
+
+    // Challenge end
+    text += `\n<b>🏁 CHALLENGE END:</b>\n`;
+    text += `${endDateStr} ${endTimeStr} EAT\n`;
+    text += `Midnight fallback: ${endDateStr} next day 00:00\n`;
+
+    // Post-challenge
+    text += `\n<b>📋 POST-CHALLENGE:</b>\n`;
+    text += `Submission window: 48 hours after end\n`;
+    if (challenge.submission_deadline) {
+      const dlEAT = new Date(new Date(challenge.submission_deadline).getTime() + 3 * 60 * 60 * 1000);
+      text += `Deadline: ${dlEAT.getUTCFullYear()}-${(dlEAT.getUTCMonth() + 1).toString().padStart(2, '0')}-${dlEAT.getUTCDate().toString().padStart(2, '0')} ${dlEAT.getUTCHours().toString().padStart(2, '0')}:${dlEAT.getUTCMinutes().toString().padStart(2, '0')} EAT\n`;
+    }
+
+    // Screening
+    text += `\n<b>🔍 PARTNER SCREENING:</b>\n`;
+    text += `Every night at 10:00 PM EAT (when active)\n`;
+    text += `Report: 9:00 AM EAT next day\n`;
+    text += `User messages: 8:00 AM EAT\n`;
+
+    // Engagement
+    text += `\n<b>📩 AUTO-ENGAGEMENT:</b>\n`;
+    text += `Every 10 min between 8:30 AM - 9:30 PM EAT\n`;
+    text += `1st: 24h after failure | Then: every 48h\n`;
+    text += `Last 3 days: every 24h\n`;
+
+    // Truncate if too long
+    if (text.length > 4000) text = text.substring(0, 4000) + '\n\n<i>...truncated</i>';
+
+    await ctx.reply(text, { parse_mode: 'HTML' });
+  }
+
   // ==================== FIND USER ====================
 
   async findUser(ctx: Context) {
