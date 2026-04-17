@@ -1418,7 +1418,7 @@ export class TradingAdminHandler {
         const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
         const both = [1, 5, 6, 10].includes(tradingDay) ? ' (BOTH)' : ' (Challenge)';
         const status = dStr < todayStr ? '✅' : dStr === todayStr ? '🔴' : '⏳';
-        text += `Day ${tradingDay}: ${dStr} ${dayNames[dow]}${both} ${status}\n`;
+        text += `Day ${tradingDay}: ${dStr} ${dayNames[dow]} — ☀️8AM + 🌙8PM${both} ${status}\n`;
       }
       cursor.setDate(cursor.getDate() + 1);
     }
