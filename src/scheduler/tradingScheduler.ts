@@ -58,6 +58,38 @@ export class TradingScheduler {
         }
       }
 
+      // Log all upcoming schedules once at 08:01 EAT
+      if (timeStr === '08:01') {
+        for (const c of challenges) {
+          if (['draft', 'completed'].includes(c.status)) continue;
+          const start = this.toEATStrings(c.start_date);
+          const end = this.toEATStrings(c.end_date);
+          const startMs = new Date(start.dateStr).getTime();
+          const nowMs = new Date(dateStr).getTime();
+          const daysToStart = Math.round((startMs - nowMs) / (1000 * 60 * 60 * 24));
+
+          console.log(`📅 SCHEDULE for ${c.title} [${c.status}]:`);
+          console.log(`  Start: ${start.dateStr} ${start.timeStr} EAT (${daysToStart} days away)`);
+          console.log(`  End: ${end.dateStr} ${end.timeStr} EAT`);
+          if (c.status === 'registration_open') {
+            if (daysToStart === 3) console.log(`  ⏰ 3-day countdown: TODAY at 08:00`);
+            else if (daysToStart === 2) console.log(`  ⏰ 2-day countdown: TODAY at 08:00`);
+            else if (daysToStart === 1) console.log(`  ⏰ 1-day countdown: TODAY at 08:00`);
+            else if (daysToStart > 3) console.log(`  ⏰ 3-day countdown: ${new Date(startMs - 3*86400000).toISOString().split('T')[0]} at 08:00`);
+          }
+          if (c.status === 'active') {
+            const tradingDay = this.getTradingDay(c, dateStr);
+            console.log(`  📊 Trading day: ${tradingDay}/10`);
+            if (dayOfWeek >= 1 && dayOfWeek <= 5) {
+              console.log(`  ☀️ Morning post: 08:00 EAT`);
+              console.log(`  🌙 Evening post: 20:00 EAT`);
+            } else {
+              console.log(`  🚫 Weekend — no daily posts`);
+            }
+          }
+        }
+      }
+
       for (const challenge of challenges) {
         if (challenge.status === 'draft' || challenge.status === 'completed') continue;
 
@@ -77,18 +109,29 @@ export class TradingScheduler {
 
   // ==================== COUNTDOWN POSTS (3, 2, 1 day before) ====================
 
+  private countdownPostedToday: Set<string> = new Set();
+
   private async checkCountdowns(challenge: TradingChallenge, dateStr: string, timeStr: string, eatTime: Date) {
     if (challenge.status !== 'registration_open') return;
-    if (timeStr !== '08:00') return;
+
+    // Only between 08:00-08:05 EAT (5 minute window for resilience)
+    const hour = eatTime.getUTCHours();
+    const minute = eatTime.getUTCMinutes();
+    if (hour !== 8 || minute > 4) return;
 
     const start = this.toEATStrings(challenge.start_date);
     const startMs = new Date(start.dateStr).getTime();
     const nowMs = new Date(dateStr).getTime();
     const diffDays = Math.round((startMs - nowMs) / (1000 * 60 * 60 * 24));
 
+    // Prevent duplicate posts on same day
+    const key = `${challenge.id}_${dateStr}_${diffDays}`;
+    if (this.countdownPostedToday.has(key)) return;
+
     if (diffDays >= 1 && diffDays <= 3) {
-      console.log(`⏰ Trading countdown: ${diffDays} days before ${challenge.title}`);
+      console.log(`⏰ Trading countdown: ${diffDays} days before ${challenge.title} (${dateStr} ${timeStr} EAT)`);
       await this.postCountdown(challenge, diffDays);
+      this.countdownPostedToday.add(key);
     }
   }
 
