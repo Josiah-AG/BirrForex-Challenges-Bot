@@ -194,31 +194,90 @@ export class TradingScheduler {
 
   // ==================== CHALLENGE START ====================
 
+  private challengeStartPosted: Set<number> = new Set();
+
   private async checkChallengeStart(challenge: TradingChallenge, dateStr: string, timeStr: string) {
     if (challenge.status !== 'registration_open') return;
 
     const start = this.toEATStrings(challenge.start_date);
+    const hour = parseInt(timeStr.split(':')[0]);
+    const minute = parseInt(timeStr.split(':')[1]);
 
-    if (dateStr === start.dateStr && timeStr === start.timeStr) {
-      await tradingChallengeService.updateChallengeStatus(challenge.id, 'active');
-      console.log(`✅ Trading challenge ${challenge.id} "${challenge.title}" is now ACTIVE (${dateStr} ${timeStr} EAT)`);
+    // 5-minute window around start time
+    if (dateStr === start.dateStr) {
+      const startHour = parseInt(start.timeStr.split(':')[0]);
+      const startMin = parseInt(start.timeStr.split(':')[1]);
+      const diff = (hour * 60 + minute) - (startHour * 60 + startMin);
+
+      if (diff >= 0 && diff <= 4 && !this.challengeStartPosted.has(challenge.id)) {
+        this.challengeStartPosted.add(challenge.id);
+        await tradingChallengeService.updateChallengeStatus(challenge.id, 'active');
+        console.log(`✅ Trading challenge ${challenge.id} "${challenge.title}" is now ACTIVE (${dateStr} ${timeStr} EAT)`);
+
+        // Send challenge start photo post to BOTH channels
+        await this.postChallengeStartAnnouncement(challenge);
+      }
+    }
+  }
+
+  private async postChallengeStartAnnouncement(challenge: TradingChallenge) {
+    let links = '';
+    if (challenge.pdf_url) links += `\n📄 Rules: <a href="${challenge.pdf_url}">Download PDF</a>`;
+    if (challenge.video_url) links += `\n🎥 Guide: <a href="${challenge.video_url}">Watch Video</a>`;
+
+    const caption = `<b>🚀 CHALLENGE HAS STARTED!</b>\n\n` +
+      `<b>${challenge.title}</b> is officially <b>LIVE!</b> 🔥\n\n` +
+      `The race begins NOW!\n\n` +
+      `💪 Stay focused, follow the rules, and trade smart.\n` +
+      `This is your journey — make every trade count!\n\n` +
+      `<i>Good luck, traders!</i> 🍀\n` +
+      links + `\n\n@${config.mainChannelUsername}`;
+
+    const opts = { caption, parse_mode: 'HTML' as const };
+
+    try {
+      await this.bot.bot.telegram.sendPhoto(config.mainChannelId, { source: './assets/challengestart.jpg' }, opts);
+      await this.bot.bot.telegram.sendPhoto(config.challengeChannelId, { source: './assets/challengestart.jpg' }, opts);
+      console.log(`✅ Challenge start photo posted for ${challenge.title}`);
+    } catch (e) {
+      console.error('Error posting challenge start photo:', e);
+      // Fallback to text-only
+      try {
+        const textOpts = { parse_mode: 'HTML' as const, link_preview_options: { is_disabled: true } };
+        await this.bot.bot.telegram.sendMessage(config.mainChannelId, caption, textOpts);
+        await this.bot.bot.telegram.sendMessage(config.challengeChannelId, caption, textOpts);
+      } catch (e2) {
+        console.error('Error posting challenge start text fallback:', e2);
+      }
     }
   }
 
   // ==================== DAILY POSTS ====================
 
+  private dailyPostsPosted: Set<string> = new Set();
+
   private async checkDailyPosts(challenge: TradingChallenge, dateStr: string, timeStr: string, dayOfWeek: number) {
     if (challenge.status !== 'active') return;
-    if (dayOfWeek === 0 || dayOfWeek === 6) return; // Skip weekends
+    if (dayOfWeek === 0 || dayOfWeek === 6) return;
 
     const tradingDay = this.getTradingDay(challenge, dateStr);
     if (tradingDay < 1 || tradingDay > 10) return;
 
-    if (timeStr === '08:00') {
+    const hour = parseInt(timeStr.split(':')[0]);
+    const minute = parseInt(timeStr.split(':')[1]);
+
+    // Morning: 08:00-08:04
+    const morningKey = `morning_${challenge.id}_${dateStr}`;
+    if (hour === 8 && minute <= 4 && !this.dailyPostsPosted.has(morningKey)) {
+      this.dailyPostsPosted.add(morningKey);
       console.log(`☀️ Trading morning post: Day ${tradingDay} for ${challenge.title}`);
       await this.postMorningMessage(challenge, tradingDay);
     }
-    if (timeStr === '20:00') {
+
+    // Evening: 20:00-20:04
+    const eveningKey = `evening_${challenge.id}_${dateStr}`;
+    if (hour === 20 && minute <= 4 && !this.dailyPostsPosted.has(eveningKey)) {
+      this.dailyPostsPosted.add(eveningKey);
       console.log(`🌙 Trading evening post: Day ${tradingDay} for ${challenge.title}`);
       await this.postEveningMessage(challenge, tradingDay);
     }
@@ -243,7 +302,7 @@ export class TradingScheduler {
 
   async postMorningMessage(challenge: TradingChallenge, day: number) {
     const morningMessages: { [key: number]: { emoji: string; text: string } } = {
-      1: { emoji: '🚀', text: 'is officially <b>LIVE!</b>\n\n💪 Stay focused, follow the rules, and trade smart.\nThis is your journey — make every trade count!\n\n<i>Good luck, traders!</i> 🍀' },
+      1: { emoji: '📈', text: '\n\nYour first trading day! Make it count.\nPlan your trades, manage your risk, and stay disciplined.\n\n<i>Every pip matters</i> 🎯' },
       2: { emoji: '📈', text: '\n\nNew day, new opportunities!\nStay disciplined and stick to your strategy.\n\n<i>Consistency beats luck every time</i> 🎯' },
       3: { emoji: '📊', text: '\n\nMidweek momentum! Keep your eyes on the target.\nEvery pip counts towards your goal 🎯\n\n<i>Trade smart, not hard</i> 💡' },
       4: { emoji: '💪', text: '\n\nAlmost through the first week!\nStay patient, protect your capital, and trust the process.\n\n<i>The best traders are the most disciplined ones</i> 🏆' },
@@ -259,7 +318,7 @@ export class TradingScheduler {
     if (!msg) return;
 
     let header = '';
-    if (day === 1) header = `<b>${msg.emoji} CHALLENGE HAS STARTED!</b>\n\n<b>${challenge.title}</b> ${msg.text}`;
+    if (day === 1) header = `<b>${msg.emoji} DAY 1 OF 10</b>\n\n<b>${challenge.title}</b>${msg.text}`;
     else if (day === 6) header = `<b>${msg.emoji} WEEK 2 — DAY ${day} OF 10</b>\n\n<b>${challenge.title}</b>${msg.text}`;
     else if (day === 10) header = `<b>${msg.emoji} FINAL DAY!</b>\n\n<b>${challenge.title}</b> — <b>DAY ${day} OF 10</b>${msg.text}`;
     else header = `<b>${msg.emoji} DAY ${day} OF 10</b>\n\n<b>${challenge.title}</b>${msg.text}`;
@@ -315,25 +374,38 @@ export class TradingScheduler {
 
   // ==================== CHALLENGE END ====================
 
+  private challengeEndPosted: Set<number> = new Set();
+
   private async checkChallengeEnd(challenge: TradingChallenge, dateStr: string, timeStr: string) {
     if (challenge.status !== 'active') return;
+    if (this.challengeEndPosted.has(challenge.id)) return;
 
     const end = this.toEATStrings(challenge.end_date);
+    const hour = parseInt(timeStr.split(':')[0]);
+    const minute = parseInt(timeStr.split(':')[1]);
 
-    // End at the exact end time, or at midnight the next day (for 23:59 end times)
-    if (dateStr === end.dateStr && timeStr === end.timeStr) {
-      console.log(`🏁 Trading challenge ending: ${challenge.title} (${dateStr} ${timeStr} EAT)`);
-      await this.endChallenge(challenge);
-      return;
+    // 5-minute window around end time
+    if (dateStr === end.dateStr) {
+      const endHour = parseInt(end.timeStr.split(':')[0]);
+      const endMin = parseInt(end.timeStr.split(':')[1]);
+      const diff = (hour * 60 + minute) - (endHour * 60 + endMin);
+
+      if (diff >= 0 && diff <= 4) {
+        this.challengeEndPosted.add(challenge.id);
+        console.log(`🏁 Trading challenge ending: ${challenge.title} (${dateStr} ${timeStr} EAT)`);
+        await this.endChallenge(challenge);
+        return;
+      }
     }
 
-    // Also check next day 00:00 for challenges ending at 23:59
+    // Midnight fallback
     const endDate = new Date(end.dateStr);
     endDate.setDate(endDate.getDate() + 1);
     const nextDayStr = `${endDate.getFullYear()}-${(endDate.getMonth() + 1).toString().padStart(2, '0')}-${endDate.getDate().toString().padStart(2, '0')}`;
 
-    if (dateStr === nextDayStr && timeStr === '00:00') {
-      console.log(`🏁 Trading challenge ending (midnight): ${challenge.title}`);
+    if (dateStr === nextDayStr && hour === 0 && minute <= 4) {
+      this.challengeEndPosted.add(challenge.id);
+      console.log(`🏁 Trading challenge ending (midnight fallback): ${challenge.title}`);
       await this.endChallenge(challenge);
     }
   }
@@ -386,8 +458,13 @@ export class TradingScheduler {
     if (challenge.status !== 'submission_open' || !challenge.submission_deadline) return;
 
     const dl = this.toEATStrings(challenge.submission_deadline);
+    const hour = parseInt(timeStr.split(':')[0]);
+    const minute = parseInt(timeStr.split(':')[1]);
+    const dlHour = parseInt(dl.timeStr.split(':')[0]);
+    const dlMin = parseInt(dl.timeStr.split(':')[1]);
+    const diff = (hour * 60 + minute) - (dlHour * 60 + dlMin);
 
-    if (dateStr === dl.dateStr && timeStr === dl.timeStr) {
+    if (dateStr === dl.dateStr && diff >= 0 && diff <= 4) {
       console.log(`⏰ Submission deadline reached: ${challenge.title}`);
       await tradingChallengeService.updateChallengeStatus(challenge.id, 'reviewing');
 
@@ -598,23 +675,31 @@ export class TradingScheduler {
   private screeningResults: any = null;
   private pendingMessages: { telegramId: number; message: string }[] = [];
 
+  private screeningStarted: Set<string> = new Set();
+
   private async checkPartnerScreening(challenge: TradingChallenge, dateStr: string, timeStr: string) {
     if (challenge.status !== 'active') return;
 
-    // Start screening at 10:00 PM EAT
-    if (timeStr === '22:00' && !this.screeningRunning) {
+    const hour = parseInt(timeStr.split(':')[0]);
+    const minute = parseInt(timeStr.split(':')[1]);
+
+    // Start screening at 10:00-10:04 PM EAT
+    const screenKey = `screen_${challenge.id}_${dateStr}`;
+    if (hour === 22 && minute <= 4 && !this.screeningRunning && !this.screeningStarted.has(screenKey)) {
+      this.screeningStarted.add(screenKey);
       this.screeningRunning = true;
       this.runPartnerScreening(challenge).finally(() => { this.screeningRunning = false; });
     }
 
-    // Send queued messages between 8:00 AM - 9:00 PM
-    const hour = parseInt(timeStr.split(':')[0]);
-    if (hour === 8 && timeStr === '08:00' && this.pendingMessages.length > 0) {
+    // Send queued messages between 8:00-8:04 AM
+    const msgKey = `screenmsg_${challenge.id}_${dateStr}`;
+    if (hour === 8 && minute <= 4 && this.pendingMessages.length > 0 && !this.screeningStarted.has(msgKey)) {
+      this.screeningStarted.add(msgKey);
       this.sendPendingMessages(challenge);
     }
 
-    // Send admin report at 9:00 AM
-    if (timeStr === '09:00' && this.screeningResults) {
+    // Send admin report at 9:00-9:04 AM
+    if (hour === 9 && minute <= 4 && this.screeningResults) {
       await this.sendScreeningReport(challenge, this.screeningResults);
       this.screeningResults = null;
     }
@@ -829,9 +914,17 @@ export class TradingScheduler {
 
   // ==================== DAILY ADMIN SUMMARY (8 AM EAT) ====================
 
+  private adminSummaryPosted: Set<string> = new Set();
+
   private async checkDailyAdminSummary(challenge: TradingChallenge, dateStr: string, timeStr: string) {
     if (challenge.status !== 'registration_open') return;
-    if (timeStr !== '08:00') return;
+    const hour = parseInt(timeStr.split(':')[0]);
+    const minute = parseInt(timeStr.split(':')[1]);
+    if (hour !== 8 || minute > 4) return;
+
+    const key = `admin_${challenge.id}_${dateStr}`;
+    if (this.adminSummaryPosted.has(key)) return;
+    this.adminSummaryPosted.add(key);
 
     const yesterday = new Date(dateStr);
     yesterday.setDate(yesterday.getDate() - 1);
