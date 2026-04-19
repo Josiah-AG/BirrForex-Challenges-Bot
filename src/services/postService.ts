@@ -8,20 +8,27 @@ export class PostService {
    * Generate main channel announcement post (10 AM)
    */
   generateMainChannelPost(challenge: Challenge, numQuestions: number) {
-  const text = `<b>🎯 BirrForex Weekly Challenge - ${challenge.day.charAt(0).toUpperCase() + challenge.day.slice(1)} Round</b>
+  const text = `<b>🎯 BirrForex Challenge 15 — Warm Up!</b>
 
-  <b>📚 Topic:</b> <a href="${challenge.topic_link}">${challenge.topic}</a>
+<b>📚 Topic:</b> <a href="${challenge.topic_link}">${challenge.topic}</a>
 
-  <i>${challenge.short_text}</i>
+<i>${challenge.short_text}</i>
 
-  <b>⏰ Challenge Details:</b>
-  ➡️ Posted on <b>@${config.challengeChannelUsername}</b> at <b>${formatChallengeTime(challenge.challenge_time)}</b> sharp
-  ➡️ Contains <b>${numQuestions} questions</b> from the topic
-  ➡️ First correct answer wins <b>${challenge.prize_amount}</b> 🎁
+🏆 <b>Win and we will fund ${challenge.num_winners} participants to take part in the Real Account Challenge!</b>
 
-  👉 <b>Study the topic and get ready!</b>
+<b>⏰ Challenge Details:</b>
+➡️ Posted on <b>@${config.challengeChannelUsername}</b> at <b>${formatChallengeTime(challenge.challenge_time)}</b> sharp
+➡️ Contains <b>${numQuestions} questions</b> from the guides
+➡️ ${challenge.num_winners} winners will be funded <b>${challenge.prize_amount}</b> each! 🎁
 
-  <b>Good luck, traders!</b> 🍀`;
+<b>📌 How to Join:</b>
+➡️ First, register for Challenge 15
+➡️ Go to <b>@${config.challengeChannelUsername}</b>
+➡️ Challenge will be LIVE sharp at <b>${formatChallengeTime(challenge.challenge_time)}</b>
+
+👉 <b>Study the guides and get ready!</b>
+
+<b>Good luck, traders!</b> 🍀`;
 
       const keyboard = Markup.inlineKeyboard([
         [Markup.button.url(`📊 ${challenge.topic}`, challenge.topic_link)],
@@ -35,31 +42,32 @@ export class PostService {
    * Generate challenge channel terms post (10 AM)
    */
   generateTermsPost(challenge: Challenge) {
-const text = `<b>🎯 BirrForex Challenges - ${challenge.day.charAt(0).toUpperCase() + challenge.day.slice(1)} Round</b>
+const text = `<b>🎯 BirrForex Pre-Challenge 15 Warm Up</b>
 <b>Today ${formatChallengeTime(challenge.challenge_time)}</b>
+
+🏆 <b>${challenge.num_winners} winners will be funded ${challenge.prize_amount} each to participate in the Real Account category of Challenge 15!</b>
 
 <b>📖 How to Join:</b>
 
-➡️ Check out the content posted on our main channel <b>@${config.mainChannelUsername}</b> and get ready
-➡️ Challenge questions will come directly from that content
+➡️ Check out the Challenge 15 guides on our main channel <b>@${config.mainChannelUsername}</b> and get ready
+➡️ Questions will come directly from the guides
 ➡️ The challenge will stay open for only <b>${config.challengeDurationMinutes} minutes</b> ⏰
-➡️ Be the first to answer correctly and win a reward! 🎁
+➡️ Be the first to answer correctly and win! 🎁
 
 <b>📝 Terms & Conditions</b>
 
-👉 Rewards will be sent <b>ONLY</b> via internal transfer on Exness to users who are verified and registered through the links shared in our channel. 😊
+👉 You <b>MUST</b> finish registration for Challenge 15 to be eligible for this challenge.
+👉 Your reward will be funded to your challenge account so you can compete in the Real Account category.
+👉 Rewards sent <b>ONLY</b> to verified Exness users registered through our links. 😊
 
-💡 <i>Already joined from our past challenges or social media links? You're all set!</i> ✅
+💡 <i>Already registered for Challenge 15? You're all set!</i> ✅
 
 <b>🎯 Note:</b>
-If the first winner is not eligible, the reward will go to the next eligible participant (up to the ${getOrdinal(config.backupListSize + 1)} person).
-
-<b>📌 Ready to join the fun? Open your Exness account here 👇</b>
-${config.exnessSignupLink}
+If a winner is not eligible, the reward goes to the next eligible participant (up to the ${getOrdinal(config.backupListSize + 1)} person).
 
 <b>ARE YOU READY? TAP 🔥 if you are</b>
 
-#TurnKnowledgeToProfit`;
+#Challenge15WarmUp`;
 
     const keyboard = Markup.inlineKeyboard([
       [Markup.button.url('💰 Open Exness Account', config.exnessSignupLink)]
@@ -72,18 +80,18 @@ ${config.exnessSignupLink}
    * Generate 2-hour reminder post
    */
   generate2HourReminder(challenge: Challenge) {
-  const text = `<b>⏰ 2 HOURS Remaining for Today's Challenge</b>
+  const text = `<b>⏰ 2 HOURS Remaining for Today's Warm Up Challenge!</b>
 
   <b>📖 How to Join:</b>
 
-  ➡️ Study the topic content <a href="${challenge.topic_link}"><b>${challenge.topic}</b></a> (Questions will be from it)
+  ➡️ Study the Challenge 15 guides: <a href="${challenge.topic_link}"><b>${challenge.topic}</b></a> (Questions will be from it)
   ➡️ Join 👉 <b>@${config.challengeChannelUsername}</b>
   ➡️ The challenge will be posted sharp at <b>${formatChallengeTime(challenge.challenge_time)}</b> ⏰
-  ➡️ Be the first to answer correctly and win a reward! 🎁
+  ➡️ ${challenge.num_winners} winners will be funded <b>${challenge.prize_amount}</b> each! 🎁
 
   <a href="https://t.me/${config.challengeChannelUsername}">📝 <b>Read the Terms & Conditions before you start</b></a>
 
-  👉 <b>Not ready yet? Check it out now:</b>`;
+  👉 <b>Not ready yet? Check the guides now:</b>`;
 
       const keyboard = Markup.inlineKeyboard([
         [Markup.button.url(`📊 ${challenge.topic}`, challenge.topic_link)],
@@ -97,14 +105,14 @@ ${config.exnessSignupLink}
    * Generate 30-minute reminder post
    */
   generate30MinReminder(challenge: Challenge) {
-  const text = `<b>⏰ 30 MIN Remaining for Today's Challenge</b>
+  const text = `<b>⏰ 30 MIN Remaining for Today's Warm Up Challenge!</b>
 
   <b>📖 How to Join:</b>
 
-  ➡️ Study the topic content <a href="${challenge.topic_link}"><b>${challenge.topic}</b></a> (Questions will be from it)
+  ➡️ Study the Challenge 15 guides: <a href="${challenge.topic_link}"><b>${challenge.topic}</b></a> (Questions will be from it)
   ➡️ Join 👉 <b>@${config.challengeChannelUsername}</b>
   ➡️ The challenge will be posted sharp at <b>${formatChallengeTime(challenge.challenge_time)}</b> ⏰
-  ➡️ Be the first to answer correctly and win a reward! 🎁
+  ➡️ ${challenge.num_winners} winners will be funded <b>${challenge.prize_amount}</b> each! 🎁
 
   <a href="https://t.me/${config.challengeChannelUsername}">📝 <b>Read the Terms & Conditions before you start</b></a>
 
@@ -124,8 +132,7 @@ ${config.exnessSignupLink}
   generateChallengeLivePost(challenge: Challenge, numQuestions: number, botUsername: string) {
       const endTime = this.calculateEndTime(challenge.challenge_time, config.challengeDurationMinutes);
 
-  const text = `<b>🎯 BIRRFOREX WEEKLY CHALLENGE 🎯</b>
-  <b>${challenge.day.charAt(0).toUpperCase() + challenge.day.slice(1)} Round</b>
+  const text = `<b>🎯 BIRRFOREX PRE-CHALLENGE 15 WARM UP 🎯</b>
 
   <b>💰 Prize:</b> $${challenge.prize_amount}
   <b>⏰ Time Limit:</b> ${config.challengeDurationMinutes} Minutes
@@ -182,7 +189,7 @@ ${config.exnessSignupLink}
       stats: any,
       botUsername: string
     ) {
-  const text = `<b>⏰ BirrForex Weekly Challenge - ${challenge.day.charAt(0).toUpperCase() + challenge.day.slice(1)} Round IS CLOSED</b>
+  const text = `<b>⏰ BirrForex Pre-Challenge 15 Warm Up IS CLOSED</b>
 
   <b>📊 CHALLENGE RESULTS 📊</b>
   <i>${formatDateWithDay(challenge.date)}</i>
