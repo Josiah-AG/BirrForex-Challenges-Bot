@@ -246,6 +246,11 @@ export class TradingAdminHandler {
       return await this.handleAdditionalPostCallback(ctx, data);
     }
 
+    // Late post callbacks
+    if (data.startsWith('tc_latepost_')) {
+      return await this.handleLatePostCallback(ctx, data);
+    }
+
     // Manual verify callbacks
     if (data === 'tc_mv_confirm') {
       const session = tradingAdminSessions.get(telegramId);
@@ -798,6 +803,21 @@ export class TradingAdminHandler {
 
       case 'tc_finduser_input': {
         await this.processFindUser(ctx, text);
+        break;
+      }
+
+      case 'tc_late_post_text': {
+        session.data.post_text = text;
+        session.data.post_entities = (ctx.message as any)?.entities || [];
+        session.data.photo_file_id = null;
+        session.step = 'tc_late_post_target';
+
+        await ctx.reply('📝 Text received! Where do you want to post?', Markup.inlineKeyboard([
+          [Markup.button.callback('📢 Main Channel', 'tc_latepost_main')],
+          [Markup.button.callback('🎯 Challenge Channel', 'tc_latepost_challenge')],
+          [Markup.button.callback('📢 Both Channels', 'tc_latepost_both')],
+          [Markup.button.callback('❌ Cancel', 'tc_latepost_cancel')],
+        ]));
         break;
       }
 
@@ -2425,6 +2445,35 @@ export class TradingAdminHandler {
       await ctx.reply(`✅ @${username} disqualified. Could not send DM notification.`);
     }
   }
+  // ==================== CHANCE FOR LATE ====================
+
+  async chanceForLate(ctx: Context) {
+    if (!this.checkAdmin(ctx)) return;
+
+    const challenges = await tradingChallengeService.getAllChallenges();
+    const challenge = challenges.find(c => c.status === 'active') || challenges[0];
+
+    if (!challenge) {
+      await ctx.reply('❌ No active challenge found.');
+      return;
+    }
+
+    const telegramId = ctx.from!.id;
+    tradingAdminSessions.set(telegramId, {
+      step: 'tc_late_post_text',
+      data: { challenge_id: challenge.id, challenge_title: challenge.title },
+    });
+
+    await ctx.reply(
+      `<b>⏰ Chance for Late</b>\n\nChallenge: <b>${challenge.title}</b>\n\n` +
+      `Send your post content now.\n\n` +
+      `➡️ Send <b>text</b> for a text-only post\n` +
+      `➡️ Send a <b>photo with caption</b> for a post with image\n\n` +
+      `<i>Change Account + Switch to Real buttons will be added (6-hour window).</i>`,
+      { parse_mode: 'HTML' }
+    );
+  }
+
   // ==================== ADDITIONAL POST ====================
 
   async additionalPost(ctx: Context) {
@@ -2457,6 +2506,21 @@ export class TradingAdminHandler {
     const session = tradingAdminSessions.get(telegramId);
     if (!session) return;
 
+    if (session.step === 'tc_late_post_text') {
+      session.data.photo_file_id = fileId;
+      session.data.post_text = caption || '';
+      session.data.post_entities = (ctx.message as any)?.caption_entities || [];
+      session.step = 'tc_late_post_target';
+
+      await ctx.reply('📸 Photo received! Where do you want to post?', Markup.inlineKeyboard([
+        [Markup.button.callback('📢 Main Channel', 'tc_latepost_main')],
+        [Markup.button.callback('🎯 Challenge Channel', 'tc_latepost_challenge')],
+        [Markup.button.callback('📢 Both Channels', 'tc_latepost_both')],
+        [Markup.button.callback('❌ Cancel', 'tc_latepost_cancel')],
+      ]));
+      return;
+    }
+
     if (session.step === 'tc_additional_post_text') {
       session.data.photo_file_id = fileId;
       session.data.post_text = caption || '';
@@ -2470,6 +2534,79 @@ export class TradingAdminHandler {
         [Markup.button.callback('❌ Cancel', 'tc_addpost_cancel')],
       ]));
     }
+  }
+
+  // Store late change window expiry times
+  private lateChangeExpiry: Map<number, Date> = new Map();
+
+  private async handleLatePostCallback(ctx: Context, data: string): Promise<boolean> {
+    const telegramId = ctx.from!.id;
+
+    if (data === 'tc_latepost_cancel') {
+      tradingAdminSessions.delete(telegramId);
+      await ctx.answerCbQuery('Cancelled');
+      await ctx.reply('❌ Late post cancelled.');
+      return true;
+    }
+
+    if (data === 'tc_latepost_main' || data === 'tc_latepost_challenge' || data === 'tc_latepost_both') {
+      const session = tradingAdminSessions.get(telegramId);
+      if (!session) return true;
+
+      await ctx.answerCbQuery('Posting...');
+
+      const challengeId = session.data.challenge_id;
+      const challenge = await tradingChallengeService.getChallengeById(challengeId);
+      if (!challenge) { await ctx.reply('❌ Challenge not found.'); tradingAdminSessions.delete(telegramId); return true; }
+
+      // Set 6-hour expiry
+      const expiry = new Date(Date.now() + 6 * 60 * 60 * 1000);
+      this.lateChangeExpiry.set(challengeId, expiry);
+
+      const botInfo = await ctx.telegram.getMe();
+      const keyboard = Markup.inlineKeyboard([
+        [Markup.button.url('🔄 Change Account Number', `https://t.me/${botInfo.username}?start=tc_late_change_${challengeId}`)],
+        [Markup.button.url('🔀 Switch to Real Account', `https://t.me/${botInfo.username}?start=tc_late_switch_${challengeId}`)],
+        [Markup.button.url('🔁 Retry Registration', `https://t.me/${botInfo.username}?start=tc_late_retry_${challengeId}`)],
+      ]);
+
+      const targets: string[] = [];
+      if (data === 'tc_latepost_main' || data === 'tc_latepost_both') targets.push(config.mainChannelId);
+      if (data === 'tc_latepost_challenge' || data === 'tc_latepost_both') targets.push(config.challengeChannelId);
+
+      try {
+        for (const channelId of targets) {
+          if (session.data.photo_file_id) {
+            await ctx.telegram.sendPhoto(channelId, session.data.photo_file_id, {
+              caption: session.data.post_text || undefined,
+              caption_entities: session.data.post_entities?.length > 0 ? session.data.post_entities : undefined,
+              ...keyboard,
+            });
+          } else {
+            await ctx.telegram.sendMessage(channelId, session.data.post_text, {
+              entities: session.data.post_entities?.length > 0 ? session.data.post_entities : undefined,
+              link_preview_options: { is_disabled: true },
+              ...keyboard,
+            });
+          }
+        }
+        const targetLabel = data === 'tc_latepost_both' ? 'both channels' : data === 'tc_latepost_main' ? 'main channel' : 'challenge channel';
+        await ctx.reply(`✅ Late change post sent to ${targetLabel}!\n⏰ Window expires in 6 hours.`);
+      } catch (e: any) {
+        await ctx.reply(`❌ Error posting: ${e.message}`);
+      }
+
+      tradingAdminSessions.delete(telegramId);
+      return true;
+    }
+
+    return false;
+  }
+
+  isLateChangeWindowOpen(challengeId: number): boolean {
+    const expiry = this.lateChangeExpiry.get(challengeId);
+    if (!expiry) return false;
+    return new Date() < expiry;
   }
 
   private async handleAdditionalPostCallback(ctx: Context, data: string): Promise<boolean> {

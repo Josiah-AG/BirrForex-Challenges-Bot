@@ -69,6 +69,7 @@ export class Bot {
       { command: 'deletetradingchallenge', description: 'Delete a trading challenge' },
       { command: 'testtradingposts', description: 'Test trading challenge posts' },
       { command: 'additionalpost', description: 'Post custom content to channels' },
+      { command: 'chanceforlate', description: 'Post with change/switch buttons (6hr window)' },
     ], {
       scope: { type: 'chat', chat_id: parseInt(config.adminUserId) }
     });
@@ -124,6 +125,30 @@ export class Bot {
             await tradingRegistrationHandler.startSubmission(ctx, challengeId);
             return;
           }
+
+          // Handle late change deep link
+          if (startParam.startsWith('tc_late_change_')) {
+            const challengeId = parseInt(startParam.replace('tc_late_change_', ''));
+            const { tradingRegistrationHandler } = require('./tradingRegistrationHandler');
+            await tradingRegistrationHandler.startLateChange(ctx, challengeId);
+            return;
+          }
+
+          // Handle late switch deep link
+          if (startParam.startsWith('tc_late_switch_')) {
+            const challengeId = parseInt(startParam.replace('tc_late_switch_', ''));
+            const { tradingRegistrationHandler } = require('./tradingRegistrationHandler');
+            await tradingRegistrationHandler.startLateSwitch(ctx, challengeId);
+            return;
+          }
+
+          // Handle late retry deep link
+          if (startParam.startsWith('tc_late_retry_')) {
+            const challengeId = parseInt(startParam.replace('tc_late_retry_', ''));
+            const { tradingRegistrationHandler } = require('./tradingRegistrationHandler');
+            await tradingRegistrationHandler.startLateRetry(ctx, challengeId);
+            return;
+          }
         }
 
         // If we get here with a param we don't recognize
@@ -170,6 +195,7 @@ export class Bot {
     this.bot.command('deletetradingchallenge', (ctx) => tradingAdminHandler.listTradingChallenges(ctx));
     this.bot.command('testtradingposts', (ctx) => tradingAdminHandler.testTradingPosts(ctx));
     this.bot.command('additionalpost', (ctx) => tradingAdminHandler.additionalPost(ctx));
+    this.bot.command('chanceforlate', (ctx) => tradingAdminHandler.chanceForLate(ctx));
 
     // User commands
     this.bot.command('mystats', (ctx) => this.showMyStats(ctx));

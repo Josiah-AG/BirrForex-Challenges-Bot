@@ -540,11 +540,27 @@ class TradingChallengeService {
   async saveScreeningResult(challengeId: number, date: string, data: any): Promise<void> {
     await db.query(
       `INSERT INTO trading_screening_results
-       (challenge_id, screening_date, total_screened, all_good, changing_real, changing_demo, left_real, left_demo, warnings_cleared, missed, uids_backfilled)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+       (challenge_id, screening_date, total_screened, all_good, changing_real, changing_demo, left_real, left_demo, warnings_cleared, missed, uids_backfilled, changing_users, left_users, cleared_users, report_sent)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, false)
        ON CONFLICT (challenge_id, screening_date)
-       DO UPDATE SET total_screened=$3, all_good=$4, changing_real=$5, changing_demo=$6, left_real=$7, left_demo=$8, warnings_cleared=$9, missed=$10, uids_backfilled=$11`,
-      [challengeId, date, data.total_screened, data.all_good, data.changing_real, data.changing_demo, data.left_real, data.left_demo, data.warnings_cleared, data.missed, data.uids_backfilled]
+       DO UPDATE SET total_screened=$3, all_good=$4, changing_real=$5, changing_demo=$6, left_real=$7, left_demo=$8, warnings_cleared=$9, missed=$10, uids_backfilled=$11, changing_users=$12, left_users=$13, cleared_users=$14, report_sent=false`,
+      [challengeId, date, data.total_screened, data.all_good, data.changing_real, data.changing_demo, data.left_real, data.left_demo, data.warnings_cleared, data.missed, data.uids_backfilled,
+       JSON.stringify(data.changingUsers || []), JSON.stringify(data.leftUsers || []), JSON.stringify(data.clearedUsers || [])]
+    );
+  }
+
+  async getUnsentScreeningResult(challengeId: number): Promise<any> {
+    const result = await db.query(
+      'SELECT * FROM trading_screening_results WHERE challenge_id = $1 AND report_sent = false ORDER BY screening_date DESC LIMIT 1',
+      [challengeId]
+    );
+    return result.rows[0] || null;
+  }
+
+  async markScreeningReportSent(challengeId: number, date: string): Promise<void> {
+    await db.query(
+      'UPDATE trading_screening_results SET report_sent = true WHERE challenge_id = $1 AND screening_date = $2',
+      [challengeId, date]
     );
   }
 

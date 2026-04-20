@@ -110,6 +110,118 @@ export class TradingRegistrationHandler {
     }
   }
 
+  async startLateChange(ctx: Context, challengeId: number) {
+    const telegramId = ctx.from!.id;
+
+    // Check if window is open
+    const { tradingAdminHandler } = require('./tradingAdminHandler');
+    if (!tradingAdminHandler.isLateChangeWindowOpen(challengeId)) {
+      await ctx.reply('❌ <b>This window has expired.</b>\n\n<i>The change window is no longer available.</i>', { parse_mode: 'HTML' });
+      return;
+    }
+
+    // Check if registered
+    const reg = await tradingChallengeService.getRegistration(challengeId, telegramId);
+    if (!reg) {
+      await ctx.reply('❌ <b>This is only for registered participants.</b>', { parse_mode: 'HTML' });
+      return;
+    }
+
+    userSessions.set(telegramId, {
+      step: 'tc_change_acct_number',
+      data: { challenge_id: challengeId, registration_id: reg.id, account_type: reg.account_type },
+    });
+
+    await ctx.reply(
+      `🔄 <b>Change Account Number</b>\n\n` +
+      `📋 Current: ${reg.account_number} (${reg.mt5_server || 'N/A'})\n\n` +
+      `Send your new <b>MT5 ${reg.account_type === 'demo' ? 'Demo' : 'Real'} Account Number:</b>\n⚠️ <i>Must be an MT5 trading account.</i>`,
+      { parse_mode: 'HTML' }
+    );
+  }
+
+  async startLateSwitch(ctx: Context, challengeId: number) {
+    const telegramId = ctx.from!.id;
+
+    // Check if window is open
+    const { tradingAdminHandler } = require('./tradingAdminHandler');
+    if (!tradingAdminHandler.isLateChangeWindowOpen(challengeId)) {
+      await ctx.reply('❌ <b>This window has expired.</b>\n\n<i>The change window is no longer available.</i>', { parse_mode: 'HTML' });
+      return;
+    }
+
+    // Check if registered
+    const reg = await tradingChallengeService.getRegistration(challengeId, telegramId);
+    if (!reg) {
+      await ctx.reply('❌ <b>This is only for registered participants.</b>', { parse_mode: 'HTML' });
+      return;
+    }
+
+    // Only allow Demo → Real
+    if (reg.account_type === 'real') {
+      await ctx.reply('❌ <b>You are already in the Real Account category.</b>\n\n<i>Switching from Real to Demo is not allowed.</i>', { parse_mode: 'HTML' });
+      return;
+    }
+
+    await ctx.reply(
+      `⚠️ <b>Switch to Real Account?</b>\n\n` +
+      `Your current Demo registration will be deleted and you will need to register as a Real Account trader.\n\n` +
+      `<i>This cannot be undone.</i>`,
+      { parse_mode: 'HTML', ...Markup.inlineKeyboard([
+        [Markup.button.callback('✅ Yes, Switch to Real', `tc_late_switch_confirm_${challengeId}`)],
+        [Markup.button.callback('❌ Cancel', 'tc_switch_cancel')],
+      ]) }
+    );
+  }
+
+  async startLateRetry(ctx: Context, challengeId: number) {
+    const telegramId = ctx.from!.id;
+
+    // Check if window is open
+    const { tradingAdminHandler } = require('./tradingAdminHandler');
+    if (!tradingAdminHandler.isLateChangeWindowOpen(challengeId)) {
+      await ctx.reply('❌ <b>This window has expired.</b>\n\n<i>The registration window is no longer available.</i>', { parse_mode: 'HTML' });
+      return;
+    }
+
+    // Check if already registered
+    const existingReg = await tradingChallengeService.getRegistration(challengeId, telegramId);
+    if (existingReg) {
+      await ctx.reply('✅ <b>You are already registered for this challenge!</b>\n\nUse the Change Account or Switch buttons if you need to make changes.', { parse_mode: 'HTML' });
+      return;
+    }
+
+    // Check if user has a failed attempt
+    const failed = await tradingChallengeService.getAllFailedAttempts(challengeId);
+    const userFailed = failed.find((f: any) => String(f.telegram_id) === String(telegramId));
+
+    if (!userFailed) {
+      await ctx.reply('❌ <b>This is only for users who previously attempted registration.</b>\n\n<i>No previous registration attempt found for your account.</i>', { parse_mode: 'HTML' });
+      return;
+    }
+
+    // Start normal registration flow
+    const challenge = await tradingChallengeService.getChallengeById(challengeId);
+    if (!challenge) { await ctx.reply('❌ Challenge not found.'); return; }
+
+    knownUsers.set(telegramId, { username: ctx.from!.username || null, firstName: ctx.from!.first_name || null });
+
+    if (challenge.type === 'hybrid') {
+      userSessions.set(telegramId, { step: 'tc_select_type', data: { challenge_id: challengeId } });
+      await ctx.reply(
+        `<b>🔁 Retry Registration</b>\n<b>${challenge.title}</b>\n\nWelcome back! Let\'s get you registered.\n\nChoose your category:`,
+        { parse_mode: 'HTML', ...Markup.inlineKeyboard([
+          [Markup.button.callback('🏦 Demo Account Challenge', `tc_reg_demo_${challengeId}`)],
+          [Markup.button.callback('💰 Real Account Challenge', `tc_reg_real_${challengeId}`)],
+        ]) }
+      );
+    } else {
+      const accountType = challenge.type as 'demo' | 'real';
+      userSessions.set(telegramId, { step: 'tc_enter_email', data: { challenge_id: challengeId, account_type: accountType } });
+      await ctx.reply('📧 Please send your <b>Exness email address:</b>', { parse_mode: 'HTML' });
+    }
+  }
+
   async startSubmission(ctx: Context, challengeId: number) {
     const telegramId = ctx.from!.id;
     const challenge = await tradingChallengeService.getChallengeById(challengeId);
@@ -243,6 +355,32 @@ export class TradingRegistrationHandler {
 
     if (data === 'tc_switch_cancel') {
       await ctx.answerCbQuery('Cancelled');
+      return true;
+    }
+
+    // Late switch confirm
+    if (data.startsWith('tc_late_switch_confirm_')) {
+      const challengeId = parseInt(data.replace('tc_late_switch_confirm_', ''));
+
+      const { tradingAdminHandler } = require('./tradingAdminHandler');
+      if (!tradingAdminHandler.isLateChangeWindowOpen(challengeId)) {
+        await ctx.answerCbQuery('Window expired');
+        await ctx.reply('❌ <b>This window has expired.</b>', { parse_mode: 'HTML' });
+        return true;
+      }
+
+      const reg = await tradingChallengeService.getRegistration(challengeId, telegramId);
+      if (reg) {
+        await tradingChallengeService.deleteRegistration(reg.id);
+      }
+      await ctx.answerCbQuery();
+
+      // Start real account registration (email already verified)
+      userSessions.set(telegramId, {
+        step: 'tc_enter_email',
+        data: { challenge_id: challengeId, account_type: 'real' },
+      });
+      await ctx.reply('📧 Please send your <b>Exness email address:</b>', { parse_mode: 'HTML' });
       return true;
     }
 

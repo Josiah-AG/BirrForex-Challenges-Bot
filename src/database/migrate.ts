@@ -51,6 +51,11 @@ async function migrate() {
       await db.query(`ALTER TABLE trading_registrations ADD COLUMN IF NOT EXISTS disqualified BOOLEAN DEFAULT false;`).catch(() => {});
       await db.query(`ALTER TABLE trading_registrations ADD COLUMN IF NOT EXISTS disqualified_at TIMESTAMP;`).catch(() => {});
       await db.query(`ALTER TABLE trading_registrations ADD COLUMN IF NOT EXISTS disqualified_reason TEXT;`).catch(() => {});
+      // Screening results extra columns
+      await db.query(`ALTER TABLE trading_screening_results ADD COLUMN IF NOT EXISTS changing_users JSONB;`).catch(() => {});
+      await db.query(`ALTER TABLE trading_screening_results ADD COLUMN IF NOT EXISTS left_users JSONB;`).catch(() => {});
+      await db.query(`ALTER TABLE trading_screening_results ADD COLUMN IF NOT EXISTS cleared_users JSONB;`).catch(() => {});
+      await db.query(`ALTER TABLE trading_screening_results ADD COLUMN IF NOT EXISTS report_sent BOOLEAN DEFAULT false;`).catch(() => {});
       console.log('✅ Trading schema migrations OK');
     } catch (err: any) {
       if (err.code === 'ENOENT') {

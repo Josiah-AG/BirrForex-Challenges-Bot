@@ -698,10 +698,21 @@ export class TradingScheduler {
       this.sendPendingMessages(challenge);
     }
 
-    // Send admin report at 9:00-9:04 AM
-    if (hour === 9 && minute <= 4 && this.screeningResults) {
-      await this.sendScreeningReport(challenge, this.screeningResults);
-      this.screeningResults = null;
+    // Send admin report at 9:00-9:04 AM (read from DB, survives reboots)
+    const reportKey = `report_${challenge.id}_${dateStr}`;
+    if (hour === 9 && minute <= 4 && !this.screeningStarted.has(reportKey)) {
+      const dbResult = await tradingChallengeService.getUnsentScreeningResult(challenge.id);
+      if (dbResult) {
+        this.screeningStarted.add(reportKey);
+        const results = {
+          ...dbResult,
+          changingUsers: typeof dbResult.changing_users === 'string' ? JSON.parse(dbResult.changing_users) : (dbResult.changing_users || []),
+          leftUsers: typeof dbResult.left_users === 'string' ? JSON.parse(dbResult.left_users) : (dbResult.left_users || []),
+          clearedUsers: typeof dbResult.cleared_users === 'string' ? JSON.parse(dbResult.cleared_users) : (dbResult.cleared_users || []),
+        };
+        await this.sendScreeningReport(challenge, results);
+        await tradingChallengeService.markScreeningReportSent(challenge.id, dbResult.screening_date);
+      }
     }
   }
 
@@ -824,9 +835,10 @@ export class TradingScheduler {
 
     // Save results
     const { dateStr: todayStr } = this.getEATTime();
-    await tradingChallengeService.saveScreeningResult(challenge.id, todayStr, stats);
+    // Save full results to DB (survives reboots)
+    const fullStats = { ...stats, changingUsers, leftUsers, clearedUsers };
+    await tradingChallengeService.saveScreeningResult(challenge.id, todayStr, fullStats);
 
-    this.screeningResults = { ...stats, changingUsers, leftUsers, clearedUsers };
     console.log(`✅ Partner screening done: ${stats.total_screened} screened, ${stats.changing_real + stats.changing_demo} changing, ${stats.left_real + stats.left_demo} left, ${stats.missed} missed`);
   }
 

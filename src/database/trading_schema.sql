@@ -133,6 +133,10 @@ CREATE TABLE IF NOT EXISTS trading_screening_results (
     warnings_cleared INTEGER DEFAULT 0,
     missed INTEGER DEFAULT 0,
     uids_backfilled INTEGER DEFAULT 0,
+    changing_users JSONB,
+    left_users JSONB,
+    cleared_users JSONB,
+    report_sent BOOLEAN DEFAULT false,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(challenge_id, screening_date)
 );
