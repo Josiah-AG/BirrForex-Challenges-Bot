@@ -124,6 +124,7 @@ CREATE TABLE IF NOT EXISTS trading_screening_results (
     id SERIAL PRIMARY KEY,
     challenge_id INTEGER REFERENCES trading_challenges(id) ON DELETE CASCADE,
     screening_date DATE NOT NULL,
+    screening_mode VARCHAR(10) DEFAULT 'night',
     total_screened INTEGER DEFAULT 0,
     all_good INTEGER DEFAULT 0,
     changing_real INTEGER DEFAULT 0,
@@ -138,7 +139,7 @@ CREATE TABLE IF NOT EXISTS trading_screening_results (
     cleared_users JSONB,
     report_sent BOOLEAN DEFAULT false,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(challenge_id, screening_date)
+    UNIQUE(challenge_id, screening_date, screening_mode)
 );
 
 CREATE INDEX IF NOT EXISTS idx_tc_dates ON trading_challenges(start_date, end_date);

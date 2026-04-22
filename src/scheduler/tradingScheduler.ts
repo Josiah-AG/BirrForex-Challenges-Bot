@@ -683,41 +683,54 @@ export class TradingScheduler {
     const hour = parseInt(timeStr.split(':')[0]);
     const minute = parseInt(timeStr.split(':')[1]);
 
-    // Start screening at 10:00-10:04 PM EAT
-    const screenKey = `screen_${challenge.id}_${dateStr}`;
-    if (hour === 22 && minute <= 4 && !this.screeningRunning && !this.screeningStarted.has(screenKey)) {
-      this.screeningStarted.add(screenKey);
+    // Night screening: 10:00-10:04 PM EAT (messages queued for morning)
+    const nightKey = `screen_night_${challenge.id}_${dateStr}`;
+    if (hour === 22 && minute <= 4 && !this.screeningRunning && !this.screeningStarted.has(nightKey)) {
+      this.screeningStarted.add(nightKey);
       this.screeningRunning = true;
-      this.runPartnerScreening(challenge).finally(() => { this.screeningRunning = false; });
+      this.runPartnerScreening(challenge, 'night').finally(() => { this.screeningRunning = false; });
     }
 
-    // Send queued messages between 8:00-8:04 AM
+    // Day screening: 10:00-10:04 AM EAT (messages sent immediately)
+    const dayKey = `screen_day_${challenge.id}_${dateStr}`;
+    if (hour === 10 && minute <= 4 && !this.screeningRunning && !this.screeningStarted.has(dayKey)) {
+      this.screeningStarted.add(dayKey);
+      this.screeningRunning = true;
+      this.runPartnerScreening(challenge, 'day').finally(() => { this.screeningRunning = false; });
+    }
+
+    // Send queued night messages at 8:00-8:04 AM
     const msgKey = `screenmsg_${challenge.id}_${dateStr}`;
     if (hour === 8 && minute <= 4 && this.pendingMessages.length > 0 && !this.screeningStarted.has(msgKey)) {
       this.screeningStarted.add(msgKey);
       this.sendPendingMessages(challenge);
     }
 
-    // Send admin report at 9:00-9:04 AM (read from DB, survives reboots)
-    const reportKey = `report_${challenge.id}_${dateStr}`;
-    if (hour === 9 && minute <= 4 && !this.screeningStarted.has(reportKey)) {
+    // Morning report at 9:00-9:04 AM
+    const amReportKey = `report_am_${challenge.id}_${dateStr}`;
+    if (hour === 9 && minute <= 4 && !this.screeningStarted.has(amReportKey)) {
       const dbResult = await tradingChallengeService.getUnsentScreeningResult(challenge.id);
       if (dbResult) {
-        this.screeningStarted.add(reportKey);
-        const results = {
-          ...dbResult,
-          changingUsers: typeof dbResult.changing_users === 'string' ? JSON.parse(dbResult.changing_users) : (dbResult.changing_users || []),
-          leftUsers: typeof dbResult.left_users === 'string' ? JSON.parse(dbResult.left_users) : (dbResult.left_users || []),
-          clearedUsers: typeof dbResult.cleared_users === 'string' ? JSON.parse(dbResult.cleared_users) : (dbResult.cleared_users || []),
-        };
-        await this.sendScreeningReport(challenge, results);
-        await tradingChallengeService.markScreeningReportSent(challenge.id, dbResult.screening_date);
+        this.screeningStarted.add(amReportKey);
+        await this.sendScreeningReportFromDB(challenge, dbResult);
+        await tradingChallengeService.markScreeningReportSent(challenge.id, dbResult.screening_date, dbResult.screening_mode);
+      }
+    }
+
+    // Evening report at 9:00-9:04 PM
+    const pmReportKey = `report_pm_${challenge.id}_${dateStr}`;
+    if (hour === 21 && minute <= 4 && !this.screeningStarted.has(pmReportKey)) {
+      const dbResult = await tradingChallengeService.getUnsentScreeningResult(challenge.id);
+      if (dbResult) {
+        this.screeningStarted.add(pmReportKey);
+        await this.sendScreeningReportFromDB(challenge, dbResult);
+        await tradingChallengeService.markScreeningReportSent(challenge.id, dbResult.screening_date, dbResult.screening_mode);
       }
     }
   }
 
-  private async runPartnerScreening(challenge: TradingChallenge) {
-    console.log(`🔍 Partner screening started for ${challenge.title}`);
+  private async runPartnerScreening(challenge: TradingChallenge, mode: 'night' | 'day') {
+    console.log(`🔍 Partner screening (${mode}) started for ${challenge.title}`);
 
     const registrations = await tradingChallengeService.getActiveRegistrations(challenge.id);
     const stats = { total_screened: 0, all_good: 0, changing_real: 0, changing_demo: 0, left_real: 0, left_demo: 0, warnings_cleared: 0, missed: 0, uids_backfilled: 0 };
@@ -746,7 +759,6 @@ export class TradingScheduler {
         // Get full UUID
         const fullUuid = await exnessService.getFullUuid(shortUid);
         if (!fullUuid) {
-          // Retry
           await new Promise(r => setTimeout(r, 10000));
           const retry = await exnessService.getFullUuid(shortUid);
           if (!retry) {
@@ -762,7 +774,6 @@ export class TradingScheduler {
         // Get client status
         const clientInfo = await exnessService.getKycStatus(uuid);
         if (!clientInfo) {
-          // Retry with backoff
           await new Promise(r => setTimeout(r, 10000));
           const retryInfo = await exnessService.getKycStatus(uuid);
           if (!retryInfo) {
@@ -779,22 +790,32 @@ export class TradingScheduler {
         const clientStatus = info.client_status;
 
         if (clientStatus === 'CHANGING') {
-          if (!reg.partner_warned_at) {
-            // First time — warn
-            await tradingChallengeService.setPartnerWarning(reg.id);
-            const cat = reg.account_type === 'real' ? 'changing_real' : 'changing_demo';
-            (stats as any)[cat]++;
-            changingUsers.push(reg);
+          const cat = reg.account_type === 'real' ? 'changing_real' : 'changing_demo';
+          (stats as any)[cat]++;
 
-            this.pendingMessages.push({
-              telegramId: reg.telegram_id,
-              message: `⚠️ <b>Notice from BirrForex Challenge Team</b>\n\nWe noticed a partner change request on your Exness account.\n\nAs per challenge rules, your Exness account must remain under <b>BirrForex</b> to be eligible for <b>${challenge.title}</b>.\n\nIf you want to continue competing, please <b>cancel your change request</b> in your Exness account.\n\n⚠️ <i>Your registration will be canceled when the partner change is approved.</i>\n\nIf you face any problem, contact <b>@birrFXadmin</b> for assistance.`,
-            });
-          } else {
-            // Already warned
-            const cat = reg.account_type === 'real' ? 'changing_real' : 'changing_demo';
-            (stats as any)[cat]++;
+          if (!reg.partner_warned_at) {
+            // First time — warn user
+            await tradingChallengeService.setPartnerWarning(reg.id);
+
+            const warningMsg = `⚠️ <b>Notice from BirrForex Challenge Team</b>\n\nWe noticed a partner change request on your Exness account.\n\nAs per challenge rules, your Exness account must remain under <b>BirrForex</b> to be eligible for <b>${challenge.title}</b>.\n\nIf you want to continue competing, please <b>cancel your change request</b> in your Exness account.\n\n⚠️ <i>Your registration will be canceled when the partner change is approved.</i>\n\nIf you face any problem, contact <b>@birrFXadmin</b> for assistance.`;
+
+            if (mode === 'day') {
+              // Day mode: send DM immediately
+              try {
+                await this.bot.bot.telegram.sendMessage(reg.telegram_id, warningMsg, { parse_mode: 'HTML' });
+                console.log(`  ⚠️ Day screening: DM sent to @${reg.username || reg.telegram_id}`);
+              } catch (e) {
+                console.error(`  Failed to DM ${reg.telegram_id}:`, e);
+              }
+              await new Promise(r => setTimeout(r, 2000));
+            } else {
+              // Night mode: queue for 8 AM delivery
+              this.pendingMessages.push({ telegramId: reg.telegram_id, message: warningMsg });
+            }
+
+            changingUsers.push({ ...reg, client_uid: shortUid });
           }
+          // If already warned, don't send again — just count in stats
         } else if (clientStatus === 'LEFT') {
           // Double check allocation
           const alloc = await exnessService.checkAllocation(reg.email);
@@ -802,12 +823,22 @@ export class TradingScheduler {
             await tradingChallengeService.markDisqualifiedPartner(reg.id);
             const cat = reg.account_type === 'real' ? 'left_real' : 'left_demo';
             (stats as any)[cat]++;
-            leftUsers.push(reg);
 
-            this.pendingMessages.push({
-              telegramId: reg.telegram_id,
-              message: `❌ <b>Registration Canceled</b>\n\nWe're sorry to inform you that your registration for <b>${challenge.title}</b> has been canceled.\n\nSince your Exness account is no longer under BirrForex, you are no longer eligible to participate in this challenge.\n\n<i>Thank you for your interest, and we hope to see you in future challenges!</i> 🙏\n\nIf you believe this is an error, contact <b>@birrFXadmin</b> for assistance.`,
-            });
+            const disqualifyMsg = `❌ <b>Registration Canceled</b>\n\nWe're sorry to inform you that your registration for <b>${challenge.title}</b> has been canceled.\n\nSince your Exness account is no longer under BirrForex, you are no longer eligible to participate in this challenge.\n\n<i>Thank you for your interest, and we hope to see you in future challenges!</i> 🙏\n\nIf you believe this is an error, contact <b>@birrFXadmin</b> for assistance.`;
+
+            if (mode === 'day') {
+              try {
+                await this.bot.bot.telegram.sendMessage(reg.telegram_id, disqualifyMsg, { parse_mode: 'HTML' });
+                console.log(`  ❌ Day screening: Disqualify DM sent to @${reg.username || reg.telegram_id}`);
+              } catch (e) {
+                console.error(`  Failed to DM ${reg.telegram_id}:`, e);
+              }
+              await new Promise(r => setTimeout(r, 2000));
+            } else {
+              this.pendingMessages.push({ telegramId: reg.telegram_id, message: disqualifyMsg });
+            }
+
+            leftUsers.push({ ...reg, client_uid: shortUid });
           } else {
             stats.all_good++;
           }
@@ -817,7 +848,7 @@ export class TradingScheduler {
             // Was warned but now back to active — clear warning
             await tradingChallengeService.clearPartnerWarning(reg.id);
             stats.warnings_cleared++;
-            clearedUsers.push(reg);
+            clearedUsers.push({ ...reg, client_uid: shortUid });
           }
           stats.all_good++;
         }
@@ -828,18 +859,16 @@ export class TradingScheduler {
       } catch (e) {
         console.error(`Screening error for ${reg.email}:`, e);
         stats.missed++;
-        // Back off on error
         await new Promise(r => setTimeout(r, 10000));
       }
     }
 
-    // Save results
+    // Save results to DB (survives reboots)
     const { dateStr: todayStr } = this.getEATTime();
-    // Save full results to DB (survives reboots)
     const fullStats = { ...stats, changingUsers, leftUsers, clearedUsers };
-    await tradingChallengeService.saveScreeningResult(challenge.id, todayStr, fullStats);
+    await tradingChallengeService.saveScreeningResult(challenge.id, todayStr, fullStats, mode);
 
-    console.log(`✅ Partner screening done: ${stats.total_screened} screened, ${stats.changing_real + stats.changing_demo} changing, ${stats.left_real + stats.left_demo} left, ${stats.missed} missed`);
+    console.log(`✅ Partner screening (${mode}) done: ${stats.total_screened} screened, ${stats.changing_real + stats.changing_demo} changing, ${stats.left_real + stats.left_demo} left, ${stats.missed} missed`);
   }
 
   private async sendPendingMessages(challenge: TradingChallenge) {
@@ -863,65 +892,136 @@ export class TradingScheduler {
     console.log(`✅ Screening messages sent: ${sent}/${messages.length}`);
   }
 
-  private async sendScreeningReport(challenge: TradingChallenge, results: any) {
-    const { dateStr } = this.getEATTime();
-    const yesterday = new Date(dateStr);
-    yesterday.setDate(yesterday.getDate() - 1);
-    const screeningDate = `${yesterday.getFullYear()}-${(yesterday.getMonth() + 1).toString().padStart(2, '0')}-${yesterday.getDate().toString().padStart(2, '0')}`;
+  private async sendScreeningReportFromDB(challenge: TradingChallenge, dbResult: any) {
+    // Get cumulative stats from DB (all-time totals)
+    const cumulative = await tradingChallengeService.getCumulativePartnerStats(challenge.id);
+    const stillChanging = await tradingChallengeService.getStillChangingUsers(challenge.id);
 
-    let text = `<b>🔍 PARTNER SCREENING REPORT</b>\n<b>${challenge.title}</b>\n📅 Screening: ${screeningDate} 10:00 PM\n\n`;
-    text += `<b>📊 SCREENING RESULTS:</b>\n`;
-    text += `➡️ <b>Total Screened:</b> ${results.total_screened}\n`;
-    text += `➡️ <b>All Good:</b> ${results.all_good}\n\n`;
+    const screeningMode = dbResult.screening_mode || 'night';
+    const screeningTime = screeningMode === 'night' ? '10:00 PM' : '10:00 AM';
+    const screeningDate = new Date(dbResult.screening_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 
-    const totalChanging = results.changing_real + results.changing_demo;
-    if (totalChanging > 0) {
-      text += `<b>⚠️ PARTNER CHANGING: ${totalChanging}</b>\n`;
-      text += `Real Account: ${results.changing_real}\n`;
-      results.changingUsers.filter((u: any) => u.account_type === 'real').forEach((u: any, i: number) => {
-        text += `   ${i + 1}. @${u.username || 'unknown'} — ${u.email}\n`;
-      });
-      text += `Demo Account: ${results.changing_demo}\n`;
-      results.changingUsers.filter((u: any) => u.account_type === 'demo').forEach((u: any, i: number) => {
-        text += `   ${i + 1}. @${u.username || 'unknown'} — ${u.email}\n`;
+    // Parse JSONB fields
+    const changingUsers = typeof dbResult.changing_users === 'string' ? JSON.parse(dbResult.changing_users) : (dbResult.changing_users || []);
+    const leftUsers = typeof dbResult.left_users === 'string' ? JSON.parse(dbResult.left_users) : (dbResult.left_users || []);
+    const clearedUsers = typeof dbResult.cleared_users === 'string' ? JSON.parse(dbResult.cleared_users) : (dbResult.cleared_users || []);
+
+    const totalChanged = cumulative.changed_real + cumulative.changed_demo;
+    const totalStillChanging = cumulative.still_changing_real + cumulative.still_changing_demo;
+
+    let text = `<b>🔍 PARTNER SCREENING REPORT</b>\n`;
+    text += `<b>${challenge.title}</b>\n`;
+    text += `📅 ${screeningDate} — ${screeningTime} (${screeningMode === 'night' ? 'Night' : 'Day'} Screening)\n\n`;
+
+    // Cumulative totals header
+    text += `<b>📊 CUMULATIVE TOTALS:</b>\n`;
+    text += `❌ <b>Total Changed:</b> ${totalChanged} (Real: ${cumulative.changed_real} | Demo: ${cumulative.changed_demo})\n`;
+    text += `⚠️ <b>Total Still Changing:</b> ${totalStillChanging} (Real: ${cumulative.still_changing_real} | Demo: ${cumulative.still_changing_demo})\n`;
+    text += `✅ <b>Total Cleared:</b> ${cumulative.cleared}\n\n`;
+
+    // Today's screening results
+    text += `<b>📋 THIS SCREENING:</b>\n`;
+    text += `➡️ <b>Screened:</b> ${dbResult.total_screened}\n`;
+    text += `➡️ <b>All Good:</b> ${dbResult.all_good}\n\n`;
+
+    // New partner changing users found this screening
+    const newChanging = changingUsers.length;
+    if (newChanging > 0) {
+      text += `<b>⚠️ NEW PARTNER CHANGING: ${newChanging}</b>\n`;
+      const realChanging = changingUsers.filter((u: any) => u.account_type === 'real');
+      const demoChanging = changingUsers.filter((u: any) => u.account_type === 'demo');
+      if (realChanging.length > 0) {
+        text += `<b>Real Account (${realChanging.length}):</b>\n`;
+        realChanging.forEach((u: any, i: number) => {
+          const uid = u.client_uid ? ` [${u.client_uid}]` : '';
+          text += `  ${i + 1}. @${u.username || 'unknown'} — ${u.email}${uid}\n`;
+        });
+      }
+      if (demoChanging.length > 0) {
+        text += `<b>Demo Account (${demoChanging.length}):</b>\n`;
+        demoChanging.forEach((u: any, i: number) => {
+          const uid = u.client_uid ? ` [${u.client_uid}]` : '';
+          text += `  ${i + 1}. @${u.username || 'unknown'} — ${u.email}${uid}\n`;
+        });
+      }
+      text += '\n';
+    }
+
+    // Partner left (disqualified) this screening
+    const newLeft = leftUsers.length;
+    if (newLeft > 0) {
+      text += `<b>❌ PARTNER LEFT (Disqualified): ${newLeft}</b>\n`;
+      const realLeft = leftUsers.filter((u: any) => u.account_type === 'real');
+      const demoLeft = leftUsers.filter((u: any) => u.account_type === 'demo');
+      if (realLeft.length > 0) {
+        text += `<b>Real Account (${realLeft.length}):</b>\n`;
+        realLeft.forEach((u: any, i: number) => {
+          const uid = u.client_uid ? ` [${u.client_uid}]` : '';
+          text += `  ${i + 1}. @${u.username || 'unknown'} — ${u.email}${uid}\n`;
+        });
+      }
+      if (demoLeft.length > 0) {
+        text += `<b>Demo Account (${demoLeft.length}):</b>\n`;
+        demoLeft.forEach((u: any, i: number) => {
+          const uid = u.client_uid ? ` [${u.client_uid}]` : '';
+          text += `  ${i + 1}. @${u.username || 'unknown'} — ${u.email}${uid}\n`;
+        });
+      }
+      text += '\n';
+    }
+
+    // Cleared this screening
+    if (clearedUsers.length > 0) {
+      text += `<b>🔄 CLEARED THIS SCREENING: ${clearedUsers.length}</b>\n`;
+      clearedUsers.forEach((u: any, i: number) => {
+        const uid = u.client_uid ? ` [${u.client_uid}]` : '';
+        text += `  ${i + 1}. @${u.username || 'unknown'} — cancelled change request ✅${uid}\n`;
       });
       text += '\n';
     }
 
-    const totalLeft = results.left_real + results.left_demo;
-    if (totalLeft > 0) {
-      text += `<b>❌ PARTNER LEFT (Disqualified): ${totalLeft}</b>\n`;
-      text += `Real Account: ${results.left_real}\n`;
-      results.leftUsers.filter((u: any) => u.account_type === 'real').forEach((u: any, i: number) => {
-        text += `   ${i + 1}. @${u.username || 'unknown'} — ${u.email}\n`;
-      });
-      text += `Demo Account: ${results.left_demo}\n`;
-      results.leftUsers.filter((u: any) => u.account_type === 'demo').forEach((u: any, i: number) => {
-        text += `   ${i + 1}. @${u.username || 'unknown'} — ${u.email}\n`;
-      });
+    // Still changing section (previously warned, still changing)
+    if (stillChanging.length > 0) {
+      text += `<b>⏳ STILL CHANGING (previously warned): ${stillChanging.length}</b>\n`;
+      const realStill = stillChanging.filter((u: any) => u.account_type === 'real');
+      const demoStill = stillChanging.filter((u: any) => u.account_type === 'demo');
+      if (realStill.length > 0) {
+        text += `<b>Real (${realStill.length}):</b>\n`;
+        realStill.forEach((u: any, i: number) => {
+          const uid = u.client_uid ? ` [${u.client_uid}]` : '';
+          const warnedDate = u.partner_warned_at ? new Date(u.partner_warned_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'unknown';
+          text += `  ${i + 1}. @${u.username || 'unknown'}${uid} — warned ${warnedDate}\n`;
+        });
+      }
+      if (demoStill.length > 0) {
+        text += `<b>Demo (${demoStill.length}):</b>\n`;
+        demoStill.forEach((u: any, i: number) => {
+          const uid = u.client_uid ? ` [${u.client_uid}]` : '';
+          const warnedDate = u.partner_warned_at ? new Date(u.partner_warned_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'unknown';
+          text += `  ${i + 1}. @${u.username || 'unknown'}${uid} — warned ${warnedDate}\n`;
+        });
+      }
       text += '\n';
     }
 
-    if (results.warnings_cleared > 0) {
-      text += `<b>🔄 Warnings Cleared: ${results.warnings_cleared}</b>\n`;
-      results.clearedUsers.forEach((u: any) => {
-        text += `   @${u.username || 'unknown'} — cancelled change request ✅\n`;
-      });
-      text += '\n';
-    }
+    if (dbResult.missed > 0) text += `❌ <b>Missed (API error):</b> ${dbResult.missed}\n`;
+    if (dbResult.uids_backfilled > 0) text += `🔑 <b>UIDs Backfilled:</b> ${dbResult.uids_backfilled}\n`;
 
-    if (results.missed > 0) text += `❌ <b>Missed (API error):</b> ${results.missed}\n`;
-    if (results.uids_backfilled > 0) text += `🔑 <b>UIDs Backfilled:</b> ${results.uids_backfilled}\n`;
-
-    if (totalChanging === 0 && totalLeft === 0 && results.warnings_cleared === 0) {
+    if (newChanging === 0 && newLeft === 0 && clearedUsers.length === 0 && stillChanging.length === 0) {
       text += `\n✅ <i>No partner issues detected.</i>`;
     }
 
     try {
       await this.bot.bot.telegram.sendMessage(config.adminUserId, text, { parse_mode: 'HTML' });
+      console.log(`✅ Screening report sent to admin (${screeningMode})`);
     } catch (e) {
       console.error('Error sending screening report:', e);
     }
+  }
+
+  private async sendScreeningReport(challenge: TradingChallenge, results: any) {
+    // Legacy — kept for compatibility, delegates to new method
+    await this.sendScreeningReportFromDB(challenge, results);
   }
 
   // ==================== DAILY ADMIN SUMMARY (8 AM EAT) ====================

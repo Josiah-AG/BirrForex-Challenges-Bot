@@ -537,31 +537,77 @@ class TradingChallengeService {
     );
   }
 
-  async saveScreeningResult(challengeId: number, date: string, data: any): Promise<void> {
+  async saveScreeningResult(challengeId: number, date: string, data: any, mode: 'night' | 'day' = 'night'): Promise<void> {
     await db.query(
       `INSERT INTO trading_screening_results
-       (challenge_id, screening_date, total_screened, all_good, changing_real, changing_demo, left_real, left_demo, warnings_cleared, missed, uids_backfilled, changing_users, left_users, cleared_users, report_sent)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, false)
-       ON CONFLICT (challenge_id, screening_date)
-       DO UPDATE SET total_screened=$3, all_good=$4, changing_real=$5, changing_demo=$6, left_real=$7, left_demo=$8, warnings_cleared=$9, missed=$10, uids_backfilled=$11, changing_users=$12, left_users=$13, cleared_users=$14, report_sent=false`,
-      [challengeId, date, data.total_screened, data.all_good, data.changing_real, data.changing_demo, data.left_real, data.left_demo, data.warnings_cleared, data.missed, data.uids_backfilled,
+       (challenge_id, screening_date, screening_mode, total_screened, all_good, changing_real, changing_demo, left_real, left_demo, warnings_cleared, missed, uids_backfilled, changing_users, left_users, cleared_users, report_sent)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, false)
+       ON CONFLICT (challenge_id, screening_date, screening_mode)
+       DO UPDATE SET total_screened=$4, all_good=$5, changing_real=$6, changing_demo=$7, left_real=$8, left_demo=$9, warnings_cleared=$10, missed=$11, uids_backfilled=$12, changing_users=$13, left_users=$14, cleared_users=$15, report_sent=false`,
+      [challengeId, date, mode, data.total_screened, data.all_good, data.changing_real, data.changing_demo, data.left_real, data.left_demo, data.warnings_cleared, data.missed, data.uids_backfilled,
        JSON.stringify(data.changingUsers || []), JSON.stringify(data.leftUsers || []), JSON.stringify(data.clearedUsers || [])]
     );
   }
 
   async getUnsentScreeningResult(challengeId: number): Promise<any> {
     const result = await db.query(
-      'SELECT * FROM trading_screening_results WHERE challenge_id = $1 AND report_sent = false ORDER BY screening_date DESC LIMIT 1',
+      'SELECT * FROM trading_screening_results WHERE challenge_id = $1 AND report_sent = false ORDER BY created_at ASC LIMIT 1',
       [challengeId]
     );
     return result.rows[0] || null;
   }
 
-  async markScreeningReportSent(challengeId: number, date: string): Promise<void> {
-    await db.query(
-      'UPDATE trading_screening_results SET report_sent = true WHERE challenge_id = $1 AND screening_date = $2',
-      [challengeId, date]
+  async markScreeningReportSent(challengeId: number, date: string, mode?: string): Promise<void> {
+    if (mode) {
+      await db.query(
+        'UPDATE trading_screening_results SET report_sent = true WHERE challenge_id = $1 AND screening_date = $2 AND screening_mode = $3',
+        [challengeId, date, mode]
+      );
+    } else {
+      await db.query(
+        'UPDATE trading_screening_results SET report_sent = true WHERE challenge_id = $1 AND screening_date = $2',
+        [challengeId, date]
+      );
+    }
+  }
+
+  async getCumulativePartnerStats(challengeId: number): Promise<{ changed_real: number; changed_demo: number; still_changing_real: number; still_changing_demo: number; cleared: number }> {
+    // Changed = disqualified due to partner change
+    const disqualified = await db.query(
+      `SELECT account_type, COUNT(*) as cnt FROM trading_registrations WHERE challenge_id = $1 AND disqualified = true AND disqualified_reason = 'Partner changed from BirrForex' GROUP BY account_type`,
+      [challengeId]
     );
+    // Still changing = warned but not yet disqualified
+    const changing = await db.query(
+      `SELECT account_type, COUNT(*) as cnt FROM trading_registrations WHERE challenge_id = $1 AND partner_status = 'CHANGING' AND disqualified = false GROUP BY account_type`,
+      [challengeId]
+    );
+    // Cleared = sum of warnings_cleared across all screening results
+    const clearedResult = await db.query(
+      `SELECT COALESCE(SUM(warnings_cleared), 0) as total FROM trading_screening_results WHERE challenge_id = $1`,
+      [challengeId]
+    );
+
+    const getCount = (rows: any[], type: string) => {
+      const row = rows.find((r: any) => r.account_type === type);
+      return row ? parseInt(row.cnt) : 0;
+    };
+
+    return {
+      changed_real: getCount(disqualified.rows, 'real'),
+      changed_demo: getCount(disqualified.rows, 'demo'),
+      still_changing_real: getCount(changing.rows, 'real'),
+      still_changing_demo: getCount(changing.rows, 'demo'),
+      cleared: parseInt(clearedResult.rows[0]?.total || '0'),
+    };
+  }
+
+  async getStillChangingUsers(challengeId: number): Promise<any[]> {
+    const result = await db.query(
+      `SELECT * FROM trading_registrations WHERE challenge_id = $1 AND partner_status = 'CHANGING' AND disqualified = false ORDER BY partner_warned_at ASC`,
+      [challengeId]
+    );
+    return result.rows;
   }
 
   async getScreeningResult(challengeId: number, date: string): Promise<any> {

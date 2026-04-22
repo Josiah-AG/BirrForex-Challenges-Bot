@@ -56,6 +56,19 @@ async function migrate() {
       await db.query(`ALTER TABLE trading_screening_results ADD COLUMN IF NOT EXISTS left_users JSONB;`).catch(() => {});
       await db.query(`ALTER TABLE trading_screening_results ADD COLUMN IF NOT EXISTS cleared_users JSONB;`).catch(() => {});
       await db.query(`ALTER TABLE trading_screening_results ADD COLUMN IF NOT EXISTS report_sent BOOLEAN DEFAULT false;`).catch(() => {});
+      // Screening mode column for twice-daily screening (night/day)
+      await db.query(`ALTER TABLE trading_screening_results ADD COLUMN IF NOT EXISTS screening_mode VARCHAR(10) DEFAULT 'night';`).catch(() => {});
+      // Update unique constraint to include screening_mode (drop old, add new)
+      await db.query(`ALTER TABLE trading_screening_results DROP CONSTRAINT IF EXISTS trading_screening_results_challenge_id_screening_date_key;`).catch(() => {});
+      await db.query(`
+        DO $$ BEGIN
+          IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint WHERE conname = 'trading_screening_results_challenge_id_screening_date_scree_key'
+          ) THEN
+            ALTER TABLE trading_screening_results ADD CONSTRAINT trading_screening_results_challenge_id_screening_date_scree_key UNIQUE (challenge_id, screening_date, screening_mode);
+          END IF;
+        END $$;
+      `).catch(() => {});
       console.log('✅ Trading schema migrations OK');
     } catch (err: any) {
       if (err.code === 'ENOENT') {
