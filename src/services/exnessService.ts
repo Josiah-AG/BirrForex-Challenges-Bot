@@ -56,9 +56,6 @@ class ExnessService {
   private token: string | null = null;
   private tokenExpiry: Date | null = null;
   private baseUrl: string;
-  // Cache for full UUID list (refreshed per screening run)
-  private uuidCache: string[] | null = null;
-  private uuidCacheExpiry: Date | null = null;
 
   constructor() {
     this.baseUrl = config.exnessApiBaseUrl;
@@ -119,43 +116,24 @@ class ExnessService {
   }
 
   /**
-   * Get full UUID from short UID (uses cached list, refreshes every 30 min)
+   * Get full UUID from short UID
    */
   async getFullUuid(shortUid: string): Promise<string | null> {
     if (!await this.ensureAuth()) return null;
 
-    // Use cached list if available and fresh (30 min TTL)
-    if (this.uuidCache && this.uuidCacheExpiry && new Date() < this.uuidCacheExpiry) {
-      const fullUuid = this.uuidCache.find((uid: string) => uid.startsWith(shortUid));
-      return fullUuid || null;
-    }
-
     try {
       const response = await axios.get(`${this.baseUrl}/api/v2/reports/clients/filters/`, {
         headers: this.getHeaders(),
-        timeout: 30000,
+        timeout: 10000,
       });
 
       const clientUids: string[] = response.data?.client_uid || [];
-      // Cache the list for 30 minutes
-      this.uuidCache = clientUids;
-      this.uuidCacheExpiry = new Date(Date.now() + 30 * 60 * 1000);
-      console.log(`🔑 UUID cache refreshed: ${clientUids.length} UIDs`);
-
       const fullUuid = clientUids.find((uid: string) => uid.startsWith(shortUid));
       return fullUuid || null;
     } catch (error: any) {
       console.error('❌ Get full UUID error:', error.response?.status || error.message);
       return null;
     }
-  }
-
-  /**
-   * Clear UUID cache (call before screening to ensure fresh data)
-   */
-  clearUuidCache(): void {
-    this.uuidCache = null;
-    this.uuidCacheExpiry = null;
   }
 
   /**

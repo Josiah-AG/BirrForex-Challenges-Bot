@@ -731,27 +731,14 @@ export class TradingScheduler {
 
   private async runPartnerScreening(challenge: TradingChallenge, mode: 'night' | 'day') {
     console.log(`🔍 Partner screening (${mode}) started for ${challenge.title}`);
-    const startTime = Date.now();
-    const MAX_DURATION = 2 * 60 * 60 * 1000; // 2 hour max
-
-    // Clear UUID cache so we get fresh data
-    exnessService.clearUuidCache();
 
     const registrations = await tradingChallengeService.getActiveRegistrations(challenge.id);
-    console.log(`🔍 Screening ${registrations.length} registrations (${mode} mode)`);
-
     const stats = { total_screened: 0, all_good: 0, changing_real: 0, changing_demo: 0, left_real: 0, left_demo: 0, warnings_cleared: 0, missed: 0, uids_backfilled: 0 };
     const changingUsers: any[] = [];
     const leftUsers: any[] = [];
     const clearedUsers: any[] = [];
 
     for (const reg of registrations) {
-      // Check timeout — save what we have if exceeded
-      if (Date.now() - startTime > MAX_DURATION) {
-        console.log(`⏰ Screening timeout after ${Math.round((Date.now() - startTime) / 60000)} min — saving partial results`);
-        break;
-      }
-
       try {
         let shortUid = reg.client_uid;
 
@@ -869,12 +856,6 @@ export class TradingScheduler {
         // 3 second delay between checks
         await new Promise(r => setTimeout(r, 3000));
 
-        // Log progress every 100 users
-        if (stats.total_screened % 100 === 0 && stats.total_screened > 0) {
-          const elapsed = Math.round((Date.now() - startTime) / 60000);
-          console.log(`  📊 Screening progress: ${stats.total_screened}/${registrations.length} (${elapsed} min elapsed)`);
-        }
-
       } catch (e) {
         console.error(`Screening error for ${reg.email}:`, e);
         stats.missed++;
@@ -885,14 +866,9 @@ export class TradingScheduler {
     // Save results to DB (survives reboots)
     const { dateStr: todayStr } = this.getEATTime();
     const fullStats = { ...stats, changingUsers, leftUsers, clearedUsers };
-    try {
-      await tradingChallengeService.saveScreeningResult(challenge.id, todayStr, fullStats, mode);
-    } catch (saveErr) {
-      console.error('❌ Failed to save screening results:', saveErr);
-    }
+    await tradingChallengeService.saveScreeningResult(challenge.id, todayStr, fullStats, mode);
 
-    const elapsed = Math.round((Date.now() - startTime) / 60000);
-    console.log(`✅ Partner screening (${mode}) done in ${elapsed} min: ${stats.total_screened} screened, ${stats.changing_real + stats.changing_demo} changing, ${stats.left_real + stats.left_demo} left, ${stats.all_good} good, ${stats.missed} missed`);
+    console.log(`✅ Partner screening (${mode}) done: ${stats.total_screened} screened, ${stats.changing_real + stats.changing_demo} changing, ${stats.left_real + stats.left_demo} left, ${stats.missed} missed`);
   }
 
   private async sendPendingMessages(challenge: TradingChallenge) {

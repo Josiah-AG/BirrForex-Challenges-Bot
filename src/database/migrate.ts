@@ -60,15 +60,15 @@ async function migrate() {
       await db.query(`ALTER TABLE trading_screening_results ADD COLUMN IF NOT EXISTS screening_mode VARCHAR(10) DEFAULT 'night';`).catch(() => {});
       // Update unique constraint to include screening_mode (drop old, add new)
       await db.query(`ALTER TABLE trading_screening_results DROP CONSTRAINT IF EXISTS trading_screening_results_challenge_id_screening_date_key;`).catch(() => {});
-      // Also drop the long-named constraint from previous migration attempt
-      await db.query(`ALTER TABLE trading_screening_results DROP CONSTRAINT IF EXISTS trading_screening_results_challenge_id_screening_date_scree_key;`).catch(() => {});
-      // Add new unique constraint — simple approach, catch if already exists
-      await db.query(`ALTER TABLE trading_screening_results ADD CONSTRAINT tsr_challenge_date_mode_key UNIQUE (challenge_id, screening_date, screening_mode);`).catch((e: any) => {
-        // Constraint already exists — that's fine
-        if (!e.message?.includes('already exists')) {
-          console.error('Constraint migration note:', e.message);
-        }
-      });
+      await db.query(`
+        DO $$ BEGIN
+          IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint WHERE conname = 'trading_screening_results_challenge_id_screening_date_scree_key'
+          ) THEN
+            ALTER TABLE trading_screening_results ADD CONSTRAINT trading_screening_results_challenge_id_screening_date_scree_key UNIQUE (challenge_id, screening_date, screening_mode);
+          END IF;
+        END $$;
+      `).catch(() => {});
       console.log('✅ Trading schema migrations OK');
     } catch (err: any) {
       if (err.code === 'ENOENT') {
