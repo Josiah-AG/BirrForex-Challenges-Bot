@@ -538,15 +538,28 @@ class TradingChallengeService {
   }
 
   async saveScreeningResult(challengeId: number, date: string, data: any, mode: 'night' | 'day' = 'night'): Promise<void> {
+    const params = [challengeId, date, mode, data.total_screened, data.all_good, data.changing_real, data.changing_demo, data.left_real, data.left_demo, data.warnings_cleared, data.missed, data.uids_backfilled,
+      JSON.stringify(data.changingUsers || []), JSON.stringify(data.leftUsers || []), JSON.stringify(data.clearedUsers || [])];
+
+    // Delete existing row for this challenge/date/mode, then insert fresh — no constraint dependency
+    await db.query(
+      `DELETE FROM trading_screening_results WHERE challenge_id = $1 AND screening_date = $2 AND screening_mode = $3`,
+      [challengeId, date, mode]
+    ).catch(() => {
+      // Also try without screening_mode for old schema
+      return db.query(
+        `DELETE FROM trading_screening_results WHERE challenge_id = $1 AND screening_date = $2`,
+        [challengeId, date]
+      ).catch(() => {});
+    });
+
     await db.query(
       `INSERT INTO trading_screening_results
        (challenge_id, screening_date, screening_mode, total_screened, all_good, changing_real, changing_demo, left_real, left_demo, warnings_cleared, missed, uids_backfilled, changing_users, left_users, cleared_users, report_sent)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, false)
-       ON CONFLICT (challenge_id, screening_date, screening_mode)
-       DO UPDATE SET total_screened=$4, all_good=$5, changing_real=$6, changing_demo=$7, left_real=$8, left_demo=$9, warnings_cleared=$10, missed=$11, uids_backfilled=$12, changing_users=$13, left_users=$14, cleared_users=$15, report_sent=false`,
-      [challengeId, date, mode, data.total_screened, data.all_good, data.changing_real, data.changing_demo, data.left_real, data.left_demo, data.warnings_cleared, data.missed, data.uids_backfilled,
-       JSON.stringify(data.changingUsers || []), JSON.stringify(data.leftUsers || []), JSON.stringify(data.clearedUsers || [])]
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, false)`,
+      params
     );
+    console.log(`✅ Screening result saved: ${date} (${mode})`);
   }
 
   async getUnsentScreeningResult(challengeId: number): Promise<any> {
