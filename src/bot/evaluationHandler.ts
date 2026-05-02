@@ -1098,14 +1098,15 @@ class EvaluationHandler {
     const username = evaluation.username ? '@' + evaluation.username : 'User ' + evaluation.telegram_id;
 
     let text = medal + ' <b>' + ordinal + ' Place Winner</b> — ' + username + '\n';
-    text += '📁 ' + category + ' Account Category\n\n';
+    text += '📁 ' + category + ' Account Category\n';
+    text += '📅 Account: ' + evaluation.account_number + '\n';
+    if (prize) text += '🎁 Prize: <b>' + prize + '</b>\n';
+    text += '\n';
     text += '💰 Adjusted Balance: <b>$' + Number(evaluation.adjusted_balance).toFixed(2) + '</b>\n';
     text += '💰 Reported Balance: $' + Number(evaluation.reported_balance).toFixed(2) + '\n';
     text += '➖ Profit Removed: $' + Number(evaluation.profit_removed).toFixed(2) + '\n\n';
     text += '📈 Total Trades: ' + evaluation.total_trades + '\n';
     text += '⚠️ Flagged Trades: ' + evaluation.flagged_count + '\n';
-    text += '📅 Account: ' + evaluation.account_number + '\n';
-    if (prize) text += '🎁 Prize: <b>' + prize + '</b>\n';
     return text;
   }
 
