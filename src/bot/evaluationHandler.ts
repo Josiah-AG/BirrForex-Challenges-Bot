@@ -665,6 +665,10 @@ class EvaluationHandler {
       const realPrizes = typeof challenge.real_prizes === 'string' ? JSON.parse(challenge.real_prizes) : (challenge.real_prizes || []);
       const demoPrizes = typeof challenge.demo_prizes === 'string' ? JSON.parse(challenge.demo_prizes) : (challenge.demo_prizes || []);
 
+      // Build ranked lists per category
+      const realQualified = evaluations.filter(e => e.is_qualified && e.account_type === 'real').sort((a, b) => Number(b.adjusted_balance) - Number(a.adjusted_balance));
+      const demoQualified = evaluations.filter(e => e.is_qualified && e.account_type === 'demo').sort((a, b) => Number(b.adjusted_balance) - Number(a.adjusted_balance));
+
       await ctx.reply(`⏳ Sending DMs to ${evaluations.length} evaluated users...`);
 
       const botInfo = await (ctx as any).telegram.getMe();
@@ -678,52 +682,21 @@ class EvaluationHandler {
         }
 
         try {
-          let message = '';
           const isWinner = winnerIds.has(evaluation.id);
+          const realIdx = realQualified.findIndex(e => e.id === evaluation.id);
+          const demoIdx = demoQualified.findIndex(e => e.id === evaluation.id);
+          const rank = realIdx >= 0 ? realIdx + 1 : (demoIdx >= 0 ? demoIdx + 1 : 0);
+          const category = evaluation.account_type === 'real' ? 'Real' : 'Demo';
 
+          let prize = '';
           if (isWinner) {
-            // Determine prize
-            let prize = '';
-            const realIdx = realWinners.findIndex(w => w.id === evaluation.id);
-            const demoIdx = demoWinners.findIndex(w => w.id === evaluation.id);
-            if (realIdx >= 0 && realPrizes[realIdx]) {
-              prize = `${realPrizes[realIdx]}`;
-            } else if (demoIdx >= 0 && demoPrizes[demoIdx]) {
-              prize = `${demoPrizes[demoIdx]}`;
-            }
-
-            const rank = realIdx >= 0 ? realIdx + 1 : demoIdx + 1;
-            const medals = ['', '🥇', '🥈', '🥉', '4️⃣', '5️⃣'];
-            const medal = medals[rank] || '🏅';
-            const ordinals = ['', '1st', '2nd', '3rd'];
-            const ordinal = rank <= 3 ? ordinals[rank] : rank + 'th';
-
-            message = medal + ` <b>${ordinal} Place Winner</b>\n\n` +
-              `🎉 <b>Congratulations!</b> 🏆\n\n` +
-              `You are a <b>WINNER</b> in ${challenge.title}!\n` +
-              `Account: ${evaluation.account_number} (${evaluation.account_type})\n` +
-              `Adjusted Balance: ${Number(evaluation.adjusted_balance).toFixed(2)}\n` +
-              (prize ? `Prize: <b>${prize}</b>\n` : '') +
-              `\nTo receive your reward, please contact @birrFXadmin with a screenshot of this message.`;
-          } else if (evaluation.is_qualified) {
-            message = `👏 <b>Great job!</b>\n\n` +
-              `You qualified in ${challenge.title}!\n` +
-              `Account: ${evaluation.account_number} (${evaluation.account_type})\n` +
-              `Adjusted Balance: ${Number(evaluation.adjusted_balance).toFixed(2)}\n` +
-              `\nUnfortunately you didn't make it to the top winners this time, but your performance was excellent. Keep it up!`;
-          } else if (evaluation.is_disqualified) {
-            message = `📋 <b>Evaluation Result</b>\n\n` +
-              `Your account was <b>disqualified</b> in ${challenge.title}.\n` +
-              `Account: ${evaluation.account_number} (${evaluation.account_type})\n` +
-              `Reason: ${evaluation.disqualify_reason || 'Rule violation'}\n` +
-              `\nPlease review the rules and try again in the next challenge!`;
-          } else {
-            message = `📋 <b>Evaluation Result</b>\n\n` +
-              `Unfortunately, you did not qualify in ${challenge.title}.\n` +
-              `Account: ${evaluation.account_number} (${evaluation.account_type})\n` +
-              `Adjusted Balance: ${Number(evaluation.adjusted_balance).toFixed(2)}\n` +
-              `\nKeep practicing and join the next challenge!`;
+            const rIdx = realWinners.findIndex(w => w.id === evaluation.id);
+            const dIdx = demoWinners.findIndex(w => w.id === evaluation.id);
+            if (rIdx >= 0 && realPrizes[rIdx]) prize = String(realPrizes[rIdx]);
+            else if (dIdx >= 0 && demoPrizes[dIdx]) prize = '$' + String(demoPrizes[dIdx]);
           }
+
+          const message = this.buildDmCaption(evaluation, challenge, rank, category, isWinner, prize);
 
           // Send message with file and detail button
           await (ctx as any).telegram.sendDocument(
@@ -835,6 +808,10 @@ class EvaluationHandler {
       const notQualified = allTestEvals.filter(e => !e.is_qualified && !e.is_disqualified);
       const disqualified = allTestEvals.filter(e => e.is_disqualified);
 
+      // Build ranked lists per category
+      const realQualified = allTestEvals.filter(e => e.is_qualified && e.account_type === 'real').sort((a, b) => Number(b.adjusted_balance) - Number(a.adjusted_balance));
+      const demoQualified = allTestEvals.filter(e => e.is_qualified && e.account_type === 'demo').sort((a, b) => Number(b.adjusted_balance) - Number(a.adjusted_balance));
+
       // ── SECTION 1: Winner Announcement (both channels) ──
       await ctx.telegram.sendMessage(adminId, '📢 <b>CHANNEL POST — Winner Announcement (both channels)</b>', { parse_mode: 'HTML' });
       const announcement = this.generateWinnerAnnouncement(challenge, realWinners, demoWinners);
@@ -873,32 +850,23 @@ class EvaluationHandler {
         const username = winner.username ? `@${winner.username}` : `ID:${winner.telegram_id}`;
         await ctx.telegram.sendMessage(adminId, `📨 <b>DM — Winner ${username}</b>`, { parse_mode: 'HTML' });
 
-        // Determine prize
+        // Determine prize and rank
         let prize = '';
         const realIdx = realWinners.findIndex(w => w.id === winner.id);
         const demoIdx = demoWinners.findIndex(w => w.id === winner.id);
         if (realIdx >= 0 && realPrizes[realIdx]) {
-          prize = `${realPrizes[realIdx]}`;
+          prize = String(realPrizes[realIdx]);
         } else if (demoIdx >= 0 && demoPrizes[demoIdx]) {
-          prize = `${demoPrizes[demoIdx]}`;
+          prize = '$' + String(demoPrizes[demoIdx]);
         }
 
-        const rank = realIdx >= 0 ? realIdx + 1 : demoIdx + 1;
-        const medals = ['', '🥇', '🥈', '🥉', '4️⃣', '5️⃣'];
-        const medal = medals[rank] || '🏅';
-        const ordinals = ['', '1st', '2nd', '3rd'];
-        const ordinal = rank <= 3 ? ordinals[rank] : rank + 'th';
-
-        const winnerCaption = medal + ` <b>${ordinal} Place Winner</b>\n\n` +
-          `🎉 <b>Congratulations!</b> 🏆\n\n` +
-          `You are a <b>WINNER</b> in ${challenge.title}!\n` +
-          `Account: ${winner.account_number} (${winner.account_type})\n` +
-          `Adjusted Balance: ${Number(winner.adjusted_balance).toFixed(2)}\n` +
-          (prize ? `Prize: <b>${prize}</b>\n` : '') +
-          `\nTo receive your reward, please contact @birrFXadmin with a screenshot of this message.`;
+        const rqIdx = realQualified.findIndex(e => e.id === winner.id);
+        const dqIdx = demoQualified.findIndex(e => e.id === winner.id);
+        const rank = rqIdx >= 0 ? rqIdx + 1 : (dqIdx >= 0 ? dqIdx + 1 : 0);
+        const category = winner.account_type === 'real' ? 'Real' : 'Demo';
 
         await ctx.telegram.sendDocument(adminId, winner.file_id, {
-          caption: winnerCaption,
+          caption: this.buildDmCaption(winner, challenge, rank, category, true, prize),
           parse_mode: 'HTML',
           ...Markup.inlineKeyboard([
             [Markup.button.url('📊 Show Detail Report', `https://t.me/${botInfo.username}?start=eval_test_report_${winner.id}`)],
@@ -911,14 +879,13 @@ class EvaluationHandler {
         const username = evaluation.username ? `@${evaluation.username}` : `ID:${evaluation.telegram_id}`;
         await ctx.telegram.sendMessage(adminId, `📨 <b>DM — Qualified ${username}</b>`, { parse_mode: 'HTML' });
 
-        const qualifiedCaption = `👏 <b>Great job!</b>\n\n` +
-          `You qualified in ${challenge.title}!\n` +
-          `Account: ${evaluation.account_number} (${evaluation.account_type})\n` +
-          `Adjusted Balance: ${Number(evaluation.adjusted_balance).toFixed(2)}\n` +
-          `\nUnfortunately you didn't make it to the top winners this time, but your performance was excellent. Keep it up!`;
+        const rqIdx = realQualified.findIndex(e => e.id === evaluation.id);
+        const dqIdx = demoQualified.findIndex(e => e.id === evaluation.id);
+        const rank = rqIdx >= 0 ? rqIdx + 1 : (dqIdx >= 0 ? dqIdx + 1 : 0);
+        const category = evaluation.account_type === 'real' ? 'Real' : 'Demo';
 
         await ctx.telegram.sendDocument(adminId, evaluation.file_id, {
-          caption: qualifiedCaption,
+          caption: this.buildDmCaption(evaluation, challenge, rank, category, false, ''),
           parse_mode: 'HTML',
           ...Markup.inlineKeyboard([
             [Markup.button.url('📊 Show Detail Report', `https://t.me/${botInfo.username}?start=eval_test_report_${evaluation.id}`)],
@@ -931,14 +898,10 @@ class EvaluationHandler {
         const username = evaluation.username ? `@${evaluation.username}` : `ID:${evaluation.telegram_id}`;
         await ctx.telegram.sendMessage(adminId, `📨 <b>DM — Not Qualified ${username}</b>`, { parse_mode: 'HTML' });
 
-        const notQualifiedCaption = `📋 <b>Evaluation Result</b>\n\n` +
-          `Unfortunately, you did not qualify in ${challenge.title}.\n` +
-          `Account: ${evaluation.account_number} (${evaluation.account_type})\n` +
-          `Adjusted Balance: ${Number(evaluation.adjusted_balance).toFixed(2)}\n` +
-          `\nKeep practicing and join the next challenge!`;
+        const category = evaluation.account_type === 'real' ? 'Real' : 'Demo';
 
         await ctx.telegram.sendDocument(adminId, evaluation.file_id, {
-          caption: notQualifiedCaption,
+          caption: this.buildDmCaption(evaluation, challenge, 0, category, false, ''),
           parse_mode: 'HTML',
           ...Markup.inlineKeyboard([
             [Markup.button.url('📊 Show Detail Report', `https://t.me/${botInfo.username}?start=eval_test_report_${evaluation.id}`)],
@@ -951,14 +914,10 @@ class EvaluationHandler {
         const username = evaluation.username ? `@${evaluation.username}` : `ID:${evaluation.telegram_id}`;
         await ctx.telegram.sendMessage(adminId, `📨 <b>DM — Disqualified ${username}</b>`, { parse_mode: 'HTML' });
 
-        const disqualifiedCaption = `📋 <b>Evaluation Result</b>\n\n` +
-          `Your account was <b>disqualified</b> in ${challenge.title}.\n` +
-          `Account: ${evaluation.account_number} (${evaluation.account_type})\n` +
-          `Reason: ${evaluation.disqualify_reason || 'Rule violation'}\n` +
-          `\nPlease review the rules and try again in the next challenge!`;
+        const category = evaluation.account_type === 'real' ? 'Real' : 'Demo';
 
         await ctx.telegram.sendDocument(adminId, evaluation.file_id, {
-          caption: disqualifiedCaption,
+          caption: this.buildDmCaption(evaluation, challenge, 0, category, false, ''),
           parse_mode: 'HTML',
           ...Markup.inlineKeyboard([
             [Markup.button.url('📊 Show Detail Report', `https://t.me/${botInfo.username}?start=eval_test_report_${evaluation.id}`)],
@@ -1086,6 +1045,68 @@ class EvaluationHandler {
     text += 'Thank you to all participants! 💪\n';
     text += 'Join the next challenge and show your trading skills! 🚀\n\n';
     text += '@' + config.mainChannelUsername;
+
+    return text;
+  }
+
+  private buildDmCaption(
+    evaluation: EvaluationRecord,
+    challenge: TradingChallenge,
+    rank: number,
+    category: string,
+    isWinner: boolean,
+    prize: string
+  ): string {
+    const medals = ['', '🥇', '🥈', '🥉'];
+    const ordinals = ['', '1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th', '9th', '10th'];
+    const ordinal = rank <= 10 ? ordinals[rank] : rank + 'th';
+
+    let text = '';
+
+    if (isWinner) {
+      const medal = medals[rank] || '🏅';
+      text += medal + ' <b>Congratulations! You won ' + ordinal + ' Place!</b> 🏆\n\n';
+      text += challenge.title + '\n';
+      text += '📁 ' + category + ' Account Category\n';
+      text += '📅 Account: ' + evaluation.account_number + '\n';
+      if (prize) text += '🎁 Prize: <b>' + prize + '</b>\n';
+      text += '\n';
+      text += '💰 Adjusted Balance: <b>$' + Number(evaluation.adjusted_balance).toFixed(2) + '</b>\n';
+      text += '📈 Total Trades: ' + evaluation.total_trades + ' | Flagged: ' + evaluation.flagged_count + '\n';
+      text += '\nYour trading was evaluated and verified.\n';
+      text += 'Tap below to see your full evaluation report.\n';
+      text += '\n📩 To receive your reward, please contact\n@birrFXadmin with a screenshot of this message.';
+    } else if (evaluation.is_qualified) {
+      text += '👏 <b>Great job! You placed ' + ordinal + '!</b> 💪\n\n';
+      text += challenge.title + '\n';
+      text += '📁 ' + category + ' Account Category\n';
+      text += '📅 Account: ' + evaluation.account_number + '\n';
+      text += '\n';
+      text += '💰 Adjusted Balance: <b>$' + Number(evaluation.adjusted_balance).toFixed(2) + '</b>\n';
+      text += '📈 Total Trades: ' + evaluation.total_trades + ' | Flagged: ' + evaluation.flagged_count + '\n';
+      text += '\nYou reached the target — excellent trading!\n';
+      text += 'Unfortunately you didn\'t make it to the top winners this time.\n';
+      text += '\nKeep going — we hope to see you win next time! 🚀';
+    } else if (evaluation.is_disqualified) {
+      text += '📋 <b>Your ' + challenge.title + ' Result</b>\n\n';
+      text += '📁 ' + category + ' Account Category\n';
+      text += '📅 Account: ' + evaluation.account_number + '\n';
+      text += '\n🚫 Status: <b>DISQUALIFIED</b>\n';
+      text += '📛 Reason: ' + (evaluation.disqualify_reason || 'Rule violation') + '\n';
+      text += '\nTap below for your full evaluation report.\n';
+      text += '\nIf you believe this is an error, contact @birrFXadmin.';
+    } else {
+      text += '📋 <b>Your ' + challenge.title + ' Result</b>\n\n';
+      text += '📁 ' + category + ' Account Category\n';
+      text += '📅 Account: ' + evaluation.account_number + '\n';
+      text += '\n❌ Adjusted Balance: <b>$' + Number(evaluation.adjusted_balance).toFixed(2) + '</b>\n';
+      text += '💰 Reported Balance: $' + Number(evaluation.reported_balance).toFixed(2) + '\n';
+      text += '➖ Profit Removed: $' + Number(evaluation.profit_removed).toFixed(2) + '\n';
+      text += '📈 Total Trades: ' + evaluation.total_trades + ' | Flagged: ' + evaluation.flagged_count + '\n';
+      text += '\nYour reported balance reached the target, but after applying the challenge rules, some profits were removed.\n';
+      text += '\nTap below to see which trades were flagged and why.\n';
+      text += '\nBetter luck next time! 💪';
+    }
 
     return text;
   }
