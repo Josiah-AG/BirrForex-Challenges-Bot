@@ -71,6 +71,16 @@ export class Bot {
       { command: 'testtradingposts', description: 'Test trading challenge posts' },
       { command: 'additionalpost', description: 'Post custom content to channels' },
       { command: 'chanceforlate', description: 'Post with change/switch buttons (6hr window)' },
+      { command: 'evaluate', description: 'Evaluate MT5 trade history' },
+      { command: 'testevaluate', description: 'Test evaluate (saves to test table)' },
+      { command: 'reevaluate', description: 'Re-evaluate (overwrite existing)' },
+      { command: 'evaluationstatus', description: 'View evaluation progress' },
+      { command: 'evaluationsummary', description: 'Full evaluation overview' },
+      { command: 'announcewinner', description: 'Post winner announcement' },
+      { command: 'postresultdetail', description: 'Post winner MT5 files + reports' },
+      { command: 'dmqualifiers', description: 'DM all evaluated users their results' },
+      { command: 'testannounce', description: 'Preview announcement (test only)' },
+      { command: 'cleartest', description: 'Clear test evaluation data' },
     ], {
       scope: { type: 'chat', chat_id: parseInt(config.adminUserId) }
     });
