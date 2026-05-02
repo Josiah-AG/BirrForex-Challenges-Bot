@@ -81,6 +81,7 @@ export class Bot {
       { command: 'dmqualifiers', description: 'DM all evaluated users their results' },
       { command: 'testannounce', description: 'Preview announcement (test only)' },
       { command: 'cleartest', description: 'Clear test evaluation data' },
+      { command: 'preannouncementnotice', description: 'Send evaluation results to users (48hr review)' },
     ], {
       scope: { type: 'chat', chat_id: parseInt(config.adminUserId) }
     });
@@ -233,6 +234,7 @@ export class Bot {
     this.bot.command('dmqualifiers', (ctx) => evaluationHandler.dmqualifiers(ctx));
     this.bot.command('testannounce', (ctx) => evaluationHandler.testannounce(ctx));
     this.bot.command('cleartest', (ctx) => evaluationHandler.cleartest(ctx));
+    this.bot.command('preannouncementnotice', (ctx) => evaluationHandler.preannouncementnotice(ctx));
 
     // User commands
     this.bot.command('mystats', (ctx) => this.showMyStats(ctx));
