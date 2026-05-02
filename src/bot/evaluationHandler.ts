@@ -582,15 +582,26 @@ class EvaluationHandler {
         return;
       }
 
+      // Parse prizes
+      const realPrizes = typeof challenge.real_prizes === 'string' ? JSON.parse(challenge.real_prizes) : (challenge.real_prizes || []);
+      const demoPrizes = typeof challenge.demo_prizes === 'string' ? JSON.parse(challenge.demo_prizes) : (challenge.demo_prizes || []);
+
       let posted = 0;
       const botInfo = await (ctx as any).telegram.getMe();
       for (const winner of allWinners) {
         try {
+          const realIdx = realWinners.findIndex(w => w.id === winner.id);
+          const demoIdx = demoWinners.findIndex(w => w.id === winner.id);
+          const rank = realIdx >= 0 ? realIdx + 1 : demoIdx + 1;
+          const category = realIdx >= 0 ? 'Real' : 'Demo';
+          const prize = realIdx >= 0 ? (realPrizes[realIdx] ? String(realPrizes[realIdx]) : '') : (demoPrizes[demoIdx] ? '$' + String(demoPrizes[demoIdx]) : '');
+
           await (ctx as any).telegram.sendDocument(
             config.challengeChannelId,
             winner.file_id,
             {
-              caption: winner.short_report,
+              caption: this.buildWinnerCaption(winner, rank, category, prize),
+              parse_mode: 'HTML',
               ...Markup.inlineKeyboard([
                 [Markup.button.url('📊 Show Detail Report', `https://t.me/${botInfo.username}?start=eval_report_${winner.id}`)],
               ]),
@@ -681,7 +692,14 @@ class EvaluationHandler {
               prize = `${demoPrizes[demoIdx]}`;
             }
 
-            message = `🎉 <b>Congratulations!</b> 🏆\n\n` +
+            const rank = realIdx >= 0 ? realIdx + 1 : demoIdx + 1;
+            const medals = ['', '🥇', '🥈', '🥉', '4️⃣', '5️⃣'];
+            const medal = medals[rank] || '🏅';
+            const ordinals = ['', '1st', '2nd', '3rd'];
+            const ordinal = rank <= 3 ? ordinals[rank] : rank + 'th';
+
+            message = medal + ` <b>${ordinal} Place Winner</b>\n\n` +
+              `🎉 <b>Congratulations!</b> 🏆\n\n` +
               `You are a <b>WINNER</b> in ${challenge.title}!\n` +
               `Account: ${evaluation.account_number} (${evaluation.account_type})\n` +
               `Adjusted Balance: ${Number(evaluation.adjusted_balance).toFixed(2)}\n` +
@@ -834,8 +852,15 @@ class EvaluationHandler {
       for (const winner of allWinners) {
         const username = winner.username ? `@${winner.username}` : `ID:${winner.telegram_id}`;
         await ctx.telegram.sendMessage(adminId, `📎 <b>CHANNEL POST — Result Detail for ${username}</b>`, { parse_mode: 'HTML' });
+
+        const realIdx = realWinners.findIndex(w => w.id === winner.id);
+        const demoIdx = demoWinners.findIndex(w => w.id === winner.id);
+        const rank = realIdx >= 0 ? realIdx + 1 : demoIdx + 1;
+        const category = realIdx >= 0 ? 'Real' : 'Demo';
+        const prize = realIdx >= 0 ? (realPrizes[realIdx] ? String(realPrizes[realIdx]) : '') : (demoPrizes[demoIdx] ? '$' + String(demoPrizes[demoIdx]) : '');
+
         await ctx.telegram.sendDocument(adminId, winner.file_id, {
-          caption: winner.short_report,
+          caption: this.buildWinnerCaption(winner, rank, category, prize),
           parse_mode: 'HTML',
           ...Markup.inlineKeyboard([
             [Markup.button.url('📊 Show Detail Report', `https://t.me/${botInfo.username}?start=eval_test_report_${winner.id}`)],
@@ -858,7 +883,14 @@ class EvaluationHandler {
           prize = `${demoPrizes[demoIdx]}`;
         }
 
-        const winnerCaption = `🎉 <b>Congratulations!</b> 🏆\n\n` +
+        const rank = realIdx >= 0 ? realIdx + 1 : demoIdx + 1;
+        const medals = ['', '🥇', '🥈', '🥉', '4️⃣', '5️⃣'];
+        const medal = medals[rank] || '🏅';
+        const ordinals = ['', '1st', '2nd', '3rd'];
+        const ordinal = rank <= 3 ? ordinals[rank] : rank + 'th';
+
+        const winnerCaption = medal + ` <b>${ordinal} Place Winner</b>\n\n` +
+          `🎉 <b>Congratulations!</b> 🏆\n\n` +
           `You are a <b>WINNER</b> in ${challenge.title}!\n` +
           `Account: ${winner.account_number} (${winner.account_type})\n` +
           `Adjusted Balance: ${Number(winner.adjusted_balance).toFixed(2)}\n` +
@@ -1055,6 +1087,25 @@ class EvaluationHandler {
     text += 'Join the next challenge and show your trading skills! 🚀\n\n';
     text += '@' + config.mainChannelUsername;
 
+    return text;
+  }
+
+  private buildWinnerCaption(evaluation: EvaluationRecord, rank: number, category: string, prize: string): string {
+    const medals = ['', '🥇', '🥈', '🥉', '4️⃣', '5️⃣'];
+    const medal = medals[rank] || '🏅';
+    const ordinals = ['', '1st', '2nd', '3rd'];
+    const ordinal = rank <= 3 ? ordinals[rank] : rank + 'th';
+    const username = evaluation.username ? '@' + evaluation.username : 'User ' + evaluation.telegram_id;
+
+    let text = medal + ' <b>' + ordinal + ' Place Winner</b> — ' + username + '\n';
+    text += '📁 ' + category + ' Account Category\n\n';
+    text += '💰 Adjusted Balance: <b>$' + Number(evaluation.adjusted_balance).toFixed(2) + '</b>\n';
+    text += '💰 Reported Balance: $' + Number(evaluation.reported_balance).toFixed(2) + '\n';
+    text += '➖ Profit Removed: $' + Number(evaluation.profit_removed).toFixed(2) + '\n\n';
+    text += '📈 Total Trades: ' + evaluation.total_trades + '\n';
+    text += '⚠️ Flagged Trades: ' + evaluation.flagged_count + '\n';
+    text += '📅 Account: ' + evaluation.account_number + '\n';
+    if (prize) text += '🎁 Prize: <b>' + prize + '</b>\n';
     return text;
   }
 
