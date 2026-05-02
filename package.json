@@ -29,7 +29,8 @@
     "node-cron": "^3.0.3",
     "pg": "^8.11.3",
     "telegraf": "^4.15.0",
-    "typescript": "^5.3.3"
+    "typescript": "^5.3.3",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "ts-node": "^10.9.2",

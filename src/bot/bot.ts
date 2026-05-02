@@ -3,6 +3,7 @@ import { config } from '../config';
 import { quizHandler } from './quizHandler';
 import { adminHandler, adminSessions } from './adminHandler';
 import { tradingAdminHandler, tradingAdminSessions } from './tradingAdminHandler';
+import { evaluationHandler } from './evaluationHandler';
 import { userService } from '../services/userService';
 import { challengeService } from '../services/challengeService';
 import { participantService } from '../services/participantService';
@@ -149,6 +150,20 @@ export class Bot {
             await tradingRegistrationHandler.startLateRetry(ctx, challengeId);
             return;
           }
+
+          // Handle evaluation report deep link
+          if (startParam.startsWith('eval_report_')) {
+            const evalId = parseInt(startParam.replace('eval_report_', ''));
+            await evaluationHandler.handleEvalReportDeepLink(ctx, evalId);
+            return;
+          }
+
+          // Handle test evaluation report deep link
+          if (startParam.startsWith('eval_test_report_')) {
+            const evalId = parseInt(startParam.replace('eval_test_report_', ''));
+            await evaluationHandler.handleEvalReportDeepLink(ctx, evalId, true);
+            return;
+          }
         }
 
         // If we get here with a param we don't recognize
@@ -197,6 +212,18 @@ export class Bot {
     this.bot.command('additionalpost', (ctx) => tradingAdminHandler.additionalPost(ctx));
     this.bot.command('chanceforlate', (ctx) => tradingAdminHandler.chanceForLate(ctx));
 
+    // Evaluation commands
+    this.bot.command('evaluate', (ctx) => evaluationHandler.evaluate(ctx));
+    this.bot.command('testevaluate', (ctx) => evaluationHandler.testevaluate(ctx));
+    this.bot.command('reevaluate', (ctx) => evaluationHandler.reevaluate(ctx));
+    this.bot.command('evaluationstatus', (ctx) => evaluationHandler.evaluationstatus(ctx));
+    this.bot.command('evaluationsummary', (ctx) => evaluationHandler.evaluationsummary(ctx));
+    this.bot.command('announcewinner', (ctx) => evaluationHandler.announcewinner(ctx));
+    this.bot.command('postresultdetail', (ctx) => evaluationHandler.postresultdetail(ctx));
+    this.bot.command('dmqualifiers', (ctx) => evaluationHandler.dmqualifiers(ctx));
+    this.bot.command('testannounce', (ctx) => evaluationHandler.testannounce(ctx));
+    this.bot.command('cleartest', (ctx) => evaluationHandler.cleartest(ctx));
+
     // User commands
     this.bot.command('mystats', (ctx) => this.showMyStats(ctx));
     this.bot.command('winners', (ctx) => this.showWinners(ctx));
@@ -208,6 +235,23 @@ export class Bot {
     // Callback query handlers
     this.bot.on('callback_query', async (ctx) => {
       const data = (ctx.callbackQuery as any).data;
+
+      // Evaluation callbacks (eval_ prefix)
+      if (data && data.startsWith('eval_')) {
+        if (isAdmin(ctx.from!.id)) {
+          if (data.startsWith('eval_announce_confirm_')) {
+            const challengeId = parseInt(data.replace('eval_announce_confirm_', ''));
+            await ctx.answerCbQuery();
+            await evaluationHandler.handleAnnounceConfirm(ctx, challengeId);
+            return;
+          }
+          if (data === 'eval_announce_cancel') {
+            await ctx.answerCbQuery('Cancelled');
+            await ctx.reply('❌ Announcement cancelled.');
+            return;
+          }
+        }
+      }
 
       // Trading challenge callbacks (tc_ prefix)
       if (data && data.startsWith('tc_')) {
@@ -609,6 +653,18 @@ export class Bot {
       if (tradingRegistrationHandler.hasActiveSession(telegramId)) {
         const photo = ctx.message.photo[ctx.message.photo.length - 1];
         await tradingRegistrationHandler.handlePhoto(ctx, photo.file_id);
+      }
+    });
+
+    // Document handler (for MT5 evaluation file uploads)
+    this.bot.on('document', async (ctx) => {
+      const telegramId = ctx.from.id;
+
+      // Check if admin has active evaluation session
+      if (isAdmin(telegramId) && evaluationHandler.hasActiveSession(telegramId)) {
+        const doc = ctx.message.document;
+        await evaluationHandler.handleDocument(ctx, doc.file_id, doc.file_name || 'unknown.xlsx');
+        return;
       }
     });
 

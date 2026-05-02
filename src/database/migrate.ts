@@ -69,6 +69,11 @@ async function migrate() {
           END IF;
         END $$;
       `).catch(() => {});
+      // Evaluation tables (new — CREATE TABLE IF NOT EXISTS in schema handles it)
+      // Just ensure indexes exist
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_te_challenge ON trading_evaluations(challenge_id);`).catch(() => {});
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_te_account ON trading_evaluations(account_number);`).catch(() => {});
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_te_qualified ON trading_evaluations(challenge_id, is_qualified);`).catch(() => {});
       console.log('✅ Trading schema migrations OK');
     } catch (err: any) {
       if (err.code === 'ENOENT') {

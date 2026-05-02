@@ -149,3 +149,60 @@ CREATE INDEX IF NOT EXISTS idx_tr_email ON trading_registrations(email);
 CREATE INDEX IF NOT EXISTS idx_ts_challenge ON trading_submissions(challenge_id);
 CREATE INDEX IF NOT EXISTS idx_tw_challenge ON trading_winners(challenge_id);
 CREATE INDEX IF NOT EXISTS idx_tds_challenge_date ON trading_daily_stats(challenge_id, date);
+
+-- Trading Evaluations table (stores evaluation results for submissions)
+CREATE TABLE IF NOT EXISTS trading_evaluations (
+    id SERIAL PRIMARY KEY,
+    challenge_id INTEGER REFERENCES trading_challenges(id) ON DELETE CASCADE,
+    registration_id INTEGER,
+    account_number VARCHAR(50) NOT NULL,
+    account_type VARCHAR(10) NOT NULL,
+    username VARCHAR(255),
+    telegram_id BIGINT NOT NULL,
+    file_id TEXT NOT NULL,
+    file_message_id INTEGER,
+    reported_balance DECIMAL(12, 2) NOT NULL,
+    adjusted_balance DECIMAL(12, 2) NOT NULL,
+    total_trades INTEGER DEFAULT 0,
+    flagged_count INTEGER DEFAULT 0,
+    profit_removed DECIMAL(12, 2) DEFAULT 0,
+    is_qualified BOOLEAN DEFAULT false,
+    is_disqualified BOOLEAN DEFAULT false,
+    is_test BOOLEAN DEFAULT false,
+    disqualify_reason TEXT,
+    short_report TEXT,
+    full_report TEXT,
+    flagged_details JSONB,
+    evaluated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(challenge_id, account_number)
+);
+
+-- Trading Evaluations Test table (identical structure for testing)
+CREATE TABLE IF NOT EXISTS trading_evaluations_test (
+    id SERIAL PRIMARY KEY,
+    challenge_id INTEGER,
+    registration_id INTEGER,
+    account_number VARCHAR(50) NOT NULL,
+    account_type VARCHAR(10) NOT NULL,
+    username VARCHAR(255),
+    telegram_id BIGINT NOT NULL,
+    file_id TEXT NOT NULL,
+    file_message_id INTEGER,
+    reported_balance DECIMAL(12, 2) NOT NULL,
+    adjusted_balance DECIMAL(12, 2) NOT NULL,
+    total_trades INTEGER DEFAULT 0,
+    flagged_count INTEGER DEFAULT 0,
+    profit_removed DECIMAL(12, 2) DEFAULT 0,
+    is_qualified BOOLEAN DEFAULT false,
+    is_disqualified BOOLEAN DEFAULT false,
+    is_test BOOLEAN DEFAULT true,
+    disqualify_reason TEXT,
+    short_report TEXT,
+    full_report TEXT,
+    flagged_details JSONB,
+    evaluated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_te_challenge ON trading_evaluations(challenge_id);
+CREATE INDEX IF NOT EXISTS idx_te_account ON trading_evaluations(account_number);
+CREATE INDEX IF NOT EXISTS idx_te_qualified ON trading_evaluations(challenge_id, is_qualified);
