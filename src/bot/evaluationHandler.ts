@@ -191,7 +191,7 @@ class EvaluationHandler {
           '🆔 Telegram ID: ' + submission.telegram_id + '\n' +
           '📧 Email: ' + submission.email + '\n' +
           '📊 Category: ' + submission.account_type + '\n' +
-          '💰 Reported Balance: $' + Number(submission.final_balance).toFixed(2),
+          '💰 Reported Balance: ' + Number(submission.final_balance).toFixed(2),
           { parse_mode: 'HTML' }
         );
       } else {
@@ -338,7 +338,7 @@ class EvaluationHandler {
         const top = unevaluated.slice(0, 10);
         top.forEach((s, i) => {
           const username = s.username ? `@${s.username}` : `ID:${s.telegram_id}`;
-          text += `  ${i + 1}. ${s.account_number} (${s.account_type}) — $${s.final_balance} — ${username}\n`;
+          text += `  ${i + 1}. ${s.account_number} (${s.account_type}) — ${s.final_balance} — ${username}\n`;
         });
         if (unevaluated.length > 10) {
           text += `  ... and ${unevaluated.length - 10} more\n`;
@@ -398,7 +398,7 @@ class EvaluationHandler {
         text += `\n🏆 <b>Top 10 Real (by adjusted balance):</b>\n`;
         realQualified.slice(0, 10).forEach((e, i) => {
           const username = e.username ? `@${e.username}` : `ID:${e.telegram_id}`;
-          text += `  ${i + 1}. ${e.account_number} — $${Number(e.adjusted_balance).toFixed(2)} — ${username}\n`;
+          text += `  ${i + 1}. ${e.account_number} — ${Number(e.adjusted_balance).toFixed(2)} — ${username}\n`;
         });
       }
 
@@ -407,7 +407,7 @@ class EvaluationHandler {
         text += `\n🏆 <b>Top 10 Demo (by adjusted balance):</b>\n`;
         demoQualified.slice(0, 10).forEach((e, i) => {
           const username = e.username ? `@${e.username}` : `ID:${e.telegram_id}`;
-          text += `  ${i + 1}. ${e.account_number} — $${Number(e.adjusted_balance).toFixed(2)} — ${username}\n`;
+          text += `  ${i + 1}. ${e.account_number} — ${Number(e.adjusted_balance).toFixed(2)} — ${username}\n`;
         });
       }
 
@@ -676,22 +676,22 @@ class EvaluationHandler {
             const realIdx = realWinners.findIndex(w => w.id === evaluation.id);
             const demoIdx = demoWinners.findIndex(w => w.id === evaluation.id);
             if (realIdx >= 0 && realPrizes[realIdx]) {
-              prize = `$${realPrizes[realIdx]}`;
+              prize = `${realPrizes[realIdx]}`;
             } else if (demoIdx >= 0 && demoPrizes[demoIdx]) {
-              prize = `$${demoPrizes[demoIdx]}`;
+              prize = `${demoPrizes[demoIdx]}`;
             }
 
             message = `🎉 <b>Congratulations!</b> 🏆\n\n` +
               `You are a <b>WINNER</b> in ${challenge.title}!\n` +
               `Account: ${evaluation.account_number} (${evaluation.account_type})\n` +
-              `Adjusted Balance: $${Number(evaluation.adjusted_balance).toFixed(2)}\n` +
+              `Adjusted Balance: ${Number(evaluation.adjusted_balance).toFixed(2)}\n` +
               (prize ? `Prize: <b>${prize}</b>\n` : '') +
               `\nTo receive your reward, please contact @birrFXadmin with a screenshot of this message.`;
           } else if (evaluation.is_qualified) {
             message = `👏 <b>Great job!</b>\n\n` +
               `You qualified in ${challenge.title}!\n` +
               `Account: ${evaluation.account_number} (${evaluation.account_type})\n` +
-              `Adjusted Balance: $${Number(evaluation.adjusted_balance).toFixed(2)}\n` +
+              `Adjusted Balance: ${Number(evaluation.adjusted_balance).toFixed(2)}\n` +
               `\nUnfortunately you didn't make it to the top winners this time, but your performance was excellent. Keep it up!`;
           } else if (evaluation.is_disqualified) {
             message = `📋 <b>Evaluation Result</b>\n\n` +
@@ -703,7 +703,7 @@ class EvaluationHandler {
             message = `📋 <b>Evaluation Result</b>\n\n` +
               `Unfortunately, you did not qualify in ${challenge.title}.\n` +
               `Account: ${evaluation.account_number} (${evaluation.account_type})\n` +
-              `Adjusted Balance: $${Number(evaluation.adjusted_balance).toFixed(2)}\n` +
+              `Adjusted Balance: ${Number(evaluation.adjusted_balance).toFixed(2)}\n` +
               `\nKeep practicing and join the next challenge!`;
           }
 
@@ -774,6 +774,8 @@ class EvaluationHandler {
         return;
       }
 
+      const adminId = ctx.from!.id;
+
       const challenges = await tradingChallengeService.getActiveChallenges();
       let challenge = challenges[0] || null;
       if (!challenge) {
@@ -801,52 +803,148 @@ class EvaluationHandler {
         return;
       }
 
-      const announcement = this.generateWinnerAnnouncement(challenge, realWinners, demoWinners);
-
-      await ctx.reply(`🧪 <b>TEST Announcement Preview:</b>\n\n${announcement}`, { parse_mode: 'HTML' });
-
-      // Show what DMs would look like
-      const allTestWinners = [...realWinners, ...demoWinners];
-      const realPrizes = typeof challenge.real_prizes === 'string' ? JSON.parse(challenge.real_prizes) : (challenge.real_prizes || []);
-      const demoPrizes = typeof challenge.demo_prizes === 'string' ? JSON.parse(challenge.demo_prizes) : (challenge.demo_prizes || []);
-
-      for (const winner of allTestWinners) {
-        const realIdx = realWinners.findIndex(w => w.id === winner.id);
-        const demoIdx = demoWinners.findIndex(w => w.id === winner.id);
-        let prize = '';
-        if (realIdx >= 0 && realPrizes[realIdx]) {
-          prize = `$${realPrizes[realIdx]}`;
-        } else if (demoIdx >= 0 && demoPrizes[demoIdx]) {
-          prize = `$${demoPrizes[demoIdx]}`;
-        }
-
-        const dmPreview = `🎉 <b>Congratulations!</b> 🏆\n\n` +
-          `You are a <b>WINNER</b> in ${challenge.title}!\n` +
-          `Account: ${winner.account_number} (${winner.account_type})\n` +
-          `Adjusted Balance: $${Number(winner.adjusted_balance).toFixed(2)}\n` +
-          (prize ? `Prize: <b>${prize}</b>\n` : '') +
-          `\nTo receive your reward, please contact @birrFXadmin with a screenshot of this message.`;
-
-        await ctx.reply(`📨 <b>DM Preview for ${winner.username ? '@' + winner.username : 'ID:' + winner.telegram_id}:</b>\n\n${dmPreview}`, { parse_mode: 'HTML' });
-      }
-
-      // Show test evaluations summary
+      const botInfo = await ctx.telegram.getMe();
       const allTestEvals = await evaluationService.getAllTestEvaluations(challenge.id);
-      const qualified = allTestEvals.filter(e => e.is_qualified && !allTestWinners.find(w => w.id === e.id));
+
+      // Parse prizes
+      const realPrizes: string[] = typeof challenge.real_prizes === 'string' ? JSON.parse(challenge.real_prizes) : (challenge.real_prizes || []);
+      const demoPrizes: string[] = typeof challenge.demo_prizes === 'string' ? JSON.parse(challenge.demo_prizes) : (challenge.demo_prizes || []);
+
+      const allWinners = [...realWinners, ...demoWinners];
+      const winnerIds = new Set(allWinners.map(w => w.id));
+
+      const qualified = allTestEvals.filter(e => e.is_qualified && !winnerIds.has(e.id));
       const notQualified = allTestEvals.filter(e => !e.is_qualified && !e.is_disqualified);
       const disqualified = allTestEvals.filter(e => e.is_disqualified);
 
-      if (qualified.length > 0) {
-        await ctx.reply(`📨 <b>Qualified non-winners (${qualified.length}):</b> Would receive "Good job" DM`, { parse_mode: 'HTML' });
-      }
-      if (notQualified.length > 0) {
-        await ctx.reply(`📨 <b>Not qualified (${notQualified.length}):</b> Would receive "Sorry" DM`, { parse_mode: 'HTML' });
-      }
-      if (disqualified.length > 0) {
-        await ctx.reply(`📨 <b>Disqualified (${disqualified.length}):</b> Would receive "Disqualified" DM`, { parse_mode: 'HTML' });
+      // ── SECTION 1: Winner Announcement (both channels) ──
+      await ctx.telegram.sendMessage(adminId, '📢 <b>CHANNEL POST — Winner Announcement (both channels)</b>', { parse_mode: 'HTML' });
+      const announcement = this.generateWinnerAnnouncement(challenge, realWinners, demoWinners);
+      await ctx.telegram.sendMessage(adminId, announcement, { parse_mode: 'HTML' });
+
+      // ── SECTION 2: Challenge channel note ──
+      await ctx.telegram.sendMessage(adminId, '📢 <b>CHALLENGE CHANNEL — Note below winners</b>', { parse_mode: 'HTML' });
+      await ctx.telegram.sendMessage(adminId, '📊 The MT5 trading history and detailed evaluation report for each winner will be posted below.');
+
+      // ── SECTION 3: Main channel note ──
+      await ctx.telegram.sendMessage(adminId, '📢 <b>MAIN CHANNEL — Note below winners</b>', { parse_mode: 'HTML' });
+      await ctx.telegram.sendMessage(adminId, '📊 The MT5 trading history and detailed evaluation report for each winner is posted on @Birrforex_Challenges');
+
+      // ── SECTION 4: Result detail for each winner (channel post) ──
+      for (const winner of allWinners) {
+        const username = winner.username ? `@${winner.username}` : `ID:${winner.telegram_id}`;
+        await ctx.telegram.sendMessage(adminId, `📎 <b>CHANNEL POST — Result Detail for ${username}</b>`, { parse_mode: 'HTML' });
+        await ctx.telegram.sendDocument(adminId, winner.file_id, {
+          caption: winner.short_report,
+          parse_mode: 'HTML',
+          ...Markup.inlineKeyboard([
+            [Markup.button.url('📊 Show Detail Report', `https://t.me/${botInfo.username}?start=eval_test_report_${winner.id}`)],
+          ]),
+        });
       }
 
-      await ctx.reply('🧪 Test announcement preview complete. Nothing was posted to channels.');
+      // ── SECTION 5: DM for each winner ──
+      for (const winner of allWinners) {
+        const username = winner.username ? `@${winner.username}` : `ID:${winner.telegram_id}`;
+        await ctx.telegram.sendMessage(adminId, `📨 <b>DM — Winner ${username}</b>`, { parse_mode: 'HTML' });
+
+        // Determine prize
+        let prize = '';
+        const realIdx = realWinners.findIndex(w => w.id === winner.id);
+        const demoIdx = demoWinners.findIndex(w => w.id === winner.id);
+        if (realIdx >= 0 && realPrizes[realIdx]) {
+          prize = `${realPrizes[realIdx]}`;
+        } else if (demoIdx >= 0 && demoPrizes[demoIdx]) {
+          prize = `${demoPrizes[demoIdx]}`;
+        }
+
+        const winnerCaption = `🎉 <b>Congratulations!</b> 🏆\n\n` +
+          `You are a <b>WINNER</b> in ${challenge.title}!\n` +
+          `Account: ${winner.account_number} (${winner.account_type})\n` +
+          `Adjusted Balance: ${Number(winner.adjusted_balance).toFixed(2)}\n` +
+          (prize ? `Prize: <b>${prize}</b>\n` : '') +
+          `\nTo receive your reward, please contact @birrFXadmin with a screenshot of this message.`;
+
+        await ctx.telegram.sendDocument(adminId, winner.file_id, {
+          caption: winnerCaption,
+          parse_mode: 'HTML',
+          ...Markup.inlineKeyboard([
+            [Markup.button.url('📊 Show Detail Report', `https://t.me/${botInfo.username}?start=eval_test_report_${winner.id}`)],
+          ]),
+        });
+      }
+
+      // ── SECTION 6: DM for each qualified non-winner ──
+      for (const evaluation of qualified) {
+        const username = evaluation.username ? `@${evaluation.username}` : `ID:${evaluation.telegram_id}`;
+        await ctx.telegram.sendMessage(adminId, `📨 <b>DM — Qualified ${username}</b>`, { parse_mode: 'HTML' });
+
+        const qualifiedCaption = `👏 <b>Great job!</b>\n\n` +
+          `You qualified in ${challenge.title}!\n` +
+          `Account: ${evaluation.account_number} (${evaluation.account_type})\n` +
+          `Adjusted Balance: ${Number(evaluation.adjusted_balance).toFixed(2)}\n` +
+          `\nUnfortunately you didn't make it to the top winners this time, but your performance was excellent. Keep it up!`;
+
+        await ctx.telegram.sendDocument(adminId, evaluation.file_id, {
+          caption: qualifiedCaption,
+          parse_mode: 'HTML',
+          ...Markup.inlineKeyboard([
+            [Markup.button.url('📊 Show Detail Report', `https://t.me/${botInfo.username}?start=eval_test_report_${evaluation.id}`)],
+          ]),
+        });
+      }
+
+      // ── SECTION 7: DM for each not-qualified user ──
+      for (const evaluation of notQualified) {
+        const username = evaluation.username ? `@${evaluation.username}` : `ID:${evaluation.telegram_id}`;
+        await ctx.telegram.sendMessage(adminId, `📨 <b>DM — Not Qualified ${username}</b>`, { parse_mode: 'HTML' });
+
+        const notQualifiedCaption = `📋 <b>Evaluation Result</b>\n\n` +
+          `Unfortunately, you did not qualify in ${challenge.title}.\n` +
+          `Account: ${evaluation.account_number} (${evaluation.account_type})\n` +
+          `Adjusted Balance: ${Number(evaluation.adjusted_balance).toFixed(2)}\n` +
+          `\nKeep practicing and join the next challenge!`;
+
+        await ctx.telegram.sendDocument(adminId, evaluation.file_id, {
+          caption: notQualifiedCaption,
+          parse_mode: 'HTML',
+          ...Markup.inlineKeyboard([
+            [Markup.button.url('📊 Show Detail Report', `https://t.me/${botInfo.username}?start=eval_test_report_${evaluation.id}`)],
+          ]),
+        });
+      }
+
+      // ── SECTION 8: DM for each disqualified user ──
+      for (const evaluation of disqualified) {
+        const username = evaluation.username ? `@${evaluation.username}` : `ID:${evaluation.telegram_id}`;
+        await ctx.telegram.sendMessage(adminId, `📨 <b>DM — Disqualified ${username}</b>`, { parse_mode: 'HTML' });
+
+        const disqualifiedCaption = `📋 <b>Evaluation Result</b>\n\n` +
+          `Your account was <b>disqualified</b> in ${challenge.title}.\n` +
+          `Account: ${evaluation.account_number} (${evaluation.account_type})\n` +
+          `Reason: ${evaluation.disqualify_reason || 'Rule violation'}\n` +
+          `\nPlease review the rules and try again in the next challenge!`;
+
+        await ctx.telegram.sendDocument(adminId, evaluation.file_id, {
+          caption: disqualifiedCaption,
+          parse_mode: 'HTML',
+          ...Markup.inlineKeyboard([
+            [Markup.button.url('📊 Show Detail Report', `https://t.me/${botInfo.username}?start=eval_test_report_${evaluation.id}`)],
+          ]),
+        });
+      }
+
+      // ── SECTION 9: Final summary ──
+      await ctx.telegram.sendMessage(
+        adminId,
+        `🧪 Test complete. Nothing was posted to channels or sent to users.\n\n` +
+        `📊 <b>Summary:</b>\n` +
+        `  🏆 Winners: ${allWinners.length}\n` +
+        `  ✅ Qualified: ${qualified.length}\n` +
+        `  ❌ Not Qualified: ${notQualified.length}\n` +
+        `  🚫 Disqualified: ${disqualified.length}`,
+        { parse_mode: 'HTML' }
+      );
     } catch (error) {
       console.error('Error in testannounce:', error);
       await ctx.reply('❌ Error generating test announcement.');
@@ -920,10 +1018,10 @@ class EvaluationHandler {
       text += `💰 <b>Real Account Winners:</b>\n\n`;
       realWinners.forEach((w, i) => {
         const username = w.username ? `@${w.username}` : `User ${w.telegram_id}`;
-        const prize = realPrizes[i] ? ` — Prize: $${realPrizes[i]}` : '';
+        const prize = realPrizes[i] ? ` — Prize: ${realPrizes[i]}` : '';
         text += `  ${i + 1}. ${username}\n`;
         text += `     Account: ${w.account_number}\n`;
-        text += `     Adjusted Balance: $${Number(w.adjusted_balance).toFixed(2)}${prize}\n\n`;
+        text += `     Adjusted Balance: ${Number(w.adjusted_balance).toFixed(2)}${prize}\n\n`;
       });
     }
 
@@ -931,10 +1029,10 @@ class EvaluationHandler {
       text += `📊 <b>Demo Account Winners:</b>\n\n`;
       demoWinners.forEach((w, i) => {
         const username = w.username ? `@${w.username}` : `User ${w.telegram_id}`;
-        const prize = demoPrizes[i] ? ` — Prize: $${demoPrizes[i]}` : '';
+        const prize = demoPrizes[i] ? ` — Prize: ${demoPrizes[i]}` : '';
         text += `  ${i + 1}. ${username}\n`;
         text += `     Account: ${w.account_number}\n`;
-        text += `     Adjusted Balance: $${Number(w.adjusted_balance).toFixed(2)}${prize}\n\n`;
+        text += `     Adjusted Balance: ${Number(w.adjusted_balance).toFixed(2)}${prize}\n\n`;
       });
     }
 
