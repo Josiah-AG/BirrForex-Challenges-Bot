@@ -465,7 +465,7 @@ function generateFullReport(r: EvaluationResult, cfg: EvaluationConfig): string 
 
     r.flaggedTrades.forEach((f, i) => {
       const dateStr = f.openTime.substring(5, 10).replace('-', '/');
-      text += (i + 1) + '. ' + dateStr + ' | ' + f.symbol + ' | +$' + f.profit.toFixed(2) + '\n';
+      text += (i + 1) + '. #' + f.positionId + ' | ' + dateStr + ' | ' + f.symbol + ' | +$' + f.profit.toFixed(2) + '\n';
       text += '   ' + f.reasons.join(', ') + '\n';
     });
   }
