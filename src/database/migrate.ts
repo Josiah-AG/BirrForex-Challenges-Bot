@@ -70,7 +70,9 @@ async function migrate() {
         END $$;
       `).catch(() => {});
       // Evaluation tables (new — CREATE TABLE IF NOT EXISTS in schema handles it)
-      // Just ensure indexes exist
+      // Just ensure indexes and columns exist
+      await db.query(`ALTER TABLE trading_evaluations ADD COLUMN IF NOT EXISTS email VARCHAR(500);`).catch(() => {});
+      await db.query(`ALTER TABLE trading_evaluations_test ADD COLUMN IF NOT EXISTS email VARCHAR(500);`).catch(() => {});
       await db.query(`CREATE INDEX IF NOT EXISTS idx_te_challenge ON trading_evaluations(challenge_id);`).catch(() => {});
       await db.query(`CREATE INDEX IF NOT EXISTS idx_te_account ON trading_evaluations(account_number);`).catch(() => {});
       await db.query(`CREATE INDEX IF NOT EXISTS idx_te_qualified ON trading_evaluations(challenge_id, is_qualified);`).catch(() => {});

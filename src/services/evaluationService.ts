@@ -12,6 +12,7 @@ export interface EvaluationRecord {
   account_type: string;
   username: string | null;
   telegram_id: number;
+  email: string | null;
   file_id: string;
   file_message_id: number | null;
   reported_balance: number;
@@ -39,6 +40,7 @@ class EvaluationService {
     account_type: string;
     username: string | null;
     telegram_id: number;
+    email: string | null;
     file_id: string;
     file_message_id: number | null;
     reported_balance: number;
@@ -59,18 +61,18 @@ class EvaluationService {
     // For real evaluations, use upsert on (challenge_id, account_number)
     const result = await db.query(
       `INSERT INTO trading_evaluations
-       (challenge_id, registration_id, account_number, account_type, username, telegram_id,
+       (challenge_id, registration_id, account_number, account_type, username, telegram_id, email,
         file_id, file_message_id, reported_balance, adjusted_balance, total_trades, flagged_count,
         profit_removed, is_qualified, is_disqualified, disqualify_reason, short_report, full_report, flagged_details)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
        ON CONFLICT (challenge_id, account_number)
-       DO UPDATE SET registration_id=$2, account_type=$4, username=$5, telegram_id=$6,
-        file_id=$7, file_message_id=$8, reported_balance=$9, adjusted_balance=$10, total_trades=$11,
-        flagged_count=$12, profit_removed=$13, is_qualified=$14, is_disqualified=$15,
-        disqualify_reason=$16, short_report=$17, full_report=$18, flagged_details=$19, evaluated_at=NOW()
+       DO UPDATE SET registration_id=$2, account_type=$4, username=$5, telegram_id=$6, email=$7,
+        file_id=$8, file_message_id=$9, reported_balance=$10, adjusted_balance=$11, total_trades=$12,
+        flagged_count=$13, profit_removed=$14, is_qualified=$15, is_disqualified=$16,
+        disqualify_reason=$17, short_report=$18, full_report=$19, flagged_details=$20, evaluated_at=NOW()
        RETURNING *`,
       [data.challenge_id, data.registration_id, data.account_number, data.account_type,
-       data.username, data.telegram_id, data.file_id, data.file_message_id,
+       data.username, data.telegram_id, data.email || null, data.file_id, data.file_message_id,
        data.reported_balance, data.adjusted_balance, data.total_trades, data.flagged_count,
        data.profit_removed, data.is_qualified, data.is_disqualified, data.disqualify_reason,
        data.short_report, data.full_report, JSON.stringify(data.flagged_details)]
@@ -81,13 +83,13 @@ class EvaluationService {
   async saveTestEvaluation(data: any): Promise<EvaluationRecord> {
     const result = await db.query(
       `INSERT INTO trading_evaluations_test
-       (challenge_id, registration_id, account_number, account_type, username, telegram_id,
+       (challenge_id, registration_id, account_number, account_type, username, telegram_id, email,
         file_id, file_message_id, reported_balance, adjusted_balance, total_trades, flagged_count,
         profit_removed, is_qualified, is_disqualified, disqualify_reason, short_report, full_report, flagged_details)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
        RETURNING *`,
       [data.challenge_id, data.registration_id, data.account_number, data.account_type,
-       data.username, data.telegram_id, data.file_id, data.file_message_id,
+       data.username, data.telegram_id, data.email || null, data.file_id, data.file_message_id,
        data.reported_balance, data.adjusted_balance, data.total_trades, data.flagged_count,
        data.profit_removed, data.is_qualified, data.is_disqualified, data.disqualify_reason,
        data.short_report, data.full_report, JSON.stringify(data.flagged_details)]

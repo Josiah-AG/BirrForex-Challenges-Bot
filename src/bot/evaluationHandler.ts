@@ -179,15 +179,25 @@ class EvaluationHandler {
         return;
       }
 
-      await ctx.reply(`📋 Parsed account: <b>${accountNumber}</b> (${parsed.account.accountType})\n📈 ${parsed.positions.length} positions, ${parsed.deals.length} deals`, { parse_mode: 'HTML' });
+      await ctx.reply('📋 Parsed account: <b>' + accountNumber + '</b> (' + parsed.account.accountType + ')\n📈 ' + parsed.positions.length + ' positions, ' + parsed.deals.length + ' deals', { parse_mode: 'HTML' });
 
-      // Look up submission in DB
+      // Look up submission in DB (both test and real mode)
       const submission = await evaluationService.findSubmissionByAccount(session.challengeId, accountNumber);
 
-      if (!submission && !session.isTest) {
+      if (submission) {
         await ctx.reply(
-          `⚠️ <b>Warning:</b> No submission found for account ${accountNumber} in challenge ${session.challengeId}.\n` +
-          `Continuing evaluation anyway...`,
+          '✅ <b>User found in submissions:</b>\n' +
+          '👤 Username: @' + (submission.username || 'unknown') + '\n' +
+          '🆔 Telegram ID: ' + submission.telegram_id + '\n' +
+          '📧 Email: ' + submission.email + '\n' +
+          '📊 Category: ' + submission.account_type + '\n' +
+          '💰 Reported Balance: $' + Number(submission.final_balance).toFixed(2),
+          { parse_mode: 'HTML' }
+        );
+      } else {
+        await ctx.reply(
+          '⚠️ <b>Warning:</b> No submission found for account ' + accountNumber + ' in challenge ' + session.challengeId + '.\n' +
+          'Continuing evaluation anyway...',
           { parse_mode: 'HTML' }
         );
       }
@@ -240,9 +250,10 @@ class EvaluationHandler {
         challenge_id: session.challengeId,
         registration_id: submission?.registration_id || 0,
         account_number: accountNumber,
-        account_type: parsed.account.accountType,
+        account_type: submission?.account_type || parsed.account.accountType,
         username: submission?.username || null,
         telegram_id: submission?.telegram_id || 0,
+        email: submission?.email || null,
         file_id: fileId,
         file_message_id: fileMessageId,
         reported_balance: result.reportedBalance,
