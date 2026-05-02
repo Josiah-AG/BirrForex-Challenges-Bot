@@ -1011,36 +1011,57 @@ class EvaluationHandler {
   ): string {
     const realPrizes = typeof challenge.real_prizes === 'string' ? JSON.parse(challenge.real_prizes) : (challenge.real_prizes || []);
     const demoPrizes = typeof challenge.demo_prizes === 'string' ? JSON.parse(challenge.demo_prizes) : (challenge.demo_prizes || []);
+    const medals = ['🥇', '🥈', '🥉', '4️⃣', '5️⃣'];
 
-    let text = `🏆 <b>${challenge.title} — WINNERS</b> 🏆\n\n`;
+    let text = '🏆 <b>' + challenge.title + ' — WINNERS</b> 🏆\n\n';
+    text += 'Congratulations to our winners! 🎉\n\n';
 
     if (realWinners.length > 0) {
-      text += `💰 <b>Real Account Winners:</b>\n\n`;
+      text += '━━━━━━━━━━━━━━━━━━━━\n';
+      text += '📱 <b>REAL ACCOUNT CATEGORY</b>\n';
+      text += '━━━━━━━━━━━━━━━━━━━━\n\n';
       realWinners.forEach((w, i) => {
-        const username = w.username ? `@${w.username}` : `User ${w.telegram_id}`;
-        const prize = realPrizes[i] ? ` — Prize: ${realPrizes[i]}` : '';
-        text += `  ${i + 1}. ${username}\n`;
-        text += `     Account: ${w.account_number}\n`;
-        text += `     Adjusted Balance: ${Number(w.adjusted_balance).toFixed(2)}${prize}\n\n`;
+        const medal = medals[i] || '🏅';
+        const username = w.username ? '@' + w.username : 'User ' + w.telegram_id;
+        const prize = realPrizes[i] ? String(realPrizes[i]) : '';
+        text += medal + ' <b>' + this.getOrdinal(i + 1) + ' Place</b> — ' + username + '\n';
+        text += '   💰 Adjusted Balance: <b>$' + Number(w.adjusted_balance).toFixed(2) + '</b>\n';
+        text += '   📈 Trades: ' + w.total_trades + ' | Flagged: ' + w.flagged_count + '\n';
+        if (prize) text += '   🎁 Prize: <b>' + prize + '</b>\n';
+        text += '\n';
       });
     }
 
     if (demoWinners.length > 0) {
-      text += `📊 <b>Demo Account Winners:</b>\n\n`;
+      text += '━━━━━━━━━━━━━━━━━━━━\n';
+      text += '🎮 <b>DEMO ACCOUNT CATEGORY</b>\n';
+      text += '━━━━━━━━━━━━━━━━━━━━\n\n';
       demoWinners.forEach((w, i) => {
-        const username = w.username ? `@${w.username}` : `User ${w.telegram_id}`;
-        const prize = demoPrizes[i] ? ` — Prize: ${demoPrizes[i]}` : '';
-        text += `  ${i + 1}. ${username}\n`;
-        text += `     Account: ${w.account_number}\n`;
-        text += `     Adjusted Balance: ${Number(w.adjusted_balance).toFixed(2)}${prize}\n\n`;
+        const medal = medals[i] || '🏅';
+        const username = w.username ? '@' + w.username : 'User ' + w.telegram_id;
+        const prize = demoPrizes[i] ? '$' + String(demoPrizes[i]) : '';
+        text += medal + ' <b>' + this.getOrdinal(i + 1) + ' Place</b> — ' + username + '\n';
+        text += '   💰 Adjusted Balance: <b>$' + Number(w.adjusted_balance).toFixed(2) + '</b>\n';
+        text += '   📈 Trades: ' + w.total_trades + ' | Flagged: ' + w.flagged_count + '\n';
+        if (prize) text += '   🎁 Prize: <b>' + prize + '</b>\n';
+        text += '\n';
       });
     }
 
-    text += `🎉 Congratulations to all winners!\n`;
-    text += `📋 Evaluation was done using our automated rule-checking system.\n`;
-    text += `\nJoin the next challenge and show your trading skills! 💪`;
+    text += '━━━━━━━━━━━━━━━━━━━━\n\n';
+    text += '📋 All accounts were evaluated using our automated rule-checking system.\n';
+    text += 'Every trade was checked for lot size, stop loss, daily drawdown, hold time, and more.\n\n';
+    text += 'Thank you to all participants! 💪\n';
+    text += 'Join the next challenge and show your trading skills! 🚀\n\n';
+    text += '@' + config.mainChannelUsername;
 
     return text;
+  }
+
+  private getOrdinal(n: number): string {
+    const ordinals = ['', '1st', '2nd', '3rd'];
+    if (n <= 3) return ordinals[n];
+    return n + 'th';
   }
 }
 

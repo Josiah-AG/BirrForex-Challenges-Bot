@@ -414,13 +414,18 @@ export function evaluateAccount(
 function generateShortReport(r: EvaluationResult, cfg: EvaluationConfig): string {
   const status = r.isDisqualified ? '🚫 DISQUALIFIED' : r.isQualified ? '✅ QUALIFIES' : '❌ Below Target';
   let text = '';
-  text += '📊 EVALUATION — Account ' + r.accountNumber + '\n';
-  text += 'Category: ' + (r.accountType === 'real' ? 'Real' : 'Demo') + '\n\n';
-  text += status + '\n';
-  text += '💰 Adjusted Balance: $' + r.adjustedBalance.toFixed(2) + '\n';
+  text += '📊 <b>EVALUATION</b> — ' + r.accountNumber + '\n';
+  text += '📁 Category: ' + (r.accountType === 'real' ? 'Real' : 'Demo') + '\n\n';
+  text += status + '\n\n';
+  text += '💰 Adjusted Balance: <b>$' + r.adjustedBalance.toFixed(2) + '</b>\n';
   text += '💰 Reported Balance: $' + r.reportedBalance.toFixed(2) + '\n';
-  text += '➖ Profit Removed: $' + r.profitRemoved.toFixed(2) + '\n';
-  text += '📈 Total Trades: ' + r.totalTrades + ' | Flagged: ' + r.flaggedCount + '\n';
+  text += '➖ Profit Removed: $' + r.profitRemoved.toFixed(2) + '\n\n';
+  text += '📈 Total Trades: ' + r.totalTrades + '\n';
+  text += '⚠️ Flagged Trades: ' + r.flaggedCount + '\n';
+  if (r.noSlCount > 0) text += '🛡️ Missing Stop Loss: ' + r.noSlCount + '\n';
+  if (r.slTooWideCount > 0) text += '🛡️ SL Too Wide: ' + r.slTooWideCount + '\n';
+  if (r.dailyDrawdowns.some(d => d.breached)) text += '📉 Drawdown Breaches: ' + r.dailyDrawdowns.filter(d => d.breached).length + ' days\n';
+  text += '📅 Active Days: ' + r.activeDays + '/' + cfg.minActiveDays + '\n';
   if (r.isDisqualified) {
     text += '\n📛 ' + r.disqualifyReasons.join(', ');
   }
