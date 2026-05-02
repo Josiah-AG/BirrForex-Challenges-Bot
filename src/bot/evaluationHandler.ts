@@ -398,7 +398,7 @@ class EvaluationHandler {
         text += `\n🏆 <b>Top 10 Real (by adjusted balance):</b>\n`;
         realQualified.slice(0, 10).forEach((e, i) => {
           const username = e.username ? `@${e.username}` : `ID:${e.telegram_id}`;
-          text += `  ${i + 1}. ${e.account_number} — $${e.adjusted_balance.toFixed(2)} — ${username}\n`;
+          text += `  ${i + 1}. ${e.account_number} — $${Number(e.adjusted_balance).toFixed(2)} — ${username}\n`;
         });
       }
 
@@ -407,7 +407,7 @@ class EvaluationHandler {
         text += `\n🏆 <b>Top 10 Demo (by adjusted balance):</b>\n`;
         demoQualified.slice(0, 10).forEach((e, i) => {
           const username = e.username ? `@${e.username}` : `ID:${e.telegram_id}`;
-          text += `  ${i + 1}. ${e.account_number} — $${e.adjusted_balance.toFixed(2)} — ${username}\n`;
+          text += `  ${i + 1}. ${e.account_number} — $${Number(e.adjusted_balance).toFixed(2)} — ${username}\n`;
         });
       }
 
@@ -651,8 +651,8 @@ class EvaluationHandler {
       ]);
 
       // Get prizes
-      const realPrizes = challenge.real_prizes || [];
-      const demoPrizes = challenge.demo_prizes || [];
+      const realPrizes = typeof challenge.real_prizes === 'string' ? JSON.parse(challenge.real_prizes) : (challenge.real_prizes || []);
+      const demoPrizes = typeof challenge.demo_prizes === 'string' ? JSON.parse(challenge.demo_prizes) : (challenge.demo_prizes || []);
 
       await ctx.reply(`⏳ Sending DMs to ${evaluations.length} evaluated users...`);
 
@@ -684,14 +684,14 @@ class EvaluationHandler {
             message = `🎉 <b>Congratulations!</b> 🏆\n\n` +
               `You are a <b>WINNER</b> in ${challenge.title}!\n` +
               `Account: ${evaluation.account_number} (${evaluation.account_type})\n` +
-              `Adjusted Balance: $${evaluation.adjusted_balance.toFixed(2)}\n` +
+              `Adjusted Balance: $${Number(evaluation.adjusted_balance).toFixed(2)}\n` +
               (prize ? `Prize: <b>${prize}</b>\n` : '') +
               `\nTo receive your reward, please contact @birrFXadmin with a screenshot of this message.`;
           } else if (evaluation.is_qualified) {
             message = `👏 <b>Great job!</b>\n\n` +
               `You qualified in ${challenge.title}!\n` +
               `Account: ${evaluation.account_number} (${evaluation.account_type})\n` +
-              `Adjusted Balance: $${evaluation.adjusted_balance.toFixed(2)}\n` +
+              `Adjusted Balance: $${Number(evaluation.adjusted_balance).toFixed(2)}\n` +
               `\nUnfortunately you didn't make it to the top winners this time, but your performance was excellent. Keep it up!`;
           } else if (evaluation.is_disqualified) {
             message = `📋 <b>Evaluation Result</b>\n\n` +
@@ -703,7 +703,7 @@ class EvaluationHandler {
             message = `📋 <b>Evaluation Result</b>\n\n` +
               `Unfortunately, you did not qualify in ${challenge.title}.\n` +
               `Account: ${evaluation.account_number} (${evaluation.account_type})\n` +
-              `Adjusted Balance: $${evaluation.adjusted_balance.toFixed(2)}\n` +
+              `Adjusted Balance: $${Number(evaluation.adjusted_balance).toFixed(2)}\n` +
               `\nKeep practicing and join the next challenge!`;
           }
 
@@ -807,8 +807,8 @@ class EvaluationHandler {
 
       // Show what DMs would look like
       const allTestWinners = [...realWinners, ...demoWinners];
-      const realPrizes = challenge.real_prizes || [];
-      const demoPrizes = challenge.demo_prizes || [];
+      const realPrizes = typeof challenge.real_prizes === 'string' ? JSON.parse(challenge.real_prizes) : (challenge.real_prizes || []);
+      const demoPrizes = typeof challenge.demo_prizes === 'string' ? JSON.parse(challenge.demo_prizes) : (challenge.demo_prizes || []);
 
       for (const winner of allTestWinners) {
         const realIdx = realWinners.findIndex(w => w.id === winner.id);
@@ -823,7 +823,7 @@ class EvaluationHandler {
         const dmPreview = `🎉 <b>Congratulations!</b> 🏆\n\n` +
           `You are a <b>WINNER</b> in ${challenge.title}!\n` +
           `Account: ${winner.account_number} (${winner.account_type})\n` +
-          `Adjusted Balance: $${winner.adjusted_balance.toFixed(2)}\n` +
+          `Adjusted Balance: $${Number(winner.adjusted_balance).toFixed(2)}\n` +
           (prize ? `Prize: <b>${prize}</b>\n` : '') +
           `\nTo receive your reward, please contact @birrFXadmin with a screenshot of this message.`;
 
@@ -911,8 +911,8 @@ class EvaluationHandler {
     realWinners: EvaluationRecord[],
     demoWinners: EvaluationRecord[]
   ): string {
-    const realPrizes = challenge.real_prizes || [];
-    const demoPrizes = challenge.demo_prizes || [];
+    const realPrizes = typeof challenge.real_prizes === 'string' ? JSON.parse(challenge.real_prizes) : (challenge.real_prizes || []);
+    const demoPrizes = typeof challenge.demo_prizes === 'string' ? JSON.parse(challenge.demo_prizes) : (challenge.demo_prizes || []);
 
     let text = `🏆 <b>${challenge.title} — WINNERS</b> 🏆\n\n`;
 
@@ -923,7 +923,7 @@ class EvaluationHandler {
         const prize = realPrizes[i] ? ` — Prize: $${realPrizes[i]}` : '';
         text += `  ${i + 1}. ${username}\n`;
         text += `     Account: ${w.account_number}\n`;
-        text += `     Adjusted Balance: $${w.adjusted_balance.toFixed(2)}${prize}\n\n`;
+        text += `     Adjusted Balance: $${Number(w.adjusted_balance).toFixed(2)}${prize}\n\n`;
       });
     }
 
@@ -934,7 +934,7 @@ class EvaluationHandler {
         const prize = demoPrizes[i] ? ` — Prize: $${demoPrizes[i]}` : '';
         text += `  ${i + 1}. ${username}\n`;
         text += `     Account: ${w.account_number}\n`;
-        text += `     Adjusted Balance: $${w.adjusted_balance.toFixed(2)}${prize}\n\n`;
+        text += `     Adjusted Balance: $${Number(w.adjusted_balance).toFixed(2)}${prize}\n\n`;
       });
     }
 
