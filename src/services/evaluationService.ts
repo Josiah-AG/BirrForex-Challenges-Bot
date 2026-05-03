@@ -196,7 +196,7 @@ class EvaluationService {
       `SELECT s.*, r.account_number, r.account_type, r.username, r.telegram_id, r.email
        FROM trading_submissions s
        JOIN trading_registrations r ON s.registration_id = r.id
-       LEFT JOIN trading_evaluations e ON e.challenge_id = s.challenge_id AND (e.account_number = r.account_number OR e.registration_id = r.id)
+       LEFT JOIN trading_evaluations e ON e.challenge_id = s.challenge_id AND (REGEXP_REPLACE(e.account_number, '[^0-9]', '', 'g') = REGEXP_REPLACE(r.account_number, '[^0-9]', '', 'g') OR e.registration_id = r.id)
        WHERE s.challenge_id = $1 AND e.id IS NULL
        ORDER BY s.final_balance DESC`,
       [challengeId]
@@ -206,13 +206,13 @@ class EvaluationService {
 
   // Get next unevaluated submission (skips resubmission-requested, real first then demo, highest balance)
   async getNextUnevaluated(challengeId: number): Promise<{ submission: any; remainingReal: number; remainingDemo: number } | null> {
-    // Count remaining — skip those with resubmission requested but not yet completed
     const skipCondition = `AND NOT (COALESCE(s.is_resubmission, false) = true AND s.resubmitted_at IS NULL)`;
+    const matchCondition = `(REGEXP_REPLACE(e.account_number, '[^0-9]', '', 'g') = REGEXP_REPLACE(r.account_number, '[^0-9]', '', 'g') OR e.registration_id = r.id)`;
     const countResult = await db.query(
       `SELECT r.account_type, COUNT(*) as cnt
        FROM trading_submissions s
        JOIN trading_registrations r ON s.registration_id = r.id
-       LEFT JOIN trading_evaluations e ON e.challenge_id = s.challenge_id AND (e.account_number = r.account_number OR e.registration_id = r.id)
+       LEFT JOIN trading_evaluations e ON e.challenge_id = s.challenge_id AND ${matchCondition}
        WHERE s.challenge_id = $1 AND e.id IS NULL ${skipCondition}
        GROUP BY r.account_type`,
       [challengeId]
@@ -222,13 +222,12 @@ class EvaluationService {
 
     if (remainingReal === 0 && remainingDemo === 0) return null;
 
-    // Get next: real first, then demo, highest balance
     const priorityType = remainingReal > 0 ? 'real' : 'demo';
     const result = await db.query(
       `SELECT s.*, r.account_number, r.account_type, r.username, r.telegram_id, r.email, r.mt5_server, s.investor_password
        FROM trading_submissions s
        JOIN trading_registrations r ON s.registration_id = r.id
-       LEFT JOIN trading_evaluations e ON e.challenge_id = s.challenge_id AND (e.account_number = r.account_number OR e.registration_id = r.id)
+       LEFT JOIN trading_evaluations e ON e.challenge_id = s.challenge_id AND ${matchCondition}
        WHERE s.challenge_id = $1 AND e.id IS NULL AND r.account_type = $2 ${skipCondition}
        ORDER BY s.final_balance DESC
        LIMIT 1`,
@@ -239,14 +238,15 @@ class EvaluationService {
     return { submission: result.rows[0], remainingReal, remainingDemo };
   }
 
-  // Find submission by account number
+  // Find submission by account number (strips non-numeric chars for matching)
   async findSubmissionByAccount(challengeId: number, accountNumber: string): Promise<any | null> {
+    const cleanAcct = accountNumber.replace(/\D/g, '');
     const result = await db.query(
       `SELECT s.*, r.account_number, r.account_type, r.username, r.telegram_id, r.email, r.mt5_server
        FROM trading_submissions s
        JOIN trading_registrations r ON s.registration_id = r.id
-       WHERE s.challenge_id = $1 AND r.account_number = $2`,
-      [challengeId, accountNumber]
+       WHERE s.challenge_id = $1 AND REGEXP_REPLACE(r.account_number, '[^0-9]', '', 'g') = $2`,
+      [challengeId, cleanAcct]
     );
     return result.rows[0] || null;
   }
