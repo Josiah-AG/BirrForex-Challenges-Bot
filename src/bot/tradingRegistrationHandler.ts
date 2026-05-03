@@ -1313,7 +1313,7 @@ export class TradingRegistrationHandler {
       }
 
       const submission = sub.rows[0];
-      if (submission.telegram_id !== telegramId) {
+      if (String(submission.telegram_id) !== String(telegramId)) {
         await ctx.reply('❌ This resubmission link is not for your account.');
         return;
       }
