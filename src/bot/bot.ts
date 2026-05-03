@@ -374,25 +374,7 @@ export class Bot {
             await ctx.reply('🛑 One-by-one evaluation stopped.');
             return;
           }
-          // Disqualify from one-by-one
-          if (data.startsWith('eval_obo_dq_')) {
-            await ctx.answerCbQuery();
-            const parts = data.replace('eval_obo_dq_', '').split('_');
-            const subId = parseInt(parts[0]);
-            const userTgId = parseInt(parts[1]);
-            // Get username from current session
-            const dqSession = evaluationHandler.getSession(ctx.from!.id);
-            const dqUsername = dqSession ? (dqSession as any).currentUsername : 'unknown';
-            // Set session to await disqualification reason
-            if (dqSession) {
-              dqSession.step = 'obo_dq_reason';
-              (dqSession as any).dqSubId = subId;
-              (dqSession as any).dqUserTgId = userTgId;
-              (dqSession as any).dqUsername = dqUsername;
-            }
-            await ctx.reply('🚫 Enter the reason for disqualification:');
-            return;
-          }
+          // Disqualify confirm/cancel (must be checked BEFORE the general eval_obo_dq_ handler)
           if (data === 'eval_obo_dq_confirm') {
             await ctx.answerCbQuery();
             const dqSession2 = evaluationHandler.getSession(ctx.from!.id);
@@ -434,6 +416,25 @@ export class Bot {
             // Restore to awaiting file
             const cancelSession = evaluationHandler.getSession(ctx.from!.id);
             if (cancelSession) cancelSession.step = 'awaiting_file';
+            return;
+          }
+          // Disqualify from one-by-one (initial button click)
+          if (data.startsWith('eval_obo_dq_')) {
+            await ctx.answerCbQuery();
+            const parts = data.replace('eval_obo_dq_', '').split('_');
+            const subId = parseInt(parts[0]);
+            const userTgId = parseInt(parts[1]);
+            // Get username from current session
+            const dqSession = evaluationHandler.getSession(ctx.from!.id);
+            const dqUsername = dqSession ? (dqSession as any).currentUsername : 'unknown';
+            // Set session to await disqualification reason
+            if (dqSession) {
+              dqSession.step = 'obo_dq_reason';
+              (dqSession as any).dqSubId = subId;
+              (dqSession as any).dqUserTgId = userTgId;
+              (dqSession as any).dqUsername = dqUsername;
+            }
+            await ctx.reply('🚫 Enter the reason for disqualification:');
             return;
           }
         }
