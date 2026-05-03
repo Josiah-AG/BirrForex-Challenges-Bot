@@ -12,6 +12,10 @@ interface EvalSession {
   challenge: TradingChallenge;
   isTest: boolean;
   isReevaluate: boolean;
+  pendingFileId?: string;
+  pendingBuffer?: Buffer;
+  pendingParsed?: any;
+  pendingSubmission?: any;
 }
 
 class EvaluationHandler {
@@ -206,100 +210,162 @@ class EvaluationHandler {
         );
       }
 
-      // Forward document to submission channel for storage
-      let fileMessageId: number | null = null;
-      try {
-        if (config.submissionChannelId) {
-          const forwarded = await (ctx as any).telegram.sendDocument(
-            config.submissionChannelId,
-            fileId,
-            { caption: `Evaluation: Account ${accountNumber} | Challenge ${session.challengeId}${session.isTest ? ' [TEST]' : ''}` }
+      // Check for existing evaluation (only for /evaluate, not /reevaluate or /testevaluate)
+      if (!session.isReevaluate && !session.isTest) {
+        const existing = await evaluationService.getEvaluation(session.challengeId, accountNumber);
+        if (existing) {
+          // Store pending data in session for later continuation
+          session.step = 'eval_overwrite_confirm';
+          session.pendingFileId = fileId;
+          session.pendingBuffer = buffer;
+          session.pendingParsed = parsed;
+          session.pendingSubmission = submission;
+
+          await ctx.reply(
+            '⚠️ <b>This account was already evaluated!</b>\n\n' +
+            '📅 Account: ' + accountNumber + '\n' +
+            '💰 Previous Adjusted Balance: $' + Number(existing.adjusted_balance).toFixed(2) + '\n' +
+            '📈 Previous Trades: ' + existing.total_trades + ' | Flagged: ' + existing.flagged_count + '\n' +
+            (existing.is_qualified ? '✅ Previously: QUALIFIED' : existing.is_disqualified ? '🚫 Previously: DISQUALIFIED' : '❌ Previously: Below Target') + '\n\n' +
+            'Do you want to overwrite with a new evaluation?',
+            {
+              parse_mode: 'HTML',
+              ...Markup.inlineKeyboard([
+                [Markup.button.callback('✅ Yes, Overwrite', 'eval_overwrite_yes')],
+                [Markup.button.callback('❌ No, Keep Existing', 'eval_overwrite_no')],
+              ]),
+            }
           );
-          fileMessageId = forwarded.message_id;
+          return;
         }
-      } catch (fwdErr) {
-        console.error('Error forwarding document to submission channel:', fwdErr);
       }
 
-      // Build evaluation config from challenge settings
-      // Use the challenge dates as the admin entered them (EAT)
-      const challenge = session.challenge;
-      const startDate = new Date(new Date(challenge.start_date).getTime() + 3 * 60 * 60 * 1000);
-      const endDate = new Date(new Date(challenge.end_date).getTime() + 3 * 60 * 60 * 1000);
-      const evalConfig: EvaluationConfig = {
-        challengeStartDate: startDate.getUTCFullYear() + '-' + String(startDate.getUTCMonth() + 1).padStart(2, '0') + '-' + String(startDate.getUTCDate()).padStart(2, '0'),
-        challengeEndDate: endDate.getUTCFullYear() + '-' + String(endDate.getUTCMonth() + 1).padStart(2, '0') + '-' + String(endDate.getUTCDate()).padStart(2, '0'),
-        startingBalanceLimit: challenge.starting_balance || 50,
-        targetBalance: challenge.target_balance || 100,
-        maxLot: 0.02,
-        maxOpenTrades: 3,
-        maxSamePair: 2,
-        maxSlDollars: 6,
-        maxDailyLoss: 10,
-        maxHoldHours: 24,
-        minActiveDays: 7,
-      };
-
-      // Run evaluation
-      const result = evaluateAccount(
-        parsed.account,
-        parsed.positions,
-        parsed.deals,
-        parsed.reportedBalance,
-        evalConfig
-      );
-
-      // Save evaluation
-      const evalData = {
-        challenge_id: session.challengeId,
-        registration_id: submission?.registration_id || 0,
-        account_number: accountNumber,
-        account_type: submission?.account_type || parsed.account.accountType,
-        username: submission?.username || null,
-        telegram_id: submission?.telegram_id || 0,
-        email: submission?.email || null,
-        file_id: fileId,
-        file_message_id: fileMessageId,
-        reported_balance: result.reportedBalance,
-        adjusted_balance: result.adjustedBalance,
-        total_trades: result.totalTrades,
-        flagged_count: result.flaggedCount,
-        profit_removed: result.profitRemoved,
-        is_qualified: result.isQualified,
-        is_disqualified: result.isDisqualified,
-        disqualify_reason: result.disqualifyReasons.length > 0 ? result.disqualifyReasons.join('; ') : null,
-        short_report: result.shortReport,
-        full_report: result.fullReport,
-        flagged_details: result.flaggedTrades,
-      };
-
-      let savedEval: EvaluationRecord;
-      if (session.isTest) {
-        savedEval = await evaluationService.saveTestEvaluation(evalData);
-      } else {
-        savedEval = await evaluationService.saveEvaluation(evalData, false);
-      }
-
-      // Send short report to admin
-      await ctx.reply(
-        `${session.isTest ? '🧪 TEST ' : ''}${result.shortReport}\n\n` +
-        `💾 Saved (ID: ${savedEval.id})`,
-        { parse_mode: 'HTML' }
-      );
-
-      // Send full report (split if needed)
-      const parts = this.splitMessage(result.fullReport);
-      for (const part of parts) {
-        await ctx.reply(part);
-      }
-
-      // Clear session
-      this.evalSessions.delete(ctx.from!.id);
+      // Continue with evaluation processing
+      await this.processEvaluation(ctx, session, fileId, buffer, parsed, submission);
     } catch (error) {
       console.error('Error in handleDocument:', error);
       await ctx.reply('❌ Error processing file: ' + (error as Error).message);
       this.evalSessions.delete(ctx.from!.id);
     }
+  }
+
+  // ── Handle overwrite confirmation ──
+
+  async handleOverwriteConfirm(ctx: Context): Promise<void> {
+    try {
+      const session = this.evalSessions.get(ctx.from!.id);
+      if (!session || session.step !== 'eval_overwrite_confirm') {
+        await ctx.reply('❌ No pending evaluation to overwrite.');
+        return;
+      }
+
+      // Restore pending data and continue as reevaluate
+      session.isReevaluate = true;
+      session.step = 'awaiting_file';
+
+      // Re-run handleDocument with stored data
+      await this.processEvaluation(ctx, session, session.pendingFileId!, session.pendingBuffer!, session.pendingParsed!, session.pendingSubmission);
+    } catch (error) {
+      console.error('Error in handleOverwriteConfirm:', error);
+      await ctx.reply('❌ Error continuing evaluation.');
+      this.evalSessions.delete(ctx.from!.id);
+    }
+  }
+
+  // ── Process evaluation (extracted from handleDocument) ──
+
+  private async processEvaluation(ctx: Context, session: EvalSession, fileId: string, buffer: Buffer, parsed: any, submission: any): Promise<void> {
+    const accountNumber = parsed.account.accountNumber;
+
+    // Forward document to submission channel for storage
+    let fileMessageId: number | null = null;
+    try {
+      if (config.submissionChannelId) {
+        const forwarded = await (ctx as any).telegram.sendDocument(
+          config.submissionChannelId,
+          fileId,
+          { caption: `Evaluation: Account ${accountNumber} | Challenge ${session.challengeId}${session.isTest ? ' [TEST]' : ''}` }
+        );
+        fileMessageId = forwarded.message_id;
+      }
+    } catch (fwdErr) {
+      console.error('Error forwarding document to submission channel:', fwdErr);
+    }
+
+    // Build evaluation config from challenge settings
+    // Use the challenge dates as the admin entered them (EAT)
+    const challenge = session.challenge;
+    const startDate = new Date(new Date(challenge.start_date).getTime() + 3 * 60 * 60 * 1000);
+    const endDate = new Date(new Date(challenge.end_date).getTime() + 3 * 60 * 60 * 1000);
+    const evalConfig: EvaluationConfig = {
+      challengeStartDate: startDate.getUTCFullYear() + '-' + String(startDate.getUTCMonth() + 1).padStart(2, '0') + '-' + String(startDate.getUTCDate()).padStart(2, '0'),
+      challengeEndDate: endDate.getUTCFullYear() + '-' + String(endDate.getUTCMonth() + 1).padStart(2, '0') + '-' + String(endDate.getUTCDate()).padStart(2, '0'),
+      startingBalanceLimit: challenge.starting_balance || 50,
+      targetBalance: challenge.target_balance || 100,
+      maxLot: 0.02,
+      maxOpenTrades: 3,
+      maxSamePair: 2,
+      maxSlDollars: 6,
+      maxDailyLoss: 10,
+      maxHoldHours: 24,
+      minActiveDays: 7,
+    };
+
+    // Run evaluation
+    const result = evaluateAccount(
+      parsed.account,
+      parsed.positions,
+      parsed.deals,
+      parsed.reportedBalance,
+      evalConfig
+    );
+
+    // Save evaluation
+    const evalData = {
+      challenge_id: session.challengeId,
+      registration_id: submission?.registration_id || 0,
+      account_number: accountNumber,
+      account_type: submission?.account_type || parsed.account.accountType,
+      username: submission?.username || null,
+      telegram_id: submission?.telegram_id || 0,
+      email: submission?.email || null,
+      file_id: fileId,
+      file_message_id: fileMessageId,
+      reported_balance: result.reportedBalance,
+      adjusted_balance: result.adjustedBalance,
+      total_trades: result.totalTrades,
+      flagged_count: result.flaggedCount,
+      profit_removed: result.profitRemoved,
+      is_qualified: result.isQualified,
+      is_disqualified: result.isDisqualified,
+      disqualify_reason: result.disqualifyReasons.length > 0 ? result.disqualifyReasons.join('; ') : null,
+      short_report: result.shortReport,
+      full_report: result.fullReport,
+      flagged_details: result.flaggedTrades,
+    };
+
+    let savedEval: EvaluationRecord;
+    if (session.isTest) {
+      savedEval = await evaluationService.saveTestEvaluation(evalData);
+    } else {
+      savedEval = await evaluationService.saveEvaluation(evalData, false);
+    }
+
+    // Send short report to admin
+    await ctx.reply(
+      `${session.isTest ? '🧪 TEST ' : ''}${result.shortReport}\n\n` +
+      `💾 Saved (ID: ${savedEval.id})`,
+      { parse_mode: 'HTML' }
+    );
+
+    // Send full report (split if needed)
+    const parts = this.splitMessage(result.fullReport);
+    for (const part of parts) {
+      await ctx.reply(part);
+    }
+
+    // Clear session
+    this.evalSessions.delete(ctx.from!.id);
   }
 
   // ── Handle text input for find/delete eval sessions ──

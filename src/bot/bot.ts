@@ -271,6 +271,17 @@ export class Bot {
             await ctx.reply('❌ Announcement cancelled.');
             return;
           }
+          if (data === 'eval_overwrite_yes') {
+            await ctx.answerCbQuery();
+            await evaluationHandler.handleOverwriteConfirm(ctx);
+            return;
+          }
+          if (data === 'eval_overwrite_no') {
+            await ctx.answerCbQuery('Kept existing');
+            await ctx.reply('✅ Kept existing evaluation. No changes made.');
+            evaluationHandler.clearSession(ctx.from!.id);
+            return;
+          }
           if (data.startsWith('eval_delete_confirm_')) {
             const evalId = parseInt(data.replace('eval_delete_confirm_', ''));
             await ctx.answerCbQuery();
