@@ -2,6 +2,7 @@ import { Context, Markup } from 'telegraf';
 import { tradingChallengeService } from '../services/tradingChallengeService';
 import { exnessService } from '../services/exnessService';
 import { config } from '../config';
+import { db } from '../database/db';
 
 // Convert stored UTC date to EAT for display
 const toEAT = (d: Date) => new Date(new Date(d).getTime() + 3 * 60 * 60 * 1000);
@@ -821,6 +822,89 @@ export class TradingRegistrationHandler {
         }
         break;
       }
+
+      // ── Resubmission steps ──
+      case 'tc_resubmit_account': {
+        const acctNum = text.trim();
+        if (!/^\d+$/.test(acctNum)) {
+          await ctx.reply('❌ Only numbers are accepted. Please enter your MT5 account number:');
+          return;
+        }
+        session.data.new_account_number = acctNum;
+        session.step = 'tc_resubmit_server';
+        await ctx.reply('🖥️ Enter your <b>MT5 server name:</b>', { parse_mode: 'HTML' });
+        break;
+      }
+
+      case 'tc_resubmit_server': {
+        session.data.mt5_server = text.trim();
+        session.step = 'tc_resubmit_password';
+        await ctx.reply('🔑 Enter your <b>investor (read-only) password:</b>', { parse_mode: 'HTML' });
+        break;
+      }
+
+      case 'tc_resubmit_password': {
+        session.data.investor_password = text.trim();
+        session.step = 'tc_resubmit_balance';
+        await ctx.reply('💰 Enter your <b>final account balance:</b>\n<i>(Number only, e.g., 125.50)</i>', { parse_mode: 'HTML' });
+        break;
+      }
+
+      case 'tc_resubmit_balance': {
+        const balance = parseFloat(text.trim());
+        if (isNaN(balance) || balance <= 0) {
+          await ctx.reply('❌ Please enter a valid number.');
+          return;
+        }
+
+        try {
+          const { evaluationService } = require('../services/evaluationService');
+          await evaluationService.updateSubmissionResubmit(session.data.submission_id, {
+            investor_password: session.data.investor_password,
+            final_balance: balance,
+            original_account_number: session.data.original_account_number,
+            new_account_number: session.data.new_account_number,
+            mt5_server: session.data.mt5_server,
+          });
+
+          const accountChanged = session.data.original_account_number !== session.data.new_account_number;
+
+          await ctx.reply(
+            '✅ <b>Account details updated!</b>\n\n' +
+            '🏦 Account: <b>' + session.data.new_account_number + '</b>\n' +
+            '🖥️ Server: <b>' + session.data.mt5_server + '</b>\n' +
+            '💰 Balance: <b>$' + balance.toFixed(2) + '</b>\n\n' +
+            '<i>Thank you for resubmitting. Your account will be re-evaluated.</i>',
+            { parse_mode: 'HTML' }
+          );
+
+          // Notify admin
+          const { config } = require('../config');
+          let adminMsg = '🔄 <b>Resubmission received</b>\n\n' +
+            '👤 @' + (ctx.from!.username || 'unknown') + ' (TG: ' + telegramId + ')\n' +
+            '🏦 Account: ' + session.data.new_account_number + '\n' +
+            '🖥️ Server: ' + session.data.mt5_server + '\n' +
+            '💰 Balance: $' + balance.toFixed(2) + '\n';
+
+          if (accountChanged) {
+            adminMsg += '\n⚠️ <b>ACCOUNT NUMBER CHANGED!</b>\n' +
+              '   Previous: ' + session.data.original_account_number + '\n' +
+              '   New: ' + session.data.new_account_number + '\n';
+          }
+
+          try {
+            await (ctx as any).telegram.sendMessage(config.adminUserId, adminMsg, { parse_mode: 'HTML' });
+          } catch (e) {
+            console.error('Error notifying admin of resubmission:', e);
+          }
+        } catch (error) {
+          console.error('Error saving resubmission:', error);
+          await ctx.reply('❌ Error saving your details. Please try again.');
+        }
+
+        userSessions.delete(telegramId);
+        break;
+      }
     }
   }
 
@@ -1208,6 +1292,50 @@ export class TradingRegistrationHandler {
       }
     } catch (e) {
       console.error('Error sending manual review to admin:', e);
+    }
+  }
+
+  // ── Resubmission flow (user resubmits account details) ──
+
+  async startResubmission(ctx: Context, submissionId: number): Promise<void> {
+    try {
+      const telegramId = ctx.from!.id;
+
+      // Get the submission and verify it belongs to this user
+      const sub = await db.query(
+        'SELECT s.*, r.account_number, r.telegram_id, r.username FROM trading_submissions s JOIN trading_registrations r ON s.registration_id = r.id WHERE s.id = $1',
+        [submissionId]
+      );
+
+      if (!sub.rows[0]) {
+        await ctx.reply('❌ Submission not found.');
+        return;
+      }
+
+      const submission = sub.rows[0];
+      if (submission.telegram_id !== telegramId) {
+        await ctx.reply('❌ This resubmission link is not for your account.');
+        return;
+      }
+
+      userSessions.set(telegramId, {
+        step: 'tc_resubmit_account',
+        data: {
+          submission_id: submissionId,
+          registration_id: submission.registration_id,
+          original_account_number: submission.account_number,
+          challenge_id: submission.challenge_id,
+        },
+      });
+
+      await ctx.reply(
+        '🔄 <b>Account Resubmission</b>\n\n' +
+        'Please enter your <b>MT5 account number:</b>',
+        { parse_mode: 'HTML' }
+      );
+    } catch (error) {
+      console.error('Error in startResubmission:', error);
+      await ctx.reply('❌ Error starting resubmission.');
     }
   }
 }

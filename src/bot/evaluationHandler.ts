@@ -456,6 +456,61 @@ class EvaluationHandler {
         this.evalSessions.delete(ctx.from!.id);
       }
     }
+
+    if (session.step === 'resubmit_search') {
+      this.evalSessions.delete(ctx.from!.id);
+      try {
+        const results = await evaluationService.searchSubmission(session.challengeId, text);
+        if (results.length === 0) {
+          await ctx.reply('❌ No submission found for "' + text + '"');
+          return;
+        }
+
+        if (results.length > 1) {
+          let msg = '⚠️ Multiple submissions found. Be more specific:\n\n';
+          results.forEach((s: any, i: number) => {
+            msg += (i + 1) + '. @' + (s.username || 'unknown') + ' | ' + s.account_number + ' (' + s.account_type + ')\n';
+          });
+          await ctx.reply(msg);
+          return;
+        }
+
+        const sub = results[0];
+        const botInfo = await (ctx as any).telegram.getMe();
+
+        // Send resubmission request to user
+        try {
+          await (ctx as any).telegram.sendMessage(
+            sub.telegram_id,
+            '⚠️ <b>Action Required — ' + session.challenge.title + '</b>\n\n' +
+            'We could not log in to your challenge account to verify your results.\n\n' +
+            'Please resubmit your account details using the button below.\n\n' +
+            '<b>Make sure all details are correct:</b>\n' +
+            '• Your MT5 account number\n' +
+            '• Your MT5 server name\n' +
+            '• Your investor (read-only) password\n' +
+            '• Your final account balance\n\n' +
+            '<i>Double-check everything before submitting.</i>',
+            {
+              parse_mode: 'HTML',
+              ...Markup.inlineKeyboard([
+                [Markup.button.url('🔄 Resubmit Account', 'https://t.me/' + botInfo.username + '?start=tc_resubmit_' + sub.id)],
+              ]),
+            }
+          );
+          await ctx.reply(
+            '✅ Resubmission request sent to @' + (sub.username || 'unknown') + ' (TG: ' + sub.telegram_id + ')\n' +
+            '📅 Account: ' + sub.account_number + ' (' + sub.account_type + ')'
+          );
+        } catch (err) {
+          console.error('Error sending resubmission request:', err);
+          await ctx.reply('❌ Could not send message to user. They may have blocked the bot.');
+        }
+      } catch (error) {
+        console.error('Error in resubmit search:', error);
+        await ctx.reply('❌ Error searching.');
+      }
+    }
   }
 
   // ── /evaluationstatus ──
@@ -1211,6 +1266,32 @@ class EvaluationHandler {
     } catch (error) {
       console.error('Error in missingevaluation:', error);
       await ctx.reply('❌ Error fetching missing evaluations.');
+    }
+  }
+
+  // ── /askforresubmission ──
+
+  async askforresubmission(ctx: Context): Promise<void> {
+    try {
+      if (ctx.from!.id.toString() !== config.adminUserId) { await ctx.reply('❌ Not authorized.'); return; }
+
+      const challenges = await tradingChallengeService.getActiveChallenges();
+      let challenge = challenges[0] || null;
+      if (!challenge) { const all = await tradingChallengeService.getAllChallenges(); challenge = all[0] || null; }
+      if (!challenge) { await ctx.reply('❌ No challenge found.'); return; }
+
+      this.evalSessions.set(ctx.from!.id, {
+        step: 'resubmit_search',
+        challengeId: challenge.id,
+        challenge,
+        isTest: false,
+        isReevaluate: false,
+      });
+
+      await ctx.reply('🔍 Enter email, account number, or username to find the user:', { parse_mode: 'HTML' });
+    } catch (error) {
+      console.error('Error in askforresubmission:', error);
+      await ctx.reply('❌ Error starting resubmission request.');
     }
   }
 

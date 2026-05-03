@@ -272,6 +272,64 @@ class EvaluationService {
     );
     return result.rows;
   }
+
+  // Search submission by username, email, or account number
+  async searchSubmission(challengeId: number, searchTerm: string): Promise<any[]> {
+    const term = searchTerm.replace(/^@/, '').trim();
+    const result = await db.query(
+      `SELECT s.*, r.account_number, r.account_type, r.username, r.telegram_id, r.email, r.mt5_server
+       FROM trading_submissions s
+       JOIN trading_registrations r ON s.registration_id = r.id
+       WHERE s.challenge_id = $1 AND (
+         r.username ILIKE $2 OR
+         r.email ILIKE $2 OR
+         r.account_number = $3 OR
+         r.telegram_id::text = $3
+       )`,
+      [challengeId, '%' + term + '%', term]
+    );
+    return result.rows;
+  }
+
+  async updateSubmissionResubmit(submissionId: number, data: {
+    investor_password: string;
+    final_balance: number;
+    original_account_number: string;
+    new_account_number: string;
+    mt5_server: string;
+  }): Promise<void> {
+    const accountChanged = data.original_account_number !== data.new_account_number;
+    await db.query(
+      `UPDATE trading_submissions SET
+        investor_password = $1,
+        final_balance = $2,
+        is_resubmission = true,
+        resubmitted_at = NOW(),
+        account_changed = $3,
+        original_account_number = $4
+       WHERE id = $5`,
+      [data.investor_password, data.final_balance, accountChanged, data.original_account_number, submissionId]
+    );
+    // Also update the registration account number and server if changed
+    if (accountChanged) {
+      const sub = await db.query('SELECT registration_id FROM trading_submissions WHERE id = $1', [submissionId]);
+      if (sub.rows[0]) {
+        await db.query(
+          'UPDATE trading_registrations SET account_number = $1, mt5_server = $2, updated_at = NOW() WHERE id = $3',
+          [data.new_account_number, data.mt5_server, sub.rows[0].registration_id]
+        );
+      }
+    } else {
+      // Just update server
+      const sub = await db.query('SELECT registration_id FROM trading_submissions WHERE id = $1', [submissionId]);
+      if (sub.rows[0]) {
+        await db.query(
+          'UPDATE trading_registrations SET mt5_server = $1, updated_at = NOW() WHERE id = $2',
+          [data.mt5_server, sub.rows[0].registration_id]
+        );
+      }
+    }
+  }
 }
 
 export const evaluationService = new EvaluationService();

@@ -76,6 +76,11 @@ async function migrate() {
       await db.query(`CREATE INDEX IF NOT EXISTS idx_te_challenge ON trading_evaluations(challenge_id);`).catch(() => {});
       await db.query(`CREATE INDEX IF NOT EXISTS idx_te_account ON trading_evaluations(account_number);`).catch(() => {});
       await db.query(`CREATE INDEX IF NOT EXISTS idx_te_qualified ON trading_evaluations(challenge_id, is_qualified);`).catch(() => {});
+      // Resubmission columns on submissions table
+      await db.query(`ALTER TABLE trading_submissions ADD COLUMN IF NOT EXISTS is_resubmission BOOLEAN DEFAULT false;`).catch(() => {});
+      await db.query(`ALTER TABLE trading_submissions ADD COLUMN IF NOT EXISTS resubmitted_at TIMESTAMP;`).catch(() => {});
+      await db.query(`ALTER TABLE trading_submissions ADD COLUMN IF NOT EXISTS account_changed BOOLEAN DEFAULT false;`).catch(() => {});
+      await db.query(`ALTER TABLE trading_submissions ADD COLUMN IF NOT EXISTS original_account_number VARCHAR(50);`).catch(() => {});
       console.log('✅ Trading schema migrations OK');
     } catch (err: any) {
       if (err.code === 'ENOENT') {

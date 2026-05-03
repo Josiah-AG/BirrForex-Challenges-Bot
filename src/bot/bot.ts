@@ -88,6 +88,7 @@ export class Bot {
       { command: 'findevaluation', description: 'Search evaluation by user/account' },
       { command: 'deleteevaluation', description: 'Delete an evaluation' },
       { command: 'missingevaluation', description: 'Show unevaluated submissions CSV' },
+      { command: 'askforresubmission', description: 'Ask user to resubmit account details' },
     ], {
       scope: { type: 'chat', chat_id: parseInt(config.adminUserId) }
     });
@@ -165,6 +166,14 @@ export class Bot {
             const challengeId = parseInt(startParam.replace('tc_late_retry_', ''));
             const { tradingRegistrationHandler } = require('./tradingRegistrationHandler');
             await tradingRegistrationHandler.startLateRetry(ctx, challengeId);
+            return;
+          }
+
+          // Handle resubmission deep link
+          if (startParam.startsWith('tc_resubmit_')) {
+            const submissionId = parseInt(startParam.replace('tc_resubmit_', ''));
+            const { tradingRegistrationHandler } = require('./tradingRegistrationHandler');
+            await tradingRegistrationHandler.startResubmission(ctx, submissionId);
             return;
           }
 
@@ -246,6 +255,7 @@ export class Bot {
     this.bot.command('findevaluation', (ctx) => evaluationHandler.findevaluation(ctx));
     this.bot.command('deleteevaluation', (ctx) => evaluationHandler.deleteevaluation(ctx));
     this.bot.command('missingevaluation', (ctx) => evaluationHandler.missingevaluation(ctx));
+    this.bot.command('askforresubmission', (ctx) => evaluationHandler.askforresubmission(ctx));
 
     // User commands
     this.bot.command('mystats', (ctx) => this.showMyStats(ctx));
