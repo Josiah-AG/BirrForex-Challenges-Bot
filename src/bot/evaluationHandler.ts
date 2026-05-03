@@ -677,23 +677,33 @@ class EvaluationHandler {
         });
       }
 
-      // Common violations
+      // Common violations among evaluated accounts
       const violationCounts: Record<string, number> = {};
+      let totalDrawdownBreaches = 0;
+      let totalActiveDays = 0;
+      let evalWithFlaggedDetails = 0;
+
       evaluations.forEach(e => {
+        // Count active days
+        totalActiveDays += (e.total_trades > 0 ? Math.min(Number(e.total_trades), 10) : 0); // approximate from flagged_details
+
         if (e.flagged_details && Array.isArray(e.flagged_details)) {
+          evalWithFlaggedDetails++;
+          const seenTypes = new Set<string>();
           e.flagged_details.forEach((f: any) => {
             if (f.reasons) {
               f.reasons.forEach((r: string) => {
-                // Group violations by type, keeping them readable
                 let key = r;
-                // Generalize SL dollar amounts: "SL too wide: $6.32" → "SL too wide"
                 key = key.replace(/SL too wide: \$[\d.]+/, 'SL too wide');
-                // Generalize lot sizes: "Lot size 0.05 > 0.02" → "Lot size exceeded"
                 key = key.replace(/Lot size [\d.]+ > [\d.]+/, 'Lot size exceeded');
-                // Generalize hold times: "Held 25.3h > 24h" → "Held > 24h"
                 key = key.replace(/Held [\d.]+h > (\d+)h/, 'Held > $1h');
-                // Generalize drawdown dates: keep the date
-                key = key.replace(/Profit after daily \$[\d.]+ drawdown/, 'Profit after daily drawdown');
+                // Merge all daily drawdown into one
+                if (key.includes('Profit after daily')) {
+                  key = 'Daily drawdown breach';
+                  if (!seenTypes.has('dd_' + f.openTime?.substring(0, 10))) {
+                    seenTypes.add('dd_' + f.openTime?.substring(0, 10));
+                  }
+                }
                 violationCounts[key] = (violationCounts[key] || 0) + 1;
               });
             }
@@ -701,13 +711,35 @@ class EvaluationHandler {
         }
       });
 
+      // Count drawdown breaches and active days from full_report text
+      let totalDDBreach = 0;
+      let totalActiveD = 0;
+      let acctCount = 0;
+      evaluations.forEach(e => {
+        acctCount++;
+        const report = e.full_report || '';
+        // Extract active days from report: "Active Days           8/7"
+        const adMatch = report.match(/Active Days\s+(\d+)/);
+        if (adMatch) totalActiveD += parseInt(adMatch[1]);
+        // Count drawdown breach days from report
+        const ddMatches = report.match(/❌.*DD=\$/g);
+        if (ddMatches) totalDDBreach += ddMatches.length;
+      });
+
+      const avgActiveDays = acctCount > 0 ? (totalActiveD / acctCount).toFixed(1) : '0';
+      const avgDDBreach = acctCount > 0 ? (totalDDBreach / acctCount).toFixed(1) : '0';
+
       const sortedViolations = Object.entries(violationCounts).sort((a, b) => b[1] - a[1]);
       if (sortedViolations.length > 0) {
-        text += `\n⚠️ <b>Common Violations:</b>\n`;
+        text += '\n⚠️ <b>Common Violations Among Evaluated Accounts:</b>\n';
         sortedViolations.slice(0, 10).forEach(([reason, count]) => {
-          text += `  • ${reason}: ${count} trades\n`;
+          text += '  • ' + reason + ': ' + count + ' trades\n';
         });
       }
+
+      text += '\n📊 <b>Averages:</b>\n';
+      text += '  📅 Average Active Trading Days: ' + avgActiveDays + '/10\n';
+      text += '  📉 Average Daily Drawdown Breaches: ' + avgDDBreach + '/10\n';
 
       const parts = this.splitMessage(text);
       for (const part of parts) {
