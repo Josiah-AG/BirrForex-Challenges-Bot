@@ -168,27 +168,28 @@ export function evaluateAccount(
     return isInPeriod(open) || isInPeriod(close);
   });
 
-  // Step 2: Starting balance — the balance just before the challenge starts
-  // Sum all balance deals (deposits/withdrawals) before the challenge start
+  // Step 2: Starting balance — use the running balance from the last deal before challenge starts
   const allBalanceDeals = deals.filter(d => d.dealType === 'balance' || (d.symbol === '' && d.direction === ''));
   let startingBalance = 0;
-  for (const d of allBalanceDeals) {
-    const dealTime = parseTime(d.time);
-    if (dealTime < challengeStart) {
-      startingBalance += d.profit; // deposits are positive, withdrawals are negative
+  
+  // Find the last deal (any type) before the challenge start and use its running balance
+  for (let i = deals.length - 1; i >= 0; i--) {
+    const dealTime = parseTime(deals[i].time);
+    if (dealTime < challengeStart && deals[i].balance > 0) {
+      startingBalance = deals[i].balance;
+      break;
     }
   }
-  // If no balance deals before challenge start, check the first deal's running balance
+  
+  // Fallback: if no deals before challenge start, use the first deal's balance
   if (startingBalance === 0 && deals.length > 0) {
-    // Find the balance at the start of the challenge from the deals section
-    for (const d of deals) {
-      if (d.dealType === 'balance' || (d.symbol === '' && d.direction === '')) {
-        startingBalance += d.profit;
-      }
-      const dealTime = parseTime(d.time);
-      if (dealTime >= challengeStart) break;
+    // The first balance deal is the initial deposit
+    const firstBalanceDeal = deals.find(d => d.dealType === 'balance' || (d.symbol === '' && d.direction === ''));
+    if (firstBalanceDeal) {
+      startingBalance = firstBalanceDeal.balance;
     }
   }
+  
   const startingBalanceOk = startingBalance <= config.startingBalanceLimit;
 
   // Step 3: Recharging — check for actual deposits DURING the challenge period
