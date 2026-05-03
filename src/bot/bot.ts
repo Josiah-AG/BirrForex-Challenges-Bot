@@ -87,6 +87,7 @@ export class Bot {
       { command: 'exportrank', description: 'Export rankings CSV (real + demo)' },
       { command: 'findevaluation', description: 'Search evaluation by user/account' },
       { command: 'deleteevaluation', description: 'Delete an evaluation' },
+      { command: 'missingevaluation', description: 'Show unevaluated submissions CSV' },
     ], {
       scope: { type: 'chat', chat_id: parseInt(config.adminUserId) }
     });
@@ -244,6 +245,7 @@ export class Bot {
     this.bot.command('exportrank', (ctx) => evaluationHandler.exportrank(ctx));
     this.bot.command('findevaluation', (ctx) => evaluationHandler.findevaluation(ctx));
     this.bot.command('deleteevaluation', (ctx) => evaluationHandler.deleteevaluation(ctx));
+    this.bot.command('missingevaluation', (ctx) => evaluationHandler.missingevaluation(ctx));
 
     // User commands
     this.bot.command('mystats', (ctx) => this.showMyStats(ctx));

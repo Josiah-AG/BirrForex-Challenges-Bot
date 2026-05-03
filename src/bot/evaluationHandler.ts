@@ -1169,6 +1169,51 @@ class EvaluationHandler {
     }
   }
 
+  // ── /missingevaluation ──
+
+  async missingevaluation(ctx: Context): Promise<void> {
+    try {
+      if (ctx.from!.id.toString() !== config.adminUserId) { await ctx.reply('❌ Not authorized.'); return; }
+
+      const challenges = await tradingChallengeService.getActiveChallenges();
+      let challenge = challenges[0] || null;
+      if (!challenge) { const all = await tradingChallengeService.getAllChallenges(); challenge = all[0] || null; }
+      if (!challenge) { await ctx.reply('❌ No challenge found.'); return; }
+
+      const unevaluated = await evaluationService.getUnevaluatedSubmissions(challenge.id);
+
+      if (unevaluated.length === 0) {
+        await ctx.reply('✅ All submissions have been evaluated!');
+        return;
+      }
+
+      await ctx.reply('⚠️ <b>' + unevaluated.length + ' submissions not yet evaluated</b>', { parse_mode: 'HTML' });
+
+      const header = 'No,Username,Email,Telegram ID,Account Number,Account Type,Reported Balance,Submitted At\n';
+      const rows = unevaluated.map((s: any, i: number) => {
+        return (i + 1) + ',' +
+          '@' + (s.username || 'unknown') + ',' +
+          (s.email || '') + ',' +
+          s.telegram_id + ',' +
+          s.account_number + ',' +
+          s.account_type + ',' +
+          Number(s.final_balance).toFixed(2) + ',' +
+          new Date(s.submitted_at).toISOString().slice(0, 19) + '\n';
+      }).join('');
+
+      const csv = header + rows;
+      const prefix = challenge.title.replace(/\s+/g, '_');
+
+      await (ctx as any).telegram.sendDocument(ctx.from!.id, {
+        source: Buffer.from(csv),
+        filename: prefix + '_Missing_Evaluations.csv',
+      }, { caption: '📋 ' + unevaluated.length + ' submissions pending evaluation\nSorted by reported balance (highest first)' });
+    } catch (error) {
+      console.error('Error in missingevaluation:', error);
+      await ctx.reply('❌ Error fetching missing evaluations.');
+    }
+  }
+
   // ── /testannounce ──
 
   async testannounce(ctx: Context): Promise<void> {
