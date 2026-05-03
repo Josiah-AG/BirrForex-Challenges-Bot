@@ -718,12 +718,12 @@ class EvaluationHandler {
       evaluations.forEach(e => {
         acctCount++;
         const report = e.full_report || '';
-        // Extract active days from report: "Active Days           8/7"
+        // Extract active days: "Active Days           8/7" or "Active Days           10/7"
         const adMatch = report.match(/Active Days\s+(\d+)/);
         if (adMatch) totalActiveD += parseInt(adMatch[1]);
-        // Count drawdown breach days from report
-        const ddMatches = report.match(/❌.*DD=\$/g);
-        if (ddMatches) totalDDBreach += ddMatches.length;
+        // Count drawdown breaches: "X days breached" in the report
+        const ddMatch = report.match(/(\d+) days breached/);
+        if (ddMatch) totalDDBreach += parseInt(ddMatch[1]);
       });
 
       const avgActiveDays = acctCount > 0 ? (totalActiveD / acctCount).toFixed(1) : '0';
