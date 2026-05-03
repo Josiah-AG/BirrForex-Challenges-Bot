@@ -218,11 +218,13 @@ export function evaluateAccount(
   const day1Deposits = depositsInChallenge.filter(d => parseTime(d.time) <= challengeDay1End);
   const laterDeposits = depositsInChallenge.filter(d => parseTime(d.time) > challengeDay1End);
 
-  // Day-1 deposits are OK if total balance after them doesn't exceed the limit
-  // Check the balance after all day-1 deposits
+  // Day-1 deposits: use the actual running balance after the last day-1 deposit
+  // This is the real starting balance for the challenge
   let balanceAfterDay1Deposits = startingBalance;
-  for (const d of day1Deposits) {
-    balanceAfterDay1Deposits += d.profit;
+  if (day1Deposits.length > 0) {
+    // Use the balance column from the last day-1 deposit deal (actual running balance)
+    const lastDay1Deposit = day1Deposits[day1Deposits.length - 1];
+    balanceAfterDay1Deposits = lastDay1Deposit.balance;
   }
   const day1DepositsOk = balanceAfterDay1Deposits <= config.startingBalanceLimit;
 
