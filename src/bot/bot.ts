@@ -4,6 +4,7 @@ import { quizHandler } from './quizHandler';
 import { adminHandler, adminSessions } from './adminHandler';
 import { tradingAdminHandler, tradingAdminSessions } from './tradingAdminHandler';
 import { evaluationHandler } from './evaluationHandler';
+import { evaluationService } from '../services/evaluationService';
 import { userService } from '../services/userService';
 import { challengeService } from '../services/challengeService';
 import { participantService } from '../services/participantService';
@@ -82,6 +83,10 @@ export class Bot {
       { command: 'testannounce', description: 'Preview announcement (test only)' },
       { command: 'cleartest', description: 'Clear test evaluation data' },
       { command: 'preannouncementnotice', description: 'Send evaluation results to users (48hr review)' },
+      { command: 'showwinner', description: 'Show winners with reports' },
+      { command: 'exportrank', description: 'Export rankings CSV (real + demo)' },
+      { command: 'findevaluation', description: 'Search evaluation by user/account' },
+      { command: 'deleteevaluation', description: 'Delete an evaluation' },
     ], {
       scope: { type: 'chat', chat_id: parseInt(config.adminUserId) }
     });
@@ -235,6 +240,10 @@ export class Bot {
     this.bot.command('testannounce', (ctx) => evaluationHandler.testannounce(ctx));
     this.bot.command('cleartest', (ctx) => evaluationHandler.cleartest(ctx));
     this.bot.command('preannouncementnotice', (ctx) => evaluationHandler.preannouncementnotice(ctx));
+    this.bot.command('showwinner', (ctx) => evaluationHandler.showwinner(ctx));
+    this.bot.command('exportrank', (ctx) => evaluationHandler.exportrank(ctx));
+    this.bot.command('findevaluation', (ctx) => evaluationHandler.findevaluation(ctx));
+    this.bot.command('deleteevaluation', (ctx) => evaluationHandler.deleteevaluation(ctx));
 
     // User commands
     this.bot.command('mystats', (ctx) => this.showMyStats(ctx));
@@ -260,6 +269,24 @@ export class Bot {
           if (data === 'eval_announce_cancel') {
             await ctx.answerCbQuery('Cancelled');
             await ctx.reply('❌ Announcement cancelled.');
+            return;
+          }
+          if (data.startsWith('eval_delete_confirm_')) {
+            const evalId = parseInt(data.replace('eval_delete_confirm_', ''));
+            await ctx.answerCbQuery();
+            const deleted = await evaluationService.deleteEvaluation(evalId);
+            if (deleted) {
+              await ctx.reply('✅ Evaluation deleted.');
+            } else {
+              await ctx.reply('❌ Evaluation not found or already deleted.');
+            }
+            evaluationHandler.clearSession(ctx.from!.id);
+            return;
+          }
+          if (data === 'eval_delete_cancel') {
+            await ctx.answerCbQuery('Cancelled');
+            await ctx.reply('❌ Delete cancelled.');
+            evaluationHandler.clearSession(ctx.from!.id);
             return;
           }
         }
@@ -590,6 +617,12 @@ export class Bot {
     // Text message handler (for admin input)
     this.bot.on('text', async (ctx) => {
       const telegramId = ctx.from.id;
+
+      // Check if admin has active evaluation session (find/delete)
+      if (isAdmin(telegramId) && evaluationHandler.hasActiveSession(telegramId)) {
+        await evaluationHandler.handleTextForEval(ctx, ctx.message.text);
+        return;
+      }
       
       // Check if admin has active trading challenge session
       if (isAdmin(telegramId) && tradingAdminHandler.hasActiveSession(telegramId)) {

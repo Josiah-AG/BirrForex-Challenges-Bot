@@ -243,6 +243,35 @@ class EvaluationService {
     }
     return result.rowCount || 0;
   }
+
+  // Search evaluation by username, telegram_id, email, or account_number
+  async searchEvaluation(challengeId: number, searchTerm: string): Promise<EvaluationRecord[]> {
+    const term = searchTerm.replace(/^@/, '').trim();
+    const result = await db.query(
+      `SELECT * FROM trading_evaluations 
+       WHERE challenge_id = $1 AND (
+         username ILIKE $2 OR 
+         email ILIKE $2 OR 
+         account_number = $3 OR 
+         telegram_id::text = $3
+       ) ORDER BY adjusted_balance DESC`,
+      [challengeId, '%' + term + '%', term]
+    );
+    return result.rows;
+  }
+
+  async deleteEvaluation(id: number): Promise<boolean> {
+    const result = await db.query('DELETE FROM trading_evaluations WHERE id = $1', [id]);
+    return (result.rowCount || 0) > 0;
+  }
+
+  async getRankedEvaluations(challengeId: number, accountType: string): Promise<EvaluationRecord[]> {
+    const result = await db.query(
+      'SELECT * FROM trading_evaluations WHERE challenge_id = $1 AND account_type = $2 ORDER BY adjusted_balance DESC',
+      [challengeId, accountType]
+    );
+    return result.rows;
+  }
 }
 
 export const evaluationService = new EvaluationService();

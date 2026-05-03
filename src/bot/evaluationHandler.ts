@@ -21,6 +21,10 @@ class EvaluationHandler {
     return this.evalSessions.has(telegramId);
   }
 
+  clearSession(telegramId: number): void {
+    this.evalSessions.delete(telegramId);
+  }
+
   // ── /evaluate ──
 
   async evaluate(ctx: Context): Promise<void> {
@@ -295,6 +299,96 @@ class EvaluationHandler {
       console.error('Error in handleDocument:', error);
       await ctx.reply('❌ Error processing file: ' + (error as Error).message);
       this.evalSessions.delete(ctx.from!.id);
+    }
+  }
+
+  // ── Handle text input for find/delete eval sessions ──
+
+  async handleTextForEval(ctx: Context, text: string): Promise<void> {
+    const session = this.evalSessions.get(ctx.from!.id);
+    if (!session) return;
+
+    if (session.step === 'find_eval_search') {
+      this.evalSessions.delete(ctx.from!.id);
+      try {
+        const results = await evaluationService.searchEvaluation(session.challengeId, text);
+        if (results.length === 0) {
+          await ctx.reply('❌ No evaluation found for "' + text + '"');
+          return;
+        }
+
+        const botInfo = await (ctx as any).telegram.getMe();
+        for (const evaluation of results) {
+          const category = evaluation.account_type === 'real' ? 'Real' : 'Demo';
+          let caption = '📋 <b>Evaluation Found</b>\n\n';
+          caption += '👤 @' + (evaluation.username || 'unknown') + '\n';
+          caption += '🆔 TG: ' + evaluation.telegram_id + '\n';
+          caption += '📧 ' + (evaluation.email || 'N/A') + '\n';
+          caption += '📁 <b>' + category + '</b> | Account: <b>' + evaluation.account_number + '</b>\n\n';
+          if (evaluation.is_disqualified) {
+            caption += '🚫 <b>DISQUALIFIED</b>\n📛 ' + (evaluation.disqualify_reason || 'Rule violation') + '\n';
+          } else {
+            caption += '💰 Adjusted: <b>$' + Number(evaluation.adjusted_balance).toFixed(2) + '</b>\n';
+            caption += '💰 Reported: $' + Number(evaluation.reported_balance).toFixed(2) + '\n';
+            caption += '📈 Trades: ' + evaluation.total_trades + ' | Flagged: ' + evaluation.flagged_count + '\n';
+            caption += (evaluation.is_qualified ? '✅ QUALIFIES' : '❌ Below Target') + '\n';
+          }
+
+          await (ctx as any).telegram.sendDocument(ctx.from!.id, evaluation.file_id, {
+            caption: caption,
+            parse_mode: 'HTML',
+            ...Markup.inlineKeyboard([[Markup.button.url('📊 Show Detail Report', 'https://t.me/' + botInfo.username + '?start=eval_report_' + evaluation.id)]]),
+          });
+        }
+        await ctx.reply('Found ' + results.length + ' evaluation(s).');
+      } catch (error) {
+        console.error('Error searching evaluation:', error);
+        await ctx.reply('❌ Error searching.');
+      }
+    }
+
+    if (session.step === 'delete_eval_search') {
+      try {
+        const results = await evaluationService.searchEvaluation(session.challengeId, text);
+        if (results.length === 0) {
+          await ctx.reply('❌ No evaluation found for "' + text + '"');
+          this.evalSessions.delete(ctx.from!.id);
+          return;
+        }
+
+        if (results.length > 1) {
+          let msg = '⚠️ Multiple evaluations found. Be more specific:\n\n';
+          results.forEach((e, i) => {
+            msg += (i + 1) + '. @' + (e.username || 'unknown') + ' | ' + e.account_number + ' (' + e.account_type + ') | $' + Number(e.adjusted_balance).toFixed(2) + '\n';
+          });
+          await ctx.reply(msg);
+          return;
+        }
+
+        const evaluation = results[0];
+        session.step = 'delete_eval_confirm';
+        (session as any).deleteEvalId = evaluation.id;
+
+        await ctx.reply(
+          '🗑️ <b>Delete this evaluation?</b>\n\n' +
+          '👤 @' + (evaluation.username || 'unknown') + '\n' +
+          '📅 Account: ' + evaluation.account_number + ' (' + evaluation.account_type + ')\n' +
+          '💰 Adjusted: $' + Number(evaluation.adjusted_balance).toFixed(2) + '\n' +
+          '📈 Trades: ' + evaluation.total_trades + '\n\n' +
+          '<b>This cannot be undone.</b>',
+          {
+            parse_mode: 'HTML',
+            ...Markup.inlineKeyboard([
+              [Markup.button.callback('✅ Yes, Delete', 'eval_delete_confirm_' + evaluation.id)],
+              [Markup.button.callback('❌ Cancel', 'eval_delete_cancel')],
+            ]),
+          }
+        );
+      } catch (error) {
+        console.error('Error in delete search:', error);
+        await ctx.reply('❌ Error searching.');
+        this.evalSessions.delete(ctx.from!.id);
+      }
     }
   }
 
@@ -836,6 +930,176 @@ class EvaluationHandler {
     } catch (error) {
       console.error('Error in preannouncementnotice:', error);
       await ctx.reply('❌ Error sending pre-announcement notices.');
+    }
+  }
+
+  // ── /showwinner ──
+
+  async showwinner(ctx: Context): Promise<void> {
+    try {
+      if (ctx.from!.id.toString() !== config.adminUserId) { await ctx.reply('❌ Not authorized.'); return; }
+
+      const challenges = await tradingChallengeService.getActiveChallenges();
+      let challenge = challenges[0] || null;
+      if (!challenge) { const all = await tradingChallengeService.getAllChallenges(); challenge = all[0] || null; }
+      if (!challenge) { await ctx.reply('❌ No challenge found.'); return; }
+
+      const realCount = challenge.real_winners_count || 0;
+      const demoCount = challenge.demo_winners_count || 0;
+      const realWinners = realCount > 0 ? await evaluationService.getTopWinners(challenge.id, 'real', realCount) : [];
+      const demoWinners = demoCount > 0 ? await evaluationService.getTopWinners(challenge.id, 'demo', demoCount) : [];
+
+      if (realWinners.length === 0 && demoWinners.length === 0) { await ctx.reply('❌ No qualified winners found.'); return; }
+
+      const realPrizes = typeof challenge.real_prizes === 'string' ? JSON.parse(challenge.real_prizes) : (challenge.real_prizes || []);
+      const demoPrizes = typeof challenge.demo_prizes === 'string' ? JSON.parse(challenge.demo_prizes) : (challenge.demo_prizes || []);
+      const botInfo = await (ctx as any).telegram.getMe();
+      const adminId = ctx.from!.id;
+
+      if (realWinners.length > 0) {
+        await ctx.telegram.sendMessage(adminId, '📱 <b>REAL ACCOUNT WINNERS</b>', { parse_mode: 'HTML' });
+        for (const winner of realWinners) {
+          const idx = realWinners.indexOf(winner);
+          const prize = realPrizes[idx] ? String(realPrizes[idx]) : '';
+          await ctx.telegram.sendDocument(adminId, winner.file_id, {
+            caption: this.buildWinnerCaption(winner, idx + 1, 'Real', prize),
+            parse_mode: 'HTML',
+            ...Markup.inlineKeyboard([[Markup.button.url('📊 Show Detail Report', 'https://t.me/' + botInfo.username + '?start=eval_report_' + winner.id)]]),
+          });
+        }
+      }
+
+      if (demoWinners.length > 0) {
+        await ctx.telegram.sendMessage(adminId, '🎮 <b>DEMO ACCOUNT WINNERS</b>', { parse_mode: 'HTML' });
+        for (const winner of demoWinners) {
+          const idx = demoWinners.indexOf(winner);
+          const prize = demoPrizes[idx] ? '$' + String(demoPrizes[idx]) : '';
+          await ctx.telegram.sendDocument(adminId, winner.file_id, {
+            caption: this.buildWinnerCaption(winner, idx + 1, 'Demo', prize),
+            parse_mode: 'HTML',
+            ...Markup.inlineKeyboard([[Markup.button.url('📊 Show Detail Report', 'https://t.me/' + botInfo.username + '?start=eval_report_' + winner.id)]]),
+          });
+        }
+      }
+
+      await ctx.reply('✅ Showing ' + (realWinners.length + demoWinners.length) + ' winners.');
+    } catch (error) {
+      console.error('Error in showwinner:', error);
+      await ctx.reply('❌ Error showing winners.');
+    }
+  }
+
+  // ── /exportrank ──
+
+  async exportrank(ctx: Context): Promise<void> {
+    try {
+      if (ctx.from!.id.toString() !== config.adminUserId) { await ctx.reply('❌ Not authorized.'); return; }
+
+      const challenges = await tradingChallengeService.getActiveChallenges();
+      let challenge = challenges[0] || null;
+      if (!challenge) { const all = await tradingChallengeService.getAllChallenges(); challenge = all[0] || null; }
+      if (!challenge) { await ctx.reply('❌ No challenge found.'); return; }
+
+      const header = 'Rank,Username,Email,Telegram ID,Account Number,Account Type,Reported Balance,Adjusted Balance,Profit Removed,Total Trades,Flagged Trades,Qualified,Disqualified,Disqualify Reason\n';
+
+      const toRow = (e: any, rank: number) => {
+        return rank + ',' +
+          '@' + (e.username || 'unknown') + ',' +
+          (e.email || '') + ',' +
+          e.telegram_id + ',' +
+          e.account_number + ',' +
+          e.account_type + ',' +
+          Number(e.reported_balance).toFixed(2) + ',' +
+          Number(e.adjusted_balance).toFixed(2) + ',' +
+          Number(e.profit_removed).toFixed(2) + ',' +
+          e.total_trades + ',' +
+          e.flagged_count + ',' +
+          (e.is_qualified ? 'Yes' : 'No') + ',' +
+          (e.is_disqualified ? 'Yes' : 'No') + ',' +
+          '"' + (e.disqualify_reason || '') + '"\n';
+      };
+
+      const realEvals = await evaluationService.getRankedEvaluations(challenge.id, 'real');
+      const demoEvals = await evaluationService.getRankedEvaluations(challenge.id, 'demo');
+
+      const prefix = challenge.title.replace(/\s+/g, '_');
+
+      if (realEvals.length > 0) {
+        const csv = header + realEvals.map((e, i) => toRow(e, i + 1)).join('');
+        await (ctx as any).telegram.sendDocument(ctx.from!.id, {
+          source: Buffer.from(csv),
+          filename: prefix + '_Real_Rankings.csv',
+        }, { caption: '📱 Real Account Rankings — ' + realEvals.length + ' evaluations' });
+      }
+
+      if (demoEvals.length > 0) {
+        const csv = header + demoEvals.map((e, i) => toRow(e, i + 1)).join('');
+        await (ctx as any).telegram.sendDocument(ctx.from!.id, {
+          source: Buffer.from(csv),
+          filename: prefix + '_Demo_Rankings.csv',
+        }, { caption: '🎮 Demo Account Rankings — ' + demoEvals.length + ' evaluations' });
+      }
+
+      if (realEvals.length === 0 && demoEvals.length === 0) {
+        await ctx.reply('❌ No evaluations found.');
+      } else {
+        await ctx.reply('✅ Exported ' + realEvals.length + ' real + ' + demoEvals.length + ' demo evaluations.');
+      }
+    } catch (error) {
+      console.error('Error in exportrank:', error);
+      await ctx.reply('❌ Error exporting rankings.');
+    }
+  }
+
+  // ── /findevaluation ──
+
+  async findevaluation(ctx: Context): Promise<void> {
+    try {
+      if (ctx.from!.id.toString() !== config.adminUserId) { await ctx.reply('❌ Not authorized.'); return; }
+
+      const challenges = await tradingChallengeService.getActiveChallenges();
+      let challenge = challenges[0] || null;
+      if (!challenge) { const all = await tradingChallengeService.getAllChallenges(); challenge = all[0] || null; }
+      if (!challenge) { await ctx.reply('❌ No challenge found.'); return; }
+
+      this.evalSessions.set(ctx.from!.id, {
+        step: 'find_eval_search',
+        challengeId: challenge.id,
+        challenge,
+        isTest: false,
+        isReevaluate: false,
+      });
+
+      await ctx.reply('🔍 Enter username, Telegram ID, email, or account number to search:', { parse_mode: 'HTML' });
+    } catch (error) {
+      console.error('Error in findevaluation:', error);
+      await ctx.reply('❌ Error starting search.');
+    }
+  }
+
+  // ── /deleteevaluation ──
+
+  async deleteevaluation(ctx: Context): Promise<void> {
+    try {
+      if (ctx.from!.id.toString() !== config.adminUserId) { await ctx.reply('❌ Not authorized.'); return; }
+
+      const challenges = await tradingChallengeService.getActiveChallenges();
+      let challenge = challenges[0] || null;
+      if (!challenge) { const all = await tradingChallengeService.getAllChallenges(); challenge = all[0] || null; }
+      if (!challenge) { await ctx.reply('❌ No challenge found.'); return; }
+
+      this.evalSessions.set(ctx.from!.id, {
+        step: 'delete_eval_search',
+        challengeId: challenge.id,
+        challenge,
+        isTest: false,
+        isReevaluate: false,
+      });
+
+      await ctx.reply('🗑️ Enter username, Telegram ID, email, or account number to find and delete:', { parse_mode: 'HTML' });
+    } catch (error) {
+      console.error('Error in deleteevaluation:', error);
+      await ctx.reply('❌ Error starting delete search.');
     }
   }
 
