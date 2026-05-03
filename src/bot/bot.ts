@@ -853,8 +853,8 @@ export class Bot {
     this.bot.on('document', async (ctx) => {
       const telegramId = ctx.from.id;
 
-      // Check if admin has active evaluation session
-      if (isAdmin(telegramId) && evaluationHandler.hasActiveSession(telegramId)) {
+      // Check if admin has active evaluation file session
+      if (isAdmin(telegramId) && evaluationHandler.hasActiveFileSession(telegramId)) {
         const doc = ctx.message.document;
         await evaluationHandler.handleDocument(ctx, doc.file_id, doc.file_name || 'unknown.xlsx');
         return;

@@ -22,7 +22,17 @@ class EvaluationHandler {
   private evalSessions = new Map<number, EvalSession>();
 
   hasActiveSession(telegramId: number): boolean {
-    return this.evalSessions.has(telegramId);
+    const session = this.evalSessions.get(telegramId);
+    if (!session) return false;
+    // Only intercept text for steps that need text input
+    const textSteps = ['find_eval_search', 'delete_eval_search', 'resubmit_search', 'obo_dq_reason', 'obo_dq_confirm'];
+    return textSteps.includes(session.step);
+  }
+
+  hasActiveFileSession(telegramId: number): boolean {
+    const session = this.evalSessions.get(telegramId);
+    if (!session) return false;
+    return session.step === 'awaiting_file';
   }
 
   clearSession(telegramId: number): void {
