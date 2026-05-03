@@ -91,6 +91,7 @@ export class Bot {
       { command: 'deleteevaluation', description: 'Delete an evaluation' },
       { command: 'missingevaluation', description: 'Show unevaluated submissions CSV' },
       { command: 'askforresubmission', description: 'Ask user to resubmit account details' },
+      { command: 'pendingresubmissions', description: 'Show users who haven\'t resubmitted yet' },
       { command: 'evaluateonebyone', description: 'Evaluate submissions one by one' },
     ], {
       scope: { type: 'chat', chat_id: parseInt(config.adminUserId) }
@@ -259,6 +260,7 @@ export class Bot {
     this.bot.command('deleteevaluation', (ctx) => evaluationHandler.deleteevaluation(ctx));
     this.bot.command('missingevaluation', (ctx) => evaluationHandler.missingevaluation(ctx));
     this.bot.command('askforresubmission', (ctx) => evaluationHandler.askforresubmission(ctx));
+    this.bot.command('pendingresubmissions', (ctx) => evaluationHandler.pendingresubmissions(ctx));
     this.bot.command('evaluateonebyone', (ctx) => evaluationHandler.evaluateonebyone(ctx));
 
     // User commands
@@ -435,6 +437,63 @@ export class Bot {
               (dqSession as any).dqUsername = dqUsername;
             }
             await ctx.reply('🚫 Enter the reason for disqualification:');
+            return;
+          }
+          if (data.startsWith('eval_final_warn_all_')) {
+            await ctx.answerCbQuery();
+            const chId = parseInt(data.replace('eval_final_warn_all_', ''));
+            const pending = await evaluationService.getPendingResubmissions(chId);
+            const challenge = await tradingChallengeService.getChallengeById(chId);
+            const botInfo = await ctx.telegram.getMe();
+            let sent = 0;
+            for (const sub of pending) {
+              try {
+                await ctx.telegram.sendMessage(
+                  sub.telegram_id,
+                  '⚠️ <b>Final Notice — ' + (challenge?.title || 'Challenge') + '</b>\n\n' +
+                  'We previously asked you to resubmit your account details but <b>haven\'t received them yet</b>.\n\n' +
+                  'Please submit your details now using the button below.\n\n' +
+                  '⏰ <b>If we don\'t receive your details, your account will not be evaluated and you will not be eligible for any rewards.</b>',
+                  {
+                    parse_mode: 'HTML',
+                    ...Markup.inlineKeyboard([
+                      [Markup.button.url('🔄 Resubmit Now', 'https://t.me/' + botInfo.username + '?start=tc_resubmit_' + sub.id)],
+                    ]),
+                  }
+                );
+                sent++;
+                await new Promise(r => setTimeout(r, 2000));
+              } catch (e) { console.error('Error warning user ' + sub.telegram_id, e); }
+            }
+            await ctx.reply('✅ Final warning sent to ' + sent + '/' + pending.length + ' users.');
+            return;
+          }
+          if (data.startsWith('eval_final_warn_')) {
+            await ctx.answerCbQuery();
+            const parts = data.replace('eval_final_warn_', '').split('_');
+            const subId = parseInt(parts[0]);
+            const userTgId = parseInt(parts[1]);
+            const challenges2 = await tradingChallengeService.getActiveChallenges();
+            const challenge2 = challenges2[0] || (await tradingChallengeService.getAllChallenges())[0];
+            const botInfo = await ctx.telegram.getMe();
+            try {
+              await ctx.telegram.sendMessage(
+                userTgId,
+                '⚠️ <b>Final Notice — ' + (challenge2?.title || 'Challenge') + '</b>\n\n' +
+                'We previously asked you to resubmit your account details but <b>haven\'t received them yet</b>.\n\n' +
+                'Please submit your details now using the button below.\n\n' +
+                '⏰ <b>If we don\'t receive your details, your account will not be evaluated and you will not be eligible for any rewards.</b>',
+                {
+                  parse_mode: 'HTML',
+                  ...Markup.inlineKeyboard([
+                    [Markup.button.url('🔄 Resubmit Now', 'https://t.me/' + botInfo.username + '?start=tc_resubmit_' + subId)],
+                  ]),
+                }
+              );
+              await ctx.reply('✅ Final warning sent.');
+            } catch (e) {
+              await ctx.reply('❌ Could not send message to user.');
+            }
             return;
           }
         }

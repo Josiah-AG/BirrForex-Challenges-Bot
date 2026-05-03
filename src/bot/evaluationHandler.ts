@@ -1380,6 +1380,60 @@ class EvaluationHandler {
     }
   }
 
+  // ── /pendingresubmissions ──
+
+  async pendingresubmissions(ctx: Context): Promise<void> {
+    try {
+      if (ctx.from!.id.toString() !== config.adminUserId) { await ctx.reply('❌ Not authorized.'); return; }
+
+      const challenges = await tradingChallengeService.getActiveChallenges();
+      let challenge = challenges[0] || null;
+      if (!challenge) { const all = await tradingChallengeService.getAllChallenges(); challenge = all[0] || null; }
+      if (!challenge) { await ctx.reply('❌ No challenge found.'); return; }
+
+      const pending = await evaluationService.getPendingResubmissions(challenge.id);
+
+      if (pending.length === 0) {
+        await ctx.reply('✅ No pending resubmissions. All users have responded.');
+        return;
+      }
+
+      await ctx.reply(
+        '⏳ <b>Pending Resubmissions: ' + pending.length + ' users</b>\n\n' +
+        '<i>These users were asked to resubmit but haven\'t yet.</i>',
+        { parse_mode: 'HTML' }
+      );
+
+      for (const sub of pending) {
+        await ctx.reply(
+          '👤 @' + (sub.username || 'unknown') + '\n' +
+          '🆔 TG: ' + sub.telegram_id + '\n' +
+          '📧 ' + (sub.email || 'N/A') + '\n' +
+          '🏦 Account: ' + sub.account_number + ' (' + sub.account_type + ')\n' +
+          '💰 Reported: $' + Number(sub.final_balance).toFixed(2),
+          {
+            parse_mode: 'HTML',
+            ...Markup.inlineKeyboard([
+              [Markup.button.callback('⚠️ Send Final Warning', 'eval_final_warn_' + sub.id + '_' + sub.telegram_id)],
+            ]),
+          }
+        );
+      }
+
+      if (pending.length > 1) {
+        await ctx.reply(
+          'Send final warning to all ' + pending.length + ' users at once?',
+          Markup.inlineKeyboard([
+            [Markup.button.callback('⚠️ Send Final Warning to All (' + pending.length + ')', 'eval_final_warn_all_' + challenge.id)],
+          ])
+        );
+      }
+    } catch (error) {
+      console.error('Error in pendingresubmissions:', error);
+      await ctx.reply('❌ Error fetching pending resubmissions.');
+    }
+  }
+
   // ── /evaluateonebyone ──
 
   async evaluateonebyone(ctx: Context): Promise<void> {

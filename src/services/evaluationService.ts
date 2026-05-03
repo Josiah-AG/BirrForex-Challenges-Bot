@@ -272,6 +272,18 @@ class EvaluationService {
     return result.rows;
   }
 
+  async getPendingResubmissions(challengeId: number): Promise<any[]> {
+    const result = await db.query(
+      `SELECT s.*, r.account_number, r.account_type, r.username, r.telegram_id, r.email
+       FROM trading_submissions s
+       JOIN trading_registrations r ON s.registration_id = r.id
+       WHERE s.challenge_id = $1 AND COALESCE(s.is_resubmission, false) = true AND s.resubmitted_at IS NULL
+       ORDER BY s.final_balance DESC`,
+      [challengeId]
+    );
+    return result.rows;
+  }
+
   async getTestTopWinners(challengeId: number, accountType: string, limit: number): Promise<EvaluationRecord[]> {
     const result = await db.query(
       'SELECT * FROM trading_evaluations_test WHERE challenge_id = $1 AND account_type = $2 AND is_qualified = true ORDER BY adjusted_balance DESC LIMIT $3',
