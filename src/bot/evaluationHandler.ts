@@ -29,6 +29,10 @@ class EvaluationHandler {
     this.evalSessions.delete(telegramId);
   }
 
+  getSession(telegramId: number): EvalSession | undefined {
+    return this.evalSessions.get(telegramId);
+  }
+
   // ── /evaluate ──
 
   async evaluate(ctx: Context): Promise<void> {
@@ -523,6 +527,30 @@ class EvaluationHandler {
         console.error('Error in resubmit search:', error);
         await ctx.reply('❌ Error searching.');
       }
+    }
+
+    if (session.step === 'obo_dq_reason') {
+      const reason = text.trim();
+      if (!reason) {
+        await ctx.reply('❌ Please enter a reason for disqualification.');
+        return;
+      }
+      (session as any).dqReason = reason;
+      session.step = 'obo_dq_confirm';
+
+      await ctx.reply(
+        '🚫 <b>Disqualify this user?</b>\n\n' +
+        '👤 @' + ((session as any).dqUsername || 'unknown') + '\n' +
+        '📛 Reason: ' + reason + '\n\n' +
+        '<b>This will remove their submission and notify them.</b>',
+        {
+          parse_mode: 'HTML',
+          ...Markup.inlineKeyboard([
+            [Markup.button.callback('✅ Yes, Disqualify', 'eval_obo_dq_confirm')],
+            [Markup.button.callback('❌ Cancel', 'eval_obo_dq_cancel')],
+          ]),
+        }
+      );
     }
   }
 
@@ -1372,6 +1400,7 @@ class EvaluationHandler {
         parse_mode: 'HTML',
         ...Markup.inlineKeyboard([
           [Markup.button.callback('🔄 Ask Resubmission', 'eval_obo_resubmit_' + sub.id + '_' + sub.telegram_id)],
+          [Markup.button.callback('🚫 Disqualify', 'eval_obo_dq_' + sub.id + '_' + sub.telegram_id)],
           [Markup.button.callback('⏭️ Skip to Next', 'eval_obo_skip')],
         ]),
       }

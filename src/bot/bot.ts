@@ -374,6 +374,68 @@ export class Bot {
             await ctx.reply('🛑 One-by-one evaluation stopped.');
             return;
           }
+          // Disqualify from one-by-one
+          if (data.startsWith('eval_obo_dq_')) {
+            await ctx.answerCbQuery();
+            const parts = data.replace('eval_obo_dq_', '').split('_');
+            const subId = parseInt(parts[0]);
+            const userTgId = parseInt(parts[1]);
+            // Get username from current session
+            const dqSession = evaluationHandler.getSession(ctx.from!.id);
+            const dqUsername = dqSession ? (dqSession as any).currentUsername : 'unknown';
+            // Set session to await disqualification reason
+            if (dqSession) {
+              dqSession.step = 'obo_dq_reason';
+              (dqSession as any).dqSubId = subId;
+              (dqSession as any).dqUserTgId = userTgId;
+              (dqSession as any).dqUsername = dqUsername;
+            }
+            await ctx.reply('🚫 Enter the reason for disqualification:');
+            return;
+          }
+          if (data === 'eval_obo_dq_confirm') {
+            await ctx.answerCbQuery();
+            const dqSession2 = evaluationHandler.getSession(ctx.from!.id);
+            if (!dqSession2) { await ctx.reply('❌ Session expired.'); return; }
+            const subId2 = (dqSession2 as any).dqSubId;
+            const userTgId2 = (dqSession2 as any).dqUserTgId;
+            const dqReason = (dqSession2 as any).dqReason;
+            const dqUsername2 = (dqSession2 as any).dqUsername;
+            const challengeTitle = dqSession2.challenge?.title || 'Challenge';
+
+            // Delete the submission
+            try {
+              await db.query('DELETE FROM trading_submissions WHERE id = $1', [subId2]);
+            } catch (e) { console.error('Error deleting submission:', e); }
+
+            // Notify user
+            try {
+              await ctx.telegram.sendMessage(
+                userTgId2,
+                '🚫 <b>Submission Disqualified</b>\n\n' +
+                'Your submission for <b>' + challengeTitle + '</b> has been disqualified.\n\n' +
+                '📛 Reason: ' + dqReason + '\n\n' +
+                'If you have a complaint, contact <b>@birrFXadmin</b>.',
+                { parse_mode: 'HTML' }
+              );
+            } catch (e) { console.error('Error notifying user:', e); }
+
+            await ctx.reply('✅ @' + (dqUsername2 || 'unknown') + ' disqualified and notified. Moving to next...');
+            evaluationHandler.clearSession(ctx.from!.id);
+
+            // Show next
+            const ch = (await tradingChallengeService.getActiveChallenges())[0] || (await tradingChallengeService.getAllChallenges())[0];
+            if (ch) await evaluationHandler.showNextUnevaluated(ctx, ch);
+            return;
+          }
+          if (data === 'eval_obo_dq_cancel') {
+            await ctx.answerCbQuery('Cancelled');
+            await ctx.reply('❌ Disqualification cancelled.');
+            // Restore to awaiting file
+            const cancelSession = evaluationHandler.getSession(ctx.from!.id);
+            if (cancelSession) cancelSession.step = 'awaiting_file';
+            return;
+          }
         }
       }
 

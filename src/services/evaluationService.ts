@@ -206,13 +206,14 @@ class EvaluationService {
 
   // Get next unevaluated submission (skips resubmission-requested, real first then demo, highest balance)
   async getNextUnevaluated(challengeId: number): Promise<{ submission: any; remainingReal: number; remainingDemo: number } | null> {
-    // Count remaining
+    // Count remaining — skip those with resubmission requested but not yet completed
+    const skipCondition = `AND NOT (COALESCE(s.is_resubmission, false) = true AND s.resubmitted_at IS NULL)`;
     const countResult = await db.query(
       `SELECT r.account_type, COUNT(*) as cnt
        FROM trading_submissions s
        JOIN trading_registrations r ON s.registration_id = r.id
        LEFT JOIN trading_evaluations e ON e.challenge_id = s.challenge_id AND e.account_number = r.account_number
-       WHERE s.challenge_id = $1 AND e.id IS NULL AND (s.is_resubmission IS NULL OR s.is_resubmission = false)
+       WHERE s.challenge_id = $1 AND e.id IS NULL ${skipCondition}
        GROUP BY r.account_type`,
       [challengeId]
     );
@@ -228,7 +229,7 @@ class EvaluationService {
        FROM trading_submissions s
        JOIN trading_registrations r ON s.registration_id = r.id
        LEFT JOIN trading_evaluations e ON e.challenge_id = s.challenge_id AND e.account_number = r.account_number
-       WHERE s.challenge_id = $1 AND e.id IS NULL AND r.account_type = $2 AND (s.is_resubmission IS NULL OR s.is_resubmission = false)
+       WHERE s.challenge_id = $1 AND e.id IS NULL AND r.account_type = $2 ${skipCondition}
        ORDER BY s.final_balance DESC
        LIMIT 1`,
       [challengeId, priorityType]
