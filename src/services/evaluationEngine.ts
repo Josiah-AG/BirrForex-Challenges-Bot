@@ -168,14 +168,35 @@ export function evaluateAccount(
     return isInPeriod(open) || isInPeriod(close);
   });
 
-  // Step 2: Starting balance
-  const balanceDeals = deals.filter(d => d.dealType === 'balance' || (d.symbol === '' && d.direction === '' && d.profit > 0));
-  const startingBalance = balanceDeals.length > 0 ? balanceDeals[0].profit : 0;
+  // Step 2: Starting balance — the balance just before the challenge starts
+  // Sum all balance deals (deposits/withdrawals) before the challenge start
+  const allBalanceDeals = deals.filter(d => d.dealType === 'balance' || (d.symbol === '' && d.direction === ''));
+  let startingBalance = 0;
+  for (const d of allBalanceDeals) {
+    const dealTime = parseTime(d.time);
+    if (dealTime < challengeStart) {
+      startingBalance += d.profit; // deposits are positive, withdrawals are negative
+    }
+  }
+  // If no balance deals before challenge start, check the first deal's running balance
+  if (startingBalance === 0 && deals.length > 0) {
+    // Find the balance at the start of the challenge from the deals section
+    for (const d of deals) {
+      if (d.dealType === 'balance' || (d.symbol === '' && d.direction === '')) {
+        startingBalance += d.profit;
+      }
+      const dealTime = parseTime(d.time);
+      if (dealTime >= challengeStart) break;
+    }
+  }
   const startingBalanceOk = startingBalance <= config.startingBalanceLimit;
 
-  // Step 3: Recharging
-  const deposits = balanceDeals.filter(d => d.profit > 0);
-  const noRecharging = deposits.length <= 1;
+  // Step 3: Recharging — check for deposits DURING the challenge period
+  const depositsInChallenge = allBalanceDeals.filter(d => {
+    const t = parseTime(d.time);
+    return t >= challengeStart && t <= challengeEnd && d.profit > 0;
+  });
+  const noRecharging = depositsInChallenge.length === 0;
 
   // Step 4: Active days
   const activeDaysSet = new Set<string>();
