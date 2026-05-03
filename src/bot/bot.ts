@@ -5,6 +5,8 @@ import { adminHandler, adminSessions } from './adminHandler';
 import { tradingAdminHandler, tradingAdminSessions } from './tradingAdminHandler';
 import { evaluationHandler } from './evaluationHandler';
 import { evaluationService } from '../services/evaluationService';
+import { tradingChallengeService } from '../services/tradingChallengeService';
+import { db } from '../database/db';
 import { userService } from '../services/userService';
 import { challengeService } from '../services/challengeService';
 import { participantService } from '../services/participantService';
@@ -89,6 +91,7 @@ export class Bot {
       { command: 'deleteevaluation', description: 'Delete an evaluation' },
       { command: 'missingevaluation', description: 'Show unevaluated submissions CSV' },
       { command: 'askforresubmission', description: 'Ask user to resubmit account details' },
+      { command: 'evaluateonebyone', description: 'Evaluate submissions one by one' },
     ], {
       scope: { type: 'chat', chat_id: parseInt(config.adminUserId) }
     });
@@ -256,6 +259,7 @@ export class Bot {
     this.bot.command('deleteevaluation', (ctx) => evaluationHandler.deleteevaluation(ctx));
     this.bot.command('missingevaluation', (ctx) => evaluationHandler.missingevaluation(ctx));
     this.bot.command('askforresubmission', (ctx) => evaluationHandler.askforresubmission(ctx));
+    this.bot.command('evaluateonebyone', (ctx) => evaluationHandler.evaluateonebyone(ctx));
 
     // User commands
     this.bot.command('mystats', (ctx) => this.showMyStats(ctx));
@@ -310,6 +314,64 @@ export class Bot {
             await ctx.answerCbQuery('Cancelled');
             await ctx.reply('❌ Delete cancelled.');
             evaluationHandler.clearSession(ctx.from!.id);
+            return;
+          }
+          // One-by-one evaluation callbacks
+          if (data.startsWith('eval_obo_resubmit_')) {
+            await ctx.answerCbQuery();
+            const parts = data.replace('eval_obo_resubmit_', '').split('_');
+            const subId = parseInt(parts[0]);
+            const userTgId = parseInt(parts[1]);
+            // Send resubmission request to user
+            try {
+              const botInfo = await ctx.telegram.getMe();
+              const challenge = (await tradingChallengeService.getActiveChallenges())[0] || (await tradingChallengeService.getAllChallenges())[0];
+              await ctx.telegram.sendMessage(
+                userTgId,
+                '⚠️ <b>Action Required — ' + (challenge?.title || 'Challenge') + '</b>\n\n' +
+                'We could not log in to your challenge account to verify your results.\n\n' +
+                'Please resubmit your account details using the button below.\n\n' +
+                '<b>Make sure all details are correct:</b>\n' +
+                '• Your MT5 account number\n' +
+                '• Your MT5 server name\n' +
+                '• Your investor (read-only) password\n' +
+                '• Your final account balance\n\n' +
+                '<i>Double-check everything before submitting.</i>',
+                {
+                  parse_mode: 'HTML',
+                  ...Markup.inlineKeyboard([
+                    [Markup.button.url('🔄 Resubmit Account', 'https://t.me/' + botInfo.username + '?start=tc_resubmit_' + subId)],
+                  ]),
+                }
+              );
+              // Mark as resubmission requested
+              await db.query('UPDATE trading_submissions SET is_resubmission = true WHERE id = $1', [subId]);
+              await ctx.reply('✅ Resubmission request sent. Moving to next...');
+            } catch (err) {
+              await ctx.reply('❌ Could not send message to user.');
+            }
+            // Show next
+            const challenge2 = (await tradingChallengeService.getActiveChallenges())[0] || (await tradingChallengeService.getAllChallenges())[0];
+            if (challenge2) await evaluationHandler.showNextUnevaluated(ctx, challenge2);
+            return;
+          }
+          if (data === 'eval_obo_skip') {
+            await ctx.answerCbQuery();
+            evaluationHandler.clearSession(ctx.from!.id);
+            const challenge = (await tradingChallengeService.getActiveChallenges())[0] || (await tradingChallengeService.getAllChallenges())[0];
+            if (challenge) await evaluationHandler.showNextUnevaluated(ctx, challenge);
+            return;
+          }
+          if (data === 'eval_obo_next') {
+            await ctx.answerCbQuery();
+            const challenge = (await tradingChallengeService.getActiveChallenges())[0] || (await tradingChallengeService.getAllChallenges())[0];
+            if (challenge) await evaluationHandler.showNextUnevaluated(ctx, challenge);
+            return;
+          }
+          if (data === 'eval_obo_stop') {
+            await ctx.answerCbQuery();
+            evaluationHandler.clearSession(ctx.from!.id);
+            await ctx.reply('🛑 One-by-one evaluation stopped.');
             return;
           }
         }

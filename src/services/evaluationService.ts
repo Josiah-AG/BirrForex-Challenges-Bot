@@ -204,6 +204,40 @@ class EvaluationService {
     return result.rows;
   }
 
+  // Get next unevaluated submission (skips resubmission-requested, real first then demo, highest balance)
+  async getNextUnevaluated(challengeId: number): Promise<{ submission: any; remainingReal: number; remainingDemo: number } | null> {
+    // Count remaining
+    const countResult = await db.query(
+      `SELECT r.account_type, COUNT(*) as cnt
+       FROM trading_submissions s
+       JOIN trading_registrations r ON s.registration_id = r.id
+       LEFT JOIN trading_evaluations e ON e.challenge_id = s.challenge_id AND e.account_number = r.account_number
+       WHERE s.challenge_id = $1 AND e.id IS NULL AND (s.is_resubmission IS NULL OR s.is_resubmission = false)
+       GROUP BY r.account_type`,
+      [challengeId]
+    );
+    const remainingReal = parseInt(countResult.rows.find((r: any) => r.account_type === 'real')?.cnt || '0');
+    const remainingDemo = parseInt(countResult.rows.find((r: any) => r.account_type === 'demo')?.cnt || '0');
+
+    if (remainingReal === 0 && remainingDemo === 0) return null;
+
+    // Get next: real first, then demo, highest balance
+    const priorityType = remainingReal > 0 ? 'real' : 'demo';
+    const result = await db.query(
+      `SELECT s.*, r.account_number, r.account_type, r.username, r.telegram_id, r.email, r.mt5_server, s.investor_password
+       FROM trading_submissions s
+       JOIN trading_registrations r ON s.registration_id = r.id
+       LEFT JOIN trading_evaluations e ON e.challenge_id = s.challenge_id AND e.account_number = r.account_number
+       WHERE s.challenge_id = $1 AND e.id IS NULL AND r.account_type = $2 AND (s.is_resubmission IS NULL OR s.is_resubmission = false)
+       ORDER BY s.final_balance DESC
+       LIMIT 1`,
+      [challengeId, priorityType]
+    );
+
+    if (!result.rows[0]) return null;
+    return { submission: result.rows[0], remainingReal, remainingDemo };
+  }
+
   // Find submission by account number
   async findSubmissionByAccount(challengeId: number, accountNumber: string): Promise<any | null> {
     const result = await db.query(

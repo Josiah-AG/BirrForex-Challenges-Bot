@@ -364,8 +364,21 @@ class EvaluationHandler {
       await ctx.reply(part);
     }
 
+    // Check if we're in one-by-one mode
+    const isOneByOne = (session as any).currentSubmissionId !== undefined;
+    
     // Clear session
     this.evalSessions.delete(ctx.from!.id);
+
+    if (isOneByOne) {
+      await ctx.reply(
+        '✅ Evaluation complete. What next?',
+        Markup.inlineKeyboard([
+          [Markup.button.callback('⏭️ Next Account', 'eval_obo_next')],
+          [Markup.button.callback('🛑 Stop', 'eval_obo_stop')],
+        ])
+      );
+    }
   }
 
   // ── Handle text input for find/delete eval sessions ──
@@ -1293,6 +1306,76 @@ class EvaluationHandler {
       console.error('Error in askforresubmission:', error);
       await ctx.reply('❌ Error starting resubmission request.');
     }
+  }
+
+  // ── /evaluateonebyone ──
+
+  async evaluateonebyone(ctx: Context): Promise<void> {
+    try {
+      if (ctx.from!.id.toString() !== config.adminUserId) { await ctx.reply('❌ Not authorized.'); return; }
+
+      const challenges = await tradingChallengeService.getActiveChallenges();
+      let challenge = challenges[0] || null;
+      if (!challenge) { const all = await tradingChallengeService.getAllChallenges(); challenge = all[0] || null; }
+      if (!challenge) { await ctx.reply('❌ No challenge found.'); return; }
+
+      await this.showNextUnevaluated(ctx, challenge);
+    } catch (error) {
+      console.error('Error in evaluateonebyone:', error);
+      await ctx.reply('❌ Error starting one-by-one evaluation.');
+    }
+  }
+
+  async showNextUnevaluated(ctx: Context, challenge: TradingChallenge): Promise<void> {
+    const next = await evaluationService.getNextUnevaluated(challenge.id);
+
+    if (!next) {
+      await ctx.reply('✅ <b>All submissions have been evaluated!</b>\n\n<i>No more accounts to evaluate.</i>', { parse_mode: 'HTML' });
+      this.evalSessions.delete(ctx.from!.id);
+      return;
+    }
+
+    const { submission: sub, remainingReal, remainingDemo } = next;
+    const total = remainingReal + remainingDemo;
+
+    // Set session to awaiting file for this specific submission
+    this.evalSessions.set(ctx.from!.id, {
+      step: 'awaiting_file',
+      challengeId: challenge.id,
+      challenge,
+      isTest: false,
+      isReevaluate: false,
+    });
+
+    // Store the current submission ID for the resubmission button
+    (this.evalSessions.get(ctx.from!.id) as any).currentSubmissionId = sub.id;
+    (this.evalSessions.get(ctx.from!.id) as any).currentTelegramId = sub.telegram_id;
+    (this.evalSessions.get(ctx.from!.id) as any).currentUsername = sub.username;
+
+    const category = sub.account_type === 'real' ? '📱 Real' : '🎮 Demo';
+
+    await ctx.reply(
+      '📊 <b>One-by-One Evaluation</b>\n\n' +
+      '⏳ <b>Remaining:</b> ' + total + ' accounts (' + remainingReal + ' real, ' + remainingDemo + ' demo)\n\n' +
+      '━━━━━━━━━━━━━━━━━━━━\n' +
+      category + ' Account\n\n' +
+      '👤 Username: <b>@' + (sub.username || 'unknown') + '</b>\n' +
+      '🆔 Telegram ID: ' + sub.telegram_id + '\n' +
+      '📧 Email: ' + (sub.email || 'N/A') + '\n' +
+      '🏦 Account: <b>' + sub.account_number + '</b>\n' +
+      '🖥️ Server: ' + (sub.mt5_server || 'N/A') + '\n' +
+      '🔑 Password: <code>' + (sub.investor_password || 'N/A') + '</code>\n' +
+      '💰 Reported Balance: <b>$' + Number(sub.final_balance).toFixed(2) + '</b>\n' +
+      '━━━━━━━━━━━━━━━━━━━━\n\n' +
+      '📎 Upload the MT5 trade history file, or use the buttons below:',
+      {
+        parse_mode: 'HTML',
+        ...Markup.inlineKeyboard([
+          [Markup.button.callback('🔄 Ask Resubmission', 'eval_obo_resubmit_' + sub.id + '_' + sub.telegram_id)],
+          [Markup.button.callback('⏭️ Skip to Next', 'eval_obo_skip')],
+        ]),
+      }
+    );
   }
 
   // ── /testannounce ──
