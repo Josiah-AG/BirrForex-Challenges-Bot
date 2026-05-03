@@ -191,10 +191,22 @@ export function evaluateAccount(
   }
   const startingBalanceOk = startingBalance <= config.startingBalanceLimit;
 
-  // Step 3: Recharging — check for deposits DURING the challenge period
+  // Step 3: Recharging — check for actual deposits DURING the challenge period
+  // Exclude: dividends (DIV-), swaps, corrections, and other non-deposit balance entries
   const depositsInChallenge = allBalanceDeals.filter(d => {
     const t = parseTime(d.time);
-    return t >= challengeStart && t <= challengeEnd && d.profit > 0;
+    if (t < challengeStart || t > challengeEnd) return false;
+    if (d.profit <= 0) return false;
+    // Exclude non-deposit balance entries by comment
+    const comment = (d.comment || '').toUpperCase();
+    if (comment.startsWith('DIV-')) return false;       // Dividend adjustment
+    if (comment.startsWith('SWAP')) return false;        // Swap correction
+    if (comment.includes('CORRECTION')) return false;    // Balance correction
+    if (comment.includes('REBATE')) return false;        // Rebate/cashback
+    if (comment.includes('BONUS')) return false;         // Bonus
+    if (comment.includes('COMMISSION')) return false;    // Commission refund
+    if (comment.includes('ROLLOVER')) return false;      // Rollover adjustment
+    return true; // Actual deposit
   });
   const noRecharging = depositsInChallenge.length === 0;
 
