@@ -190,26 +190,50 @@ export function evaluateAccount(
     }
   }
   
-  const startingBalanceOk = startingBalance <= config.startingBalanceLimit;
+  // startingBalanceOk is checked after day-1 deposit handling below
 
   // Step 3: Recharging — check for actual deposits DURING the challenge period
-  // Exclude: dividends (DIV-), swaps, corrections, and other non-deposit balance entries
+  // Tolerate day-1 deposits (initial setup) as long as total doesn't exceed starting balance limit
+  // Any deposit after day 1 = recharging = disqualify
+  const challengeStartDateStr = config.challengeStartDate;
+  const challengeDay1End = new Date(challengeStartDateStr + 'T23:59:59Z');
+
   const depositsInChallenge = allBalanceDeals.filter(d => {
     const t = parseTime(d.time);
     if (t < challengeStart || t > challengeEnd) return false;
     if (d.profit <= 0) return false;
     // Exclude non-deposit balance entries by comment
     const comment = (d.comment || '').toUpperCase();
-    if (comment.startsWith('DIV-')) return false;       // Dividend adjustment
-    if (comment.startsWith('SWAP')) return false;        // Swap correction
-    if (comment.includes('CORRECTION')) return false;    // Balance correction
-    if (comment.includes('REBATE')) return false;        // Rebate/cashback
-    if (comment.includes('BONUS')) return false;         // Bonus
-    if (comment.includes('COMMISSION')) return false;    // Commission refund
-    if (comment.includes('ROLLOVER')) return false;      // Rollover adjustment
-    return true; // Actual deposit
+    if (comment.startsWith('DIV-')) return false;
+    if (comment.startsWith('SWAP')) return false;
+    if (comment.includes('CORRECTION')) return false;
+    if (comment.includes('REBATE')) return false;
+    if (comment.includes('BONUS')) return false;
+    if (comment.includes('COMMISSION')) return false;
+    if (comment.includes('ROLLOVER')) return false;
+    return true;
   });
-  const noRecharging = depositsInChallenge.length === 0;
+
+  // Separate day-1 deposits from later deposits
+  const day1Deposits = depositsInChallenge.filter(d => parseTime(d.time) <= challengeDay1End);
+  const laterDeposits = depositsInChallenge.filter(d => parseTime(d.time) > challengeDay1End);
+
+  // Day-1 deposits are OK if total balance after them doesn't exceed the limit
+  // Check the balance after all day-1 deposits
+  let balanceAfterDay1Deposits = startingBalance;
+  for (const d of day1Deposits) {
+    balanceAfterDay1Deposits += d.profit;
+  }
+  const day1DepositsOk = balanceAfterDay1Deposits <= config.startingBalanceLimit;
+
+  // If day-1 deposits bring balance to valid level, update starting balance
+  if (day1Deposits.length > 0 && day1DepositsOk) {
+    startingBalance = balanceAfterDay1Deposits;
+  }
+
+  // Recharging = any deposit after day 1, OR day-1 deposits that exceed the limit
+  const noRecharging = laterDeposits.length === 0 && day1DepositsOk;
+  const startingBalanceOk = startingBalance <= config.startingBalanceLimit;
 
   // Step 4: Active days
   const activeDaysSet = new Set<string>();
@@ -389,11 +413,18 @@ export function evaluateAccount(
   const adjustedBalance = reportedBalance - totalProfitRemoved;
   const disqualifyReasons: string[] = [];
   if (!noRecharging) {
-    let depositDetails = 'Additional deposits detected during challenge:';
-    depositsInChallenge.forEach(d => {
-      const dateStr = d.time.substring(0, 16);
-      depositDetails += '\n  +$' + d.profit.toFixed(2) + ' on ' + dateStr;
-    });
+    let depositDetails = '';
+    if (laterDeposits.length > 0) {
+      depositDetails = 'Additional deposits detected after day 1:';
+      laterDeposits.forEach(d => {
+        const dateStr = d.time.substring(0, 16);
+        depositDetails += '\n  +$' + d.profit.toFixed(2) + ' on ' + dateStr;
+      });
+    }
+    if (!day1DepositsOk) {
+      depositDetails += (depositDetails ? '\n' : '') + 'Day 1 deposits exceeded limit ($' + config.startingBalanceLimit + '):';
+      depositDetails += ' balance reached $' + balanceAfterDay1Deposits.toFixed(2);
+    }
     disqualifyReasons.push(depositDetails);
   }
   if (!activeDaysOk) disqualifyReasons.push('Only ' + activeDaysSet.size + ' active days (min ' + config.minActiveDays + ')');
