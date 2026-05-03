@@ -196,7 +196,7 @@ class EvaluationService {
       `SELECT s.*, r.account_number, r.account_type, r.username, r.telegram_id, r.email
        FROM trading_submissions s
        JOIN trading_registrations r ON s.registration_id = r.id
-       LEFT JOIN trading_evaluations e ON e.challenge_id = s.challenge_id AND e.account_number = r.account_number
+       LEFT JOIN trading_evaluations e ON e.challenge_id = s.challenge_id AND (e.account_number = r.account_number OR e.registration_id = r.id)
        WHERE s.challenge_id = $1 AND e.id IS NULL
        ORDER BY s.final_balance DESC`,
       [challengeId]
@@ -212,7 +212,7 @@ class EvaluationService {
       `SELECT r.account_type, COUNT(*) as cnt
        FROM trading_submissions s
        JOIN trading_registrations r ON s.registration_id = r.id
-       LEFT JOIN trading_evaluations e ON e.challenge_id = s.challenge_id AND e.account_number = r.account_number
+       LEFT JOIN trading_evaluations e ON e.challenge_id = s.challenge_id AND (e.account_number = r.account_number OR e.registration_id = r.id)
        WHERE s.challenge_id = $1 AND e.id IS NULL ${skipCondition}
        GROUP BY r.account_type`,
       [challengeId]
@@ -228,7 +228,7 @@ class EvaluationService {
       `SELECT s.*, r.account_number, r.account_type, r.username, r.telegram_id, r.email, r.mt5_server, s.investor_password
        FROM trading_submissions s
        JOIN trading_registrations r ON s.registration_id = r.id
-       LEFT JOIN trading_evaluations e ON e.challenge_id = s.challenge_id AND e.account_number = r.account_number
+       LEFT JOIN trading_evaluations e ON e.challenge_id = s.challenge_id AND (e.account_number = r.account_number OR e.registration_id = r.id)
        WHERE s.challenge_id = $1 AND e.id IS NULL AND r.account_type = $2 ${skipCondition}
        ORDER BY s.final_balance DESC
        LIMIT 1`,
@@ -287,8 +287,10 @@ class EvaluationService {
        WHERE challenge_id = $1 AND (
          username ILIKE $2 OR 
          email ILIKE $2 OR 
+         account_number ILIKE $2 OR
          account_number = $3 OR 
-         telegram_id::text = $3
+         telegram_id::text = $3 OR
+         registration_id::text = $3
        ) ORDER BY adjusted_balance DESC`,
       [challengeId, '%' + term + '%', term]
     );
