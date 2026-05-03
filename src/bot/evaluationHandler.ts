@@ -679,17 +679,10 @@ class EvaluationHandler {
 
       // Common violations among evaluated accounts
       const violationCounts: Record<string, number> = {};
-      let totalDrawdownBreaches = 0;
-      let totalActiveDays = 0;
-      let evalWithFlaggedDetails = 0;
+      const samePairSymbols: Record<string, number> = {};
 
       evaluations.forEach(e => {
-        // Count active days
-        totalActiveDays += (e.total_trades > 0 ? Math.min(Number(e.total_trades), 10) : 0); // approximate from flagged_details
-
         if (e.flagged_details && Array.isArray(e.flagged_details)) {
-          evalWithFlaggedDetails++;
-          const seenTypes = new Set<string>();
           e.flagged_details.forEach((f: any) => {
             if (f.reasons) {
               f.reasons.forEach((r: string) => {
@@ -697,12 +690,15 @@ class EvaluationHandler {
                 key = key.replace(/SL too wide: \$[\d.]+/, 'SL too wide');
                 key = key.replace(/Lot size [\d.]+ > [\d.]+/, 'Lot size exceeded');
                 key = key.replace(/Held [\d.]+h > (\d+)h/, 'Held > $1h');
-                // Merge all daily drawdown into one
                 if (key.includes('Profit after daily')) {
                   key = 'Daily drawdown breach';
-                  if (!seenTypes.has('dd_' + f.openTime?.substring(0, 10))) {
-                    seenTypes.add('dd_' + f.openTime?.substring(0, 10));
-                  }
+                }
+                // Track same pair symbols separately
+                const pairMatch = key.match(/Same pair 3\+ open \((.+)\)/);
+                if (pairMatch) {
+                  const sym = pairMatch[1];
+                  samePairSymbols[sym] = (samePairSymbols[sym] || 0) + 1;
+                  key = 'Same pair 3+ open';
                 }
                 violationCounts[key] = (violationCounts[key] || 0) + 1;
               });
@@ -711,35 +707,32 @@ class EvaluationHandler {
         }
       });
 
-      // Count drawdown breaches and active days from full_report text
-      let totalDDBreach = 0;
+      // Count active days from full_report text
       let totalActiveD = 0;
       let acctCount = 0;
       evaluations.forEach(e => {
         acctCount++;
         const report = e.full_report || '';
-        // Extract active days: "Active Days           8/7" or "Active Days           10/7"
         const adMatch = report.match(/Active Days\s+(\d+)/);
         if (adMatch) totalActiveD += parseInt(adMatch[1]);
-        // Count drawdown breaches: "X days breached" in the report
-        const ddMatch = report.match(/(\d+) days breached/);
-        if (ddMatch) totalDDBreach += parseInt(ddMatch[1]);
       });
-
       const avgActiveDays = acctCount > 0 ? (totalActiveD / acctCount).toFixed(1) : '0';
-      const avgDDBreach = acctCount > 0 ? (totalDDBreach / acctCount).toFixed(1) : '0';
 
       const sortedViolations = Object.entries(violationCounts).sort((a, b) => b[1] - a[1]);
-      if (sortedViolations.length > 0) {
+      if (sortedViolations.length > 0 || acctCount > 0) {
         text += '\n⚠️ <b>Common Violations Among Evaluated Accounts:</b>\n';
         sortedViolations.slice(0, 10).forEach(([reason, count]) => {
           text += '  • ' + reason + ': ' + count + ' trades\n';
+          // Show same pair breakdown right below
+          if (reason === 'Same pair 3+ open') {
+            const sortedPairs = Object.entries(samePairSymbols).sort((a, b) => b[1] - a[1]);
+            sortedPairs.forEach(([sym, cnt]) => {
+              text += '     ↳ ' + sym + ': ' + cnt + ' trades\n';
+            });
+          }
         });
+        text += '\n  📅 Average Active Trading Days: <b>' + avgActiveDays + '/10</b>\n';
       }
-
-      text += '\n📊 <b>Averages:</b>\n';
-      text += '  📅 Average Active Trading Days: ' + avgActiveDays + '/10\n';
-      text += '  📉 Average Daily Drawdown Breaches: ' + avgDDBreach + '/10\n';
 
       const parts = this.splitMessage(text);
       for (const part of parts) {
