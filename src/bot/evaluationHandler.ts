@@ -684,7 +684,16 @@ class EvaluationHandler {
           e.flagged_details.forEach((f: any) => {
             if (f.reasons) {
               f.reasons.forEach((r: string) => {
-                const key = r.replace(/\d+\.\d+/g, 'X').replace(/\$[\d.]+/g, '$X');
+                // Group violations by type, keeping them readable
+                let key = r;
+                // Generalize SL dollar amounts: "SL too wide: $6.32" → "SL too wide"
+                key = key.replace(/SL too wide: \$[\d.]+/, 'SL too wide');
+                // Generalize lot sizes: "Lot size 0.05 > 0.02" → "Lot size exceeded"
+                key = key.replace(/Lot size [\d.]+ > [\d.]+/, 'Lot size exceeded');
+                // Generalize hold times: "Held 25.3h > 24h" → "Held > 24h"
+                key = key.replace(/Held [\d.]+h > (\d+)h/, 'Held > $1h');
+                // Generalize drawdown dates: keep the date
+                key = key.replace(/Profit after daily \$[\d.]+ drawdown/, 'Profit after daily drawdown');
                 violationCounts[key] = (violationCounts[key] || 0) + 1;
               });
             }
