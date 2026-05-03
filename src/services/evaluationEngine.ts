@@ -375,7 +375,14 @@ export function evaluateAccount(
 
   const adjustedBalance = reportedBalance - totalProfitRemoved;
   const disqualifyReasons: string[] = [];
-  if (!noRecharging) disqualifyReasons.push('Additional deposits detected');
+  if (!noRecharging) {
+    let depositDetails = 'Additional deposits detected during challenge:';
+    depositsInChallenge.forEach(d => {
+      const dateStr = d.time.substring(0, 16);
+      depositDetails += '\n  +$' + d.profit.toFixed(2) + ' on ' + dateStr;
+    });
+    disqualifyReasons.push(depositDetails);
+  }
   if (!activeDaysOk) disqualifyReasons.push('Only ' + activeDaysSet.size + ' active days (min ' + config.minActiveDays + ')');
   if (!startingBalanceOk) disqualifyReasons.push('Starting balance $' + startingBalance + ' exceeds $' + config.startingBalanceLimit);
   const isDisqualified = disqualifyReasons.length > 0;
