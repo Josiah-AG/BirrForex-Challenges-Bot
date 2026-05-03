@@ -196,7 +196,12 @@ class EvaluationService {
       `SELECT s.*, r.account_number, r.account_type, r.username, r.telegram_id, r.email
        FROM trading_submissions s
        JOIN trading_registrations r ON s.registration_id = r.id
-       LEFT JOIN trading_evaluations e ON e.challenge_id = s.challenge_id AND (REGEXP_REPLACE(e.account_number, '[^0-9]', '', 'g') = REGEXP_REPLACE(r.account_number, '[^0-9]', '', 'g') OR e.registration_id = r.id)
+       LEFT JOIN trading_evaluations e ON e.challenge_id = s.challenge_id AND (
+         e.account_number = r.account_number 
+         OR (LENGTH(REGEXP_REPLACE(r.account_number, '[^0-9]', '', 'g')) >= 4 AND REGEXP_REPLACE(e.account_number, '[^0-9]', '', 'g') = REGEXP_REPLACE(r.account_number, '[^0-9]', '', 'g'))
+         OR e.registration_id = r.id
+         OR (e.telegram_id = r.telegram_id AND e.telegram_id > 0)
+       )
        WHERE s.challenge_id = $1 AND e.id IS NULL
        ORDER BY s.final_balance DESC`,
       [challengeId]
@@ -207,7 +212,13 @@ class EvaluationService {
   // Get next unevaluated submission (skips resubmission-requested, real first then demo, highest balance)
   async getNextUnevaluated(challengeId: number): Promise<{ submission: any; remainingReal: number; remainingDemo: number } | null> {
     const skipCondition = `AND NOT (COALESCE(s.is_resubmission, false) = true AND s.resubmitted_at IS NULL)`;
-    const matchCondition = `(REGEXP_REPLACE(e.account_number, '[^0-9]', '', 'g') = REGEXP_REPLACE(r.account_number, '[^0-9]', '', 'g') OR e.registration_id = r.id)`;
+    // Match evaluations by: exact account number, numeric-only account number (min 4 digits), registration_id, or telegram_id
+    const matchCondition = `(
+      e.account_number = r.account_number 
+      OR (LENGTH(REGEXP_REPLACE(r.account_number, '[^0-9]', '', 'g')) >= 4 AND REGEXP_REPLACE(e.account_number, '[^0-9]', '', 'g') = REGEXP_REPLACE(r.account_number, '[^0-9]', '', 'g'))
+      OR e.registration_id = r.id
+      OR (e.telegram_id = r.telegram_id AND e.telegram_id > 0)
+    )`;
     const countResult = await db.query(
       `SELECT r.account_type, COUNT(*) as cnt
        FROM trading_submissions s
