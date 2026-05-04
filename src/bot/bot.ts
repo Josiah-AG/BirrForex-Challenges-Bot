@@ -353,11 +353,16 @@ export class Bot {
                 }
               );
               // Mark as resubmission requested
-              await db.query('UPDATE trading_submissions SET is_resubmission = true WHERE id = $1', [subId]);
+              await db.query('UPDATE trading_submissions SET is_resubmission = true, resubmitted_at = NULL WHERE id = $1', [subId]);
+              console.log('Marked submission ' + subId + ' as resubmission requested');
               await ctx.reply('✅ Resubmission request sent. Moving to next...');
             } catch (err) {
+              console.error('Error in obo resubmit:', err);
               await ctx.reply('❌ Could not send message to user.');
             }
+            // Delay to ensure DB update is committed
+            await new Promise(r => setTimeout(r, 500));
+            await new Promise(r => setTimeout(r, 500));
             // Show next
             const challenge2 = (await tradingChallengeService.getActiveChallenges())[0] || (await tradingChallengeService.getAllChallenges())[0];
             if (challenge2) await evaluationHandler.showNextUnevaluated(ctx, challenge2);
