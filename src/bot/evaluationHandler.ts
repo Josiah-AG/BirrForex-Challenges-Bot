@@ -5,6 +5,7 @@ import { evaluateAccount, EvaluationConfig } from '../services/evaluationEngine'
 import { evaluationService, EvaluationRecord } from '../services/evaluationService';
 import { tradingChallengeService, TradingChallenge } from '../services/tradingChallengeService';
 import { config } from '../config';
+import { exnessService } from '../services/exnessService';
 
 interface EvalSession {
   step: string;
@@ -1502,6 +1503,221 @@ class EvaluationHandler {
     } catch (error) {
       console.error('Error in updateusernames:', error);
       await ctx.reply('❌ Error updating usernames.');
+    }
+  }
+
+  // ── /updatesubmitternames ──
+
+  async updatesubmitternames(ctx: Context): Promise<void> {
+    try {
+      if (ctx.from!.id.toString() !== config.adminUserId) { await ctx.reply('❌ Not authorized.'); return; }
+
+      const challenges = await tradingChallengeService.getActiveChallenges();
+      let challenge = challenges[0] || null;
+      if (!challenge) { const all = await tradingChallengeService.getAllChallenges(); challenge = all[0] || null; }
+      if (!challenge) { await ctx.reply('❌ No challenge found.'); return; }
+
+      await ctx.reply('⏳ Updating usernames for submitters only...');
+
+      const { db } = require('../database/db');
+      const subs = await db.query(
+        `SELECT DISTINCT r.telegram_id, r.username
+         FROM trading_submissions s
+         JOIN trading_registrations r ON s.registration_id = r.id
+         WHERE s.challenge_id = $1 AND r.telegram_id > 0`,
+        [challenge.id]
+      );
+
+      let updated = 0;
+      let failed = 0;
+      let unchanged = 0;
+
+      for (const reg of subs.rows) {
+        try {
+          const chat = await (ctx as any).telegram.getChat(reg.telegram_id);
+          const newUsername = chat.username || null;
+          const oldUsername = reg.username || null;
+
+          if (newUsername !== oldUsername) {
+            await db.query(
+              'UPDATE trading_registrations SET username = $1 WHERE challenge_id = $2 AND telegram_id = $3',
+              [newUsername, challenge.id, reg.telegram_id]
+            );
+            await db.query(
+              'UPDATE trading_evaluations SET username = $1 WHERE challenge_id = $2 AND telegram_id = $3',
+              [newUsername, challenge.id, reg.telegram_id]
+            );
+            updated++;
+          } else {
+            unchanged++;
+          }
+          await new Promise(r => setTimeout(r, 100));
+        } catch (e) {
+          failed++;
+        }
+      }
+
+      await ctx.reply(
+        '✅ <b>Submitter Username Update Complete</b>\n\n' +
+        '👥 Total checked: ' + subs.rows.length + '\n' +
+        '🔄 Updated: ' + updated + '\n' +
+        '✅ Unchanged: ' + unchanged + '\n' +
+        '❌ Failed: ' + failed,
+        { parse_mode: 'HTML' }
+      );
+    } catch (error) {
+      console.error('Error in updatesubmitternames:', error);
+      await ctx.reply('❌ Error updating usernames.');
+    }
+  }
+
+  // ── /screenqualifiers ──
+
+  async screenqualifiers(ctx: Context): Promise<void> {
+    try {
+      if (ctx.from!.id.toString() !== config.adminUserId) { await ctx.reply('❌ Not authorized.'); return; }
+
+      const challenges = await tradingChallengeService.getActiveChallenges();
+      let challenge = challenges[0] || null;
+      if (!challenge) { const all = await tradingChallengeService.getAllChallenges(); challenge = all[0] || null; }
+      if (!challenge) { await ctx.reply('❌ No challenge found.'); return; }
+
+      // Get all submissions with registration data
+      const { db } = require('../database/db');
+      const subs = await db.query(
+        `SELECT s.id as sub_id, r.*, s.final_balance
+         FROM trading_submissions s
+         JOIN trading_registrations r ON s.registration_id = r.id
+         WHERE s.challenge_id = $1`,
+        [challenge.id]
+      );
+
+      if (subs.rows.length === 0) {
+        await ctx.reply('❌ No submissions found.');
+        return;
+      }
+
+      await ctx.reply('🔍 Screening ' + subs.rows.length + ' submitters for partnership status...\nThis may take a while.');
+
+      let good = 0;
+      let changing = 0;
+      let left = 0;
+      let missed = 0;
+      const changingUsers: any[] = [];
+      const leftUsers: any[] = [];
+
+      for (let i = 0; i < subs.rows.length; i++) {
+        const reg = subs.rows[i];
+        try {
+          let shortUid = reg.client_uid;
+
+          if (!shortUid) {
+            const alloc = await exnessService.checkAllocation(reg.email);
+            if (alloc && alloc.client_uid) {
+              shortUid = alloc.client_uid;
+            } else {
+              missed++;
+              await new Promise(r => setTimeout(r, 1000));
+              continue;
+            }
+          }
+
+          const fullUuid = await exnessService.getFullUuid(shortUid);
+          if (!fullUuid) { missed++; await new Promise(r => setTimeout(r, 1000)); continue; }
+
+          const clientInfo = await exnessService.getKycStatus(fullUuid);
+          if (!clientInfo) { missed++; await new Promise(r => setTimeout(r, 1000)); continue; }
+
+          const status = clientInfo.client_status;
+
+          if (status === 'CHANGING') {
+            changing++;
+            changingUsers.push(reg);
+          } else if (status === 'LEFT') {
+            const alloc = await exnessService.checkAllocation(reg.email);
+            if (!alloc || !alloc.affiliation) {
+              left++;
+              leftUsers.push(reg);
+            } else {
+              good++;
+            }
+          } else {
+            good++;
+          }
+
+          await new Promise(r => setTimeout(r, 1500));
+
+          if ((i + 1) % 20 === 0) {
+            await ctx.reply('⏳ Progress: ' + (i + 1) + '/' + subs.rows.length + ' screened...');
+          }
+        } catch (e) {
+          missed++;
+          await new Promise(r => setTimeout(r, 2000));
+        }
+      }
+
+      // Build report
+      let report = '🔍 <b>Partnership Screening Report</b>\n';
+      report += '<b>' + challenge.title + '</b>\n\n';
+      report += '👥 Total Screened: ' + subs.rows.length + '\n';
+      report += '✅ Good: ' + good + '\n';
+      report += '⚠️ Changing: ' + changing + '\n';
+      report += '❌ Left: ' + left + '\n';
+      if (missed > 0) report += '❓ Missed (API error): ' + missed + '\n';
+
+      if (changingUsers.length > 0) {
+        report += '\n⚠️ <b>CHANGING (' + changingUsers.length + '):</b>\n';
+        changingUsers.forEach((u, i) => {
+          report += '  ' + (i + 1) + '. @' + (u.username || 'unknown') + ' — ' + u.email + ' (' + u.account_type + ')\n';
+        });
+      }
+
+      if (leftUsers.length > 0) {
+        report += '\n❌ <b>LEFT (' + leftUsers.length + '):</b>\n';
+        leftUsers.forEach((u, i) => {
+          report += '  ' + (i + 1) + '. @' + (u.username || 'unknown') + ' — ' + u.email + ' (' + u.account_type + ')\n';
+        });
+      }
+
+      const parts = this.splitMessage(report);
+      for (const part of parts) {
+        await ctx.reply(part, { parse_mode: 'HTML' });
+      }
+
+      // Store results in memory for the buttons
+      const changingIds = changingUsers.map(u => u.telegram_id).join(',');
+      const leftIds = leftUsers.map(u => u.telegram_id).join(',');
+      const leftSubIds = leftUsers.map(u => u.sub_id).join(',');
+
+      const buttons = [];
+      if (changingUsers.length > 0) {
+        buttons.push([Markup.button.callback('⚠️ Warn Changers (' + changingUsers.length + ')', 'eval_screen_warn_' + challenge.id)]);
+      }
+      if (leftUsers.length > 0) {
+        buttons.push([Markup.button.callback('🚫 Disqualify Left (' + leftUsers.length + ')', 'eval_screen_dq_' + challenge.id)]);
+      }
+
+      if (buttons.length > 0) {
+        // Store the user lists in session for the callbacks
+        this.evalSessions.set(ctx.from!.id, {
+          step: 'screen_results',
+          challengeId: challenge.id,
+          challenge,
+          isTest: false,
+          isReevaluate: false,
+        });
+        (this.evalSessions.get(ctx.from!.id) as any).changingUsers = changingUsers;
+        (this.evalSessions.get(ctx.from!.id) as any).leftUsers = leftUsers;
+
+        await ctx.reply('Actions:', Markup.inlineKeyboard(buttons));
+      }
+
+      if (changingUsers.length === 0 && leftUsers.length === 0) {
+        await ctx.reply('✅ All submitters have valid partnership status!');
+      }
+    } catch (error) {
+      console.error('Error in screenqualifiers:', error);
+      await ctx.reply('❌ Error screening qualifiers.');
     }
   }
 

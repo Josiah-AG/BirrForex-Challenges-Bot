@@ -92,7 +92,9 @@ export class Bot {
       { command: 'missingevaluation', description: 'Show unevaluated submissions CSV' },
       { command: 'askforresubmission', description: 'Ask user to resubmit account details' },
       { command: 'pendingresubmissions', description: 'Show users who haven\'t resubmitted yet' },
-      { command: 'updateusernames', description: 'Refresh usernames from Telegram' },
+      { command: 'updateusernames', description: 'Refresh usernames (all registrations)' },
+      { command: 'updatesubmitternames', description: 'Refresh usernames (submitters only)' },
+      { command: 'screenqualifiers', description: 'Screen partnership status of submitters' },
       { command: 'evaluateonebyone', description: 'Evaluate submissions one by one' },
     ], {
       scope: { type: 'chat', chat_id: parseInt(config.adminUserId) }
@@ -263,6 +265,8 @@ export class Bot {
     this.bot.command('askforresubmission', (ctx) => evaluationHandler.askforresubmission(ctx));
     this.bot.command('pendingresubmissions', (ctx) => evaluationHandler.pendingresubmissions(ctx));
     this.bot.command('updateusernames', (ctx) => evaluationHandler.updateusernames(ctx));
+    this.bot.command('updatesubmitternames', (ctx) => evaluationHandler.updatesubmitternames(ctx));
+    this.bot.command('screenqualifiers', (ctx) => evaluationHandler.screenqualifiers(ctx));
     this.bot.command('evaluateonebyone', (ctx) => evaluationHandler.evaluateonebyone(ctx));
 
     // User commands
@@ -496,6 +500,62 @@ export class Bot {
             } catch (e) {
               await ctx.reply('❌ Could not send message to user.');
             }
+            return;
+          }
+          if (data.startsWith('eval_screen_warn_')) {
+            await ctx.answerCbQuery();
+            const session = evaluationHandler.getSession(ctx.from!.id);
+            if (!session || !(session as any).changingUsers) { await ctx.reply('❌ Session expired.'); return; }
+            const changingUsers = (session as any).changingUsers;
+            const challengeTitle = session.challenge?.title || 'Challenge';
+            let sent = 0;
+            for (const u of changingUsers) {
+              try {
+                await ctx.telegram.sendMessage(
+                  u.telegram_id,
+                  '⚠️ <b>Partnership Warning — ' + challengeTitle + '</b>\n\n' +
+                  'We detected a partner change request on your Exness account.\n\n' +
+                  'As per the challenge rules, your account must remain under <b>BirrForex</b> to be eligible for rewards.\n\n' +
+                  'If you want to keep your submission valid, please <b>cancel your partner change request</b> immediately.\n\n' +
+                  '⏰ <b>If the partner change is completed, your submission will be disqualified.</b>\n\n' +
+                  'Contact <b>@birrFXadmin</b> if you need help.',
+                  { parse_mode: 'HTML' }
+                );
+                sent++;
+                await new Promise(r => setTimeout(r, 2000));
+              } catch (e) { console.error('Error warning user:', e); }
+            }
+            await ctx.reply('✅ Warning sent to ' + sent + '/' + changingUsers.length + ' changing users.');
+            return;
+          }
+          if (data.startsWith('eval_screen_dq_')) {
+            await ctx.answerCbQuery();
+            const session = evaluationHandler.getSession(ctx.from!.id);
+            if (!session || !(session as any).leftUsers) { await ctx.reply('❌ Session expired.'); return; }
+            const leftUsers = (session as any).leftUsers;
+            const challengeTitle = session.challenge?.title || 'Challenge';
+            let dqCount = 0;
+            for (const u of leftUsers) {
+              try {
+                // Delete submission
+                await db.query('DELETE FROM trading_submissions WHERE id = $1', [u.sub_id]);
+                // Delete evaluation if exists
+                await db.query('DELETE FROM trading_evaluations WHERE challenge_id = $1 AND telegram_id = $2', [session.challengeId, u.telegram_id]);
+                // Notify user
+                await ctx.telegram.sendMessage(
+                  u.telegram_id,
+                  '🚫 <b>Submission Disqualified — ' + challengeTitle + '</b>\n\n' +
+                  'Your submission has been disqualified because your Exness account is no longer under <b>BirrForex</b> partnership.\n\n' +
+                  'As per the challenge rules, your account must remain under BirrForex throughout the challenge and evaluation period.\n\n' +
+                  'If you believe this is an error, contact <b>@birrFXadmin</b>.',
+                  { parse_mode: 'HTML' }
+                );
+                dqCount++;
+                await new Promise(r => setTimeout(r, 2000));
+              } catch (e) { console.error('Error disqualifying user:', e); }
+            }
+            evaluationHandler.clearSession(ctx.from!.id);
+            await ctx.reply('✅ Disqualified ' + dqCount + '/' + leftUsers.length + ' users who left BirrForex.');
             return;
           }
         }
