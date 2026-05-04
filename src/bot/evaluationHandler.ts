@@ -1434,6 +1434,77 @@ class EvaluationHandler {
     }
   }
 
+  // ── /updateusernames ──
+
+  async updateusernames(ctx: Context): Promise<void> {
+    try {
+      if (ctx.from!.id.toString() !== config.adminUserId) { await ctx.reply('❌ Not authorized.'); return; }
+
+      const challenges = await tradingChallengeService.getActiveChallenges();
+      let challenge = challenges[0] || null;
+      if (!challenge) { const all = await tradingChallengeService.getAllChallenges(); challenge = all[0] || null; }
+      if (!challenge) { await ctx.reply('❌ No challenge found.'); return; }
+
+      await ctx.reply('⏳ Updating usernames from Telegram... This may take a while.');
+
+      const { db } = require('../database/db');
+      const regs = await db.query(
+        'SELECT DISTINCT telegram_id, username FROM trading_registrations WHERE challenge_id = $1 AND telegram_id > 0',
+        [challenge.id]
+      );
+
+      let updated = 0;
+      let failed = 0;
+      let unchanged = 0;
+
+      for (const reg of regs.rows) {
+        try {
+          const chat = await (ctx as any).telegram.getChat(reg.telegram_id);
+          const newUsername = chat.username || null;
+          const oldUsername = reg.username || null;
+
+          if (newUsername !== oldUsername) {
+            // Update in registrations
+            await db.query(
+              'UPDATE trading_registrations SET username = $1 WHERE challenge_id = $2 AND telegram_id = $3',
+              [newUsername, challenge.id, reg.telegram_id]
+            );
+            // Update in evaluations
+            await db.query(
+              'UPDATE trading_evaluations SET username = $1 WHERE challenge_id = $2 AND telegram_id = $3',
+              [newUsername, challenge.id, reg.telegram_id]
+            );
+            updated++;
+          } else {
+            unchanged++;
+          }
+
+          // Rate limit: 100ms between API calls
+          await new Promise(r => setTimeout(r, 100));
+
+          if ((updated + unchanged + failed) % 50 === 0) {
+            await ctx.reply('⏳ Progress: ' + (updated + unchanged + failed) + '/' + regs.rows.length + ' checked...');
+          }
+        } catch (e) {
+          failed++;
+          // User may have blocked bot or deleted account
+        }
+      }
+
+      await ctx.reply(
+        '✅ <b>Username Update Complete</b>\n\n' +
+        '👥 Total checked: ' + regs.rows.length + '\n' +
+        '🔄 Updated: ' + updated + '\n' +
+        '✅ Unchanged: ' + unchanged + '\n' +
+        '❌ Failed (blocked/deleted): ' + failed,
+        { parse_mode: 'HTML' }
+      );
+    } catch (error) {
+      console.error('Error in updateusernames:', error);
+      await ctx.reply('❌ Error updating usernames.');
+    }
+  }
+
   // ── /evaluateonebyone ──
 
   async evaluateonebyone(ctx: Context): Promise<void> {

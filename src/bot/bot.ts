@@ -92,6 +92,7 @@ export class Bot {
       { command: 'missingevaluation', description: 'Show unevaluated submissions CSV' },
       { command: 'askforresubmission', description: 'Ask user to resubmit account details' },
       { command: 'pendingresubmissions', description: 'Show users who haven\'t resubmitted yet' },
+      { command: 'updateusernames', description: 'Refresh usernames from Telegram' },
       { command: 'evaluateonebyone', description: 'Evaluate submissions one by one' },
     ], {
       scope: { type: 'chat', chat_id: parseInt(config.adminUserId) }
@@ -261,6 +262,7 @@ export class Bot {
     this.bot.command('missingevaluation', (ctx) => evaluationHandler.missingevaluation(ctx));
     this.bot.command('askforresubmission', (ctx) => evaluationHandler.askforresubmission(ctx));
     this.bot.command('pendingresubmissions', (ctx) => evaluationHandler.pendingresubmissions(ctx));
+    this.bot.command('updateusernames', (ctx) => evaluationHandler.updateusernames(ctx));
     this.bot.command('evaluateonebyone', (ctx) => evaluationHandler.evaluateonebyone(ctx));
 
     // User commands
