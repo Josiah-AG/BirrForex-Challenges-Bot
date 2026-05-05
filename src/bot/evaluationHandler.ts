@@ -26,7 +26,7 @@ class EvaluationHandler {
     const session = this.evalSessions.get(telegramId);
     if (!session) return false;
     // Only intercept text for steps that need text input
-    const textSteps = ['find_eval_search', 'delete_eval_search', 'resubmit_search', 'obo_dq_reason', 'obo_dq_confirm'];
+    const textSteps = ['find_eval_search', 'delete_eval_search', 'resubmit_search', 'sendeval_search', 'obo_dq_reason', 'obo_dq_confirm'];
     return textSteps.includes(session.step);
   }
 
@@ -536,6 +536,51 @@ class EvaluationHandler {
         }
       } catch (error) {
         console.error('Error in resubmit search:', error);
+        await ctx.reply('❌ Error searching.');
+      }
+    }
+
+    if (session.step === 'sendeval_search') {
+      this.evalSessions.delete(ctx.from!.id);
+      try {
+        const results = await evaluationService.searchEvaluation(session.challengeId, text);
+        if (results.length === 0) {
+          await ctx.reply('❌ No evaluation found for "' + text + '"');
+          return;
+        }
+
+        const evaluation = results[0];
+        const botInfo = await (ctx as any).telegram.getMe();
+
+        if (!evaluation.telegram_id || evaluation.telegram_id === 0) {
+          await ctx.reply('❌ This evaluation has no Telegram ID linked. Cannot send.');
+          return;
+        }
+
+        const category = evaluation.account_type === 'real' ? 'Real' : 'Demo';
+        const caption = this.buildPreAnnouncementCaption(evaluation, session.challenge, category);
+
+        // Truncate caption if too long (Telegram limit: 1024 chars)
+        const finalCaption = caption.length > 1024 ? caption.substring(0, 1020) + '...' : caption;
+
+        try {
+          await (ctx as any).telegram.sendDocument(
+            evaluation.telegram_id,
+            evaluation.file_id,
+            {
+              caption: finalCaption,
+              parse_mode: 'HTML',
+              ...Markup.inlineKeyboard([
+                [Markup.button.url('📊 Show Detail Report', 'https://t.me/' + botInfo.username + '?start=eval_report_' + evaluation.id)],
+              ]),
+            }
+          );
+          await ctx.reply('✅ Evaluation sent to @' + (evaluation.username || 'unknown') + ' (TG: ' + evaluation.telegram_id + ')');
+        } catch (err: any) {
+          await ctx.reply('❌ Failed to send: ' + (err.description || err.message || 'Unknown error'));
+        }
+      } catch (error) {
+        console.error('Error in sendeval search:', error);
         await ctx.reply('❌ Error searching.');
       }
     }
@@ -1093,9 +1138,12 @@ class EvaluationHandler {
       let sent = 0;
       let failed = 0;
 
+      const failedUsers: string[] = [];
+
       for (const evaluation of evaluations) {
         if (!evaluation.telegram_id || evaluation.telegram_id === 0) {
           failed++;
+          failedUsers.push('@' + (evaluation.username || 'unknown') + ' (no TG ID)');
           continue;
         }
 
@@ -1124,16 +1172,21 @@ class EvaluationHandler {
         } catch (err) {
           console.error('Error sending pre-announcement to ' + evaluation.telegram_id + ':', err);
           failed++;
+          failedUsers.push('@' + (evaluation.username || 'unknown') + ' (TG: ' + evaluation.telegram_id + ')');
         }
       }
 
-      await ctx.reply(
-        '✅ <b>Pre-Announcement Notice Results:</b>\n' +
+      let resultText = '✅ <b>Pre-Announcement Notice Results:</b>\n' +
         '  Sent: ' + sent + '\n' +
         '  Failed: ' + failed + '\n' +
-        '  Total: ' + evaluations.length,
-        { parse_mode: 'HTML' }
-      );
+        '  Total: ' + evaluations.length;
+
+      if (failedUsers.length > 0) {
+        resultText += '\n\n❌ <b>Failed Users:</b>\n';
+        failedUsers.forEach(u => { resultText += '  • ' + u + '\n'; });
+      }
+
+      await ctx.reply(resultText, { parse_mode: 'HTML' });
     } catch (error) {
       console.error('Error in preannouncementnotice:', error);
       await ctx.reply('❌ Error sending pre-announcement notices.');
@@ -1281,6 +1334,32 @@ class EvaluationHandler {
     } catch (error) {
       console.error('Error in findevaluation:', error);
       await ctx.reply('❌ Error starting search.');
+    }
+  }
+
+  // ── /sendeval ──
+
+  async sendeval(ctx: Context): Promise<void> {
+    try {
+      if (ctx.from!.id.toString() !== config.adminUserId) { await ctx.reply('❌ Not authorized.'); return; }
+
+      const challenges = await tradingChallengeService.getActiveChallenges();
+      let challenge = challenges[0] || null;
+      if (!challenge) { const all = await tradingChallengeService.getAllChallenges(); challenge = all[0] || null; }
+      if (!challenge) { await ctx.reply('❌ No challenge found.'); return; }
+
+      this.evalSessions.set(ctx.from!.id, {
+        step: 'sendeval_search',
+        challengeId: challenge.id,
+        challenge,
+        isTest: false,
+        isReevaluate: false,
+      });
+
+      await ctx.reply('📨 Enter username, Telegram ID, email, or account number to send their evaluation:', { parse_mode: 'HTML' });
+    } catch (error) {
+      console.error('Error in sendeval:', error);
+      await ctx.reply('❌ Error starting send evaluation.');
     }
   }
 
@@ -2092,7 +2171,10 @@ class EvaluationHandler {
 
     if (evaluation.is_disqualified) {
       text += '🚫 Status: <b>DISQUALIFIED</b>\n';
-      text += '📛 Reason: ' + (evaluation.disqualify_reason || 'Rule violation') + '\n';
+      let reason = evaluation.disqualify_reason || 'Rule violation';
+      // Truncate long reasons (e.g., many deposits listed)
+      if (reason.length > 200) reason = reason.substring(0, 200) + '...';
+      text += '📛 Reason: ' + reason + '\n';
     } else {
       text += '💰 Adjusted Balance: <b>$' + Number(evaluation.adjusted_balance).toFixed(2) + '</b>\n';
       text += '💰 Reported: $' + Number(evaluation.reported_balance).toFixed(2) + ' | Removed: $' + Number(evaluation.profit_removed).toFixed(2) + '\n';

@@ -88,6 +88,7 @@ export class Bot {
       { command: 'showwinner', description: 'Show winners with reports' },
       { command: 'exportrank', description: 'Export rankings CSV (real + demo)' },
       { command: 'findevaluation', description: 'Search evaluation by user/account' },
+      { command: 'sendeval', description: 'Manually send evaluation to a user' },
       { command: 'deleteevaluation', description: 'Delete an evaluation' },
       { command: 'missingevaluation', description: 'Show unevaluated submissions CSV' },
       { command: 'askforresubmission', description: 'Ask user to resubmit account details' },
@@ -260,6 +261,7 @@ export class Bot {
     this.bot.command('showwinner', (ctx) => evaluationHandler.showwinner(ctx));
     this.bot.command('exportrank', (ctx) => evaluationHandler.exportrank(ctx));
     this.bot.command('findevaluation', (ctx) => evaluationHandler.findevaluation(ctx));
+    this.bot.command('sendeval', (ctx) => evaluationHandler.sendeval(ctx));
     this.bot.command('deleteevaluation', (ctx) => evaluationHandler.deleteevaluation(ctx));
     this.bot.command('missingevaluation', (ctx) => evaluationHandler.missingevaluation(ctx));
     this.bot.command('askforresubmission', (ctx) => evaluationHandler.askforresubmission(ctx));
