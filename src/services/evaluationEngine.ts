@@ -85,6 +85,7 @@ export interface EvaluationResult {
   maxSimultaneous: number;
   worstDrawdownDay: string;
   worstDrawdownAmount: number;
+  balanceResetOnDay1: boolean;
 
   // Full report text
   shortReport: string;
@@ -511,6 +512,7 @@ export function evaluateAccount(
     maxSimultaneous,
     worstDrawdownDay: worstDDDay,
     worstDrawdownAmount: Math.round(worstDD * 100) / 100,
+    balanceResetOnDay1,
     shortReport: '',
     fullReport: '',
   };
@@ -539,6 +541,9 @@ function generateShortReport(r: EvaluationResult, cfg: EvaluationConfig): string
   if (r.slTooWideCount > 0) text += '🛡️ SL Too Wide: ' + r.slTooWideCount + '\n';
   if (r.dailyDrawdowns.some(d => d.breached)) text += '📉 Drawdown Breaches: ' + r.dailyDrawdowns.filter(d => d.breached).length + ' days\n';
   text += '📅 Active Days: ' + r.activeDays + '/' + cfg.minActiveDays + '\n';
+  if (r.balanceResetOnDay1) {
+    text += 'ℹ️ Balance reset on Day 1 (grace period used)\n';
+  }
   if (r.isDisqualified) {
     text += '\n📛 ' + r.disqualifyReasons.join(', ');
   }
@@ -557,6 +562,9 @@ function generateFullReport(r: EvaluationResult, cfg: EvaluationConfig): string 
   text += '────────────────────────────\n\n';
 
   text += (r.checks.startingBalance ? '✅' : '❌') + ' Starting Balance      $' + r.startingBalance.toFixed(2) + '\n';
+  if (r.balanceResetOnDay1) {
+    text += '   ℹ️ User reset balance on Day 1 (grace period)\n';
+  }
   text += (r.checks.noRecharging ? '✅' : '❌') + ' No Recharging\n';
   text += (r.checks.activeDays ? '✅' : '❌') + ' Active Days           ' + r.activeDays + '/' + cfg.minActiveDays + '\n';
   text += (r.checks.weekendTrading ? '✅' : '⚠️') + ' Weekend Trading\n';
