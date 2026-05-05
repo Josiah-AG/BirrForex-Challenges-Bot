@@ -26,7 +26,7 @@ class EvaluationHandler {
     const session = this.evalSessions.get(telegramId);
     if (!session) return false;
     // Only intercept text for steps that need text input
-    const textSteps = ['find_eval_search', 'delete_eval_search', 'resubmit_search', 'sendeval_search', 'obo_dq_reason', 'obo_dq_confirm'];
+    const textSteps = ['find_eval_search', 'delete_eval_search', 'resubmit_search', 'sendeval_search', 'asksubmission_search', 'obo_dq_reason', 'obo_dq_confirm'];
     return textSteps.includes(session.step);
   }
 
@@ -581,6 +581,67 @@ class EvaluationHandler {
         }
       } catch (error) {
         console.error('Error in sendeval search:', error);
+        await ctx.reply('❌ Error searching.');
+      }
+    }
+
+    if (session.step === 'asksubmission_search') {
+      this.evalSessions.delete(ctx.from!.id);
+      try {
+        const { db } = require('../database/db');
+        const term = text.replace(/^@/, '').trim();
+        const result = await db.query(
+          `SELECT * FROM trading_registrations
+           WHERE challenge_id = $1 AND (
+             username ILIKE $2 OR
+             email ILIKE $2 OR
+             account_number = $3 OR
+             telegram_id::text = $3
+           ) LIMIT 5`,
+          [session.challengeId, '%' + term + '%', term]
+        );
+
+        if (result.rows.length === 0) {
+          await ctx.reply('❌ No registered user found for "' + text + '"');
+          return;
+        }
+
+        if (result.rows.length > 1) {
+          let msg = '⚠️ Multiple users found. Be more specific:\n\n';
+          result.rows.forEach((r: any, i: number) => {
+            msg += (i + 1) + '. @' + (r.username || 'unknown') + ' | ' + r.account_number + ' (' + r.account_type + ')\n';
+          });
+          await ctx.reply(msg);
+          return;
+        }
+
+        const user = result.rows[0];
+        const botInfo = await (ctx as any).telegram.getMe();
+
+        try {
+          await (ctx as any).telegram.sendMessage(
+            user.telegram_id,
+            '📋 <b>Submit Your Results — ' + session.challenge.title + '</b>\n\n' +
+            'Please submit your challenge results using the button below.\n\n' +
+            'You will need:\n' +
+            '• Your registered email\n' +
+            '• Your final account balance\n' +
+            '• Your investor (read-only) password\n' +
+            '• A screenshot of your balance\n\n' +
+            '<i>Make sure all details are correct before submitting.</i>',
+            {
+              parse_mode: 'HTML',
+              ...Markup.inlineKeyboard([
+                [Markup.button.url('📋 Submit Results', 'https://t.me/' + botInfo.username + '?start=tc_submit_' + session.challengeId)],
+              ]),
+            }
+          );
+          await ctx.reply('✅ Submission request sent to @' + (user.username || 'unknown') + ' (TG: ' + user.telegram_id + ')');
+        } catch (err) {
+          await ctx.reply('❌ Could not send message to user. They may have blocked the bot.');
+        }
+      } catch (error) {
+        console.error('Error in asksubmission search:', error);
         await ctx.reply('❌ Error searching.');
       }
     }
@@ -1360,6 +1421,32 @@ class EvaluationHandler {
     } catch (error) {
       console.error('Error in sendeval:', error);
       await ctx.reply('❌ Error starting send evaluation.');
+    }
+  }
+
+  // ── /asksubmission ──
+
+  async asksubmission(ctx: Context): Promise<void> {
+    try {
+      if (ctx.from!.id.toString() !== config.adminUserId) { await ctx.reply('❌ Not authorized.'); return; }
+
+      const challenges = await tradingChallengeService.getActiveChallenges();
+      let challenge = challenges[0] || null;
+      if (!challenge) { const all = await tradingChallengeService.getAllChallenges(); challenge = all[0] || null; }
+      if (!challenge) { await ctx.reply('❌ No challenge found.'); return; }
+
+      this.evalSessions.set(ctx.from!.id, {
+        step: 'asksubmission_search',
+        challengeId: challenge.id,
+        challenge,
+        isTest: false,
+        isReevaluate: false,
+      });
+
+      await ctx.reply('📋 Enter username, Telegram ID, email, or account number to send submission request:', { parse_mode: 'HTML' });
+    } catch (error) {
+      console.error('Error in asksubmission:', error);
+      await ctx.reply('❌ Error starting ask submission.');
     }
   }
 
