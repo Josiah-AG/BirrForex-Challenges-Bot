@@ -206,6 +206,39 @@ export function evaluateAccount(
   const challengeStartDateStr = config.challengeStartDate;
   const challengeDay1End = new Date(challengeStartDateStr + 'T23:59:59Z');
 
+  // Check if user reset their balance on day 1 (withdrawal to reach exactly $50)
+  let balanceResetOnDay1 = false;
+  const day1AllBalanceDeals = allBalanceDeals.filter(d => {
+    const t = parseTime(d.time);
+    return t >= challengeStart && t <= challengeDay1End;
+  });
+
+  // Find the balance after all day-1 balance operations (deposits + withdrawals)
+  if (day1AllBalanceDeals.length > 0) {
+    const lastDay1Deal = day1AllBalanceDeals[day1AllBalanceDeals.length - 1];
+    const balanceAfterDay1Ops = lastDay1Deal.balance;
+    // If balance after day-1 operations equals the limit, user reset their balance
+    if (Math.abs(balanceAfterDay1Ops - config.startingBalanceLimit) < 0.01) {
+      balanceResetOnDay1 = true;
+      startingBalance = config.startingBalanceLimit;
+    }
+  }
+
+  // If no reset detected but starting balance is above limit, check if any deal on day 1 shows $50
+  if (!balanceResetOnDay1 && startingBalance > config.startingBalanceLimit) {
+    // Check all deals on day 1 — if any shows balance = $50, user reset
+    for (const d of deals) {
+      const t = parseTime(d.time);
+      if (t >= challengeStart && t <= challengeDay1End) {
+        if (Math.abs(d.balance - config.startingBalanceLimit) < 0.01) {
+          balanceResetOnDay1 = true;
+          startingBalance = config.startingBalanceLimit;
+          break;
+        }
+      }
+    }
+  }
+
   const depositsInChallenge = allBalanceDeals.filter(d => {
     const t = parseTime(d.time);
     if (t < challengeStart || t > challengeEnd) return false;
@@ -227,21 +260,19 @@ export function evaluateAccount(
   const laterDeposits = depositsInChallenge.filter(d => parseTime(d.time) > challengeDay1End);
 
   // Day-1 deposits: use the actual running balance after the last day-1 deposit
-  // This is the real starting balance for the challenge
   let balanceAfterDay1Deposits = startingBalance;
   if (day1Deposits.length > 0) {
-    // Use the balance column from the last day-1 deposit deal (actual running balance)
     const lastDay1Deposit = day1Deposits[day1Deposits.length - 1];
     balanceAfterDay1Deposits = lastDay1Deposit.balance;
   }
-  const day1DepositsOk = balanceAfterDay1Deposits <= config.startingBalanceLimit;
+  const day1DepositsOk = balanceAfterDay1Deposits <= config.startingBalanceLimit || balanceResetOnDay1;
 
   // If day-1 deposits bring balance to valid level, update starting balance
   if (day1Deposits.length > 0 && day1DepositsOk) {
     startingBalance = balanceAfterDay1Deposits;
   }
 
-  // Recharging = any deposit after day 1, OR day-1 deposits that exceed the limit
+  // Recharging = any deposit after day 1, OR day-1 deposits that exceed the limit (unless reset)
   const noRecharging = laterDeposits.length === 0 && day1DepositsOk;
   const startingBalanceOk = startingBalance <= config.startingBalanceLimit;
 
