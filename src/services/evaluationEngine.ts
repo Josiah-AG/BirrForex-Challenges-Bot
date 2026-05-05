@@ -115,7 +115,15 @@ function calculateSlDollars(symbol: string, volume: number, entryPrice: number, 
   const priceDiff = Math.abs(entryPrice - slPrice);
   const pips = priceDiff / pipSize;
   const pipValue = volume * contractSize * pipSize;
-  return pips * pipValue;
+  let result = pips * pipValue;
+
+  // For JPY-quoted pairs, the result is in JPY — convert to USD by dividing by entry price
+  const sym = symbol.replace(/m$/, '').replace(/_x\d+m?$/, '');
+  if (sym.endsWith('JPY')) {
+    result = result / entryPrice;
+  }
+
+  return result;
 }
 
 function parseTime(s: string): Date {
