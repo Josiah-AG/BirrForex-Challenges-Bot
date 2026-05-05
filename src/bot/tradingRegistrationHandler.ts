@@ -282,6 +282,57 @@ export class TradingRegistrationHandler {
     await ctx.reply('📧 Please enter your <b>Exness email</b> to verify your identity:', { parse_mode: 'HTML' });
   }
 
+  // Forced submission — bypasses deadline/status checks, only works for the specific user
+  async startForcedSubmission(ctx: Context, challengeId: number, allowedTelegramId: number) {
+    const telegramId = ctx.from!.id;
+
+    // Only the specific user can use this link
+    if (String(telegramId) !== String(allowedTelegramId)) {
+      await ctx.reply('❌ This submission link is not for your account.');
+      return;
+    }
+
+    const challenge = await tradingChallengeService.getChallengeById(challengeId);
+    if (!challenge) {
+      await ctx.reply('❌ Challenge not found.');
+      return;
+    }
+
+    // Check if user is registered
+    const reg = await tradingChallengeService.getRegistration(challengeId, telegramId);
+    if (!reg) {
+      await ctx.reply('❌ You are not registered for this challenge.');
+      return;
+    }
+
+    // Check existing submission
+    const existingSub = await tradingChallengeService.getSubmissionByRegistration(reg.id);
+    if (existingSub) {
+      userSessions.set(telegramId, {
+        step: 'tc_submit_override_confirm',
+        data: { challenge_id: challengeId, target_balance: challenge.target_balance, registration_id: reg.id, challenge_title: challenge.title },
+      });
+
+      await ctx.reply(
+        '⚠️ <b>You have already submitted your results.</b>\n\n' +
+        '💰 Previous Balance: $' + Number(existingSub.final_balance).toFixed(2) + '\n\n' +
+        'Do you want to submit again and overwrite?',
+        { parse_mode: 'HTML', ...Markup.inlineKeyboard([
+          [Markup.button.callback('✅ Yes, Submit Again', 'tc_submit_override_yes_' + challengeId)],
+          [Markup.button.callback('❌ No, Keep Previous', 'tc_submit_override_no')],
+        ]) }
+      );
+      return;
+    }
+
+    userSessions.set(telegramId, {
+      step: 'tc_submit_email',
+      data: { challenge_id: challengeId, target_balance: challenge.target_balance },
+    });
+
+    await ctx.reply('📧 Please enter your <b>Exness email</b> to verify your identity:', { parse_mode: 'HTML' });
+  }
+
   async handleCallback(ctx: Context, data: string): Promise<boolean> {
     const telegramId = ctx.from!.id;
 

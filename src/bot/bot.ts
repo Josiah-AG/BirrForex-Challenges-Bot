@@ -186,6 +186,16 @@ export class Bot {
             return;
           }
 
+          // Handle forced submission deep link (bypasses deadline, user-specific)
+          if (startParam.startsWith('tc_forcesubmit_')) {
+            const parts = startParam.replace('tc_forcesubmit_', '').split('_');
+            const challengeId = parseInt(parts[0]);
+            const allowedTgId = parseInt(parts[1]);
+            const { tradingRegistrationHandler } = require('./tradingRegistrationHandler');
+            await tradingRegistrationHandler.startForcedSubmission(ctx, challengeId, allowedTgId);
+            return;
+          }
+
           // Handle evaluation report deep link
           if (startParam.startsWith('eval_report_')) {
             const evalId = parseInt(startParam.replace('eval_report_', ''));

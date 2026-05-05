@@ -632,7 +632,7 @@ class EvaluationHandler {
             {
               parse_mode: 'HTML',
               ...Markup.inlineKeyboard([
-                [Markup.button.url('📋 Submit Results', 'https://t.me/' + botInfo.username + '?start=tc_submit_' + session.challengeId)],
+                [Markup.button.url('📋 Submit Results', 'https://t.me/' + botInfo.username + '?start=tc_forcesubmit_' + session.challengeId + '_' + user.telegram_id)],
               ]),
             }
           );
