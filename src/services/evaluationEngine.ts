@@ -135,6 +135,12 @@ function isWeekend(d: Date): boolean {
   return d.getUTCDay() === 0 || d.getUTCDay() === 6;
 }
 
+function isCryptoPair(symbol: string): boolean {
+  const sym = symbol.replace(/m$/, '').replace(/_x\d+m?$/, '').toUpperCase();
+  const cryptos = ['BTC', 'ETH', 'LTC', 'XRP', 'BCH', 'DOGE', 'SOL', 'ADA', 'DOT', 'AVAX', 'MATIC', 'LINK', 'UNI', 'SHIB', 'BNB', 'USDT'];
+  return cryptos.some(c => sym.includes(c));
+}
+
 function dateKey(d: Date): string {
   return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0') + '-' + String(d.getUTCDate()).padStart(2, '0');
 }
@@ -287,14 +293,17 @@ export function evaluateAccount(
   });
   const activeDaysOk = activeDaysSet.size >= config.minActiveDays;
 
-  // Step 5: Weekend trading
+  // Step 5: Weekend trading — only flag crypto pairs (BTC, ETH, etc.)
+  // Non-crypto markets are closed on weekends; any weekend timestamp is server time overlap
   let weekendOk = true;
   challengePositions.forEach(p => {
     const open = parseTime(p.openTime);
     const close = parseTime(p.closeTime);
     if (isWeekend(open) || isWeekend(close)) {
-      weekendOk = false;
-      if (p.profit > 0) addFlag(p.positionId, 'Weekend trading');
+      if (isCryptoPair(p.symbol)) {
+        weekendOk = false;
+        if (p.profit > 0) addFlag(p.positionId, 'Weekend trading');
+      }
     }
   });
 
