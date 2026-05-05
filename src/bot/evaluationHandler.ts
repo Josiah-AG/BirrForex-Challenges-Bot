@@ -280,9 +280,10 @@ class EvaluationHandler {
 
       // Re-run handleDocument with stored data
       await this.processEvaluation(ctx, session, session.pendingFileId!, session.pendingBuffer!, session.pendingParsed!, session.pendingSubmission);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error in handleOverwriteConfirm:', error);
-      await ctx.reply('❌ Error continuing evaluation.');
+      const errMsg = error?.message || String(error);
+      await ctx.reply('❌ Error continuing evaluation:\n' + errMsg.substring(0, 200));
       this.evalSessions.delete(ctx.from!.id);
     }
   }
@@ -308,15 +309,14 @@ class EvaluationHandler {
     }
 
     // Build evaluation config from challenge settings
-    // Use the challenge dates as the admin entered them (EAT)
     const challenge = session.challenge;
     const startDate = new Date(new Date(challenge.start_date).getTime() + 3 * 60 * 60 * 1000);
     const endDate = new Date(new Date(challenge.end_date).getTime() + 3 * 60 * 60 * 1000);
     const evalConfig: EvaluationConfig = {
       challengeStartDate: startDate.getUTCFullYear() + '-' + String(startDate.getUTCMonth() + 1).padStart(2, '0') + '-' + String(startDate.getUTCDate()).padStart(2, '0'),
       challengeEndDate: endDate.getUTCFullYear() + '-' + String(endDate.getUTCMonth() + 1).padStart(2, '0') + '-' + String(endDate.getUTCDate()).padStart(2, '0'),
-      startingBalanceLimit: challenge.starting_balance || 50,
-      targetBalance: challenge.target_balance || 100,
+      startingBalanceLimit: Number(challenge.starting_balance) || 50,
+      targetBalance: Number(challenge.target_balance) || 100,
       maxLot: 0.02,
       maxOpenTrades: 3,
       maxSamePair: 2,
@@ -327,22 +327,29 @@ class EvaluationHandler {
     };
 
     // Run evaluation
-    const result = evaluateAccount(
-      parsed.account,
-      parsed.positions,
-      parsed.deals,
-      parsed.reportedBalance,
-      evalConfig
-    );
+    let result;
+    try {
+      result = evaluateAccount(
+        parsed.account,
+        parsed.positions,
+        parsed.deals,
+        parsed.reportedBalance,
+        evalConfig
+      );
+    } catch (evalErr: any) {
+      await ctx.reply('❌ Evaluation engine error: ' + (evalErr?.message || String(evalErr)).substring(0, 300));
+      this.evalSessions.delete(ctx.from!.id);
+      return;
+    }
 
     // Save evaluation
     const evalData = {
       challenge_id: session.challengeId,
-      registration_id: submission?.registration_id || 0,
+      registration_id: Number(submission?.registration_id) || 0,
       account_number: accountNumber,
       account_type: submission?.account_type || parsed.account.accountType,
       username: submission?.username || null,
-      telegram_id: submission?.telegram_id || 0,
+      telegram_id: Number(submission?.telegram_id) || 0,
       email: submission?.email || null,
       file_id: fileId,
       file_message_id: fileMessageId,
@@ -360,23 +367,41 @@ class EvaluationHandler {
     };
 
     let savedEval: EvaluationRecord;
-    if (session.isTest) {
-      savedEval = await evaluationService.saveTestEvaluation(evalData);
-    } else {
-      savedEval = await evaluationService.saveEvaluation(evalData, false);
+    try {
+      if (session.isTest) {
+        savedEval = await evaluationService.saveTestEvaluation(evalData);
+      } else {
+        savedEval = await evaluationService.saveEvaluation(evalData, false);
+      }
+    } catch (saveErr: any) {
+      await ctx.reply('❌ Error saving evaluation: ' + (saveErr?.message || String(saveErr)).substring(0, 300));
+      this.evalSessions.delete(ctx.from!.id);
+      return;
     }
 
     // Send short report to admin
-    await ctx.reply(
-      `${session.isTest ? '🧪 TEST ' : ''}${result.shortReport}\n\n` +
-      `💾 Saved (ID: ${savedEval.id})`,
-      { parse_mode: 'HTML' }
-    );
+    try {
+      await ctx.reply(
+        `${session.isTest ? '🧪 TEST ' : ''}${result.shortReport}\n\n` +
+        `💾 Saved (ID: ${savedEval.id})`,
+        { parse_mode: 'HTML' }
+      );
+    } catch (replyErr) {
+      // Fallback without HTML if parsing fails
+      await ctx.reply(
+        `${session.isTest ? '🧪 TEST ' : ''}${result.shortReport.replace(/<[^>]+>/g, '')}\n\n` +
+        `💾 Saved (ID: ${savedEval.id})`
+      );
+    }
 
     // Send full report (split if needed)
     const parts = this.splitMessage(result.fullReport);
     for (const part of parts) {
-      await ctx.reply(part);
+      try {
+        await ctx.reply(part);
+      } catch (partErr) {
+        await ctx.reply(part.substring(0, 4000));
+      }
     }
 
     // Check if we're in one-by-one mode
