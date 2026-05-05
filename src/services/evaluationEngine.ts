@@ -218,20 +218,20 @@ export function evaluateAccount(
   if (day1AllBalanceDeals.length > 0) {
     const lastDay1Deal = day1AllBalanceDeals[day1AllBalanceDeals.length - 1];
     const balanceAfterDay1Ops = lastDay1Deal.balance;
-    // If balance after day-1 operations equals the limit, user reset their balance
-    if (Math.abs(balanceAfterDay1Ops - config.startingBalanceLimit) < 0.01) {
+    // If balance after day-1 operations equals the limit (within $1 tolerance), user reset their balance
+    if (Math.abs(balanceAfterDay1Ops - config.startingBalanceLimit) < 1.01) {
       balanceResetOnDay1 = true;
       startingBalance = config.startingBalanceLimit;
     }
   }
 
   // If no reset detected but starting balance is above limit, check if any deal on day 1 shows $50
-  if (!balanceResetOnDay1 && startingBalance > config.startingBalanceLimit) {
+  if (!balanceResetOnDay1 && startingBalance > config.startingBalanceLimit + 1) {
     // Check all deals on day 1 — if any shows balance = $50, user reset
     for (const d of deals) {
       const t = parseTime(d.time);
       if (t >= challengeStart && t <= challengeDay1End) {
-        if (Math.abs(d.balance - config.startingBalanceLimit) < 0.01) {
+        if (Math.abs(d.balance - config.startingBalanceLimit) < 1.01) {
           balanceResetOnDay1 = true;
           startingBalance = config.startingBalanceLimit;
           break;
@@ -266,7 +266,7 @@ export function evaluateAccount(
     const lastDay1Deposit = day1Deposits[day1Deposits.length - 1];
     balanceAfterDay1Deposits = lastDay1Deposit.balance;
   }
-  const day1DepositsOk = balanceAfterDay1Deposits <= config.startingBalanceLimit || balanceResetOnDay1;
+  const day1DepositsOk = balanceAfterDay1Deposits < config.startingBalanceLimit + 1 || balanceResetOnDay1;
 
   // If day-1 deposits bring balance to valid level, update starting balance
   if (day1Deposits.length > 0 && day1DepositsOk) {
@@ -275,7 +275,7 @@ export function evaluateAccount(
 
   // Recharging = any deposit after day 1, OR day-1 deposits that exceed the limit (unless reset)
   const noRecharging = laterDeposits.length === 0 && day1DepositsOk;
-  const startingBalanceOk = startingBalance <= config.startingBalanceLimit;
+  const startingBalanceOk = startingBalance < config.startingBalanceLimit + 1;
 
   // Step 4: Active days
   const activeDaysSet = new Set<string>();
