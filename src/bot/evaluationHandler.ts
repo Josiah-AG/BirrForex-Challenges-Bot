@@ -1,5 +1,7 @@
 import { Context, Markup } from 'telegraf';
 import axios from 'axios';
+import * as fs from 'fs';
+import * as path from 'path';
 import { parseMT5Report } from '../services/mt5Parser';
 import { evaluateAccount, EvaluationConfig } from '../services/evaluationEngine';
 import { evaluationService, EvaluationRecord } from '../services/evaluationService';
@@ -913,8 +915,21 @@ class EvaluationHandler {
 
       const announcement = this.generateWinnerAnnouncement(challenge, realWinners, demoWinners);
 
-      // Show preview to admin
-      await ctx.reply(`📋 <b>Winner Announcement Preview:</b>\n\n${announcement}`, { parse_mode: 'HTML' });
+      // Show preview to admin with winner image
+      const winnerImagePath = path.join(process.cwd(), 'assets', 'winner.png');
+      if (fs.existsSync(winnerImagePath)) {
+        if (announcement.length <= 1024) {
+          await ctx.replyWithPhoto(
+            { source: fs.createReadStream(winnerImagePath) },
+            { caption: announcement, parse_mode: 'HTML' }
+          );
+        } else {
+          await ctx.replyWithPhoto({ source: fs.createReadStream(winnerImagePath) });
+          await ctx.reply(announcement, { parse_mode: 'HTML' });
+        }
+      } else {
+        await ctx.reply(announcement, { parse_mode: 'HTML' });
+      }
       await ctx.reply(
         'Post this announcement to channels?',
         Markup.inlineKeyboard([
@@ -947,25 +962,62 @@ class EvaluationHandler {
         : [];
 
       const announcement = this.generateWinnerAnnouncement(challenge, realWinners, demoWinners);
+      const winnerImagePath = path.join(process.cwd(), 'assets', 'winner.png');
 
       // Post to challenge channel
       try {
-        await (ctx as any).telegram.sendMessage(
-          config.challengeChannelId,
-          announcement + '\n\n📋 Detailed evaluation reports will be posted below.',
-          { parse_mode: 'HTML' }
-        );
+        if (announcement.length <= 1024 && fs.existsSync(winnerImagePath)) {
+          await (ctx as any).telegram.sendPhoto(
+            config.challengeChannelId,
+            { source: fs.createReadStream(winnerImagePath) },
+            { caption: announcement, parse_mode: 'HTML' }
+          );
+        } else if (fs.existsSync(winnerImagePath)) {
+          await (ctx as any).telegram.sendPhoto(
+            config.challengeChannelId,
+            { source: fs.createReadStream(winnerImagePath) }
+          );
+          await (ctx as any).telegram.sendMessage(
+            config.challengeChannelId,
+            announcement,
+            { parse_mode: 'HTML' }
+          );
+        } else {
+          await (ctx as any).telegram.sendMessage(
+            config.challengeChannelId,
+            announcement,
+            { parse_mode: 'HTML' }
+          );
+        }
       } catch (err) {
         console.error('Error posting to challenge channel:', err);
       }
 
       // Post to main channel
       try {
-        await (ctx as any).telegram.sendMessage(
-          config.mainChannelId,
-          announcement + `\n\n📋 Detailed reports available on ${config.challengeChannelId}`,
-          { parse_mode: 'HTML' }
-        );
+        if (announcement.length <= 1024 && fs.existsSync(winnerImagePath)) {
+          await (ctx as any).telegram.sendPhoto(
+            config.mainChannelId,
+            { source: fs.createReadStream(winnerImagePath) },
+            { caption: announcement + `\n\n📋 Detailed reports on @Birrforex_Challenges`, parse_mode: 'HTML' }
+          );
+        } else if (fs.existsSync(winnerImagePath)) {
+          await (ctx as any).telegram.sendPhoto(
+            config.mainChannelId,
+            { source: fs.createReadStream(winnerImagePath) }
+          );
+          await (ctx as any).telegram.sendMessage(
+            config.mainChannelId,
+            announcement + `\n\n📋 Detailed reports on @Birrforex_Challenges`,
+            { parse_mode: 'HTML' }
+          );
+        } else {
+          await (ctx as any).telegram.sendMessage(
+            config.mainChannelId,
+            announcement + `\n\n📋 Detailed reports on @Birrforex_Challenges`,
+            { parse_mode: 'HTML' }
+          );
+        }
       } catch (err) {
         console.error('Error posting to main channel:', err);
       }
@@ -2016,8 +2068,36 @@ class EvaluationHandler {
         ? await evaluationService.getTestTopWinners(challenge.id, 'demo', demoCount)
         : [];
 
-      if (realWinners.length === 0 && demoWinners.length === 0) {
-        await ctx.reply('❌ No qualified test winners found.');
+      // If no test data, use placeholders
+      const usePlaceholders = realWinners.length === 0 && demoWinners.length === 0;
+      let announcement: string;
+
+      if (usePlaceholders) {
+        announcement = this.generatePlaceholderWinnerAnnouncement(challenge);
+      } else {
+        announcement = this.generateWinnerAnnouncement(challenge, realWinners, demoWinners);
+      }
+
+      // ── SECTION 1: Winner Announcement (both channels) ──
+      await ctx.telegram.sendMessage(adminId, '📢 <b>CHANNEL POST — Winner Announcement (both channels)</b>', { parse_mode: 'HTML' });
+      const winnerImagePath = path.join(process.cwd(), 'assets', 'winner.png');
+      if (fs.existsSync(winnerImagePath)) {
+        if (announcement.length <= 1024) {
+          await ctx.telegram.sendPhoto(
+            adminId,
+            { source: fs.createReadStream(winnerImagePath) },
+            { caption: announcement, parse_mode: 'HTML' }
+          );
+        } else {
+          await ctx.telegram.sendPhoto(adminId, { source: fs.createReadStream(winnerImagePath) });
+          await ctx.telegram.sendMessage(adminId, announcement, { parse_mode: 'HTML' });
+        }
+      } else {
+        await ctx.telegram.sendMessage(adminId, announcement, { parse_mode: 'HTML' });
+      }
+
+      if (usePlaceholders) {
+        await ctx.telegram.sendMessage(adminId, '⚠️ No test data found — used placeholder winners above.\nTo see full flow, run /testevaluate on some files first.', { parse_mode: 'HTML' });
         return;
       }
 
@@ -2038,11 +2118,6 @@ class EvaluationHandler {
       // Build ranked lists per category
       const realQualified = allTestEvals.filter(e => e.is_qualified && e.account_type === 'real').sort((a, b) => Number(b.adjusted_balance) - Number(a.adjusted_balance));
       const demoQualified = allTestEvals.filter(e => e.is_qualified && e.account_type === 'demo').sort((a, b) => Number(b.adjusted_balance) - Number(a.adjusted_balance));
-
-      // ── SECTION 1: Winner Announcement (both channels) ──
-      await ctx.telegram.sendMessage(adminId, '📢 <b>CHANNEL POST — Winner Announcement (both channels)</b>', { parse_mode: 'HTML' });
-      const announcement = this.generateWinnerAnnouncement(challenge, realWinners, demoWinners);
-      await ctx.telegram.sendMessage(adminId, announcement, { parse_mode: 'HTML' });
 
       // ── SECTION 2: Challenge channel note ──
       await ctx.telegram.sendMessage(adminId, '📢 <b>CHALLENGE CHANNEL — Note below winners</b>', { parse_mode: 'HTML' });
@@ -2264,6 +2339,56 @@ class EvaluationHandler {
         if (prize) text += '   🎁 Prize: <b>' + prize + '</b>\n';
         text += '\n';
       });
+    }
+
+    text += '━━━━━━━━━━━━━━━━━━━━\n\n';
+    text += '📋 All accounts were evaluated using our automated rule-checking system.\n';
+    text += 'Every trade was checked for lot size, stop loss, daily drawdown, hold time, and more.\n\n';
+    text += 'Thank you to all participants! 💪\n';
+    text += 'Join the next challenge and show your trading skills! 🚀\n\n';
+    text += '@' + config.mainChannelUsername;
+
+    return text;
+  }
+
+  private generatePlaceholderWinnerAnnouncement(challenge: TradingChallenge): string {
+    const realPrizes = typeof challenge.real_prizes === 'string' ? JSON.parse(challenge.real_prizes) : (challenge.real_prizes || []);
+    const demoPrizes = typeof challenge.demo_prizes === 'string' ? JSON.parse(challenge.demo_prizes) : (challenge.demo_prizes || []);
+    const medals = ['🥇', '🥈', '🥉', '4️⃣', '5️⃣'];
+    const realCount = challenge.real_winners_count || 0;
+    const demoCount = challenge.demo_winners_count || 0;
+
+    let text = '🏆 <b>' + challenge.title + ' — WINNERS</b> 🏆\n\n';
+    text += 'Congratulations to our winners! 🎉\n\n';
+
+    if (realCount > 0) {
+      text += '━━━━━━━━━━━━━━━━━━━━\n';
+      text += '📱 <b>REAL ACCOUNT CATEGORY</b>\n';
+      text += '━━━━━━━━━━━━━━━━━━━━\n\n';
+      for (let i = 0; i < realCount; i++) {
+        const medal = medals[i] || '🏅';
+        const prize = realPrizes[i] ? String(realPrizes[i]) : '';
+        text += medal + ' <b>' + this.getOrdinal(i + 1) + ' Place</b> — @placeholder_user_' + (i + 1) + '\n';
+        text += '   💰 Adjusted Balance: <b>$XXX.XX</b>\n';
+        text += '   📈 Trades: XX | Flagged: X\n';
+        if (prize) text += '   🎁 Prize: <b>' + prize + '</b>\n';
+        text += '\n';
+      }
+    }
+
+    if (demoCount > 0) {
+      text += '━━━━━━━━━━━━━━━━━━━━\n';
+      text += '🎮 <b>DEMO ACCOUNT CATEGORY</b>\n';
+      text += '━━━━━━━━━━━━━━━━━━━━\n\n';
+      for (let i = 0; i < demoCount; i++) {
+        const medal = medals[i] || '🏅';
+        const prize = demoPrizes[i] ? '$' + String(demoPrizes[i]) : '';
+        text += medal + ' <b>' + this.getOrdinal(i + 1) + ' Place</b> — @placeholder_user_' + (i + 1) + '\n';
+        text += '   💰 Adjusted Balance: <b>$XXX.XX</b>\n';
+        text += '   📈 Trades: XX | Flagged: X\n';
+        if (prize) text += '   🎁 Prize: <b>' + prize + '</b>\n';
+        text += '\n';
+      }
     }
 
     text += '━━━━━━━━━━━━━━━━━━━━\n\n';
