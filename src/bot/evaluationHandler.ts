@@ -989,6 +989,12 @@ class EvaluationHandler {
             { parse_mode: 'HTML' }
           );
         }
+        // Challenge channel footnote
+        await (ctx as any).telegram.sendMessage(
+          config.challengeChannelId,
+          '<i>📎 The MT5 trading history export and detailed evaluation report for each winner is posted below.</i>',
+          { parse_mode: 'HTML' }
+        );
       } catch (err) {
         console.error('Error posting to challenge channel:', err);
       }
@@ -999,7 +1005,7 @@ class EvaluationHandler {
           await (ctx as any).telegram.sendPhoto(
             config.mainChannelId,
             { source: fs.createReadStream(winnerImagePath) },
-            { caption: announcement + `\n\n📋 Detailed reports on @Birrforex_Challenges`, parse_mode: 'HTML' }
+            { caption: announcement, parse_mode: 'HTML' }
           );
         } else if (fs.existsSync(winnerImagePath)) {
           await (ctx as any).telegram.sendPhoto(
@@ -1008,16 +1014,22 @@ class EvaluationHandler {
           );
           await (ctx as any).telegram.sendMessage(
             config.mainChannelId,
-            announcement + `\n\n📋 Detailed reports on @Birrforex_Challenges`,
+            announcement,
             { parse_mode: 'HTML' }
           );
         } else {
           await (ctx as any).telegram.sendMessage(
             config.mainChannelId,
-            announcement + `\n\n📋 Detailed reports on @Birrforex_Challenges`,
+            announcement,
             { parse_mode: 'HTML' }
           );
         }
+        // Main channel footnote
+        await (ctx as any).telegram.sendMessage(
+          config.mainChannelId,
+          '<i>📎 The MT5 trading history export and detailed evaluation report for each winner is available on @Birrforex_Challenges</i>',
+          { parse_mode: 'HTML' }
+        );
       } catch (err) {
         console.error('Error posting to main channel:', err);
       }
@@ -2121,11 +2133,11 @@ class EvaluationHandler {
 
       // ── SECTION 2: Challenge channel note ──
       await ctx.telegram.sendMessage(adminId, '📢 <b>CHALLENGE CHANNEL — Note below winners</b>', { parse_mode: 'HTML' });
-      await ctx.telegram.sendMessage(adminId, '📊 The MT5 trading history and detailed evaluation report for each winner will be posted below.');
+      await ctx.telegram.sendMessage(adminId, '<i>📎 The MT5 trading history export and detailed evaluation report for each winner is posted below.</i>', { parse_mode: 'HTML' });
 
       // ── SECTION 3: Main channel note ──
       await ctx.telegram.sendMessage(adminId, '📢 <b>MAIN CHANNEL — Note below winners</b>', { parse_mode: 'HTML' });
-      await ctx.telegram.sendMessage(adminId, '📊 The MT5 trading history and detailed evaluation report for each winner is posted on @Birrforex_Challenges');
+      await ctx.telegram.sendMessage(adminId, '<i>📎 The MT5 trading history export and detailed evaluation report for each winner is available on @Birrforex_Challenges</i>', { parse_mode: 'HTML' });
 
       // ── SECTION 4: Result detail for each winner (channel post) ──
       for (const winner of allWinners) {
@@ -2347,7 +2359,6 @@ class EvaluationHandler {
     text += '<i>NB: Detailed evaluation reports were sent to all qualifiers 3 days ago. If you had any concerns, the time to raise them was then. Now that winners and ranks are posted, no further complaints will be accepted.</i>\n\n';
     text += 'Thank you to all participants! 💪\n';
     text += 'Join the next challenge and show your trading skills! 🚀\n\n';
-    text += '<i>📎 The MT5 trading history export for each winner is posted below.</i>\n\n';
     text += '@' + config.mainChannelUsername;
 
     return text;
@@ -2399,7 +2410,6 @@ class EvaluationHandler {
     text += '<i>NB: Detailed evaluation reports were sent to all qualifiers 3 days ago. If you had any concerns, the time to raise them was then. Now that winners and ranks are posted, no further complaints will be accepted.</i>\n\n';
     text += 'Thank you to all participants! 💪\n';
     text += 'Join the next challenge and show your trading skills! 🚀\n\n';
-    text += '<i>📎 The MT5 trading history export for each winner is posted below.</i>\n\n';
     text += '@' + config.mainChannelUsername;
 
     return text;
