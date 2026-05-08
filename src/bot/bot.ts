@@ -83,6 +83,7 @@ export class Bot {
       { command: 'postresultdetail', description: 'Post winner MT5 files + reports' },
       { command: 'dmqualifiers', description: 'DM all evaluated users their results' },
       { command: 'invitereal', description: 'Send Discord invite to real account participants' },
+      { command: 'fixinvite', description: 'Send corrected Discord link to real participants' },
       { command: 'testannounce', description: 'Preview announcement (test only)' },
       { command: 'cleartest', description: 'Clear test evaluation data' },
       { command: 'preannouncementnotice', description: 'Send evaluation results to users (48hr review)' },
@@ -268,6 +269,7 @@ export class Bot {
     this.bot.command('postresultdetail', (ctx) => evaluationHandler.postresultdetail(ctx));
     this.bot.command('dmqualifiers', (ctx) => evaluationHandler.dmqualifiers(ctx));
     this.bot.command('invitereal', (ctx) => evaluationHandler.invitereal(ctx));
+    this.bot.command('fixinvite', (ctx) => evaluationHandler.fixinvite(ctx));
     this.bot.command('testannounce', (ctx) => evaluationHandler.testannounce(ctx));
     this.bot.command('cleartest', (ctx) => evaluationHandler.cleartest(ctx));
     this.bot.command('preannouncementnotice', (ctx) => evaluationHandler.preannouncementnotice(ctx));

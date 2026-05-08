@@ -1342,6 +1342,98 @@ class EvaluationHandler {
     }
   }
 
+  // ── /fixinvite ──
+
+  async fixinvite(ctx: Context): Promise<void> {
+    try {
+      if (ctx.from!.id.toString() !== config.adminUserId) {
+        await ctx.reply('❌ You are not authorized.');
+        return;
+      }
+
+      const challenges = await tradingChallengeService.getActiveChallenges();
+      let challenge = challenges[0] || null;
+      if (!challenge) {
+        const all = await tradingChallengeService.getAllChallenges();
+        challenge = all[0] || null;
+      }
+      if (!challenge) {
+        await ctx.reply('❌ No challenge found.');
+        return;
+      }
+
+      // Get all real account registrations
+      const { rows: realRegistrations } = await (await import('../database/db')).db.query(
+        'SELECT DISTINCT telegram_id, username FROM trading_registrations WHERE challenge_id = $1 AND account_type = $2 AND telegram_id IS NOT NULL AND telegram_id != 0',
+        [challenge.id, 'real']
+      );
+
+      // Get winners to exclude
+      const realCount = challenge.real_winners_count || 0;
+      const realWinners = realCount > 0
+        ? await evaluationService.getTopWinners(challenge.id, 'real', realCount)
+        : [];
+      const winnerTgIds = new Set(realWinners.map(w => String(w.telegram_id)));
+
+      // Filter out winners
+      const recipients = realRegistrations.filter((r: any) => !winnerTgIds.has(String(r.telegram_id)));
+
+      if (recipients.length === 0) {
+        await ctx.reply('❌ No real account participants to message.');
+        return;
+      }
+
+      await ctx.reply(`⏳ Sending corrected link to ${recipients.length} real account participants...`);
+
+      const message =
+        '🔗 <b>Updated Link</b>\n\n' +
+        'Sorry, the previous Discord link was invalid. Use this one to join the Live Trading Team 👇\n\n' +
+        'https://discord.gg/2mPMkpgWw\n\n' +
+        'See you there! 🚀';
+
+      let sent = 0;
+      let failed = 0;
+      const failedList: string[] = [];
+
+      for (const recipient of recipients) {
+        try {
+          await (ctx as any).telegram.sendMessage(
+            recipient.telegram_id,
+            message,
+            { parse_mode: 'HTML', disable_web_page_preview: true }
+          );
+          sent++;
+
+          await new Promise(resolve => setTimeout(resolve, 1500));
+
+          if (sent % 10 === 0) {
+            await ctx.reply(`⏳ Progress: ${sent}/${recipients.length} sent...`);
+          }
+        } catch (err: any) {
+          failed++;
+          const username = recipient.username ? `@${recipient.username}` : `ID:${recipient.telegram_id}`;
+          const reason = err?.response?.description || err?.message || 'Unknown error';
+          failedList.push(`${username} — ${reason}`);
+        }
+      }
+
+      let resultMsg = `✅ <b>Fix Invite Results:</b>\n` +
+        `Sent: ${sent}\n` +
+        `Failed: ${failed}\n` +
+        `Total: ${recipients.length}`;
+
+      if (failedList.length > 0) {
+        resultMsg += '\n\n❌ <b>Failed:</b>\n' + failedList.slice(0, 30).join('\n');
+        if (failedList.length > 30) resultMsg += '\n... and ' + (failedList.length - 30) + ' more';
+      }
+
+      await ctx.reply(resultMsg, { parse_mode: 'HTML' });
+    } catch (error) {
+      console.error('Error in fixinvite:', error);
+      await ctx.reply('❌ Error sending fix invites.');
+    }
+  }
+
   // ── /cleartest ──
 
   async cleartest(ctx: Context): Promise<void> {
