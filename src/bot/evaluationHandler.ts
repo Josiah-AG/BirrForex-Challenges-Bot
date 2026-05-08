@@ -2344,8 +2344,10 @@ class EvaluationHandler {
     text += '━━━━━━━━━━━━━━━━━━━━\n\n';
     text += '📋 All accounts were evaluated using our automated rule-checking system.\n';
     text += 'Every trade was checked for lot size, stop loss, daily drawdown, hold time, and more.\n\n';
+    text += '<i>NB: Detailed evaluation reports were sent to all qualifiers 3 days ago. If you had any concerns, the time to raise them was then. Now that winners and ranks are posted, no further complaints will be accepted.</i>\n\n';
     text += 'Thank you to all participants! 💪\n';
     text += 'Join the next challenge and show your trading skills! 🚀\n\n';
+    text += '<i>📎 The MT5 trading history export for each winner is posted below.</i>\n\n';
     text += '@' + config.mainChannelUsername;
 
     return text;
@@ -2394,8 +2396,10 @@ class EvaluationHandler {
     text += '━━━━━━━━━━━━━━━━━━━━\n\n';
     text += '📋 All accounts were evaluated using our automated rule-checking system.\n';
     text += 'Every trade was checked for lot size, stop loss, daily drawdown, hold time, and more.\n\n';
+    text += '<i>NB: Detailed evaluation reports were sent to all qualifiers 3 days ago. If you had any concerns, the time to raise them was then. Now that winners and ranks are posted, no further complaints will be accepted.</i>\n\n';
     text += 'Thank you to all participants! 💪\n';
     text += 'Join the next challenge and show your trading skills! 🚀\n\n';
+    text += '<i>📎 The MT5 trading history export for each winner is posted below.</i>\n\n';
     text += '@' + config.mainChannelUsername;
 
     return text;
