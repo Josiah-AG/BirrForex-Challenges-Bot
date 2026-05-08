@@ -1170,10 +1170,12 @@ class EvaluationHandler {
       const botInfo = await (ctx as any).telegram.getMe();
       let sent = 0;
       let failed = 0;
+      const failedUsersList: string[] = [];
 
       for (const evaluation of evaluations) {
-        if (!evaluation.telegram_id || evaluation.telegram_id === 0) {
+        if (!evaluation.telegram_id || Number(evaluation.telegram_id) === 0) {
           failed++;
+          failedUsersList.push(`${evaluation.username || evaluation.account_number} (no TG ID)`);
           continue;
         }
 
@@ -1216,22 +1218,127 @@ class EvaluationHandler {
           if (sent % 10 === 0) {
             await ctx.reply(`⏳ Progress: ${sent}/${evaluations.length} sent...`);
           }
-        } catch (err) {
+        } catch (err: any) {
           console.error(`Error DMing user ${evaluation.telegram_id}:`, err);
           failed++;
+          const username = evaluation.username ? `@${evaluation.username}` : `ID:${evaluation.telegram_id}`;
+          const reason = err?.response?.description || 'Unknown error';
+          failedUsersList.push(`${username} — ${reason}`);
         }
       }
 
-      await ctx.reply(
-        `✅ <b>DM Results:</b>\n` +
+      let resultMsg = `✅ <b>DM Results:</b>\n` +
         `  Sent: ${sent}\n` +
         `  Failed: ${failed}\n` +
-        `  Total: ${evaluations.length}`,
-        { parse_mode: 'HTML' }
-      );
+        `  Total: ${evaluations.length}`;
+
+      if (failedUsersList.length > 0) {
+        resultMsg += '\n\n❌ <b>Failed:</b>\n' + failedUsersList.slice(0, 20).join('\n');
+        if (failedUsersList.length > 20) resultMsg += '\n... and ' + (failedUsersList.length - 20) + ' more';
+      }
+
+      await ctx.reply(resultMsg, { parse_mode: 'HTML' });
     } catch (error) {
       console.error('Error in dmqualifiers:', error);
       await ctx.reply('❌ Error sending DMs.');
+    }
+  }
+
+  // ── /invitereal ──
+
+  async invitereal(ctx: Context): Promise<void> {
+    try {
+      if (ctx.from!.id.toString() !== config.adminUserId) {
+        await ctx.reply('❌ You are not authorized.');
+        return;
+      }
+
+      const challenges = await tradingChallengeService.getActiveChallenges();
+      let challenge = challenges[0] || null;
+      if (!challenge) {
+        const all = await tradingChallengeService.getAllChallenges();
+        challenge = all[0] || null;
+      }
+      if (!challenge) {
+        await ctx.reply('❌ No challenge found.');
+        return;
+      }
+
+      // Get all real account registrations
+      const { rows: realRegistrations } = await (await import('../database/db')).db.query(
+        'SELECT DISTINCT telegram_id, username FROM trading_registrations WHERE challenge_id = $1 AND account_type = $2 AND telegram_id IS NOT NULL AND telegram_id != 0',
+        [challenge.id, 'real']
+      );
+
+      // Get winners to exclude
+      const realCount = challenge.real_winners_count || 0;
+      const realWinners = realCount > 0
+        ? await evaluationService.getTopWinners(challenge.id, 'real', realCount)
+        : [];
+      const winnerTgIds = new Set(realWinners.map(w => String(w.telegram_id)));
+
+      // Filter out winners
+      const recipients = realRegistrations.filter((r: any) => !winnerTgIds.has(String(r.telegram_id)));
+
+      if (recipients.length === 0) {
+        await ctx.reply('❌ No real account participants to invite (excluding winners).');
+        return;
+      }
+
+      await ctx.reply(`⏳ Sending invite to ${recipients.length} real account participants (excluding ${realWinners.length} winners)...`);
+
+      const message =
+        '👋 <b>Hope you had a great experience in ' + challenge.title + '!</b>\n\n' +
+        'Challenge 16 will be coming soon — prepare to come back stronger 💪\n\n' +
+        'In addition, we are happy to invite you to our <b>Live Trading Team</b> 🔥\n\n' +
+        'We\'re sure you\'ll benefit a lot from it and grow your trading skills 📊\n\n' +
+        '<b>To join:</b>\n' +
+        '1️⃣ Download the Discord app from Google Play / App Store\n' +
+        '2️⃣ Join using the link below 👇\n\n' +
+        'https://discord.gg/2mPMkpgW\n\n' +
+        'See you there! 🚀';
+
+      let sent = 0;
+      let failed = 0;
+      const failedList: string[] = [];
+
+      for (const recipient of recipients) {
+        try {
+          await (ctx as any).telegram.sendMessage(
+            recipient.telegram_id,
+            message,
+            { parse_mode: 'HTML', disable_web_page_preview: true }
+          );
+          sent++;
+
+          // 1.5 second delay between messages
+          await new Promise(resolve => setTimeout(resolve, 1500));
+
+          if (sent % 10 === 0) {
+            await ctx.reply(`⏳ Progress: ${sent}/${recipients.length} sent...`);
+          }
+        } catch (err: any) {
+          failed++;
+          const username = recipient.username ? `@${recipient.username}` : `ID:${recipient.telegram_id}`;
+          const reason = err?.response?.description || err?.message || 'Unknown error';
+          failedList.push(`${username} — ${reason}`);
+        }
+      }
+
+      let resultMsg = `✅ <b>Invite Results:</b>\n` +
+        `Sent: ${sent}\n` +
+        `Failed: ${failed}\n` +
+        `Total: ${recipients.length}`;
+
+      if (failedList.length > 0) {
+        resultMsg += '\n\n❌ <b>Failed:</b>\n' + failedList.slice(0, 30).join('\n');
+        if (failedList.length > 30) resultMsg += '\n... and ' + (failedList.length - 30) + ' more';
+      }
+
+      await ctx.reply(resultMsg, { parse_mode: 'HTML' });
+    } catch (error) {
+      console.error('Error in invitereal:', error);
+      await ctx.reply('❌ Error sending invites.');
     }
   }
 
@@ -2486,7 +2593,12 @@ class EvaluationHandler {
       text += '📁 ' + category + ' Account Category\n';
       text += '📅 Account: ' + evaluation.account_number + '\n';
       text += '\n🚫 Status: <b>DISQUALIFIED</b>\n';
-      text += '📛 Reason: ' + (evaluation.disqualify_reason || 'Rule violation') + '\n';
+      let reason = evaluation.disqualify_reason || 'Rule violation';
+      // Truncate long reasons (e.g., many deposits listed)
+      if (reason.length > 200) {
+        reason = reason.substring(0, 200) + '...';
+      }
+      text += '📛 Reason: ' + reason + '\n';
       text += '\nTap below for your full evaluation report.\n';
       text += '\nIf you believe this is an error, contact @birrFXadmin.';
     } else {
@@ -2500,6 +2612,11 @@ class EvaluationHandler {
       text += '\nYour reported balance reached the target, but after applying the challenge rules, some profits were removed.\n';
       text += '\nTap below to see which trades were flagged and why.\n';
       text += '\nBetter luck next time! 💪';
+    }
+
+    // Telegram document caption limit is 1024 chars
+    if (text.length > 1024) {
+      text = text.substring(0, 1020) + '...';
     }
 
     return text;
