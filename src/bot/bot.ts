@@ -1250,7 +1250,7 @@ Use the buttons below to manage challenges:`;
         questions.forEach((q, i) => {
           const correctOption = q[`option_${q.correct_answer.toLowerCase()}` as keyof typeof q];
           text += `<b>Q${i + 1}:</b> ${q.question_text}
-  ✓ <b>${q.correct_answer})</b> ${correctOption}
+  ✓ <b>${correctOption}</b>
 
   `;
         });
