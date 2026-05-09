@@ -545,9 +545,12 @@ export class Scheduler {
   private async sendResultNotifications(challengeId: number, eligibleWinners: any[], allPerfectScorers: any[]) {
     const stats = await participantService.getChallengeStats(challengeId);
     const challenge = await challengeService.getChallengeById(challengeId);
-    const backupLimit = config.backupListSize + 1; // 1 winner + 5 backups
 
     if (!challenge || !challenge.started_at) return;
+
+    const numWinners = Math.min(challenge.num_winners || 1, eligibleWinners.length);
+    const backupStart = numWinners;
+    const backupLimit = backupStart + config.backupListSize;
 
     for (let i = 0; i < allPerfectScorers.length && i < backupLimit; i++) {
       const scorer = allPerfectScorers[i];
@@ -562,10 +565,15 @@ export class Scheduler {
         // Calculate precise time with milliseconds
         const preciseTime = this.formatTimeWithMs(scorer.completed_at, challenge.started_at);
         
-        if (i === 0) {
-          // Winner (first eligible perfect scorer)
+        // Find this scorer's position among eligible winners
+        const eligibleIdx = eligibleWinners.findIndex(w => w.telegram_id === scorer.telegram_id);
+        
+        if (eligibleIdx >= 0 && eligibleIdx < numWinners) {
+          // Winner
+          const position = eligibleIdx + 1;
+          const posText = numWinners > 1 ? ` (${this.getOrdinal(position)} Place)` : '';
           message = `🏆 <b>CONGRATULATIONS!</b> 🏆\n\n` +
-            `<b>You WON today's challenge!</b>\n\n` +
+            `<b>You WON today's challenge!${posText}</b>\n\n` +
             `💰 <b>Prize:</b> $${challenge.prize_amount}\n` +
             `📊 <b>Final Score:</b> ${scorer.score}/${scorer.total_questions} ✅\n` +
             `⚡ <b>Response Time:</b> ${preciseTime}\n` +
@@ -576,9 +584,9 @@ export class Scheduler {
             `📸 <b>TO CLAIM YOUR PRIZE:</b>\n` +
             `DM @birrFXadmin with this screenshot\n\n` +
             `⚠️ <i>Prize must be claimed within ${config.prizeClaimDeadlineHours} HOUR</i>`;
-        } else if (i > 0 && i < backupLimit) {
-          // Backup (positions 2-6)
-          const backupPosition = this.getOrdinal(i);
+        } else if (eligibleIdx >= numWinners && eligibleIdx < backupLimit) {
+          // Backup
+          const backupPosition = this.getOrdinal(eligibleIdx - numWinners + 1);
           message = `✨ <b>EXCELLENT PERFORMANCE!</b>\n\n` +
             `📊 <b>Final Score:</b> ${scorer.score}/${scorer.total_questions} ✅\n` +
             `⚡ <b>Response Time:</b> ${preciseTime}\n` +

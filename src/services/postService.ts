@@ -182,20 +182,32 @@ ${config.exnessSignupLink}
       stats: any,
       botUsername: string
     ) {
+  const winnersSection = winners.length > 0
+    ? winners.map((w, i) => {
+        const scorer = backups.find(b => b.telegram_id === w.telegram_id) || backups[i];
+        const timeStr = challenge.started_at && scorer ? formatTimeSmart(scorer, backups, challenge.started_at) : (scorer ? formatTime(scorer.completion_time_seconds) : '—');
+        const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '🏅';
+        return `${medal} <b>@${w.username || 'user'}</b> - <b>${scorer?.score || '?'}/${scorer?.total_questions || '?'}</b> in <b>${timeStr}</b>`;
+      }).join('\n')
+    : 'No winner';
+
+  const backupStart = winners.length;
+  const backupList = backups.slice(backupStart, backupStart + config.backupListSize);
+
   const text = `<b>⏰ BirrForex Weekly Challenge - ${challenge.day.charAt(0).toUpperCase() + challenge.day.slice(1)} Round IS CLOSED</b>
 
   <b>📊 CHALLENGE RESULTS 📊</b>
   <i>${formatDateWithDay(challenge.date)}</i>
 
-  <b>🏆 WINNER:</b>
-  ${winners[0] ? `<b>@${winners[0].username || 'user'}</b> - <b>${backups[0]?.score}/${backups[0]?.total_questions}</b> in <b>${challenge.started_at ? formatTimeSmart(backups[0], backups, challenge.started_at) : formatTime(backups[0]?.completion_time_seconds || 0)}</b>` : 'No winner'}
+  <b>🏆 WINNER${winners.length > 1 ? 'S' : ''}:</b>
+  ${winnersSection}
 
-  <b>💰 Prize: $${challenge.prize_amount}</b>
+  <b>💰 Prize: $${challenge.prize_amount}${winners.length > 1 ? ' each' : ''}</b>
 
   <b>📋 BACKUP LIST (Perfect Scores):</b>
-  ${backups.slice(1, config.backupListSize + 1).map((p, i) => 
-    `${this.getPositionEmoji(i + 2)} <b>@${p.username || 'user'}</b> - <b>${p.score}/${p.total_questions}</b> in <b>${challenge.started_at ? formatTimeSmart(p, backups, challenge.started_at) : formatTime(p.completion_time_seconds)}</b>`
-  ).join('\n')}
+  ${backupList.map((p, i) => 
+    `${this.getPositionEmoji(backupStart + i + 1)} <b>@${p.username || 'user'}</b> - <b>${p.score}/${p.total_questions}</b> in <b>${challenge.started_at ? formatTimeSmart(p, backups, challenge.started_at) : formatTime(p.completion_time_seconds)}</b>`
+  ).join('\n') || '  No backups'}
 
   <b>📈 STATS:</b>
   ➡️ <b>Total Participants:</b> ${stats.total_participants}
@@ -203,7 +215,7 @@ ${config.exnessSignupLink}
   ➡️ <b>Average Score:</b> ${parseFloat(stats.avg_score).toFixed(1)}/${stats.total_questions}
   ➡️ <b>Average Completion Time:</b> ${formatTime(Math.round(stats.avg_time))}
 
-  <b>🎉 Congratulations to the winner!</b>
+  <b>🎉 Congratulations to the winner${winners.length > 1 ? 's' : ''}!</b>
 
   <b>Next Challenge:</b> ${this.getNextChallengeDay(challenge.day)}`;
 
