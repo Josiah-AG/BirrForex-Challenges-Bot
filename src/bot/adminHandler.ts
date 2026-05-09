@@ -246,9 +246,33 @@ export class AdminHandler {
 
       case 'enter_topic_link':
         session.data.topic_link = text;
+        session.step = 'enter_num_winners';
+        await ctx.reply('🏆 Number of Winners\n\nHow many winners? (1-5):');
+        break;
+
+      case 'enter_num_winners': {
+        const nw = parseInt(text);
+        if (isNaN(nw) || nw < 1 || nw > 5) {
+          await ctx.reply('❌ Please enter a number between 1 and 5:');
+          return;
+        }
+        session.data.num_winners = nw;
+        session.step = 'enter_prize_amount';
+        await ctx.reply('💰 Prize Amount\n\nEnter prize per winner in $ (e.g., 20):');
+        break;
+      }
+
+      case 'enter_prize_amount': {
+        const prize = parseInt(text);
+        if (isNaN(prize) || prize < 1) {
+          await ctx.reply('❌ Please enter a valid prize amount:');
+          return;
+        }
+        session.data.prize_amount = prize;
         session.step = 'enter_num_questions';
         await ctx.reply('📝 Number of Questions\n\nHow many questions? (3-10):');
         break;
+      }
 
       case 'enter_num_questions':
         const numQuestions = parseInt(text);
@@ -393,7 +417,9 @@ export class AdminHandler {
         data.topic,
         data.short_text,
         data.topic_link,
-        challengeTime
+        challengeTime,
+        data.prize_amount,
+        data.num_winners
       );
 
       // Add questions

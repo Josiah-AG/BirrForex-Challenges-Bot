@@ -17,7 +17,7 @@ export class PostService {
   <b>⏰ Challenge Details:</b>
   ➡️ Posted on <b>@${config.challengeChannelUsername}</b> at <b>${formatChallengeTime(challenge.challenge_time)}</b> sharp
   ➡️ Contains <b>${numQuestions} questions</b> from the topic
-  ➡️ First correct answer wins <b>${challenge.prize_amount}</b> 🎁
+  ➡️ 🏆 Winners: <b>${challenge.num_winners}</b> | 💰 Prize: <b>$${challenge.prize_amount}${challenge.num_winners > 1 ? ' each' : ''}</b> 🎁
 
   👉 <b>Study the topic and get ready!</b>
 
@@ -43,7 +43,7 @@ const text = `<b>🎯 BirrForex Challenges - ${challenge.day.charAt(0).toUpperCa
 ➡️ Check out the content posted on our main channel <b>@${config.mainChannelUsername}</b> and get ready
 ➡️ Challenge questions will come directly from that content
 ➡️ The challenge will stay open for only <b>${config.challengeDurationMinutes} minutes</b> ⏰
-➡️ Be the first to answer correctly and win a reward! 🎁
+➡️ 🏆 Winners: <b>${challenge.num_winners}</b> | 💰 Prize: <b>$${challenge.prize_amount}${challenge.num_winners > 1 ? ' each' : ''}</b> 🎁
 
 <b>📝 Terms & Conditions</b>
 
