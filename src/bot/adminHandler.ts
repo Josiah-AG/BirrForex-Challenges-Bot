@@ -463,10 +463,14 @@ export class AdminHandler {
   async passWinner(ctx: Context) {
     if (!this.checkAdmin(ctx)) return;
 
-    // Get most recent challenge with winners (active or completed)
+    // Get most recent quiz challenge (active or completed)
     let targetChallenge = await challengeService.getActiveChallenge();
     if (!targetChallenge) {
-      const past = await challengeService.getPastChallenges(5);
+      const past = await challengeService.getPastChallenges(10);
+      if (past.length === 0) {
+        await ctx.reply('❌ No completed weekly quiz challenges found in the database.');
+        return;
+      }
       // Find the most recent one that has winners
       for (const c of past) {
         const w = await winnerService.getWinners(c.id);
@@ -475,20 +479,37 @@ export class AdminHandler {
           break;
         }
       }
-    }
-    if (!targetChallenge) {
-      await ctx.reply('❌ No challenge with winners found.');
-      return;
+      // If no challenge has winners, use the most recent completed one anyway
+      if (!targetChallenge) {
+        targetChallenge = past[0];
+        await ctx.reply(
+          `⚠️ No winners found in the winners table.\n\n` +
+          `Most recent completed challenge:\n` +
+          `📋 <b>${targetChallenge.topic}</b> (ID: ${targetChallenge.id})\n` +
+          `📅 ${targetChallenge.day} — ${new Date(targetChallenge.date).toDateString()}\n\n` +
+          `This could mean:\n` +
+          `• No one got a perfect score\n` +
+          `• All perfect scorers were consecutive winners\n` +
+          `• Winner creation failed`,
+          { parse_mode: 'HTML' }
+        );
+        return;
+      }
     }
 
     const winners = await winnerService.getWinners(targetChallenge.id);
     const activeWinners = winners.filter(w => !w.disqualified);
     if (activeWinners.length === 0) {
-      await ctx.reply('❌ No active winners found for this challenge (all disqualified).');
+      await ctx.reply(
+        `❌ All winners for this challenge have been disqualified.\n\n` +
+        `📋 <b>${targetChallenge.topic}</b> (ID: ${targetChallenge.id})\n` +
+        `Total winner entries: ${winners.length} (all disqualified)`,
+        { parse_mode: 'HTML' }
+      );
       return;
     }
 
-    await ctx.reply(`📋 Weekly Quiz Challenge: <b>${targetChallenge.topic}</b>\n📅 ${targetChallenge.day} — ${new Date(targetChallenge.date).toDateString()}\n🏆 Active Winners: ${activeWinners.length}`, { parse_mode: 'HTML' });
+    await ctx.reply(`📋 Weekly Quiz: <b>${targetChallenge.topic}</b>\n📅 ${targetChallenge.day} — ${new Date(targetChallenge.date).toDateString()}\n🆔 Challenge ID: ${targetChallenge.id}\n🏆 Active Winners: ${activeWinners.length}`, { parse_mode: 'HTML' });
 
     if (activeWinners.length === 1) {
       // Single winner — show reason buttons directly
