@@ -463,24 +463,32 @@ export class AdminHandler {
   async passWinner(ctx: Context) {
     if (!this.checkAdmin(ctx)) return;
 
-    // Get most recent completed challenge
-    const challenge = await challengeService.getActiveChallenge();
-    let targetChallenge = challenge;
+    // Get most recent challenge with winners (active or completed)
+    let targetChallenge = await challengeService.getActiveChallenge();
     if (!targetChallenge) {
-      const past = await challengeService.getPastChallenges(1);
-      targetChallenge = past[0] || null;
+      const past = await challengeService.getPastChallenges(5);
+      // Find the most recent one that has winners
+      for (const c of past) {
+        const w = await winnerService.getWinners(c.id);
+        if (w.length > 0) {
+          targetChallenge = c;
+          break;
+        }
+      }
     }
     if (!targetChallenge) {
-      await ctx.reply('❌ No challenge found.');
+      await ctx.reply('❌ No challenge with winners found.');
       return;
     }
 
     const winners = await winnerService.getWinners(targetChallenge.id);
     const activeWinners = winners.filter(w => !w.disqualified);
     if (activeWinners.length === 0) {
-      await ctx.reply('❌ No active winners found for this challenge.');
+      await ctx.reply('❌ No active winners found for this challenge (all disqualified).');
       return;
     }
+
+    await ctx.reply(`📋 Challenge: <b>${targetChallenge.topic}</b> (${new Date(targetChallenge.date).toDateString()})`, { parse_mode: 'HTML' });
 
     if (activeWinners.length === 1) {
       // Single winner — show reason buttons directly
