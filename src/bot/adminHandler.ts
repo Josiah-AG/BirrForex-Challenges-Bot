@@ -488,7 +488,7 @@ export class AdminHandler {
       return;
     }
 
-    await ctx.reply(`📋 Challenge: <b>${targetChallenge.topic}</b> (${new Date(targetChallenge.date).toDateString()})`, { parse_mode: 'HTML' });
+    await ctx.reply(`📋 Weekly Quiz Challenge: <b>${targetChallenge.topic}</b>\n📅 ${targetChallenge.day} — ${new Date(targetChallenge.date).toDateString()}\n🏆 Active Winners: ${activeWinners.length}`, { parse_mode: 'HTML' });
 
     if (activeWinners.length === 1) {
       // Single winner — show reason buttons directly
