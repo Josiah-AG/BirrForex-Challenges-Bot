@@ -78,7 +78,7 @@ export class WinnerService {
   }
 
   /**
-   * Pass prize to next winner
+   * Pass prize to next eligible backup
    */
   async passToNext(challengeId: number, currentPosition: number, reason: string): Promise<Winner | null> {
     // Disqualify current winner
@@ -87,14 +87,14 @@ export class WinnerService {
       await this.disqualifyWinner(currentWinner.id, reason);
     }
 
-    // Get next eligible participant
+    // Get next eligible participant (perfect scorer who is NOT already in winners table at all)
     const result = await db.query(
       `SELECT p.* FROM participants p
        WHERE p.challenge_id = $1 
          AND p.score = p.total_questions
          AND p.telegram_id NOT IN (
            SELECT telegram_id FROM winners 
-           WHERE challenge_id = $1 AND disqualified = false
+           WHERE challenge_id = $1
          )
        ORDER BY p.completion_time_seconds ASC
        LIMIT 1`,
@@ -105,10 +105,10 @@ export class WinnerService {
 
     const nextParticipant = result.rows[0];
     
-    // Create new winner
+    // Create new winner at the same position
     const newWinner = await this.createWinner(
       challengeId,
-      nextParticipant.user_id,
+      nextParticipant.user_id || 0,
       nextParticipant.telegram_id,
       nextParticipant.username,
       currentPosition,
