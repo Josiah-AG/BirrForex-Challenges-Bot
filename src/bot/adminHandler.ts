@@ -463,39 +463,51 @@ export class AdminHandler {
   async passWinner(ctx: Context) {
     if (!this.checkAdmin(ctx)) return;
 
-    // Get the most recent quiz challenge that has winners
-    // Check active first, then completed, then any recent challenge
-    let targetChallenge = await challengeService.getActiveChallenge();
-    
-    if (targetChallenge) {
-      const w = await winnerService.getWinners(targetChallenge.id);
-      if (w.length === 0) targetChallenge = null;
-    }
+    // Get the most recent quiz challenge by date (active or completed)
+    const { rows: recentChallenges } = await (await import('../database/db')).db.query(
+      `SELECT * FROM challenges WHERE status IN ('active', 'completed') ORDER BY date DESC, id DESC LIMIT 5`
+    );
 
-    if (!targetChallenge) {
-      // Search all recent challenges (any status) ordered by date
-      const { rows: recentChallenges } = await (await import('../database/db')).db.query(
-        `SELECT * FROM challenges WHERE status IN ('active', 'completed') ORDER BY date DESC, id DESC LIMIT 10`
-      );
-
-      for (const c of recentChallenges) {
-        const w = await winnerService.getWinners(c.id);
-        if (w.length > 0) {
-          targetChallenge = c;
-          break;
-        }
-      }
-    }
-
-    if (!targetChallenge) {
-      await ctx.reply('❌ No quiz challenge with winners found.');
+    if (recentChallenges.length === 0) {
+      await ctx.reply('❌ No quiz challenges found.');
       return;
     }
 
-    const winners = await winnerService.getWinners(targetChallenge.id);
+    // Use the most recent challenge
+    const targetChallenge = recentChallenges[0];
+
+    // Get winners from winners table
+    let winners = await winnerService.getWinners(targetChallenge.id);
+    
+    // If no winners in table, check if there are perfect scorers and create winner entries
+    if (winners.length === 0) {
+      const perfectScorers = await participantService.getPerfectScorers(targetChallenge.id);
+      if (perfectScorers.length === 0) {
+        await ctx.reply(`❌ No winners or perfect scorers found for:\n📋 <b>${targetChallenge.topic}</b> (ID: ${targetChallenge.id})\n📅 ${new Date(targetChallenge.date).toDateString()}`, { parse_mode: 'HTML' });
+        return;
+      }
+
+      // Create winner entries from perfect scorers
+      const numWinners = Math.min(targetChallenge.num_winners || 1, perfectScorers.length);
+      for (let i = 0; i < numWinners; i++) {
+        const scorer = perfectScorers[i];
+        const user = await (await import('../services/userService')).userService.getUserByTelegramId(scorer.telegram_id);
+        await winnerService.createWinner(
+          targetChallenge.id,
+          user?.id || 0,
+          scorer.telegram_id,
+          scorer.username,
+          i + 1,
+          targetChallenge.prize_amount || 20
+        );
+      }
+      winners = await winnerService.getWinners(targetChallenge.id);
+      await ctx.reply(`⚠️ Winners were missing from DB — created ${winners.length} entries from perfect scorers.`);
+    }
+
     const activeWinners = winners.filter(w => !w.disqualified);
     if (activeWinners.length === 0) {
-      await ctx.reply('❌ All winners for this challenge have been disqualified.');
+      await ctx.reply('❌ All winners have been disqualified.');
       return;
     }
 
