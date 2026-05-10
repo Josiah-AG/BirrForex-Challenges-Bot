@@ -654,19 +654,20 @@ export class Scheduler {
       
       if (winners.length > 0) {
         winners.forEach((w, i) => {
-          report += `${i + 1}. @${w.username || 'user'}\n`;
+          report += `${i + 1}. ${w.username ? '@' + w.username : (w as any).first_name || 'Participant'} — $${w.prize_amount}\n`;
         });
       } else {
         report += 'No winners\n';
       }
 
-      // Add backup list
-      if (perfectScorers.length > 1) {
-        const backupLimit = Math.min(config.backupListSize + 1, perfectScorers.length);
+      // Add backup list (starts after all winners)
+      const numWinners = winners.length;
+      if (perfectScorers.length > numWinners) {
+        const backupLimit = Math.min(numWinners + config.backupListSize, perfectScorers.length);
         report += `\n📋 BACKUP LIST:\n`;
-        for (let i = 1; i < backupLimit; i++) {
+        for (let i = numWinners; i < backupLimit; i++) {
           const backup = perfectScorers[i];
-          report += `${i}. @${backup.username || 'user'} - ${backup.completion_time_seconds}s\n`;
+          report += `${i - numWinners + 1}. ${backup.username ? '@' + backup.username : 'Participant'} - ${backup.completion_time_seconds}s\n`;
         }
       }
 

@@ -187,7 +187,7 @@ ${config.exnessSignupLink}
         const scorer = backups.find(b => b.telegram_id === w.telegram_id) || backups[i];
         const timeStr = challenge.started_at && scorer ? formatTimeSmart(scorer, backups, challenge.started_at) : (scorer ? formatTime(scorer.completion_time_seconds) : '—');
         const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '🏅';
-        return `${medal} <b>@${w.username || 'user'}</b> - <b>${scorer?.score || '?'}/${scorer?.total_questions || '?'}</b> in <b>${timeStr}</b>`;
+        return `${medal} <b>${w.username ? '@' + w.username : (w as any).first_name || 'Participant'}</b> - <b>${scorer?.score || '?'}/${scorer?.total_questions || '?'}</b> in <b>${timeStr}</b>`;
       }).join('\n')
     : 'No winner';
 
@@ -206,7 +206,7 @@ ${config.exnessSignupLink}
 
   <b>📋 BACKUP LIST (Perfect Scores):</b>
   ${backupList.map((p, i) => 
-    `${this.getPositionEmoji(backupStart + i + 1)} <b>@${p.username || 'user'}</b> - <b>${p.score}/${p.total_questions}</b> in <b>${challenge.started_at ? formatTimeSmart(p, backups, challenge.started_at) : formatTime(p.completion_time_seconds)}</b>`
+    `${this.getPositionEmoji(backupStart + i + 1)} <b>${p.username ? '@' + p.username : 'Participant'}</b> - <b>${p.score}/${p.total_questions}</b> in <b>${challenge.started_at ? formatTimeSmart(p, backups, challenge.started_at) : formatTime(p.completion_time_seconds)}</b>`
   ).join('\n') || '  No backups'}
 
   <b>📈 STATS:</b>
@@ -255,7 +255,7 @@ The <b>${positions[oldPosition - 1]}</b> place winner was found ineligible.
 The prize has been passed to the <b>${positions[newWinner.position - 1]}</b> backup.
 
 <b>🏆 NEW WINNER:</b>
-<b>@${newWinner.username || 'user'}</b> - <b>${participant.score}/${participant.total_questions}</b> in <b>${formatTime(participant.completion_time_seconds)}</b>
+<b>@${newWinner.username || (newWinner as any).first_name || 'Participant'}</b> - <b>${participant.score}/${participant.total_questions}</b> in <b>${formatTime(participant.completion_time_seconds)}</b>
 
 <b>💰 Prize: $${newWinner.prize_amount}</b>
 

@@ -2,7 +2,7 @@ import { Context, Markup } from 'telegraf';
 import { challengeService } from '../services/challengeService';
 import { winnerService } from '../services/winnerService';
 import { participantService } from '../services/participantService';
-import { isAdmin } from '../utils/helpers';
+import { isAdmin, formatTime, getOrdinal } from '../utils/helpers';
 import { config } from '../config';
 
 interface AdminSession {
@@ -463,39 +463,97 @@ export class AdminHandler {
   async passWinner(ctx: Context) {
     if (!this.checkAdmin(ctx)) return;
 
-    // Get active or recent challenge
+    // Get most recent completed challenge
     const challenge = await challengeService.getActiveChallenge();
-    if (!challenge) {
-      await ctx.reply('❌ No active challenge found.');
+    let targetChallenge = challenge;
+    if (!targetChallenge) {
+      const past = await challengeService.getPastChallenges(1);
+      targetChallenge = past[0] || null;
+    }
+    if (!targetChallenge) {
+      await ctx.reply('❌ No challenge found.');
       return;
     }
 
-    const winners = await winnerService.getWinners(challenge.id);
-    if (winners.length === 0) {
-      await ctx.reply('❌ No winners found for this challenge.');
+    const winners = await winnerService.getWinners(targetChallenge.id);
+    const activeWinners = winners.filter(w => !w.disqualified);
+    if (activeWinners.length === 0) {
+      await ctx.reply('❌ No active winners found for this challenge.');
       return;
     }
 
-    const currentWinner = winners[0];
-    
+    if (activeWinners.length === 1) {
+      // Single winner — show reason buttons directly
+      const w = activeWinners[0];
+      const displayName = w.username ? '@' + w.username : (w as any).first_name || 'Winner';
+      await ctx.reply(
+        `🔄 <b>Pass Winner</b>\n\nCurrent Winner: <b>${displayName}</b> (${getOrdinal(w.position)} Place)\n\nSelect reason:`,
+        {
+          parse_mode: 'HTML',
+          ...Markup.inlineKeyboard([
+            [Markup.button.callback('Not Eligible', `admin_pass_noteligible_${targetChallenge.id}_${w.position}`)],
+            [Markup.button.callback('Didn\'t Claim (1hr)', `admin_pass_noclaim_${targetChallenge.id}_${w.position}`)],
+            [Markup.button.callback('Other', `admin_pass_other_${targetChallenge.id}_${w.position}`)],
+          ]),
+        }
+      );
+    } else {
+      // Multiple winners — let admin select which one to pass
+      const buttons = activeWinners.map(w => {
+        const displayName = w.username ? '@' + w.username : (w as any).first_name || 'Winner';
+        return [Markup.button.callback(`${getOrdinal(w.position)} Place — ${displayName}`, `admin_pass_select_${targetChallenge!.id}_${w.position}`)];
+      });
+      await ctx.reply(
+        `🔄 <b>Pass Winner — Select which winner to replace:</b>\n\n` +
+        activeWinners.map(w => {
+          const displayName = w.username ? '@' + w.username : (w as any).first_name || 'Winner';
+          return `${getOrdinal(w.position)} Place: <b>${displayName}</b> — $${w.prize_amount}`;
+        }).join('\n'),
+        { parse_mode: 'HTML', ...Markup.inlineKeyboard(buttons) }
+      );
+    }
+  }
+
+  /**
+   * Handle pass winner selection (which winner to pass)
+   */
+  async handlePassWinnerSelect(ctx: Context, challengeId: number, position: number) {
+    if (!this.checkAdmin(ctx)) return;
+
+    const winners = await winnerService.getWinners(challengeId);
+    const w = winners.find(win => win.position === position && !win.disqualified);
+    if (!w) {
+      await ctx.answerCbQuery('Winner not found');
+      return;
+    }
+
+    const displayName = w.username ? '@' + w.username : (w as any).first_name || 'Winner';
+    await ctx.answerCbQuery();
     await ctx.reply(
-      `🔄 PASS WINNER TO NEXT\n\nCurrent Winner: @${currentWinner.username || 'user'}\n\nReason for passing:`,
-      Markup.inlineKeyboard([
-        [Markup.button.callback('Not Eligible', `admin_pass_noteligible_${challenge.id}`)],
-        [Markup.button.callback('Didn\'t Claim (1hr)', `admin_pass_noclaim_${challenge.id}`)],
-        [Markup.button.callback('Other', `admin_pass_other_${challenge.id}`)],
-      ])
+      `🔄 Passing <b>${displayName}</b> (${getOrdinal(position)} Place)\n\nSelect reason:`,
+      {
+        parse_mode: 'HTML',
+        ...Markup.inlineKeyboard([
+          [Markup.button.callback('Not Eligible', `admin_pass_noteligible_${challengeId}_${position}`)],
+          [Markup.button.callback('Didn\'t Claim (1hr)', `admin_pass_noclaim_${challengeId}_${position}`)],
+          [Markup.button.callback('Other', `admin_pass_other_${challengeId}_${position}`)],
+        ]),
+      }
     );
   }
 
   /**
-   * Handle pass winner
+   * Handle pass winner with reason
    */
-  async handlePassWinner(ctx: Context, challengeId: number, reason: string) {
+  async handlePassWinner(ctx: Context, challengeId: number, reason: string, position: number) {
     if (!this.checkAdmin(ctx)) return;
 
     try {
-      const newWinner = await winnerService.passToNext(challengeId, 1, reason);
+      const winners = await winnerService.getWinners(challengeId);
+      const oldWinner = winners.find(w => w.position === position && !w.disqualified);
+      const oldDisplayName = oldWinner ? (oldWinner.username ? '@' + oldWinner.username : (oldWinner as any).first_name || 'Previous winner') : 'Previous winner';
+
+      const newWinner = await winnerService.passToNext(challengeId, position, reason);
       
       if (!newWinner) {
         await ctx.answerCbQuery('No eligible backup found');
@@ -503,8 +561,53 @@ export class AdminHandler {
         return;
       }
 
+      const newDisplayName = newWinner.username ? '@' + newWinner.username : (newWinner as any).first_name || 'New winner';
+
       await ctx.answerCbQuery('✅ Winner updated');
-      await ctx.reply(`✅ Winner Updated!\n\n• Old Winner: Disqualified\n• New Winner: @${newWinner.username || 'user'}\n\nThe new winner has been notified.`);
+      await ctx.reply(
+        `✅ <b>Winner Updated!</b>\n\n` +
+        `• Old: <b>${oldDisplayName}</b> — Disqualified (${reason})\n` +
+        `• New: <b>${newDisplayName}</b> (${getOrdinal(position)} Place)\n\n` +
+        `Channel post sent & new winner notified.`,
+        { parse_mode: 'HTML' }
+      );
+
+      // Post update to challenge channel
+      const challenge = await challengeService.getChallengeById(challengeId);
+      const participant = await participantService.getParticipant(challengeId, newWinner.telegram_id);
+
+      const channelPost =
+        `🔄 <b>WINNER UPDATE</b>\n\n` +
+        `⚠️ Previous winner (<b>${oldDisplayName}</b>) has been disqualified.\n` +
+        `Reason: ${reason}\n\n` +
+        `🏆 <b>NEW WINNER (${getOrdinal(position)} Place):</b>\n` +
+        `<b>${newDisplayName}</b>` + (participant ? ` - <b>${participant.score}/${participant.total_questions}</b> in <b>${formatTime(participant.completion_time_seconds)}</b>` : '') + `\n\n` +
+        `💰 <b>Prize: $${newWinner.prize_amount}</b>\n\n` +
+        `Congratulations! 🎉`;
+
+      try {
+        await (ctx as any).telegram.sendMessage(config.challengeChannelId, channelPost, { parse_mode: 'HTML' });
+      } catch (err) {
+        console.error('Error posting winner update to channel:', err);
+      }
+
+      // DM new winner
+      try {
+        const dmMessage =
+          `🏆 <b>CONGRATULATIONS!</b> 🏆\n\n` +
+          `<b>You have been moved up to ${getOrdinal(position)} Place winner!</b>\n\n` +
+          `💰 <b>Prize:</b> $${newWinner.prize_amount}\n` +
+          (participant ? `📊 <b>Final Score:</b> ${participant.score}/${participant.total_questions} ✅\n` +
+          `⚡ <b>Response Time:</b> ${formatTime(participant.completion_time_seconds)}\n` : '') +
+          `\n📸 <b>TO CLAIM YOUR PRIZE:</b>\n` +
+          `DM @birrFXadmin with this screenshot\n\n` +
+          `⚠️ <i>Prize must be claimed within ${config.prizeClaimDeadlineHours} HOUR</i>`;
+
+        await (ctx as any).telegram.sendMessage(newWinner.telegram_id, dmMessage, { parse_mode: 'HTML' });
+      } catch (err) {
+        console.error('Error DMing new winner:', err);
+        await ctx.reply(`⚠️ Could not DM new winner (${newDisplayName}). They may have blocked the bot.`);
+      }
     } catch (error) {
       console.error('Error passing winner:', error);
       await ctx.reply('❌ Error updating winner.');

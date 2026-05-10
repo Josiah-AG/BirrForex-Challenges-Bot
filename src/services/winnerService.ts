@@ -32,7 +32,9 @@ export class WinnerService {
    */
   async getWinners(challengeId: number): Promise<Winner[]> {
     const result = await db.query(
-      'SELECT * FROM winners WHERE challenge_id = $1 ORDER BY position ASC',
+      `SELECT w.*, u.first_name FROM winners w
+       LEFT JOIN users u ON w.telegram_id = u.telegram_id
+       WHERE w.challenge_id = $1 ORDER BY w.position ASC`,
       [challengeId]
     );
 

@@ -684,11 +684,22 @@ export class Bot {
         return;
       }
 
+      if (data.startsWith('admin_pass_select_')) {
+        const parts = data.replace('admin_pass_select_', '').split('_');
+        const challengeId = parseInt(parts[0]);
+        const position = parseInt(parts[1]);
+        await adminHandler.handlePassWinnerSelect(ctx, challengeId, position);
+        return;
+      }
+
       if (data.startsWith('admin_pass_')) {
-        const parts = data.split('_');
-        const reason = parts[2];
-        const challengeId = parseInt(parts[3]);
-        await adminHandler.handlePassWinner(ctx, challengeId, reason);
+        // Format: admin_pass_{reason}_{challengeId}_{position}
+        const withoutPrefix = data.replace('admin_pass_', '');
+        const parts = withoutPrefix.split('_');
+        const position = parseInt(parts[parts.length - 1]);
+        const challengeId = parseInt(parts[parts.length - 2]);
+        const reason = parts.slice(0, parts.length - 2).join(' ');
+        await adminHandler.handlePassWinner(ctx, challengeId, reason, position);
         return;
       }
 
