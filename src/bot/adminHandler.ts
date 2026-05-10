@@ -463,49 +463,39 @@ export class AdminHandler {
   async passWinner(ctx: Context) {
     if (!this.checkAdmin(ctx)) return;
 
-    // Get most recent quiz challenge (active or completed)
+    // Get the most recent quiz challenge that has winners
+    // Check active first, then completed, then any recent challenge
     let targetChallenge = await challengeService.getActiveChallenge();
+    
+    if (targetChallenge) {
+      const w = await winnerService.getWinners(targetChallenge.id);
+      if (w.length === 0) targetChallenge = null;
+    }
+
     if (!targetChallenge) {
-      const past = await challengeService.getPastChallenges(10);
-      if (past.length === 0) {
-        await ctx.reply('❌ No completed weekly quiz challenges found in the database.');
-        return;
-      }
-      // Find the most recent one that has winners
-      for (const c of past) {
+      // Search all recent challenges (any status) ordered by date
+      const { rows: recentChallenges } = await (await import('../database/db')).db.query(
+        `SELECT * FROM challenges WHERE status IN ('active', 'completed') ORDER BY date DESC, id DESC LIMIT 10`
+      );
+
+      for (const c of recentChallenges) {
         const w = await winnerService.getWinners(c.id);
         if (w.length > 0) {
           targetChallenge = c;
           break;
         }
       }
-      // If no challenge has winners, use the most recent completed one anyway
-      if (!targetChallenge) {
-        targetChallenge = past[0];
-        await ctx.reply(
-          `⚠️ No winners found in the winners table.\n\n` +
-          `Most recent completed challenge:\n` +
-          `📋 <b>${targetChallenge.topic}</b> (ID: ${targetChallenge.id})\n` +
-          `📅 ${targetChallenge.day} — ${new Date(targetChallenge.date).toDateString()}\n\n` +
-          `This could mean:\n` +
-          `• No one got a perfect score\n` +
-          `• All perfect scorers were consecutive winners\n` +
-          `• Winner creation failed`,
-          { parse_mode: 'HTML' }
-        );
-        return;
-      }
+    }
+
+    if (!targetChallenge) {
+      await ctx.reply('❌ No quiz challenge with winners found.');
+      return;
     }
 
     const winners = await winnerService.getWinners(targetChallenge.id);
     const activeWinners = winners.filter(w => !w.disqualified);
     if (activeWinners.length === 0) {
-      await ctx.reply(
-        `❌ All winners for this challenge have been disqualified.\n\n` +
-        `📋 <b>${targetChallenge.topic}</b> (ID: ${targetChallenge.id})\n` +
-        `Total winner entries: ${winners.length} (all disqualified)`,
-        { parse_mode: 'HTML' }
-      );
+      await ctx.reply('❌ All winners for this challenge have been disqualified.');
       return;
     }
 
