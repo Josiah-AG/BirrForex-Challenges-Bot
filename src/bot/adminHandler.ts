@@ -592,29 +592,40 @@ export class AdminHandler {
         return;
       }
 
-      const newDisplayName = newWinner.username ? '@' + newWinner.username : (newWinner as any).first_name || 'New winner';
+      const newDisplayName = newWinner.username ? '@' + newWinner.username : 'New winner';
+
+      // Get updated winners list after shift
+      const updatedWinners = await winnerService.getWinners(challengeId);
+      const activeWinners = updatedWinners.filter(w => !w.disqualified);
 
       await ctx.answerCbQuery('✅ Winner updated');
-      await ctx.reply(
-        `✅ <b>Winner Updated!</b>\n\n` +
-        `• Old: <b>${oldDisplayName}</b> — Disqualified (${reason})\n` +
-        `• New: <b>${newDisplayName}</b> (${getOrdinal(position)} Place)\n\n` +
-        `Channel post sent & new winner notified.`,
-        { parse_mode: 'HTML' }
-      );
+
+      let summaryText = `✅ <b>Winner Updated!</b>\n\n`;
+      summaryText += `❌ <b>${oldDisplayName}</b> — Disqualified (${reason})\n\n`;
+      summaryText += `<b>New Winner List:</b>\n`;
+      activeWinners.forEach(w => {
+        const name = w.username ? '@' + w.username : (w as any).first_name || 'Winner';
+        summaryText += `${getOrdinal(w.position)} Place: <b>${name}</b>\n`;
+      });
+      summaryText += `\nChannel post sent & new winner (${newDisplayName}) notified.`;
+      await ctx.reply(summaryText, { parse_mode: 'HTML' });
 
       // Post update to challenge channel
       const challenge = await challengeService.getChallengeById(challengeId);
       const participant = await participantService.getParticipant(challengeId, newWinner.telegram_id);
 
-      const channelPost =
+      let channelPost =
         `🔄 <b>WINNER UPDATE</b>\n\n` +
-        `⚠️ Previous winner (<b>${oldDisplayName}</b>) has been disqualified.\n` +
+        `⚠️ <b>${oldDisplayName}</b> (${getOrdinal(position)} Place) has been disqualified.\n` +
         `Reason: ${reason}\n\n` +
-        `🏆 <b>NEW WINNER (${getOrdinal(position)} Place):</b>\n` +
-        `<b>${newDisplayName}</b>` + (participant ? ` - <b>${participant.score}/${participant.total_questions}</b> in <b>${formatTime(participant.completion_time_seconds)}</b>` : '') + `\n\n` +
-        `💰 <b>Prize: $${newWinner.prize_amount}</b>\n\n` +
-        `Congratulations! 🎉`;
+        `<b>Updated Winners:</b>\n`;
+      activeWinners.forEach(w => {
+        const name = w.username ? '@' + w.username : (w as any).first_name || 'Winner';
+        const isNew = w.id === newWinner.id;
+        channelPost += `${getOrdinal(w.position)} Place: <b>${name}</b>${isNew ? ' 🆕' : ''}\n`;
+      });
+      channelPost += `\n💰 <b>Prize: $${newWinner.prize_amount} each</b>\n\n`;
+      channelPost += `Congratulations! 🎉`;
 
       try {
         await (ctx as any).telegram.sendMessage(config.challengeChannelId, channelPost, { parse_mode: 'HTML' });
@@ -622,11 +633,11 @@ export class AdminHandler {
         console.error('Error posting winner update to channel:', err);
       }
 
-      // DM new winner
+      // DM only the NEW winner (the backup who got promoted)
       try {
         const dmMessage =
           `🏆 <b>CONGRATULATIONS!</b> 🏆\n\n` +
-          `<b>You have been moved up to ${getOrdinal(position)} Place winner!</b>\n\n` +
+          `<b>You are now the ${getOrdinal(newWinner.position)} Place winner!</b>\n\n` +
           `💰 <b>Prize:</b> $${newWinner.prize_amount}\n` +
           (participant ? `📊 <b>Final Score:</b> ${participant.score}/${participant.total_questions} ✅\n` +
           `⚡ <b>Response Time:</b> ${formatTime(participant.completion_time_seconds)}\n` : '') +

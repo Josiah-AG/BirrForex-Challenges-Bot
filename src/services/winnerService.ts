@@ -78,7 +78,7 @@ export class WinnerService {
   }
 
   /**
-   * Pass prize to next eligible backup
+   * Pass prize to next eligible backup — shifts remaining winners up
    */
   async passToNext(challengeId: number, currentPosition: number, reason: string): Promise<Winner | null> {
     // Disqualify current winner
@@ -87,7 +87,26 @@ export class WinnerService {
       await this.disqualifyWinner(currentWinner.id, reason);
     }
 
-    // Get next eligible participant (perfect scorer who is NOT already in winners table at all)
+    // Get all active (non-disqualified) winners, ordered by position
+    const allWinners = await db.query(
+      `SELECT * FROM winners WHERE challenge_id = $1 AND disqualified = false ORDER BY position ASC`,
+      [challengeId]
+    );
+
+    // Shift all winners below the passed position up by 1
+    for (const w of allWinners.rows) {
+      if (w.position > currentPosition) {
+        await db.query(
+          `UPDATE winners SET position = position - 1, updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+          [w.id]
+        );
+      }
+    }
+
+    // Find the last winner position after shifting
+    const lastPosition = allWinners.rows.length; // This is the new empty slot at the bottom
+
+    // Get next eligible participant (first backup — perfect scorer not in winners table)
     const result = await db.query(
       `SELECT p.* FROM participants p
        WHERE p.challenge_id = $1 
@@ -105,13 +124,13 @@ export class WinnerService {
 
     const nextParticipant = result.rows[0];
     
-    // Create new winner at the same position
+    // Create new winner at the last position (bottom of winner list)
     const newWinner = await this.createWinner(
       challengeId,
       nextParticipant.user_id || 0,
       nextParticipant.telegram_id,
       nextParticipant.username,
-      currentPosition,
+      lastPosition,
       currentWinner?.prize_amount || 20
     );
 
