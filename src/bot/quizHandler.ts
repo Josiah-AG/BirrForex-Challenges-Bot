@@ -194,9 +194,23 @@ export class QuizHandler {
     const currentQuestion = sessionService.getCurrentQuestion(telegramId, challengeId);
     
     if (currentQuestion < questions.length) {
-      // Send next question
-      await ctx.reply(messages.answerRecorded());
-      await this.sendQuestion(ctx, challengeId, questions, currentQuestion);
+      // Send next question with silent retries (3 attempts, 1s apart)
+      let sent = false;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          await this.sendQuestion(ctx, challengeId, questions, currentQuestion);
+          sent = true;
+          break;
+        } catch (err) {
+          console.error(`Error sending question (attempt ${attempt + 1}/3):`, err);
+          if (attempt < 2) await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+      }
+      if (!sent) {
+        await ctx.reply('⚠️ Error loading next question. Please tap below to continue:', 
+          Markup.inlineKeyboard([[Markup.button.callback('▶️ Continue', `continue_quiz_${challengeId}_${currentQuestion}`)]])
+        );
+      }
     } else {
       // Quiz completed
       await this.completeQuiz(ctx, challengeId);

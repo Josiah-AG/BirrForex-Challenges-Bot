@@ -103,8 +103,8 @@ export class WinnerService {
       }
     }
 
-    // Find the last winner position after shifting
-    const lastPosition = allWinners.rows.length; // This is the new empty slot at the bottom
+    // New winner takes the next position after remaining active winners
+    const newPosition = allWinners.rows.length + 1;
 
     // Get next eligible participant (first backup — perfect scorer not in winners table)
     const result = await db.query(
@@ -124,13 +124,13 @@ export class WinnerService {
 
     const nextParticipant = result.rows[0];
     
-    // Create new winner at the last position (bottom of winner list)
+    // Create new winner at the next position
     const newWinner = await this.createWinner(
       challengeId,
       nextParticipant.user_id || 0,
       nextParticipant.telegram_id,
       nextParticipant.username,
-      lastPosition,
+      newPosition,
       currentWinner?.prize_amount || 20
     );
 

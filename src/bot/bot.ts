@@ -618,6 +618,17 @@ export class Bot {
         return;
       }
 
+      if (data.startsWith('continue_quiz_')) {
+        const parts = data.replace('continue_quiz_', '').split('_');
+        const challengeId = parseInt(parts[0]);
+        const questionIndex = parseInt(parts[1]);
+        const questions = await (await import('../services/challengeService')).challengeService.getQuestions(challengeId);
+        if (questionIndex < questions.length) {
+          await quizHandler.sendQuestion(ctx, challengeId, questions, questionIndex);
+        }
+        return;
+      }
+
       // Admin callbacks
       if (data.startsWith('admin_day_')) {
         const day = data.replace('admin_day_', '');
@@ -699,6 +710,14 @@ export class Bot {
         const position = parseInt(parts[parts.length - 1]);
         const challengeId = parseInt(parts[parts.length - 2]);
         const reason = parts.slice(0, parts.length - 2).join(' ');
+
+        // If reason is "other", ask for custom text
+        if (reason === 'other') {
+          await ctx.answerCbQuery();
+          await adminHandler.startOtherReason(ctx, challengeId, position);
+          return;
+        }
+
         await adminHandler.handlePassWinner(ctx, challengeId, reason, position);
         return;
       }

@@ -220,6 +220,14 @@ export class AdminHandler {
     if (!session) return;
 
     switch (session.step) {
+      case 'pass_other_reason': {
+        const challengeId = session.data.pass_challenge_id;
+        const position = session.data.pass_position;
+        adminSessions.delete(telegramId);
+        await this.handlePassWinner(ctx, challengeId, text, position);
+        return;
+      }
+
       case 'enter_time':
         // Validate time format (HH:MM)
         const timeRegex = /^([0-1]?[0-9]|2[0-3]):([0-5][0-9])$/;
@@ -543,6 +551,18 @@ export class AdminHandler {
         { parse_mode: 'HTML', ...Markup.inlineKeyboard(buttons) }
       );
     }
+  }
+
+  /**
+   * Start "Other" reason text input for pass winner
+   */
+  async startOtherReason(ctx: Context, challengeId: number, position: number) {
+    const telegramId = ctx.from!.id;
+    adminSessions.set(telegramId, {
+      step: 'pass_other_reason',
+      data: { pass_challenge_id: challengeId, pass_position: position },
+    });
+    await ctx.reply('📝 Enter the reason for disqualification:');
   }
 
   /**
