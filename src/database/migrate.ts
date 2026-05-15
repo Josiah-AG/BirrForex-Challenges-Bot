@@ -90,6 +90,20 @@ async function migrate() {
       }
     }
 
+    // Run WinnerPip schema (real-time trade monitoring tables)
+    try {
+      const wpSchemaPath = join(__dirname, 'wp_schema.sql');
+      const wpSchema = readFileSync(wpSchemaPath, 'utf-8');
+      await db.query(wpSchema);
+      console.log('✅ WinnerPip schema OK');
+    } catch (err: any) {
+      if (err.code === 'ENOENT') {
+        console.log('⏭️ WinnerPip schema file not found, skipping');
+      } else {
+        throw err;
+      }
+    }
+
     console.log('✅ Database migration completed successfully!');
     process.exit(0);
   } catch (error) {
