@@ -9,7 +9,6 @@ import { Trophy, Users, AlertTriangle, Activity, TrendingUp, Target, Shield, Clo
 export default function AdminDashboard() {
   const [selectedChallengeId, setSelectedChallengeId] = useState<string>("5");
   const [isAdmin, setIsAdmin] = useState(false);
-  const [adminPath, setAdminPath] = useState("");
   const [adminPass, setAdminPass] = useState("");
   const [loginError, setLoginError] = useState("");
   const [loginLoading, setLoginLoading] = useState(false);
@@ -42,31 +41,22 @@ export default function AdminDashboard() {
   const handleAdminLogin = async () => {
     setLoginError(""); setLoginLoading(true);
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
+    const secretPath = process.env.NEXT_PUBLIC_ADMIN_PATH || "";
     try {
-      // Validate by calling the overview endpoint with the path
-      const res = await fetch(`${apiUrl}/api/admin/${adminPath}/challenge/${selectedChallengeId}/overview`, {
-        headers: { "X-Admin-Key": adminPass },
-      });
+      const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${selectedChallengeId}/overview`);
       if (res.ok) {
         const data = await res.json();
         setOverviewData(data);
-        localStorage.setItem("wp_admin_path", adminPath);
+        localStorage.setItem("wp_admin_path", secretPath);
         localStorage.setItem("wp_admin_key", adminPass);
         setIsAdmin(true);
       } else if (res.status === 403) {
         setLoginError("Access denied — IP not whitelisted");
       } else {
-        setLoginError("Invalid admin path or key");
+        setLoginError("Invalid admin key or API error");
       }
     } catch {
-      // Fallback: allow demo access with demo credentials
-      if (adminPass === "admin2026") {
-        localStorage.setItem("wp_admin_path", adminPath || "demo");
-        localStorage.setItem("wp_admin_key", adminPass);
-        setIsAdmin(true);
-      } else {
-        setLoginError("Could not connect to API. Check your credentials.");
-      }
+      setLoginError("Could not connect to API.");
     }
     setLoginLoading(false);
   };
