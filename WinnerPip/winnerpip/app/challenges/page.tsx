@@ -230,7 +230,7 @@ export default function ChallengesPage() {
                               <div className="flex flex-wrap gap-1.5">
                                 {challenge.realPrizes.map((p: number, i: number) => (
                                   <span key={i} className="px-2 py-0.5 bg-gold/20 rounded text-xs font-bold text-gold">
-                                    {["🥇","🥈","🥉"][i] || `${i+1}.`} ${typeof p === "number" ? `$${p}` : p}
+                                    {["🥇","🥈","🥉"][i] || `${i+1}.`} {typeof p === "number" ? `$${p}` : (isNaN(Number(p)) ? p : `$${p}`)}
                                   </span>
                                 ))}
                               </div>
@@ -242,7 +242,7 @@ export default function ChallengesPage() {
                               <div className="flex flex-wrap gap-1.5">
                                 {challenge.demoPrizes.map((p: number, i: number) => (
                                   <span key={i} className="px-2 py-0.5 bg-royal/20 rounded text-xs font-bold text-royal">
-                                    {["🥇","🥈","🥉"][i] || `${i+1}.`} ${typeof p === "number" ? `$${p}` : p}
+                                    {["🥇","🥈","🥉"][i] || `${i+1}.`} {typeof p === "number" ? `$${p}` : (isNaN(Number(p)) ? p : `$${p}`)}
                                   </span>
                                 ))}
                               </div>
