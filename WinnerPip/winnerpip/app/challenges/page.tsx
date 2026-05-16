@@ -218,13 +218,36 @@ export default function ChallengesPage() {
                         </div>
                       </div>
 
-                      {challenge.prizePoolText && (
-                        <div className="flex items-center gap-3 p-3 rounded-xl bg-gradient-to-r from-gold/10 to-gold/5 border border-gold/20">
-                          <Trophy size={16} className="text-gold flex-shrink-0" />
-                          <div>
+                      {(challenge.realPrizes.length > 0 || challenge.demoPrizes.length > 0) && (
+                        <div className="p-3 rounded-xl bg-gradient-to-r from-gold/10 to-gold/5 border border-gold/20">
+                          <div className="flex items-center gap-2 mb-2">
+                            <Trophy size={14} className="text-gold flex-shrink-0" />
                             <p className="text-xs text-gray-500">Prize Pool</p>
-                            <p className="text-sm font-bold gradient-text line-clamp-2">{challenge.prizePoolText}</p>
                           </div>
+                          {challenge.realPrizes.length > 0 && (
+                            <div className="mb-1.5">
+                              <p className="text-[10px] text-gray-400 uppercase tracking-wider mb-1">{challenge.type === "hybrid" ? "Real Account" : "Prizes"}</p>
+                              <div className="flex flex-wrap gap-1.5">
+                                {challenge.realPrizes.map((p: number, i: number) => (
+                                  <span key={i} className="px-2 py-0.5 bg-gold/20 rounded text-xs font-bold text-gold">
+                                    {["🥇","🥈","🥉"][i] || `${i+1}.`} ${typeof p === "number" ? `$${p}` : p}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {challenge.demoPrizes.length > 0 && (
+                            <div>
+                              <p className="text-[10px] text-gray-400 uppercase tracking-wider mb-1">{challenge.type === "hybrid" ? "Demo Account" : "Prizes"}</p>
+                              <div className="flex flex-wrap gap-1.5">
+                                {challenge.demoPrizes.map((p: number, i: number) => (
+                                  <span key={i} className="px-2 py-0.5 bg-royal/20 rounded text-xs font-bold text-royal">
+                                    {["🥇","🥈","🥉"][i] || `${i+1}.`} ${typeof p === "number" ? `$${p}` : p}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>

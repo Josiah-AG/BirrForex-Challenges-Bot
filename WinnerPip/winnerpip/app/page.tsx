@@ -195,7 +195,6 @@ export default function Home() {
               <Link href="/about" className="text-gray-500 hover:text-gray-300 transition">About</Link>
               <Link href="/terms" className="text-gray-500 hover:text-gray-300 transition">Terms</Link>
               <Link href="/privacy" className="text-gray-500 hover:text-gray-300 transition">Privacy</Link>
-              <Link href="/host" className="text-gray-600 hover:text-gray-400 transition">Host</Link>
             </div>
           </div>
         </div>
