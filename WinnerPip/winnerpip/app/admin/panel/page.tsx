@@ -70,13 +70,8 @@ export default function AdminDashboard() {
     }
     setLoginLoading(false);
   };
-    } else {
-      setLoginError("Invalid admin key");
-    }
-    setLoginLoading(false);
-  };
 
-  useState(() => { if (typeof window !== "undefined" && localStorage.getItem("wp_admin")) setIsAdmin(true); });
+  useState(() => { if (typeof window !== "undefined" && localStorage.getItem("wp_admin_path")) setIsAdmin(true); });
 
   const handleSearch = () => {
     setSearchPerformed(true);
@@ -185,7 +180,7 @@ export default function AdminDashboard() {
           <div className="glass rounded-3xl border border-white/10 p-8 text-center">
             <Shield className="w-12 h-12 text-royal mx-auto mb-4" />
             <h2 className="text-2xl font-bold text-white mb-2">Admin Access</h2>
-            <p className="text-gray-400 text-sm mb-6">Enter admin key for Challenge {selectedChallengeId}</p>
+            <p className="text-gray-400 text-sm mb-6">Enter admin credentials</p>
             {loginError && <div className="p-3 rounded-xl bg-loss/10 border border-loss/30 mb-4"><p className="text-sm text-loss">{loginError}</p></div>}
             <div className="space-y-4">
               <Input type="password" placeholder="Admin key" value={adminPass} onChange={(e) => setAdminPass(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleAdminLogin()} />

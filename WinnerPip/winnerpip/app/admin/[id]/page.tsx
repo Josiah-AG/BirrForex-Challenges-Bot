@@ -9,6 +9,7 @@ import { Trophy, Users, AlertTriangle, Activity, TrendingUp, Target, Shield, Clo
 export default function AdminDashboard() {
   const params = useParams();
   const [isAdmin, setIsAdmin] = useState(false);
+  const [adminPath, setAdminPath] = useState("");
   const [adminPass, setAdminPass] = useState("");
   const [loginError, setLoginError] = useState("");
   const [loginLoading, setLoginLoading] = useState(false);
@@ -29,6 +30,7 @@ export default function AdminDashboard() {
     min_active_days: 7,
   });
   const [rulesSaved, setRulesSaved] = useState(false);
+  const [overviewData, setOverviewData] = useState<any>(null);
 
   // Lock scroll on modal
   useEffect(() => {
@@ -37,19 +39,39 @@ export default function AdminDashboard() {
     return () => { document.body.style.overflow = ""; };
   }, [selectedParticipant]);
 
-  const handleAdminLogin = () => {
+  const handleAdminLogin = async () => {
     setLoginError(""); setLoginLoading(true);
-    // Demo admin password — in production this comes from WINNERPIP_ADMIN_KEY env var
-    if (adminPass === "admin2026") {
-      localStorage.setItem("wp_admin", "true");
-      setIsAdmin(true);
-    } else {
-      setLoginError("Invalid admin key");
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
+    try {
+      // Validate by calling the overview endpoint with the path
+      const res = await fetch(`${apiUrl}/api/admin/${adminPath}/challenge/${params.id}/overview`, {
+        headers: { "X-Admin-Key": adminPass },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setOverviewData(data);
+        localStorage.setItem("wp_admin_path", adminPath);
+        localStorage.setItem("wp_admin_key", adminPass);
+        setIsAdmin(true);
+      } else if (res.status === 403) {
+        setLoginError("Access denied — IP not whitelisted");
+      } else {
+        setLoginError("Invalid admin path or key");
+      }
+    } catch {
+      // Fallback: allow demo access with demo credentials
+      if (adminPass === "admin2026") {
+        localStorage.setItem("wp_admin_path", adminPath || "demo");
+        localStorage.setItem("wp_admin_key", adminPass);
+        setIsAdmin(true);
+      } else {
+        setLoginError("Could not connect to API. Check your credentials.");
+      }
     }
     setLoginLoading(false);
   };
 
-  useState(() => { if (typeof window !== "undefined" && localStorage.getItem("wp_admin")) setIsAdmin(true); });
+  useState(() => { if (typeof window !== "undefined" && localStorage.getItem("wp_admin_path")) setIsAdmin(true); });
 
   const handleSearch = () => {
     setSearchPerformed(true);
