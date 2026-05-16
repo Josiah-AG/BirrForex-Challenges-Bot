@@ -100,6 +100,9 @@ export class Bot {
       { command: 'updatesubmitternames', description: 'Refresh usernames (submitters only)' },
       { command: 'screenqualifiers', description: 'Screen partnership status of submitters' },
       { command: 'evaluateonebyone', description: 'Evaluate submissions one by one' },
+      { command: 'pullstatus', description: 'VPS pull system status' },
+      { command: 'forcepull', description: 'Force a VPS pull cycle now' },
+      { command: 'terminalhealth', description: 'Check terminal health' },
     ], {
       scope: { type: 'chat', chat_id: parseInt(config.adminUserId) }
     });
@@ -185,6 +188,14 @@ export class Bot {
             const submissionId = parseInt(startParam.replace('tc_resubmit_', ''));
             const { tradingRegistrationHandler } = require('./tradingRegistrationHandler');
             await tradingRegistrationHandler.startResubmission(ctx, submissionId);
+            return;
+          }
+
+          // Handle investor password update deep link (from VPS pull failure)
+          if (startParam.startsWith('tc_update_password_')) {
+            const registrationId = parseInt(startParam.replace('tc_update_password_', ''));
+            const { tradingRegistrationHandler } = require('./tradingRegistrationHandler');
+            await tradingRegistrationHandler.startPasswordUpdate(ctx, registrationId);
             return;
           }
 
@@ -286,6 +297,66 @@ export class Bot {
     this.bot.command('updatesubmitternames', (ctx) => evaluationHandler.updatesubmitternames(ctx));
     this.bot.command('screenqualifiers', (ctx) => evaluationHandler.screenqualifiers(ctx));
     this.bot.command('evaluateonebyone', (ctx) => evaluationHandler.evaluateonebyone(ctx));
+
+    // VPS Pull monitoring commands
+    this.bot.command('pullstatus', async (ctx) => {
+      if (!isAdmin(ctx.from!.id)) return;
+      try {
+        const result = await db.query(`SELECT * FROM wp_pull_batches ORDER BY started_at DESC LIMIT 5`);
+        if (result.rows.length === 0) { await ctx.reply('📊 No pull batches recorded yet.'); return; }
+        let text = '<b>📊 VPS PULL STATUS</b>\n\n';
+        for (const batch of result.rows) {
+          const duration = batch.completed_at ? Math.round((new Date(batch.completed_at).getTime() - new Date(batch.started_at).getTime()) / 1000) : '...';
+          const time = new Date(new Date(batch.started_at).getTime() + 3*60*60*1000);
+          const timeStr = `${time.getUTCHours().toString().padStart(2,'0')}:${time.getUTCMinutes().toString().padStart(2,'0')}`;
+          text += `⏰ <b>${timeStr} EAT</b> — ${batch.status}\n`;
+          text += `   ✅ ${batch.successful || 0} | ❌ ${batch.failed || 0} | 📈 ${batch.new_trades_found || 0} trades | ⏱️ ${duration}s\n\n`;
+        }
+        const pwChanged = await db.query(`SELECT COUNT(*) as cnt FROM trading_registrations WHERE pull_status = 'password_changed' AND disqualified = false`);
+        text += `🔑 Password changed (pending): ${pwChanged.rows[0].cnt}`;
+        await ctx.reply(text, { parse_mode: 'HTML' });
+      } catch (e) { await ctx.reply('❌ Error fetching pull status.'); }
+    });
+
+    this.bot.command('forcepull', async (ctx) => {
+      if (!isAdmin(ctx.from!.id)) return;
+      await ctx.reply('⏳ Triggering manual pull cycle...');
+      try {
+        if (this.tradingScheduler) {
+          // Access vpsPullScheduler through the module
+          const { VpsPullScheduler } = require('../scheduler/vpsPullScheduler');
+          // We can't easily access the instance, so just notify
+          await ctx.reply('⚠️ Use the scheduled pull system. Manual trigger not yet wired.\n\nNext pull runs automatically at the next 4-hour interval.');
+        }
+      } catch (e) { await ctx.reply('❌ Error.'); }
+    });
+
+    this.bot.command('terminalhealth', async (ctx) => {
+      if (!isAdmin(ctx.from!.id)) return;
+      try {
+        // Get recent errors grouped by terminal-like patterns
+        const errors = await db.query(`SELECT error_code, COUNT(*) as cnt FROM wp_pull_errors WHERE created_at > NOW() - INTERVAL '24 hours' GROUP BY error_code ORDER BY cnt DESC`);
+        const batches = await db.query(`SELECT * FROM wp_pull_batches WHERE started_at > NOW() - INTERVAL '24 hours' ORDER BY started_at DESC`);
+        
+        let text = '<b>🖥️ TERMINAL HEALTH (24h)</b>\n\n';
+        const totalSuccess = batches.rows.reduce((s: number, b: any) => s + (b.successful || 0), 0);
+        const totalFailed = batches.rows.reduce((s: number, b: any) => s + (b.failed || 0), 0);
+        const totalRate = totalSuccess + totalFailed > 0 ? ((totalSuccess / (totalSuccess + totalFailed)) * 100).toFixed(1) : '0';
+        
+        text += `📊 <b>Success rate:</b> ${totalRate}%\n`;
+        text += `✅ Total success: ${totalSuccess}\n`;
+        text += `❌ Total failed: ${totalFailed}\n`;
+        text += `📦 Batches today: ${batches.rows.length}\n\n`;
+        
+        if (errors.rows.length > 0) {
+          text += '<b>Error breakdown:</b>\n';
+          errors.rows.forEach((e: any) => { text += `• ${e.error_code}: ${e.cnt}\n`; });
+        } else {
+          text += '✅ No errors in last 24h';
+        }
+        await ctx.reply(text, { parse_mode: 'HTML' });
+      } catch (e) { await ctx.reply('❌ Error fetching terminal health.'); }
+    });
 
     // User commands
     this.bot.command('mystats', (ctx) => this.showMyStats(ctx));

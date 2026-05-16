@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS trading_registrations (
     challenge_id INTEGER REFERENCES trading_challenges(id) ON DELETE CASCADE,
     telegram_id BIGINT NOT NULL,
     username VARCHAR(255),
+    nickname VARCHAR(30),
     account_type VARCHAR(10) NOT NULL CHECK (account_type IN ('demo', 'real')),
     email VARCHAR(500) NOT NULL,
     account_number VARCHAR(50) NOT NULL,

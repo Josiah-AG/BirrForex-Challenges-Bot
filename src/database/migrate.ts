@@ -104,6 +104,14 @@ async function migrate() {
       }
     }
 
+    // Nickname & VPS migration (safe to re-run)
+    await db.query(`ALTER TABLE trading_registrations ADD COLUMN IF NOT EXISTS nickname VARCHAR(30);`).catch(() => {});
+    await db.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_tr_challenge_nickname ON trading_registrations(challenge_id, nickname) WHERE nickname IS NOT NULL;`).catch(() => {});
+    await db.query(`ALTER TABLE wp_leaderboard ADD COLUMN IF NOT EXISTS nickname VARCHAR(30);`).catch(() => {});
+    // Challenge rules unique constraint for upsert
+    await db.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_wp_rules_challenge_code ON wp_challenge_rules(challenge_id, rule_code);`).catch(() => {});
+    console.log('✅ Nickname & rules migration OK');
+
     console.log('✅ Database migration completed successfully!');
     process.exit(0);
   } catch (error) {

@@ -1,8 +1,10 @@
 import { Bot } from './bot/bot';
 import { Scheduler } from './scheduler/scheduler';
 import { TradingScheduler } from './scheduler/tradingScheduler';
+import { VpsPullScheduler } from './scheduler/vpsPullScheduler';
 import { db } from './database/db';
 import { exnessService } from './services/exnessService';
+import { startApiServer } from './api/server';
 
 async function main() {
   try {
@@ -25,6 +27,17 @@ async function main() {
     // Initialize trading scheduler
     const tradingScheduler = new TradingScheduler(bot);
     tradingScheduler.start();
+
+    // Initialize VPS pull scheduler (trade data pulling)
+    const vpsPullScheduler = new VpsPullScheduler(bot);
+    vpsPullScheduler.start();
+
+    // Pass bot to evaluation engine for notifications
+    const { evaluationEngine } = require('./services/wpEvaluationEngine');
+    evaluationEngine.setBot(bot);
+
+    // Start WinnerPip API server
+    startApiServer();
 
     // Pass schedulers to bot for testing
     bot.setScheduler(scheduler);

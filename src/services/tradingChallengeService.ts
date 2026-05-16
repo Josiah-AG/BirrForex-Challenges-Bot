@@ -27,6 +27,7 @@ export interface TradingRegistration {
   challenge_id: number;
   telegram_id: number;
   username: string | null;
+  nickname: string | null;
   account_type: 'demo' | 'real';
   email: string;
   account_number: string;
@@ -170,6 +171,7 @@ class TradingChallengeService {
     challenge_id: number;
     telegram_id: number;
     username: string | null;
+    nickname?: string | null;
     account_type: 'demo' | 'real';
     email: string;
     account_number: string;
@@ -178,11 +180,12 @@ class TradingChallengeService {
   }): Promise<TradingRegistration> {
     const result = await db.query(
       `INSERT INTO trading_registrations
-       (challenge_id, telegram_id, username, account_type, email, account_number, mt5_server, client_uid)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       (challenge_id, telegram_id, username, nickname, account_type, email, account_number, mt5_server, client_uid)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        RETURNING *`,
       [
         data.challenge_id, data.telegram_id, data.username,
+        data.nickname || null,
         data.account_type, data.email, data.account_number,
         data.mt5_server, data.client_uid,
       ]
@@ -204,6 +207,14 @@ class TradingChallengeService {
       [challengeId, email]
     );
     return result.rows[0] || null;
+  }
+
+  async isNicknameTaken(challengeId: number, nickname: string): Promise<boolean> {
+    const result = await db.query(
+      'SELECT 1 FROM trading_registrations WHERE challenge_id = $1 AND LOWER(nickname) = LOWER($2)',
+      [challengeId, nickname.trim()]
+    );
+    return result.rows.length > 0;
   }
 
   async getAllRegistrations(challengeId: number): Promise<TradingRegistration[]> {

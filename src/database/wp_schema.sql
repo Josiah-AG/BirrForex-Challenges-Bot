@@ -94,6 +94,7 @@ CREATE TABLE IF NOT EXISTS wp_leaderboard (
     account_number VARCHAR(50) NOT NULL,
     telegram_id BIGINT,
     username VARCHAR(255),
+    nickname VARCHAR(30),
     account_type VARCHAR(10) NOT NULL,
     rank INTEGER,
     starting_balance DECIMAL(12,2) DEFAULT 0,

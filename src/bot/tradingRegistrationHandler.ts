@@ -1,6 +1,7 @@
 import { Context, Markup } from 'telegraf';
 import { tradingChallengeService } from '../services/tradingChallengeService';
 import { exnessService } from '../services/exnessService';
+import { vpsService, MT5_SERVERS, fuzzyMatchServer } from '../services/vpsService';
 import { config } from '../config';
 import { db } from '../database/db';
 
@@ -56,6 +57,7 @@ export class TradingRegistrationHandler {
     if (existing) {
       const regText = `✅ <b>You are already registered for this challenge!</b>\n\n` +
         `📋 <b>Your Registration:</b>\n` +
+        `🏷️ <b>Nickname:</b> ${existing.nickname || 'N/A'}\n` +
         `📧 <b>Email:</b> ${existing.email}\n` +
         `🏦 <b>${existing.account_type === 'demo' ? 'Demo' : 'Real'} Account:</b> ${existing.account_number}\n` +
         `🖥️ <b>Server:</b> ${existing.mt5_server || 'N/A'}\n` +
@@ -70,6 +72,21 @@ export class TradingRegistrationHandler {
       }
 
       await ctx.reply(regText, { parse_mode: 'HTML', ...Markup.inlineKeyboard(buttons) });
+      return;
+    }
+
+    // === USERNAME REQUIREMENT ===
+    if (!ctx.from!.username) {
+      await ctx.reply(
+        '⚠️ <b>Telegram Username Required</b>\n\n' +
+        'You need to set a Telegram username before registering.\n\n' +
+        '<b>How to set a username:</b>\n' +
+        '1. Open Telegram Settings\n' +
+        '2. Tap on your profile\n' +
+        '3. Set a username (e.g., @yourname)\n\n' +
+        'Once done, tap "Join Challenge" again.',
+        { parse_mode: 'HTML' }
+      );
       return;
     }
 
@@ -106,33 +123,35 @@ export class TradingRegistrationHandler {
       );
     } else {
       const accountType = challenge.type as 'demo' | 'real';
-      userSessions.set(telegramId, { step: 'tc_enter_email', data: { challenge_id: challengeId, account_type: accountType } });
-      await ctx.reply('📧 Please send your <b>Exness email address:</b>', { parse_mode: 'HTML' });
+      userSessions.set(telegramId, { step: 'tc_enter_nickname', data: { challenge_id: challengeId, account_type: accountType } });
+      await ctx.reply(
+        '🏷️ Choose a <b>Challenge Nickname</b>\n\n' +
+        'This will be displayed on the leaderboard instead of your real name.\n' +
+        '• 3-20 characters\n' +
+        '• Letters, numbers, underscores only\n' +
+        '• Must be unique\n\n' +
+        'Send your nickname:',
+        { parse_mode: 'HTML' }
+      );
     }
   }
 
   async startLateChange(ctx: Context, challengeId: number) {
     const telegramId = ctx.from!.id;
-
-    // Check if window is open
     const { tradingAdminHandler } = require('./tradingAdminHandler');
     if (!tradingAdminHandler.isLateChangeWindowOpen(challengeId)) {
       await ctx.reply('❌ <b>This window has expired.</b>\n\n<i>The change window is no longer available.</i>', { parse_mode: 'HTML' });
       return;
     }
-
-    // Check if registered
     const reg = await tradingChallengeService.getRegistration(challengeId, telegramId);
     if (!reg) {
       await ctx.reply('❌ <b>This is only for registered participants.</b>', { parse_mode: 'HTML' });
       return;
     }
-
     userSessions.set(telegramId, {
       step: 'tc_change_acct_number',
       data: { challenge_id: challengeId, registration_id: reg.id, account_type: reg.account_type },
     });
-
     await ctx.reply(
       `🔄 <b>Change Account Number</b>\n\n` +
       `📋 Current: ${reg.account_number} (${reg.mt5_server || 'N/A'})\n\n` +
@@ -143,31 +162,22 @@ export class TradingRegistrationHandler {
 
   async startLateSwitch(ctx: Context, challengeId: number) {
     const telegramId = ctx.from!.id;
-
-    // Check if window is open
     const { tradingAdminHandler } = require('./tradingAdminHandler');
     if (!tradingAdminHandler.isLateChangeWindowOpen(challengeId)) {
       await ctx.reply('❌ <b>This window has expired.</b>\n\n<i>The change window is no longer available.</i>', { parse_mode: 'HTML' });
       return;
     }
-
-    // Check if registered
     const reg = await tradingChallengeService.getRegistration(challengeId, telegramId);
     if (!reg) {
       await ctx.reply('❌ <b>This is only for registered participants.</b>', { parse_mode: 'HTML' });
       return;
     }
-
-    // Only allow Demo → Real
     if (reg.account_type === 'real') {
       await ctx.reply('❌ <b>You are already in the Real Account category.</b>\n\n<i>Switching from Real to Demo is not allowed.</i>', { parse_mode: 'HTML' });
       return;
     }
-
     await ctx.reply(
-      `⚠️ <b>Switch to Real Account?</b>\n\n` +
-      `Your current Demo registration will be deleted and you will need to register as a Real Account trader.\n\n` +
-      `<i>This cannot be undone.</i>`,
+      `⚠️ <b>Switch to Real Account?</b>\n\nYour current Demo registration will be deleted and you will need to register as a Real Account trader.\n\n<i>This cannot be undone.</i>`,
       { parse_mode: 'HTML', ...Markup.inlineKeyboard([
         [Markup.button.callback('✅ Yes, Switch to Real', `tc_late_switch_confirm_${challengeId}`)],
         [Markup.button.callback('❌ Cancel', 'tc_switch_cancel')],
@@ -177,40 +187,29 @@ export class TradingRegistrationHandler {
 
   async startLateRetry(ctx: Context, challengeId: number) {
     const telegramId = ctx.from!.id;
-
-    // Check if window is open
     const { tradingAdminHandler } = require('./tradingAdminHandler');
     if (!tradingAdminHandler.isLateChangeWindowOpen(challengeId)) {
       await ctx.reply('❌ <b>This window has expired.</b>\n\n<i>The registration window is no longer available.</i>', { parse_mode: 'HTML' });
       return;
     }
-
-    // Check if already registered
     const existingReg = await tradingChallengeService.getRegistration(challengeId, telegramId);
     if (existingReg) {
       await ctx.reply('✅ <b>You are already registered for this challenge!</b>\n\nUse the Change Account or Switch buttons if you need to make changes.', { parse_mode: 'HTML' });
       return;
     }
-
-    // Check if user has a failed attempt
     const failed = await tradingChallengeService.getAllFailedAttempts(challengeId);
     const userFailed = failed.find((f: any) => String(f.telegram_id) === String(telegramId));
-
     if (!userFailed) {
       await ctx.reply('❌ <b>This is only for users who previously attempted registration.</b>\n\n<i>No previous registration attempt found for your account.</i>', { parse_mode: 'HTML' });
       return;
     }
-
-    // Start normal registration flow
     const challenge = await tradingChallengeService.getChallengeById(challengeId);
     if (!challenge) { await ctx.reply('❌ Challenge not found.'); return; }
-
     knownUsers.set(telegramId, { username: ctx.from!.username || null, firstName: ctx.from!.first_name || null });
-
     if (challenge.type === 'hybrid') {
       userSessions.set(telegramId, { step: 'tc_select_type', data: { challenge_id: challengeId } });
       await ctx.reply(
-        `<b>🔁 Retry Registration</b>\n<b>${challenge.title}</b>\n\nWelcome back! Let\'s get you registered.\n\nChoose your category:`,
+        `<b>🔁 Retry Registration</b>\n<b>${challenge.title}</b>\n\nWelcome back! Let's get you registered.\n\nChoose your category:`,
         { parse_mode: 'HTML', ...Markup.inlineKeyboard([
           [Markup.button.callback('🏦 Demo Account Challenge', `tc_reg_demo_${challengeId}`)],
           [Markup.button.callback('💰 Real Account Challenge', `tc_reg_real_${challengeId}`)],
@@ -218,20 +217,20 @@ export class TradingRegistrationHandler {
       );
     } else {
       const accountType = challenge.type as 'demo' | 'real';
-      userSessions.set(telegramId, { step: 'tc_enter_email', data: { challenge_id: challengeId, account_type: accountType } });
-      await ctx.reply('📧 Please send your <b>Exness email address:</b>', { parse_mode: 'HTML' });
+      userSessions.set(telegramId, { step: 'tc_enter_nickname', data: { challenge_id: challengeId, account_type: accountType } });
+      await ctx.reply(
+        '🏷️ Choose a <b>Challenge Nickname</b>\n\n' +
+        'This will be displayed on the leaderboard instead of your real name.\n' +
+        '• 3-20 characters\n• Letters, numbers, underscores only\n• Must be unique\n\nSend your nickname:',
+        { parse_mode: 'HTML' }
+      );
     }
   }
 
   async startSubmission(ctx: Context, challengeId: number) {
     const telegramId = ctx.from!.id;
     const challenge = await tradingChallengeService.getChallengeById(challengeId);
-
-    if (!challenge) {
-      await ctx.reply('❌ Challenge not found.');
-      return;
-    }
-
+    if (!challenge) { await ctx.reply('❌ Challenge not found.'); return; }
     if (challenge.status !== 'submission_open') {
       if (challenge.status === 'reviewing' || challenge.status === 'completed') {
         await ctx.reply('❌ <b>Submission deadline has passed.</b>\n<i>Late submissions are not accepted.</i>', { parse_mode: 'HTML' });
@@ -240,14 +239,10 @@ export class TradingRegistrationHandler {
       }
       return;
     }
-
-    // Check deadline
     if (challenge.submission_deadline && new Date() > new Date(challenge.submission_deadline)) {
       await ctx.reply('❌ <b>Submission deadline has passed.</b>\n<i>Late submissions are not accepted.</i>', { parse_mode: 'HTML' });
       return;
     }
-
-    // Check if user already has a submission
     const reg = await tradingChallengeService.getRegistration(challengeId, telegramId);
     if (reg) {
       const existingSub = await tradingChallengeService.getSubmissionByRegistration(reg.id);
@@ -256,15 +251,10 @@ export class TradingRegistrationHandler {
           step: 'tc_submit_override_confirm',
           data: { challenge_id: challengeId, target_balance: challenge.target_balance, registration_id: reg.id, challenge_title: challenge.title },
         });
-
         await ctx.reply(
           `⚠️ <b>You have already submitted your results for ${challenge.title}.</b>\n\n` +
-          `📋 <b>Previous Submission:</b>\n` +
-          `💰 <b>Balance:</b> $${Number(existingSub.final_balance).toFixed(2)}\n` +
-          `📸 <b>Screenshot:</b> ✅\n` +
-          `🔑 <b>Password:</b> ✅\n\n` +
-          `Do you want to <b>override</b> your previous submission?\n` +
-          `<i>Only do this if there was an error in your previous submission. The previous data will be overwritten.</i>`,
+          `📋 <b>Previous Submission:</b>\n💰 <b>Balance:</b> $${Number(existingSub.final_balance).toFixed(2)}\n📸 <b>Screenshot:</b> ✅\n🔑 <b>Password:</b> ✅\n\n` +
+          `Do you want to <b>override</b> your previous submission?\n<i>Only do this if there was an error in your previous submission.</i>`,
           { parse_mode: 'HTML', ...Markup.inlineKeyboard([
             [Markup.button.callback('✅ Yes, Submit Again', `tc_submit_override_yes_${challengeId}`)],
             [Markup.button.callback('❌ No, Keep Previous', `tc_submit_override_no`)],
@@ -273,81 +263,101 @@ export class TradingRegistrationHandler {
         return;
       }
     }
-
-    userSessions.set(telegramId, {
-      step: 'tc_submit_email',
-      data: { challenge_id: challengeId, target_balance: challenge.target_balance },
-    });
-
+    userSessions.set(telegramId, { step: 'tc_submit_email', data: { challenge_id: challengeId, target_balance: challenge.target_balance } });
     await ctx.reply('📧 Please enter your <b>Exness email</b> to verify your identity:', { parse_mode: 'HTML' });
   }
 
-  // Forced submission — bypasses deadline/status checks, only works for the specific user
   async startForcedSubmission(ctx: Context, challengeId: number, allowedTelegramId: number) {
     const telegramId = ctx.from!.id;
-
-    // Only the specific user can use this link
-    if (String(telegramId) !== String(allowedTelegramId)) {
-      await ctx.reply('❌ This submission link is not for your account.');
-      return;
-    }
-
+    if (String(telegramId) !== String(allowedTelegramId)) { await ctx.reply('❌ This submission link is not for your account.'); return; }
     const challenge = await tradingChallengeService.getChallengeById(challengeId);
-    if (!challenge) {
-      await ctx.reply('❌ Challenge not found.');
-      return;
-    }
-
-    // Check if user is registered
+    if (!challenge) { await ctx.reply('❌ Challenge not found.'); return; }
     const reg = await tradingChallengeService.getRegistration(challengeId, telegramId);
-    if (!reg) {
-      await ctx.reply('❌ You are not registered for this challenge.');
-      return;
-    }
-
-    // Check existing submission
+    if (!reg) { await ctx.reply('❌ You are not registered for this challenge.'); return; }
     const existingSub = await tradingChallengeService.getSubmissionByRegistration(reg.id);
     if (existingSub) {
-      userSessions.set(telegramId, {
-        step: 'tc_submit_override_confirm',
-        data: { challenge_id: challengeId, target_balance: challenge.target_balance, registration_id: reg.id, challenge_title: challenge.title },
-      });
-
-      await ctx.reply(
-        '⚠️ <b>You have already submitted your results.</b>\n\n' +
-        '💰 Previous Balance: $' + Number(existingSub.final_balance).toFixed(2) + '\n\n' +
-        'Do you want to submit again and overwrite?',
-        { parse_mode: 'HTML', ...Markup.inlineKeyboard([
-          [Markup.button.callback('✅ Yes, Submit Again', 'tc_submit_override_yes_' + challengeId)],
-          [Markup.button.callback('❌ No, Keep Previous', 'tc_submit_override_no')],
-        ]) }
-      );
+      userSessions.set(telegramId, { step: 'tc_submit_override_confirm', data: { challenge_id: challengeId, target_balance: challenge.target_balance, registration_id: reg.id, challenge_title: challenge.title } });
+      await ctx.reply('⚠️ <b>You have already submitted your results.</b>\n\n💰 Previous Balance: $' + Number(existingSub.final_balance).toFixed(2) + '\n\nDo you want to submit again and overwrite?',
+        { parse_mode: 'HTML', ...Markup.inlineKeyboard([[Markup.button.callback('✅ Yes, Submit Again', 'tc_submit_override_yes_' + challengeId)], [Markup.button.callback('❌ No, Keep Previous', 'tc_submit_override_no')]]) });
       return;
     }
-
-    userSessions.set(telegramId, {
-      step: 'tc_submit_email',
-      data: { challenge_id: challengeId, target_balance: challenge.target_balance },
-    });
-
+    userSessions.set(telegramId, { step: 'tc_submit_email', data: { challenge_id: challengeId, target_balance: challenge.target_balance } });
     await ctx.reply('📧 Please enter your <b>Exness email</b> to verify your identity:', { parse_mode: 'HTML' });
   }
+
+  async startResubmission(ctx: Context, submissionId: number): Promise<void> {
+    try {
+      const telegramId = ctx.from!.id;
+      const sub = await db.query(
+        'SELECT s.*, r.account_number, r.telegram_id, r.username FROM trading_submissions s JOIN trading_registrations r ON s.registration_id = r.id WHERE s.id = $1',
+        [submissionId]
+      );
+      if (!sub.rows[0]) { await ctx.reply('❌ Submission not found.'); return; }
+      const submission = sub.rows[0];
+      if (String(submission.telegram_id) !== String(telegramId)) { await ctx.reply('❌ This resubmission link is not for your account.'); return; }
+      userSessions.set(telegramId, {
+        step: 'tc_resubmit_account',
+        data: { submission_id: submissionId, registration_id: submission.registration_id, original_account_number: submission.account_number, challenge_id: submission.challenge_id },
+      });
+      await ctx.reply('🔄 <b>Account Resubmission</b>\n\nPlease enter your <b>MT5 account number:</b>', { parse_mode: 'HTML' });
+    } catch (error) {
+      console.error('Error in startResubmission:', error);
+      await ctx.reply('❌ Error starting resubmission.');
+    }
+  }
+
+  // ==================== CALLBACK HANDLERS ====================
 
   async handleCallback(ctx: Context, data: string): Promise<boolean> {
     const telegramId = ctx.from!.id;
 
-    // Account type selection for hybrid
+    // Account type selection for hybrid — then ask for nickname
     if (data.startsWith('tc_reg_demo_') || data.startsWith('tc_reg_real_')) {
       const parts = data.split('_');
       const accountType = parts[2] as 'demo' | 'real';
       const challengeId = parseInt(parts[3]);
       const session = userSessions.get(telegramId);
       if (!session) return true;
-
       session.data.account_type = accountType;
-      session.step = 'tc_enter_email';
+      session.step = 'tc_enter_nickname';
       await ctx.answerCbQuery();
-      await ctx.reply('📧 Please send your <b>Exness email address:</b>', { parse_mode: 'HTML' });
+      await ctx.reply(
+        '🏷️ Choose a <b>Challenge Nickname</b>\n\n' +
+        'This will be displayed on the leaderboard instead of your real name.\n' +
+        '• 3-20 characters\n• Letters, numbers, underscores only\n• Must be unique\n\nSend your nickname:',
+        { parse_mode: 'HTML' }
+      );
+      return true;
+    }
+
+    // Server selection buttons
+    if (data.startsWith('tc_server_')) {
+      const session = userSessions.get(telegramId);
+      if (!session) return true;
+      const server = data.replace('tc_server_', '');
+      session.data.mt5_server = server;
+      await ctx.answerCbQuery();
+      // Move to investor password step
+      session.step = 'tc_enter_investor_password';
+      await ctx.reply(
+        '🔑 Enter your <b>Investor (Read-Only) Password</b>\n\n' +
+        'This is the password that allows view-only access to your MT5 account.\n' +
+        '⚠️ <i>NOT your master/trading password.</i>\n\n' +
+        (config.investorPasswordGuideLink ? `📋 <a href="${config.investorPasswordGuideLink}">How to get your Investor Password</a>\n\n` : '') +
+        'Send your investor password:',
+        { parse_mode: 'HTML', link_preview_options: { is_disabled: true } }
+      );
+      return true;
+    }
+
+    // "Type server manually" button
+    if (data === 'tc_server_manual') {
+      const session = userSessions.get(telegramId);
+      if (!session) return true;
+      session.step = 'tc_enter_server_manual';
+      await ctx.answerCbQuery();
+      const example = session.data.account_type === 'demo' ? 'Exness-MT5Trial9' : 'Exness-MT5Real9';
+      await ctx.reply(`Type your <b>MT5 server name</b> manually:\nExample: <code>${example}</code>`, { parse_mode: 'HTML' });
       return true;
     }
 
@@ -362,11 +372,7 @@ export class TradingRegistrationHandler {
       }
       const reg = await tradingChallengeService.getRegistration(challengeId, telegramId);
       if (!reg) return true;
-
-      userSessions.set(telegramId, {
-        step: 'tc_change_acct_number',
-        data: { challenge_id: challengeId, registration_id: reg.id, account_type: reg.account_type },
-      });
+      userSessions.set(telegramId, { step: 'tc_change_acct_number', data: { challenge_id: challengeId, registration_id: reg.id, account_type: reg.account_type } });
       await ctx.answerCbQuery();
       await ctx.reply(`Send your new <b>MT5 ${reg.account_type === 'demo' ? 'Demo' : 'Real'} Account Number:</b>\n⚠️ <i>Must be an MT5 trading account.</i>`, { parse_mode: 'HTML' });
       return true;
@@ -383,11 +389,8 @@ export class TradingRegistrationHandler {
       }
       await ctx.answerCbQuery();
       await ctx.reply(
-        `⚠️ <b>Are you sure you want to switch category?</b>\n\nIf you proceed, your current registration will be deleted and you will need to register again.`,
-        { parse_mode: 'HTML', ...Markup.inlineKeyboard([
-          [Markup.button.callback('✅ Yes, Switch', `tc_switch_confirm_${challengeId}`)],
-          [Markup.button.callback('❌ Cancel', `tc_switch_cancel`)],
-        ]) }
+        `⚠️ <b>Are you sure you want to switch category?</b>\n\nYour current registration will be deleted and you will need to register again.`,
+        { parse_mode: 'HTML', ...Markup.inlineKeyboard([[Markup.button.callback('✅ Yes, Switch', `tc_switch_confirm_${challengeId}`)], [Markup.button.callback('❌ Cancel', `tc_switch_cancel`)]]) }
       );
       return true;
     }
@@ -395,58 +398,40 @@ export class TradingRegistrationHandler {
     if (data.startsWith('tc_switch_confirm_')) {
       const challengeId = parseInt(data.replace('tc_switch_confirm_', ''));
       const reg = await tradingChallengeService.getRegistration(challengeId, telegramId);
-      if (reg) {
-        await tradingChallengeService.deleteRegistration(reg.id);
-        await tradingChallengeService.updateDailyStat(challengeId, 'category_switches');
-      }
+      if (reg) { await tradingChallengeService.deleteRegistration(reg.id); await tradingChallengeService.updateDailyStat(challengeId, 'category_switches'); }
       await ctx.answerCbQuery();
-      // Restart registration
       await this.startRegistration(ctx, challengeId);
       return true;
     }
 
-    if (data === 'tc_switch_cancel') {
-      await ctx.answerCbQuery('Cancelled');
-      return true;
-    }
+    if (data === 'tc_switch_cancel') { await ctx.answerCbQuery('Cancelled'); return true; }
 
     // Late switch confirm
     if (data.startsWith('tc_late_switch_confirm_')) {
       const challengeId = parseInt(data.replace('tc_late_switch_confirm_', ''));
-
       const { tradingAdminHandler } = require('./tradingAdminHandler');
-      if (!tradingAdminHandler.isLateChangeWindowOpen(challengeId)) {
-        await ctx.answerCbQuery('Window expired');
-        await ctx.reply('❌ <b>This window has expired.</b>', { parse_mode: 'HTML' });
-        return true;
-      }
-
+      if (!tradingAdminHandler.isLateChangeWindowOpen(challengeId)) { await ctx.answerCbQuery('Window expired'); await ctx.reply('❌ <b>This window has expired.</b>', { parse_mode: 'HTML' }); return true; }
       const reg = await tradingChallengeService.getRegistration(challengeId, telegramId);
-      if (reg) {
-        await tradingChallengeService.deleteRegistration(reg.id);
-      }
+      if (reg) { await tradingChallengeService.deleteRegistration(reg.id); }
       await ctx.answerCbQuery();
-
-      // Start real account registration (email already verified)
-      userSessions.set(telegramId, {
-        step: 'tc_enter_email',
-        data: { challenge_id: challengeId, account_type: 'real' },
-      });
-      await ctx.reply('📧 Please send your <b>Exness email address:</b>', { parse_mode: 'HTML' });
+      userSessions.set(telegramId, { step: 'tc_enter_nickname', data: { challenge_id: challengeId, account_type: 'real' } });
+      await ctx.reply(
+        '🏷️ Choose a <b>Challenge Nickname</b>\n\n' +
+        'This will be displayed on the leaderboard instead of your real name.\n' +
+        '• 3-20 characters\n• Letters, numbers, underscores only\n• Must be unique\n\nSend your nickname:',
+        { parse_mode: 'HTML' }
+      );
       return true;
     }
 
-    // Submit email again button
+    // Retry email
     if (data.startsWith('tc_retry_email_')) {
       const challengeId = parseInt(data.replace('tc_retry_email_', ''));
       const session = userSessions.get(telegramId);
-      if (session) {
-        session.step = 'tc_enter_email';
-        session.data.retry_count = 0;
-      } else {
-        // Determine account type from challenge
+      if (session) { session.step = 'tc_enter_email'; session.data.retry_count = 0; }
+      else {
         const challenge = await tradingChallengeService.getChallengeById(challengeId);
-        const accountType = challenge?.type === 'real' ? 'real' : challenge?.type === 'demo' ? 'demo' : 'demo';
+        const accountType = challenge?.type === 'real' ? 'real' : 'demo';
         userSessions.set(telegramId, { step: 'tc_enter_email', data: { challenge_id: challengeId, account_type: accountType } });
       }
       await ctx.answerCbQuery();
@@ -454,139 +439,74 @@ export class TradingRegistrationHandler {
       return true;
     }
 
-    // Submit new real account button
+    // New real account
     if (data.startsWith('tc_new_real_acct_')) {
-      const challengeId = parseInt(data.replace('tc_new_real_acct_', ''));
       const session = userSessions.get(telegramId);
-      if (session) {
-        session.step = 'tc_enter_account_number';
-      }
+      if (session) { session.step = 'tc_enter_account_number'; }
       await ctx.answerCbQuery();
       await ctx.reply('Send your new <b>MT5 Real Account Number:</b>\n⚠️ <i>Must be an MT5 trading account.</i>', { parse_mode: 'HTML' });
       return true;
     }
 
-    // Try again button (API retry)
+    // Try again (API retry)
     if (data.startsWith('tc_try_again_')) {
-      const challengeId = parseInt(data.replace('tc_try_again_', ''));
       const session = userSessions.get(telegramId);
-      if (session && session.data.email) {
-        session.step = 'tc_verifying_email';
-        await ctx.answerCbQuery();
-        await this.verifyEmail(ctx, telegramId);
-      }
+      if (session && session.data.email) { session.step = 'tc_verifying_email'; await ctx.answerCbQuery(); await this.verifyEmail(ctx, telegramId); }
       return true;
     }
 
-    // Submission override callbacks
+    // Submission override
     if (data.startsWith('tc_submit_override_yes_')) {
       const challengeId = parseInt(data.replace('tc_submit_override_yes_', ''));
       const session = userSessions.get(telegramId);
-      if (session) {
-        session.data.is_override = true;
-        session.step = 'tc_submit_email';
-      } else {
-        userSessions.set(telegramId, {
-          step: 'tc_submit_email',
-          data: { challenge_id: challengeId, is_override: true },
-        });
-      }
+      if (session) { session.data.is_override = true; session.step = 'tc_submit_email'; }
+      else { userSessions.set(telegramId, { step: 'tc_submit_email', data: { challenge_id: challengeId, is_override: true } }); }
       await ctx.answerCbQuery();
       await ctx.reply('📧 Please enter your <b>Exness email</b> to verify your identity:', { parse_mode: 'HTML' });
       return true;
     }
+    if (data === 'tc_submit_override_no') { userSessions.delete(telegramId); await ctx.answerCbQuery(); await ctx.reply('✅ Your previous submission has been kept.'); return true; }
 
-    if (data === 'tc_submit_override_no') {
-      userSessions.delete(telegramId);
-      await ctx.answerCbQuery();
-      await ctx.reply('✅ Your previous submission has been kept.');
-      return true;
-    }
-
-    // Manual review approve/reject callbacks
+    // Manual review approve/reject
     if (data.startsWith('tc_mr_approve_')) {
       const userId = parseInt(data.replace('tc_mr_approve_', ''));
       const review = pendingManualReviews.get(userId);
-      if (!review) {
-        await ctx.answerCbQuery('Review data expired. Use /manualverify instead.');
-        return true;
-      }
-
+      if (!review) { await ctx.answerCbQuery('Review data expired. Use /manualverify instead.'); return true; }
       try {
         await tradingChallengeService.registerUser(review);
         const statField = review.account_type === 'demo' ? 'demo_registrations' : 'real_registrations';
         await tradingChallengeService.updateDailyStat(review.challenge_id, 'new_registrations');
         await tradingChallengeService.updateDailyStat(review.challenge_id, statField);
         pendingManualReviews.delete(userId);
-
         await ctx.answerCbQuery('Approved!');
         await ctx.reply(`✅ <b>Approved!</b> @${review.username || 'user'} has been registered.`, { parse_mode: 'HTML' });
-
-        // Notify user
         const challenge = await tradingChallengeService.getChallengeById(review.challenge_id);
         const acctLabel = review.account_type === 'demo' ? 'Demo' : 'Real';
         try {
-          await ctx.telegram.sendMessage(userId,
-            `✅ <b>Registration Approved!</b>\n\n` +
-            `You have been registered for <b>${challenge?.title || 'the challenge'}</b>.\n\n` +
-            `📋 <b>Your Registration:</b>\n` +
-            `📧 <b>Email:</b> ${review.email}\n` +
-            `🏦 <b>${acctLabel} Account:</b> ${review.account_number}\n` +
-            `🖥️ <b>Server:</b> ${review.mt5_server || 'N/A'}\n` +
-            `📊 <b>Type:</b> ${acctLabel}\n\n` +
-            `⚠️ <i>Please read the rules and understand them well before starting the challenge!</i>`,
-            { parse_mode: 'HTML' }
-          );
-        } catch (e) {
-          await ctx.reply('⚠️ Registered but could not notify user.');
-        }
+          await ctx.telegram.sendMessage(userId, `✅ <b>Registration Approved!</b>\n\nYou have been registered for <b>${challenge?.title || 'the challenge'}</b>.\n\n📋 <b>Your Registration:</b>\n📧 <b>Email:</b> ${review.email}\n🏦 <b>${acctLabel} Account:</b> ${review.account_number}\n🖥️ <b>Server:</b> ${review.mt5_server || 'N/A'}\n📊 <b>Type:</b> ${acctLabel}\n\n⚠️ <i>Please read the rules before starting!</i>`, { parse_mode: 'HTML' });
+        } catch (e) { await ctx.reply('⚠️ Registered but could not notify user.'); }
       } catch (e: any) {
-        if (e.code === '23505') {
-          await ctx.reply('⚠️ User is already registered.');
-        } else {
-          await ctx.reply('❌ Error registering user.');
-        }
+        if (e.code === '23505') { await ctx.reply('⚠️ User is already registered.'); }
+        else { await ctx.reply('❌ Error registering user.'); }
         pendingManualReviews.delete(userId);
       }
       return true;
     }
-
     if (data.startsWith('tc_mr_reject_')) {
       const userId = parseInt(data.replace('tc_mr_reject_', ''));
-      const review = pendingManualReviews.get(userId);
       pendingManualReviews.delete(userId);
-
       await ctx.answerCbQuery('Rejected');
       await ctx.reply(`❌ <b>Rejected.</b> User has been notified.`, { parse_mode: 'HTML' });
-
-      // Notify user
-      try {
-        await ctx.telegram.sendMessage(userId,
-          `❌ <b>Registration Rejected</b>\n\n` +
-          `Your manual verification request has been reviewed and was not approved.\n\n` +
-          `This may be because your account details could not be verified.\n\n` +
-          `<i>If you believe this is an error, please contact @birrFXadmin.</i>`,
-          { parse_mode: 'HTML' }
-        );
-      } catch (e) {
-        // User may have DMs closed
-      }
+      try { await ctx.telegram.sendMessage(userId, `❌ <b>Registration Rejected</b>\n\nYour manual verification request was not approved.\n\n<i>Contact @birrFXadmin if you believe this is an error.</i>`, { parse_mode: 'HTML' }); } catch (e) {}
       return true;
     }
 
-    // Submit email retry button
+    // Submit email retry
     if (data.startsWith('tc_submit_retry_email_')) {
       const challengeId = parseInt(data.replace('tc_submit_retry_email_', ''));
       const session = userSessions.get(telegramId);
-      if (session) {
-        session.step = 'tc_submit_email';
-      } else {
-        const challenge = await tradingChallengeService.getChallengeById(challengeId);
-        userSessions.set(telegramId, {
-          step: 'tc_submit_email',
-          data: { challenge_id: challengeId, target_balance: challenge?.target_balance || 0 },
-        });
-      }
+      if (session) { session.step = 'tc_submit_email'; }
+      else { const ch = await tradingChallengeService.getChallengeById(challengeId); userSessions.set(telegramId, { step: 'tc_submit_email', data: { challenge_id: challengeId, target_balance: ch?.target_balance || 0 } }); }
       await ctx.answerCbQuery();
       await ctx.reply('📧 Please enter your <b>Exness email</b> to verify your identity:', { parse_mode: 'HTML' });
       return true;
@@ -603,29 +523,41 @@ export class TradingRegistrationHandler {
     if (!session) return;
 
     switch (session.step) {
+      // === NICKNAME STEP (NEW) ===
+      case 'tc_enter_nickname': {
+        const nickname = text.trim();
+        // Validate: 3-20 chars, alphanumeric + underscore
+        if (nickname.length < 3 || nickname.length > 20) {
+          await ctx.reply('❌ Nickname must be 3-20 characters. Try again:');
+          return;
+        }
+        if (!/^[a-zA-Z0-9_]+$/.test(nickname)) {
+          await ctx.reply('❌ Only letters, numbers, and underscores allowed. Try again:');
+          return;
+        }
+        // Check uniqueness
+        const taken = await tradingChallengeService.isNicknameTaken(session.data.challenge_id, nickname);
+        if (taken) {
+          await ctx.reply(`❌ <b>"${nickname}"</b> is already taken. Choose a different nickname:`, { parse_mode: 'HTML' });
+          return;
+        }
+        session.data.nickname = nickname;
+        session.step = 'tc_enter_email';
+        await ctx.reply(`✅ Nickname set: <b>${nickname}</b>\n\n📧 Now send your <b>Exness email address:</b>`, { parse_mode: 'HTML' });
+        break;
+      }
+
       case 'tc_enter_email': {
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        if (!emailRegex.test(text.trim())) {
-          await ctx.reply('❌ Invalid email format. Please send a valid email address.');
-          return;
-        }
+        if (!emailRegex.test(text.trim())) { await ctx.reply('❌ Invalid email format. Please send a valid email address.'); return; }
         session.data.email = text.trim().toLowerCase();
         session.data.retry_count = 0;
-
-        // Check if email already registered for this challenge
         const existing = await tradingChallengeService.getRegistrationByEmail(session.data.challenge_id, session.data.email);
         if (existing) {
-          await ctx.reply(
-            '⚠️ <b>This email is already registered for this challenge.</b>\n\n' +
-            'If you have another email, you can submit it below.\n' +
-            '<i>If you believe this is an error, please contact @birrFXadmin.</i>',
-            { parse_mode: 'HTML', ...Markup.inlineKeyboard([
-              [Markup.button.callback('📧 Submit Another Email', `tc_retry_email_${session.data.challenge_id}`)],
-            ]) }
-          );
+          await ctx.reply('⚠️ <b>This email is already registered for this challenge.</b>\n\nIf you have another email, submit it below.\n<i>Contact @birrFXadmin if this is an error.</i>',
+            { parse_mode: 'HTML', ...Markup.inlineKeyboard([[Markup.button.callback('📧 Submit Another Email', `tc_retry_email_${session.data.challenge_id}`)]]) });
           return;
         }
-
         session.step = 'tc_verifying_email';
         await ctx.reply('⏳ <b>Verifying your account...</b>', { parse_mode: 'HTML' });
         await this.verifyEmail(ctx, telegramId);
@@ -633,43 +565,70 @@ export class TradingRegistrationHandler {
       }
 
       case 'tc_enter_account_number': {
-        session.data.account_number = text.trim();
-        session.step = 'tc_confirm_account_number';
-        await ctx.reply(`🔑 Please enter your account number <b>again</b> to confirm:\n<i>(${session.data.account_number})</i>`, { parse_mode: 'HTML' });
+        const acctNum = text.trim();
+        if (!/^\d+$/.test(acctNum)) { await ctx.reply('❌ Account number must be numeric. Try again:'); return; }
+        session.data.account_number = acctNum;
+        // No double-entry needed — VPS login will validate the account
+        await this.showServerButtons(ctx, telegramId);
         break;
       }
 
-      case 'tc_confirm_account_number': {
-        if (text.trim() !== session.data.account_number) {
-          session.step = 'tc_enter_account_number';
-          await ctx.reply(`❌ <b>Account numbers don't match.</b> Please try again.\n\nSend your <b>MT5 ${session.data.account_type === 'demo' ? 'Demo' : 'Real'} Account Number:</b>`, { parse_mode: 'HTML' });
+      // === SERVER TYPED MANUALLY (fuzzy match) ===
+      case 'tc_enter_server_manual': {
+        const input = text.trim();
+        const matched = fuzzyMatchServer(input, session.data.account_type);
+        if (matched) {
+          session.data.mt5_server = matched;
+          if (matched.toLowerCase() !== input.toLowerCase()) {
+            await ctx.reply(`✅ Matched to: <b>${matched}</b>`, { parse_mode: 'HTML' });
+          }
+          // Move to investor password
+          session.step = 'tc_enter_investor_password';
+          await ctx.reply(
+            '🔑 Enter your <b>Investor (Read-Only) Password</b>\n\n' +
+            'This allows view-only access to your MT5 account.\n⚠️ <i>NOT your master/trading password.</i>\n\n' +
+            (config.investorPasswordGuideLink ? `📋 <a href="${config.investorPasswordGuideLink}">How to get Investor Password</a>\n\n` : '') +
+            'Send your investor password:',
+            { parse_mode: 'HTML', link_preview_options: { is_disabled: true } }
+          );
+        } else {
+          await ctx.reply(
+            `❌ Could not match "<b>${input}</b>" to a known server.\n\nPlease select from the buttons or type the exact server name:`,
+            { parse_mode: 'HTML' }
+          );
+          await this.showServerButtons(ctx, telegramId);
+        }
+        break;
+      }
+
+      // === INVESTOR PASSWORD (NEW) ===
+      case 'tc_enter_investor_password': {
+        const password = text.trim();
+        if (password.length < 3) { await ctx.reply('❌ Password seems too short. Please enter your investor password:'); return; }
+        session.data.investor_password = password;
+        session.step = 'tc_confirm_investor_password';
+        await ctx.reply('🔑 Enter the investor password <b>again</b> to confirm:', { parse_mode: 'HTML' });
+        break;
+      }
+
+      case 'tc_confirm_investor_password': {
+        if (text.trim() !== session.data.investor_password) {
+          session.step = 'tc_enter_investor_password';
+          await ctx.reply('❌ <b>Passwords don\'t match.</b> Please enter your investor password again:', { parse_mode: 'HTML' });
           return;
         }
-        session.step = 'tc_enter_server';
-        const example = session.data.account_type === 'demo' ? 'ExnessMT5Trial9' : 'ExnessMT5Real9';
-        await ctx.reply(`Please send your <b>MT5 Trading Server:</b>\nExample: <code>${example}</code>\n⚠️ <i>Only MT5 servers are allowed.</i>`, { parse_mode: 'HTML' });
+        // VPS Verification
+        session.step = 'tc_verifying_vps';
+        await ctx.reply('⏳ <b>Verifying MT5 connection...</b>\n<i>This may take up to 30 seconds.</i>', { parse_mode: 'HTML' });
+        await this.verifyVpsConnection(ctx, telegramId);
         break;
       }
 
-      case 'tc_enter_server': {
-        session.data.mt5_server = text.trim();
-
-        // For real accounts, verify the account number
-        if (session.data.account_type === 'real') {
-          session.step = 'tc_verifying_real_acct';
-          await ctx.reply('⏳ <b>Verifying your real account...</b>', { parse_mode: 'HTML' });
-          await this.verifyRealAccount(ctx, telegramId);
-        } else {
-          // Demo — save directly
-          await this.completeRegistration(ctx, telegramId);
-        }
-        break;
-      }
-
+      // === CHANGE ACCOUNT FLOW ===
       case 'tc_change_acct_number': {
         session.data.new_account_number = text.trim();
         session.step = 'tc_change_acct_server';
-        const example = session.data.account_type === 'demo' ? 'ExnessMT5Trial9' : 'ExnessMT5Real9';
+        const example = session.data.account_type === 'demo' ? 'Exness-MT5Trial9' : 'Exness-MT5Real9';
         await ctx.reply(`Send your <b>MT5 Trading Server:</b>\nExample: <code>${example}</code>`, { parse_mode: 'HTML' });
         break;
       }
@@ -677,7 +636,6 @@ export class TradingRegistrationHandler {
       case 'tc_change_acct_server': {
         const newServer = text.trim();
         if (session.data.account_type === 'real') {
-          // Verify new real account
           session.data.mt5_server = newServer;
           session.step = 'tc_verifying_change_real';
           await ctx.reply('⏳ <b>Verifying your real account...</b>', { parse_mode: 'HTML' });
@@ -695,8 +653,8 @@ export class TradingRegistrationHandler {
       case 'tc_manual_account': {
         session.data.account_number = text.trim();
         session.step = 'tc_manual_server';
-        const example = session.data.account_type === 'demo' ? 'ExnessMT5Trial9' : 'ExnessMT5Real9';
-        await ctx.reply(`Please send your <b>MT5 Trading Server:</b>\nExample: <code>${example}</code>\n⚠️ <i>Only MT5 servers are allowed.</i>`, { parse_mode: 'HTML' });
+        const example = session.data.account_type === 'demo' ? 'Exness-MT5Trial9' : 'Exness-MT5Real9';
+        await ctx.reply(`Please send your <b>MT5 Trading Server:</b>\nExample: <code>${example}</code>`, { parse_mode: 'HTML' });
         break;
       }
 
@@ -708,36 +666,19 @@ export class TradingRegistrationHandler {
       }
 
       // ==================== SUBMISSION STEPS ====================
-
       case 'tc_submit_email': {
         const email = text.trim().toLowerCase();
         const reg = await tradingChallengeService.getRegistrationByEmail(session.data.challenge_id, email);
-
         if (!reg) {
-          await ctx.reply(
-            '❌ <b>This email is not registered for this challenge.</b>\n\n' +
-            'Please check if you misspelled your email and try again.\n' +
-            '<i>Only registered participants can submit results.</i>',
-            { parse_mode: 'HTML', ...Markup.inlineKeyboard([
-              [Markup.button.callback('📧 Submit Email Again', `tc_submit_retry_email_${session.data.challenge_id}`)],
-            ]) }
-          );
+          await ctx.reply('❌ <b>This email is not registered for this challenge.</b>\n\nPlease check your email and try again.',
+            { parse_mode: 'HTML', ...Markup.inlineKeyboard([[Markup.button.callback('📧 Submit Email Again', `tc_submit_retry_email_${session.data.challenge_id}`)]]) });
           return;
         }
-
-        // Compare as strings to avoid BigInt vs number mismatch
         if (String(reg.telegram_id) !== String(telegramId)) {
-          await ctx.reply(
-            '❌ <b>This email is registered under a different account.</b>\n\n' +
-            'Please check if you misspelled your email and try again.\n' +
-            '<i>Use the Telegram account you registered with.</i>',
-            { parse_mode: 'HTML', ...Markup.inlineKeyboard([
-              [Markup.button.callback('📧 Submit Email Again', `tc_submit_retry_email_${session.data.challenge_id}`)],
-            ]) }
-          );
+          await ctx.reply('❌ <b>This email is registered under a different account.</b>\n\nUse the Telegram account you registered with.',
+            { parse_mode: 'HTML', ...Markup.inlineKeyboard([[Markup.button.callback('📧 Submit Email Again', `tc_submit_retry_email_${session.data.challenge_id}`)]]) });
           return;
         }
-
         session.data.registration_id = reg.id;
         session.data.email = email;
         session.data.account_type = reg.account_type;
@@ -750,17 +691,12 @@ export class TradingRegistrationHandler {
 
       case 'tc_submit_balance': {
         const balance = parseFloat(text.trim());
-        if (isNaN(balance) || balance <= 0) {
-          await ctx.reply('❌ Please enter a valid number.');
-          return;
-        }
-
+        if (isNaN(balance) || balance <= 0) { await ctx.reply('❌ Please enter a valid number.'); return; }
         if (balance < session.data.target_balance) {
           userSessions.delete(telegramId);
-          await ctx.reply(`❌ Sorry, the <b>target</b> for this challenge is <b>$${session.data.target_balance}</b>.\n\nYour balance of <b>$${balance.toFixed(2)}</b> has not reached the target.\nOnly participants who hit the target can submit results.\n\n<i>Better luck next time!</i> 💪`, { parse_mode: 'HTML' });
+          await ctx.reply(`❌ The target is <b>$${session.data.target_balance}</b>. Your balance of <b>$${balance.toFixed(2)}</b> has not reached the target.\n\n<i>Better luck next time!</i> 💪`, { parse_mode: 'HTML' });
           return;
         }
-
         session.data.final_balance = balance;
         session.step = 'tc_submit_screenshot';
         await ctx.reply('📸 Upload a <b>screenshot</b> of your final balance.\n\nMake sure it clearly shows:\n➡️ Account number\n➡️ Final balance/equity', { parse_mode: 'HTML' });
@@ -770,117 +706,53 @@ export class TradingRegistrationHandler {
       case 'tc_submit_password': {
         session.data.investor_password = text.trim();
         session.step = 'tc_submit_confirm_password';
-        await ctx.reply('🔑 Please enter the password <b>again</b> to confirm:', { parse_mode: 'HTML' });
+        await ctx.reply('🔑 Enter the password <b>again</b> to confirm:', { parse_mode: 'HTML' });
         break;
       }
 
       case 'tc_submit_confirm_password': {
         if (text.trim() !== session.data.investor_password) {
           session.step = 'tc_submit_password';
-          await ctx.reply('❌ <b>Passwords don\'t match.</b> Please try again.\n\n🔑 Enter your <b>Investor (Read-Only) password:</b>', { parse_mode: 'HTML' });
+          await ctx.reply('❌ <b>Passwords don\'t match.</b> Enter your Investor password again:', { parse_mode: 'HTML' });
           return;
         }
+        await this.saveSubmission(ctx, telegramId);
+        break;
+      }
 
-        // Save submission
-        try {
-          // Post screenshot to private submission channel and get link
-          let screenshotLink: string | null = null;
-          let screenshotMessageId: number | null = null;
-          const isOverride = session.data.is_override === true;
-
-          // If override, delete old screenshot message from submission channel
-          if (isOverride && config.submissionChannelId) {
-            try {
-              const oldSub = await tradingChallengeService.getSubmissionByRegistration(session.data.registration_id);
-              if (oldSub && oldSub.screenshot_message_id) {
-                await ctx.telegram.deleteMessage(config.submissionChannelId, oldSub.screenshot_message_id);
-              }
-            } catch (e) {
-              // Old message may already be deleted, ignore
-            }
-          }
-
-          if (session.data.screenshot_file_id && config.submissionChannelId) {
-            try {
-              const acctLabel = session.data.account_type === 'demo' ? 'Demo' : 'Real';
-              const overrideTag = isOverride ? ' (UPDATED)' : '';
-              const caption = `<b>📋 Submission${overrideTag}</b>\n\n` +
-                `👤 @${ctx.from!.username || 'unknown'}\n` +
-                `📧 ${session.data.email}\n` +
-                `🏦 ${acctLabel}: ${session.data.account_number}\n` +
-                `🖥️ Server: ${session.data.mt5_server || 'N/A'}\n` +
-                `💰 Balance: $${session.data.final_balance.toFixed(2)}\n` +
-                `🔑 Password: <code>${session.data.investor_password}</code>`;
-
-              const sent = await ctx.telegram.sendPhoto(config.submissionChannelId, session.data.screenshot_file_id, {
-                caption,
-                parse_mode: 'HTML',
-              });
-
-              // Build message link: t.me/c/{channel_id_without_-100}/{message_id}
-              const channelIdStr = String(config.submissionChannelId).replace('-100', '');
-              screenshotLink = `https://t.me/c/${channelIdStr}/${sent.message_id}`;
-              screenshotMessageId = sent.message_id;
-            } catch (e) {
-              console.error('Error posting screenshot to submission channel:', e);
-            }
-          }
-
-          if (isOverride) {
-            await tradingChallengeService.updateSubmission(session.data.registration_id, {
-              final_balance: session.data.final_balance,
-              balance_screenshot_file_id: session.data.screenshot_file_id || null,
-              screenshot_link: screenshotLink,
-              screenshot_message_id: screenshotMessageId,
-              investor_password: session.data.investor_password,
-            });
-          } else {
-            await tradingChallengeService.createSubmission({
-              registration_id: session.data.registration_id,
-              challenge_id: session.data.challenge_id,
-              final_balance: session.data.final_balance,
-              balance_screenshot_file_id: session.data.screenshot_file_id || null,
-              screenshot_link: screenshotLink,
-              screenshot_message_id: screenshotMessageId,
-              investor_password: session.data.investor_password,
-            });
-          }
-
-          const acctLabel = session.data.account_type === 'demo' ? 'Demo' : 'Real';
-          userSessions.delete(telegramId);
-
-          await ctx.reply(
-            `✅ <b>Results Submitted Successfully!</b>\n\n` +
-            `📋 <b>Your Submission:</b>\n` +
-            `📧 <b>Email:</b> ${session.data.email}\n` +
-            `🏦 <b>Account:</b> ${session.data.account_number}\n` +
-            `🖥️ <b>Server:</b> ${session.data.mt5_server || 'N/A'}\n` +
-            `📊 <b>Type:</b> ${acctLabel}\n` +
-            `💰 <b>Final Balance:</b> $${session.data.final_balance.toFixed(2)}\n` +
-            `📸 <b>Screenshot:</b> ✅ Received\n` +
-            `🔑 <b>Password:</b> ✅ Saved\n\n` +
-            `⏳ Our team will review your account and announce results.\n<i>Thank you for participating!</i> 🎉`,
-            { parse_mode: 'HTML' }
+      // === PASSWORD UPDATE (from VPS pull failure) ===
+      case 'tc_update_password': {
+        const newPassword = text.trim();
+        if (newPassword.length < 3) { await ctx.reply('❌ Password seems too short. Please enter your new investor password:'); return; }
+        // Verify connection with new password
+        await ctx.reply('⏳ <b>Verifying new password...</b>', { parse_mode: 'HTML' });
+        const verifyResult = await vpsService.verifyConnection(session.data.account_number, session.data.mt5_server, newPassword);
+        if (verifyResult.success) {
+          // Update password in database and reset pull status
+          await db.query(
+            `UPDATE trading_registrations SET investor_password = $1, pull_status = 'success', pull_error = NULL, connection_verified = true, connection_verified_at = NOW() WHERE id = $2`,
+            [newPassword, session.data.registration_id]
           );
-        } catch (error: any) {
-          if (error.code === '23505') {
-            await ctx.reply('⚠️ You have already submitted results for this challenge. Use the Submit Results button again to override.', { parse_mode: 'HTML' });
-          } else {
-            console.error('Submission error:', error);
-            await ctx.reply('❌ Error saving submission. Please try again.');
-          }
           userSessions.delete(telegramId);
+          await ctx.reply('✅ <b>Password updated successfully!</b>\n\nYour account is now accessible again. Trade data will be pulled on the next cycle.\n\n⚠️ <b>Remember:</b> Do NOT change your investor password again until the challenge ends.', { parse_mode: 'HTML' });
+        } else if (verifyResult.status === 'invalid_credentials') {
+          await ctx.reply('❌ <b>Connection failed</b> — the password you entered is incorrect.\n\nPlease enter the correct <b>Investor (Read-Only) Password:</b>', { parse_mode: 'HTML' });
+        } else {
+          // API error — save anyway and let next pull cycle verify
+          await db.query(
+            `UPDATE trading_registrations SET investor_password = $1, pull_status = 'pending_verify', pull_error = NULL WHERE id = $2`,
+            [newPassword, session.data.registration_id]
+          );
+          userSessions.delete(telegramId);
+          await ctx.reply('⚠️ <b>Password saved</b> but we couldn\'t verify the connection right now.\n\nWe\'ll try again on the next pull cycle. If there\'s still an issue, we\'ll contact you.', { parse_mode: 'HTML' });
         }
         break;
       }
 
-      // ── Resubmission steps ──
+      // Resubmission steps
       case 'tc_resubmit_account': {
         const acctNum = text.trim();
-        if (!/^\d+$/.test(acctNum)) {
-          await ctx.reply('❌ Only numbers are accepted. Please enter your MT5 account number:');
-          return;
-        }
+        if (!/^\d+$/.test(acctNum)) { await ctx.reply('❌ Only numbers accepted. Enter your MT5 account number:'); return; }
         session.data.new_account_number = acctNum;
         session.step = 'tc_resubmit_server';
         await ctx.reply('🖥️ Enter your <b>MT5 server name:</b>', { parse_mode: 'HTML' });
@@ -903,11 +775,7 @@ export class TradingRegistrationHandler {
 
       case 'tc_resubmit_balance': {
         const balance = parseFloat(text.trim());
-        if (isNaN(balance) || balance <= 0) {
-          await ctx.reply('❌ Please enter a valid number.');
-          return;
-        }
-
+        if (isNaN(balance) || balance <= 0) { await ctx.reply('❌ Please enter a valid number.'); return; }
         try {
           const { evaluationService } = require('../services/evaluationService');
           await evaluationService.updateSubmissionResubmit(session.data.submission_id, {
@@ -917,42 +785,9 @@ export class TradingRegistrationHandler {
             new_account_number: session.data.new_account_number,
             mt5_server: session.data.mt5_server,
           });
-
-          const accountChanged = session.data.original_account_number !== session.data.new_account_number;
-
-          await ctx.reply(
-            '✅ <b>Account details updated!</b>\n\n' +
-            '🏦 Account: <b>' + session.data.new_account_number + '</b>\n' +
-            '🖥️ Server: <b>' + session.data.mt5_server + '</b>\n' +
-            '💰 Balance: <b>$' + balance.toFixed(2) + '</b>\n\n' +
-            '<i>Thank you for resubmitting. Your account will be re-evaluated.</i>',
-            { parse_mode: 'HTML' }
-          );
-
-          // Notify admin
-          const { config } = require('../config');
-          let adminMsg = '🔄 <b>Resubmission received</b>\n\n' +
-            '👤 @' + (ctx.from!.username || 'unknown') + ' (TG: ' + telegramId + ')\n' +
-            '🏦 Account: ' + session.data.new_account_number + '\n' +
-            '🖥️ Server: ' + session.data.mt5_server + '\n' +
-            '💰 Balance: $' + balance.toFixed(2) + '\n';
-
-          if (accountChanged) {
-            adminMsg += '\n⚠️ <b>ACCOUNT NUMBER CHANGED!</b>\n' +
-              '   Previous: ' + session.data.original_account_number + '\n' +
-              '   New: ' + session.data.new_account_number + '\n';
-          }
-
-          try {
-            await (ctx as any).telegram.sendMessage(config.adminUserId, adminMsg, { parse_mode: 'HTML' });
-          } catch (e) {
-            console.error('Error notifying admin of resubmission:', e);
-          }
-        } catch (error) {
-          console.error('Error saving resubmission:', error);
-          await ctx.reply('❌ Error saving your details. Please try again.');
-        }
-
+          await ctx.reply('✅ <b>Account details updated!</b>\n\n🏦 Account: <b>' + session.data.new_account_number + '</b>\n🖥️ Server: <b>' + session.data.mt5_server + '</b>\n💰 Balance: <b>$' + balance.toFixed(2) + '</b>\n\n<i>Your account will be re-evaluated.</i>', { parse_mode: 'HTML' });
+          try { await ctx.telegram.sendMessage(config.adminUserId, '🔄 <b>Resubmission received</b>\n\n👤 @' + (ctx.from!.username || 'unknown') + '\n🏦 Account: ' + session.data.new_account_number + '\n🖥️ Server: ' + session.data.mt5_server + '\n💰 Balance: $' + balance.toFixed(2), { parse_mode: 'HTML' }); } catch (e) {}
+        } catch (error) { console.error('Error saving resubmission:', error); await ctx.reply('❌ Error saving your details. Please try again.'); }
         userSessions.delete(telegramId);
         break;
       }
@@ -974,16 +809,113 @@ export class TradingRegistrationHandler {
     if (session.step === 'tc_submit_screenshot') {
       session.data.screenshot_file_id = fileId;
       session.step = 'tc_submit_password';
-
       let guideText = '';
       if (config.investorPasswordGuideLink) {
-        guideText = `\n\n📋 Don't know how to get it?\n<a href="${config.investorPasswordGuideLink}">How to Get Investor Password</a>`;
+        guideText = `\n\n📋 <a href="${config.investorPasswordGuideLink}">How to Get Investor Password</a>`;
       }
+      await ctx.reply(`🔑 Enter your Investor (Read-Only) password:\nThis allows view-only access to your trading account.${guideText}`, { parse_mode: 'HTML', link_preview_options: { is_disabled: true } });
+    }
+  }
 
-      await ctx.reply(
-        `🔑 Enter your Investor (Read-Only) password:\nThis allows view-only access to your trading account.${guideText}`,
-        { parse_mode: 'HTML', link_preview_options: { is_disabled: true } }
-      );
+  // ==================== SERVER BUTTONS ====================
+
+  private async showServerButtons(ctx: Context, telegramId: number) {
+    const session = userSessions.get(telegramId);
+    if (!session) return;
+
+    const servers = session.data.account_type === 'demo' ? MT5_SERVERS.demo : MT5_SERVERS.real;
+    session.step = 'tc_select_server';
+
+    // Build buttons in rows of 2
+    const buttons: any[][] = [];
+    for (let i = 0; i < servers.length; i += 2) {
+      const row: any[] = [Markup.button.callback(servers[i].replace('Exness-', ''), `tc_server_${servers[i]}`)];
+      if (i + 1 < servers.length) {
+        row.push(Markup.button.callback(servers[i + 1].replace('Exness-', ''), `tc_server_${servers[i + 1]}`));
+      }
+      buttons.push(row);
+    }
+    // Add manual entry option
+    buttons.push([Markup.button.callback('✍️ Type Server Manually', 'tc_server_manual')]);
+
+    await ctx.reply(
+      `🖥️ Select your <b>MT5 Trading Server:</b>`,
+      { parse_mode: 'HTML', ...Markup.inlineKeyboard(buttons) }
+    );
+  }
+
+  // ==================== VPS VERIFICATION (NEW) ====================
+
+  private async verifyVpsConnection(ctx: Context, telegramId: number) {
+    const session = userSessions.get(telegramId);
+    if (!session) return;
+
+    const { account_number, mt5_server, investor_password, account_type } = session.data;
+
+    const result = await vpsService.verifyConnection(account_number, mt5_server, investor_password);
+
+    if (result.success) {
+      // Connection verified — proceed based on account type
+      if (account_type === 'real') {
+        session.step = 'tc_verifying_real_acct';
+        await ctx.reply('✅ <b>MT5 connection verified!</b>\n\n⏳ Verifying account allocation...', { parse_mode: 'HTML' });
+        await this.verifyRealAccount(ctx, telegramId);
+      } else {
+        // Demo — complete registration
+        await ctx.reply('✅ <b>MT5 connection verified!</b>', { parse_mode: 'HTML' });
+        await this.completeRegistration(ctx, telegramId);
+      }
+      return;
+    }
+
+    // Handle failures
+    switch (result.status) {
+      case 'invalid_credentials':
+        session.step = 'tc_enter_investor_password';
+        await ctx.reply(
+          '❌ <b>Connection failed — Invalid credentials</b>\n\n' +
+          'The investor password or account number/server combination is incorrect.\n\n' +
+          'Please double-check:\n' +
+          `• Account: <code>${account_number}</code>\n` +
+          `• Server: <code>${mt5_server}</code>\n\n` +
+          '🔑 Enter your <b>Investor (Read-Only) Password</b> again:',
+          { parse_mode: 'HTML' }
+        );
+        break;
+
+      case 'server_not_found':
+        await ctx.reply(
+          '❌ <b>Server not found</b>\n\n' +
+          `The server "<code>${mt5_server}</code>" could not be reached.\n\n` +
+          'Please select the correct server:',
+          { parse_mode: 'HTML' }
+        );
+        await this.showServerButtons(ctx, telegramId);
+        break;
+
+      case 'timeout':
+        // Allow retry or skip
+        session.step = 'tc_enter_investor_password';
+        await ctx.reply(
+          '⚠️ <b>Connection timed out</b>\n\n' +
+          'The MT5 server took too long to respond. This can happen during high traffic.\n\n' +
+          'Please try entering your investor password again:',
+          { parse_mode: 'HTML' }
+        );
+        break;
+
+      case 'api_error':
+      default:
+        // VPS API is down — proceed without verification (graceful degradation)
+        console.log('VPS API error during registration, proceeding without verification:', result.message);
+        if (account_type === 'real') {
+          session.step = 'tc_verifying_real_acct';
+          await ctx.reply('⏳ <b>Verifying account allocation...</b>', { parse_mode: 'HTML' });
+          await this.verifyRealAccount(ctx, telegramId);
+        } else {
+          await this.completeRegistration(ctx, telegramId);
+        }
+        break;
     }
   }
 
@@ -1004,7 +936,8 @@ export class TradingRegistrationHandler {
         session.step = 'tc_enter_account_number';
         const acctType = session.data.account_type === 'demo' ? 'Demo' : 'Real';
         await ctx.reply(
-          `✅ <b>Email verified!</b>\n\nNow send your <b>MT5 ${acctType} Account Number:</b>\n⚠️ It must be an MT5 trading account.\n<i>Check if your account is MT5. If it is not, please create an MT5 trading account within your Exness. Other account types are not allowed.</i>`, { parse_mode: 'HTML' }
+          `✅ <b>Email verified!</b>\n\nNow send your <b>MT5 ${acctType} Account Number:</b>\n⚠️ Must be an MT5 trading account.\n<i>Only numeric account numbers accepted.</i>`,
+          { parse_mode: 'HTML' }
         );
         return;
       }
@@ -1014,48 +947,25 @@ export class TradingRegistrationHandler {
         await tradingChallengeService.updateDailyStat(session.data.challenge_id, 'allocation_failures');
         await tradingChallengeService.logFailedAttempt(session.data.challenge_id, telegramId, ctx.from!.username || null, session.data.email, 'allocation');
         const challengeId = session.data.challenge_id;
-        const contactAdmin = session.data.allocation_fail_count >= 2
-          ? `\n\n<b>If you are sure this is a mistake, contact @birrFXadmin with a screenshot of this message.</b>`
-          : '';
+        const contactAdmin = session.data.allocation_fail_count >= 2 ? `\n\n<b>Contact @birrFXadmin with a screenshot if you believe this is a mistake.</b>` : '';
         await ctx.reply(
           `⚠️ Your Exness account is not registered under BirrForex.\n\n` +
-          `First, please make sure you spelled your email correctly.\nIf it was wrong, you can submit it again below.\n\n` +
-          `If your email was correct, you have two options:\n\n` +
-          `✨ <b>Option 1: Create a New Exness Account</b>\n` +
-          `➡️ Open a new account using our partner link below\n` +
-          `➡️ You can use a different email\n` +
-          `➡️ Same phone number and documents can be reused\n` +
-          `🔗 ${config.exnessPartnerSignupLink}\n\n` +
-          `🔄 <b>Option 2: Change Your Partner to BirrForex</b>\n` +
-          `➡️ Log in to your Exness account\n` +
-          `➡️ Open Live Chat → Type "Change Partner"\n` +
-          `➡️ Paste this link in the form:\n${config.exnessPartnerChangeLink}\n` +
-          `➡️ Submit and verify with SMS code\n` +
-          `➡️ Wait for confirmation (usually within 24 hours)\n` +
-          (config.partnerChangeGuideLink ? `\n📋 Full guide: <a href="${config.partnerChangeGuideLink}">How to Change Partner</a>\n` : '') +
-          `\nAfter completing one of the options, try again:` + contactAdmin,
-          { parse_mode: 'HTML', link_preview_options: { is_disabled: true },
-            ...Markup.inlineKeyboard([[Markup.button.callback('📧 Submit Email Again', `tc_retry_email_${challengeId}`)]]) }
+          `First, make sure you spelled your email correctly.\n\n` +
+          `✨ <b>Option 1: Create a New Exness Account</b>\n🔗 ${config.exnessPartnerSignupLink}\n\n` +
+          `🔄 <b>Option 2: Change Your Partner to BirrForex</b>\n➡️ Log in → Live Chat → "Change Partner"\n➡️ Paste: ${config.exnessPartnerChangeLink}\n` +
+          (config.partnerChangeGuideLink ? `📋 <a href="${config.partnerChangeGuideLink}">Full guide</a>\n` : '') +
+          `\nAfter completing, try again:` + contactAdmin,
+          { parse_mode: 'HTML', link_preview_options: { is_disabled: true }, ...Markup.inlineKeyboard([[Markup.button.callback('📧 Submit Email Again', `tc_retry_email_${challengeId}`)]]) }
         );
         return;
       }
 
       if (result.status === 'kyc_failed') {
-        session.data.kyc_fail_count = (session.data.kyc_fail_count || 0) + 1;
         await tradingChallengeService.updateDailyStat(session.data.challenge_id, 'kyc_failures');
         await tradingChallengeService.logFailedAttempt(session.data.challenge_id, telegramId, ctx.from!.username || null, session.data.email, 'kyc');
         const challengeId = session.data.challenge_id;
-        const contactAdmin = session.data.kyc_fail_count >= 2
-          ? `\n\n<b>If you are sure your account is verified, contact @birrFXadmin with a screenshot of this message.</b>`
-          : '';
         await ctx.reply(
-          `❌ Your Exness account is not fully verified.\n\n` +
-          `Please complete your KYC verification first:\n` +
-          `➡️ Log in to your Exness Personal Area\n` +
-          `➡️ Go to Settings → Verification\n` +
-          `➡️ Upload your ID and proof of address\n` +
-          `➡️ Wait for approval (usually a few minutes)\n\n` +
-          `Once verified, try again:` + contactAdmin,
+          `❌ Your Exness account is not fully verified.\n\nPlease complete KYC:\n➡️ Exness → Settings → Verification\n\nOnce verified, try again:`,
           { parse_mode: 'HTML', ...Markup.inlineKeyboard([[Markup.button.callback('📧 Submit Email Again', `tc_retry_email_${challengeId}`)]]) }
         );
         return;
@@ -1064,19 +974,14 @@ export class TradingRegistrationHandler {
       if (result.status === 'balance_failed') {
         userSessions.delete(telegramId);
         const challengeId = session.data.challenge_id;
-        await ctx.reply(
-          `❌ No positive equity found on your account.\n\n` +
-          `For Real Account challenges, you need to have funds deposited in your Exness account.\n\n` +
-          `Please deposit funds and try again:`,
-          Markup.inlineKeyboard([[Markup.button.callback('📧 Submit Email Again', `tc_retry_email_${challengeId}`)]])
-        );
+        await ctx.reply('❌ No positive equity found. Please deposit funds and try again:',
+          Markup.inlineKeyboard([[Markup.button.callback('📧 Submit Email Again', `tc_retry_email_${challengeId}`)]]));
         return;
       }
 
       // API error — retry
       if (attempt < maxRetries) {
-        const msg = attempt === 1 ? '⚠️ System busy. Trying again in 3 seconds...' : '⚠️ System busy. Trying one more time in 3 seconds...';
-        await ctx.reply(msg);
+        await ctx.reply(attempt === 1 ? '⚠️ System busy. Trying again in 3 seconds...' : '⚠️ Trying one more time...');
         await new Promise(r => setTimeout(r, retryDelay));
       }
     }
@@ -1084,20 +989,12 @@ export class TradingRegistrationHandler {
     // All retries failed
     const challengeId = session.data.challenge_id;
     session.data.retry_count = (session.data.retry_count || 0) + 1;
-
     if (session.data.retry_count >= 2) {
-      // Fallback to manual verification
       session.step = 'tc_manual_account';
-      await ctx.reply(
-        `⚠️ Automatic verification is temporarily unavailable.\nWe'll verify your account manually.\n\n` +
-        `📧 Email: ${session.data.email}\n📊 Type: ${session.data.account_type === 'demo' ? 'Demo' : 'Real'}\n\n` +
-        `Please send your <b>MT5 account number:</b>\n⚠️ <i>It must be an MT5 trading account.</i>`
-      );
+      await ctx.reply(`⚠️ Automatic verification unavailable. We'll verify manually.\n\n📧 Email: ${session.data.email}\n\nPlease send your <b>MT5 account number:</b>`, { parse_mode: 'HTML' });
     } else {
-      await ctx.reply(
-        `⚠️ System is currently busy.\nPlease try again after 30 minutes by tapping "Join Challenge" on the channel post.`,
-        Markup.inlineKeyboard([[Markup.button.callback('🔄 Try Again', `tc_try_again_${challengeId}`)]])
-      );
+      await ctx.reply('⚠️ System busy. Please try again after 30 minutes.',
+        Markup.inlineKeyboard([[Markup.button.callback('🔄 Try Again', `tc_try_again_${challengeId}`)]]));
     }
   }
 
@@ -1109,18 +1006,11 @@ export class TradingRegistrationHandler {
     const challengeId = session.data.challenge_id;
 
     if (result.status === 'allocated_mt5') {
-      // Check if this account belongs to the same client as the email
-      if (result.data?.client_uid && session.data.client_uid) {
-        if (result.data.client_uid !== session.data.client_uid) {
-          session.step = 'tc_enter_account_number';
-          await ctx.reply(
-            `⚠️ <b>This account does not belong to the email you registered with.</b>\n\n` +
-            `Please make sure you are submitting a real account that is under the same Exness profile as your registered email.\n\n` +
-            `Send your correct MT5 Real Account Number:`,
-            { parse_mode: 'HTML', ...Markup.inlineKeyboard([[Markup.button.callback('📝 Submit New Real Account', `tc_new_real_acct_${challengeId}`)]]) }
-          );
-          return;
-        }
+      if (result.data?.client_uid && session.data.client_uid && result.data.client_uid !== session.data.client_uid) {
+        session.step = 'tc_enter_account_number';
+        await ctx.reply('⚠️ <b>This account does not belong to the email you registered with.</b>\n\nSend your correct MT5 Real Account Number:',
+          { parse_mode: 'HTML', ...Markup.inlineKeyboard([[Markup.button.callback('📝 Submit New Real Account', `tc_new_real_acct_${challengeId}`)]]) });
+        return;
       }
       await this.completeRegistration(ctx, telegramId);
       return;
@@ -1128,12 +1018,8 @@ export class TradingRegistrationHandler {
 
     if (result.status === 'allocated_not_mt5') {
       session.step = 'tc_enter_account_number';
-      await ctx.reply(
-        `⚠️ <b>This account is not an MT5 trading account.</b>\n\n` +
-        `Only MT5 accounts are allowed for this challenge.\n` +
-        `Please create a new MT5 Real trading account within your Exness and transfer your funds there.`,
-        { parse_mode: 'HTML', ...Markup.inlineKeyboard([[Markup.button.callback('📝 Submit New Real Account', `tc_new_real_acct_${challengeId}`)]]) }
-      );
+      await ctx.reply('⚠️ <b>This account is not MT5.</b> Only MT5 accounts allowed.\nCreate a new MT5 Real account and try again.',
+        { parse_mode: 'HTML', ...Markup.inlineKeyboard([[Markup.button.callback('📝 Submit New Real Account', `tc_new_real_acct_${challengeId}`)]]) });
       return;
     }
 
@@ -1142,38 +1028,20 @@ export class TradingRegistrationHandler {
       session.data.real_acct_retry = (session.data.real_acct_retry || 0) + 1;
       await tradingChallengeService.updateDailyStat(session.data.challenge_id, 'real_acct_failures');
       await tradingChallengeService.logFailedAttempt(session.data.challenge_id, telegramId, ctx.from!.username || null, session.data.email, 'real_acct');
-
-      if (session.data.real_acct_retry >= 2) {
-        await ctx.reply(
-          `⚠️ <b>This account is not yet under BirrForex.</b>\n\n` +
-          `It may take a few minutes for a newly created account to be linked.\n` +
-          `Please come back after 15 minutes and try again.\n\n` +
-          `<i>Make sure the real account you submitted is under the email you used for registration.</i>`,
-          { parse_mode: 'HTML', ...Markup.inlineKeyboard([[Markup.button.callback('📝 Submit New Real Account', `tc_new_real_acct_${challengeId}`)]]) }
-        );
-      } else {
-        await ctx.reply(
-          `⚠️ <b>This real account is not under BirrForex.</b>\n\n` +
-          `Please create a new Real Account within your Exness\n` +
-          `<i>(not a new Exness account — a new Real trading account within your existing Exness)</i>\n` +
-          `and transfer your funds there.\n\n` +
-          `<i>Make sure the new real account is under the email you used for registration.</i>`,
-          { parse_mode: 'HTML', ...Markup.inlineKeyboard([[Markup.button.callback('📝 Submit New Real Account', `tc_new_real_acct_${challengeId}`)]]) }
-        );
-      }
+      const msg = session.data.real_acct_retry >= 2
+        ? '⚠️ <b>Account not yet under BirrForex.</b>\nIt may take a few minutes. Come back after 15 minutes.'
+        : '⚠️ <b>This real account is not under BirrForex.</b>\nCreate a new Real Account within your Exness and transfer funds there.';
+      await ctx.reply(msg, { parse_mode: 'HTML', ...Markup.inlineKeyboard([[Markup.button.callback('📝 Submit New Real Account', `tc_new_real_acct_${challengeId}`)]]) });
       return;
     }
 
-    // API error
     await ctx.reply('⚠️ Could not verify account. Please try again later.');
   }
 
   private async verifyRealAccountChange(ctx: Context, telegramId: number) {
     const session = userSessions.get(telegramId);
     if (!session) return;
-
     const result = await exnessService.verifyRealAccount(session.data.new_account_number);
-
     if (result.status === 'allocated_mt5') {
       await tradingChallengeService.updateAccountNumber(session.data.registration_id, session.data.new_account_number, session.data.mt5_server);
       await tradingChallengeService.updateDailyStat(session.data.challenge_id, 'account_changes');
@@ -1181,19 +1049,16 @@ export class TradingRegistrationHandler {
       await ctx.reply(`✅ Account number updated!\n\n🏦 <b>New Account:</b> ${session.data.new_account_number}\n🖥️ <b>Server:</b> ${session.data.mt5_server}`, { parse_mode: 'HTML' });
       return;
     }
-
     if (result.status === 'allocated_not_mt5') {
       session.step = 'tc_change_acct_number';
-      await ctx.reply('⚠️ <b>This account is not an MT5 trading account.</b>\nPlease create a new MT5 Real trading account and try again.\n\nSend your new <b>MT5 Real Account Number:</b>', { parse_mode: 'HTML' });
+      await ctx.reply('⚠️ <b>Not an MT5 account.</b> Create a new MT5 Real account.\n\nSend your new <b>MT5 Real Account Number:</b>', { parse_mode: 'HTML' });
       return;
     }
-
     if (result.status === 'not_allocated') {
       session.step = 'tc_change_acct_number';
-      await ctx.reply('⚠️ <b>This account is not yet under BirrForex.</b>\nPlease come back after 15 minutes and try again.\n\nSend your new <b>MT5 Real Account Number:</b>', { parse_mode: 'HTML' });
+      await ctx.reply('⚠️ <b>Account not yet under BirrForex.</b> Come back after 15 minutes.\n\nSend your new <b>MT5 Real Account Number:</b>', { parse_mode: 'HTML' });
       return;
     }
-
     await ctx.reply('⚠️ Could not verify account. Please try again later.');
     userSessions.delete(telegramId);
   }
@@ -1206,16 +1071,13 @@ export class TradingRegistrationHandler {
 
     try {
       const challenge = await tradingChallengeService.getChallengeById(session.data.challenge_id);
-      if (!challenge) {
-        await ctx.reply('❌ Challenge not found.');
-        userSessions.delete(telegramId);
-        return;
-      }
+      if (!challenge) { await ctx.reply('❌ Challenge not found.'); userSessions.delete(telegramId); return; }
 
       const reg = await tradingChallengeService.registerUser({
         challenge_id: session.data.challenge_id,
         telegram_id: telegramId,
         username: ctx.from!.username || null,
+        nickname: session.data.nickname || null,
         account_type: session.data.account_type,
         email: session.data.email,
         account_number: session.data.account_number,
@@ -1223,24 +1085,24 @@ export class TradingRegistrationHandler {
         client_uid: session.data.client_uid || null,
       });
 
+      // Save investor password to the registration (wp_schema column)
+      if (session.data.investor_password) {
+        await db.query('UPDATE trading_registrations SET investor_password = $1, connection_verified = true, connection_verified_at = NOW() WHERE id = $2',
+          [session.data.investor_password, reg.id]);
+      }
+
       // Remove from failed attempts if they were there
       await tradingChallengeService.markConverted(session.data.challenge_id, telegramId);
 
-      // Track daily stat
+      // Track daily stats
       const statField = session.data.account_type === 'demo' ? 'demo_registrations' : 'real_registrations';
       await tradingChallengeService.updateDailyStat(session.data.challenge_id, 'new_registrations');
       await tradingChallengeService.updateDailyStat(session.data.challenge_id, statField);
 
-      // Track recoveries (user had previous failures but now succeeded)
-      if (session.data.allocation_fail_count > 0) {
-        await tradingChallengeService.updateDailyStat(session.data.challenge_id, 'allocation_recoveries');
-      }
-      if (session.data.kyc_fail_count > 0) {
-        await tradingChallengeService.updateDailyStat(session.data.challenge_id, 'kyc_recoveries');
-      }
-      if (session.data.real_acct_retry > 0) {
-        await tradingChallengeService.updateDailyStat(session.data.challenge_id, 'real_acct_recoveries');
-      }
+      // Track recoveries
+      if (session.data.allocation_fail_count > 0) await tradingChallengeService.updateDailyStat(session.data.challenge_id, 'allocation_recoveries');
+      if (session.data.kyc_fail_count > 0) await tradingChallengeService.updateDailyStat(session.data.challenge_id, 'kyc_recoveries');
+      if (session.data.real_acct_retry > 0) await tradingChallengeService.updateDailyStat(session.data.challenge_id, 'real_acct_recoveries');
 
       userSessions.delete(telegramId);
 
@@ -1251,7 +1113,6 @@ export class TradingRegistrationHandler {
       let buttons: any[][] = [
         [Markup.button.callback('🔄 Change Account Number', `tc_change_acct_${challenge.id}`)],
       ];
-
       if (challenge.type === 'hybrid') {
         if (session.data.account_type === 'demo') {
           switchText = '\n💡 Want to compete in the <b>Real Account</b> category instead? Use the switch button below.\n';
@@ -1268,20 +1129,30 @@ export class TradingRegistrationHandler {
       await ctx.reply(
         `✅ <b>Registration Complete!</b>\n\n` +
         `📋 <b>Your Registration:</b>\n` +
+        `🏷️ <b>Nickname:</b> ${session.data.nickname || 'N/A'}\n` +
         `📧 <b>Email:</b> ${session.data.email}\n` +
         `🏦 <b>${acctLabel} Account:</b> ${session.data.account_number}\n` +
         `🖥️ <b>Server:</b> ${session.data.mt5_server || 'N/A'}\n` +
-        `📊 <b>Type:</b> ${acctLabel}\n\n` +
+        `📊 <b>Type:</b> ${acctLabel}\n` +
+        `🔑 <b>Investor Password:</b> ✅ Saved\n\n` +
         `⏳ <b>Challenge starts:</b> ${startStr}\n\n` +
-        `⚠️ <i>Please read the rules and understand them well before starting the challenge!</i>\n\n` +
-        `You can change your account number before the challenge starts if you need to.\n` +
-        switchText +
-        linksText,
+        `⚠️ <b>IMPORTANT:</b> Do NOT change your investor password until the challenge ends and winners are announced. We pull your trade data automatically — if we can't access your account, you risk disqualification.\n\n` +
+        `⚠️ <i>Please read the rules before starting the challenge!</i>\n\n` +
+        `You can change your account number before the challenge starts.\n` +
+        switchText + linksText,
         { parse_mode: 'HTML', link_preview_options: { is_disabled: true }, ...Markup.inlineKeyboard(buttons) }
       );
     } catch (error: any) {
       if (error.code === '23505') {
-        // Unique constraint violation
+        // Check if it's the nickname constraint
+        if (error.constraint && error.constraint.includes('nickname')) {
+          const session2 = userSessions.get(telegramId);
+          if (session2) {
+            session2.step = 'tc_enter_nickname';
+            await ctx.reply(`❌ <b>Nickname "${session2.data.nickname}" was just taken!</b> Choose a different one:`, { parse_mode: 'HTML' });
+            return;
+          }
+        }
         await ctx.reply('⚠️ You are already registered for this challenge.');
       } else {
         console.error('Registration error:', error);
@@ -1289,6 +1160,103 @@ export class TradingRegistrationHandler {
       }
       userSessions.delete(telegramId);
     }
+  }
+
+  // ==================== SAVE SUBMISSION ====================
+
+  private async saveSubmission(ctx: Context, telegramId: number) {
+    const session = userSessions.get(telegramId);
+    if (!session) return;
+
+    try {
+      let screenshotLink: string | null = null;
+      let screenshotMessageId: number | null = null;
+      const isOverride = session.data.is_override === true;
+
+      if (isOverride && config.submissionChannelId) {
+        try {
+          const oldSub = await tradingChallengeService.getSubmissionByRegistration(session.data.registration_id);
+          if (oldSub && oldSub.screenshot_message_id) {
+            await ctx.telegram.deleteMessage(config.submissionChannelId, oldSub.screenshot_message_id);
+          }
+        } catch (e) {}
+      }
+
+      if (session.data.screenshot_file_id && config.submissionChannelId) {
+        try {
+          const acctLabel = session.data.account_type === 'demo' ? 'Demo' : 'Real';
+          const overrideTag = isOverride ? ' (UPDATED)' : '';
+          const caption = `<b>📋 Submission${overrideTag}</b>\n\n👤 @${ctx.from!.username || 'unknown'}\n📧 ${session.data.email}\n🏦 ${acctLabel}: ${session.data.account_number}\n🖥️ Server: ${session.data.mt5_server || 'N/A'}\n💰 Balance: $${session.data.final_balance.toFixed(2)}\n🔑 Password: <code>${session.data.investor_password}</code>`;
+          const sent = await ctx.telegram.sendPhoto(config.submissionChannelId, session.data.screenshot_file_id, { caption, parse_mode: 'HTML' });
+          const channelIdStr = String(config.submissionChannelId).replace('-100', '');
+          screenshotLink = `https://t.me/c/${channelIdStr}/${sent.message_id}`;
+          screenshotMessageId = sent.message_id;
+        } catch (e) { console.error('Error posting screenshot:', e); }
+      }
+
+      if (isOverride) {
+        await tradingChallengeService.updateSubmission(session.data.registration_id, {
+          final_balance: session.data.final_balance,
+          balance_screenshot_file_id: session.data.screenshot_file_id || null,
+          screenshot_link: screenshotLink,
+          screenshot_message_id: screenshotMessageId,
+          investor_password: session.data.investor_password,
+        });
+      } else {
+        await tradingChallengeService.createSubmission({
+          registration_id: session.data.registration_id,
+          challenge_id: session.data.challenge_id,
+          final_balance: session.data.final_balance,
+          balance_screenshot_file_id: session.data.screenshot_file_id || null,
+          screenshot_link: screenshotLink,
+          screenshot_message_id: screenshotMessageId,
+          investor_password: session.data.investor_password,
+        });
+      }
+
+      const acctLabel = session.data.account_type === 'demo' ? 'Demo' : 'Real';
+      userSessions.delete(telegramId);
+      await ctx.reply(
+        `✅ <b>Results Submitted Successfully!</b>\n\n` +
+        `📋 <b>Your Submission:</b>\n📧 <b>Email:</b> ${session.data.email}\n🏦 <b>Account:</b> ${session.data.account_number}\n🖥️ <b>Server:</b> ${session.data.mt5_server || 'N/A'}\n📊 <b>Type:</b> ${acctLabel}\n💰 <b>Final Balance:</b> $${session.data.final_balance.toFixed(2)}\n📸 <b>Screenshot:</b> ✅\n🔑 <b>Password:</b> ✅\n\n⏳ Our team will review and announce results.\n<i>Thank you for participating!</i> 🎉`,
+        { parse_mode: 'HTML' }
+      );
+    } catch (error: any) {
+      if (error.code === '23505') { await ctx.reply('⚠️ You have already submitted results. Use Submit Results again to override.'); }
+      else { console.error('Submission error:', error); await ctx.reply('❌ Error saving submission. Please try again.'); }
+      userSessions.delete(telegramId);
+    }
+  }
+
+  // ==================== PASSWORD UPDATE (from VPS pull failure) ====================
+
+  async startPasswordUpdate(ctx: Context, registrationId: number) {
+    const telegramId = ctx.from!.id;
+
+    // Verify this registration belongs to the user
+    const result = await db.query(
+      'SELECT * FROM trading_registrations WHERE id = $1 AND telegram_id = $2',
+      [registrationId, telegramId]
+    );
+
+    if (!result.rows[0]) {
+      await ctx.reply('❌ This link is not for your account.');
+      return;
+    }
+
+    const reg = result.rows[0];
+
+    userSessions.set(telegramId, {
+      step: 'tc_update_password',
+      data: { registration_id: registrationId, account_number: reg.account_number, mt5_server: reg.mt5_server },
+    });
+
+    await ctx.reply(
+      `🔑 <b>Update Investor Password</b>\n\n` +
+      `Account: <b>${reg.account_number}</b>\nServer: <b>${reg.mt5_server}</b>\n\n` +
+      `Please send your new <b>Investor (Read-Only) Password:</b>`,
+      { parse_mode: 'HTML' }
+    );
   }
 
   // ==================== MANUAL REVIEW ====================
@@ -1299,11 +1267,11 @@ export class TradingRegistrationHandler {
 
     await tradingChallengeService.updateDailyStat(session.data.challenge_id, 'manual_reviews');
 
-    // Store pending review data for approve/reject callbacks
     const reviewData = {
       challenge_id: session.data.challenge_id,
       telegram_id: telegramId,
       username: ctx.from!.username || null,
+      nickname: session.data.nickname || null,
       account_type: session.data.account_type,
       email: session.data.email,
       account_number: session.data.account_number,
@@ -1311,83 +1279,21 @@ export class TradingRegistrationHandler {
       client_uid: session.data.client_uid || null,
     };
     pendingManualReviews.set(telegramId, reviewData);
-
     userSessions.delete(telegramId);
 
     await ctx.reply('✅ <b>Submission received!</b>\n\nYour registration is pending manual review.\n<i>You\'ll be notified once approved.</i>', { parse_mode: 'HTML' });
 
-    // Send to admin
     const acctLabel = session.data.account_type === 'demo' ? 'Demo' : 'Real';
-    const adminText = `<b>📋 MANUAL REVIEW REQUIRED</b>\n\n` +
-      `👤 <b>User:</b> @${ctx.from!.username || 'unknown'} (ID: <code>${telegramId}</code>)\n` +
-      `📧 <b>Email:</b> ${session.data.email}\n` +
-      `🏦 <b>Account:</b> ${session.data.account_number}\n` +
-      `🖥️ <b>Server:</b> ${session.data.mt5_server || 'N/A'}\n` +
-      `📊 <b>Type:</b> ${acctLabel}\n\n` +
-      `⚠️ Automatic verification failed — manual review needed`;
-
-    const keyboard = Markup.inlineKeyboard([
-      [Markup.button.callback('✅ Approve', `tc_mr_approve_${telegramId}`)],
-      [Markup.button.callback('❌ Reject', `tc_mr_reject_${telegramId}`)],
-    ]);
+    const adminText = `<b>📋 MANUAL REVIEW REQUIRED</b>\n\n👤 @${ctx.from!.username || 'unknown'} (ID: <code>${telegramId}</code>)\n🏷️ Nickname: ${session.data.nickname || 'N/A'}\n📧 ${session.data.email}\n🏦 ${session.data.account_number}\n🖥️ ${session.data.mt5_server || 'N/A'}\n📊 ${acctLabel}\n\n⚠️ Auto-verification failed`;
+    const keyboard = Markup.inlineKeyboard([[Markup.button.callback('✅ Approve', `tc_mr_approve_${telegramId}`)], [Markup.button.callback('❌ Reject', `tc_mr_reject_${telegramId}`)]]);
 
     try {
       if (session.data.screenshot_file_id) {
-        await ctx.telegram.sendPhoto(config.adminUserId, session.data.screenshot_file_id, {
-          caption: adminText,
-          parse_mode: 'HTML',
-          ...keyboard,
-        });
+        await ctx.telegram.sendPhoto(config.adminUserId, session.data.screenshot_file_id, { caption: adminText, parse_mode: 'HTML', ...keyboard });
       } else {
         await ctx.telegram.sendMessage(config.adminUserId, adminText, { parse_mode: 'HTML', ...keyboard });
       }
-    } catch (e) {
-      console.error('Error sending manual review to admin:', e);
-    }
-  }
-
-  // ── Resubmission flow (user resubmits account details) ──
-
-  async startResubmission(ctx: Context, submissionId: number): Promise<void> {
-    try {
-      const telegramId = ctx.from!.id;
-
-      // Get the submission and verify it belongs to this user
-      const sub = await db.query(
-        'SELECT s.*, r.account_number, r.telegram_id, r.username FROM trading_submissions s JOIN trading_registrations r ON s.registration_id = r.id WHERE s.id = $1',
-        [submissionId]
-      );
-
-      if (!sub.rows[0]) {
-        await ctx.reply('❌ Submission not found.');
-        return;
-      }
-
-      const submission = sub.rows[0];
-      if (String(submission.telegram_id) !== String(telegramId)) {
-        await ctx.reply('❌ This resubmission link is not for your account.');
-        return;
-      }
-
-      userSessions.set(telegramId, {
-        step: 'tc_resubmit_account',
-        data: {
-          submission_id: submissionId,
-          registration_id: submission.registration_id,
-          original_account_number: submission.account_number,
-          challenge_id: submission.challenge_id,
-        },
-      });
-
-      await ctx.reply(
-        '🔄 <b>Account Resubmission</b>\n\n' +
-        'Please enter your <b>MT5 account number:</b>',
-        { parse_mode: 'HTML' }
-      );
-    } catch (error) {
-      console.error('Error in startResubmission:', error);
-      await ctx.reply('❌ Error starting resubmission.');
-    }
+    } catch (e) { console.error('Error sending manual review to admin:', e); }
   }
 }
 
