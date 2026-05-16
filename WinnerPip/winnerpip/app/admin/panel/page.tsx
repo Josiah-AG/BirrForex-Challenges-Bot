@@ -43,17 +43,18 @@ export default function AdminDashboard() {
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
     const secretPath = process.env.NEXT_PUBLIC_ADMIN_PATH || "";
     try {
-      const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${selectedChallengeId}/overview`);
+      const res = await fetch(`${apiUrl}/api/admin/${secretPath}/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key: adminPass }),
+      });
       if (res.ok) {
-        const data = await res.json();
-        setOverviewData(data);
-        localStorage.setItem("wp_admin_path", secretPath);
         localStorage.setItem("wp_admin_key", adminPass);
         setIsAdmin(true);
       } else if (res.status === 403) {
         setLoginError("Access denied — IP not whitelisted");
       } else {
-        setLoginError("Invalid admin key or API error");
+        setLoginError("Invalid admin key");
       }
     } catch {
       setLoginError("Could not connect to API.");

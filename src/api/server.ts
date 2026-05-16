@@ -463,12 +463,10 @@ function verifyToken(token: string): { registrationId: number; telegramId: numbe
  */
 app.post(`/api/admin/${ADMIN_SECRET_PATH}/login`, adminIpCheck, adminAuthLimiter, async (req, res) => {
   const { key } = req.body;
-  if (key !== ADMIN_KEY) {
+  if (!key || key !== ADMIN_KEY) {
     return res.status(401).json({ error: 'Invalid admin key' });
   }
-  // Generate admin token (24h expiry)
-  const token = crypto.createHmac('sha256', TOKEN_SECRET).update(`admin:${Date.now()}`).digest('base64url');
-  return res.json({ success: true, token, expiresIn: '24h' });
+  return res.json({ success: true });
 });
 
 /**
