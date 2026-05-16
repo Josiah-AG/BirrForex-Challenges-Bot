@@ -64,6 +64,43 @@ export default function AdminDashboard() {
 
   useState(() => { if (typeof window !== "undefined" && localStorage.getItem("wp_admin_path")) setIsAdmin(true); });
 
+  // Fetch challenges list after login
+  const [challenges, setChallenges] = useState<any[]>([]);
+  useEffect(() => {
+    if (!isAdmin) return;
+    const fetchChallenges = async () => {
+      try {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
+        const res = await fetch(`${apiUrl}/api/challenges`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.challenges && data.challenges.length > 0) {
+            setChallenges(data.challenges);
+            setSelectedChallengeId(String(data.challenges[0].id));
+          }
+        }
+      } catch {}
+    };
+    fetchChallenges();
+  }, [isAdmin]);
+
+  // Fetch overview data when challenge changes
+  useEffect(() => {
+    if (!isAdmin || !selectedChallengeId) return;
+    const fetchOverview = async () => {
+      try {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
+        const secretPath = process.env.NEXT_PUBLIC_ADMIN_PATH || "";
+        const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${selectedChallengeId}/overview`);
+        if (res.ok) {
+          const data = await res.json();
+          setOverviewData(data);
+        }
+      } catch {}
+    };
+    fetchOverview();
+  }, [isAdmin, selectedChallengeId]);
+
   const handleSearch = () => {
     setSearchPerformed(true);
     const q = searchQuery.trim().toLowerCase();
@@ -90,16 +127,35 @@ export default function AdminDashboard() {
     }
   };
 
-  // ==================== PLACEHOLDER DATA ====================
-  const challenge = { id: selectedChallengeId, title: "Challenge 15 — Hybrid", status: "active", type: "hybrid", startDate: "May 5, 2026", endDate: "May 16, 2026", daysLeft: 7, startingBalance: 30, targetBalance: 60 };
+  // Challenge info from API
+  const selectedChallenge = challenges.find((c: any) => String(c.id) === selectedChallengeId);
+  const challenge = selectedChallenge ? {
+    id: selectedChallenge.id,
+    title: selectedChallenge.title,
+    status: selectedChallenge.status,
+    type: selectedChallenge.type,
+  } : { id: selectedChallengeId, title: "Loading...", status: "—", type: "—" };
 
+  // Use real data from API or fallback to zeros
+  const od = overviewData;
   const overview = {
-    totalParticipants: 2847, demoParticipants: 1923, realParticipants: 924,
-    totalTrades: 42580, avgTradesPerUser: 15, totalVolume: 851.6,
-    totalViolations: 312, violationRate: 0.73,
-    pullsToday: 4, pullsSuccess: 2835, pullsFailed: 12, passwordChanged: 3,
-    avgBalance: 41.20, medianBalance: 38.50, aboveTarget: 89, qualifiedCount: 89,
-    lastPullTime: "14:00 EAT", nextPullTime: "18:00 EAT",
+    totalParticipants: od?.participants?.total || 0,
+    demoParticipants: od?.participants?.demo || 0,
+    realParticipants: od?.participants?.real || 0,
+    totalTrades: od?.trades?.total || 0,
+    avgTradesPerUser: od?.participants?.total ? Math.round((od?.trades?.total || 0) / od.participants.total) : 0,
+    totalVolume: od?.trades?.totalVolume || 0,
+    totalViolations: od?.trades?.violations || 0,
+    violationRate: od?.trades?.total ? ((od?.trades?.violations || 0) / od.trades.total * 100).toFixed(1) : "0",
+    pullsToday: od?.pulls?.today || 0,
+    pullsSuccess: od?.pulls?.success || 0,
+    pullsFailed: od?.pulls?.failed || 0,
+    passwordChanged: od?.pulls?.passwordChanged || 0,
+    avgBalance: od?.balance?.average?.toFixed(2) || "0.00",
+    medianBalance: od?.balance?.median?.toFixed(2) || "0.00",
+    aboveTarget: od?.qualified || 0,
+    qualifiedCount: od?.qualified || 0,
+    lastPullTime: "—", nextPullTime: "—",
   };
 
   const topViolations = [
@@ -199,11 +255,18 @@ export default function AdminDashboard() {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <Image src="/winnerpip-icon.png" alt="WinnerPip" width={32} height={32} className="rounded-lg" />
-              <div><p className="text-sm font-bold text-white">{challenge.title}</p><p className="text-xs text-royal font-semibold">ADMIN PANEL</p></div>
+              <div>
+                <select value={selectedChallengeId} onChange={(e) => setSelectedChallengeId(e.target.value)} className="bg-transparent text-sm font-bold text-white border-none outline-none cursor-pointer">
+                  {challenges.length > 0 ? challenges.map(c => (
+                    <option key={c.id} value={String(c.id)} className="bg-[#0f1629] text-white">{c.title} ({c.status})</option>
+                  )) : <option value="5" className="bg-[#0f1629]">Challenge 15</option>}
+                </select>
+                <p className="text-xs text-royal font-semibold">ADMIN PANEL</p>
+              </div>
             </div>
             <div className="flex items-center gap-2">
-              <span className="px-3 py-1 rounded-full bg-profit/20 text-profit text-xs font-semibold border border-profit/30">● Live</span>
-              <span className="text-xs text-gray-500">{challenge.daysLeft}d left</span>
+              <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${challenge.status === "active" ? "bg-profit/20 text-profit border-profit/30" : "bg-white/10 text-gray-300 border-white/20"}`}>● {challenge.status}</span>
+              <span className="text-xs text-gray-500">{overview.totalParticipants} users</span>
             </div>
           </div>
         </div>
