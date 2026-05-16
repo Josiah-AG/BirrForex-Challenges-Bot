@@ -473,97 +473,10 @@ export default function AdminDashboard() {
         {/* ==================== SCREENING (Allocation/Partner Checks) ==================== */}
         {activeSection === "screening" && (
           <div className="space-y-6">
-            {/* Summary cards */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-              <StatCard icon={<Shield size={16} />} label="Total Screened" value="2,847" sub="Last check: Today 22:00" color="text-royal" />
-              <StatCard icon={<AlertTriangle size={16} />} label="Partner Changing" value="4" sub="2 Real, 2 Demo" color="text-gold" />
-              <StatCard icon={<X size={16} />} label="Left BirrForex" value="2" sub="Auto-disqualified" color="text-loss" />
-              <StatCard icon={<Shield size={16} />} label="Warnings Cleared" value="6" sub="Returned to BirrForex" color="text-profit" />
-            </div>
-
-            {/* Currently Changing */}
-            <div className="glass rounded-2xl border border-gold/20 p-5">
-              <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2"><AlertTriangle size={16} className="text-gold" /> Currently Changing Partner (Warned)</h3>
-              <div className="space-y-3">
-                {[
-                  { username: "trader_mike", email: "mike@gmail.com", account: "11223344", type: "real", warnedAt: "May 13, 22:00" },
-                  { username: "fx_queen", email: "queen.fx@yahoo.com", account: "55667788", type: "demo", warnedAt: "May 13, 22:00" },
-                  { username: "pip_lord", email: "piplord99@gmail.com", account: "99001122", type: "real", warnedAt: "May 12, 22:00" },
-                  { username: "scalp_pro", email: "scalppro@outlook.com", account: "33445566", type: "demo", warnedAt: "May 12, 22:00" },
-                ].map((u, i) => (
-                  <div key={i} className="flex items-center justify-between p-3 bg-gold/5 rounded-xl border border-gold/20">
-                    <div>
-                      <p className="text-white font-semibold text-sm">@{u.username}</p>
-                      <p className="text-xs text-gray-500">{u.email}</p>
-                      <p className="text-[10px] text-gray-600">Acct: {u.account} • {u.type}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-xs text-gold font-semibold">⚠️ Warned</p>
-                      <p className="text-[10px] text-gray-500">{u.warnedAt}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Disqualified */}
-            <div className="glass rounded-2xl border border-loss/20 p-5">
-              <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2"><X size={16} className="text-loss" /> Disqualified (Left BirrForex)</h3>
-              <div className="space-y-3">
-                {[
-                  { username: "bad_trader", email: "badtrader@gmail.com", account: "77889900", type: "real", dqAt: "May 14, 09:00", reason: "Partner changed from BirrForex" },
-                  { username: "gone_user", email: "goneuser@yahoo.com", account: "12345000", type: "demo", dqAt: "May 12, 09:00", reason: "Partner changed from BirrForex" },
-                ].map((u, i) => (
-                  <div key={i} className="flex items-center justify-between p-3 bg-loss/5 rounded-xl border border-loss/20">
-                    <div>
-                      <p className="text-white font-semibold text-sm">@{u.username}</p>
-                      <p className="text-xs text-gray-500">{u.email}</p>
-                      <p className="text-[10px] text-gray-600">Acct: {u.account} • {u.type}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-xs text-loss font-semibold">🚫 Disqualified</p>
-                      <p className="text-[10px] text-gray-500">{u.dqAt}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Screening History */}
-            <div className="glass rounded-2xl border border-white/10 overflow-hidden">
-              <div className="p-4 border-b border-white/5"><h3 className="text-sm font-semibold text-white flex items-center gap-2"><Clock size={16} className="text-royal" /> Screening History (Last 7 Days)</h3></div>
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[600px]">
-                  <thead><tr className="border-b border-white/5">
-                    <th className="text-left py-3 px-4 text-[10px] text-gray-400 uppercase">Date</th>
-                    <th className="text-center py-3 px-4 text-[10px] text-gray-400 uppercase">Screened</th>
-                    <th className="text-center py-3 px-4 text-[10px] text-gray-400 uppercase">All Good</th>
-                    <th className="text-center py-3 px-4 text-[10px] text-gray-400 uppercase">Changing</th>
-                    <th className="text-center py-3 px-4 text-[10px] text-gray-400 uppercase">Left</th>
-                    <th className="text-center py-3 px-4 text-[10px] text-gray-400 uppercase">Cleared</th>
-                  </tr></thead>
-                  <tbody>
-                    {[
-                      { date: "May 14", screened: 2847, good: 2841, changing: 4, left: 0, cleared: 2 },
-                      { date: "May 13", screened: 2845, good: 2837, changing: 6, left: 2, cleared: 0 },
-                      { date: "May 12", screened: 2843, good: 2835, changing: 6, left: 0, cleared: 2 },
-                      { date: "May 11", screened: 2840, good: 2832, changing: 8, left: 0, cleared: 0 },
-                      { date: "May 10", screened: 2838, good: 2830, changing: 8, left: 0, cleared: 0 },
-                      { date: "May 9", screened: 2835, good: 2827, changing: 8, left: 0, cleared: 0 },
-                      { date: "May 8", screened: 2830, good: 2822, changing: 8, left: 0, cleared: 0 },
-                    ].map((r, i) => (
-                      <tr key={i} className="border-b border-white/5 hover:bg-white/5">
-                        <td className="py-3 px-4 text-sm text-white font-semibold">{r.date}</td>
-                        <td className="py-3 px-4 text-center text-sm text-gray-300">{r.screened}</td>
-                        <td className="py-3 px-4 text-center text-sm text-profit">{r.good}</td>
-                        <td className="py-3 px-4 text-center text-sm text-gold">{r.changing}</td>
-                        <td className="py-3 px-4 text-center text-sm text-loss">{r.left}</td>
-                        <td className="py-3 px-4 text-center text-sm text-profit">{r.cleared}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+            <div className="glass rounded-2xl border border-white/10 p-8 text-center">
+              <Shield className="w-12 h-12 text-gray-600 mx-auto mb-3" />
+              <p className="text-white font-semibold">No screening data yet</p>
+              <p className="text-sm text-gray-400 mt-1">Partner/allocation screening will populate here once the challenge is active and screening runs nightly</p>
             </div>
           </div>
         )}
