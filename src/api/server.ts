@@ -59,8 +59,8 @@ app.use(express.json({ limit: '10kb' })); // Limit body size for DDoS protection
 // Full admin URL becomes: /api/admin/xK9mP2vL7/...
 // Admin password set via: WINNERPIP_ADMIN_KEY
 // IP whitelist set via: WINNERPIP_ADMIN_IPS (comma-separated)
-const ADMIN_SECRET_PATH = process.env.WINNERPIP_ADMIN_PATH || 'admin-secret';
-const ADMIN_KEY = process.env.WINNERPIP_ADMIN_KEY || 'admin2026';
+const ADMIN_SECRET_PATH = process.env.WINNERPIP_ADMIN_PATH || '';
+const ADMIN_KEY = process.env.WINNERPIP_ADMIN_KEY || '';
 const ADMIN_WHITELISTED_IPS = (process.env.WINNERPIP_ADMIN_IPS || '').split(',').map(ip => ip.trim()).filter(Boolean);
 
 function adminIpCheck(req: any, res: any, next: any) {

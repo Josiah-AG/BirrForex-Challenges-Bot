@@ -179,7 +179,6 @@ export default function AdminDashboard() {
                 {loginLoading ? <Loader2 size={18} className="animate-spin" /> : <Key size={18} />} Access Dashboard
               </button>
             </div>
-            <p className="text-xs text-gray-600 mt-4">Demo key: <code className="text-gray-400">admin2026</code></p>
           </div>
         </div>
       </div>
