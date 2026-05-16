@@ -67,15 +67,21 @@ function adminIpCheck(req: any, res: any, next: any) {
   // If no IPs configured, allow all (dev mode)
   if (ADMIN_WHITELISTED_IPS.length === 0) return next();
 
-  const clientIp = req.ip || req.headers['x-forwarded-for'] || req.connection?.remoteAddress || '';
-  const normalizedIp = String(clientIp).replace('::ffff:', '');
+  // Get real client IP from Cloudflare/proxy headers
+  const clientIp = req.headers['cf-connecting-ip'] 
+    || req.headers['x-real-ip']
+    || (req.headers['x-forwarded-for'] || '').split(',')[0].trim()
+    || req.ip 
+    || req.connection?.remoteAddress 
+    || '';
+  const normalizedIp = String(clientIp).replace('::ffff:', '').trim();
 
   const allowed = ADMIN_WHITELISTED_IPS.some(whitelistedIp => 
     normalizedIp === whitelistedIp || normalizedIp.includes(whitelistedIp)
   );
 
   if (!allowed) {
-    console.log(`🚫 Admin access denied from IP: ${normalizedIp}`);
+    console.log(`🚫 Admin access denied from IP: ${normalizedIp} (whitelist: ${ADMIN_WHITELISTED_IPS.join(', ')})`);
     return res.status(403).json({ error: 'Access denied' });
   }
   next();
