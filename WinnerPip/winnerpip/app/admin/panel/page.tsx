@@ -118,7 +118,6 @@ export default function AdminDashboard() {
       }
     } catch {}
   };
-  };
 
   // Challenge info from API
   const selectedChallenge = challenges.find((c: any) => String(c.id) === selectedChallengeId);
