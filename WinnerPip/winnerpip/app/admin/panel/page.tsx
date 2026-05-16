@@ -158,62 +158,12 @@ export default function AdminDashboard() {
     lastPullTime: "—", nextPullTime: "—",
   };
 
-  const topViolations = [
-    { rule: "TR1: Lot size exceeded", count: 142, percentage: 45.5 },
-    { rule: "TR5: Position > 24 hours", count: 87, percentage: 27.9 },
-    { rule: "TR4: Same pair > 2 times", count: 45, percentage: 14.4 },
-    { rule: "TR6: Hedging detected", count: 22, percentage: 7.1 },
-    { rule: "TR3: No stop loss", count: 16, percentage: 5.1 },
-  ];
-
-  const pullHistory = [
-    { time: "14:00", success: 2835, failed: 12, passwordChanged: 1, newTrades: 1240, duration: "8m 32s" },
-    { time: "10:00", success: 2840, failed: 7, passwordChanged: 2, newTrades: 980, duration: "7m 45s" },
-    { time: "06:00", success: 2842, failed: 5, passwordChanged: 0, newTrades: 420, duration: "7m 12s" },
-    { time: "02:00", success: 2844, failed: 3, passwordChanged: 0, newTrades: 85, duration: "6m 58s" },
-  ];
-
-  const terminalStatus = [
-    { id: 1, healthy: true, processed: 285, success: 283, failed: 2, avgTime: "1.8s", lastError: null },
-    { id: 2, healthy: true, processed: 285, success: 284, failed: 1, avgTime: "1.6s", lastError: null },
-    { id: 3, healthy: true, processed: 285, success: 285, failed: 0, avgTime: "1.7s", lastError: null },
-    { id: 4, healthy: true, processed: 284, success: 282, failed: 2, avgTime: "1.9s", lastError: null },
-    { id: 5, healthy: true, processed: 285, success: 284, failed: 1, avgTime: "1.5s", lastError: null },
-    { id: 6, healthy: false, processed: 142, success: 139, failed: 3, avgTime: "2.4s", lastError: "Connection reset after 142 accounts" },
-    { id: 7, healthy: true, processed: 285, success: 283, failed: 2, avgTime: "1.8s", lastError: null },
-    { id: 8, healthy: true, processed: 285, success: 285, failed: 0, avgTime: "1.6s", lastError: null },
-    { id: 9, healthy: true, processed: 284, success: 283, failed: 1, avgTime: "1.7s", lastError: null },
-    { id: 10, healthy: true, processed: 285, success: 285, failed: 0, avgTime: "1.5s", lastError: null },
-  ];
-
-  const recentPullErrors = [
-    { account: "44556677", nickname: "PipSniper", error: "Timeout after 30s", terminal: 6, time: "14:02" },
-    { account: "99887766", nickname: "ScalpMaster", error: "Invalid credentials", terminal: 1, time: "14:01" },
-    { account: "33221100", nickname: "NewTrader", error: "Server not responding", terminal: 6, time: "14:01" },
-    { account: "77665544", nickname: "QuickFX", error: "Timeout after 30s", terminal: 4, time: "14:00" },
-    { account: "11009988", nickname: "DemoKing", error: "Invalid credentials", terminal: 2, time: "10:03" },
-  ];
-
-  const leaderboard = [
-    { rank: 1, nickname: "GoldPipKing", balance: 58.50, trades: 34, winRate: 71, avgRR: 2.3, violations: 0, accountType: "demo" },
-    { rank: 2, nickname: "ForexEagle", balance: 55.80, trades: 29, winRate: 69, avgRR: 2.1, violations: 1, accountType: "real" },
-    { rank: 3, nickname: "SilentTrader", balance: 53.40, trades: 31, winRate: 65, avgRR: 1.9, violations: 0, accountType: "demo" },
-    { rank: 4, nickname: "PipMachine", balance: 51.90, trades: 27, winRate: 67, avgRR: 1.7, violations: 2, accountType: "real" },
-    { rank: 5, nickname: "AlphaFX", balance: 50.10, trades: 25, winRate: 64, avgRR: 1.6, violations: 0, accountType: "demo" },
-    { rank: 6, nickname: "NightOwl", balance: 49.50, trades: 30, winRate: 60, avgRR: 1.5, violations: 1, accountType: "demo" },
-    { rank: 7, nickname: "ScalpMaster", balance: 48.80, trades: 42, winRate: 62, avgRR: 1.2, violations: 3, accountType: "real" },
-    { rank: 8, nickname: "TrendRider", balance: 47.60, trades: 22, winRate: 68, avgRR: 2.0, violations: 0, accountType: "demo" },
-    { rank: 9, nickname: "SwingKing", balance: 46.90, trades: 18, winRate: 72, avgRR: 2.4, violations: 0, accountType: "real" },
-    { rank: 10, nickname: "PipSniper", balance: 46.20, trades: 26, winRate: 58, avgRR: 1.3, violations: 1, accountType: "demo" },
-  ];
-
-  const flaggedParticipants = [
-    { nickname: "ScalpMaster", account: "99887766", violations: 3, totalProfit: 18.80, profitRemoved: 8.40, rules: ["TR1 x2", "TR5 x1"] },
-    { nickname: "PipMachine", account: "55443322", violations: 2, totalProfit: 21.90, profitRemoved: 5.20, rules: ["TR4 x1", "TR6 x1"] },
-    { nickname: "ForexEagle", account: "11223344", violations: 1, totalProfit: 25.80, profitRemoved: 3.10, rules: ["TR1 x1"] },
-    { nickname: "NightOwl", account: "66778899", violations: 1, totalProfit: 19.50, profitRemoved: 2.80, rules: ["TR5 x1"] },
-    { nickname: "PipSniper", account: "44556677", violations: 1, totalProfit: 16.20, profitRemoved: 1.90, rules: ["TR3 x1"] },
-  ];
+  const topViolations: any[] = [];
+  const pullHistory: any[] = [];
+  const terminalStatus: any[] = [];
+  const recentPullErrors: any[] = [];
+  const leaderboard: any[] = [];
+  const flaggedParticipants: any[] = [];
 
   // ==================== ADMIN LOGIN GATE ====================
   if (!isAdmin) {
@@ -300,7 +250,7 @@ export default function AdminDashboard() {
           <div className="glass rounded-2xl border border-white/10 p-5 mb-6">
             <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2"><AlertTriangle size={16} className="text-loss" /> Top Rule Violations</h3>
             <div className="space-y-3">
-              {topViolations.map((v, i) => (
+              {topViolations.length === 0 ? <p className="text-sm text-gray-500">No violation data yet — will populate after VPS pulls begin</p> : topViolations.map((v, i) => (
                 <div key={i} className="flex items-center gap-3">
                   <div className="flex-1">
                     <div className="flex justify-between mb-1"><span className="text-sm text-gray-300">{v.rule}</span><span className="text-xs text-gray-500">{v.count} ({v.percentage}%)</span></div>
@@ -331,7 +281,7 @@ export default function AdminDashboard() {
                   <th className="text-center py-3 px-4 text-[10px] text-gray-400 uppercase">Avg RR</th>
                   <th className="text-center py-3 px-4 text-[10px] text-gray-400 uppercase">Violations</th>
                 </tr></thead>
-                <tbody>{leaderboard.map(e => (
+                <tbody>{leaderboard.length === 0 ? <tr><td colSpan={8} className="py-8 text-center text-gray-500">No leaderboard data yet — will populate after VPS pulls and evaluation</td></tr> : leaderboard.map(e => (
                   <tr key={e.rank} className="border-b border-white/5 hover:bg-white/5 cursor-pointer" onClick={() => setSelectedParticipant(e)}>
                     <td className="py-3 px-4"><span className={`text-sm font-bold ${e.rank <= 3 ? "text-gold" : "text-gray-400"}`}>{e.rank}</span></td>
                     <td className="py-3 px-4 text-sm text-white font-semibold">{e.nickname}</td>
