@@ -589,6 +589,87 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/pulls`, adminIpCheck, asy
 });
 
 /**
+ * GET /api/admin/:secretPath/challenge/:id/finduser?q=search
+ * Search user by username, email, account number, or telegram ID
+ */
+app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/finduser`, adminIpCheck, async (req, res) => {
+  try {
+    const challengeId = parseInt(req.params.id);
+    const q = (req.query.q as string || '').trim().toLowerCase().replace(/^@/, '');
+
+    if (!q) return res.status(400).json({ error: 'Search query required' });
+
+    const result = await db.query(
+      `SELECT r.*, l.rank, l.current_balance, l.adjusted_balance, l.qualified_profit, l.gross_profit,
+              l.profit_removed, l.total_trades, l.qualified_trades, l.flagged_trades, l.active_days,
+              l.is_qualified, l.last_trade_time, l.last_updated as lb_updated
+       FROM trading_registrations r
+       LEFT JOIN wp_leaderboard l ON r.id = l.registration_id
+       WHERE r.challenge_id = $1 AND (
+         LOWER(r.username) = $2 OR LOWER(r.email) = $2 OR r.account_number = $2
+         OR CAST(r.telegram_id AS TEXT) = $2 OR LOWER(r.nickname) = $2
+       )
+       LIMIT 1`,
+      [challengeId, q]
+    );
+
+    if (result.rows.length === 0) {
+      return res.json({ found: false });
+    }
+
+    const r = result.rows[0];
+
+    // Get recent trades
+    const trades = await db.query(
+      `SELECT symbol, trade_type, volume, profit, close_time, is_qualified, violations
+       FROM wp_trades WHERE registration_id = $1 ORDER BY close_time DESC LIMIT 10`,
+      [r.id]
+    );
+
+    return res.json({
+      found: true,
+      user: {
+        nickname: r.nickname,
+        username: r.username,
+        email: r.email,
+        telegramId: r.telegram_id,
+        accountNumber: r.account_number,
+        accountType: r.account_type,
+        server: r.mt5_server,
+        registeredAt: r.registered_at,
+        rank: r.rank || null,
+        balance: r.current_balance ? parseFloat(r.current_balance) : null,
+        qualifiedProfit: r.qualified_profit ? parseFloat(r.qualified_profit) : 0,
+        grossProfit: r.gross_profit ? parseFloat(r.gross_profit) : 0,
+        profitRemoved: r.profit_removed ? parseFloat(r.profit_removed) : 0,
+        totalTrades: r.total_trades || 0,
+        qualifiedTrades: r.qualified_trades || 0,
+        flaggedTrades: r.flagged_trades || 0,
+        activeDays: r.active_days || 0,
+        isQualified: r.is_qualified || false,
+        lastPull: r.last_pull_at,
+        pullStatus: r.pull_status,
+        partnerStatus: r.partner_status || 'OK',
+        disqualified: r.disqualified,
+        disqualifiedReason: r.disqualified_reason,
+        recentTrades: trades.rows.map((t: any) => ({
+          symbol: t.symbol,
+          type: t.trade_type,
+          profit: parseFloat(t.profit),
+          volume: parseFloat(t.volume),
+          date: t.close_time,
+          isQualified: t.is_qualified,
+          violations: t.violations || [],
+        })),
+      },
+    });
+  } catch (error) {
+    console.error('Admin finduser error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
  * GET /api/admin/:secretPath/challenge/:id/violations
  * All violations grouped by user
  */

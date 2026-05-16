@@ -101,30 +101,23 @@ export default function AdminDashboard() {
     fetchOverview();
   }, [isAdmin, selectedChallengeId]);
 
-  const handleSearch = () => {
+  const handleSearch = async () => {
     setSearchPerformed(true);
-    const q = searchQuery.trim().toLowerCase();
-    // Placeholder: match "goldpipking", "87654321", "goldpip@gmail.com", "123456789"
-    if (q.includes("gold") || q === "87654321" || q === "123456789" || q.includes("goldpip")) {
-      setFoundUser({
-        nickname: "GoldPipKing", username: "goldpipking", email: "goldpip@gmail.com",
-        telegramId: 123456789, accountNumber: "87654321", accountType: "demo",
-        server: "Exness-MT5Trial9", registeredAt: "May 3, 2026", rank: 1,
-        balance: 58.50, qualifiedProfit: 28.50, grossProfit: 32.10, profitRemoved: 3.60,
-        totalTrades: 34, qualifiedTrades: 31, flaggedTrades: 3, winRate: 71, avgRR: 2.3,
-        totalLots: 0.68, activeDays: 8, lastPull: "May 14, 14:00", pullStatus: "success", partnerStatus: "OK",
-        violations: ["TR1: Lot exceeded (May 10)", "TR1: Lot exceeded (May 12)", "TR5: Position >24h (May 8)"],
-        recentTrades: [
-          { symbol: "XAUUSD", type: "Buy", profit: 5.20, rr: 2.5, date: "May 14, 14:30", lots: 0.02 },
-          { symbol: "EURUSD", type: "Sell", profit: 3.80, rr: 1.9, date: "May 14, 10:15", lots: 0.02 },
-          { symbol: "GBPUSD", type: "Buy", profit: 4.10, rr: 2.1, date: "May 13, 16:00", lots: 0.02 },
-          { symbol: "USDJPY", type: "Sell", profit: -1.50, rr: 0, date: "May 13, 09:30", lots: 0.02 },
-          { symbol: "EURUSD", type: "Buy", profit: 2.90, rr: 1.4, date: "May 12, 14:20", lots: 0.02 },
-        ],
-      });
-    } else {
-      setFoundUser(null);
-    }
+    setFoundUser(null);
+    const q = searchQuery.trim();
+    if (!q) return;
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
+      const secretPath = process.env.NEXT_PUBLIC_ADMIN_PATH || "";
+      const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${selectedChallengeId}/finduser?q=${encodeURIComponent(q)}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.found) {
+          setFoundUser(data.user);
+        }
+      }
+    } catch {}
+  };
   };
 
   // Challenge info from API
