@@ -10,12 +10,11 @@ export function middleware(request: NextRequest) {
     return new NextResponse(null, { status: 404 });
   }
 
-  // Rewrite /{secretpath}/{id} → /admin/{id}
+  // Rewrite /{secretpath} → /admin/panel (single admin page, no challenge ID in URL)
   if (adminPath) {
     const prefix = `/${adminPath}`;
-    if (pathname === prefix || pathname.startsWith(`${prefix}/`)) {
-      const rest = pathname.slice(prefix.length) || '/';
-      return NextResponse.rewrite(new URL(`/admin${rest}`, request.url));
+    if (pathname === prefix || pathname === `${prefix}/`) {
+      return NextResponse.rewrite(new URL('/admin/panel', request.url));
     }
   }
 
@@ -23,6 +22,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  // Match all paths except static assets, api, _next
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|api|winnerpip-).*)'],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|api|challenges|challenge|login|register|public).*)'],
 };
