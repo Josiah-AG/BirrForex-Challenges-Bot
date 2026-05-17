@@ -832,8 +832,40 @@ export class TradingRegistrationHandler {
     const result = await vpsService.verifyConnection(account_number, mt5_server, investor_password);
 
     if (result.success) {
-      // Connection verified — proceed based on account type
+      // Connection verified — check cent account requirement for real accounts
       if (account_type === 'real') {
+        // Check if only_cent_account is required
+        const { evaluationEngine: wpEngine } = require('../services/wpEvaluationEngine');
+        const rules = await wpEngine.loadRules(session.data.challenge_id);
+        const onlyCent = rules?.only_cent_account || false;
+
+        if (onlyCent && result.balance !== undefined) {
+          // Detect cent account: if balance is > 10x the challenge starting balance, it's cent
+          const challenge = await tradingChallengeService.getChallengeById(session.data.challenge_id);
+          const startingBalance = Number(challenge?.starting_balance || 30);
+          const isCentAccount = result.balance > startingBalance * 5; // Cent accounts show 100x value
+
+          if (!isCentAccount) {
+            // Not a cent account — reject
+            session.step = 'tc_enter_account_number';
+            await ctx.reply(
+              '❌ <b>Only Cent Accounts Allowed</b>\n\n' +
+              'This challenge requires a <b>Cent Account</b> for the real account category.\n\n' +
+              'Your account appears to be a Standard account.\n\n' +
+              '📋 <b>How to create a Cent Account:</b>\n' +
+              '1. Open Exness → My Accounts\n' +
+              '2. Create New Account → Choose "Standard Cent"\n' +
+              '3. Select MT5 platform\n' +
+              '4. Fund the account\n\n' +
+              'Once ready, submit your cent account:',
+              { parse_mode: 'HTML', ...Markup.inlineKeyboard([
+                [Markup.button.callback('📝 Submit Cent Account', `tc_new_real_acct_${session.data.challenge_id}`)],
+              ]) }
+            );
+            return;
+          }
+        }
+
         session.step = 'tc_verifying_real_acct';
         await ctx.reply('✅ <b>MT5 connection verified!</b>\n\n⏳ Verifying account allocation...', { parse_mode: 'HTML' });
         await this.verifyRealAccount(ctx, telegramId);

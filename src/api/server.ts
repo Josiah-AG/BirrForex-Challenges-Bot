@@ -757,7 +757,14 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/rules`, adminIpCheck, asy
     const challengeId = parseInt(req.params.id);
     const { evaluationEngine } = require('../services/wpEvaluationEngine');
     const rules = await evaluationEngine.loadRules(challengeId);
-    return res.json({ rules: rules || null });
+
+    // Get challenge status to determine if rules are locked
+    const challenge = await db.query('SELECT status, type FROM trading_challenges WHERE id = $1', [challengeId]);
+    const status = challenge.rows[0]?.status || 'draft';
+    const challengeType = challenge.rows[0]?.type || 'demo';
+    const locked = !['draft', 'registration_open'].includes(status);
+
+    return res.json({ rules: rules || null, locked, challengeStatus: status, challengeType });
   } catch (error) {
     return res.status(500).json({ error: 'Internal server error' });
   }
@@ -766,11 +773,22 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/rules`, adminIpCheck, asy
 /**
  * PUT /api/admin/:secretPath/challenge/:id/rules
  * Save rules config from admin form
- * Body: { max_lot_size, max_open_trades, pair_limit, stop_loss_required, max_risk_dollars, daily_loss_cap, max_hold_hours, weekend_trading, min_active_days }
+ * Body: { max_lot_size, max_open_trades, pair_limit, stop_loss_required, max_risk_dollars, daily_loss_cap, max_hold_hours, weekend_trading, min_active_days, only_cent_account }
+ * Rules can only be changed when challenge is in 'draft' or 'registration_open' status.
  */
 app.put(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/rules`, adminIpCheck, async (req, res) => {
   try {
     const challengeId = parseInt(req.params.id);
+
+    // Check if challenge is still editable
+    const challenge = await db.query('SELECT status FROM trading_challenges WHERE id = $1', [challengeId]);
+    if (!challenge.rows[0]) return res.status(404).json({ error: 'Challenge not found' });
+
+    const status = challenge.rows[0].status;
+    if (!['draft', 'registration_open'].includes(status)) {
+      return res.status(403).json({ error: 'Rules are locked. Cannot modify rules after challenge has started.', locked: true });
+    }
+
     const { evaluationEngine } = require('../services/wpEvaluationEngine');
     await evaluationEngine.saveRules(challengeId, req.body);
     return res.json({ success: true });

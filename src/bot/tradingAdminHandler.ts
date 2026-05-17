@@ -922,7 +922,9 @@ export class TradingAdminHandler {
         `ID: ${challenge.id}\n` +
         `Title: ${challenge.title}\n` +
         `Status: Draft\n\n` +
-        `Use /postchallenge to post the announcement.`,
+        `⚠️ <b>IMPORTANT:</b> Before posting the announcement, configure the challenge rules on the WinnerPip admin panel → Rules tab.\n\n` +
+        `Rules cannot be changed once the challenge starts.\n\n` +
+        `Use /postchallenge to post the announcement when ready.`,
         { parse_mode: 'HTML' }
       );
     } catch (error) {
