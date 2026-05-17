@@ -486,4 +486,40 @@ router.patch('/challenges/:id/message', async (req: Request, res: Response) => {
   }
 });
 
+// ==================== DELETE CHALLENGE ====================
+
+/**
+ * DELETE /api/discord/challenges/:id
+ * Permanently deletes a challenge (sets status to 'deleted')
+ */
+router.delete('/challenges/:id', async (req: Request, res: Response) => {
+  try {
+    const challengeId = parseInt(param(req, "id"));
+
+    // Check challenge exists
+    const existing = await db.query(
+      `SELECT id, title, status FROM trading_challenges WHERE id = $1`,
+      [challengeId]
+    );
+
+    if (existing.rows.length === 0) {
+      return res.status(404).json({ error: 'Challenge not found' });
+    }
+
+    // Set status to deleted (soft delete)
+    await db.query(
+      `UPDATE trading_challenges SET status = 'deleted', updated_at = NOW() WHERE id = $1`,
+      [challengeId]
+    );
+
+    return res.json({
+      success: true,
+      message: `Challenge "${existing.rows[0].title}" (ID: ${challengeId}) deleted`,
+    });
+  } catch (error) {
+    console.error('Discord delete challenge error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 export { router as discordRoutes };
