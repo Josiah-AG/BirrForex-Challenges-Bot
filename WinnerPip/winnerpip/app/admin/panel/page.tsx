@@ -392,11 +392,12 @@ export default function AdminDashboard() {
             <div className="glass rounded-2xl border border-white/10 p-5">
               <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2"><BarChart3 size={16} className="text-royal" /> Performance Summary</h3>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Avg Cycle Time</p><p className="text-lg font-bold text-white">7m 37s</p></div>
-                <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Success Rate</p><p className="text-lg font-bold text-profit">99.6%</p></div>
-                <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Avg Per Account</p><p className="text-lg font-bold text-white">1.7s</p></div>
-                <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Total Trades Synced</p><p className="text-lg font-bold text-royal">42,580</p></div>
+                <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Avg Cycle Time</p><p className="text-lg font-bold text-white">—</p></div>
+                <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Success Rate</p><p className="text-lg font-bold text-profit">—</p></div>
+                <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Avg Per Account</p><p className="text-lg font-bold text-white">—</p></div>
+                <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Total Trades Synced</p><p className="text-lg font-bold text-royal">—</p></div>
               </div>
+              <p className="text-[10px] text-gray-500 mt-3 text-center">Stats populate after VPS pull cycles run</p>
             </div>
           </div>
         )}
