@@ -35,7 +35,6 @@ export default function ChallengesPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Fetch challenges from API, fallback to placeholders
     const fetchChallenges = async () => {
       try {
         const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
@@ -48,17 +47,12 @@ export default function ChallengesPage() {
             return;
           }
         }
-      } catch {
-        console.log("API unavailable, using placeholders");
+      } catch (err) {
+        console.log("API unavailable:", err);
       }
 
-      // Fallback placeholder data
-      setChallenges([
-        { id: 15, title: "Challenge 15 — Hybrid (Demo & Real)", type: "hybrid", status: "active", startDate: "2026-05-05T06:00:00.000Z", endDate: "2026-05-16T20:59:00.000Z", startingBalance: 30, targetBalance: 60, prizePoolText: "🥇 $400 | 🥈 $350 | 🥉 $300", realPrizes: [400, 350, 300], demoPrizes: [200, 150, 100], participants: { total: 2847, demo: 1923, real: 924 } },
-        { id: 16, title: "Challenge 16 — Demo Sprint", type: "demo", status: "registration_open", startDate: "2026-05-26T06:00:00.000Z", endDate: "2026-06-06T20:59:00.000Z", startingBalance: 50, targetBalance: 100, prizePoolText: "🥇 $300 | 🥈 $200 | 🥉 $100", realPrizes: [], demoPrizes: [300, 200, 100], participants: { total: 1205, demo: 1205, real: 0 } },
-        { id: 17, title: "Challenge 17 — Real Account Pro", type: "real", status: "registration_open", startDate: "2026-06-02T06:00:00.000Z", endDate: "2026-06-13T20:59:00.000Z", startingBalance: 100, targetBalance: 200, prizePoolText: "🥇 iPhone 16 Pro | 🥈 $500 | 🥉 $300", realPrizes: [], demoPrizes: [], participants: { total: 412, demo: 0, real: 412 } },
-        { id: 14, title: "Challenge 14 — Hybrid Classic", type: "hybrid", status: "completed", startDate: "2026-04-14T06:00:00.000Z", endDate: "2026-04-25T20:59:00.000Z", startingBalance: 30, targetBalance: 60, prizePoolText: "🥇 $400 | 🥈 $300 | 🥉 $200", realPrizes: [400, 300, 200], demoPrizes: [200, 150, 100], participants: { total: 3102, demo: 2100, real: 1002 } },
-      ]);
+      // No placeholder data — show empty state
+      setChallenges([]);
       setLoading(false);
     };
     fetchChallenges();
