@@ -162,48 +162,65 @@ class VpsService {
     }
 
     try {
-      const response = await axios.post(
-        `${this.baseUrl}/verify`,
-        {
-          account: accountNumber,
-          server: server,
-          password: investorPassword,
-          api_key: this.apiKey,
-        },
-        {
-          headers: {
-            'Content-Type': 'application/json',
+      // Retry up to 3 times to handle terminal rotation issues
+      let lastResult: any = null;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const response = await axios.post(
+          `${this.baseUrl}/verify`,
+          {
+            account: accountNumber,
+            server: server,
+            password: investorPassword,
+            api_key: this.apiKey,
           },
-          timeout: 30000, // 30s timeout — MT5 connections can be slow
+          {
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            timeout: 30000,
+          }
+        );
+
+        const data = response.data;
+
+        if (data.success) {
+          return {
+            success: true,
+            status: 'connected',
+            message: 'Connection verified',
+            balance: data.balance,
+            equity: data.equity,
+            server: data.server || server,
+          };
         }
-      );
 
-      const data = response.data;
+        lastResult = data;
 
-      if (data.success) {
-        return {
-          success: true,
-          status: 'connected',
-          message: 'Connection verified',
-          balance: data.balance,
-          equity: data.equity,
-          server: data.server || server,
-        };
+        // If terminal error (not definitively wrong password), retry with delay
+        const errorMsg = (data.message || '').toLowerCase();
+        if (errorMsg.includes('terminal') && attempt < 2) {
+          // Wait 2 seconds before retrying (to hit a different terminal)
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          continue;
+        }
+
+        // Definitive failure — don't retry
+        break;
       }
 
-      // API returned success=false — parse error from message
-      const errorMsg = (data.message || '').toLowerCase();
+      // Parse the final error
+      const errorMsg = (lastResult?.message || '').toLowerCase();
       if (errorMsg.includes('authorization failed') || errorMsg.includes('invalid') || errorMsg.includes('password')) {
-        return { success: false, status: 'invalid_credentials', message: data.message || 'Invalid credentials' };
+        return { success: false, status: 'invalid_credentials', message: lastResult?.message || 'Invalid credentials' };
       }
       if (errorMsg.includes('server') || errorMsg.includes('not found')) {
-        return { success: false, status: 'server_not_found', message: data.message || 'Server not found' };
+        return { success: false, status: 'server_not_found', message: lastResult?.message || 'Server not found' };
       }
       if (errorMsg.includes('timeout')) {
-        return { success: false, status: 'timeout', message: data.message || 'Connection timed out' };
+        return { success: false, status: 'timeout', message: lastResult?.message || 'Connection timed out' };
       }
 
-      return { success: false, status: 'api_error', message: data.message || 'Verification failed' };
+      return { success: false, status: 'api_error', message: lastResult?.message || 'Verification failed' };
     } catch (error: any) {
       if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
         return { success: false, status: 'timeout', message: 'Connection timed out' };
