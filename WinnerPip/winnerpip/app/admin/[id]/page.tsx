@@ -657,7 +657,6 @@ export default function AdminDashboard() {
                 <li>Unlimited trades per day — as long as all rules are followed</li>
                 <li>No leverage limit</li>
                 <li>Trades against rules have profits disqualified (losses still count)</li>
-                <li>Cent accounts: thresholds adjusted automatically (÷100)</li>
               </ul>
             </div>
 

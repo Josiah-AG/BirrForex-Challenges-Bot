@@ -27,6 +27,7 @@ export default function AdminDashboard() {
     max_hold_hours: 24,
     weekend_trading: false,
     min_active_days: 7,
+    only_cent_account: false,
   });
   const [rulesSaved, setRulesSaved] = useState(false);
   const [overviewData, setOverviewData] = useState<any>(null);
@@ -546,6 +547,12 @@ export default function AdminDashboard() {
                     <div className={`w-5 h-5 bg-white rounded-full transition-transform ${rulesConfig.weekend_trading ? "translate-x-6" : "translate-x-0.5"}`}></div>
                   </button>
                 </div>
+                <div className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10">
+                  <div><p className="text-sm text-white font-medium">Only Cent Account</p><p className="text-[10px] text-gray-500">Real category requires cent accounts only</p></div>
+                  <button onClick={() => setRulesConfig({ ...rulesConfig, only_cent_account: !(rulesConfig as any).only_cent_account })} className={`w-12 h-6 rounded-full transition-all ${(rulesConfig as any).only_cent_account ? "bg-profit" : "bg-white/20"}`}>
+                    <div className={`w-5 h-5 bg-white rounded-full transition-transform ${(rulesConfig as any).only_cent_account ? "translate-x-6" : "translate-x-0.5"}`}></div>
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -557,7 +564,6 @@ export default function AdminDashboard() {
                 <li>Unlimited trades per day — as long as all rules are followed</li>
                 <li>No leverage limit</li>
                 <li>Trades against rules have profits disqualified (losses still count)</li>
-                <li>Cent accounts: thresholds adjusted automatically (÷100)</li>
               </ul>
             </div>
 
