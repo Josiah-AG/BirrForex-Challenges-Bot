@@ -221,7 +221,7 @@ export default function ChallengesPage() {
                           <Users size={16} className="text-royal flex-shrink-0" />
                           <div>
                             <p className="text-xs text-gray-500">Participants</p>
-                            <p className="text-sm text-white font-medium">{challenge.participants.total}</p>
+                            <p className="text-sm text-white font-medium blur-[5px] select-none">{challenge.participants.total}</p>
                           </div>
                         </div>
 
