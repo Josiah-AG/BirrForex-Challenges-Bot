@@ -19,6 +19,7 @@ interface Challenge {
   title: string;
   type: string;
   status: string;
+  displayStatus?: string;
   startDate: string;
   endDate: string;
   startingBalance: number;
@@ -67,18 +68,25 @@ export default function ChallengesPage() {
     return new Date(dateStr).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
   };
 
-  const getStatusBadge = (status: string) => {
+  const getStatusBadge = (challenge: Challenge) => {
+    const status = challenge.displayStatus || challenge.status;
     switch (status) {
+      case "coming_soon":
+        return { label: "Coming Soon", color: "bg-white/10 text-gray-300 border-white/20" };
       case "registration_open":
         return { label: "Registration Open", color: "bg-profit/20 text-profit border-profit/30" };
+      case "ongoing":
       case "active":
-        return { label: "Live", color: "bg-gold/20 text-gold border-gold/30" };
+        return { label: "Ongoing (Live)", color: "bg-gold/20 text-gold border-gold/30" };
+      case "evaluation":
+        return { label: "Evaluation", color: "bg-royal/20 text-royal border-royal/30" };
+      case "ended":
+      case "completed":
+        return { label: "Ended", color: "bg-white/5 text-gray-500 border-white/10" };
       case "submission_open":
         return { label: "Submissions Open", color: "bg-royal/20 text-royal border-royal/30" };
       case "reviewing":
-        return { label: "Under Review", color: "bg-white/10 text-gray-300 border-white/20" };
-      case "completed":
-        return { label: "Completed", color: "bg-white/5 text-gray-500 border-white/10" };
+        return { label: "Evaluation", color: "bg-royal/20 text-royal border-royal/30" };
       default:
         return { label: status, color: "bg-white/10 text-gray-400 border-white/20" };
     }
@@ -159,7 +167,7 @@ export default function ChallengesPage() {
         {!loading && challenges.length > 0 && (
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
             {challenges.map((challenge) => {
-              const badge = getStatusBadge(challenge.status);
+              const badge = getStatusBadge(challenge);
 
               return (
                 <button
@@ -255,7 +263,15 @@ export default function ChallengesPage() {
                     {/* CTA hint */}
                     <div className="flex items-center justify-between p-3 rounded-xl bg-royal/10 border border-royal/20 group-hover:bg-royal/20 transition-all">
                       <span className="text-sm text-royal font-semibold">
-                        {challenge.status === "registration_open" ? "Join Challenge" : challenge.status === "active" ? "View Dashboard" : "View Results"}
+                        {(() => {
+                          const ds = challenge.displayStatus || challenge.status;
+                          if (ds === "registration_open") return "Join Challenge";
+                          if (ds === "ongoing" || ds === "active") return "View Dashboard";
+                          if (ds === "ended" || ds === "completed") return "View Results";
+                          if (ds === "evaluation" || ds === "reviewing" || ds === "submission_open") return "View Dashboard";
+                          if (ds === "coming_soon") return "Coming Soon";
+                          return "View Details";
+                        })()}
                       </span>
                       <ArrowRight size={16} className="text-royal group-hover:translate-x-1 transition-transform" />
                     </div>

@@ -115,6 +115,15 @@ async function migrate() {
     // Evaluation type & winners_posted_at migration
     await db.query(`ALTER TABLE trading_challenges ADD COLUMN IF NOT EXISTS evaluation_type VARCHAR(20) DEFAULT 'winnerpip';`).catch(() => {});
     await db.query(`ALTER TABLE trading_challenges ADD COLUMN IF NOT EXISTS winners_posted_at TIMESTAMP;`).catch(() => {});
+    // Backfill: mark old completed/reviewing challenges that already had winners posted
+    // If status is 'completed' or 'reviewing' and end_date is more than 7 days ago, assume winners were posted
+    await db.query(`
+      UPDATE trading_challenges 
+      SET winners_posted_at = end_date, status = 'completed'
+      WHERE winners_posted_at IS NULL 
+        AND status IN ('completed', 'reviewing')
+        AND end_date < NOW() - INTERVAL '7 days'
+    `).catch(() => {});
     console.log('✅ Evaluation type migration OK');
 
     console.log('✅ Database migration completed successfully!');
