@@ -28,6 +28,9 @@ interface Challenge {
   realPrizes: number[];
   demoPrizes: number[];
   participants: { total: number; demo: number; real: number };
+  teamOnly?: boolean;
+  source?: string;
+  registrationDeadline?: string;
 }
 
 export default function ChallengesPage() {
@@ -162,6 +165,52 @@ export default function ChallengesPage() {
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
             {challenges.map((challenge) => {
               const badge = getStatusBadge(challenge);
+
+              // Team-only challenge — show blurred/locked card
+              if (challenge.teamOnly) {
+                return (
+                  <div
+                    key={challenge.id}
+                    className="text-left w-full rounded-2xl group shadow-[0_12px_40px_rgba(0,0,0,0.4)] border border-white/20 relative overflow-hidden"
+                  >
+                    <div className="absolute inset-0 bg-gradient-to-br from-[#0f1629] to-[#1a1f3a]"></div>
+                    {/* Blur overlay */}
+                    <div className="absolute inset-0 backdrop-blur-sm bg-black/40 z-10"></div>
+
+                    {/* Blurred background content (decorative) */}
+                    <div className="p-6 relative opacity-30 blur-[2px]">
+                      <h3 className="text-xl font-bold text-white mb-3">{challenge.title}</h3>
+                      <div className="space-y-3">
+                        <div className="h-10 rounded-xl bg-white/5"></div>
+                        <div className="h-10 rounded-xl bg-white/5"></div>
+                        <div className="h-10 rounded-xl bg-white/5"></div>
+                      </div>
+                    </div>
+
+                    {/* Team-only overlay content */}
+                    <div className="absolute inset-0 z-20 flex flex-col items-center justify-center p-6 text-center">
+                      <div className="w-14 h-14 rounded-full bg-royal/20 border border-royal/30 flex items-center justify-center mb-4">
+                        <Users size={24} className="text-royal" />
+                      </div>
+                      <h3 className="text-lg font-bold text-white mb-2">BirrForex Teams Only</h3>
+                      <p className="text-sm text-gray-400 mb-5 max-w-[240px]">
+                        This challenge is hosted for members of BirrForex Live Trading Team.
+                      </p>
+                      <a
+                        href={process.env.NEXT_PUBLIC_DISCORD_INVITE || "https://discord.gg/birrforex"}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="bg-[#5865F2] hover:bg-[#4752C4] text-white px-5 py-2.5 rounded-xl text-sm font-semibold transition flex items-center gap-2"
+                      >
+                        <svg width="16" height="12" viewBox="0 0 71 55" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+                          <path d="M60.1 4.9A58.5 58.5 0 0045.4.2a.2.2 0 00-.2.1 40.8 40.8 0 00-1.8 3.7 54 54 0 00-16.2 0A37.4 37.4 0 0025.4.3a.2.2 0 00-.2-.1A58.4 58.4 0 0010.5 5 59.7 59.7 0 00.4 45a.3.3 0 00.1.2 58.9 58.9 0 0017.7 9 .2.2 0 00.3-.1 42 42 0 003.6-5.9.2.2 0 00-.1-.3 38.8 38.8 0 01-5.5-2.7.2.2 0 01 0-.4c.4-.3.7-.6 1.1-.9a.2.2 0 01.2 0 42 42 0 0035.8 0 .2.2 0 01.2 0l1.1.9a.2.2 0 010 .4 36.4 36.4 0 01-5.5 2.6.2.2 0 00-.1.4 47.2 47.2 0 003.6 5.8.2.2 0 00.3.1A58.7 58.7 0 0070.5 45a.3.3 0 00.1-.2c1.6-16.7-2.7-31.2-11.5-44.1zM23.7 36.8c-3.8 0-7-3.5-7-7.8s3.1-7.8 7-7.8c4 0 7.1 3.5 7 7.8.1 4.3-3 7.8-7 7.8zm25.8 0c-3.9 0-7-3.5-7-7.8s3-7.8 7-7.8c3.9 0 7 3.5 7 7.8-.1 4.3-3.1 7.8-7 7.8z"/>
+                        </svg>
+                        Register Through Team Discord Server
+                      </a>
+                    </div>
+                  </div>
+                );
+              }
 
               return (
                 <button
