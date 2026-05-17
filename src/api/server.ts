@@ -5,6 +5,7 @@ import { db } from '../database/db';
 import { config } from '../config';
 import { vpsService } from '../services/vpsService';
 import crypto from 'crypto';
+import { discordRoutes } from './discordRoutes';
 
 const app = express();
 
@@ -215,7 +216,8 @@ app.get('/api/challenges', async (req, res) => {
     const result = await db.query(
       `SELECT id, title, type, status, start_date, end_date, starting_balance, target_balance,
               real_winners_count, demo_winners_count, real_prizes, demo_prizes, prize_pool_text,
-              pdf_url, video_url, announcement_posted, evaluation_type, winners_posted_at
+              pdf_url, video_url, announcement_posted, evaluation_type, winners_posted_at,
+              source, team_only, registration_deadline
        FROM trading_challenges
        WHERE status != 'deleted'
        ORDER BY created_at DESC
@@ -266,6 +268,9 @@ app.get('/api/challenges', async (req, res) => {
         videoUrl: c.video_url,
         evaluationType: c.evaluation_type || 'winnerpip',
         winnersPostedAt: c.winners_posted_at,
+        source: c.source || 'telegram',
+        teamOnly: c.team_only || false,
+        registrationDeadline: c.registration_deadline,
       });
     }
 
@@ -722,6 +727,10 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/violations`, adminIpCheck
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
+
+// ==================== DISCORD BOT API ====================
+
+app.use('/api/discord', discordRoutes);
 
 // ==================== HEALTH CHECK ====================
 

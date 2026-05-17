@@ -126,6 +126,18 @@ async function migrate() {
     `).catch(() => {});
     console.log('✅ Evaluation type migration OK');
 
+    // Discord integration migration
+    await db.query(`ALTER TABLE trading_challenges ADD COLUMN IF NOT EXISTS source VARCHAR(20) DEFAULT 'telegram';`).catch(() => {});
+    await db.query(`ALTER TABLE trading_challenges ADD COLUMN IF NOT EXISTS team_only BOOLEAN DEFAULT false;`).catch(() => {});
+    await db.query(`ALTER TABLE trading_challenges ADD COLUMN IF NOT EXISTS registration_deadline TIMESTAMP;`).catch(() => {});
+    await db.query(`ALTER TABLE trading_challenges ADD COLUMN IF NOT EXISTS discord_channel_message_id VARCHAR(50);`).catch(() => {});
+    await db.query(`ALTER TABLE trading_registrations ADD COLUMN IF NOT EXISTS discord_user_id BIGINT;`).catch(() => {});
+    await db.query(`ALTER TABLE trading_registrations ADD COLUMN IF NOT EXISTS source VARCHAR(20) DEFAULT 'telegram';`).catch(() => {});
+    await db.query(`CREATE INDEX IF NOT EXISTS idx_tc_source ON trading_challenges(source);`).catch(() => {});
+    await db.query(`CREATE INDEX IF NOT EXISTS idx_tc_team_only ON trading_challenges(team_only);`).catch(() => {});
+    await db.query(`CREATE INDEX IF NOT EXISTS idx_tr_discord_user ON trading_registrations(discord_user_id);`).catch(() => {});
+    console.log('✅ Discord integration migration OK');
+
     console.log('✅ Database migration completed successfully!');
     process.exit(0);
   } catch (error) {
