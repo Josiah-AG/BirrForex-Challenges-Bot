@@ -18,7 +18,7 @@ const globalLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many requests. Please try again later.' },
-  keyGenerator: (req) => req.ip || req.headers['x-forwarded-for'] as string || 'unknown',
+  validate: { xForwardedForHeader: false },
 });
 
 // Strict rate limit for auth endpoints: 10 attempts per 15 minutes per IP
@@ -28,7 +28,7 @@ const authLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many login attempts. Please try again in 15 minutes.' },
-  keyGenerator: (req) => req.ip || req.headers['x-forwarded-for'] as string || 'unknown',
+  validate: { xForwardedForHeader: false },
 });
 
 // Admin rate limit: 5 attempts per 15 minutes
@@ -38,7 +38,7 @@ const adminAuthLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many attempts. Locked for 15 minutes.' },
-  keyGenerator: (req) => req.ip || req.headers['x-forwarded-for'] as string || 'unknown',
+  validate: { xForwardedForHeader: false },
 });
 
 app.use(globalLimiter);
