@@ -293,15 +293,20 @@ router.post('/verify-connection', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Missing required fields', verified: false });
     }
 
+    // Fuzzy match the server name to a known Exness server
+    const { fuzzyMatchServer } = require('../services/vpsService');
+    const accountType = mt5_server.toLowerCase().includes('trial') ? 'demo' : 'real';
+    const matchedServer = fuzzyMatchServer(mt5_server, accountType) || mt5_server;
+
     try {
-      const vpsResult = await vpsService.verifyConnection(account_number, mt5_server, investor_password);
+      const vpsResult = await vpsService.verifyConnection(account_number, matchedServer, investor_password);
 
       if (vpsResult.success) {
         return res.json({
           verified: true,
           balance: vpsResult.balance,
           equity: vpsResult.equity,
-          server: vpsResult.server,
+          server: matchedServer,
         });
       } else {
         return res.json({
@@ -345,9 +350,14 @@ router.post('/challenges/:id/verify/:registrationId', async (req: Request, res: 
 
     // Call VPS service to verify connection
     try {
+      // Fuzzy match server name
+      const { fuzzyMatchServer } = require('../services/vpsService');
+      const accountType = registration.mt5_server?.toLowerCase().includes('trial') ? 'demo' : 'real';
+      const matchedServer = fuzzyMatchServer(registration.mt5_server, accountType) || registration.mt5_server;
+
       const vpsResult = await vpsService.verifyConnection(
         registration.account_number,
-        registration.mt5_server,
+        matchedServer,
         registration.investor_password
       );
 
