@@ -298,8 +298,11 @@ router.post('/verify-connection', async (req: Request, res: Response) => {
     const accountType = mt5_server.toLowerCase().includes('trial') ? 'demo' : 'real';
     const matchedServer = fuzzyMatchServer(mt5_server, accountType) || mt5_server;
 
+    console.log(`🔍 Discord VPS verify: acct=${account_number}, server=${mt5_server} → matched=${matchedServer}`);
+
     try {
       const vpsResult = await vpsService.verifyConnection(account_number, matchedServer, investor_password);
+      console.log(`🔍 Discord VPS result: ${JSON.stringify(vpsResult)}`);
 
       if (vpsResult.success) {
         return res.json({
