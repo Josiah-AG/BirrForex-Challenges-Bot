@@ -278,6 +278,49 @@ router.post('/challenges/:id/register', async (req: Request, res: Response) => {
   }
 });
 
+// ==================== VERIFY CONNECTION (PRE-SAVE) ====================
+
+/**
+ * POST /api/discord/verify-connection
+ * Body: { account_number, mt5_server, investor_password }
+ * Verifies VPS connection WITHOUT requiring a registration ID (pre-save check)
+ */
+router.post('/verify-connection', async (req: Request, res: Response) => {
+  try {
+    const { account_number, mt5_server, investor_password } = req.body;
+
+    if (!account_number || !mt5_server || !investor_password) {
+      return res.status(400).json({ error: 'Missing required fields', verified: false });
+    }
+
+    try {
+      const vpsResult = await vpsService.verifyConnection(account_number, mt5_server, investor_password);
+
+      if (vpsResult.success) {
+        return res.json({
+          verified: true,
+          balance: vpsResult.balance,
+          equity: vpsResult.equity,
+          server: vpsResult.server,
+        });
+      } else {
+        return res.json({
+          verified: false,
+          error: vpsResult.message || 'Connection failed',
+        });
+      }
+    } catch (vpsError: any) {
+      return res.json({
+        verified: false,
+        error: vpsError.message || 'VPS service unavailable',
+      });
+    }
+  } catch (error) {
+    console.error('Discord verify-connection error:', error);
+    return res.status(500).json({ error: 'Internal server error', verified: false });
+  }
+});
+
 // ==================== VERIFY CONNECTION (VPS CHECK) ====================
 
 /**
