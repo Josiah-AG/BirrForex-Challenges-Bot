@@ -163,16 +163,16 @@ class VpsService {
 
     try {
       const response = await axios.post(
-        `${this.baseUrl}/api/v1/verify`,
+        `${this.baseUrl}/verify`,
         {
-          login: parseInt(accountNumber),
+          account: accountNumber,
           server: server,
           password: investorPassword,
+          api_key: this.apiKey,
         },
         {
           headers: {
             'Content-Type': 'application/json',
-            'X-API-Key': this.apiKey,
           },
           timeout: 30000, // 30s timeout — MT5 connections can be slow
         }
@@ -180,7 +180,7 @@ class VpsService {
 
       const data = response.data;
 
-      if (data.success || data.connected) {
+      if (data.success) {
         return {
           success: true,
           status: 'connected',
@@ -191,13 +191,16 @@ class VpsService {
         };
       }
 
-      // API returned success=false
-      const errorCode = data.error_code || data.error || '';
-      if (errorCode.includes('invalid') || errorCode.includes('auth') || errorCode.includes('password')) {
+      // API returned success=false — parse error from message
+      const errorMsg = (data.message || '').toLowerCase();
+      if (errorMsg.includes('authorization failed') || errorMsg.includes('invalid') || errorMsg.includes('password')) {
         return { success: false, status: 'invalid_credentials', message: data.message || 'Invalid credentials' };
       }
-      if (errorCode.includes('server') || errorCode.includes('not_found')) {
+      if (errorMsg.includes('server') || errorMsg.includes('not found')) {
         return { success: false, status: 'server_not_found', message: data.message || 'Server not found' };
+      }
+      if (errorMsg.includes('timeout')) {
+        return { success: false, status: 'timeout', message: data.message || 'Connection timed out' };
       }
 
       return { success: false, status: 'api_error', message: data.message || 'Verification failed' };
