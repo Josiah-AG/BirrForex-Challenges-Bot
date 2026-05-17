@@ -76,7 +76,7 @@ router.post('/challenges', async (req: Request, res: Response) => {
        (title, type, status, start_date, end_date, registration_deadline, starting_balance, target_balance,
         prize_pool_text, real_winners_count, demo_winners_count, real_prizes, demo_prizes,
         source, team_only, announcement_posted)
-       VALUES ($1, $2, 'registration_open', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'discord', true, true)
+       VALUES ($1, $2, 'draft', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'discord', true, false)
        RETURNING *`,
       [
         title, type, start_date, end_date,
