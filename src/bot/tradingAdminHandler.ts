@@ -2,6 +2,7 @@ import { Context, Markup } from 'telegraf';
 import { tradingChallengeService, TradingChallenge } from '../services/tradingChallengeService';
 import { isAdmin } from '../utils/helpers';
 import { config } from '../config';
+import { db } from '../database/db';
 
 // Convert stored UTC date to EAT for display
 const toEAT = (d: Date) => new Date(new Date(d).getTime() + 3 * 60 * 60 * 1000);
@@ -97,6 +98,12 @@ export class TradingAdminHandler {
 
   async handleCallback(ctx: Context, data: string): Promise<boolean> {
     const telegramId = ctx.from!.id;
+
+    // Evaluation type toggle
+    if (data.startsWith('tc_evaltype_toggle_')) {
+      const challengeId = parseInt(data.replace('tc_evaltype_toggle_', ''));
+      return await this.handleEvalTypeToggle(ctx, challengeId);
+    }
 
     // Type selection
     if (data === 'tc_type_demo' || data === 'tc_type_real' || data === 'tc_type_hybrid') {
@@ -3014,6 +3021,114 @@ export class TradingAdminHandler {
     // Post to channels (test channels if configured)
     await ctx.telegram.sendMessage(config.mainChannelId, post, { parse_mode: 'HTML', ...keyboard, link_preview_options: { is_disabled: true } });
     await ctx.telegram.sendMessage(config.challengeChannelId, post, { parse_mode: 'HTML', ...keyboard, link_preview_options: { is_disabled: true } });
+  }
+
+  // ==================== EVALUATION TYPE ====================
+
+  async evaluationType(ctx: Context) {
+    if (!this.checkAdmin(ctx)) return;
+
+    const challenges = await tradingChallengeService.getAllChallenges();
+    const active = challenges.filter(c => !['draft', 'completed', 'deleted'].includes(c.status));
+
+    if (active.length === 0) {
+      await ctx.reply('❌ No active trading challenges found.');
+      return;
+    }
+
+    let text = '<b>📊 EVALUATION TYPE</b>\n\nSelect a challenge to change its evaluation mode:\n\n';
+    const buttons: any[][] = [];
+
+    for (const c of active) {
+      const evalType = (c as any).evaluation_type || 'winnerpip';
+      const icon = evalType === 'winnerpip' ? '🤖' : '📋';
+      text += `${icon} <b>${c.title}</b> — ${evalType === 'winnerpip' ? 'WinnerPip (Auto)' : 'Legacy (Manual)'}\n`;
+      buttons.push([Markup.button.callback(
+        `${c.title} → ${evalType === 'winnerpip' ? 'Switch to Legacy' : 'Switch to WinnerPip'}`,
+        `tc_evaltype_toggle_${c.id}`
+      )]);
+    }
+
+    await ctx.reply(text, { parse_mode: 'HTML', ...Markup.inlineKeyboard(buttons) });
+  }
+
+  async handleEvalTypeToggle(ctx: Context, challengeId: number): Promise<boolean> {
+    const challenge = await tradingChallengeService.getChallengeById(challengeId);
+    if (!challenge) { await ctx.reply('❌ Challenge not found.'); return true; }
+
+    const currentType = (challenge as any).evaluation_type || 'winnerpip';
+    const newType = currentType === 'winnerpip' ? 'legacy' : 'winnerpip';
+
+    await tradingChallengeService.setEvaluationType(challengeId, newType as 'winnerpip' | 'legacy');
+
+    const icon = newType === 'winnerpip' ? '🤖' : '📋';
+    const label = newType === 'winnerpip' ? 'WinnerPip (Automatic)' : 'Legacy (Manual Submission)';
+
+    await ctx.answerCbQuery(`Switched to ${label}`);
+    await ctx.reply(
+      `${icon} <b>Evaluation type updated!</b>\n\n` +
+      `<b>${challenge.title}</b> → <b>${label}</b>\n\n` +
+      (newType === 'winnerpip'
+        ? '<i>When challenge ends: No submission window. Final pull + auto-evaluation + winners announced after 24h review.</i>'
+        : '<i>When challenge ends: 48h submission window opens. Manual evaluation via /evaluate. Winners selected manually.</i>'),
+      { parse_mode: 'HTML' }
+    );
+    return true;
+  }
+
+  // ==================== EXPORT LEADERBOARD ====================
+
+  async exportLeaderboard(ctx: Context) {
+    if (!this.checkAdmin(ctx)) return;
+
+    const challenges = await tradingChallengeService.getActiveChallenges();
+    const allChallenges = await tradingChallengeService.getAllChallenges();
+    // Include active + recently ended (reviewing) challenges
+    const eligible = [...challenges, ...allChallenges.filter(c => c.status === 'reviewing' && !c.winners_posted_at)];
+    const unique = [...new Map(eligible.map(c => [c.id, c])).values()];
+
+    if (unique.length === 0) {
+      await ctx.reply('❌ No active or evaluating challenges found.');
+      return;
+    }
+
+    const challenge = unique[0]; // Use the most relevant challenge
+
+    await ctx.reply('⏳ Generating leaderboard export...');
+
+    try {
+      const result = await db.query(
+        `SELECT l.*, r.email, r.investor_password, r.telegram_id, r.username, r.nickname, r.account_number, r.mt5_server, r.account_type
+         FROM wp_leaderboard l
+         JOIN trading_registrations r ON l.registration_id = r.id
+         WHERE l.challenge_id = $1
+         ORDER BY l.account_type, l.rank ASC NULLS LAST`,
+        [challenge.id]
+      );
+
+      if (result.rows.length === 0) {
+        await ctx.reply('📊 No leaderboard data yet for this challenge.');
+        return;
+      }
+
+      // Generate CSV
+      const header = 'Rank,Nickname,Username,Telegram_ID,Email,Account_Number,Server,Account_Type,Investor_Password,Current_Balance,Adjusted_Balance,Qualified_Profit,Gross_Profit,Profit_Removed,Total_Trades,Qualified_Trades,Flagged_Trades,Active_Days,Is_Qualified,Last_Trade_Time\n';
+      const rows = result.rows.map(r =>
+        `${r.rank || 'N/A'},${r.nickname || 'N/A'},@${r.username || 'unknown'},${r.telegram_id},${r.email},${r.account_number},${r.mt5_server || 'N/A'},${r.account_type},${r.investor_password || 'N/A'},${parseFloat(r.current_balance).toFixed(2)},${parseFloat(r.adjusted_balance).toFixed(2)},${parseFloat(r.qualified_profit).toFixed(2)},${parseFloat(r.gross_profit).toFixed(2)},${parseFloat(r.profit_removed).toFixed(2)},${r.total_trades},${r.qualified_trades},${r.flagged_trades},${r.active_days},${r.is_qualified},${r.last_trade_time || 'N/A'}`
+      ).join('\n');
+
+      const csv = header + rows;
+      const filename = `${challenge.title.replace(/\s+/g, '_')}_leaderboard_${new Date().toISOString().split('T')[0]}.csv`;
+
+      await ctx.telegram.sendDocument(config.adminUserId, {
+        source: Buffer.from(csv),
+        filename,
+      }, { caption: `📊 <b>Leaderboard Export</b>\n<b>${challenge.title}</b>\n\n${result.rows.length} participants`, parse_mode: 'HTML' });
+
+    } catch (error) {
+      console.error('Error exporting leaderboard:', error);
+      await ctx.reply('❌ Error generating export.');
+    }
   }
 }
 

@@ -138,8 +138,26 @@ export class VpsPullScheduler {
     try {
       const challenges = await tradingChallengeService.getActiveChallenges();
       const activeChallenge = challenges.find(c => c.status === 'active');
-      if (!activeChallenge) {
-        console.log('📊 VPS Pull: No active challenge');
+      
+      // Also check for recently-ended WinnerPip challenges that need a final Saturday pull
+      let challengeToPull = activeChallenge;
+      if (!challengeToPull) {
+        // Check if there's a WinnerPip challenge in 'reviewing' status that ended within last 48h
+        const allChallenges = await tradingChallengeService.getAllChallenges();
+        const recentlyEnded = allChallenges.find(c => 
+          c.status === 'reviewing' && 
+          (c.evaluation_type || 'winnerpip') === 'winnerpip' &&
+          !c.winners_posted_at &&
+          (Date.now() - new Date(c.end_date).getTime()) < 48 * 60 * 60 * 1000
+        );
+        if (recentlyEnded) {
+          challengeToPull = recentlyEnded;
+          console.log(`📊 VPS Pull: Final sync pull for recently-ended challenge "${recentlyEnded.title}"`);
+        }
+      }
+
+      if (!challengeToPull) {
+        console.log('📊 VPS Pull: No active or recently-ended challenge');
         this.isRunning = false;
         return;
       }
@@ -152,7 +170,7 @@ export class VpsPullScheduler {
       const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
 
       if (isWeekend) {
-        const weekendAllowed = await this.isWeekendTradingAllowed(activeChallenge.id);
+        const weekendAllowed = await this.isWeekendTradingAllowed(challengeToPull.id);
 
         if (!weekendAllowed) {
           // Saturday first pull (06:00 EAT = UTC hour 3) — always run as sync check
@@ -171,7 +189,7 @@ export class VpsPullScheduler {
         }
       }
 
-      const accounts = await this.getAccountsToPull(activeChallenge.id);
+      const accounts = await this.getAccountsToPull(challengeToPull.id);
       if (accounts.length === 0) {
         console.log('📊 VPS Pull: No accounts to pull');
         this.isRunning = false;
@@ -181,14 +199,14 @@ export class VpsPullScheduler {
       console.log(`📊 VPS Pull: Starting — ${accounts.length} accounts, ${this.getHealthyTerminalCount()} healthy terminals`);
 
       // Create batch record
-      const batchId = await this.createPullBatch(activeChallenge.id, accounts.length);
+      const batchId = await this.createPullBatch(challengeToPull.id, accounts.length);
 
       // Distribute accounts across HEALTHY terminals only
       const healthyTerminals = this.terminals.filter(t => t.isHealthy);
       if (healthyTerminals.length === 0) {
         console.error('❌ VPS Pull: ALL terminals unhealthy! Aborting cycle.');
         await this.completePullBatch(batchId, 0, accounts.length, 0, 'all_terminals_unhealthy');
-        await this.reportCriticalFailure(activeChallenge, 'All 10 terminals are unhealthy. Pull cycle aborted.');
+        await this.reportCriticalFailure(challengeToPull, 'All 10 terminals are unhealthy. Pull cycle aborted.');
         this.isRunning = false;
         return;
       }
@@ -197,7 +215,7 @@ export class VpsPullScheduler {
 
       // Process all terminals IN PARALLEL
       const terminalPromises = terminalBuckets.map(({ terminal, accounts: termAccounts }) =>
-        this.processTerminalBatch(terminal, termAccounts, activeChallenge, batchId)
+        this.processTerminalBatch(terminal, termAccounts, challengeToPull, batchId)
       );
 
       const allResults = (await Promise.all(terminalPromises)).flat();
@@ -213,7 +231,7 @@ export class VpsPullScheduler {
           console.log(`🔄 VPS Pull: Redistributing ${retryAccounts.length} accounts to ${stillHealthy.length} healthy terminals`);
           const retryBuckets = this.distributeToTerminals(retryAccounts, stillHealthy);
           const retryPromises = retryBuckets.map(({ terminal, accounts: ta }) =>
-            this.processTerminalBatch(terminal, ta, activeChallenge, batchId)
+            this.processTerminalBatch(terminal, ta, challengeToPull, batchId)
           );
           const retryResults = (await Promise.all(retryPromises)).flat();
           // Merge retry results (replace terminal_unhealthy entries)
@@ -232,7 +250,7 @@ export class VpsPullScheduler {
 
       // Handle credential failures — notify users
       for (const failure of credentialFailures) {
-        await this.handleCredentialFailure(failure, activeChallenge);
+        await this.handleCredentialFailure(failure, challengeToPull);
       }
 
       // Update registration pull statuses in bulk
@@ -254,16 +272,35 @@ export class VpsPullScheduler {
       // Run evaluation engine to update leaderboard
       if (successful.length > 0) {
         try {
-          const evalResult = await evaluationEngine.evaluate(activeChallenge.id);
+          const evalResult = await evaluationEngine.evaluate(challengeToPull.id);
           console.log(`📊 Evaluation: ${evalResult.evaluated} accounts, ${evalResult.flagged} flags, ${evalResult.qualified} qualified`);
         } catch (evalError) {
           console.error('❌ Evaluation engine error:', evalError);
         }
       }
 
-      // Report to admin only for credential failures (terminal issues handled by health-check)
-      if (credentialFailures.length > 0) {
-        await this.reportToAdmin(activeChallenge, successful.length, credentialFailures, otherFailures, duration);
+      // Report to admin for credential failures OR high failure rate
+      const totalAttempts = successful.length + credentialFailures.length + otherFailures.length;
+      const failureRate = totalAttempts > 0 ? ((credentialFailures.length + otherFailures.length) / totalAttempts) * 100 : 0;
+
+      if (credentialFailures.length > 0 || failureRate > 30) {
+        await this.reportToAdmin(challengeToPull, successful.length, credentialFailures, otherFailures, duration);
+      }
+
+      // Critical alert if failure rate exceeds 50%
+      if (failureRate > 50 && totalAttempts > 10) {
+        try {
+          await this.bot.bot.telegram.sendMessage(config.adminUserId,
+            `🚨 <b>HIGH FAILURE RATE WARNING</b>\n\n` +
+            `<b>${challengeToPull.title}</b>\n\n` +
+            `⚠️ <b>${failureRate.toFixed(0)}% of pulls failed</b> this cycle.\n` +
+            `✅ Success: ${successful.length}\n` +
+            `🔑 Credential: ${credentialFailures.length}\n` +
+            `❌ Other: ${otherFailures.length}\n\n` +
+            `Healthy terminals: ${this.getHealthyTerminalCount()}/10\n\n` +
+            `<i>If this persists, consider switching to Legacy evaluation mode via /evaluationtype</i>`,
+            { parse_mode: 'HTML' });
+        } catch (e) {}
       }
 
     } catch (error) {
@@ -280,18 +317,18 @@ export class VpsPullScheduler {
 
   /**
    * Check if weekend trading is allowed for this challenge.
-   * Looks for a 'weekend_trading' rule in wp_challenge_rules.
+   * Reads from the 'config' rule in wp_challenge_rules (same as evaluation engine).
    * If no rule exists, defaults to false (no weekend trading).
    */
   private async isWeekendTradingAllowed(challengeId: number): Promise<boolean> {
     try {
       const result = await db.query(
-        `SELECT parameters FROM wp_challenge_rules WHERE challenge_id = $1 AND rule_code = 'weekend_trading'`,
+        `SELECT parameters FROM wp_challenge_rules WHERE challenge_id = $1 AND rule_code = 'config'`,
         [challengeId]
       );
       if (result.rows.length > 0) {
         const params = result.rows[0].parameters;
-        return params?.allowed === true;
+        return params?.weekend_trading === true;
       }
       return false;
     } catch {
@@ -827,14 +864,30 @@ export class VpsPullScheduler {
   // ==================== ADMIN REPORTING ====================
 
   private async reportToAdmin(challenge: TradingChallenge, successCount: number, credentialFailures: PullResult[], otherFailures: PullResult[], durationSec: number) {
+    const totalAttempts = successCount + credentialFailures.length + otherFailures.length;
+    const failureRate = totalAttempts > 0 ? ((credentialFailures.length + otherFailures.length) / totalAttempts * 100).toFixed(1) : '0';
+
     let text = `📊 <b>VPS Pull Report</b>\n<b>${challenge.title}</b>\n\n`;
     text += `⏱️ ${durationSec}s | Terminals: ${this.getHealthyTerminalCount()}/10 healthy\n`;
-    text += `✅ ${successCount} | 🔑 ${credentialFailures.length} | ❌ ${otherFailures.length}\n\n`;
+    text += `✅ ${successCount} | 🔑 ${credentialFailures.length} | ❌ ${otherFailures.length} | 📉 ${failureRate}% fail rate\n\n`;
 
     if (credentialFailures.length > 0) {
       text += `<b>🔑 Password Changed (users notified):</b>\n`;
       credentialFailures.slice(0, 15).forEach(f => { text += `• @${f.username || 'unknown'} — ${f.accountNumber}\n`; });
       if (credentialFailures.length > 15) text += `<i>+${credentialFailures.length - 15} more</i>\n`;
+      text += '\n';
+    }
+
+    if (otherFailures.length > 0) {
+      text += `<b>❌ Other Failures:</b>\n`;
+      // Group by error code
+      const grouped = new Map<string, number>();
+      otherFailures.forEach(f => {
+        const code = f.errorCode || 'unknown';
+        grouped.set(code, (grouped.get(code) || 0) + 1);
+      });
+      grouped.forEach((count, code) => { text += `• ${code}: ${count}\n`; });
+      text += '\n';
     }
 
     if (text.length > 4000) text = text.substring(0, 4000) + '\n<i>...truncated</i>';

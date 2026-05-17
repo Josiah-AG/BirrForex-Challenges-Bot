@@ -112,6 +112,11 @@ async function migrate() {
     await db.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_wp_rules_challenge_code ON wp_challenge_rules(challenge_id, rule_code);`).catch(() => {});
     console.log('✅ Nickname & rules migration OK');
 
+    // Evaluation type & winners_posted_at migration
+    await db.query(`ALTER TABLE trading_challenges ADD COLUMN IF NOT EXISTS evaluation_type VARCHAR(20) DEFAULT 'winnerpip';`).catch(() => {});
+    await db.query(`ALTER TABLE trading_challenges ADD COLUMN IF NOT EXISTS winners_posted_at TIMESTAMP;`).catch(() => {});
+    console.log('✅ Evaluation type migration OK');
+
     console.log('✅ Database migration completed successfully!');
     process.exit(0);
   } catch (error) {

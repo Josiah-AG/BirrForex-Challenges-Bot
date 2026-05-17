@@ -49,6 +49,8 @@ export class Bot {
       { command: 'cancelchallenge', description: 'Cancel today\'s challenge' },
       { command: 'testposts', description: 'Test scheduled posts' },
       { command: 'settings', description: 'View bot settings' },
+      { command: 'evaluationtype', description: 'Toggle evaluation mode (WinnerPip/Legacy)' },
+      { command: 'exportleaderboard', description: 'Export leaderboard data as CSV' },
       { command: 'createtradingchallenge', description: 'Create trading challenge' },
       { command: 'postchallenge', description: 'Post trading challenge announcement' },
       { command: 'updatechallenge', description: 'Update PDF/video link' },
@@ -248,6 +250,8 @@ export class Bot {
     this.bot.command('postchallenge', (ctx) => tradingAdminHandler.postChallenge(ctx));
     this.bot.command('updatechallenge', (ctx) => tradingAdminHandler.updateChallenge(ctx));
     this.bot.command('tradingchallenges', (ctx) => tradingAdminHandler.listTradingChallenges(ctx));
+    this.bot.command('evaluationtype', (ctx) => tradingAdminHandler.evaluationType(ctx));
+    this.bot.command('exportleaderboard', (ctx) => tradingAdminHandler.exportLeaderboard(ctx));
     this.bot.command('unregister', (ctx) => tradingAdminHandler.unregister(ctx));
     this.bot.command('retractregistration', (ctx) => tradingAdminHandler.retractRegistration(ctx));
     this.bot.command('engagefailedusers', (ctx) => tradingAdminHandler.engageFailedUsers(ctx));

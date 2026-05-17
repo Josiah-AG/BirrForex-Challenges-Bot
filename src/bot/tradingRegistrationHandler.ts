@@ -123,16 +123,8 @@ export class TradingRegistrationHandler {
       );
     } else {
       const accountType = challenge.type as 'demo' | 'real';
-      userSessions.set(telegramId, { step: 'tc_enter_nickname', data: { challenge_id: challengeId, account_type: accountType } });
-      await ctx.reply(
-        '🏷️ Choose a <b>Challenge Nickname</b>\n\n' +
-        'This will be displayed on the leaderboard instead of your real name.\n' +
-        '• 3-20 characters\n' +
-        '• Letters, numbers, underscores only\n' +
-        '• Must be unique\n\n' +
-        'Send your nickname:',
-        { parse_mode: 'HTML' }
-      );
+      userSessions.set(telegramId, { step: 'tc_enter_email', data: { challenge_id: challengeId, account_type: accountType } });
+      await ctx.reply('📧 Please send your <b>Exness email address:</b>', { parse_mode: 'HTML' });
     }
   }
 
@@ -217,13 +209,8 @@ export class TradingRegistrationHandler {
       );
     } else {
       const accountType = challenge.type as 'demo' | 'real';
-      userSessions.set(telegramId, { step: 'tc_enter_nickname', data: { challenge_id: challengeId, account_type: accountType } });
-      await ctx.reply(
-        '🏷️ Choose a <b>Challenge Nickname</b>\n\n' +
-        'This will be displayed on the leaderboard instead of your real name.\n' +
-        '• 3-20 characters\n• Letters, numbers, underscores only\n• Must be unique\n\nSend your nickname:',
-        { parse_mode: 'HTML' }
-      );
+      userSessions.set(telegramId, { step: 'tc_enter_email', data: { challenge_id: challengeId, account_type: accountType } });
+      await ctx.reply('📧 Please send your <b>Exness email address:</b>', { parse_mode: 'HTML' });
     }
   }
 
@@ -311,7 +298,7 @@ export class TradingRegistrationHandler {
   async handleCallback(ctx: Context, data: string): Promise<boolean> {
     const telegramId = ctx.from!.id;
 
-    // Account type selection for hybrid — then ask for nickname
+    // Account type selection for hybrid — then ask for email
     if (data.startsWith('tc_reg_demo_') || data.startsWith('tc_reg_real_')) {
       const parts = data.split('_');
       const accountType = parts[2] as 'demo' | 'real';
@@ -319,14 +306,9 @@ export class TradingRegistrationHandler {
       const session = userSessions.get(telegramId);
       if (!session) return true;
       session.data.account_type = accountType;
-      session.step = 'tc_enter_nickname';
+      session.step = 'tc_enter_email';
       await ctx.answerCbQuery();
-      await ctx.reply(
-        '🏷️ Choose a <b>Challenge Nickname</b>\n\n' +
-        'This will be displayed on the leaderboard instead of your real name.\n' +
-        '• 3-20 characters\n• Letters, numbers, underscores only\n• Must be unique\n\nSend your nickname:',
-        { parse_mode: 'HTML' }
-      );
+      await ctx.reply('📧 Please send your <b>Exness email address:</b>', { parse_mode: 'HTML' });
       return true;
     }
 
@@ -414,13 +396,8 @@ export class TradingRegistrationHandler {
       const reg = await tradingChallengeService.getRegistration(challengeId, telegramId);
       if (reg) { await tradingChallengeService.deleteRegistration(reg.id); }
       await ctx.answerCbQuery();
-      userSessions.set(telegramId, { step: 'tc_enter_nickname', data: { challenge_id: challengeId, account_type: 'real' } });
-      await ctx.reply(
-        '🏷️ Choose a <b>Challenge Nickname</b>\n\n' +
-        'This will be displayed on the leaderboard instead of your real name.\n' +
-        '• 3-20 characters\n• Letters, numbers, underscores only\n• Must be unique\n\nSend your nickname:',
-        { parse_mode: 'HTML' }
-      );
+      userSessions.set(telegramId, { step: 'tc_enter_email', data: { challenge_id: challengeId, account_type: 'real' } });
+      await ctx.reply('📧 Please send your <b>Exness email address:</b>', { parse_mode: 'HTML' });
       return true;
     }
 
@@ -523,7 +500,7 @@ export class TradingRegistrationHandler {
     if (!session) return;
 
     switch (session.step) {
-      // === NICKNAME STEP (NEW) ===
+      // === NICKNAME STEP (after VPS verification) ===
       case 'tc_enter_nickname': {
         const nickname = text.trim();
         // Validate: 3-20 chars, alphanumeric + underscore
@@ -542,8 +519,8 @@ export class TradingRegistrationHandler {
           return;
         }
         session.data.nickname = nickname;
-        session.step = 'tc_enter_email';
-        await ctx.reply(`✅ Nickname set: <b>${nickname}</b>\n\n📧 Now send your <b>Exness email address:</b>`, { parse_mode: 'HTML' });
+        // Nickname collected — now complete registration
+        await this.completeRegistration(ctx, telegramId);
         break;
       }
 
@@ -861,9 +838,9 @@ export class TradingRegistrationHandler {
         await ctx.reply('✅ <b>MT5 connection verified!</b>\n\n⏳ Verifying account allocation...', { parse_mode: 'HTML' });
         await this.verifyRealAccount(ctx, telegramId);
       } else {
-        // Demo — complete registration
+        // Demo — VPS verified, now ask for nickname
         await ctx.reply('✅ <b>MT5 connection verified!</b>', { parse_mode: 'HTML' });
-        await this.completeRegistration(ctx, telegramId);
+        await this.askForNickname(ctx, telegramId);
       }
       return;
     }
@@ -913,7 +890,7 @@ export class TradingRegistrationHandler {
           await ctx.reply('⏳ <b>Verifying account allocation...</b>', { parse_mode: 'HTML' });
           await this.verifyRealAccount(ctx, telegramId);
         } else {
-          await this.completeRegistration(ctx, telegramId);
+          await this.askForNickname(ctx, telegramId);
         }
         break;
     }
@@ -1012,7 +989,7 @@ export class TradingRegistrationHandler {
           { parse_mode: 'HTML', ...Markup.inlineKeyboard([[Markup.button.callback('📝 Submit New Real Account', `tc_new_real_acct_${challengeId}`)]]) });
         return;
       }
-      await this.completeRegistration(ctx, telegramId);
+      await this.askForNickname(ctx, telegramId);
       return;
     }
 
@@ -1061,6 +1038,24 @@ export class TradingRegistrationHandler {
     }
     await ctx.reply('⚠️ Could not verify account. Please try again later.');
     userSessions.delete(telegramId);
+  }
+
+  // ==================== ASK FOR NICKNAME (after all verifications pass) ====================
+
+  private async askForNickname(ctx: Context, telegramId: number) {
+    const session = userSessions.get(telegramId);
+    if (!session) return;
+
+    session.step = 'tc_enter_nickname';
+    await ctx.reply(
+      '🏷️ Almost done! Choose a <b>Challenge Nickname</b>\n\n' +
+      'This will be displayed on the leaderboard instead of your real name.\n' +
+      '• 3-20 characters\n' +
+      '• Letters, numbers, underscores only\n' +
+      '• Must be unique\n\n' +
+      'Send your nickname:',
+      { parse_mode: 'HTML' }
+    );
   }
 
   // ==================== COMPLETE REGISTRATION ====================

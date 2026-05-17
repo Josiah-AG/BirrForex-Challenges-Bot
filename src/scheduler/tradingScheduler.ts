@@ -411,44 +411,69 @@ export class TradingScheduler {
   }
 
   async endChallenge(challenge: TradingChallenge) {
-    // Deadline = 48 hours from now, stored as real UTC
-    // toEATStrings will convert it to EAT for comparison
-    const deadline = new Date(Date.now() + 48 * 60 * 60 * 1000);
-    await tradingChallengeService.setSubmissionDeadline(challenge.id, deadline);
-    await tradingChallengeService.updateChallengeStatus(challenge.id, 'submission_open');
+    const evaluationType = challenge.evaluation_type || 'winnerpip';
 
-    const deadlineStr = toEAT(deadline).toLocaleString('en-US', { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
-    const botInfo = await this.bot.bot.telegram.getMe();
+    if (evaluationType === 'legacy') {
+      // LEGACY MODE: Post submission request with 48h window
+      const deadline = new Date(Date.now() + 48 * 60 * 60 * 1000);
+      await tradingChallengeService.setSubmissionDeadline(challenge.id, deadline);
+      await tradingChallengeService.updateChallengeStatus(challenge.id, 'submission_open');
 
-    let guideLink = '';
-    if (config.investorPasswordGuideLink) {
-      guideLink = `\n📋 How to get your Investor Password: <a href="${config.investorPasswordGuideLink}">Guide Link</a>\n`;
-    }
+      const deadlineStr = toEAT(deadline).toLocaleString('en-US', { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
+      const botInfo = await this.bot.bot.telegram.getMe();
 
-    const text = `<b>🏁 CHALLENGE IS OVER!</b>\n\n` +
-      `<b>${challenge.title}</b> has officially ended!\n\n` +
-      `What an exciting race! We hope you all gained valuable experience and sharpened your trading skills throughout this challenge.\n\n` +
-      `<i>Thank you to every participant for your dedication and effort!</i> 💪\n\n` +
-      `🎯 <b>If you hit the target ($${challenge.target_balance}), submit your details for evaluation!</b>\n\n` +
-      `⚠️ <b>ONLY</b> participants who reached the target balance should submit results.\n\n` +
-      `➡️ You have <b>48 HOURS</b> to submit your results\n` +
-      `➡️ Click the button below to start your submission\n` +
-      `➡️ Late submissions will <b>NOT</b> be accepted\n\n` +
-      `⏰ <b>Submission deadline:</b> ${deadlineStr}\n` +
-      guideLink;
+      let guideLink = '';
+      if (config.investorPasswordGuideLink) {
+        guideLink = `\n📋 How to get your Investor Password: <a href="${config.investorPasswordGuideLink}">Guide Link</a>\n`;
+      }
 
-    const keyboard = Markup.inlineKeyboard([
-      [Markup.button.url('📋 Submit Results', `https://t.me/${botInfo.username}?start=tc_submit_${challenge.id}`)],
-    ]);
+      const text = `<b>🏁 CHALLENGE IS OVER!</b>\n\n` +
+        `<b>${challenge.title}</b> has officially ended!\n\n` +
+        `What an exciting race! We hope you all gained valuable experience and sharpened your trading skills throughout this challenge.\n\n` +
+        `<i>Thank you to every participant for your dedication and effort!</i> 💪\n\n` +
+        `🎯 <b>If you hit the target ($${challenge.target_balance}), submit your details for evaluation!</b>\n\n` +
+        `⚠️ <b>ONLY</b> participants who reached the target balance should submit results.\n\n` +
+        `➡️ You have <b>48 HOURS</b> to submit your results\n` +
+        `➡️ Click the button below to start your submission\n` +
+        `➡️ Late submissions will <b>NOT</b> be accepted\n\n` +
+        `⏰ <b>Submission deadline:</b> ${deadlineStr}\n` +
+        guideLink;
 
-    const opts = { parse_mode: 'HTML' as const, ...keyboard, link_preview_options: { is_disabled: true } };
+      const keyboard = Markup.inlineKeyboard([
+        [Markup.button.url('📋 Submit Results', `https://t.me/${botInfo.username}?start=tc_submit_${challenge.id}`)],
+      ]);
 
-    try {
-      await this.bot.bot.telegram.sendMessage(config.mainChannelId, text, opts);
-      await this.bot.bot.telegram.sendMessage(config.challengeChannelId, text, opts);
-      console.log(`✅ Trading challenge ${challenge.id} ended, submission open until ${deadlineStr}`);
-    } catch (e) {
-      console.error('Error posting challenge end:', e);
+      const opts = { parse_mode: 'HTML' as const, ...keyboard, link_preview_options: { is_disabled: true } };
+
+      try {
+        await this.bot.bot.telegram.sendMessage(config.mainChannelId, text, opts);
+        await this.bot.bot.telegram.sendMessage(config.challengeChannelId, text, opts);
+        console.log(`✅ Trading challenge ${challenge.id} ended (LEGACY mode), submission open until ${deadlineStr}`);
+      } catch (e) {
+        console.error('Error posting challenge end:', e);
+      }
+    } else {
+      // WINNERPIP MODE: Post "challenge ended, final check in progress" — no submission window
+      await tradingChallengeService.updateChallengeStatus(challenge.id, 'reviewing');
+
+      const text = `<b>🏁 CHALLENGE IS OVER!</b>\n\n` +
+        `<b>${challenge.title}</b> has officially ended!\n\n` +
+        `What an exciting race! We hope you all gained valuable experience and sharpened your trading skills throughout this challenge.\n\n` +
+        `<i>Thank you to every participant for your dedication and effort!</i> 💪\n\n` +
+        `📊 <b>Final evaluation is in progress.</b>\n\n` +
+        `Our system is performing a final check on all trade data. Winners will be announced within <b>24 hours</b> after the final data sync.\n\n` +
+        `⏳ <i>Stay tuned for the results!</i> 🏆\n\n` +
+        `@${config.mainChannelUsername}`;
+
+      const opts = { parse_mode: 'HTML' as const, link_preview_options: { is_disabled: true } };
+
+      try {
+        await this.bot.bot.telegram.sendMessage(config.mainChannelId, text, opts);
+        await this.bot.bot.telegram.sendMessage(config.challengeChannelId, text, opts);
+        console.log(`✅ Trading challenge ${challenge.id} ended (WINNERPIP mode), final evaluation in progress`);
+      } catch (e) {
+        console.error('Error posting challenge end:', e);
+      }
     }
   }
 

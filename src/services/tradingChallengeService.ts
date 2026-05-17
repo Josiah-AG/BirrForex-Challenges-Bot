@@ -18,6 +18,8 @@ export interface TradingChallenge {
   prize_pool_text: string | null;
   announcement_posted: boolean;
   submission_deadline: Date | null;
+  evaluation_type: 'winnerpip' | 'legacy';
+  winners_posted_at: Date | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -643,6 +645,52 @@ class TradingChallengeService {
       [challengeId, date]
     );
     return result.rows;
+  }
+
+  // ==================== EVALUATION TYPE ====================
+
+  async setEvaluationType(challengeId: number, evaluationType: 'winnerpip' | 'legacy'): Promise<void> {
+    await db.query(
+      'UPDATE trading_challenges SET evaluation_type = $1, updated_at = NOW() WHERE id = $2',
+      [evaluationType, challengeId]
+    );
+  }
+
+  async getEvaluationType(challengeId: number): Promise<'winnerpip' | 'legacy'> {
+    const result = await db.query(
+      'SELECT evaluation_type FROM trading_challenges WHERE id = $1',
+      [challengeId]
+    );
+    return result.rows[0]?.evaluation_type || 'winnerpip';
+  }
+
+  async markWinnersPosted(challengeId: number): Promise<void> {
+    await db.query(
+      `UPDATE trading_challenges SET winners_posted_at = NOW(), status = 'completed', updated_at = NOW() WHERE id = $1`,
+      [challengeId]
+    );
+  }
+
+  /**
+   * Get computed display status for WinnerPip challenges page
+   */
+  getDisplayStatus(challenge: TradingChallenge): string {
+    if (!challenge.announcement_posted && challenge.status === 'draft') return 'coming_soon';
+    if (challenge.status === 'registration_open') return 'registration_open';
+    if (challenge.status === 'active') return 'ongoing';
+    if (['submission_open', 'reviewing'].includes(challenge.status) && !challenge.winners_posted_at) return 'evaluation';
+    if (challenge.winners_posted_at) return 'ended';
+    if (challenge.status === 'completed' && !challenge.winners_posted_at) return 'ended'; // Legacy
+    return challenge.status;
+  }
+
+  /**
+   * Check if a challenge should still be visible on the challenges page (7 days after winners posted)
+   */
+  isVisibleOnPage(challenge: TradingChallenge): boolean {
+    if (!challenge.winners_posted_at) return true;
+    const daysSincePosted = (Date.now() - new Date(challenge.winners_posted_at).getTime()) / (1000 * 60 * 60 * 24);
+    return daysSincePosted <= 7;
   }
 }
 

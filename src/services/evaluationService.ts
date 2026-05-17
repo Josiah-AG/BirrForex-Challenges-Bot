@@ -137,9 +137,12 @@ class EvaluationService {
     return result.rows;
   }
 
-  async getTopWinners(challengeId: number, accountType: string, limit: number): Promise<EvaluationRecord[]> {
+  async getTopWinners(challengeId: number, accountType: string, limit: number): Promise<(EvaluationRecord & { nickname?: string })[]> {
     const result = await db.query(
-      'SELECT * FROM trading_evaluations WHERE challenge_id = $1 AND account_type = $2 AND is_qualified = true ORDER BY adjusted_balance DESC LIMIT $3',
+      `SELECT e.*, r.nickname FROM trading_evaluations e
+       LEFT JOIN trading_registrations r ON e.registration_id = r.id
+       WHERE e.challenge_id = $1 AND e.account_type = $2 AND e.is_qualified = true
+       ORDER BY e.adjusted_balance DESC LIMIT $3`,
       [challengeId, accountType, limit]
     );
     return result.rows;

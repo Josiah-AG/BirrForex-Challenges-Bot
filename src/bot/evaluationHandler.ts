@@ -8,6 +8,7 @@ import { evaluationService, EvaluationRecord } from '../services/evaluationServi
 import { tradingChallengeService, TradingChallenge } from '../services/tradingChallengeService';
 import { config } from '../config';
 import { exnessService } from '../services/exnessService';
+import { db } from '../database/db';
 
 interface EvalSession {
   step: string;
@@ -310,22 +311,27 @@ class EvaluationHandler {
       console.error('Error forwarding document to submission channel:', fwdErr);
     }
 
-    // Build evaluation config from challenge settings
+    // Build evaluation config from challenge settings + WinnerPip rules
     const challenge = session.challenge;
     const startDate = new Date(new Date(challenge.start_date).getTime() + 3 * 60 * 60 * 1000);
     const endDate = new Date(new Date(challenge.end_date).getTime() + 3 * 60 * 60 * 1000);
+
+    // Load rules from wp_challenge_rules (same source as WinnerPip evaluation engine)
+    const { evaluationEngine: wpEngine } = require('../services/wpEvaluationEngine');
+    const wpRules = await wpEngine.loadRules(challenge.id);
+
     const evalConfig: EvaluationConfig = {
       challengeStartDate: startDate.getUTCFullYear() + '-' + String(startDate.getUTCMonth() + 1).padStart(2, '0') + '-' + String(startDate.getUTCDate()).padStart(2, '0'),
       challengeEndDate: endDate.getUTCFullYear() + '-' + String(endDate.getUTCMonth() + 1).padStart(2, '0') + '-' + String(endDate.getUTCDate()).padStart(2, '0'),
       startingBalanceLimit: Number(challenge.starting_balance) || 50,
       targetBalance: Number(challenge.target_balance) || 100,
-      maxLot: 0.02,
-      maxOpenTrades: 3,
-      maxSamePair: 2,
-      maxSlDollars: 6,
-      maxDailyLoss: 10,
-      maxHoldHours: 24,
-      minActiveDays: 7,
+      maxLot: wpRules?.max_lot_size || 0.02,
+      maxOpenTrades: wpRules?.max_open_trades || 3,
+      maxSamePair: wpRules?.pair_limit || 2,
+      maxSlDollars: wpRules?.max_risk_dollars || 6,
+      maxDailyLoss: wpRules?.daily_loss_cap || 10,
+      maxHoldHours: wpRules?.max_hold_hours || 24,
+      minActiveDays: wpRules?.min_active_days || 7,
     };
 
     // Run evaluation
@@ -961,6 +967,30 @@ class EvaluationHandler {
         ? await evaluationService.getTopWinners(challenge.id, 'demo', demoCount)
         : [];
 
+      // Refresh usernames for winners before posting
+      const allWinners = [...realWinners, ...demoWinners];
+      for (const winner of allWinners) {
+        try {
+          const chat = await ctx.telegram.getChat(winner.telegram_id);
+          const freshUsername = (chat as any).username || null;
+          if (freshUsername && freshUsername !== winner.username) {
+            winner.username = freshUsername;
+            // Update in evaluations table
+            await db.query(
+              'UPDATE trading_evaluations SET username = $1 WHERE id = $2',
+              [freshUsername, winner.id]
+            );
+            // Update in registrations table too
+            await db.query(
+              'UPDATE trading_registrations SET username = $1 WHERE telegram_id = $2 AND challenge_id = $3',
+              [freshUsername, winner.telegram_id, challengeId]
+            );
+          }
+        } catch (e) {
+          // Can't reach user — keep existing username
+        }
+      }
+
       const announcement = this.generateWinnerAnnouncement(challenge, realWinners, demoWinners);
       const winnerImagePath = path.join(process.cwd(), 'assets', 'winner.png');
 
@@ -1035,6 +1065,9 @@ class EvaluationHandler {
       }
 
       await ctx.reply('✅ Winner announcement posted to both channels!');
+
+      // Mark challenge as winners posted (sets winners_posted_at and status to completed)
+      await tradingChallengeService.markWinnersPosted(challengeId);
     } catch (error) {
       console.error('Error in handleAnnounceConfirm:', error);
       await ctx.reply('❌ Error posting announcement.');
@@ -2527,8 +2560,9 @@ class EvaluationHandler {
       realWinners.forEach((w, i) => {
         const medal = medals[i] || '🏅';
         const username = w.username ? '@' + w.username : 'User ' + w.telegram_id;
+        const nickname = (w as any).nickname ? ' (' + (w as any).nickname + ')' : '';
         const prize = realPrizes[i] ? String(realPrizes[i]) : '';
-        text += medal + ' <b>' + this.getOrdinal(i + 1) + ' Place</b> — ' + username + '\n';
+        text += medal + ' <b>' + this.getOrdinal(i + 1) + ' Place</b> — ' + username + nickname + '\n';
         text += '   💰 Adjusted Balance: <b>$' + Number(w.adjusted_balance).toFixed(2) + '</b>\n';
         text += '   📈 Trades: ' + w.total_trades + ' | Flagged: ' + w.flagged_count + '\n';
         if (prize) text += '   🎁 Prize: <b>' + prize + '</b>\n';
@@ -2543,8 +2577,9 @@ class EvaluationHandler {
       demoWinners.forEach((w, i) => {
         const medal = medals[i] || '🏅';
         const username = w.username ? '@' + w.username : 'User ' + w.telegram_id;
+        const nickname = (w as any).nickname ? ' (' + (w as any).nickname + ')' : '';
         const prize = demoPrizes[i] ? '$' + String(demoPrizes[i]) : '';
-        text += medal + ' <b>' + this.getOrdinal(i + 1) + ' Place</b> — ' + username + '\n';
+        text += medal + ' <b>' + this.getOrdinal(i + 1) + ' Place</b> — ' + username + nickname + '\n';
         text += '   💰 Adjusted Balance: <b>$' + Number(w.adjusted_balance).toFixed(2) + '</b>\n';
         text += '   📈 Trades: ' + w.total_trades + ' | Flagged: ' + w.flagged_count + '\n';
         if (prize) text += '   🎁 Prize: <b>' + prize + '</b>\n';

@@ -36,7 +36,7 @@ async function main() {
     const { evaluationEngine } = require('./services/wpEvaluationEngine');
     evaluationEngine.setBot(bot);
 
-    // Start WinnerPip API server
+    // Start WinnerPip API server (serves api.winnerpip.com endpoints)
     startApiServer();
 
     // Pass schedulers to bot for testing

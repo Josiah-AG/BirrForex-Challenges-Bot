@@ -215,30 +215,59 @@ app.get('/api/challenges', async (req, res) => {
     const result = await db.query(
       `SELECT id, title, type, status, start_date, end_date, starting_balance, target_balance,
               real_winners_count, demo_winners_count, real_prizes, demo_prizes, prize_pool_text,
-              pdf_url, video_url
+              pdf_url, video_url, announcement_posted, evaluation_type, winners_posted_at
        FROM trading_challenges
        WHERE status != 'deleted'
        ORDER BY created_at DESC
        LIMIT 20`
     );
 
-    const challenges: any[] = result.rows.map(c => ({
-      id: c.id,
-      title: c.title,
-      type: c.type,
-      status: c.status,
-      startDate: c.start_date,
-      endDate: c.end_date,
-      startingBalance: c.starting_balance,
-      targetBalance: c.target_balance,
-      realWinnersCount: c.real_winners_count,
-      demoWinnersCount: c.demo_winners_count,
-      realPrizes: typeof c.real_prizes === 'string' ? JSON.parse(c.real_prizes) : c.real_prizes,
-      demoPrizes: typeof c.demo_prizes === 'string' ? JSON.parse(c.demo_prizes) : c.demo_prizes,
-      prizePoolText: c.prize_pool_text,
-      pdfUrl: c.pdf_url,
-      videoUrl: c.video_url,
-    }));
+    const challenges: any[] = [];
+    
+    for (const c of result.rows) {
+      // Compute display status
+      let displayStatus = 'coming_soon';
+      if (!c.announcement_posted && c.status === 'draft') displayStatus = 'coming_soon';
+      else if (c.status === 'registration_open') displayStatus = 'registration_open';
+      else if (c.status === 'active') displayStatus = 'ongoing';
+      else if (['submission_open', 'reviewing'].includes(c.status) && !c.winners_posted_at) displayStatus = 'evaluation';
+      else if (c.winners_posted_at) displayStatus = 'ended';
+      else if (c.status === 'completed' && !c.winners_posted_at) displayStatus = 'ended'; // Legacy completed challenges without winners_posted_at
+      else displayStatus = c.status;
+
+      // 7-day visibility: hide challenges where winners were posted more than 7 days ago
+      if (c.winners_posted_at) {
+        const daysSincePosted = (Date.now() - new Date(c.winners_posted_at).getTime()) / (1000 * 60 * 60 * 24);
+        if (daysSincePosted > 7) continue; // Skip — no longer visible
+      }
+
+      // Hide old completed challenges that predate the winners_posted_at feature
+      if (c.status === 'completed' && !c.winners_posted_at) {
+        const daysSinceEnd = (Date.now() - new Date(c.end_date).getTime()) / (1000 * 60 * 60 * 24);
+        if (daysSinceEnd > 14) continue; // Skip — old challenge, no longer relevant
+      }
+
+      challenges.push({
+        id: c.id,
+        title: c.title,
+        type: c.type,
+        status: c.status,
+        displayStatus,
+        startDate: c.start_date,
+        endDate: c.end_date,
+        startingBalance: c.starting_balance,
+        targetBalance: c.target_balance,
+        realWinnersCount: c.real_winners_count,
+        demoWinnersCount: c.demo_winners_count,
+        realPrizes: typeof c.real_prizes === 'string' ? JSON.parse(c.real_prizes) : c.real_prizes,
+        demoPrizes: typeof c.demo_prizes === 'string' ? JSON.parse(c.demo_prizes) : c.demo_prizes,
+        prizePoolText: c.prize_pool_text,
+        pdfUrl: c.pdf_url,
+        videoUrl: c.video_url,
+        evaluationType: c.evaluation_type || 'winnerpip',
+        winnersPostedAt: c.winners_posted_at,
+      });
+    }
 
     // Get participant counts
     for (const challenge of challenges) {
