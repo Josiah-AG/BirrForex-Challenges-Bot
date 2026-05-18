@@ -67,32 +67,9 @@ _next_terminal = 0
 def terminal_worker(terminal_id: int, terminal_path: str, req_queue: Queue, resp_queue: Queue):
     """
     Worker process — owns one MT5 terminal exclusively.
-    Initializes the terminal at startup and keeps it running.
+    Terminal must already be running (launched by start_vps.bat).
     """
-    print(f"  Worker {terminal_id}: Starting (PID {os.getpid()}) → {terminal_path}")
-
-    # Initialize terminal at startup — this launches the MT5 exe if not running
-    max_init_attempts = 3
-    initialized = False
-    for attempt in range(max_init_attempts):
-        if mt5.initialize(terminal_path):
-            initialized = True
-            print(f"  Worker {terminal_id}: ✅ Terminal initialized")
-            break
-        else:
-            error = mt5.last_error()
-            print(f"  Worker {terminal_id}: Init attempt {attempt+1} failed: {error}")
-            time.sleep(5)  # Wait for terminal to start
-
-    if not initialized:
-        print(f"  Worker {terminal_id}: ❌ FAILED to initialize after {max_init_attempts} attempts")
-        # Still run the loop — will try to re-initialize on each request
-    else:
-        # Shutdown after init — terminal stays running in background
-        mt5.shutdown()
-
-    # Wait a moment for terminal to stabilize
-    time.sleep(2)
+    print(f"  Worker {terminal_id}: Ready (PID {os.getpid()}) → {terminal_path}")
 
     while True:
         try:
@@ -358,11 +335,11 @@ def pull_account(req: PullRequest):
 # ==================== STARTUP ====================
 
 def start_workers():
-    """Start all worker processes — each will initialize its MT5 terminal."""
+    """Start all worker processes. Terminals must already be running (via start_vps.bat)."""
     global request_queues, response_queues, workers
 
-    print("\n  Starting worker processes (each will launch its MT5 terminal)...")
-    print("  This may take 20-30 seconds for all terminals to connect...\n")
+    print("\n  Starting worker processes...")
+    print("  (Terminals should already be running via start_vps.bat)\n")
 
     for i in range(NUM_TERMINALS):
         req_q = Queue()
@@ -377,15 +354,10 @@ def start_workers():
         )
         p.start()
         workers.append(p)
-        # Stagger worker starts to avoid all terminals launching simultaneously
-        time.sleep(3)
 
-    # Give terminals time to fully connect to broker
-    print("\n  Waiting for terminals to connect to broker...")
-    time.sleep(10)
-
+    time.sleep(2)
     alive = sum(1 for w in workers if w.is_alive())
-    print(f"\n  ✅ {alive}/{NUM_TERMINALS} workers alive and ready\n")
+    print(f"  ✅ {alive}/{NUM_TERMINALS} workers ready\n")
 
 
 if __name__ == "__main__":
