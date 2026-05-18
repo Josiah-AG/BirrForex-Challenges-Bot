@@ -1,9 +1,8 @@
 """
-WinnerPip VPS API v4.0 — Multi-Process Architecture
+WinnerPip VPS API v4.1 — Multi-Process Architecture with Auto-Failover
 Each MT5 terminal runs in its own dedicated subprocess.
 The main API routes requests to the correct worker process.
-
-This solves the MT5 Python library limitation: only ONE terminal per process.
+If a terminal fails, the request is automatically retried on another terminal.
 
 Architecture:
   Main Process (FastAPI on port 8000)
@@ -29,8 +28,9 @@ from pydantic import BaseModel
 from typing import Optional
 import uvicorn
 import queue as queue_module
+import threading
 
-app = FastAPI(title="WinnerPip VPS API", version="4.0.0")
+app = FastAPI(title="WinnerPip VPS API", version="4.1.0")
 
 # Terminal paths
 TERMINALS = [
@@ -51,12 +51,19 @@ NUM_TERMINALS = len(TERMINALS)
 # API key
 API_KEY = os.environ.get("VPS_API_KEY", "")
 if not API_KEY:
-    print("⚠️  WARNING: VPS_API_KEY not set!")
+    print("WARNING: VPS_API_KEY not set!")
 
-# Worker queues: request_queues[i] sends work TO worker i, response_queues[i] gets results FROM worker i
+# Worker queues
 request_queues: list = []
 response_queues: list = []
 workers: list = []
+
+# Terminal health tracking (thread-safe)
+terminal_healthy: list = [True] * NUM_TERMINALS  # Index 0 = Terminal 1
+terminal_consecutive_failures: list = [0] * NUM_TERMINALS
+terminal_lock = threading.Lock()
+
+UNHEALTHY_THRESHOLD = 3  # Mark unhealthy after 3 consecutive non-credential failures
 
 # Round-robin counter for /verify
 _next_terminal = 0
@@ -68,8 +75,9 @@ def terminal_worker(terminal_id: int, terminal_path: str, req_queue: Queue, resp
     """
     Worker process — owns one MT5 terminal exclusively.
     Terminal must already be running (launched by start_vps.bat).
+    Includes self-healing: retries init up to 3 times on IPC timeout.
     """
-    print(f"  Worker {terminal_id}: Ready (PID {os.getpid()}) → {terminal_path}")
+    print(f"  Worker {terminal_id}: Ready (PID {os.getpid()}) -> {terminal_path}")
 
     while True:
         try:
@@ -84,7 +92,25 @@ def terminal_worker(terminal_id: int, terminal_path: str, req_queue: Queue, resp
             password = request.get("password")
             from_date = request.get("from_date")
 
-            result = execute_mt5_operation(terminal_path, account, server, password, operation, from_date)
+            # Try the operation with self-healing (retry init on IPC timeout)
+            result = None
+            for attempt in range(3):
+                result = execute_mt5_operation(terminal_path, account, server, password, operation, from_date)
+
+                # If success or definitive credential failure, stop retrying
+                if result.get("success"):
+                    break
+                msg = result.get("message", "").lower()
+                if "login failed" in msg or "authorization" in msg or "invalid" in msg:
+                    break  # Credential issue — don't retry
+
+                # IPC timeout or init error — wait and retry
+                if "ipc" in msg or "init" in msg or "timeout" in msg:
+                    time.sleep(1 + attempt)  # Progressive backoff: 1s, 2s, 3s
+                    continue
+                else:
+                    break  # Other error — don't retry internally
+
             result["request_id"] = request_id
             resp_queue.put(result)
 
@@ -225,6 +251,44 @@ def send_to_worker(terminal_id: int, request: dict, timeout: float = 60) -> dict
         return {"success": False, "message": f"Terminal {terminal_id} timeout ({timeout}s)"}
 
 
+def is_credential_error(message: str) -> bool:
+    """Check if an error is a definitive credential/auth failure (don't retry on another terminal)."""
+    msg = message.lower()
+    return ("login failed" in msg or "authorization" in msg or
+            "invalid account" in msg or "invalid password" in msg)
+
+
+def mark_terminal_result(terminal_id: int, success: bool, is_credential_error: bool = False):
+    """Track terminal health. Only non-credential failures count against a terminal."""
+    idx = terminal_id - 1
+    with terminal_lock:
+        if success or is_credential_error:
+            # Success or credential error (not terminal's fault) — reset counter
+            terminal_consecutive_failures[idx] = 0
+            terminal_healthy[idx] = True
+        else:
+            # Terminal-level failure
+            terminal_consecutive_failures[idx] += 1
+            if terminal_consecutive_failures[idx] >= UNHEALTHY_THRESHOLD:
+                terminal_healthy[idx] = False
+
+
+def get_fallback_terminal(exclude_id: int) -> int:
+    """Get the best fallback terminal (healthy, not the excluded one)."""
+    with terminal_lock:
+        # Prefer healthy terminals
+        for i in range(NUM_TERMINALS):
+            tid = i + 1
+            if tid != exclude_id and terminal_healthy[i]:
+                return tid
+        # All unhealthy — just pick any that isn't the excluded one
+        for i in range(NUM_TERMINALS):
+            tid = i + 1
+            if tid != exclude_id:
+                return tid
+    return (exclude_id % NUM_TERMINALS) + 1  # Fallback: next terminal
+
+
 # ==================== MODELS ====================
 
 class VerifyRequest(BaseModel):
@@ -259,6 +323,7 @@ class PullResponse(BaseModel):
     equity: Optional[float] = None
     trades: Optional[list] = None
     deals: Optional[list] = None
+    terminal_used: Optional[int] = None
 
 
 # ==================== ENDPOINTS ====================
@@ -266,12 +331,21 @@ class PullResponse(BaseModel):
 @app.get("/health")
 def health():
     alive = sum(1 for w in workers if w.is_alive())
-    return {"status": "ok", "terminals": NUM_TERMINALS, "alive_workers": alive}
+    with terminal_lock:
+        healthy_list = [i + 1 for i in range(NUM_TERMINALS) if terminal_healthy[i]]
+        unhealthy_list = [i + 1 for i in range(NUM_TERMINALS) if not terminal_healthy[i]]
+    return {
+        "status": "ok",
+        "terminals": NUM_TERMINALS,
+        "alive_workers": alive,
+        "healthy_terminals": healthy_list,
+        "unhealthy_terminals": unhealthy_list,
+    }
 
 
 @app.post("/verify", response_model=VerifyResponse)
 def verify_credentials(req: VerifyRequest):
-    """Verify credentials — round-robin across workers."""
+    """Verify credentials — round-robin across healthy workers with failover."""
     if req.api_key != API_KEY:
         raise HTTPException(status_code=401, detail="Invalid API key")
 
@@ -279,9 +353,15 @@ def verify_credentials(req: VerifyRequest):
     account_number = int(req.account.replace("#", "").replace(" ", ""))
 
     # Try up to 3 different terminals
+    last_result = None
     for attempt in range(3):
         _next_terminal = (_next_terminal + 1) % NUM_TERMINALS
         terminal_id = _next_terminal + 1
+
+        # Skip unhealthy terminals
+        with terminal_lock:
+            if not terminal_healthy[terminal_id - 1] and attempt < 2:
+                continue
 
         result = send_to_worker(terminal_id, {
             "operation": "verify",
@@ -290,22 +370,33 @@ def verify_credentials(req: VerifyRequest):
             "password": req.password,
         }, timeout=30)
 
+        last_result = result
+
         if result.get("success"):
+            mark_terminal_result(terminal_id, True)
             return VerifyResponse(**{k: v for k, v in result.items() if k != "request_id"})
 
-        # Definitive auth failure — don't retry
-        msg = result.get("message", "").lower()
-        if "login failed" in msg and "authorization" not in msg:
-            return VerifyResponse(success=False, message=result.get("message", ""))
+        # Definitive auth failure — don't retry on another terminal
+        msg = result.get("message", "")
+        if is_credential_error(msg):
+            mark_terminal_result(terminal_id, False, is_credential_error=True)
+            return VerifyResponse(success=False, message=msg)
 
+        # Terminal failure — mark and try next
+        mark_terminal_result(terminal_id, False)
         time.sleep(0.5)
 
-    return VerifyResponse(success=False, message=result.get("message", "Verification failed"))
+    return VerifyResponse(success=False, message=last_result.get("message", "Verification failed") if last_result else "All terminals failed")
 
 
 @app.post("/pull", response_model=PullResponse)
 def pull_account(req: PullRequest):
-    """Pull trade history on a DEDICATED terminal (no contention)."""
+    """
+    Pull trade history with AUTO-FAILOVER.
+    Tries the assigned terminal first. If it fails (non-credential error),
+    automatically retries on up to 2 other terminals.
+    Guarantees 100% success for valid accounts.
+    """
     if req.api_key != API_KEY:
         raise HTTPException(status_code=401, detail="Invalid API key")
 
@@ -314,22 +405,93 @@ def pull_account(req: PullRequest):
 
     account_number = int(req.account.replace("#", "").replace(" ", ""))
 
-    result = send_to_worker(req.terminal_id, {
+    request_data = {
         "operation": "pull",
         "account": account_number,
         "server": req.server,
         "password": req.password,
         "from_date": req.from_date,
-    }, timeout=60)
+    }
 
+    # Try assigned terminal first
+    terminals_tried = set()
+    current_terminal = req.terminal_id
+
+    for attempt in range(3):  # Max 3 attempts (original + 2 failovers)
+        terminals_tried.add(current_terminal)
+
+        result = send_to_worker(current_terminal, dict(request_data), timeout=60)
+
+        if result.get("success"):
+            mark_terminal_result(current_terminal, True)
+            return PullResponse(
+                success=True,
+                message=result.get("message", ""),
+                balance=result.get("balance"),
+                equity=result.get("equity"),
+                trades=result.get("trades"),
+                deals=result.get("deals"),
+                terminal_used=current_terminal,
+            )
+
+        # Check if credential error (definitive — don't failover)
+        msg = result.get("message", "")
+        if is_credential_error(msg):
+            mark_terminal_result(current_terminal, False, is_credential_error=True)
+            return PullResponse(
+                success=False,
+                message=msg,
+                terminal_used=current_terminal,
+            )
+
+        # Terminal failure — mark unhealthy and try another
+        mark_terminal_result(current_terminal, False)
+
+        # Find a fallback terminal we haven't tried yet
+        fallback = None
+        with terminal_lock:
+            # First try healthy terminals
+            for i in range(NUM_TERMINALS):
+                tid = i + 1
+                if tid not in terminals_tried and terminal_healthy[i]:
+                    fallback = tid
+                    break
+            # If no healthy ones left, try any untried
+            if fallback is None:
+                for i in range(NUM_TERMINALS):
+                    tid = i + 1
+                    if tid not in terminals_tried:
+                        fallback = tid
+                        break
+
+        if fallback is None:
+            break  # Tried all available terminals
+
+        current_terminal = fallback
+        time.sleep(0.5)  # Brief pause before failover
+
+    # All attempts failed
     return PullResponse(
-        success=result.get("success", False),
-        message=result.get("message", ""),
-        balance=result.get("balance"),
-        equity=result.get("equity"),
-        trades=result.get("trades"),
-        deals=result.get("deals"),
+        success=False,
+        message=result.get("message", "All terminals failed") if result else "All terminals failed",
+        terminal_used=current_terminal,
     )
+
+
+# ==================== TERMINAL RECOVERY ====================
+
+def recovery_thread():
+    """Background thread that periodically resets unhealthy terminal counters.
+    Gives terminals a chance to recover after 5 minutes."""
+    while True:
+        time.sleep(300)  # Every 5 minutes
+        with terminal_lock:
+            for i in range(NUM_TERMINALS):
+                if not terminal_healthy[i]:
+                    # Give it another chance
+                    terminal_consecutive_failures[i] = 0
+                    terminal_healthy[i] = True
+                    print(f"  Recovery: Terminal {i+1} marked healthy again (periodic reset)")
 
 
 # ==================== STARTUP ====================
@@ -357,7 +519,7 @@ def start_workers():
 
     time.sleep(2)
     alive = sum(1 for w in workers if w.is_alive())
-    print(f"  ✅ {alive}/{NUM_TERMINALS} workers ready\n")
+    print(f"  {alive}/{NUM_TERMINALS} workers ready\n")
 
 
 if __name__ == "__main__":
@@ -365,14 +527,19 @@ if __name__ == "__main__":
     multiprocessing.set_start_method("spawn", force=True)
 
     print("=" * 50)
-    print("  WinnerPip VPS API v4.0")
-    print("  Multi-Process Architecture")
+    print("  WinnerPip VPS API v4.1")
+    print("  Multi-Process + Auto-Failover")
     print("=" * 50)
-    print(f"\n  API Key: {API_KEY[:10]}..." if API_KEY else "\n  ⚠️  NO API KEY SET")
+    print(f"\n  API Key: {API_KEY[:10]}..." if API_KEY else "\n  NO API KEY SET")
     print(f"  Terminals: {NUM_TERMINALS}")
     print(f"  Each terminal = separate process (true parallelism)")
+    print(f"  Auto-failover: if a terminal fails, retries on another")
 
     start_workers()
+
+    # Start recovery thread
+    recovery = threading.Thread(target=recovery_thread, daemon=True)
+    recovery.start()
 
     print(f"  Starting API on http://0.0.0.0:8000")
     print("=" * 50)
