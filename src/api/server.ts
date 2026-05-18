@@ -636,7 +636,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/message`, adminIpCheck, 
     }
 
     const reg = await db.query(
-      `SELECT r.telegram_id, r.discord_user_id, r.username, r.nickname, r.source, c.title
+      `SELECT r.telegram_id, r.discord_user_id, r.username, r.nickname, r.account_number, r.source, c.title, c.source as challenge_source
        FROM trading_registrations r
        JOIN trading_challenges c ON r.challenge_id = c.id
        WHERE r.id = $1`,
@@ -648,45 +648,42 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/message`, adminIpCheck, 
     }
 
     const user = reg.rows[0];
-    let sent = false;
-    let method = '';
+    const isDiscord = user.source === 'discord' || user.challenge_source === 'discord';
 
-    // Try Telegram first (works for both telegram and discord source if telegram_id exists)
-    if (user.telegram_id && user.source !== 'discord') {
-      try {
-        const { bot } = require('../bot/bot');
-        await bot.bot.telegram.sendMessage(
+    if (isDiscord) {
+      // For Discord users — send via Telegram bot using the discord_user_id as telegram_id
+      // Since discord_user_id was stored as telegram_id during registration, try sending
+      // But this won't work for actual Discord DMs — inform admin to use Discord bot
+      return res.json({
+        success: false,
+        error: `Discord DMs not supported from admin panel yet. Use Discord bot command: !dm @${user.username || 'user'} ${message.substring(0, 50)}...`,
+        method: 'discord',
+        username: user.username,
+        discordUserId: user.discord_user_id,
+      });
+    }
+
+    // Telegram user — send via bot
+    let sent = false;
+    try {
+      const botModule = require('../bot/bot');
+      const botInstance = botModule.bot || botModule.default;
+      if (botInstance && botInstance.bot) {
+        await botInstance.bot.telegram.sendMessage(
           user.telegram_id,
           `📩 <b>Message from Admin</b>\n<b>${user.title}</b>\n\n${message}`,
           { parse_mode: 'HTML' }
         );
         sent = true;
-        method = 'telegram';
-      } catch (e: any) {
-        console.error(`Failed to DM via Telegram: ${e.message}`);
       }
-    }
-
-    // For Discord source, we can't send DMs directly from the API server
-    // Instead, store the message for the Discord bot to pick up
-    if (!sent && user.source === 'discord' && user.discord_user_id) {
-      // Store pending message in DB for Discord bot to send
-      await db.query(
-        `INSERT INTO trading_daily_stats (challenge_id, date, new_registrations)
-         VALUES (0, CURRENT_DATE, 0) ON CONFLICT DO NOTHING`
-      );
-      // For now, return that Discord DMs need to be sent via the Discord bot command
-      return res.json({
-        success: false,
-        method: 'discord',
-        note: 'Discord DMs must be sent via the Discord bot (!dm command). User: ' + (user.username || user.discord_user_id),
-      });
+    } catch (e: any) {
+      console.error(`Failed to DM via Telegram: ${e.message}`);
     }
 
     if (sent) {
-      return res.json({ success: true, method });
+      return res.json({ success: true, method: 'telegram' });
     } else {
-      return res.json({ success: false, error: 'Could not send message. User may have DMs disabled.' });
+      return res.json({ success: false, error: 'Could not send message. User may have DMs disabled or bot not initialized.' });
     }
   } catch (error) {
     console.error('Admin message error:', error);
@@ -729,24 +726,28 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/unverify`, adminIpCheck,
 
     // DM the user
     let dmSent = false;
-    if (user.telegram_id && user.source !== 'discord') {
+    const isDiscordUser = user.source === 'discord';
+    if (!isDiscordUser && user.telegram_id) {
       try {
-        const { bot } = require('../bot/bot');
-        await bot.bot.telegram.sendMessage(
-          user.telegram_id,
-          `⚠️ <b>Registration Removed</b>\n<b>${user.title}</b>\n\n` +
-          `Your registration (account ${user.account_number}) has been removed.\n\n` +
-          `📛 <b>Reason:</b> ${reason}\n\n` +
-          `You can register again if you wish.`,
-          { parse_mode: 'HTML' }
-        );
-        dmSent = true;
+        const botModule = require('../bot/bot');
+        const botInstance = botModule.bot || botModule.default;
+        if (botInstance && botInstance.bot) {
+          await botInstance.bot.telegram.sendMessage(
+            user.telegram_id,
+            `⚠️ <b>Registration Removed</b>\n<b>${user.title}</b>\n\n` +
+            `Your registration (account ${user.account_number}) has been removed.\n\n` +
+            `📛 <b>Reason:</b> ${reason}\n\n` +
+            `You can register again if you wish.`,
+            { parse_mode: 'HTML' }
+          );
+          dmSent = true;
+        }
       } catch (e: any) {
         console.error(`Failed to DM unverify notice: ${e.message}`);
       }
     }
 
-    return res.json({ success: true, dmSent, user: user.nickname || user.username });
+    return res.json({ success: true, dmSent, user: user.nickname || user.username, isDiscord: isDiscordUser });
   } catch (error) {
     console.error('Admin unverify error:', error);
     return res.status(500).json({ error: 'Internal server error' });
@@ -794,24 +795,28 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/disqualify`, adminIpChec
 
     // DM the user
     let dmSent = false;
-    if (user.telegram_id && user.source !== 'discord') {
+    const isDiscordUser = user.source === 'discord';
+    if (!isDiscordUser && user.telegram_id) {
       try {
-        const { bot } = require('../bot/bot');
-        await bot.bot.telegram.sendMessage(
-          user.telegram_id,
-          `🚫 <b>Disqualified</b>\n<b>${user.title}</b>\n\n` +
-          `Your account ${user.account_number} has been disqualified from the challenge.\n\n` +
-          `📛 <b>Reason:</b> ${reason}\n\n` +
-          `<i>If you believe this is an error, contact @birrFXadmin.</i>`,
-          { parse_mode: 'HTML' }
-        );
-        dmSent = true;
+        const botModule = require('../bot/bot');
+        const botInstance = botModule.bot || botModule.default;
+        if (botInstance && botInstance.bot) {
+          await botInstance.bot.telegram.sendMessage(
+            user.telegram_id,
+            `🚫 <b>Disqualified</b>\n<b>${user.title}</b>\n\n` +
+            `Your account ${user.account_number} has been disqualified from the challenge.\n\n` +
+            `📛 <b>Reason:</b> ${reason}\n\n` +
+            `<i>If you believe this is an error, contact @birrFXadmin.</i>`,
+            { parse_mode: 'HTML' }
+          );
+          dmSent = true;
+        }
       } catch (e: any) {
         console.error(`Failed to DM disqualify notice: ${e.message}`);
       }
     }
 
-    return res.json({ success: true, dmSent, user: user.nickname || user.username });
+    return res.json({ success: true, dmSent, user: user.nickname || user.username, isDiscord: isDiscordUser });
   } catch (error) {
     console.error('Admin disqualify error:', error);
     return res.status(500).json({ error: 'Internal server error' });
