@@ -46,18 +46,6 @@ function LoginForm() {
     setError("");
     setLoading(true);
 
-    // Demo credentials for placeholder preview
-    if (accountNumber === "87654321" && investorPassword === "demo123") {
-      localStorage.setItem("wp_token", "demo_token");
-      localStorage.setItem("wp_user", JSON.stringify({ nickname: "TradeNinja", accountNumber: "87654321", challengeId: challengeId || "15" }));
-      if (challengeId) {
-        window.location.href = `/challenge/${challengeId}`;
-      } else {
-        window.location.href = "/trader-dashboard";
-      }
-      return;
-    }
-
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
       const response = await fetch(`${apiUrl}/api/auth/login`, {
