@@ -167,6 +167,187 @@ def health():
     return {"status": "ok", "terminals": len(TERMINALS), "available": available}
 
 
+# ==================== PULL ENDPOINT ====================
+
+class PullRequest(BaseModel):
+    account: str
+    server: str
+    password: str
+    api_key: str
+    from_date: str | None = None  # ISO format: "2025-01-15T00:00:00" — if None, pulls all history
+
+
+class PullResponse(BaseModel):
+    success: bool
+    message: str
+    balance: float | None = None
+    equity: float | None = None
+    trades: list | None = None
+    deals: list | None = None
+
+
+def pull_account_on_terminal(terminal_path: str, lock: threading.Lock,
+                             account: int, server: str, password: str,
+                             from_date=None) -> PullResponse:
+    """Pull trade history from an MT5 account on a specific terminal."""
+    from datetime import datetime, timezone
+
+    acquired = lock.acquire(timeout=30)  # Longer timeout for pulls
+    if not acquired:
+        return PullResponse(success=False, message="Terminal busy (lock timeout)")
+
+    try:
+        try:
+            mt5.shutdown()
+        except:
+            pass
+
+        time.sleep(0.2)
+
+        if not mt5.initialize(terminal_path):
+            error = mt5.last_error()
+            return PullResponse(success=False, message=f"MT5 terminal error: {error}")
+
+        time.sleep(0.3)
+
+        if not mt5.login(account, password=password, server=server):
+            error = mt5.last_error()
+            mt5.shutdown()
+            return PullResponse(success=False, message=f"MT5 terminal error: {error}")
+
+        # Get account info
+        account_info = mt5.account_info()
+        balance = account_info.balance if account_info else 0
+        equity = account_info.equity if account_info else 0
+
+        # Determine date range
+        if from_date:
+            try:
+                date_from = datetime.fromisoformat(from_date.replace("Z", "+00:00"))
+                # Subtract 1 hour buffer to avoid missing trades at the boundary
+                from datetime import timedelta
+                date_from = date_from - timedelta(hours=1)
+            except:
+                date_from = datetime(2020, 1, 1, tzinfo=timezone.utc)
+        else:
+            date_from = datetime(2020, 1, 1, tzinfo=timezone.utc)
+
+        date_to = datetime.now(timezone.utc)
+
+        # Fetch closed trades (history orders/deals)
+        trades_raw = mt5.history_deals_get(date_from, date_to)
+        trades_list = []
+        deals_list = []
+
+        if trades_raw is not None:
+            for deal in trades_raw:
+                deal_dict = {
+                    "ticket": deal.ticket,
+                    "order": deal.order,
+                    "time": datetime.fromtimestamp(deal.time, tz=timezone.utc).isoformat(),
+                    "type": deal.type,  # 0=buy, 1=sell, 2=balance, etc.
+                    "entry": deal.entry,  # 0=in, 1=out, 2=inout, 3=out_by
+                    "symbol": deal.symbol,
+                    "volume": deal.volume,
+                    "price": deal.price,
+                    "profit": deal.profit,
+                    "commission": deal.commission,
+                    "swap": deal.swap,
+                    "fee": deal.fee,
+                    "comment": deal.comment,
+                    "magic": deal.magic,
+                    "position_id": deal.position_id,
+                }
+
+                # Separate into trades (entry=1 means closing a position) and deals (all)
+                deals_list.append(deal_dict)
+
+                # Only include closing deals as "trades" (entry == 1 means OUT)
+                if deal.entry == 1 and deal.symbol:
+                    trade_type = "Buy" if deal.type == 0 else "Sell" if deal.type == 1 else "Other"
+                    trades_list.append({
+                        "ticket": deal.position_id or deal.ticket,
+                        "symbol": deal.symbol,
+                        "type": trade_type,
+                        "volume": deal.volume,
+                        "close_time": datetime.fromtimestamp(deal.time, tz=timezone.utc).isoformat(),
+                        "close_price": deal.price,
+                        "profit": deal.profit,
+                        "commission": deal.commission,
+                        "swap": deal.swap,
+                        "comment": deal.comment,
+                    })
+
+        # Also get position history for open/close prices
+        positions_raw = mt5.history_orders_get(date_from, date_to)
+        # We'll enrich trades with open price/time from positions if available
+
+        mt5.shutdown()
+
+        return PullResponse(
+            success=True,
+            message=f"Pulled {len(trades_list)} trades, {len(deals_list)} deals",
+            balance=balance,
+            equity=equity,
+            trades=trades_list,
+            deals=deals_list,
+        )
+
+    except Exception as e:
+        try:
+            mt5.shutdown()
+        except:
+            pass
+        return PullResponse(success=False, message=f"Exception: {str(e)}")
+    finally:
+        lock.release()
+
+
+@app.post("/pull", response_model=PullResponse)
+def pull_account(req: PullRequest):
+    """
+    Pull trade history from an MT5 account.
+    Supports incremental pulls via from_date parameter.
+    Rotates across terminals with retry.
+    """
+
+    # Check API key
+    if req.api_key != API_KEY:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+
+    account_number = int(req.account.replace("#", "").replace(" ", ""))
+
+    # Try up to MAX_RETRIES times on different terminals
+    last_error = None
+    for attempt in range(MAX_RETRIES):
+        idx = get_next_terminal_index()
+        terminal_path = TERMINALS[idx]
+        lock = terminal_locks[idx]
+
+        result = pull_account_on_terminal(
+            terminal_path, lock, account_number, req.server, req.password, req.from_date
+        )
+
+        if result.success:
+            return result
+
+        last_error = result.message
+
+        # Definitive auth failure — don't retry
+        error_lower = result.message.lower()
+        if "authorization" in error_lower or "invalid" in error_lower:
+            return result
+
+        # Terminal error — retry
+        if attempt < MAX_RETRIES - 1:
+            time.sleep(RETRY_DELAY)
+
+    return PullResponse(
+        success=False,
+        message=last_error or "Pull failed after retries",
+    )
+
+
 @app.post("/verify", response_model=VerifyResponse)
 def verify_credentials(req: VerifyRequest):
     """

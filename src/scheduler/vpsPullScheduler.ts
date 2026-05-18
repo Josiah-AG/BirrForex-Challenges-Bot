@@ -402,16 +402,25 @@ export class VpsPullScheduler {
 
     for (let attempt = 1; attempt <= MAX_RETRIES_PER_ACCOUNT; attempt++) {
       try {
+        // Get last pull time for incremental pull
+        const lastPullResult = await db.query(
+          `SELECT last_pull_at FROM trading_registrations WHERE id = $1`,
+          [account.registrationId]
+        );
+        const lastPullAt = lastPullResult.rows[0]?.last_pull_at;
+        const fromDate = lastPullAt ? new Date(lastPullAt).toISOString() : null;
+
         const response = await axios.post(
-          `${this.baseUrl}/api/v1/pull`,
+          `${this.baseUrl}/pull`,
           {
-            login: parseInt(account.accountNumber),
+            account: account.accountNumber,
             server: account.server,
             password: account.investorPassword,
-            terminal_id: terminalId,
+            api_key: this.apiKey,
+            from_date: fromDate,
           },
           {
-            headers: { 'Content-Type': 'application/json', 'X-API-Key': this.apiKey },
+            headers: { 'Content-Type': 'application/json' },
             timeout: ACCOUNT_TIMEOUT_MS,
           }
         );
@@ -439,8 +448,8 @@ export class VpsPullScheduler {
         }
 
         // Check if credential failure
-        const err = (data.error_code || data.error || data.message || '').toLowerCase();
-        if (err.includes('invalid') || err.includes('auth') || err.includes('password') || err.includes('credential')) {
+        const err = (data.message || '').toLowerCase();
+        if (err.includes('authorization') || err.includes('invalid') || err.includes('password') || err.includes('credential')) {
           credentialFailCount++;
           // Try credential failures CREDENTIAL_CONFIRM_ATTEMPTS times to be sure
           if (credentialFailCount < CREDENTIAL_CONFIRM_ATTEMPTS) {
@@ -567,15 +576,11 @@ export class VpsPullScheduler {
    */
   private async checkTerminalHealth(terminalId: number): Promise<boolean> {
     try {
-      const response = await axios.post(
-        `${this.baseUrl}/api/v1/health`,
-        { terminal_id: terminalId },
-        {
-          headers: { 'Content-Type': 'application/json', 'X-API-Key': this.apiKey },
-          timeout: 10000,
-        }
+      const response = await axios.get(
+        `${this.baseUrl}/health`,
+        { timeout: 10000 }
       );
-      return response.status === 200 && (response.data?.healthy !== false);
+      return response.status === 200 && (response.data?.status === 'ok');
     } catch {
       return false;
     }
