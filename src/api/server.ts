@@ -651,16 +651,40 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/message`, adminIpCheck, 
     const isDiscord = user.source === 'discord' || user.challenge_source === 'discord';
 
     if (isDiscord) {
-      // For Discord users — send via Telegram bot using the discord_user_id as telegram_id
-      // Since discord_user_id was stored as telegram_id during registration, try sending
-      // But this won't work for actual Discord DMs — inform admin to use Discord bot
-      return res.json({
-        success: false,
-        error: `Discord DMs not supported from admin panel yet. Use Discord bot command: !dm @${user.username || 'user'} ${message.substring(0, 50)}...`,
-        method: 'discord',
-        username: user.username,
-        discordUserId: user.discord_user_id,
-      });
+      // For Discord users — call the Discord bot's webhook to send DM
+      try {
+        const discordWebhookUrl = process.env.DISCORD_BOT_WEBHOOK_URL;
+        const discordApiKey = process.env.DISCORD_BOT_API_KEY;
+
+        if (!discordWebhookUrl) {
+          return res.json({
+            success: false,
+            error: 'Discord webhook not configured. Set DISCORD_BOT_WEBHOOK_URL env var.',
+          });
+        }
+
+        const axios = require('axios');
+        const dmResponse = await axios.post(
+          `${discordWebhookUrl}/webhook/dm`,
+          {
+            discord_user_id: user.discord_user_id || user.telegram_id,
+            message: `📩 **Message from Admin**\n**${user.title}**\n\n${message}`,
+          },
+          {
+            headers: { 'X-API-Key': discordApiKey || '', 'Content-Type': 'application/json' },
+            timeout: 10000,
+          }
+        );
+
+        if (dmResponse.data?.success) {
+          return res.json({ success: true, method: 'discord' });
+        } else {
+          return res.json({ success: false, error: dmResponse.data?.error || 'Discord DM failed' });
+        }
+      } catch (e: any) {
+        console.error(`Discord webhook DM error: ${e.message}`);
+        return res.json({ success: false, error: `Discord DM failed: ${e.message}` });
+      }
     }
 
     // Telegram user — send via bot
