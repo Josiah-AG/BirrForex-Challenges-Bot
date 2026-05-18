@@ -43,8 +43,15 @@ terminal_locks = [threading.Lock() for _ in TERMINALS]
 _next_terminal = 0
 _counter_lock = threading.Lock()
 
-# API key for security
-API_KEY = os.environ.get("VPS_API_KEY", "wp-k8x2m9f4v7j3n6q1w5t8r2y4u7i0p3")
+# API key for security — MUST be set via environment variable
+API_KEY = os.environ.get("VPS_API_KEY", "")
+
+if not API_KEY:
+    print("=" * 50)
+    print("  ⚠️  WARNING: VPS_API_KEY not set!")
+    print("  The API will reject all requests.")
+    print("  Set it: set VPS_API_KEY=your-key (Windows)")
+    print("=" * 50)
 
 # Max retries across different terminals
 MAX_RETRIES = 3
