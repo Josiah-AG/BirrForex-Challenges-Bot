@@ -7,10 +7,10 @@ This solves the MT5 Python library limitation: only ONE terminal per process.
 
 Architecture:
   Main Process (FastAPI on port 8000)
-    ├── Worker 1 (owns C:\MT5_1\terminal64.exe)
-    ├── Worker 2 (owns C:\MT5_2\terminal64.exe)
-    ├── ...
-    └── Worker 10 (owns C:\MT5_10\terminal64.exe)
+    - Worker 1 (owns C:\\MT5_1\\terminal64.exe)
+    - Worker 2 (owns C:\\MT5_2\\terminal64.exe)
+    - ...
+    - Worker 10 (owns C:\\MT5_10\\terminal64.exe)
 
 Each worker has its own request queue and response queue.
 No shared MT5 state. No lock contention. True parallelism.
