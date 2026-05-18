@@ -510,6 +510,117 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/login`, adminIpCheck, adminAuthLimiter
 });
 
 /**
+ * GET /api/admin/:secretPath/challenges
+ * Returns ALL challenges (no visibility filter) for admin panel
+ */
+app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenges`, adminIpCheck, async (req, res) => {
+  try {
+    const result = await db.query(
+      `SELECT id, title, type, status, start_date, end_date, starting_balance, target_balance,
+              real_winners_count, demo_winners_count, prize_pool_text, source, team_only,
+              evaluation_type, created_at
+       FROM trading_challenges
+       WHERE status != 'deleted'
+       ORDER BY created_at DESC`
+    );
+
+    const challenges = result.rows.map((c: any) => ({
+      id: c.id,
+      title: c.title,
+      type: c.type,
+      status: c.status,
+      startDate: c.start_date,
+      endDate: c.end_date,
+      startingBalance: parseFloat(c.starting_balance),
+      targetBalance: parseFloat(c.target_balance),
+      prizePoolText: c.prize_pool_text,
+      source: c.source || 'telegram',
+      teamOnly: c.team_only || false,
+      evaluationType: c.evaluation_type || 'winnerpip',
+      createdAt: c.created_at,
+    }));
+
+    return res.json({ challenges });
+  } catch (error) {
+    console.error('Admin challenges error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * GET /api/admin/:secretPath/challenge/:id/participants
+ * Paginated participants list (100 per page)
+ */
+app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/participants`, adminIpCheck, async (req, res) => {
+  try {
+    const challengeId = parseInt(req.params.id as string);
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = 100;
+    const offset = (page - 1) * limit;
+
+    // Get total count
+    const countResult = await db.query(
+      `SELECT COUNT(*) as total FROM trading_registrations WHERE challenge_id = $1`,
+      [challengeId]
+    );
+    const total = parseInt(countResult.rows[0].total);
+    const totalPages = Math.ceil(total / limit);
+
+    // Get paginated participants
+    const result = await db.query(
+      `SELECT r.id, r.telegram_id, r.discord_user_id, r.username, r.nickname, r.account_type,
+              r.email, r.account_number, r.mt5_server, r.status, r.partner_status,
+              r.disqualified, r.disqualified_reason, r.registered_at, r.source,
+              r.connection_verified, r.pull_status, r.last_pull_at,
+              l.rank, l.current_balance, l.qualified_profit, l.total_trades, l.flagged_trades
+       FROM trading_registrations r
+       LEFT JOIN wp_leaderboard l ON r.id = l.registration_id
+       WHERE r.challenge_id = $1
+       ORDER BY l.rank ASC NULLS LAST, r.registered_at ASC
+       LIMIT $2 OFFSET $3`,
+      [challengeId, limit, offset]
+    );
+
+    return res.json({
+      participants: result.rows.map((r: any) => ({
+        id: r.id,
+        telegramId: r.telegram_id,
+        discordUserId: r.discord_user_id,
+        username: r.username,
+        nickname: r.nickname,
+        accountType: r.account_type,
+        email: r.email,
+        accountNumber: r.account_number,
+        server: r.mt5_server,
+        status: r.status,
+        partnerStatus: r.partner_status,
+        disqualified: r.disqualified,
+        disqualifiedReason: r.disqualified_reason,
+        registeredAt: r.registered_at,
+        source: r.source || 'telegram',
+        connectionVerified: r.connection_verified,
+        pullStatus: r.pull_status,
+        lastPullAt: r.last_pull_at,
+        rank: r.rank,
+        balance: r.current_balance ? parseFloat(r.current_balance) : null,
+        qualifiedProfit: r.qualified_profit ? parseFloat(r.qualified_profit) : null,
+        totalTrades: r.total_trades || 0,
+        flaggedTrades: r.flagged_trades || 0,
+      })),
+      pagination: {
+        page,
+        totalPages,
+        total,
+        limit,
+      },
+    });
+  } catch (error) {
+    console.error('Admin participants error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
  * GET /api/admin/:secretPath/challenge/:id/overview
  * Full challenge overview for admin
  */

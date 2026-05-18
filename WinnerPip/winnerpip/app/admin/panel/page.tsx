@@ -17,6 +17,10 @@ export default function AdminDashboard() {
   const [searchQuery, setSearchQuery] = useState("");
   const [foundUser, setFoundUser] = useState<any>(null);
   const [searchPerformed, setSearchPerformed] = useState(false);
+  const [participantsList, setParticipantsList] = useState<any[]>([]);
+  const [participantsPage, setParticipantsPage] = useState(1);
+  const [participantsPagination, setParticipantsPagination] = useState<any>(null);
+  const [participantsLoading, setParticipantsLoading] = useState(false);
   const [rulesConfig, setRulesConfig] = useState({
     max_lot_size: 0.02,
     max_open_trades: 3,
@@ -65,14 +69,15 @@ export default function AdminDashboard() {
 
   useState(() => { if (typeof window !== "undefined" && localStorage.getItem("wp_admin_path")) setIsAdmin(true); });
 
-  // Fetch challenges list after login
+  // Fetch challenges list after login — use admin endpoint (shows ALL challenges)
   const [challenges, setChallenges] = useState<any[]>([]);
   useEffect(() => {
     if (!isAdmin) return;
     const fetchChallenges = async () => {
       try {
         const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
-        const res = await fetch(`${apiUrl}/api/challenges`);
+        const secretPath = process.env.NEXT_PUBLIC_ADMIN_PATH || "";
+        const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenges`);
         if (res.ok) {
           const data = await res.json();
           if (data.challenges && data.challenges.length > 0) {
@@ -101,6 +106,26 @@ export default function AdminDashboard() {
     };
     fetchOverview();
   }, [isAdmin, selectedChallengeId]);
+
+  // Fetch participants when tab is active or page changes
+  useEffect(() => {
+    if (!isAdmin || activeSection !== "participants" || !selectedChallengeId) return;
+    const fetchParticipants = async () => {
+      setParticipantsLoading(true);
+      try {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
+        const secretPath = process.env.NEXT_PUBLIC_ADMIN_PATH || "";
+        const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${selectedChallengeId}/participants?page=${participantsPage}`);
+        if (res.ok) {
+          const data = await res.json();
+          setParticipantsList(data.participants || []);
+          setParticipantsPagination(data.pagination || null);
+        }
+      } catch {}
+      setParticipantsLoading(false);
+    };
+    fetchParticipants();
+  }, [isAdmin, activeSection, selectedChallengeId, participantsPage]);
 
   const handleSearch = async () => {
     setSearchPerformed(true);
@@ -459,6 +484,56 @@ export default function AdminDashboard() {
                 <div className="glass rounded-xl p-4 border border-white/10 text-center"><p className="text-[10px] text-gray-500">Demo</p><p className="text-2xl font-bold text-royal">{overview.demoParticipants}</p></div>
                 <div className="glass rounded-xl p-4 border border-white/10 text-center"><p className="text-[10px] text-gray-500">Real</p><p className="text-2xl font-bold text-gold">{overview.realParticipants}</p></div>
                 <div className="glass rounded-xl p-4 border border-white/10 text-center"><p className="text-[10px] text-gray-500">Qualified</p><p className="text-2xl font-bold text-profit">{overview.qualifiedCount}</p></div>
+              </div>
+            )}
+
+            {/* Paginated Participants List */}
+            {!searchPerformed && (
+              <div className="glass rounded-2xl border border-white/10 overflow-hidden">
+                <div className="p-4 border-b border-white/5 flex items-center justify-between">
+                  <p className="text-sm font-semibold text-white">All Participants</p>
+                  {participantsPagination && <p className="text-xs text-gray-500">Page {participantsPagination.page} of {participantsPagination.totalPages} ({participantsPagination.total} total)</p>}
+                </div>
+                {participantsLoading ? (
+                  <div className="p-8 text-center"><Loader2 className="w-6 h-6 text-royal animate-spin mx-auto" /></div>
+                ) : participantsList.length === 0 ? (
+                  <div className="p-8 text-center"><p className="text-gray-400 text-sm">No participants yet</p></div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[700px]">
+                      <thead><tr className="border-b border-white/5">
+                        <th className="text-left py-2 px-3 text-[10px] text-gray-400 font-medium uppercase">#</th>
+                        <th className="text-left py-2 px-3 text-[10px] text-gray-400 font-medium uppercase">Nickname</th>
+                        <th className="text-left py-2 px-3 text-[10px] text-gray-400 font-medium uppercase">Account</th>
+                        <th className="text-left py-2 px-3 text-[10px] text-gray-400 font-medium uppercase">Type</th>
+                        <th className="text-right py-2 px-3 text-[10px] text-gray-400 font-medium uppercase">Balance</th>
+                        <th className="text-right py-2 px-3 text-[10px] text-gray-400 font-medium uppercase">Profit</th>
+                        <th className="text-center py-2 px-3 text-[10px] text-gray-400 font-medium uppercase">Trades</th>
+                        <th className="text-center py-2 px-3 text-[10px] text-gray-400 font-medium uppercase">Status</th>
+                      </tr></thead>
+                      <tbody>{participantsList.map((p, i) => (
+                        <tr key={p.id} className={`border-b border-white/5 hover:bg-white/5 transition-colors ${p.disqualified ? "opacity-50" : ""}`}>
+                          <td className="py-2 px-3 text-xs text-gray-500">{p.rank || "—"}</td>
+                          <td className="py-2 px-3 text-sm text-white font-medium">{p.nickname || p.username || "—"}</td>
+                          <td className="py-2 px-3 text-xs text-gray-400">{p.accountNumber}</td>
+                          <td className="py-2 px-3"><span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${p.accountType === "real" ? "bg-gold/10 text-gold" : "bg-royal/10 text-royal"}`}>{p.accountType}</span></td>
+                          <td className="py-2 px-3 text-right text-sm text-white">{p.balance != null ? `$${p.balance.toFixed(2)}` : "—"}</td>
+                          <td className={`py-2 px-3 text-right text-sm font-medium ${(p.qualifiedProfit || 0) >= 0 ? "text-profit" : "text-loss"}`}>{p.qualifiedProfit != null ? `$${p.qualifiedProfit.toFixed(2)}` : "—"}</td>
+                          <td className="py-2 px-3 text-center text-xs text-gray-400">{p.totalTrades}</td>
+                          <td className="py-2 px-3 text-center">{p.disqualified ? <span className="text-loss text-xs">DQ</span> : p.connectionVerified ? <span className="text-profit text-xs">✓</span> : <span className="text-gray-500 text-xs">—</span>}</td>
+                        </tr>
+                      ))}</tbody>
+                    </table>
+                  </div>
+                )}
+                {/* Pagination */}
+                {participantsPagination && participantsPagination.totalPages > 1 && (
+                  <div className="p-3 border-t border-white/5 flex items-center justify-between">
+                    <button onClick={() => setParticipantsPage(Math.max(1, participantsPage - 1))} disabled={participantsPage <= 1} className="px-4 py-2 rounded-lg text-sm font-medium bg-white/5 text-gray-300 hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition-all">← Previous</button>
+                    <span className="text-xs text-gray-500">Page {participantsPagination.page} of {participantsPagination.totalPages}</span>
+                    <button onClick={() => setParticipantsPage(Math.min(participantsPagination.totalPages, participantsPage + 1))} disabled={participantsPage >= participantsPagination.totalPages} className="px-4 py-2 rounded-lg text-sm font-medium bg-white/5 text-gray-300 hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition-all">Next →</button>
+                  </div>
+                )}
               </div>
             )}
           </div>
