@@ -346,49 +346,84 @@ export class VpsPullScheduler {
     batchId: number
   ): Promise<PullResult[]> {
     const results: PullResult[] = [];
+    const retryQueue: AccountToPull[] = [];
+    let processedSinceLastRetry = 0;
 
-    for (const account of accounts) {
-      // If terminal became unhealthy mid-batch, return remaining as terminal_unhealthy
-      if (!terminal.isHealthy) {
-        results.push({
-          registrationId: account.registrationId,
-          accountNumber: account.accountNumber,
-          telegramId: account.telegramId,
-          username: account.username,
-          success: false,
-          errorCode: 'terminal_unhealthy',
-          errorMessage: `Terminal ${terminal.id} is unhealthy`,
-        });
-        continue;
-      }
+    // Process main queue
+    for (let i = 0; i < accounts.length; i++) {
+      const account = accounts[i];
 
       const result = await this.pullSingleAccount(account, terminal.id);
-      results.push(result);
       terminal.totalProcessed++;
 
       if (result.success) {
+        results.push(result);
         terminal.totalSuccess++;
         terminal.consecutiveFailures = 0;
+        processedSinceLastRetry++;
 
         // Save trades/deals
         if (result.tradesCount && result.tradesCount > 0) {
           // Trades are saved inside pullSingleAccount
         }
       } else {
-        terminal.totalFailed++;
-        // Only count non-credential failures toward terminal health
-        if (result.errorCode !== 'invalid_credentials') {
-          terminal.consecutiveFailures++;
-          if (terminal.consecutiveFailures >= TERMINAL_FAILURE_THRESHOLD) {
-            terminal.isHealthy = false;
-            terminal.unhealthySince = new Date();
-            console.log(`⚠️ Terminal ${terminal.id} marked UNHEALTHY (${terminal.consecutiveFailures} consecutive failures)`);
-          }
+        // Check if it's a credential failure (definitive)
+        if (result.errorCode === 'invalid_credentials') {
+          results.push(result);
+          terminal.totalFailed++;
+        } else {
+          // Terminal/network error — push to retry queue
+          retryQueue.push(account);
         }
+      }
+
+      // Every 10 accounts, process any retries that have been waiting
+      processedSinceLastRetry++;
+      if (processedSinceLastRetry >= 10 && retryQueue.length > 0) {
+        const retryAccount = retryQueue.shift()!;
+        // Wait a bit before retry
+        await this.delay(2000);
+        const retryResult = await this.pullSingleAccount(retryAccount, terminal.id);
+        if (retryResult.success) {
+          results.push(retryResult);
+          terminal.totalSuccess++;
+        } else if (retryResult.errorCode === 'invalid_credentials') {
+          results.push(retryResult);
+          terminal.totalFailed++;
+        } else {
+          // Still failing — put back for final retry pass
+          retryQueue.push(retryAccount);
+        }
+        processedSinceLastRetry = 0;
       }
 
       // Throttle between accounts
       await this.delay(BATCH_DELAY_MS);
+    }
+
+    // Final retry pass — try all remaining failed accounts one more time
+    if (retryQueue.length > 0) {
+      console.log(`🔄 Terminal ${terminal.id}: Final retry for ${retryQueue.length} accounts`);
+      await this.delay(5000); // Wait 5s before final retry pass
+
+      for (const account of retryQueue) {
+        const result = await this.pullSingleAccount(account, terminal.id);
+        if (result.success) {
+          results.push(result);
+          terminal.totalSuccess++;
+        } else {
+          // Final failure — record it
+          results.push(result);
+          terminal.totalFailed++;
+          terminal.consecutiveFailures++;
+          if (terminal.consecutiveFailures >= TERMINAL_FAILURE_THRESHOLD) {
+            terminal.isHealthy = false;
+            terminal.unhealthySince = new Date();
+            console.log(`⚠️ Terminal ${terminal.id} marked UNHEALTHY`);
+          }
+        }
+        await this.delay(BATCH_DELAY_MS);
+      }
     }
 
     return results;
@@ -417,6 +452,7 @@ export class VpsPullScheduler {
             server: account.server,
             password: account.investorPassword,
             api_key: this.apiKey,
+            terminal_id: terminalId,
             from_date: fromDate,
           },
           {
