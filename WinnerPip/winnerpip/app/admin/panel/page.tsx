@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { Input } from "@/components/ui/input";
-import { Trophy, Users, AlertTriangle, Activity, TrendingUp, Target, Shield, Clock, BarChart3, FileText, X, Key, Loader2, ArrowRight, ChevronDown, ChevronUp, Zap } from "lucide-react";
+import { Trophy, Users, AlertTriangle, Activity, TrendingUp, Target, Shield, Clock, BarChart3, FileText, X, Key, Loader2, ArrowRight, ChevronDown, ChevronUp, Zap, MessageSquare, UserMinus, Ban } from "lucide-react";
 
 export default function AdminDashboard() {
   const [selectedChallengeId, setSelectedChallengeId] = useState<string>("5");
@@ -21,6 +21,11 @@ export default function AdminDashboard() {
   const [participantsPage, setParticipantsPage] = useState(1);
   const [participantsPagination, setParticipantsPagination] = useState<any>(null);
   const [participantsLoading, setParticipantsLoading] = useState(false);
+  const [participantFilter, setParticipantFilter] = useState("all");
+  const [actionModal, setActionModal] = useState<{ type: string; participant: any } | null>(null);
+  const [actionMessage, setActionMessage] = useState("");
+  const [actionLoading, setActionLoading] = useState(false);
+  const [actionResult, setActionResult] = useState("");
   const [rulesConfig, setRulesConfig] = useState({
     max_lot_size: 0.02,
     max_open_trades: 3,
@@ -118,14 +123,57 @@ export default function AdminDashboard() {
         const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${selectedChallengeId}/participants?page=${participantsPage}`);
         if (res.ok) {
           const data = await res.json();
-          setParticipantsList(data.participants || []);
+          let filtered = data.participants || [];
+          // Client-side filter
+          if (participantFilter === "demo") filtered = filtered.filter((p: any) => p.accountType === "demo");
+          else if (participantFilter === "real") filtered = filtered.filter((p: any) => p.accountType === "real");
+          else if (participantFilter === "disqualified") filtered = filtered.filter((p: any) => p.disqualified);
+          else if (participantFilter === "password_changed") filtered = filtered.filter((p: any) => p.pullStatus === "password_changed");
+          setParticipantsList(filtered);
           setParticipantsPagination(data.pagination || null);
         }
       } catch {}
       setParticipantsLoading(false);
     };
     fetchParticipants();
-  }, [isAdmin, activeSection, selectedChallengeId, participantsPage]);
+  }, [isAdmin, activeSection, selectedChallengeId, participantsPage, participantFilter]);
+
+  // Handle admin actions (DM, unverify, disqualify)
+  const handleAction = async (type: string, participant: any, message: string) => {
+    setActionLoading(true);
+    setActionResult("");
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
+    const secretPath = process.env.NEXT_PUBLIC_ADMIN_PATH || "";
+
+    try {
+      let endpoint = "";
+      if (type === "dm") endpoint = `${apiUrl}/api/admin/${secretPath}/challenge/${selectedChallengeId}/message`;
+      else if (type === "unverify") endpoint = `${apiUrl}/api/admin/${secretPath}/challenge/${selectedChallengeId}/unverify`;
+      else if (type === "disqualify") endpoint = `${apiUrl}/api/admin/${secretPath}/challenge/${selectedChallengeId}/disqualify`;
+
+      const body: any = { registrationId: participant.id };
+      if (type === "dm") body.message = message;
+      else body.reason = message;
+
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        setActionResult(`✅ ${type === 'dm' ? 'Message sent' : type === 'unverify' ? 'Registration removed' : 'Participant disqualified'}${data.dmSent ? ' (DM sent)' : data.dmSent === false ? ' (DM failed)' : ''}`);
+        // Refresh participants list after action
+        setTimeout(() => { setActionModal(null); setActionMessage(""); setActionResult(""); setParticipantsPage(participantsPage); }, 1500);
+      } else {
+        setActionResult(`❌ ${data.error || data.note || 'Action failed'}`);
+      }
+    } catch (e) {
+      setActionResult("❌ Network error");
+    }
+    setActionLoading(false);
+  };
 
   const handleSearch = async () => {
     setSearchPerformed(true);
@@ -490,9 +538,19 @@ export default function AdminDashboard() {
             {/* Paginated Participants List */}
             {!searchPerformed && (
               <div className="glass rounded-2xl border border-white/10 overflow-hidden">
-                <div className="p-4 border-b border-white/5 flex items-center justify-between">
+                <div className="p-4 border-b border-white/5 flex items-center justify-between flex-wrap gap-2">
                   <p className="text-sm font-semibold text-white">All Participants</p>
-                  {participantsPagination && <p className="text-xs text-gray-500">Page {participantsPagination.page} of {participantsPagination.totalPages} ({participantsPagination.total} total)</p>}
+                  <div className="flex items-center gap-2">
+                    {/* Filter buttons */}
+                    <select value={participantFilter} onChange={(e) => { setParticipantFilter(e.target.value); setParticipantsPage(1); }} className="bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-gray-300 focus:outline-none focus:border-royal/50">
+                      <option value="all">All</option>
+                      <option value="demo">Demo</option>
+                      <option value="real">Real</option>
+                      <option value="disqualified">Disqualified</option>
+                      <option value="password_changed">Password Changed</option>
+                    </select>
+                    {participantsPagination && <p className="text-xs text-gray-500">Page {participantsPagination.page}/{participantsPagination.totalPages} ({participantsPagination.total})</p>}
+                  </div>
                 </div>
                 {participantsLoading ? (
                   <div className="p-8 text-center"><Loader2 className="w-6 h-6 text-royal animate-spin mx-auto" /></div>
@@ -500,27 +558,37 @@ export default function AdminDashboard() {
                   <div className="p-8 text-center"><p className="text-gray-400 text-sm">No participants yet</p></div>
                 ) : (
                   <div className="overflow-x-auto">
-                    <table className="w-full min-w-[700px]">
+                    <table className="w-full min-w-[900px]">
                       <thead><tr className="border-b border-white/5">
                         <th className="text-left py-2 px-3 text-[10px] text-gray-400 font-medium uppercase">#</th>
                         <th className="text-left py-2 px-3 text-[10px] text-gray-400 font-medium uppercase">Nickname</th>
+                        <th className="text-left py-2 px-3 text-[10px] text-gray-400 font-medium uppercase">Username</th>
+                        <th className="text-left py-2 px-3 text-[10px] text-gray-400 font-medium uppercase">Email</th>
                         <th className="text-left py-2 px-3 text-[10px] text-gray-400 font-medium uppercase">Account</th>
                         <th className="text-left py-2 px-3 text-[10px] text-gray-400 font-medium uppercase">Type</th>
                         <th className="text-right py-2 px-3 text-[10px] text-gray-400 font-medium uppercase">Balance</th>
                         <th className="text-right py-2 px-3 text-[10px] text-gray-400 font-medium uppercase">Profit</th>
                         <th className="text-center py-2 px-3 text-[10px] text-gray-400 font-medium uppercase">Trades</th>
-                        <th className="text-center py-2 px-3 text-[10px] text-gray-400 font-medium uppercase">Status</th>
+                        <th className="text-center py-2 px-3 text-[10px] text-gray-400 font-medium uppercase">Actions</th>
                       </tr></thead>
-                      <tbody>{participantsList.map((p, i) => (
-                        <tr key={p.id} className={`border-b border-white/5 hover:bg-white/5 transition-colors ${p.disqualified ? "opacity-50" : ""}`}>
+                      <tbody>{participantsList.map((p) => (
+                        <tr key={p.id} className={`border-b border-white/5 hover:bg-white/5 transition-colors ${p.disqualified ? "opacity-50 bg-loss/5" : ""}`}>
                           <td className="py-2 px-3 text-xs text-gray-500">{p.rank || "—"}</td>
-                          <td className="py-2 px-3 text-sm text-white font-medium">{p.nickname || p.username || "—"}</td>
-                          <td className="py-2 px-3 text-xs text-gray-400">{p.accountNumber}</td>
+                          <td className="py-2 px-3 text-sm text-white font-medium">{p.nickname || "—"}</td>
+                          <td className="py-2 px-3 text-xs text-gray-400">{p.username ? `@${p.username}` : "—"}</td>
+                          <td className="py-2 px-3 text-xs text-gray-400 max-w-[120px] truncate">{p.email || "—"}</td>
+                          <td className="py-2 px-3 text-xs text-gray-300">{p.accountNumber}</td>
                           <td className="py-2 px-3"><span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${p.accountType === "real" ? "bg-gold/10 text-gold" : "bg-royal/10 text-royal"}`}>{p.accountType}</span></td>
                           <td className="py-2 px-3 text-right text-sm text-white">{p.balance != null ? `$${p.balance.toFixed(2)}` : "—"}</td>
                           <td className={`py-2 px-3 text-right text-sm font-medium ${(p.qualifiedProfit || 0) >= 0 ? "text-profit" : "text-loss"}`}>{p.qualifiedProfit != null ? `$${p.qualifiedProfit.toFixed(2)}` : "—"}</td>
                           <td className="py-2 px-3 text-center text-xs text-gray-400">{p.totalTrades}</td>
-                          <td className="py-2 px-3 text-center">{p.disqualified ? <span className="text-loss text-xs">DQ</span> : p.connectionVerified ? <span className="text-profit text-xs">✓</span> : <span className="text-gray-500 text-xs">—</span>}</td>
+                          <td className="py-2 px-3 text-center">
+                            <div className="flex items-center justify-center gap-1">
+                              <button onClick={() => setActionModal({ type: 'dm', participant: p })} title="Send DM" className="p-1.5 rounded-lg hover:bg-royal/20 text-gray-400 hover:text-royal transition-all"><MessageSquare size={14} /></button>
+                              <button onClick={() => setActionModal({ type: 'unverify', participant: p })} title="Remove Registration" className="p-1.5 rounded-lg hover:bg-orange-500/20 text-gray-400 hover:text-orange-400 transition-all"><UserMinus size={14} /></button>
+                              {!p.disqualified && <button onClick={() => setActionModal({ type: 'disqualify', participant: p })} title="Disqualify" className="p-1.5 rounded-lg hover:bg-loss/20 text-gray-400 hover:text-loss transition-all"><Ban size={14} /></button>}
+                            </div>
+                          </td>
                         </tr>
                       ))}</tbody>
                     </table>
@@ -534,6 +602,43 @@ export default function AdminDashboard() {
                     <button onClick={() => setParticipantsPage(Math.min(participantsPagination.totalPages, participantsPage + 1))} disabled={participantsPage >= participantsPagination.totalPages} className="px-4 py-2 rounded-lg text-sm font-medium bg-white/5 text-gray-300 hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition-all">Next →</button>
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* Action Modal */}
+            {actionModal && (
+              <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setActionModal(null)}>
+                <div className="glass rounded-2xl max-w-md w-full border border-white/10 p-6" onClick={(e) => e.stopPropagation()}>
+                  <h3 className="text-lg font-bold text-white mb-1">
+                    {actionModal.type === 'dm' && '📩 Send Message'}
+                    {actionModal.type === 'unverify' && '⚠️ Remove Registration'}
+                    {actionModal.type === 'disqualify' && '🚫 Disqualify Participant'}
+                  </h3>
+                  <p className="text-sm text-gray-400 mb-4">
+                    To: <span className="text-white font-medium">{actionModal.participant.nickname || actionModal.participant.username || actionModal.participant.accountNumber}</span>
+                  </p>
+                  <textarea
+                    value={actionMessage}
+                    onChange={(e) => setActionMessage(e.target.value)}
+                    placeholder={actionModal.type === 'dm' ? 'Type your message...' : 'Enter reason...'}
+                    className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-royal/50 resize-none h-24 mb-4"
+                  />
+                  <div className="flex gap-3">
+                    <button onClick={() => setActionModal(null)} className="flex-1 py-2.5 rounded-xl bg-white/5 text-gray-300 text-sm font-medium hover:bg-white/10 transition-all">Cancel</button>
+                    <button
+                      onClick={() => handleAction(actionModal.type, actionModal.participant, actionMessage)}
+                      disabled={!actionMessage.trim() || actionLoading}
+                      className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all disabled:opacity-50 ${
+                        actionModal.type === 'dm' ? 'bg-royal/20 text-royal hover:bg-royal/30' :
+                        actionModal.type === 'unverify' ? 'bg-orange-500/20 text-orange-400 hover:bg-orange-500/30' :
+                        'bg-loss/20 text-loss hover:bg-loss/30'
+                      }`}
+                    >
+                      {actionLoading ? 'Sending...' : actionModal.type === 'dm' ? 'Send' : actionModal.type === 'unverify' ? 'Remove' : 'Disqualify'}
+                    </button>
+                  </div>
+                  {actionResult && <p className={`text-xs mt-3 ${actionResult.includes('✅') ? 'text-profit' : 'text-loss'}`}>{actionResult}</p>}
+                </div>
               </div>
             )}
           </div>
