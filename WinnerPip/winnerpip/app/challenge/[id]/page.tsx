@@ -59,6 +59,7 @@ export default function ChallengeDashboard() {
   const [recentTrades, setRecentTrades] = useState<Trade[]>([]);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [leaderboardLoading, setLeaderboardLoading] = useState(false);
+  const [challengeRules, setChallengeRules] = useState<string[]>([]);
 
   // Check auth on mount
   useEffect(() => {
@@ -148,6 +149,21 @@ export default function ChallengeDashboard() {
   useEffect(() => {
     if (isLoggedIn && challenge) fetchLeaderboard();
   }, [isLoggedIn, challenge, fetchLeaderboard]);
+
+  // Fetch rules when challenge is loaded
+  useEffect(() => {
+    if (!params.id) return;
+    const fetchRules = async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/challenges/${params.id}/rules`);
+        if (res.ok) {
+          const data = await res.json();
+          setChallengeRules(data.rules || []);
+        }
+      } catch {}
+    };
+    fetchRules();
+  }, [params.id]);
 
   // Lock body scroll when any modal is open
   const anyModalOpen = showRules || !!selectedTrade || showLeaderboardModal || showViolationsModal;
@@ -367,12 +383,13 @@ export default function ChallengeDashboard() {
             <div className="max-w-md mx-auto py-8">
               <div className="glass rounded-3xl border border-white/10 p-8 text-center">
                 <Activity className="w-12 h-12 text-gray-500 mx-auto mb-4" />
-                <h2 className="text-xl font-bold text-white mb-2">No Trades Recorded Yet</h2>
-                <p className="text-gray-400 text-sm mb-4">Start trading on your MT5 account and your results will appear here automatically.</p>
+                <h2 className="text-xl font-bold text-white mb-2">Waiting for Data</h2>
+                <p className="text-gray-400 text-sm mb-2">Your dashboard will update automatically once trades are detected.</p>
+                <p className="text-gray-500 text-xs mb-4">Data is synced every 4 hours. Please wait for the next update cycle.</p>
                 <div className="glass rounded-2xl border border-white/10 p-4 text-left space-y-2">
                   <div className="flex justify-between text-sm"><span className="text-gray-400">Account</span><span className="text-white font-semibold">#{myStats.accountNumber}</span></div>
                   <div className="flex justify-between text-sm"><span className="text-gray-400">Starting Balance</span><span className="text-white font-semibold">${challenge.startingBalance}</span></div>
-                  <div className="flex justify-between text-sm"><span className="text-gray-400">Target</span><span className="text-white font-semibold">${challenge.targetBalance}</span></div>
+                  <div className="flex justify-between text-sm"><span className="text-gray-400">Target</span><span className="text-white font-semibold">{challenge.targetBalance > 0 ? `$${challenge.targetBalance}` : "—"}</span></div>
                   <div className="flex justify-between text-sm"><span className="text-gray-400">Days Left</span><span className="text-gold font-semibold">{daysLeft}</span></div>
                 </div>
               </div>
@@ -668,21 +685,13 @@ export default function ChallengeDashboard() {
               <button onClick={() => setShowRules(false)} className="p-2 hover:bg-white/10 rounded-lg"><X size={18} className="text-gray-400" /></button>
             </div>
             <div className="p-5 space-y-3">
-              <RuleItem code="1" text="Maximum lot size per trade: 0.02" />
-              <RuleItem code="2" text="Maximum 3 trades open at the same time" />
-              <RuleItem code="3" text="Maximum 2 trades on the same pair simultaneously" />
-              <RuleItem code="4" text="Stop loss required on all trades (max risk: $5)" />
-              <RuleItem code="5" text="Daily loss cap: $10 from day's opening balance" />
-              <RuleItem code="6" text="Maximum trade duration: 24 hours" />
-              <RuleItem code="7" text="No weekend trading (Friday 22:00 — Sunday 22:00 UTC)" />
-              <RuleItem code="8" text="Minimum 7 active trading days to qualify" />
-
-              <div className="border-t border-white/10 pt-3 mt-3 space-y-2">
-                <RuleItem code="•" text="No recharging (additional deposits) allowed during the challenge" />
-                <RuleItem code="•" text="Unlimited trades per day — as long as all rules are followed" />
-                <RuleItem code="•" text="No leverage limit" />
-                <RuleItem code="•" text="Trades against the rules will have profits disqualified (losses still count)" />
-              </div>
+              {challengeRules.length === 0 ? (
+                <p className="text-gray-400 text-sm text-center py-4">Rules not yet configured for this challenge.</p>
+              ) : (
+                challengeRules.map((rule, i) => (
+                  <RuleItem key={i} code={rule.startsWith('No ') || rule.startsWith('Unlimited') || rule.startsWith('Trades against') ? '•' : String(i + 1)} text={rule} />
+                ))
+              )}
 
               <div className="bg-white/5 border border-white/10 rounded-xl p-4 mt-4">
                 <p className="text-xs text-gray-400"><span className="text-loss font-semibold">Penalty:</span> Profits from flagged trades are removed from your qualified balance. Losses from flagged trades still count. Repeated or severe violations may result in disqualification.</p>
