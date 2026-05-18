@@ -1,12 +1,19 @@
 """
-WinnerPip VPS API v3.0 — Dedicated Terminal Architecture
-Each terminal is exclusively assigned via terminal_id parameter.
-No lock contention — the scheduler decides which terminal handles which account.
+WinnerPip VPS API v4.0 — Multi-Process Architecture
+Each MT5 terminal runs in its own dedicated subprocess.
+The main API routes requests to the correct worker process.
 
-Endpoints:
-  POST /verify       — Verify MT5 credentials (rotates terminals)
-  POST /pull         — Pull trade history (uses dedicated terminal_id)
-  GET  /health       — Health check
+This solves the MT5 Python library limitation: only ONE terminal per process.
+
+Architecture:
+  Main Process (FastAPI on port 8000)
+    ├── Worker 1 (owns C:\MT5_1\terminal64.exe)
+    ├── Worker 2 (owns C:\MT5_2\terminal64.exe)
+    ├── ...
+    └── Worker 10 (owns C:\MT5_10\terminal64.exe)
+
+Each worker has its own request queue and response queue.
+No shared MT5 state. No lock contention. True parallelism.
 
 Run: python vps/verify_api.py
 """
@@ -14,14 +21,16 @@ Run: python vps/verify_api.py
 import MetaTrader5 as mt5
 import time
 import os
-import threading
+import multiprocessing
+from multiprocessing import Process, Queue
 from datetime import datetime, timezone, timedelta
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import Optional
 import uvicorn
+import queue as queue_module
 
-app = FastAPI(title="WinnerPip VPS API", version="3.0.0")
+app = FastAPI(title="WinnerPip VPS API", version="4.0.0")
 
 # Terminal paths
 TERMINALS = [
@@ -37,21 +46,186 @@ TERMINALS = [
     r"C:\MT5_10\terminal64.exe",
 ]
 
-# One lock per terminal — ensures only one operation per terminal at a time
-terminal_locks = [threading.Lock() for _ in TERMINALS]
-
-# Round-robin for /verify (which doesn't use terminal_id)
-_next_terminal = 0
-_counter_lock = threading.Lock()
+NUM_TERMINALS = len(TERMINALS)
 
 # API key
 API_KEY = os.environ.get("VPS_API_KEY", "")
 if not API_KEY:
-    print("⚠️  WARNING: VPS_API_KEY not set! API will reject all requests.")
+    print("⚠️  WARNING: VPS_API_KEY not set!")
 
-# Constants
-MAX_VERIFY_RETRIES = 3
-RETRY_DELAY = 1.0
+# Worker queues: request_queues[i] sends work TO worker i, response_queues[i] gets results FROM worker i
+request_queues: list = []
+response_queues: list = []
+workers: list = []
+
+# Round-robin counter for /verify
+_next_terminal = 0
+
+
+# ==================== WORKER PROCESS ====================
+
+def terminal_worker(terminal_id: int, terminal_path: str, req_queue: Queue, resp_queue: Queue):
+    """
+    Worker process — owns one MT5 terminal exclusively.
+    Listens for requests on req_queue, processes them, sends results to resp_queue.
+    """
+    print(f"  Worker {terminal_id}: Started (PID {os.getpid()}) → {terminal_path}")
+
+    while True:
+        try:
+            # Wait for a request (blocks until one arrives)
+            request = req_queue.get()
+
+            if request is None:
+                # Shutdown signal
+                break
+
+            request_id = request.get("request_id")
+            operation = request.get("operation", "verify")
+            account = request.get("account")
+            server = request.get("server")
+            password = request.get("password")
+            from_date = request.get("from_date")
+
+            result = execute_mt5_operation(terminal_path, account, server, password, operation, from_date)
+            result["request_id"] = request_id
+            resp_queue.put(result)
+
+        except Exception as e:
+            resp_queue.put({"request_id": request.get("request_id", ""), "success": False, "message": f"Worker error: {e}"})
+
+
+def execute_mt5_operation(terminal_path: str, account: int, server: str, password: str,
+                          operation: str = "verify", from_date=None) -> dict:
+    """Execute a single MT5 operation (verify or pull) on the dedicated terminal."""
+
+    # Shutdown any previous state
+    try:
+        mt5.shutdown()
+    except:
+        pass
+    time.sleep(0.2)
+
+    # Initialize terminal
+    if not mt5.initialize(terminal_path):
+        error = mt5.last_error()
+        return {"success": False, "message": f"MT5 init error: {error}"}
+
+    time.sleep(0.2)
+
+    # Login
+    if not mt5.login(account, password=password, server=server):
+        error = mt5.last_error()
+        mt5.shutdown()
+        return {"success": False, "message": f"Login failed: {error}"}
+
+    # === VERIFY ===
+    if operation == "verify":
+        account_info = mt5.account_info()
+        mt5.shutdown()
+        if not account_info:
+            return {"success": False, "message": "Could not get account info"}
+        return {
+            "success": True,
+            "message": "Credentials verified successfully",
+            "account_name": account_info.name,
+            "balance": account_info.balance,
+            "equity": account_info.equity,
+            "server": account_info.server,
+        }
+
+    # === PULL ===
+    elif operation == "pull":
+        account_info = mt5.account_info()
+        balance = account_info.balance if account_info else 0
+        equity = account_info.equity if account_info else 0
+
+        # Date range
+        if from_date:
+            try:
+                date_from = datetime.fromisoformat(from_date.replace("Z", "+00:00"))
+                date_from = date_from - timedelta(hours=1)
+            except:
+                date_from = datetime(2020, 1, 1, tzinfo=timezone.utc)
+        else:
+            date_from = datetime(2020, 1, 1, tzinfo=timezone.utc)
+
+        date_to = datetime.now(timezone.utc)
+
+        # Fetch deals
+        trades_raw = mt5.history_deals_get(date_from, date_to)
+        trades_list = []
+        deals_list = []
+
+        if trades_raw is not None:
+            for deal in trades_raw:
+                deal_dict = {
+                    "ticket": deal.ticket,
+                    "order": deal.order,
+                    "time": datetime.fromtimestamp(deal.time, tz=timezone.utc).isoformat(),
+                    "type": deal.type,
+                    "entry": deal.entry,
+                    "symbol": deal.symbol,
+                    "volume": deal.volume,
+                    "price": deal.price,
+                    "profit": deal.profit,
+                    "commission": deal.commission,
+                    "swap": deal.swap,
+                    "fee": deal.fee if hasattr(deal, 'fee') else 0,
+                    "comment": deal.comment,
+                    "position_id": deal.position_id,
+                }
+                deals_list.append(deal_dict)
+
+                if deal.entry == 1 and deal.symbol:
+                    trade_type = "Buy" if deal.type == 0 else "Sell" if deal.type == 1 else "Other"
+                    trades_list.append({
+                        "ticket": deal.position_id or deal.ticket,
+                        "symbol": deal.symbol,
+                        "type": trade_type,
+                        "volume": deal.volume,
+                        "close_time": datetime.fromtimestamp(deal.time, tz=timezone.utc).isoformat(),
+                        "close_price": deal.price,
+                        "profit": deal.profit,
+                        "commission": deal.commission,
+                        "swap": deal.swap,
+                        "comment": deal.comment,
+                    })
+
+        mt5.shutdown()
+        return {
+            "success": True,
+            "message": f"Pulled {len(trades_list)} trades, {len(deals_list)} deals",
+            "balance": balance,
+            "equity": equity,
+            "trades": trades_list,
+            "deals": deals_list,
+        }
+
+    mt5.shutdown()
+    return {"success": False, "message": f"Unknown operation: {operation}"}
+
+
+# ==================== API HELPERS ====================
+
+def send_to_worker(terminal_id: int, request: dict, timeout: float = 60) -> dict:
+    """Send a request to a specific worker and wait for response."""
+    import uuid
+    request_id = str(uuid.uuid4())
+    request["request_id"] = request_id
+
+    idx = terminal_id - 1  # Convert to 0-based
+    if idx < 0 or idx >= NUM_TERMINALS:
+        return {"success": False, "message": f"Invalid terminal_id: {terminal_id}"}
+
+    request_queues[idx].put(request)
+
+    # Wait for response
+    try:
+        result = response_queues[idx].get(timeout=timeout)
+        return result
+    except queue_module.Empty:
+        return {"success": False, "message": f"Terminal {terminal_id} timeout ({timeout}s)"}
 
 
 # ==================== MODELS ====================
@@ -77,8 +251,8 @@ class PullRequest(BaseModel):
     server: str
     password: str
     api_key: str
-    terminal_id: int  # 1-10, dedicated terminal for this request
-    from_date: Optional[str] = None  # ISO format for incremental pull
+    terminal_id: int
+    from_date: Optional[str] = None
 
 
 class PullResponse(BaseModel):
@@ -90,203 +264,66 @@ class PullResponse(BaseModel):
     deals: Optional[list] = None
 
 
-# ==================== HELPERS ====================
-
-def get_next_terminal_index() -> int:
-    global _next_terminal
-    with _counter_lock:
-        idx = _next_terminal
-        _next_terminal = (_next_terminal + 1) % len(TERMINALS)
-    return idx
-
-
-def execute_on_terminal(terminal_idx: int, account: int, server: str, password: str,
-                        operation: str = "verify", from_date=None):
-    """
-    Execute an operation on a specific terminal.
-    Acquires the terminal's lock, initializes, logs in, performs operation, shuts down.
-    """
-    if terminal_idx < 0 or terminal_idx >= len(TERMINALS):
-        return {"success": False, "message": f"Invalid terminal_id: {terminal_idx + 1}"}
-
-    terminal_path = TERMINALS[terminal_idx]
-    lock = terminal_locks[terminal_idx]
-
-    # Wait for terminal to be free (up to 60s for pulls)
-    timeout = 60 if operation == "pull" else 15
-    acquired = lock.acquire(timeout=timeout)
-    if not acquired:
-        return {"success": False, "message": f"Terminal {terminal_idx + 1} busy (timeout)"}
-
-    try:
-        # Clean shutdown of any previous state
-        try:
-            mt5.shutdown()
-        except:
-            pass
-        time.sleep(0.3)
-
-        # Initialize
-        if not mt5.initialize(terminal_path):
-            error = mt5.last_error()
-            return {"success": False, "message": f"MT5 terminal error: {error}"}
-
-        time.sleep(0.3)
-
-        # Login
-        if not mt5.login(account, password=password, server=server):
-            error = mt5.last_error()
-            mt5.shutdown()
-            return {"success": False, "message": f"MT5 terminal error: {error}"}
-
-        # === VERIFY OPERATION ===
-        if operation == "verify":
-            account_info = mt5.account_info()
-            mt5.shutdown()
-            if not account_info:
-                return {"success": False, "message": "Could not retrieve account info"}
-            return {
-                "success": True,
-                "message": "Credentials verified successfully",
-                "account_name": account_info.name,
-                "balance": account_info.balance,
-                "equity": account_info.equity,
-                "server": account_info.server,
-            }
-
-        # === PULL OPERATION ===
-        elif operation == "pull":
-            account_info = mt5.account_info()
-            balance = account_info.balance if account_info else 0
-            equity = account_info.equity if account_info else 0
-
-            # Date range
-            if from_date:
-                try:
-                    date_from = datetime.fromisoformat(from_date.replace("Z", "+00:00"))
-                    date_from = date_from - timedelta(hours=1)  # 1hr overlap buffer
-                except:
-                    date_from = datetime(2020, 1, 1, tzinfo=timezone.utc)
-            else:
-                date_from = datetime(2020, 1, 1, tzinfo=timezone.utc)
-
-            date_to = datetime.now(timezone.utc)
-
-            # Fetch deals
-            trades_raw = mt5.history_deals_get(date_from, date_to)
-            trades_list = []
-            deals_list = []
-
-            if trades_raw is not None:
-                for deal in trades_raw:
-                    deal_dict = {
-                        "ticket": deal.ticket,
-                        "order": deal.order,
-                        "time": datetime.fromtimestamp(deal.time, tz=timezone.utc).isoformat(),
-                        "type": deal.type,
-                        "entry": deal.entry,
-                        "symbol": deal.symbol,
-                        "volume": deal.volume,
-                        "price": deal.price,
-                        "profit": deal.profit,
-                        "commission": deal.commission,
-                        "swap": deal.swap,
-                        "fee": deal.fee if hasattr(deal, 'fee') else 0,
-                        "comment": deal.comment,
-                        "position_id": deal.position_id,
-                    }
-                    deals_list.append(deal_dict)
-
-                    # Closing deals = trades (entry == 1 means OUT)
-                    if deal.entry == 1 and deal.symbol:
-                        trade_type = "Buy" if deal.type == 0 else "Sell" if deal.type == 1 else "Other"
-                        trades_list.append({
-                            "ticket": deal.position_id or deal.ticket,
-                            "symbol": deal.symbol,
-                            "type": trade_type,
-                            "volume": deal.volume,
-                            "close_time": datetime.fromtimestamp(deal.time, tz=timezone.utc).isoformat(),
-                            "close_price": deal.price,
-                            "profit": deal.profit,
-                            "commission": deal.commission,
-                            "swap": deal.swap,
-                            "comment": deal.comment,
-                        })
-
-            mt5.shutdown()
-            return {
-                "success": True,
-                "message": f"Pulled {len(trades_list)} trades, {len(deals_list)} deals",
-                "balance": balance,
-                "equity": equity,
-                "trades": trades_list,
-                "deals": deals_list,
-            }
-
-    except Exception as e:
-        try:
-            mt5.shutdown()
-        except:
-            pass
-        return {"success": False, "message": f"Exception: {str(e)}"}
-    finally:
-        lock.release()
-
-
 # ==================== ENDPOINTS ====================
 
 @app.get("/health")
 def health():
-    available = sum(1 for lock in terminal_locks if not lock.locked())
-    return {"status": "ok", "terminals": len(TERMINALS), "available": available}
+    alive = sum(1 for w in workers if w.is_alive())
+    return {"status": "ok", "terminals": NUM_TERMINALS, "alive_workers": alive}
 
 
 @app.post("/verify", response_model=VerifyResponse)
 def verify_credentials(req: VerifyRequest):
-    """Verify credentials — rotates across terminals with retry."""
+    """Verify credentials — round-robin across workers."""
     if req.api_key != API_KEY:
         raise HTTPException(status_code=401, detail="Invalid API key")
 
+    global _next_terminal
     account_number = int(req.account.replace("#", "").replace(" ", ""))
 
-    for attempt in range(MAX_VERIFY_RETRIES):
-        idx = get_next_terminal_index()
-        result = execute_on_terminal(idx, account_number, req.server, req.password, "verify")
+    # Try up to 3 different terminals
+    for attempt in range(3):
+        _next_terminal = (_next_terminal + 1) % NUM_TERMINALS
+        terminal_id = _next_terminal + 1
 
-        if result["success"]:
-            return VerifyResponse(**result)
+        result = send_to_worker(terminal_id, {
+            "operation": "verify",
+            "account": account_number,
+            "server": req.server,
+            "password": req.password,
+        }, timeout=30)
 
-        # Definitive failure — don't retry
-        msg = result["message"].lower()
-        if "invalid account" in msg or "no connection" in msg:
-            return VerifyResponse(**result)
+        if result.get("success"):
+            return VerifyResponse(**{k: v for k, v in result.items() if k != "request_id"})
 
-        # Terminal issue — retry on different terminal
-        if attempt < MAX_VERIFY_RETRIES - 1:
-            time.sleep(RETRY_DELAY)
+        # Definitive auth failure — don't retry
+        msg = result.get("message", "").lower()
+        if "login failed" in msg and "authorization" not in msg:
+            return VerifyResponse(success=False, message=result.get("message", ""))
+
+        time.sleep(0.5)
 
     return VerifyResponse(success=False, message=result.get("message", "Verification failed"))
 
 
 @app.post("/pull", response_model=PullResponse)
 def pull_account(req: PullRequest):
-    """
-    Pull trade history using a DEDICATED terminal.
-    The scheduler assigns terminal_id (1-10) to avoid contention.
-    """
+    """Pull trade history on a DEDICATED terminal (no contention)."""
     if req.api_key != API_KEY:
         raise HTTPException(status_code=401, detail="Invalid API key")
 
-    if req.terminal_id < 1 or req.terminal_id > len(TERMINALS):
-        raise HTTPException(status_code=400, detail=f"terminal_id must be 1-{len(TERMINALS)}")
+    if req.terminal_id < 1 or req.terminal_id > NUM_TERMINALS:
+        raise HTTPException(status_code=400, detail=f"terminal_id must be 1-{NUM_TERMINALS}")
 
     account_number = int(req.account.replace("#", "").replace(" ", ""))
-    terminal_idx = req.terminal_id - 1  # Convert to 0-based index
 
-    result = execute_on_terminal(
-        terminal_idx, account_number, req.server, req.password,
-        "pull", req.from_date
-    )
+    result = send_to_worker(req.terminal_id, {
+        "operation": "pull",
+        "account": account_number,
+        "server": req.server,
+        "password": req.password,
+        "from_date": req.from_date,
+    }, timeout=60)
 
     return PullResponse(
         success=result.get("success", False),
@@ -298,18 +335,48 @@ def pull_account(req: PullRequest):
     )
 
 
-# ==================== MAIN ====================
+# ==================== STARTUP ====================
+
+def start_workers():
+    """Start all worker processes."""
+    global request_queues, response_queues, workers
+
+    print("\n  Starting worker processes...")
+    for i in range(NUM_TERMINALS):
+        req_q = Queue()
+        resp_q = Queue()
+        request_queues.append(req_q)
+        response_queues.append(resp_q)
+
+        p = Process(
+            target=terminal_worker,
+            args=(i + 1, TERMINALS[i], req_q, resp_q),
+            daemon=True,
+        )
+        p.start()
+        workers.append(p)
+
+    # Give workers time to start
+    time.sleep(2)
+    alive = sum(1 for w in workers if w.is_alive())
+    print(f"  ✅ {alive}/{NUM_TERMINALS} workers alive\n")
+
 
 if __name__ == "__main__":
+    # Must use spawn on Windows for multiprocessing with MT5
+    multiprocessing.set_start_method("spawn", force=True)
+
     print("=" * 50)
-    print("  WinnerPip VPS API v3.0")
-    print("  Dedicated Terminal Architecture")
+    print("  WinnerPip VPS API v4.0")
+    print("  Multi-Process Architecture")
     print("=" * 50)
     print(f"\n  API Key: {API_KEY[:10]}..." if API_KEY else "\n  ⚠️  NO API KEY SET")
-    print(f"  Terminals: {len(TERMINALS)}")
-    print(f"\n  /verify — rotates terminals (for registration)")
-    print(f"  /pull   — dedicated terminal_id (for scheduled pulls)")
-    print(f"\n  Starting on http://0.0.0.0:8000")
+    print(f"  Terminals: {NUM_TERMINALS}")
+    print(f"  Each terminal = separate process (true parallelism)")
+
+    start_workers()
+
+    print(f"  Starting API on http://0.0.0.0:8000")
     print("=" * 50)
 
     uvicorn.run(app, host="0.0.0.0", port=8000)
