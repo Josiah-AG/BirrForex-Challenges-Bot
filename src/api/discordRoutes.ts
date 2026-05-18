@@ -217,16 +217,24 @@ router.post('/challenges/:id/register', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Registration deadline has passed' });
     }
 
-    // Check if already registered (by discord_user_id or account_number)
+    // Check if already registered (by discord_user_id or account_number) — exclude removed registrations
     const existing = await db.query(
-      `SELECT id FROM trading_registrations 
-       WHERE challenge_id = $1 AND (discord_user_id = $2 OR account_number = $3)`,
+      `SELECT id, status FROM trading_registrations 
+       WHERE challenge_id = $1 AND (discord_user_id = $2 OR account_number = $3)
+         AND (status IS NULL OR status != 'removed')`,
       [challengeId, discord_user_id, account_number]
     );
 
     if (existing.rows.length > 0) {
       return res.status(409).json({ error: 'Already registered for this challenge' });
     }
+
+    // Delete any old removed registration for this user (so they can re-register cleanly)
+    await db.query(
+      `DELETE FROM trading_registrations 
+       WHERE challenge_id = $1 AND (discord_user_id = $2 OR account_number = $3) AND status = 'removed'`,
+      [challengeId, discord_user_id, account_number]
+    );
 
     // Check account type matches challenge type
     if (c.type === 'demo' && account_type !== 'demo') {
