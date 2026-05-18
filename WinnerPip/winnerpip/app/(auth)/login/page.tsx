@@ -60,8 +60,12 @@ function LoginForm() {
       const data = await response.json();
 
       if (!response.ok) {
-        if (response.status === 401) {
-          setError("This account number and password are not registered. Please check your credentials or register first via Telegram.");
+        if (response.status === 403 && data.error === 'registration_removed') {
+          setError(`Your registration was removed. Reason: ${data.reason}. You can register again.`);
+        } else if (response.status === 403 && data.error === 'disqualified') {
+          setError(`You have been disqualified. Reason: ${data.reason}`);
+        } else if (response.status === 401) {
+          setError("This account number and password are not registered. Please check your credentials or register first.");
         } else {
           setError(data.error || "Something went wrong. Please try again.");
         }
@@ -79,7 +83,7 @@ function LoginForm() {
       }
     } catch (err) {
       console.error("Login failed:", err);
-      setError("This account number and password are not registered. Please check your credentials or register first via Telegram.");
+      setError("Unable to connect to the server. Please try again later.");
       setLoading(false);
     }
   };

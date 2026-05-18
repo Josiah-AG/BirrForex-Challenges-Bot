@@ -119,6 +119,38 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
     );
 
     if (result.rows.length === 0) {
+      // Check if there's a removed or disqualified registration for this account
+      const removedCheck = await db.query(
+        `SELECT r.status, r.disqualified, r.disqualified_reason, c.title as challenge_title
+         FROM trading_registrations r
+         JOIN trading_challenges c ON r.challenge_id = c.id
+         WHERE r.account_number = $1
+           AND r.investor_password = $2
+         ORDER BY r.registered_at DESC
+         LIMIT 1`,
+        [account_number.trim(), investor_password.trim()]
+      );
+
+      if (removedCheck.rows.length > 0) {
+        const removed = removedCheck.rows[0];
+        if (removed.status === 'removed') {
+          return res.status(403).json({
+            error: 'registration_removed',
+            message: `Your registration for "${removed.challenge_title}" was removed.`,
+            reason: removed.disqualified_reason || 'No reason provided',
+            canReregister: true,
+          });
+        }
+        if (removed.disqualified) {
+          return res.status(403).json({
+            error: 'disqualified',
+            message: `You have been disqualified from "${removed.challenge_title}".`,
+            reason: removed.disqualified_reason || 'No reason provided',
+            canReregister: false,
+          });
+        }
+      }
+
       return res.status(401).json({ error: 'Invalid account number or investor password' });
     }
 
@@ -577,7 +609,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/participants`, adminIpChe
        FROM trading_registrations r
        LEFT JOIN wp_leaderboard l ON r.id = l.registration_id
        LEFT JOIN trading_challenges c ON r.challenge_id = c.id
-       WHERE r.challenge_id = $1
+       WHERE r.challenge_id = $1 AND (r.status IS NULL OR r.status != 'removed')
        ORDER BY l.rank ASC NULLS LAST, r.registered_at ASC
        LIMIT $2 OFFSET $3`,
       [challengeId, limit, offset]
@@ -650,10 +682,13 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/unverify`, adminIpCheck,
 
     const user = reg.rows[0];
 
-    // Delete the registration
-    await db.query(`DELETE FROM trading_registrations WHERE id = $1`, [registrationId]);
+    // Soft-delete: mark as removed (not hard delete) so login can show the reason
+    await db.query(
+      `UPDATE trading_registrations SET status = 'removed', disqualified = true, disqualified_at = NOW(), disqualified_reason = $1 WHERE id = $2`,
+      [reason, registrationId]
+    );
 
-    // Also remove from leaderboard if exists
+    // Remove from leaderboard
     await db.query(`DELETE FROM wp_leaderboard WHERE registration_id = $1`, [registrationId]);
 
     // DM the user
