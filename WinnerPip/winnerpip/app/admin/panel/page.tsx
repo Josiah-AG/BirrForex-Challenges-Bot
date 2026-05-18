@@ -147,13 +147,10 @@ export default function AdminDashboard() {
 
     try {
       let endpoint = "";
-      if (type === "dm") endpoint = `${apiUrl}/api/admin/${secretPath}/challenge/${selectedChallengeId}/message`;
-      else if (type === "unverify") endpoint = `${apiUrl}/api/admin/${secretPath}/challenge/${selectedChallengeId}/unverify`;
+      if (type === "unverify") endpoint = `${apiUrl}/api/admin/${secretPath}/challenge/${selectedChallengeId}/unverify`;
       else if (type === "disqualify") endpoint = `${apiUrl}/api/admin/${secretPath}/challenge/${selectedChallengeId}/disqualify`;
 
-      const body: any = { registrationId: participant.id };
-      if (type === "dm") body.message = message;
-      else body.reason = message;
+      const body: any = { registrationId: participant.id, reason: message };
 
       const res = await fetch(endpoint, {
         method: "POST",
@@ -163,7 +160,7 @@ export default function AdminDashboard() {
 
       const data = await res.json();
       if (data.success) {
-        setActionResult(`✅ ${type === 'dm' ? 'Message sent' : type === 'unverify' ? 'Registration removed' : 'Participant disqualified'}${data.dmSent ? ' (DM sent)' : data.dmSent === false ? ' (DM failed)' : ''}`);
+        setActionResult(`✅ ${type === 'unverify' ? 'Registration removed' : 'Participant disqualified'}${data.dmSent ? ' (DM sent)' : data.dmSent === false ? ' (DM failed)' : ''}`);
         // Refresh participants list after action
         setTimeout(() => { setActionModal(null); setActionMessage(""); setActionResult(""); setParticipantsPage(participantsPage); }, 1500);
       } else {
@@ -584,7 +581,6 @@ export default function AdminDashboard() {
                           <td className="py-2 px-3 text-center text-xs text-gray-400">{p.totalTrades}</td>
                           <td className="py-2 px-3 text-center">
                             <div className="flex items-center justify-center gap-1">
-                              <button onClick={() => setActionModal({ type: 'dm', participant: p })} title="Send DM" className="p-1.5 rounded-lg hover:bg-royal/20 text-gray-400 hover:text-royal transition-all"><MessageSquare size={14} /></button>
                               <button onClick={() => setActionModal({ type: 'unverify', participant: p })} title="Remove Registration" className="p-1.5 rounded-lg hover:bg-orange-500/20 text-gray-400 hover:text-orange-400 transition-all"><UserMinus size={14} /></button>
                               {!p.disqualified && <button onClick={() => setActionModal({ type: 'disqualify', participant: p })} title="Disqualify" className="p-1.5 rounded-lg hover:bg-loss/20 text-gray-400 hover:text-loss transition-all"><Ban size={14} /></button>}
                             </div>
@@ -610,7 +606,6 @@ export default function AdminDashboard() {
               <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setActionModal(null)}>
                 <div className="glass rounded-2xl max-w-md w-full border border-white/10 p-6" onClick={(e) => e.stopPropagation()}>
                   <h3 className="text-lg font-bold text-white mb-1">
-                    {actionModal.type === 'dm' && '📩 Send Message'}
                     {actionModal.type === 'unverify' && '⚠️ Remove Registration'}
                     {actionModal.type === 'disqualify' && '🚫 Disqualify Participant'}
                   </h3>
@@ -620,7 +615,7 @@ export default function AdminDashboard() {
                   <textarea
                     value={actionMessage}
                     onChange={(e) => setActionMessage(e.target.value)}
-                    placeholder={actionModal.type === 'dm' ? 'Type your message...' : 'Enter reason...'}
+                    placeholder="Enter reason..."
                     className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-royal/50 resize-none h-24 mb-4"
                   />
                   <div className="flex gap-3">
@@ -629,12 +624,11 @@ export default function AdminDashboard() {
                       onClick={() => handleAction(actionModal.type, actionModal.participant, actionMessage)}
                       disabled={!actionMessage.trim() || actionLoading}
                       className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all disabled:opacity-50 ${
-                        actionModal.type === 'dm' ? 'bg-royal/20 text-royal hover:bg-royal/30' :
                         actionModal.type === 'unverify' ? 'bg-orange-500/20 text-orange-400 hover:bg-orange-500/30' :
                         'bg-loss/20 text-loss hover:bg-loss/30'
                       }`}
                     >
-                      {actionLoading ? 'Sending...' : actionModal.type === 'dm' ? 'Send' : actionModal.type === 'unverify' ? 'Remove' : 'Disqualify'}
+                      {actionLoading ? 'Processing...' : actionModal.type === 'unverify' ? 'Remove' : 'Disqualify'}
                     </button>
                   </div>
                   {actionResult && <p className={`text-xs mt-3 ${actionResult.includes('✅') ? 'text-profit' : 'text-loss'}`}>{actionResult}</p>}
