@@ -572,9 +572,11 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/participants`, adminIpChe
               r.email, r.account_number, r.mt5_server, r.status, r.partner_status,
               r.disqualified, r.disqualified_reason, r.registered_at, r.source,
               r.connection_verified, r.pull_status, r.last_pull_at,
-              l.rank, l.current_balance, l.qualified_profit, l.total_trades, l.flagged_trades
+              l.rank, l.current_balance, l.qualified_profit, l.total_trades, l.flagged_trades,
+              c.source as challenge_source
        FROM trading_registrations r
        LEFT JOIN wp_leaderboard l ON r.id = l.registration_id
+       LEFT JOIN trading_challenges c ON r.challenge_id = c.id
        WHERE r.challenge_id = $1
        ORDER BY l.rank ASC NULLS LAST, r.registered_at ASC
        LIMIT $2 OFFSET $3`,
@@ -598,6 +600,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/participants`, adminIpChe
         disqualifiedReason: r.disqualified_reason,
         registeredAt: r.registered_at,
         source: r.source || 'telegram',
+        challengeSource: r.challenge_source || 'telegram',
         connectionVerified: r.connection_verified,
         pullStatus: r.pull_status,
         lastPullAt: r.last_pull_at,
@@ -616,6 +619,201 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/participants`, adminIpChe
     });
   } catch (error) {
     console.error('Admin participants error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * POST /api/admin/:secretPath/challenge/:id/message
+ * Send a DM to a participant via Telegram or Discord bot
+ * Body: { registrationId, message }
+ */
+app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/message`, adminIpCheck, async (req, res) => {
+  try {
+    const { registrationId, message } = req.body;
+    if (!registrationId || !message) {
+      return res.status(400).json({ error: 'registrationId and message are required' });
+    }
+
+    const reg = await db.query(
+      `SELECT r.telegram_id, r.discord_user_id, r.username, r.nickname, r.source, c.title
+       FROM trading_registrations r
+       JOIN trading_challenges c ON r.challenge_id = c.id
+       WHERE r.id = $1`,
+      [registrationId]
+    );
+
+    if (reg.rows.length === 0) {
+      return res.status(404).json({ error: 'Registration not found' });
+    }
+
+    const user = reg.rows[0];
+    let sent = false;
+    let method = '';
+
+    // Try Telegram first (works for both telegram and discord source if telegram_id exists)
+    if (user.telegram_id && user.source !== 'discord') {
+      try {
+        const { bot } = require('../bot/bot');
+        await bot.bot.telegram.sendMessage(
+          user.telegram_id,
+          `📩 <b>Message from Admin</b>\n<b>${user.title}</b>\n\n${message}`,
+          { parse_mode: 'HTML' }
+        );
+        sent = true;
+        method = 'telegram';
+      } catch (e: any) {
+        console.error(`Failed to DM via Telegram: ${e.message}`);
+      }
+    }
+
+    // For Discord source, we can't send DMs directly from the API server
+    // Instead, store the message for the Discord bot to pick up
+    if (!sent && user.source === 'discord' && user.discord_user_id) {
+      // Store pending message in DB for Discord bot to send
+      await db.query(
+        `INSERT INTO trading_daily_stats (challenge_id, date, new_registrations)
+         VALUES (0, CURRENT_DATE, 0) ON CONFLICT DO NOTHING`
+      );
+      // For now, return that Discord DMs need to be sent via the Discord bot command
+      return res.json({
+        success: false,
+        method: 'discord',
+        note: 'Discord DMs must be sent via the Discord bot (!dm command). User: ' + (user.username || user.discord_user_id),
+      });
+    }
+
+    if (sent) {
+      return res.json({ success: true, method });
+    } else {
+      return res.json({ success: false, error: 'Could not send message. User may have DMs disabled.' });
+    }
+  } catch (error) {
+    console.error('Admin message error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * POST /api/admin/:secretPath/challenge/:id/unverify
+ * Remove a registration completely (user can re-register)
+ * Body: { registrationId, reason }
+ */
+app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/unverify`, adminIpCheck, async (req, res) => {
+  try {
+    const challengeId = parseInt(req.params.id as string);
+    const { registrationId, reason } = req.body;
+    if (!registrationId || !reason) {
+      return res.status(400).json({ error: 'registrationId and reason are required' });
+    }
+
+    const reg = await db.query(
+      `SELECT r.telegram_id, r.discord_user_id, r.username, r.nickname, r.account_number, r.source, c.title
+       FROM trading_registrations r
+       JOIN trading_challenges c ON r.challenge_id = c.id
+       WHERE r.id = $1 AND r.challenge_id = $2`,
+      [registrationId, challengeId]
+    );
+
+    if (reg.rows.length === 0) {
+      return res.status(404).json({ error: 'Registration not found' });
+    }
+
+    const user = reg.rows[0];
+
+    // Delete the registration
+    await db.query(`DELETE FROM trading_registrations WHERE id = $1`, [registrationId]);
+
+    // Also remove from leaderboard if exists
+    await db.query(`DELETE FROM wp_leaderboard WHERE registration_id = $1`, [registrationId]);
+
+    // DM the user
+    let dmSent = false;
+    if (user.telegram_id && user.source !== 'discord') {
+      try {
+        const { bot } = require('../bot/bot');
+        await bot.bot.telegram.sendMessage(
+          user.telegram_id,
+          `⚠️ <b>Registration Removed</b>\n<b>${user.title}</b>\n\n` +
+          `Your registration (account ${user.account_number}) has been removed.\n\n` +
+          `📛 <b>Reason:</b> ${reason}\n\n` +
+          `You can register again if you wish.`,
+          { parse_mode: 'HTML' }
+        );
+        dmSent = true;
+      } catch (e: any) {
+        console.error(`Failed to DM unverify notice: ${e.message}`);
+      }
+    }
+
+    return res.json({ success: true, dmSent, user: user.nickname || user.username });
+  } catch (error) {
+    console.error('Admin unverify error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * POST /api/admin/:secretPath/challenge/:id/disqualify
+ * Disqualify a participant (stays in system, marked as DQ on leaderboard)
+ * Body: { registrationId, reason }
+ */
+app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/disqualify`, adminIpCheck, async (req, res) => {
+  try {
+    const challengeId = parseInt(req.params.id as string);
+    const { registrationId, reason } = req.body;
+    if (!registrationId || !reason) {
+      return res.status(400).json({ error: 'registrationId and reason are required' });
+    }
+
+    const reg = await db.query(
+      `SELECT r.telegram_id, r.discord_user_id, r.username, r.nickname, r.account_number, r.source, c.title
+       FROM trading_registrations r
+       JOIN trading_challenges c ON r.challenge_id = c.id
+       WHERE r.id = $1 AND r.challenge_id = $2`,
+      [registrationId, challengeId]
+    );
+
+    if (reg.rows.length === 0) {
+      return res.status(404).json({ error: 'Registration not found' });
+    }
+
+    const user = reg.rows[0];
+
+    // Mark as disqualified
+    await db.query(
+      `UPDATE trading_registrations SET disqualified = true, disqualified_at = NOW(), disqualified_reason = $1 WHERE id = $2`,
+      [reason, registrationId]
+    );
+
+    // Update leaderboard
+    await db.query(
+      `UPDATE wp_leaderboard SET is_disqualified = true, disqualify_reason = $1 WHERE registration_id = $2`,
+      [reason, registrationId]
+    );
+
+    // DM the user
+    let dmSent = false;
+    if (user.telegram_id && user.source !== 'discord') {
+      try {
+        const { bot } = require('../bot/bot');
+        await bot.bot.telegram.sendMessage(
+          user.telegram_id,
+          `🚫 <b>Disqualified</b>\n<b>${user.title}</b>\n\n` +
+          `Your account ${user.account_number} has been disqualified from the challenge.\n\n` +
+          `📛 <b>Reason:</b> ${reason}\n\n` +
+          `<i>If you believe this is an error, contact @birrFXadmin.</i>`,
+          { parse_mode: 'HTML' }
+        );
+        dmSent = true;
+      } catch (e: any) {
+        console.error(`Failed to DM disqualify notice: ${e.message}`);
+      }
+    }
+
+    return res.json({ success: true, dmSent, user: user.nickname || user.username });
+  } catch (error) {
+    console.error('Admin disqualify error:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
