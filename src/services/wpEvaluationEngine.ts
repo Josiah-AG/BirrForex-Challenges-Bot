@@ -218,9 +218,30 @@ export class WpEvaluationEngine {
     challengeId: number, reg: any, rules: RuleConfig, startingBalance: number, targetBalance: number
   ): Promise<{ flaggedCount: number; isQualified: boolean }> {
 
+    // Get challenge dates for period filtering
+    const challengeDates = await db.query(
+      `SELECT start_date, end_date FROM trading_challenges WHERE id = $1`,
+      [challengeId]
+    );
+    const challengeStart = challengeDates.rows[0]?.start_date;
+    const challengeEnd = challengeDates.rows[0]?.end_date;
+
+    // Apply 3-hour grace window before start (for Sunday market open → Monday server time)
+    let startFilter = '';
+    const params: any[] = [challengeId, reg.id];
+    if (challengeStart) {
+      const graceStart = new Date(new Date(challengeStart).getTime() - 3 * 60 * 60 * 1000);
+      startFilter = ` AND close_time >= $3`;
+      params.push(graceStart.toISOString());
+    }
+    if (challengeEnd) {
+      startFilter += ` AND close_time <= $${params.length + 1}`;
+      params.push(new Date(challengeEnd).toISOString());
+    }
+
     const trades = await db.query(
-      `SELECT * FROM wp_trades WHERE challenge_id = $1 AND registration_id = $2 ORDER BY open_time ASC`,
-      [challengeId, reg.id]
+      `SELECT * FROM wp_trades WHERE challenge_id = $1 AND registration_id = $2${startFilter} ORDER BY open_time ASC`,
+      params
     );
 
     if (trades.rows.length === 0) {
