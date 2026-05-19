@@ -37,19 +37,24 @@ app = FastAPI(title=f"VPS Worker {TERMINAL_ID}", version="5.0.0")
 # ==================== MT5 OPERATIONS ====================
 
 def init_terminal() -> bool:
-    """Initialize connection to this worker's terminal."""
+    """Initialize connection to this worker's terminal. Launches it if not running."""
     try:
         mt5.shutdown()
     except:
         pass
-    time.sleep(0.3)
+    time.sleep(0.5)
 
+    # mt5.initialize(path) will launch the terminal if not running
+    # This is the KEY: the worker process launches its OWN terminal
     if not mt5.initialize(TERMINAL_PATH):
         error = mt5.last_error()
         print(f"  [W{TERMINAL_ID}] Init failed: {error}")
         return False
 
+    # Wait for terminal to connect to broker
+    time.sleep(2)
     print(f"  [W{TERMINAL_ID}] Terminal connected")
+    mt5.shutdown()
     return True
 
 
@@ -223,20 +228,16 @@ if __name__ == "__main__":
     print(f"  Port: {PORT}")
     print(f"=" * 40)
 
-    # Try to initialize terminal at startup
-    for attempt in range(5):
+    # Initialize terminal at startup (launches it if not running)
+    # The worker OWNS this terminal — it launched it
+    for attempt in range(10):
         if init_terminal():
+            print(f"  [W{TERMINAL_ID}] Ready!")
             break
-        print(f"  [W{TERMINAL_ID}] Retry {attempt + 1}/5 in 5s...")
+        print(f"  [W{TERMINAL_ID}] Retry {attempt + 1}/10 in 5s...")
         time.sleep(5)
     else:
-        print(f"  [W{TERMINAL_ID}] WARNING: Could not init terminal at startup. Will retry on requests.")
-
-    # Always shutdown after init test — requests will re-init
-    try:
-        mt5.shutdown()
-    except:
-        pass
+        print(f"  [W{TERMINAL_ID}] WARNING: Could not init terminal. Will retry on requests.")
 
     print(f"  [W{TERMINAL_ID}] Starting on port {PORT}...")
     uvicorn.run(app, host="127.0.0.1", port=PORT, log_level="warning")
