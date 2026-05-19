@@ -1,26 +1,35 @@
 """
-WinnerPip VPS Router v6.0 — Request Router with Auto-Failover
+WinnerPip VPS Router v6.3 — Smart Retry + Auto-Failover
 Runs on port 8000. Forwards requests to workers on ports 8001-8010.
-If a worker fails, automatically retries on another worker.
+
+Retry logic:
+  - Credential errors (wrong password) → return immediately, no retry
+  - Terminal/IPC errors → retry on same terminal (2s delay)
+  - After failing on one terminal → try a different terminal
+  - After failing on 3 DIFFERENT terminals → mark as failed, return error
 
 Endpoints:
   GET  /health         — System health
-  POST /verify         — Verify credentials (round-robin with failover)
-  POST /pull           — Pull trade data (assigned terminal with failover)
+  POST /verify         — Verify credentials (round-robin with smart retry)
+  POST /pull           — Pull trade data (smart retry across 3 terminals)
 """
 
 import os
+import asyncio
 import httpx
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import Optional
 import uvicorn
 
-app = FastAPI(title="WinnerPip VPS Router", version="6.0.0")
+app = FastAPI(title="WinnerPip VPS Router", version="6.3.0")
 
 NUM_WORKERS = 10
 WORKER_BASE_PORT = 8001  # Workers on 8001-8010
-WORKER_TIMEOUT = 60.0  # seconds per request
+WORKER_TIMEOUT = 90.0  # seconds per request
+RETRY_DELAY = 2.0  # seconds between retries on same terminal
+MAX_RETRIES_SAME_TERMINAL = 2  # retries on same terminal before switching
+MAX_DIFFERENT_TERMINALS = 3  # fail after trying this many different terminals
 
 API_KEY = os.environ.get("VPS_API_KEY", "")
 
@@ -37,9 +46,41 @@ def worker_url(worker_id: int) -> str:
 
 
 def is_credential_error(message: str) -> bool:
-    """Check if error is a definitive credential failure (don't retry on another worker)."""
+    """Check if error is a definitive credential failure (don't retry)."""
     msg = message.lower()
-    return "login failed" in msg or "authorization" in msg or "invalid" in msg
+    return any(x in msg for x in [
+        "login failed",
+        "invalid account",
+        "wrong password",
+        "account not found",
+    ])
+
+
+def is_terminal_error(message: str) -> bool:
+    """Check if error is a terminal/IPC issue (should retry)."""
+    msg = message.lower()
+    return any(x in msg for x in [
+        "authorization failed",
+        "init error",
+        "init failed",
+        "reconnect failed",
+        "ipc",
+        "timeout",
+        "not connected",
+    ])
+
+
+def get_next_healthy_worker(exclude: set) -> int:
+    """Get next healthy worker not in exclude set. Returns 0 if none available."""
+    # Try healthy workers first
+    for i in range(1, NUM_WORKERS + 1):
+        if i not in exclude and worker_healthy[i - 1]:
+            return i
+    # Try any worker not in exclude
+    for i in range(1, NUM_WORKERS + 1):
+        if i not in exclude:
+            return i
+    return 0
 
 
 # ==================== MODELS ====================
@@ -56,7 +97,7 @@ class PullRequest(BaseModel):
     server: str
     password: str
     api_key: str
-    terminal_id: int
+    terminal_id: Optional[int] = None
     from_date: Optional[str] = None
 
 
@@ -86,7 +127,7 @@ async def health():
 
     return {
         "status": "ok" if alive > 0 else "degraded",
-        "version": "6.0.0",
+        "version": "6.3.0",
         "terminals": NUM_WORKERS,
         "alive_workers": alive,
         "healthy_terminals": healthy_list,
@@ -96,154 +137,189 @@ async def health():
 
 @app.post("/verify")
 async def verify(req: VerifyRequest):
-    """Verify credentials — round-robin across healthy workers with failover."""
+    """
+    Verify credentials with smart retry:
+    - Credential error → return immediately
+    - Terminal error → retry same terminal, then try different ones
+    - Fails on 3 different terminals → return failure
+    """
     if req.api_key != API_KEY:
         raise HTTPException(status_code=401, detail="Invalid API key")
 
     global _next_worker
+    tried_terminals = set()
     last_error = "All workers failed"
-    tried = set()
 
-    # Try up to 3 workers
-    for attempt in range(3):
-        # Find next healthy worker (round-robin)
-        found = False
-        for _ in range(NUM_WORKERS):
-            _next_worker = (_next_worker % NUM_WORKERS) + 1
-            if _next_worker not in tried:
-                if worker_healthy[_next_worker - 1] or attempt >= 2:
-                    found = True
-                    break
-        if not found:
-            # Try any untried worker
-            for i in range(1, NUM_WORKERS + 1):
-                if i not in tried:
-                    _next_worker = i
-                    found = True
-                    break
-        if not found:
-            break
-
+    # Try up to MAX_DIFFERENT_TERMINALS different terminals
+    while len(tried_terminals) < MAX_DIFFERENT_TERMINALS:
+        # Pick next terminal
+        _next_worker = (_next_worker % NUM_WORKERS) + 1
         wid = _next_worker
-        tried.add(wid)
 
-        try:
-            async with httpx.AsyncClient(timeout=WORKER_TIMEOUT) as client:
-                resp = await client.post(
-                    f"{worker_url(wid)}/verify",
-                    json={
-                        "account": req.account,
-                        "server": req.server,
-                        "password": req.password,
-                        "api_key": req.api_key,
-                    },
-                )
-                data = resp.json()
+        # Skip already-tried terminals
+        if wid in tried_terminals:
+            wid = get_next_healthy_worker(tried_terminals)
+            if wid == 0:
+                break
 
-                if data.get("success"):
-                    worker_healthy[wid - 1] = True
-                    data["terminal_used"] = wid
-                    return data
+        tried_terminals.add(wid)
 
-                # Credential error — definitive, don't retry on another worker
-                if is_credential_error(data.get("message", "")):
-                    data["terminal_used"] = wid
-                    return data
+        # Try this terminal with retries
+        for retry in range(MAX_RETRIES_SAME_TERMINAL + 1):
+            try:
+                async with httpx.AsyncClient(timeout=WORKER_TIMEOUT) as client:
+                    resp = await client.post(
+                        f"{worker_url(wid)}/verify",
+                        json={
+                            "account": req.account,
+                            "server": req.server,
+                            "password": req.password,
+                            "api_key": req.api_key,
+                        },
+                    )
+                    data = resp.json()
 
-                # Worker/MT5 error — try next
-                last_error = data.get("message", "Worker error")
+                    if data.get("success"):
+                        worker_healthy[wid - 1] = True
+                        data["terminal_used"] = wid
+                        data["retries"] = retry
+                        data["terminals_tried"] = len(tried_terminals)
+                        return data
+
+                    # Credential error — definitive, don't retry anywhere
+                    if is_credential_error(data.get("message", "")):
+                        data["terminal_used"] = wid
+                        data["error_type"] = "credential"
+                        return data
+
+                    # Terminal error — retry on same terminal
+                    last_error = data.get("message", "Worker error")
+                    if is_terminal_error(last_error) and retry < MAX_RETRIES_SAME_TERMINAL:
+                        await asyncio.sleep(RETRY_DELAY)
+                        continue
+
+                    # Other error or max retries on this terminal — try next terminal
+                    worker_healthy[wid - 1] = False
+                    break
+
+            except Exception as e:
+                last_error = str(e)[:200]
                 worker_healthy[wid - 1] = False
+                if retry < MAX_RETRIES_SAME_TERMINAL:
+                    await asyncio.sleep(RETRY_DELAY)
+                    continue
+                break
 
-        except Exception as e:
-            last_error = str(e)[:200]
-            worker_healthy[wid - 1] = False
-
-    return {"success": False, "message": last_error}
+    return {
+        "success": False,
+        "message": last_error,
+        "error_type": "terminal",
+        "terminals_tried": len(tried_terminals),
+    }
 
 
 @app.post("/pull")
 async def pull(req: PullRequest):
     """
-    Pull trade history with auto-failover.
-    Tries assigned terminal first, then fails over to others.
+    Pull trade history with smart retry:
+    - Credential error → return immediately
+    - Terminal error → retry same terminal (2s delay), then try different ones
+    - Fails on 3 different terminals → return failure
     """
     if req.api_key != API_KEY:
         raise HTTPException(status_code=401, detail="Invalid API key")
 
-    if req.terminal_id < 1 or req.terminal_id > NUM_WORKERS:
-        raise HTTPException(status_code=400, detail=f"terminal_id must be 1-{NUM_WORKERS}")
-
+    tried_terminals = set()
     last_error = "All workers failed"
-    tried = set()
 
-    # Try assigned worker first, then failover to 2 others
-    current = req.terminal_id
+    # Start with assigned terminal if provided, otherwise round-robin
+    if req.terminal_id and 1 <= req.terminal_id <= NUM_WORKERS:
+        first_terminal = req.terminal_id
+    else:
+        global _next_worker
+        _next_worker = (_next_worker % NUM_WORKERS) + 1
+        first_terminal = _next_worker
 
-    for attempt in range(3):
-        tried.add(current)
+    current_terminal = first_terminal
 
-        try:
-            async with httpx.AsyncClient(timeout=WORKER_TIMEOUT) as client:
-                resp = await client.post(
-                    f"{worker_url(current)}/pull",
-                    json={
-                        "account": req.account,
-                        "server": req.server,
-                        "password": req.password,
-                        "api_key": req.api_key,
-                        "from_date": req.from_date,
-                    },
-                )
-                data = resp.json()
+    # Try up to MAX_DIFFERENT_TERMINALS different terminals
+    while len(tried_terminals) < MAX_DIFFERENT_TERMINALS:
+        tried_terminals.add(current_terminal)
 
-                if data.get("success"):
-                    worker_healthy[current - 1] = True
-                    data["terminal_used"] = current
-                    return data
+        # Try this terminal with retries
+        for retry in range(MAX_RETRIES_SAME_TERMINAL + 1):
+            try:
+                async with httpx.AsyncClient(timeout=WORKER_TIMEOUT) as client:
+                    resp = await client.post(
+                        f"{worker_url(current_terminal)}/pull",
+                        json={
+                            "account": req.account,
+                            "server": req.server,
+                            "password": req.password,
+                            "api_key": req.api_key,
+                            "from_date": req.from_date,
+                        },
+                    )
+                    data = resp.json()
 
-                # Credential error — don't failover
-                if is_credential_error(data.get("message", "")):
-                    data["terminal_used"] = current
-                    return data
+                    if data.get("success"):
+                        worker_healthy[current_terminal - 1] = True
+                        data["terminal_used"] = current_terminal
+                        data["retries"] = retry
+                        data["terminals_tried"] = len(tried_terminals)
+                        return data
 
-                # Worker error — failover
-                last_error = data.get("message", "Worker error")
-                worker_healthy[current - 1] = False
+                    # Credential error — definitive, don't retry
+                    if is_credential_error(data.get("message", "")):
+                        data["terminal_used"] = current_terminal
+                        data["error_type"] = "credential"
+                        return data
 
-        except Exception as e:
-            last_error = str(e)[:200]
-            worker_healthy[current - 1] = False
+                    # Terminal error — retry on same terminal
+                    last_error = data.get("message", "Worker error")
+                    if is_terminal_error(last_error) and retry < MAX_RETRIES_SAME_TERMINAL:
+                        await asyncio.sleep(RETRY_DELAY)
+                        continue
 
-        # Find next worker to try (prefer healthy ones)
-        found = False
-        for i in range(1, NUM_WORKERS + 1):
-            if i not in tried and worker_healthy[i - 1]:
-                current = i
-                found = True
-                break
-        if not found:
-            for i in range(1, NUM_WORKERS + 1):
-                if i not in tried:
-                    current = i
-                    found = True
+                    # Other error or max retries — try next terminal
+                    worker_healthy[current_terminal - 1] = False
                     break
-        if not found:
-            break
 
-    return {"success": False, "message": last_error, "terminal_used": current}
+            except Exception as e:
+                last_error = str(e)[:200]
+                worker_healthy[current_terminal - 1] = False
+                if retry < MAX_RETRIES_SAME_TERMINAL:
+                    await asyncio.sleep(RETRY_DELAY)
+                    continue
+                break
+
+        # Find next terminal to try
+        next_t = get_next_healthy_worker(tried_terminals)
+        if next_t == 0:
+            break
+        current_terminal = next_t
+
+    return {
+        "success": False,
+        "message": last_error,
+        "error_type": "terminal",
+        "terminals_tried": len(tried_terminals),
+        "terminal_used": current_terminal,
+    }
 
 
 # ==================== STARTUP ====================
 
 if __name__ == "__main__":
     print("=" * 50)
-    print("  WinnerPip VPS Router v6.0")
-    print("  10 Workers + Auto-Failover")
+    print("  WinnerPip VPS Router v6.3")
+    print("  Smart Retry + Auto-Failover")
     print("=" * 50)
     print(f"  API Key: {'SET (' + API_KEY[:8] + '...)' if API_KEY else 'NOT SET — WARNING!'}")
     print(f"  Workers: {NUM_WORKERS} (ports {WORKER_BASE_PORT}-{WORKER_BASE_PORT + NUM_WORKERS - 1})")
     print(f"  Router port: 8000")
     print(f"  Timeout: {WORKER_TIMEOUT}s per request")
+    print(f"  Retry: {MAX_RETRIES_SAME_TERMINAL}x same terminal, then try {MAX_DIFFERENT_TERMINALS} different terminals")
     print("=" * 50)
 
     uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")
