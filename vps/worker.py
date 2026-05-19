@@ -1,20 +1,13 @@
 """
-WinnerPip VPS Worker v6.1 — Single Terminal Owner (Optimized)
+WinnerPip VPS Worker v6.2 — Persistent IPC (Fast Mode)
 Each instance owns ONE MT5 terminal exclusively.
 Run with: py -3.12 worker.py <terminal_id> <port>
 Example:  py -3.12 worker.py 1 8001
 
-Flow per request:
-  1. mt5.initialize(terminal_path)
-  2. mt5.login(user_account, password, server)
-  3. Do operation (verify or pull trade history)
-  4. mt5.shutdown() — disconnect IPC (terminal stays open)
-  5. Return result
-
-Base account restore:
-  - NOT done after every request (saves ~4s per request)
-  - Done when worker goes IDLE (no requests for 10 seconds)
-  - Ensures terminal stays logged in and connected when not in use
+Key optimization: IPC stays open between requests.
+- Fast path: mt5.login(user) directly on open connection
+- Fallback: if login fails, do full shutdown → initialize → login
+- Idle restore: after 10s of no activity, login back to base account (keeps terminal connected)
 """
 
 import MetaTrader5 as mt5
@@ -49,11 +42,71 @@ API_KEY = os.environ.get("VPS_API_KEY", "")
 # Lock — one operation at a time per terminal
 _lock = threading.Lock()
 
+# Track IPC state
+_ipc_connected = False
+
 # Idle restore timer
 _idle_timer = None
 IDLE_TIMEOUT = 10  # seconds before restoring base account
 
-app = FastAPI(title=f"VPS Worker {TERMINAL_ID}", version="6.1.0")
+app = FastAPI(title=f"VPS Worker {TERMINAL_ID}", version="6.2.0")
+
+
+# ==================== IPC MANAGEMENT ====================
+
+def ensure_ipc() -> bool:
+    """Ensure IPC is connected. Initialize if not."""
+    global _ipc_connected
+    if _ipc_connected:
+        return True
+
+    # Try to initialize
+    if not mt5.initialize(TERMINAL_PATH):
+        error = mt5.last_error()
+        print(f"  [W{TERMINAL_ID}] IPC init failed: {error}")
+        _ipc_connected = False
+        return False
+
+    _ipc_connected = True
+    return True
+
+
+def full_reconnect() -> bool:
+    """Full shutdown and reinitialize (fallback path)."""
+    global _ipc_connected
+    try:
+        mt5.shutdown()
+    except:
+        pass
+    _ipc_connected = False
+    time.sleep(0.3)
+
+    if not mt5.initialize(TERMINAL_PATH):
+        error = mt5.last_error()
+        print(f"  [W{TERMINAL_ID}] Reconnect failed: {error}")
+        return False
+
+    _ipc_connected = True
+    return True
+
+
+def login_user(account: int, password: str, server: str) -> bool:
+    """
+    Login to user account. Fast path: direct login on open IPC.
+    Fallback: full reconnect if fast path fails.
+    """
+    # Fast path — IPC already open, just switch account
+    if _ipc_connected:
+        if mt5.login(account, password=password, server=server):
+            return True
+        # Fast path failed — try full reconnect
+        print(f"  [W{TERMINAL_ID}] Fast login failed, reconnecting...")
+
+    # Fallback — full reconnect
+    if not full_reconnect():
+        return False
+
+    return mt5.login(account, password=password, server=server)
 
 
 # ==================== IDLE RESTORE ====================
@@ -69,36 +122,36 @@ def _schedule_idle_restore():
 
 
 def _do_idle_restore():
-    """Restore base account when worker is idle. Runs in background thread."""
-    global _idle_timer
+    """Restore base account when worker is idle."""
+    global _ipc_connected
     with _lock:
-        try:
-            mt5.shutdown()
-        except:
-            pass
-        time.sleep(0.3)
-
-        if not mt5.initialize(TERMINAL_PATH):
-            print(f"  [W{TERMINAL_ID}] Idle restore: init failed")
-            return
+        # Ensure IPC is up
+        if not ensure_ipc():
+            if not full_reconnect():
+                print(f"  [W{TERMINAL_ID}] Idle restore: cannot connect")
+                return
 
         if mt5.login(BASE_ACCOUNT, password=BASE_PASSWORD, server=BASE_SERVER):
             print(f"  [W{TERMINAL_ID}] Idle restore: base account connected ✓")
         else:
-            print(f"  [W{TERMINAL_ID}] Idle restore: base login failed")
-
-        # Keep IPC connected — do NOT shutdown here
-        # Terminal stays logged into base account and ready
+            print(f"  [W{TERMINAL_ID}] Idle restore: base login failed, reconnecting...")
+            if full_reconnect():
+                if mt5.login(BASE_ACCOUNT, password=BASE_PASSWORD, server=BASE_SERVER):
+                    print(f"  [W{TERMINAL_ID}] Idle restore: base account connected (after reconnect) ✓")
+                else:
+                    print(f"  [W{TERMINAL_ID}] Idle restore: FAILED")
 
 
 # ==================== MT5 OPERATIONS ====================
 
 def init_terminal() -> bool:
-    """Connect to this worker's already-running terminal and verify base account."""
+    """Connect to terminal and login to base account at startup."""
+    global _ipc_connected
     try:
         mt5.shutdown()
     except:
         pass
+    _ipc_connected = False
     time.sleep(0.5)
 
     if not mt5.initialize(TERMINAL_PATH):
@@ -106,45 +159,30 @@ def init_terminal() -> bool:
         print(f"  [W{TERMINAL_ID}] Init failed: {error}")
         return False
 
-    # Login to base account to confirm terminal is working
+    _ipc_connected = True
+
     if not mt5.login(BASE_ACCOUNT, password=BASE_PASSWORD, server=BASE_SERVER):
         error = mt5.last_error()
         print(f"  [W{TERMINAL_ID}] Base login failed: {error}")
         mt5.shutdown()
+        _ipc_connected = False
         return False
 
     info = mt5.account_info()
     if info:
         print(f"  [W{TERMINAL_ID}] Connected — Base account balance: {info.balance}")
-    else:
-        print(f"  [W{TERMINAL_ID}] Connected (no account_info)")
 
-    # Keep connected — don't shutdown at startup
+    # Keep IPC open — ready for requests
     return True
 
 
 def do_verify(account: int, server: str, password: str) -> dict:
-    """Verify credentials on this terminal."""
-    try:
-        mt5.shutdown()
-    except:
-        pass
-    time.sleep(0.2)
-
-    if not mt5.initialize(TERMINAL_PATH):
+    """Verify credentials — fast path with fallback."""
+    if not login_user(account, password, server):
         error = mt5.last_error()
-        return {"success": False, "message": f"MT5 init error: {error}"}
-
-    time.sleep(0.3)
-
-    # Login to user account
-    if not mt5.login(account, password=password, server=server):
-        error = mt5.last_error()
-        mt5.shutdown()
         return {"success": False, "message": f"Login failed: {error}"}
 
     account_info = mt5.account_info()
-    mt5.shutdown()
 
     if not account_info:
         return {"success": False, "message": "Could not get account info"}
@@ -161,23 +199,9 @@ def do_verify(account: int, server: str, password: str) -> dict:
 
 
 def do_pull(account: int, server: str, password: str, from_date: str = None) -> dict:
-    """Pull trade history on this terminal."""
-    try:
-        mt5.shutdown()
-    except:
-        pass
-    time.sleep(0.2)
-
-    if not mt5.initialize(TERMINAL_PATH):
+    """Pull trade history — fast path with fallback."""
+    if not login_user(account, password, server):
         error = mt5.last_error()
-        return {"success": False, "message": f"MT5 init error: {error}"}
-
-    time.sleep(0.3)
-
-    # Login to user account
-    if not mt5.login(account, password=password, server=server):
-        error = mt5.last_error()
-        mt5.shutdown()
         return {"success": False, "message": f"Login failed: {error}"}
 
     account_info = mt5.account_info()
@@ -237,8 +261,6 @@ def do_pull(account: int, server: str, password: str, from_date: str = None) -> 
                     "comment": deal.comment,
                 })
 
-    mt5.shutdown()
-
     return {
         "success": True,
         "message": f"Pulled {len(trades_list)} trades, {len(deals_list)} deals",
@@ -271,7 +293,7 @@ class PullRequest(BaseModel):
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "terminal_id": TERMINAL_ID, "port": PORT}
+    return {"status": "ok", "terminal_id": TERMINAL_ID, "port": PORT, "ipc_connected": _ipc_connected}
 
 
 @app.post("/verify")
@@ -308,17 +330,17 @@ def pull(req: PullRequest):
 
 if __name__ == "__main__":
     print(f"=" * 50)
-    print(f"  VPS Worker {TERMINAL_ID} (v6.1 — Idle Restore)")
+    print(f"  VPS Worker {TERMINAL_ID} (v6.2 — Persistent IPC)")
     print(f"  Terminal: {TERMINAL_PATH}")
     print(f"  Port: {PORT}")
     print(f"  Base Account: {BASE_ACCOUNT} @ {BASE_SERVER}")
     print(f"  Idle Timeout: {IDLE_TIMEOUT}s")
     print(f"=" * 50)
 
-    # Verify terminal is reachable at startup
+    # Connect at startup and stay connected
     for attempt in range(10):
         if init_terminal():
-            print(f"  [W{TERMINAL_ID}] Ready!")
+            print(f"  [W{TERMINAL_ID}] Ready! (IPC persistent)")
             break
         print(f"  [W{TERMINAL_ID}] Retry {attempt + 1}/10 in 5s...")
         time.sleep(5)
