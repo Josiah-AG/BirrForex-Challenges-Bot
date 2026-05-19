@@ -45,15 +45,20 @@ def init_terminal() -> bool:
     time.sleep(0.5)
 
     # mt5.initialize(path) will launch the terminal if not running
-    # This is the KEY: the worker process launches its OWN terminal
-    if not mt5.initialize(TERMINAL_PATH):
+    # portable=True is CRITICAL for multiple terminals from different paths
+    # It tells MT5 to use the terminal's own data directory, preventing conflicts
+    if not mt5.initialize(TERMINAL_PATH, portable=True):
         error = mt5.last_error()
         print(f"  [W{TERMINAL_ID}] Init failed: {error}")
         return False
 
     # Wait for terminal to connect to broker
     time.sleep(2)
-    print(f"  [W{TERMINAL_ID}] Terminal connected")
+    info = mt5.terminal_info()
+    if info:
+        print(f"  [W{TERMINAL_ID}] Terminal connected (path: {info.path})")
+    else:
+        print(f"  [W{TERMINAL_ID}] Terminal launched (waiting for broker)")
     mt5.shutdown()
     return True
 
@@ -66,7 +71,7 @@ def do_verify(account: int, server: str, password: str) -> dict:
         pass
     time.sleep(0.2)
 
-    if not mt5.initialize(TERMINAL_PATH):
+    if not mt5.initialize(TERMINAL_PATH, portable=True):
         error = mt5.last_error()
         return {"success": False, "message": f"MT5 init error: {error}"}
 
@@ -101,7 +106,7 @@ def do_pull(account: int, server: str, password: str, from_date: str = None) -> 
         pass
     time.sleep(0.2)
 
-    if not mt5.initialize(TERMINAL_PATH):
+    if not mt5.initialize(TERMINAL_PATH, portable=True):
         error = mt5.last_error()
         return {"success": False, "message": f"MT5 init error: {error}"}
 

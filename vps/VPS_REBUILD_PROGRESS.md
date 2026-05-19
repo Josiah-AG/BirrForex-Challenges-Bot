@@ -68,7 +68,14 @@ Router on port 8000 is the public API — same endpoints as before (/health, /ve
 
 ---
 
-## CURRENT STATUS: Step 2 — Push to git
+## CURRENT STATUS: Step 2 — Push to git (v5.1 with portable=True fix)
+
+## KEY DISCOVERY
+- `portable=True` in mt5.initialize() is REQUIRED for multiple terminals
+- Without it, MT5 may connect to wrong terminal or conflict between instances
+- Login popup does NOT block IPC — the real issue was terminal conflicts
+- Error -6 "Authorization failed" = another Python process already connected to that terminal
+- Each worker MUST launch its own terminal (not connect to pre-launched ones from different process)
 
 ## NOTES
 - Old `verify_api.py` kept for reference but no longer used
