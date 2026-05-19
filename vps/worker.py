@@ -1,5 +1,5 @@
 """
-WinnerPip VPS Worker — Single Terminal Owner
+WinnerPip VPS Worker v6.1 — Single Terminal Owner (Optimized)
 Each instance owns ONE MT5 terminal exclusively.
 Run with: py -3.12 worker.py <terminal_id> <port>
 Example:  py -3.12 worker.py 1 8001
@@ -7,10 +7,14 @@ Example:  py -3.12 worker.py 1 8001
 Flow per request:
   1. mt5.initialize(terminal_path)
   2. mt5.login(user_account, password, server)
-  3. Do operation (verify or pull)
-  4. mt5.login(base_account) — restore base account
-  5. mt5.shutdown() — disconnect IPC (terminal stays open)
-  6. Return result
+  3. Do operation (verify or pull trade history)
+  4. mt5.shutdown() — disconnect IPC (terminal stays open)
+  5. Return result
+
+Base account restore:
+  - NOT done after every request (saves ~4s per request)
+  - Done when worker goes IDLE (no requests for 10 seconds)
+  - Ensures terminal stays logged in and connected when not in use
 """
 
 import MetaTrader5 as mt5
@@ -34,7 +38,7 @@ TERMINAL_ID = int(sys.argv[1])
 PORT = int(sys.argv[2])
 TERMINAL_PATH = f"C:\\MetaTrader\\Terminal {TERMINAL_ID}\\terminal64.exe"
 
-# Base account — always restore after each operation
+# Base account — restore when idle
 BASE_ACCOUNT = 435924397
 BASE_PASSWORD = "Abc@1234"
 BASE_SERVER = "Exness-MT5Trial9"
@@ -45,18 +49,49 @@ API_KEY = os.environ.get("VPS_API_KEY", "")
 # Lock — one operation at a time per terminal
 _lock = threading.Lock()
 
-app = FastAPI(title=f"VPS Worker {TERMINAL_ID}", version="6.0.0")
+# Idle restore timer
+_idle_timer = None
+IDLE_TIMEOUT = 10  # seconds before restoring base account
+
+app = FastAPI(title=f"VPS Worker {TERMINAL_ID}", version="6.1.0")
+
+
+# ==================== IDLE RESTORE ====================
+
+def _schedule_idle_restore():
+    """Schedule base account restore after IDLE_TIMEOUT seconds of no activity."""
+    global _idle_timer
+    if _idle_timer:
+        _idle_timer.cancel()
+    _idle_timer = threading.Timer(IDLE_TIMEOUT, _do_idle_restore)
+    _idle_timer.daemon = True
+    _idle_timer.start()
+
+
+def _do_idle_restore():
+    """Restore base account when worker is idle. Runs in background thread."""
+    global _idle_timer
+    with _lock:
+        try:
+            mt5.shutdown()
+        except:
+            pass
+        time.sleep(0.3)
+
+        if not mt5.initialize(TERMINAL_PATH):
+            print(f"  [W{TERMINAL_ID}] Idle restore: init failed")
+            return
+
+        if mt5.login(BASE_ACCOUNT, password=BASE_PASSWORD, server=BASE_SERVER):
+            print(f"  [W{TERMINAL_ID}] Idle restore: base account connected ✓")
+        else:
+            print(f"  [W{TERMINAL_ID}] Idle restore: base login failed")
+
+        # Keep IPC connected — do NOT shutdown here
+        # Terminal stays logged into base account and ready
 
 
 # ==================== MT5 OPERATIONS ====================
-
-def restore_base_account():
-    """Switch terminal back to base account after user operation."""
-    try:
-        mt5.login(BASE_ACCOUNT, password=BASE_PASSWORD, server=BASE_SERVER)
-    except Exception as e:
-        print(f"  [W{TERMINAL_ID}] Base restore warning: {e}")
-
 
 def init_terminal() -> bool:
     """Connect to this worker's already-running terminal and verify base account."""
@@ -84,7 +119,7 @@ def init_terminal() -> bool:
     else:
         print(f"  [W{TERMINAL_ID}] Connected (no account_info)")
 
-    mt5.shutdown()
+    # Keep connected — don't shutdown at startup
     return True
 
 
@@ -105,15 +140,10 @@ def do_verify(account: int, server: str, password: str) -> dict:
     # Login to user account
     if not mt5.login(account, password=password, server=server):
         error = mt5.last_error()
-        # Restore base before shutdown
-        restore_base_account()
         mt5.shutdown()
         return {"success": False, "message": f"Login failed: {error}"}
 
     account_info = mt5.account_info()
-
-    # Restore base account
-    restore_base_account()
     mt5.shutdown()
 
     if not account_info:
@@ -147,8 +177,6 @@ def do_pull(account: int, server: str, password: str, from_date: str = None) -> 
     # Login to user account
     if not mt5.login(account, password=password, server=server):
         error = mt5.last_error()
-        # Restore base before shutdown
-        restore_base_account()
         mt5.shutdown()
         return {"success": False, "message": f"Login failed: {error}"}
 
@@ -209,8 +237,6 @@ def do_pull(account: int, server: str, password: str, from_date: str = None) -> 
                     "comment": deal.comment,
                 })
 
-    # Restore base account
-    restore_base_account()
     mt5.shutdown()
 
     return {
@@ -256,7 +282,11 @@ def verify(req: VerifyRequest):
     account_number = int(req.account.replace("#", "").replace(" ", ""))
 
     with _lock:
-        return do_verify(account_number, req.server, req.password)
+        result = do_verify(account_number, req.server, req.password)
+
+    # Schedule idle restore (resets timer on each request)
+    _schedule_idle_restore()
+    return result
 
 
 @app.post("/pull")
@@ -267,17 +297,22 @@ def pull(req: PullRequest):
     account_number = int(req.account.replace("#", "").replace(" ", ""))
 
     with _lock:
-        return do_pull(account_number, req.server, req.password, req.from_date)
+        result = do_pull(account_number, req.server, req.password, req.from_date)
+
+    # Schedule idle restore (resets timer on each request)
+    _schedule_idle_restore()
+    return result
 
 
 # ==================== STARTUP ====================
 
 if __name__ == "__main__":
     print(f"=" * 50)
-    print(f"  VPS Worker {TERMINAL_ID} (v6.0)")
+    print(f"  VPS Worker {TERMINAL_ID} (v6.1 — Idle Restore)")
     print(f"  Terminal: {TERMINAL_PATH}")
     print(f"  Port: {PORT}")
     print(f"  Base Account: {BASE_ACCOUNT} @ {BASE_SERVER}")
+    print(f"  Idle Timeout: {IDLE_TIMEOUT}s")
     print(f"=" * 50)
 
     # Verify terminal is reachable at startup
