@@ -1,19 +1,21 @@
 """
-WinnerPip VPS Worker v6.2 — Persistent IPC (Fast Mode)
+WinnerPip VPS Worker v6.3 — Persistent IPC + Self-Healing
 Each instance owns ONE MT5 terminal exclusively.
 Run with: py -3.12 worker.py <terminal_id> <port>
 Example:  py -3.12 worker.py 1 8001
 
-Key optimization: IPC stays open between requests.
-- Fast path: mt5.login(user) directly on open connection
-- Fallback: if login fails, do full shutdown → initialize → login
-- Idle restore: after 10s of no activity, login back to base account (keeps terminal connected)
+Features:
+- Persistent IPC: no shutdown between requests, direct login switch
+- Self-healing: if terminal gets stuck, kill and relaunch it automatically
+- Idle restore: login to base account after 30s of no activity
+- Health endpoint: lock-free, always responds instantly
 """
 
 import MetaTrader5 as mt5
 import time
 import sys
 import os
+import subprocess
 import threading
 from datetime import datetime, timezone, timedelta
 from fastapi import FastAPI, HTTPException
@@ -42,14 +44,105 @@ API_KEY = os.environ.get("VPS_API_KEY", "")
 # Lock — one operation at a time per terminal
 _lock = threading.Lock()
 
-# Track IPC state
+# Track state
 _ipc_connected = False
+_last_request_time = time.time()
+_consecutive_failures = 0
+MAX_FAILURES_BEFORE_HEAL = 3  # After 3 consecutive failures, self-heal
 
 # Idle restore timer
 _idle_timer = None
-IDLE_TIMEOUT = 10  # seconds before restoring base account
+IDLE_TIMEOUT = 30  # seconds before restoring base account
 
-app = FastAPI(title=f"VPS Worker {TERMINAL_ID}", version="6.2.0")
+app = FastAPI(title=f"VPS Worker {TERMINAL_ID}", version="6.3.0")
+
+
+# ==================== SELF-HEALING ====================
+
+def kill_terminal():
+    """Kill the MT5 terminal process for this worker."""
+    try:
+        mt5.shutdown()
+    except:
+        pass
+
+    # Find and kill the terminal process by path
+    terminal_name = f"Terminal {TERMINAL_ID}"
+    try:
+        # Use taskkill to find processes matching our terminal path
+        result = subprocess.run(
+            ["tasklist", "/FI", f"IMAGENAME eq terminal64.exe", "/FO", "CSV"],
+            capture_output=True, text=True, timeout=10
+        )
+        # Kill all terminal64.exe that match our terminal folder
+        # Since we can't easily filter by path with tasklist, use wmic
+        subprocess.run(
+            ["wmic", "process", "where",
+             f"ExecutablePath like '%Terminal {TERMINAL_ID}%'",
+             "call", "terminate"],
+            capture_output=True, text=True, timeout=10
+        )
+        print(f"  [W{TERMINAL_ID}] Killed terminal process")
+    except Exception as e:
+        print(f"  [W{TERMINAL_ID}] Kill attempt: {e}")
+        # Fallback: try to kill by window title or just proceed
+        try:
+            subprocess.run(
+                ["taskkill", "/F", "/FI", f"WINDOWTITLE eq *Terminal {TERMINAL_ID}*"],
+                capture_output=True, text=True, timeout=5
+            )
+        except:
+            pass
+
+
+def relaunch_terminal() -> bool:
+    """Relaunch the MT5 terminal and wait for it to connect."""
+    global _ipc_connected
+    _ipc_connected = False
+
+    print(f"  [W{TERMINAL_ID}] Relaunching terminal...")
+    try:
+        subprocess.Popen(
+            [TERMINAL_PATH],
+            creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+        )
+    except Exception as e:
+        print(f"  [W{TERMINAL_ID}] Relaunch failed: {e}")
+        return False
+
+    # Wait for terminal to start and connect to broker
+    print(f"  [W{TERMINAL_ID}] Waiting 20s for terminal to connect...")
+    time.sleep(20)
+
+    # Try to initialize and login
+    for attempt in range(5):
+        if mt5.initialize(TERMINAL_PATH):
+            if mt5.login(BASE_ACCOUNT, password=BASE_PASSWORD, server=BASE_SERVER):
+                _ipc_connected = True
+                print(f"  [W{TERMINAL_ID}] Terminal relaunched and connected ✓")
+                return True
+            mt5.shutdown()
+        time.sleep(3)
+
+    print(f"  [W{TERMINAL_ID}] Relaunch: could not connect after 5 attempts")
+    return False
+
+
+def self_heal():
+    """Kill stuck terminal, relaunch, and reconnect."""
+    global _consecutive_failures, _ipc_connected
+    print(f"  [W{TERMINAL_ID}] === SELF-HEALING ===")
+
+    kill_terminal()
+    time.sleep(3)
+
+    if relaunch_terminal():
+        _consecutive_failures = 0
+        print(f"  [W{TERMINAL_ID}] === HEALED ===")
+        return True
+    else:
+        print(f"  [W{TERMINAL_ID}] === HEAL FAILED ===")
+        return False
 
 
 # ==================== IPC MANAGEMENT ====================
@@ -60,7 +153,6 @@ def ensure_ipc() -> bool:
     if _ipc_connected:
         return True
 
-    # Try to initialize
     if not mt5.initialize(TERMINAL_PATH):
         error = mt5.last_error()
         print(f"  [W{TERMINAL_ID}] IPC init failed: {error}")
@@ -93,27 +185,43 @@ def full_reconnect() -> bool:
 def login_user(account: int, password: str, server: str) -> bool:
     """
     Login to user account. Fast path: direct login on open IPC.
-    Fallback: full reconnect if fast path fails.
+    Fallback: full reconnect. Last resort: self-heal.
     """
+    global _consecutive_failures
+
     # Fast path — IPC already open, just switch account
     if _ipc_connected:
         if mt5.login(account, password=password, server=server):
+            _consecutive_failures = 0
             return True
-        # Fast path failed — try full reconnect
-        print(f"  [W{TERMINAL_ID}] Fast login failed, reconnecting...")
 
     # Fallback — full reconnect
-    if not full_reconnect():
-        return False
+    if full_reconnect():
+        if mt5.login(account, password=password, server=server):
+            _consecutive_failures = 0
+            return True
 
-    return mt5.login(account, password=password, server=server)
+    # Track failures
+    _consecutive_failures += 1
+    print(f"  [W{TERMINAL_ID}] Login failed (consecutive: {_consecutive_failures})")
+
+    # Self-heal after too many consecutive failures
+    if _consecutive_failures >= MAX_FAILURES_BEFORE_HEAL:
+        if self_heal():
+            if mt5.login(account, password=password, server=server):
+                _consecutive_failures = 0
+                return True
+
+    return False
 
 
 # ==================== IDLE RESTORE ====================
 
 def _schedule_idle_restore():
     """Schedule base account restore after IDLE_TIMEOUT seconds of no activity."""
-    global _idle_timer
+    global _idle_timer, _last_request_time
+    _last_request_time = time.time()
+
     if _idle_timer:
         _idle_timer.cancel()
     _idle_timer = threading.Timer(IDLE_TIMEOUT, _do_idle_restore)
@@ -122,24 +230,34 @@ def _schedule_idle_restore():
 
 
 def _do_idle_restore():
-    """Restore base account when worker is idle."""
+    """Restore base account when worker is idle. Has timeout protection."""
     global _ipc_connected
-    with _lock:
-        # Ensure IPC is up
-        if not ensure_ipc():
-            if not full_reconnect():
-                print(f"  [W{TERMINAL_ID}] Idle restore: cannot connect")
+
+    # Only restore if truly idle (no request came in during the wait)
+    if time.time() - _last_request_time < IDLE_TIMEOUT - 1:
+        return
+
+    acquired = _lock.acquire(timeout=5)
+    if not acquired:
+        # Lock is held by an active request — skip, it'll reschedule
+        return
+
+    try:
+        # Try direct login first (fast)
+        if _ipc_connected:
+            if mt5.login(BASE_ACCOUNT, password=BASE_PASSWORD, server=BASE_SERVER):
+                print(f"  [W{TERMINAL_ID}] Idle restore: base ✓")
                 return
 
-        if mt5.login(BASE_ACCOUNT, password=BASE_PASSWORD, server=BASE_SERVER):
-            print(f"  [W{TERMINAL_ID}] Idle restore: base account connected ✓")
-        else:
-            print(f"  [W{TERMINAL_ID}] Idle restore: base login failed, reconnecting...")
-            if full_reconnect():
-                if mt5.login(BASE_ACCOUNT, password=BASE_PASSWORD, server=BASE_SERVER):
-                    print(f"  [W{TERMINAL_ID}] Idle restore: base account connected (after reconnect) ✓")
-                else:
-                    print(f"  [W{TERMINAL_ID}] Idle restore: FAILED")
+        # Full reconnect
+        if full_reconnect():
+            if mt5.login(BASE_ACCOUNT, password=BASE_PASSWORD, server=BASE_SERVER):
+                print(f"  [W{TERMINAL_ID}] Idle restore: base ✓ (reconnected)")
+                return
+
+        print(f"  [W{TERMINAL_ID}] Idle restore: failed (will retry next idle)")
+    finally:
+        _lock.release()
 
 
 # ==================== MT5 OPERATIONS ====================
@@ -172,12 +290,11 @@ def init_terminal() -> bool:
     if info:
         print(f"  [W{TERMINAL_ID}] Connected — Base account balance: {info.balance}")
 
-    # Keep IPC open — ready for requests
     return True
 
 
 def do_verify(account: int, server: str, password: str) -> dict:
-    """Verify credentials — fast path with fallback."""
+    """Verify credentials — fast path with fallback and self-heal."""
     if not login_user(account, password, server):
         error = mt5.last_error()
         return {"success": False, "message": f"Login failed: {error}"}
@@ -199,7 +316,7 @@ def do_verify(account: int, server: str, password: str) -> dict:
 
 
 def do_pull(account: int, server: str, password: str, from_date: str = None) -> dict:
-    """Pull trade history — fast path with fallback."""
+    """Pull trade history — fast path with fallback and self-heal."""
     if not login_user(account, password, server):
         error = mt5.last_error()
         return {"success": False, "message": f"Login failed: {error}"}
@@ -245,7 +362,6 @@ def do_pull(account: int, server: str, password: str, from_date: str = None) -> 
             }
             deals_list.append(deal_dict)
 
-            # Entry == 1 means trade exit (closed trade)
             if deal.entry == 1 and deal.symbol:
                 trade_type = "Buy" if deal.type == 0 else "Sell" if deal.type == 1 else "Other"
                 trades_list.append({
@@ -293,7 +409,14 @@ class PullRequest(BaseModel):
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "terminal_id": TERMINAL_ID, "port": PORT, "ipc_connected": _ipc_connected}
+    """Health check — NO LOCK, always responds instantly."""
+    return {
+        "status": "ok",
+        "terminal_id": TERMINAL_ID,
+        "port": PORT,
+        "ipc_connected": _ipc_connected,
+        "consecutive_failures": _consecutive_failures,
+    }
 
 
 @app.post("/verify")
@@ -306,7 +429,6 @@ def verify(req: VerifyRequest):
     with _lock:
         result = do_verify(account_number, req.server, req.password)
 
-    # Schedule idle restore (resets timer on each request)
     _schedule_idle_restore()
     return result
 
@@ -321,7 +443,6 @@ def pull(req: PullRequest):
     with _lock:
         result = do_pull(account_number, req.server, req.password, req.from_date)
 
-    # Schedule idle restore (resets timer on each request)
     _schedule_idle_restore()
     return result
 
@@ -330,22 +451,23 @@ def pull(req: PullRequest):
 
 if __name__ == "__main__":
     print(f"=" * 50)
-    print(f"  VPS Worker {TERMINAL_ID} (v6.2 — Persistent IPC)")
+    print(f"  VPS Worker {TERMINAL_ID} (v6.3 — Self-Healing)")
     print(f"  Terminal: {TERMINAL_PATH}")
     print(f"  Port: {PORT}")
     print(f"  Base Account: {BASE_ACCOUNT} @ {BASE_SERVER}")
     print(f"  Idle Timeout: {IDLE_TIMEOUT}s")
+    print(f"  Self-heal after: {MAX_FAILURES_BEFORE_HEAL} consecutive failures")
     print(f"=" * 50)
 
-    # Connect at startup and stay connected
+    # Connect at startup
     for attempt in range(10):
         if init_terminal():
-            print(f"  [W{TERMINAL_ID}] Ready! (IPC persistent)")
+            print(f"  [W{TERMINAL_ID}] Ready! (Persistent IPC + Self-Healing)")
             break
         print(f"  [W{TERMINAL_ID}] Retry {attempt + 1}/10 in 5s...")
         time.sleep(5)
     else:
-        print(f"  [W{TERMINAL_ID}] WARNING: Could not init terminal. Will retry on requests.")
+        print(f"  [W{TERMINAL_ID}] WARNING: Could not init. Will self-heal on first request.")
 
     print(f"  [W{TERMINAL_ID}] Starting on port {PORT}...")
     uvicorn.run(app, host="127.0.0.1", port=PORT, log_level="warning")
