@@ -1,27 +1,26 @@
 """
-WinnerPip VPS Router v5.0 — Request Router with Auto-Failover
+WinnerPip VPS Router v6.0 — Request Router with Auto-Failover
 Runs on port 8000. Forwards requests to workers on ports 8001-8010.
 If a worker fails, automatically retries on another worker.
 
-Endpoints (same as before — drop-in replacement):
+Endpoints:
   GET  /health         — System health
-  POST /verify         — Verify credentials (round-robin)
+  POST /verify         — Verify credentials (round-robin with failover)
   POST /pull           — Pull trade data (assigned terminal with failover)
 """
 
 import os
-import time
 import httpx
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import Optional
 import uvicorn
 
-app = FastAPI(title="WinnerPip VPS Router", version="5.0.0")
+app = FastAPI(title="WinnerPip VPS Router", version="6.0.0")
 
 NUM_WORKERS = 10
 WORKER_BASE_PORT = 8001  # Workers on 8001-8010
-WORKER_TIMEOUT = 45.0  # seconds
+WORKER_TIMEOUT = 60.0  # seconds per request
 
 API_KEY = os.environ.get("VPS_API_KEY", "")
 
@@ -38,7 +37,7 @@ def worker_url(worker_id: int) -> str:
 
 
 def is_credential_error(message: str) -> bool:
-    """Check if error is a definitive credential failure."""
+    """Check if error is a definitive credential failure (don't retry on another worker)."""
     msg = message.lower()
     return "login failed" in msg or "authorization" in msg or "invalid" in msg
 
@@ -70,7 +69,7 @@ async def health():
     healthy_list = []
     unhealthy_list = []
 
-    async with httpx.AsyncClient(timeout=3.0) as client:
+    async with httpx.AsyncClient(timeout=5.0) as client:
         for i in range(1, NUM_WORKERS + 1):
             try:
                 resp = await client.get(f"{worker_url(i)}/health")
@@ -87,6 +86,7 @@ async def health():
 
     return {
         "status": "ok" if alive > 0 else "degraded",
+        "version": "6.0.0",
         "terminals": NUM_WORKERS,
         "alive_workers": alive,
         "healthy_terminals": healthy_list,
@@ -102,38 +102,60 @@ async def verify(req: VerifyRequest):
 
     global _next_worker
     last_error = "All workers failed"
+    tried = set()
 
     # Try up to 3 workers
     for attempt in range(3):
-        _next_worker = (_next_worker % NUM_WORKERS) + 1
-        wid = _next_worker
+        # Find next healthy worker (round-robin)
+        found = False
+        for _ in range(NUM_WORKERS):
+            _next_worker = (_next_worker % NUM_WORKERS) + 1
+            if _next_worker not in tried:
+                if worker_healthy[_next_worker - 1] or attempt >= 2:
+                    found = True
+                    break
+        if not found:
+            # Try any untried worker
+            for i in range(1, NUM_WORKERS + 1):
+                if i not in tried:
+                    _next_worker = i
+                    found = True
+                    break
+        if not found:
+            break
 
-        # Skip known-unhealthy workers (but still try if all are unhealthy)
-        if not worker_healthy[wid - 1] and attempt < 2:
-            continue
+        wid = _next_worker
+        tried.add(wid)
 
         try:
             async with httpx.AsyncClient(timeout=WORKER_TIMEOUT) as client:
                 resp = await client.post(
                     f"{worker_url(wid)}/verify",
-                    json={"account": req.account, "server": req.server, "password": req.password, "api_key": req.api_key},
+                    json={
+                        "account": req.account,
+                        "server": req.server,
+                        "password": req.password,
+                        "api_key": req.api_key,
+                    },
                 )
                 data = resp.json()
 
                 if data.get("success"):
                     worker_healthy[wid - 1] = True
+                    data["terminal_used"] = wid
                     return data
 
-                # Credential error — definitive, don't retry
+                # Credential error — definitive, don't retry on another worker
                 if is_credential_error(data.get("message", "")):
+                    data["terminal_used"] = wid
                     return data
 
-                # Worker error — try next
+                # Worker/MT5 error — try next
                 last_error = data.get("message", "Worker error")
                 worker_healthy[wid - 1] = False
 
         except Exception as e:
-            last_error = str(e)[:100]
+            last_error = str(e)[:200]
             worker_healthy[wid - 1] = False
 
     return {"success": False, "message": last_error}
@@ -189,10 +211,10 @@ async def pull(req: PullRequest):
                 worker_healthy[current - 1] = False
 
         except Exception as e:
-            last_error = str(e)[:100]
+            last_error = str(e)[:200]
             worker_healthy[current - 1] = False
 
-        # Find next worker to try
+        # Find next worker to try (prefer healthy ones)
         found = False
         for i in range(1, NUM_WORKERS + 1):
             if i not in tried and worker_healthy[i - 1]:
@@ -200,7 +222,6 @@ async def pull(req: PullRequest):
                 found = True
                 break
         if not found:
-            # Try any untried worker
             for i in range(1, NUM_WORKERS + 1):
                 if i not in tried:
                     current = i
@@ -216,12 +237,13 @@ async def pull(req: PullRequest):
 
 if __name__ == "__main__":
     print("=" * 50)
-    print("  WinnerPip VPS Router v5.0")
-    print("  Auto-Failover Architecture")
+    print("  WinnerPip VPS Router v6.0")
+    print("  10 Workers + Auto-Failover")
     print("=" * 50)
-    print(f"  API Key: {API_KEY[:10]}..." if API_KEY else "  WARNING: No API key!")
+    print(f"  API Key: {'SET (' + API_KEY[:8] + '...)' if API_KEY else 'NOT SET — WARNING!'}")
     print(f"  Workers: {NUM_WORKERS} (ports {WORKER_BASE_PORT}-{WORKER_BASE_PORT + NUM_WORKERS - 1})")
     print(f"  Router port: 8000")
+    print(f"  Timeout: {WORKER_TIMEOUT}s per request")
     print("=" * 50)
 
     uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")

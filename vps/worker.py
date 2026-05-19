@@ -1,17 +1,23 @@
 """
 WinnerPip VPS Worker — Single Terminal Owner
 Each instance owns ONE MT5 terminal exclusively.
-Run with: python worker.py <terminal_id> <port>
-Example:  python worker.py 1 8001
+Run with: py -3.12 worker.py <terminal_id> <port>
+Example:  py -3.12 worker.py 1 8001
 
-The worker initializes its terminal at startup and keeps it ready.
-All requests are handled sequentially (one at a time per terminal).
+Flow per request:
+  1. mt5.initialize(terminal_path)
+  2. mt5.login(user_account, password, server)
+  3. Do operation (verify or pull)
+  4. mt5.login(base_account) — restore base account
+  5. mt5.shutdown() — disconnect IPC (terminal stays open)
+  6. Return result
 """
 
 import MetaTrader5 as mt5
 import time
 import sys
 import os
+import threading
 from datetime import datetime, timezone, timedelta
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
@@ -20,41 +26,64 @@ import uvicorn
 
 # Parse args
 if len(sys.argv) < 3:
-    print("Usage: python worker.py <terminal_id> <port>")
-    print("Example: python worker.py 1 8001")
+    print("Usage: py -3.12 worker.py <terminal_id> <port>")
+    print("Example: py -3.12 worker.py 1 8001")
     sys.exit(1)
 
 TERMINAL_ID = int(sys.argv[1])
 PORT = int(sys.argv[2])
-TERMINAL_PATH = f"C:\\MT5_{TERMINAL_ID}\\terminal64.exe"
+TERMINAL_PATH = f"C:\\MetaTrader\\Terminal {TERMINAL_ID}\\terminal64.exe"
+
+# Base account — always restore after each operation
+BASE_ACCOUNT = 435924397
+BASE_PASSWORD = "Abc@1234"
+BASE_SERVER = "Exness-MT5Trial9"
 
 # API key
 API_KEY = os.environ.get("VPS_API_KEY", "")
 
-app = FastAPI(title=f"VPS Worker {TERMINAL_ID}", version="5.0.0")
+# Lock — one operation at a time per terminal
+_lock = threading.Lock()
+
+app = FastAPI(title=f"VPS Worker {TERMINAL_ID}", version="6.0.0")
 
 
 # ==================== MT5 OPERATIONS ====================
 
+def restore_base_account():
+    """Switch terminal back to base account after user operation."""
+    try:
+        mt5.login(BASE_ACCOUNT, password=BASE_PASSWORD, server=BASE_SERVER)
+    except Exception as e:
+        print(f"  [W{TERMINAL_ID}] Base restore warning: {e}")
+
+
 def init_terminal() -> bool:
-    """Connect to this worker's already-running terminal."""
+    """Connect to this worker's already-running terminal and verify base account."""
     try:
         mt5.shutdown()
     except:
         pass
     time.sleep(0.5)
 
-    # Connect to the terminal (already running, launched by start_vps.bat)
     if not mt5.initialize(TERMINAL_PATH):
         error = mt5.last_error()
         print(f"  [W{TERMINAL_ID}] Init failed: {error}")
         return False
 
-    info = mt5.terminal_info()
+    # Login to base account to confirm terminal is working
+    if not mt5.login(BASE_ACCOUNT, password=BASE_PASSWORD, server=BASE_SERVER):
+        error = mt5.last_error()
+        print(f"  [W{TERMINAL_ID}] Base login failed: {error}")
+        mt5.shutdown()
+        return False
+
+    info = mt5.account_info()
     if info:
-        print(f"  [W{TERMINAL_ID}] Connected to terminal (path: {info.path})")
+        print(f"  [W{TERMINAL_ID}] Connected — Base account balance: {info.balance}")
     else:
-        print(f"  [W{TERMINAL_ID}] Connected (no terminal_info yet)")
+        print(f"  [W{TERMINAL_ID}] Connected (no account_info)")
+
     mt5.shutdown()
     return True
 
@@ -71,14 +100,20 @@ def do_verify(account: int, server: str, password: str) -> dict:
         error = mt5.last_error()
         return {"success": False, "message": f"MT5 init error: {error}"}
 
-    time.sleep(0.2)
+    time.sleep(0.3)
 
+    # Login to user account
     if not mt5.login(account, password=password, server=server):
         error = mt5.last_error()
+        # Restore base before shutdown
+        restore_base_account()
         mt5.shutdown()
         return {"success": False, "message": f"Login failed: {error}"}
 
     account_info = mt5.account_info()
+
+    # Restore base account
+    restore_base_account()
     mt5.shutdown()
 
     if not account_info:
@@ -91,6 +126,7 @@ def do_verify(account: int, server: str, password: str) -> dict:
         "balance": account_info.balance,
         "equity": account_info.equity,
         "server": account_info.server,
+        "terminal_id": TERMINAL_ID,
     }
 
 
@@ -106,10 +142,13 @@ def do_pull(account: int, server: str, password: str, from_date: str = None) -> 
         error = mt5.last_error()
         return {"success": False, "message": f"MT5 init error: {error}"}
 
-    time.sleep(0.2)
+    time.sleep(0.3)
 
+    # Login to user account
     if not mt5.login(account, password=password, server=server):
         error = mt5.last_error()
+        # Restore base before shutdown
+        restore_base_account()
         mt5.shutdown()
         return {"success": False, "message": f"Login failed: {error}"}
 
@@ -154,6 +193,7 @@ def do_pull(account: int, server: str, password: str, from_date: str = None) -> 
             }
             deals_list.append(deal_dict)
 
+            # Entry == 1 means trade exit (closed trade)
             if deal.entry == 1 and deal.symbol:
                 trade_type = "Buy" if deal.type == 0 else "Sell" if deal.type == 1 else "Other"
                 trades_list.append({
@@ -169,7 +209,10 @@ def do_pull(account: int, server: str, password: str, from_date: str = None) -> 
                     "comment": deal.comment,
                 })
 
+    # Restore base account
+    restore_base_account()
     mt5.shutdown()
+
     return {
         "success": True,
         "message": f"Pulled {len(trades_list)} trades, {len(deals_list)} deals",
@@ -177,6 +220,7 @@ def do_pull(account: int, server: str, password: str, from_date: str = None) -> 
         "equity": equity,
         "trades": trades_list,
         "deals": deals_list,
+        "terminal_id": TERMINAL_ID,
     }
 
 
@@ -208,29 +252,35 @@ def health():
 def verify(req: VerifyRequest):
     if req.api_key != API_KEY:
         raise HTTPException(status_code=401, detail="Invalid API key")
+
     account_number = int(req.account.replace("#", "").replace(" ", ""))
-    return do_verify(account_number, req.server, req.password)
+
+    with _lock:
+        return do_verify(account_number, req.server, req.password)
 
 
 @app.post("/pull")
 def pull(req: PullRequest):
     if req.api_key != API_KEY:
         raise HTTPException(status_code=401, detail="Invalid API key")
+
     account_number = int(req.account.replace("#", "").replace(" ", ""))
-    return do_pull(account_number, req.server, req.password, req.from_date)
+
+    with _lock:
+        return do_pull(account_number, req.server, req.password, req.from_date)
 
 
 # ==================== STARTUP ====================
 
 if __name__ == "__main__":
-    print(f"=" * 40)
-    print(f"  VPS Worker {TERMINAL_ID}")
+    print(f"=" * 50)
+    print(f"  VPS Worker {TERMINAL_ID} (v6.0)")
     print(f"  Terminal: {TERMINAL_PATH}")
     print(f"  Port: {PORT}")
-    print(f"=" * 40)
+    print(f"  Base Account: {BASE_ACCOUNT} @ {BASE_SERVER}")
+    print(f"=" * 50)
 
-    # Initialize terminal at startup (launches it if not running)
-    # The worker OWNS this terminal — it launched it
+    # Verify terminal is reachable at startup
     for attempt in range(10):
         if init_terminal():
             print(f"  [W{TERMINAL_ID}] Ready!")
