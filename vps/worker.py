@@ -37,28 +37,24 @@ app = FastAPI(title=f"VPS Worker {TERMINAL_ID}", version="5.0.0")
 # ==================== MT5 OPERATIONS ====================
 
 def init_terminal() -> bool:
-    """Initialize connection to this worker's terminal. Launches it if not running."""
+    """Connect to this worker's already-running terminal."""
     try:
         mt5.shutdown()
     except:
         pass
     time.sleep(0.5)
 
-    # mt5.initialize(path) will launch the terminal if not running
-    # portable=True is CRITICAL for multiple terminals from different paths
-    # It tells MT5 to use the terminal's own data directory, preventing conflicts
-    if not mt5.initialize(TERMINAL_PATH, portable=True):
+    # Connect to the terminal (already running, launched by start_vps.bat)
+    if not mt5.initialize(TERMINAL_PATH):
         error = mt5.last_error()
         print(f"  [W{TERMINAL_ID}] Init failed: {error}")
         return False
 
-    # Wait for terminal to connect to broker
-    time.sleep(2)
     info = mt5.terminal_info()
     if info:
-        print(f"  [W{TERMINAL_ID}] Terminal connected (path: {info.path})")
+        print(f"  [W{TERMINAL_ID}] Connected to terminal (path: {info.path})")
     else:
-        print(f"  [W{TERMINAL_ID}] Terminal launched (waiting for broker)")
+        print(f"  [W{TERMINAL_ID}] Connected (no terminal_info yet)")
     mt5.shutdown()
     return True
 
@@ -71,7 +67,7 @@ def do_verify(account: int, server: str, password: str) -> dict:
         pass
     time.sleep(0.2)
 
-    if not mt5.initialize(TERMINAL_PATH, portable=True):
+    if not mt5.initialize(TERMINAL_PATH):
         error = mt5.last_error()
         return {"success": False, "message": f"MT5 init error: {error}"}
 
@@ -106,7 +102,7 @@ def do_pull(account: int, server: str, password: str, from_date: str = None) -> 
         pass
     time.sleep(0.2)
 
-    if not mt5.initialize(TERMINAL_PATH, portable=True):
+    if not mt5.initialize(TERMINAL_PATH):
         error = mt5.last_error()
         return {"success": False, "message": f"MT5 init error: {error}"}
 
