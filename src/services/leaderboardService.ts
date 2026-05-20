@@ -60,6 +60,7 @@ export class LeaderboardService {
         r.telegram_id,
         r.username,
         r.nickname,
+        r.email,
         r.pull_status,
         r.pull_error,
         r.last_pull_at,
@@ -109,6 +110,7 @@ export interface FailedAccount {
   telegram_id: number;
   username: string | null;
   nickname: string | null;
+  email: string | null;
   pull_status: string;
   pull_error: string | null;
   last_pull_at: Date | null;

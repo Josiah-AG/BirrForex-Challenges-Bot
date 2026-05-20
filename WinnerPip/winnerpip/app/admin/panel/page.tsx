@@ -630,7 +630,7 @@ export default function AdminDashboard() {
                       {screeningData.currentlyChanging.map((u: any, i: number) => (
                         <div key={i} className="flex items-center justify-between p-3 bg-white/5 rounded-xl">
                           <div><p className="text-sm text-white font-semibold">@{u.username || "unknown"}</p><p className="text-[10px] text-gray-500">{u.account_number} • {u.account_type}</p></div>
-                          <p className="text-[10px] text-gray-400">{u.partner_warned_at ? new Date(u.partner_warned_at).toLocaleDateString() : "—"}</p>
+                          <p className="text-[10px] text-gray-400">{u.partner_warned_at ? (() => { const d = new Date(new Date(u.partner_warned_at).getTime() + 3*60*60*1000); return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,"0")}-${String(d.getUTCDate()).padStart(2,"0")} EAT`; })() : "—"}</p>
                         </div>
                       ))}
                     </div>
@@ -667,7 +667,7 @@ export default function AdminDashboard() {
                         </tr></thead>
                         <tbody>{screeningData.screeningHistory.map((s: any, i: number) => (
                           <tr key={i} className="border-b border-white/5">
-                            <td className="py-2 px-3 text-xs text-white">{s.date || new Date(s.createdAt).toLocaleDateString()}</td>
+                            <td className="py-2 px-3 text-xs text-white">{(() => { const dt = s.date || s.createdAt; if (!dt) return "—"; const d = new Date(new Date(dt).getTime() + 3*60*60*1000); return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,"0")}-${String(d.getUTCDate()).padStart(2,"0")} ${String(d.getUTCHours()).padStart(2,"0")}:${String(d.getUTCMinutes()).padStart(2,"0")} EAT`; })()}</td>
                             <td className="py-2 px-3 text-xs text-center text-gray-300">{s.totalScreened}</td>
                             <td className="py-2 px-3 text-xs text-center text-profit">{s.allGood}</td>
                             <td className="py-2 px-3 text-xs text-center text-gold">{(s.changingReal || 0) + (s.changingDemo || 0)}</td>
@@ -1427,6 +1427,11 @@ function PullsTab({ challengeId, pullHistory, terminalStatus }: { challengeId: s
   const [actionMsg, setActionMsg] = useState("");
   const [retrying, setRetrying] = useState<string | null>(null);
 
+  const formatEAT = (dateStr: string) => {
+    const d = new Date(new Date(dateStr).getTime() + 3 * 60 * 60 * 1000);
+    return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,"0")}-${String(d.getUTCDate()).padStart(2,"0")} ${String(d.getUTCHours()).padStart(2,"0")}:${String(d.getUTCMinutes()).padStart(2,"0")} EAT`;
+  };
+
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
   const secretPath = process.env.NEXT_PUBLIC_ADMIN_PATH || "";
 
@@ -1454,8 +1459,14 @@ function PullsTab({ challengeId, pullHistory, terminalStatus }: { challengeId: s
       const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/retry-account`, {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ registrationId: regId }),
       });
-      if (res.ok) { setActionMsg("✅ Account queued for priority retry"); fetchFailed(); }
-      else setActionMsg("❌ Retry failed");
+      const data = await res.json();
+      if (data.success) {
+        setActionMsg(`✅ ${data.message}`);
+      } else {
+        setActionMsg(`❌ ${data.message || "Retry failed"}`);
+      }
+      // Refresh failed list
+      setTimeout(() => fetchFailed(), 1000);
     } catch { setActionMsg("❌ Connection error"); }
     setRetrying(null);
   };
@@ -1496,8 +1507,9 @@ function PullsTab({ challengeId, pullHistory, terminalStatus }: { challengeId: s
               <div key={f.registration_id} className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10">
                 <div>
                   <p className="text-sm text-white font-semibold">{f.account_number} <span className="text-gray-500 text-xs">@{f.username || f.nickname || "unknown"}</span></p>
+                  {f.email && <p className="text-[10px] text-gray-400">{f.email}</p>}
                   <p className="text-[10px] text-loss">{f.pull_status}: {(f.pull_error || f.error_message || "Unknown error").substring(0, 60)}</p>
-                  <p className="text-[10px] text-gray-500">{f.last_pull_at ? new Date(f.last_pull_at).toLocaleString() : "Never"}</p>
+                  <p className="text-[10px] text-gray-500">{f.last_pull_at ? formatEAT(f.last_pull_at) : "Never"}</p>
                 </div>
                 <button onClick={() => handleRetryAccount(f.registration_id)} disabled={retrying === String(f.registration_id)} className="px-3 py-1.5 rounded-lg bg-royal/20 border border-royal/30 text-royal text-[10px] font-bold hover:bg-royal/30 transition-all disabled:opacity-50">
                   {retrying === String(f.registration_id) ? "..." : "🔄 Retry"}

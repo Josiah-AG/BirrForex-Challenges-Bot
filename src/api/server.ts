@@ -1317,7 +1317,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/force-pull`, adminIpChec
 
 /**
  * POST /api/admin/:secretPath/challenge/:id/retry-account
- * Retry a single failed account
+ * Retry a single failed account — actually pulls from VPS now
  * Body: { registrationId }
  */
 app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/retry-account`, adminIpCheck, async (req, res) => {
@@ -1326,14 +1326,94 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/retry-account`, adminIpC
     const { registrationId } = req.body;
     if (!registrationId) return res.status(400).json({ error: 'registrationId required' });
 
-    // Reset the pull status so it gets picked up in next cycle with priority
-    await db.query(
-      `UPDATE trading_registrations SET pull_status = 'retry_requested', pull_error = 'Manual retry from admin panel' WHERE id = $1 AND challenge_id = $2`,
+    // Get account details
+    const regResult = await db.query(
+      `SELECT id, account_number, mt5_server, investor_password, telegram_id, username, nickname
+       FROM trading_registrations WHERE id = $1 AND challenge_id = $2`,
       [registrationId, challengeId]
     );
+    if (regResult.rows.length === 0) return res.status(404).json({ error: 'Registration not found' });
 
-    return res.json({ success: true, message: 'Account queued for retry (priority) in next pull cycle' });
+    const reg = regResult.rows[0];
+    const vpsUrl = config.vpsApiUrl;
+    const vpsKey = config.vpsApiKey;
+
+    if (!vpsUrl || !vpsKey) {
+      // Fallback: just queue for next cycle
+      await db.query(
+        `UPDATE trading_registrations SET pull_status = 'retry_requested', pull_error = 'Queued from admin panel' WHERE id = $1`,
+        [registrationId]
+      );
+      return res.json({ success: true, message: 'VPS not configured — queued for next cycle', immediate: false });
+    }
+
+    // Try pulling directly from VPS
+    const axios = require('axios');
+    let pullSuccess = false;
+    let pullError = '';
+
+    for (let terminalId = 1; terminalId <= 3; terminalId++) {
+      try {
+        const lastPull = await db.query(`SELECT last_pull_at FROM trading_registrations WHERE id = $1`, [registrationId]);
+        const fromDate = lastPull.rows[0]?.last_pull_at ? new Date(lastPull.rows[0].last_pull_at).toISOString() : null;
+
+        const response = await axios.post(`${vpsUrl}/pull`, {
+          account: reg.account_number,
+          server: reg.mt5_server,
+          password: reg.investor_password,
+          api_key: vpsKey,
+          terminal_id: terminalId,
+          from_date: fromDate,
+        }, { timeout: 30000 });
+
+        if (response.data?.success) {
+          // Save trades
+          const trades = response.data.trades || [];
+          for (const trade of trades) {
+            try {
+              await db.query(
+                `INSERT INTO wp_trades (challenge_id, registration_id, account_number, ticket, symbol, trade_type, volume, open_time, close_time, open_price, close_price, stop_loss, take_profit, profit, commission, swap, comment)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+                 ON CONFLICT (challenge_id, account_number, ticket) DO UPDATE SET profit=EXCLUDED.profit, close_time=EXCLUDED.close_time, close_price=EXCLUDED.close_price, commission=EXCLUDED.commission, swap=EXCLUDED.swap, synced_at=NOW()`,
+                [challengeId, registrationId, reg.account_number, trade.ticket, trade.symbol||null, trade.type||null, trade.volume||0, trade.open_time||null, trade.close_time||null, trade.open_price||0, trade.close_price||0, trade.stop_loss||null, trade.take_profit||null, trade.profit||0, trade.commission||0, trade.swap||0, trade.comment||null]
+              );
+            } catch {}
+          }
+
+          // Update status
+          await db.query(
+            `UPDATE trading_registrations SET last_pull_at = NOW(), pull_status = 'success', pull_error = NULL WHERE id = $1`,
+            [registrationId]
+          );
+
+          // Run evaluation
+          try {
+            const { evaluationEngine } = require('../services/wpEvaluationEngine');
+            await evaluationEngine.evaluateSingleAccount(challengeId, registrationId);
+          } catch {}
+
+          pullSuccess = true;
+          return res.json({
+            success: true, immediate: true,
+            message: `Pull successful — ${trades.length} trades synced, evaluation updated`,
+            tradesCount: trades.length,
+          });
+        } else {
+          pullError = response.data?.message || 'API returned failure';
+        }
+      } catch (err: any) {
+        pullError = err.message || 'Connection failed';
+      }
+    }
+
+    // All terminals failed
+    await db.query(
+      `UPDATE trading_registrations SET pull_status = 'retry_failed', pull_error = $1, last_pull_at = NOW() WHERE id = $2`,
+      [pullError, registrationId]
+    );
+    return res.json({ success: false, message: `Retry failed: ${pullError}`, immediate: true });
   } catch (error) {
+    console.error('Retry account error:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
