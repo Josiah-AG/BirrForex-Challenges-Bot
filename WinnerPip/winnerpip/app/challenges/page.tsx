@@ -3,7 +3,6 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { Button } from "@/components/ui/button";
 import {
   Trophy,
   Calendar,
@@ -12,10 +11,6 @@ import {
   Sparkles,
   Loader2,
   ArrowRight,
-  Zap,
-  Key,
-  MessageCircle,
-  X,
 } from "lucide-react";
 
 interface Challenge {
@@ -40,9 +35,6 @@ interface Challenge {
 export default function ChallengesPage() {
   const [challenges, setChallenges] = useState<Challenge[]>([]);
   const [loading, setLoading] = useState(true);
-  const [joinModalOpen, setJoinModalOpen] = useState(false);
-  const [joinModalStep, setJoinModalStep] = useState<"select" | "action">("select");
-  const [selectedJoinChallenge, setSelectedJoinChallenge] = useState<Challenge | null>(null);
 
   useEffect(() => {
     const fetchChallenges = async () => {
@@ -120,20 +112,25 @@ export default function ChallengesPage() {
               </div>
               <span className="text-xl font-bold gradient-text hidden sm:inline">WinnerPip</span>
             </Link>
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => setJoinModalOpen(true)}
-                className="flex items-center gap-2 bg-gradient-brand hover:opacity-90 text-white px-5 py-2.5 rounded-xl text-sm font-semibold shadow-lg shadow-royal/20 transition-all"
-              >
-                Join Challenge
-                <Zap size={16} />
-              </button>
-            </div>
           </div>
         </div>
       </header>
 
       <div className="container mx-auto px-4 py-10 md:py-16 max-w-6xl relative">
+        {/* Page Title */}
+        <div className="text-center mb-12">
+          <div className="flex items-center justify-center gap-2 mb-4">
+            <Sparkles className="text-gold w-6 h-6" />
+            <span className="text-sm text-gray-400 uppercase tracking-wider font-semibold">Trading Competitions</span>
+          </div>
+          <h1 className="text-4xl md:text-5xl font-bold mb-4">
+            <span className="gradient-text">Challenges</span>
+          </h1>
+          <p className="text-gray-400 text-lg max-w-2xl mx-auto">
+            Join a challenge, trade with discipline, and climb the leaderboard
+          </p>
+        </div>
+
         {/* Loading */}
         {loading && (
           <div className="flex items-center justify-center py-20">
@@ -349,116 +346,6 @@ export default function ChallengesPage() {
           </div>
         )}
       </div>
-
-      {/* Join Challenge Modal */}
-      {joinModalOpen && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => { setJoinModalOpen(false); setJoinModalStep("select"); setSelectedJoinChallenge(null); }}>
-          <div className="glass rounded-2xl max-w-md w-full max-h-[85vh] overflow-y-auto border border-white/10 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-            {/* Header */}
-            <div className="sticky top-0 glass p-5 border-b border-white/10 flex items-center justify-between rounded-t-2xl z-10">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-royal/20 rounded-xl border border-royal/30">
-                  <Trophy className="text-gold w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-bold text-white">{joinModalStep === "select" ? "Select Challenge" : selectedJoinChallenge?.title}</h3>
-                  <p className="text-xs text-gray-500">{joinModalStep === "select" ? "Choose a challenge to join" : "How would you like to proceed?"}</p>
-                </div>
-              </div>
-              <button onClick={() => { setJoinModalOpen(false); setJoinModalStep("select"); setSelectedJoinChallenge(null); }} className="p-2 hover:bg-white/10 rounded-lg"><X size={18} className="text-gray-400" /></button>
-            </div>
-
-            <div className="p-5">
-              {/* Step 1: Challenge Selection */}
-              {joinModalStep === "select" && (
-                <div className="space-y-3">
-                  {challenges.filter(c => {
-                    const ds = c.displayStatus || c.status;
-                    return ds !== "ended" && ds !== "completed" && ds !== "coming_soon";
-                  }).length === 0 ? (
-                    <div className="text-center py-8">
-                      <Trophy className="w-10 h-10 text-gray-600 mx-auto mb-3" />
-                      <p className="text-gray-400 text-sm">No active challenges to join right now</p>
-                    </div>
-                  ) : (
-                    challenges.filter(c => {
-                      const ds = c.displayStatus || c.status;
-                      return ds !== "ended" && ds !== "completed" && ds !== "coming_soon";
-                    }).map(c => {
-                      const badge = getStatusBadge(c);
-                      return (
-                        <button
-                          key={c.id}
-                          onClick={() => { setSelectedJoinChallenge(c); setJoinModalStep("action"); }}
-                          className="w-full text-left p-4 rounded-xl bg-white/5 border border-white/10 hover:border-royal/30 hover:bg-royal/5 transition-all group"
-                        >
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <p className="text-sm font-bold text-white group-hover:text-royal transition-colors">{c.title}</p>
-                              <div className="flex items-center gap-2 mt-1.5">
-                                <span className={`px-2 py-0.5 rounded text-[10px] font-semibold border ${badge.color}`}>{badge.label}</span>
-                                <span className="text-[10px] text-gray-500 capitalize">{c.type}</span>
-                              </div>
-                            </div>
-                            <ArrowRight size={16} className="text-gray-500 group-hover:text-royal group-hover:translate-x-1 transition-all" />
-                          </div>
-                        </button>
-                      );
-                    })
-                  )}
-                </div>
-              )}
-
-              {/* Step 2: Action Selection (Sign In or Register) */}
-              {joinModalStep === "action" && selectedJoinChallenge && (
-                <div className="space-y-4">
-                  <p className="text-sm text-gray-400 mb-4">Already registered? Sign in. New here? Register through Telegram or Discord.</p>
-
-                  {/* Sign In */}
-                  <button
-                    onClick={() => { setJoinModalOpen(false); window.location.href = `/challenge/${selectedJoinChallenge.id}`; }}
-                    className="w-full flex items-center gap-4 p-4 rounded-xl bg-white/5 border border-white/10 hover:border-royal/30 hover:bg-royal/5 transition-all group"
-                  >
-                    <div className="p-3 bg-royal/20 rounded-xl border border-royal/30">
-                      <Key className="text-royal w-5 h-5" />
-                    </div>
-                    <div className="text-left">
-                      <p className="text-sm font-bold text-white group-hover:text-royal transition-colors">Sign In</p>
-                      <p className="text-xs text-gray-500">Already registered — log in with MT5 credentials</p>
-                    </div>
-                    <ArrowRight size={16} className="text-gray-500 ml-auto group-hover:text-royal group-hover:translate-x-1 transition-all" />
-                  </button>
-
-                  {/* Register via Telegram */}
-                  <a
-                    href={`https://t.me/birrforex_challenge_bot?start=tc_register_${selectedJoinChallenge.id}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="w-full flex items-center gap-4 p-4 rounded-xl bg-[#2AABEE]/5 border border-[#2AABEE]/20 hover:border-[#2AABEE]/40 hover:bg-[#2AABEE]/10 transition-all group"
-                  >
-                    <div className="p-3 bg-[#2AABEE]/20 rounded-xl border border-[#2AABEE]/30">
-                      <MessageCircle className="text-[#2AABEE] w-5 h-5" />
-                    </div>
-                    <div className="text-left">
-                      <p className="text-sm font-bold text-white group-hover:text-[#2AABEE] transition-colors">Register via Telegram</p>
-                      <p className="text-xs text-gray-500">New user — register through our Telegram bot</p>
-                    </div>
-                    <ArrowRight size={16} className="text-gray-500 ml-auto group-hover:text-[#2AABEE] group-hover:translate-x-1 transition-all" />
-                  </a>
-
-                  {/* Back button */}
-                  <button
-                    onClick={() => { setJoinModalStep("select"); setSelectedJoinChallenge(null); }}
-                    className="w-full text-center text-sm text-gray-500 hover:text-white py-2 transition-colors"
-                  >
-                    ← Back to challenge selection
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
