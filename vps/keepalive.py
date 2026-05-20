@@ -18,8 +18,8 @@ BASE_ACCOUNT = 435924397
 BASE_PASSWORD = "Abc@1234"
 BASE_SERVER = "Exness-MT5Trial9"
 
-# Symbols to try (standard + cent account variants)
-SYMBOLS = ["EURUSD", "EURUSDm", "GBPUSD", "GBPUSDm", "USDJPY", "USDJPYm", "AUDUSD", "AUDUSDm"]
+# Symbols to try (cent account uses 'm' suffix on Exness Trial servers)
+SYMBOLS = ["EURUSDm", "GBPUSDm", "USDJPYm", "AUDUSDm", "NZDUSDm", "USDCADm", "EURGBPm"]
 VOLUME = 0.01
 WAIT_SECONDS = 300  # 5 minutes
 
