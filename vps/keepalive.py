@@ -114,13 +114,8 @@ def run_keepalive():
     type_name = "BUY" if trade_type == mt5.ORDER_TYPE_BUY else "SELL"
 
     # Determine correct filling mode for this symbol
-    filling_mode = mt5.ORDER_FILLING_IOC
-    if symbol_info.filling_mode & mt5.SYMBOL_FILLING_FOK:
-        filling_mode = mt5.ORDER_FILLING_FOK
-    elif symbol_info.filling_mode & mt5.SYMBOL_FILLING_IOC:
-        filling_mode = mt5.ORDER_FILLING_IOC
-    else:
-        filling_mode = mt5.ORDER_FILLING_RETURN
+    # Exness typically uses FOK for forex pairs
+    filling_mode = mt5.ORDER_FILLING_FOK
 
     log(f"Opening {type_name} {VOLUME} {symbol} @ {price} (filling: {filling_mode})")
 
