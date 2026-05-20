@@ -87,7 +87,16 @@ def run_keepalive():
     price = symbol_info.ask if trade_type == mt5.ORDER_TYPE_BUY else symbol_info.bid
     type_name = "BUY" if trade_type == mt5.ORDER_TYPE_BUY else "SELL"
 
-    log(f"Opening {type_name} {VOLUME} {symbol} @ {price}")
+    # Determine correct filling mode for this symbol
+    filling_mode = mt5.ORDER_FILLING_IOC
+    if symbol_info.filling_mode & mt5.SYMBOL_FILLING_FOK:
+        filling_mode = mt5.ORDER_FILLING_FOK
+    elif symbol_info.filling_mode & mt5.SYMBOL_FILLING_IOC:
+        filling_mode = mt5.ORDER_FILLING_IOC
+    else:
+        filling_mode = mt5.ORDER_FILLING_RETURN
+
+    log(f"Opening {type_name} {VOLUME} {symbol} @ {price} (filling: {filling_mode})")
 
     # Open trade
     request = {
@@ -100,7 +109,7 @@ def run_keepalive():
         "magic": 999999,
         "comment": "keepalive",
         "type_time": mt5.ORDER_TIME_GTC,
-        "type_filling": mt5.ORDER_FILLING_IOC,
+        "type_filling": filling_mode,
     }
 
     result = mt5.order_send(request)
@@ -144,7 +153,7 @@ def run_keepalive():
                     "magic": 999999,
                     "comment": "keepalive_close",
                     "type_time": mt5.ORDER_TIME_GTC,
-                    "type_filling": mt5.ORDER_FILLING_IOC,
+                    "type_filling": filling_mode,
                 }
 
                 close_result = mt5.order_send(close_request)
