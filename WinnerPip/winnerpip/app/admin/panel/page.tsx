@@ -858,14 +858,14 @@ function HealthCheckPanel() {
             {/* VPS Status */}
             <div className="p-4 rounded-xl border border-white/10 bg-white/5">
               <div className="flex items-center gap-3 mb-4">
-                <div className={`w-3 h-3 rounded-full ${healthData.vps.reachable ? "bg-profit animate-pulse" : "bg-loss"}`}></div>
+                <div className={`w-3 h-3 rounded-full ${healthData.vps?.reachable ? "bg-profit animate-pulse" : "bg-loss"}`}></div>
                 <h4 className="text-sm font-bold text-white">VPS Server</h4>
-                <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${healthData.vps.reachable ? "bg-profit/20 text-profit" : "bg-loss/20 text-loss"}`}>
-                  {healthData.vps.reachable ? "ONLINE" : "OFFLINE"}
+                <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${healthData.vps?.reachable ? "bg-profit/20 text-profit" : "bg-loss/20 text-loss"}`}>
+                  {healthData.vps?.reachable ? "ONLINE" : "OFFLINE"}
                 </span>
               </div>
 
-              {healthData.vps.reachable && healthData.vps.raw && (
+              {healthData.vps?.reachable && healthData.vps?.raw && (
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                   {healthData.vps.raw.terminals && (
                     <div className="bg-white/5 rounded-lg p-3 text-center">
@@ -894,19 +894,20 @@ function HealthCheckPanel() {
                 </div>
               )}
 
-              {healthData.vps.reachable && healthData.vps.raw && (
+              {healthData.vps?.reachable && healthData.vps?.raw && (
                 <details className="mt-3">
                   <summary className="text-xs text-gray-500 cursor-pointer hover:text-gray-300">Raw VPS response</summary>
                   <pre className="mt-2 p-3 bg-black/30 rounded-lg text-[10px] text-gray-400 overflow-x-auto">{JSON.stringify(healthData.vps.raw, null, 2)}</pre>
                 </details>
               )}
 
-              {!healthData.vps.reachable && (
-                <p className="text-sm text-loss">{healthData.vps.error || "Cannot reach VPS server"}</p>
+              {!healthData.vps?.reachable && (
+                <p className="text-sm text-loss">{healthData.vps?.error || "Cannot reach VPS server"}</p>
               )}
             </div>
 
             {/* Pull Stats (24h) */}
+            {healthData.pullStats && (
             <div className="p-4 rounded-xl border border-white/10 bg-white/5">
               <h4 className="text-sm font-bold text-white mb-4 flex items-center gap-2">
                 <BarChart3 size={16} className="text-royal" /> Pull Stats (Last 24h)
@@ -914,30 +915,30 @@ function HealthCheckPanel() {
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
                 <div className="bg-white/5 rounded-lg p-3 text-center">
                   <p className="text-[10px] text-gray-500 uppercase">Batches</p>
-                  <p className="text-2xl font-bold text-white">{healthData.pullStats.last24h.batches}</p>
+                  <p className="text-2xl font-bold text-white">{healthData.pullStats.last24h?.batches ?? 0}</p>
                 </div>
                 <div className="bg-white/5 rounded-lg p-3 text-center">
                   <p className="text-[10px] text-gray-500 uppercase">Success</p>
-                  <p className="text-2xl font-bold text-profit">{healthData.pullStats.last24h.totalSuccess}</p>
+                  <p className="text-2xl font-bold text-profit">{healthData.pullStats.last24h?.totalSuccess ?? 0}</p>
                 </div>
                 <div className="bg-white/5 rounded-lg p-3 text-center">
                   <p className="text-[10px] text-gray-500 uppercase">Failed</p>
-                  <p className="text-2xl font-bold text-loss">{healthData.pullStats.last24h.totalFailed}</p>
+                  <p className="text-2xl font-bold text-loss">{healthData.pullStats.last24h?.totalFailed ?? 0}</p>
                 </div>
                 <div className="bg-white/5 rounded-lg p-3 text-center">
                   <p className="text-[10px] text-gray-500 uppercase">Success Rate</p>
-                  <p className={`text-2xl font-bold ${healthData.pullStats.last24h.successRate >= 90 ? "text-profit" : healthData.pullStats.last24h.successRate >= 70 ? "text-gold" : "text-loss"}`}>{healthData.pullStats.last24h.successRate}%</p>
+                  <p className={`text-2xl font-bold ${(healthData.pullStats.last24h?.successRate ?? 0) >= 90 ? "text-profit" : (healthData.pullStats.last24h?.successRate ?? 0) >= 70 ? "text-gold" : "text-loss"}`}>{healthData.pullStats.last24h?.successRate ?? 0}%</p>
                 </div>
               </div>
 
-              {healthData.pullStats.passwordChangedPending > 0 && (
+              {(healthData.pullStats.passwordChangedPending ?? 0) > 0 && (
                 <div className="p-3 rounded-lg bg-gold/10 border border-gold/20 mb-3">
                   <p className="text-xs text-gold font-semibold">🔑 {healthData.pullStats.passwordChangedPending} accounts with changed passwords (pending 48h)</p>
                 </div>
               )}
 
               {/* Error breakdown */}
-              {healthData.pullStats.errors24h.length > 0 && (
+              {healthData.pullStats.errors24h?.length > 0 && (
                 <div className="mt-3">
                   <p className="text-xs text-gray-400 font-semibold mb-2">Error Breakdown:</p>
                   <div className="space-y-1">
@@ -951,8 +952,10 @@ function HealthCheckPanel() {
                 </div>
               )}
             </div>
+            )}
 
             {/* Recent Batches */}
+            {healthData.pullStats?.last5Batches && (
             <div className="p-4 rounded-xl border border-white/10 bg-white/5">
               <h4 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
                 <Clock size={16} className="text-gold" /> Recent Pull Cycles
@@ -978,6 +981,7 @@ function HealthCheckPanel() {
                 ))}
               </div>
             </div>
+            )}
           </div>
         )}
 
