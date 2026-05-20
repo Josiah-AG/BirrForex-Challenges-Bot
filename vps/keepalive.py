@@ -4,7 +4,7 @@ WinnerPip VPS Keep-Alive — Prevents Exness Demo Account Archival
 Run twice daily via Task Scheduler (e.g., 04:00 and 16:00 EAT).
 Uses Terminal 1 only. Opens a random 0.01 lot trade, waits 5 minutes, closes it.
 
-Usage: py -3.12 vps\keepalive.py
+Usage: py -3.12 vps/keepalive.py
 """
 
 import MetaTrader5 as mt5
@@ -18,8 +18,8 @@ BASE_ACCOUNT = 435924397
 BASE_PASSWORD = "Abc@1234"
 BASE_SERVER = "Exness-MT5Trial9"
 
-# Symbols to trade (pick one randomly)
-SYMBOLS = ["EURUSD", "GBPUSD", "AUDUSD"]
+# Symbols to try (standard + cent account variants)
+SYMBOLS = ["EURUSD", "EURUSDm", "GBPUSD", "GBPUSDm", "USDJPY", "USDJPYm", "AUDUSD", "AUDUSDm"]
 VOLUME = 0.01
 WAIT_SECONDS = 300  # 5 minutes
 
@@ -56,24 +56,50 @@ def run_keepalive():
     info = mt5.account_info()
     log(f"Logged in — Balance: {info.balance}, Equity: {info.equity}")
 
-    # Pick random symbol
-    symbol = random.choice(SYMBOLS)
-    log(f"Selected symbol: {symbol}")
+    # Wait for terminal to fully sync symbols
+    log("Waiting for terminal sync...")
+    time.sleep(5)
 
-    # Ensure symbol is visible
-    if not mt5.symbol_select(symbol, True):
-        log(f"WARNING: Could not select {symbol}, trying next...")
-        for s in SYMBOLS:
-            if mt5.symbol_select(s, True):
+    # Try to find an available symbol
+    symbol = None
+    random.shuffle(SYMBOLS)
+
+    for s in SYMBOLS:
+        # Try to add to Market Watch
+        if mt5.symbol_select(s, True):
+            # Verify it's actually available
+            time.sleep(0.5)
+            si = mt5.symbol_info(s)
+            if si and si.trade_mode == mt5.SYMBOL_TRADE_MODE_FULL:
                 symbol = s
-                log(f"Using fallback symbol: {symbol}")
+                log(f"Symbol available: {s}")
                 break
+            else:
+                log(f"  {s} — selected but not tradeable (mode={si.trade_mode if si else 'None'})")
         else:
-            log("FAILED: No symbols available")
+            log(f"  {s} — not available")
+
+    if not symbol:
+        # Last resort: check what symbols ARE available
+        all_symbols = mt5.symbols_get()
+        if all_symbols:
+            tradeable = [s for s in all_symbols if s.trade_mode == mt5.SYMBOL_TRADE_MODE_FULL and "USD" in s.name]
+            if tradeable:
+                symbol = tradeable[0].name
+                mt5.symbol_select(symbol, True)
+                time.sleep(0.5)
+                log(f"Using auto-detected symbol: {symbol}")
+            else:
+                log(f"FAILED: No tradeable USD symbols found. Total symbols: {len(all_symbols)}")
+                # Log first 10 symbols for debugging
+                for s in all_symbols[:10]:
+                    log(f"  Available: {s.name} (mode={s.trade_mode})")
+                mt5.shutdown()
+                return False
+        else:
+            log("FAILED: No symbols returned from terminal at all")
             mt5.shutdown()
             return False
-
-    time.sleep(1)
 
     # Get symbol info for filling
     symbol_info = mt5.symbol_info(symbol)
