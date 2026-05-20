@@ -134,20 +134,6 @@ export default function ChallengesPage() {
       </header>
 
       <div className="container mx-auto px-4 py-10 md:py-16 max-w-6xl relative">
-        {/* Page Title */}
-        <div className="text-center mb-12">
-          <div className="flex items-center justify-center gap-2 mb-4">
-            <Sparkles className="text-gold w-6 h-6" />
-            <span className="text-sm text-gray-400 uppercase tracking-wider font-semibold">Trading Competitions</span>
-          </div>
-          <h1 className="text-4xl md:text-5xl font-bold mb-4">
-            <span className="gradient-text">Challenges</span>
-          </h1>
-          <p className="text-gray-400 text-lg max-w-2xl mx-auto">
-            Join a challenge, trade with discipline, and climb the leaderboard
-          </p>
-        </div>
-
         {/* Loading */}
         {loading && (
           <div className="flex items-center justify-center py-20">
