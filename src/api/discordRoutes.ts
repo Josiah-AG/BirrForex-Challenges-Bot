@@ -197,6 +197,14 @@ router.post('/challenges/:id/register', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
+    // Validate nickname (brand protection)
+    if (nickname) {
+      const { isBlockedNickname } = require('../utils/helpers');
+      if (isBlockedNickname(nickname)) {
+        return res.status(400).json({ error: 'That nickname is too similar to our brand. Please choose a different nickname.' });
+      }
+    }
+
     // Check challenge exists and is open for registration
     const challenge = await db.query(
       `SELECT * FROM trading_challenges WHERE id = $1`,

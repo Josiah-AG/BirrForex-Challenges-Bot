@@ -512,6 +512,12 @@ export class TradingRegistrationHandler {
           await ctx.reply('❌ Only letters, numbers, and underscores allowed. Try again:');
           return;
         }
+        // Check brand impersonation
+        const { isBlockedNickname } = require('../utils/helpers');
+        if (isBlockedNickname(nickname)) {
+          await ctx.reply('❌ You cannot use that nickname — it\'s too similar to our brand. Please choose a different nickname:');
+          return;
+        }
         // Check uniqueness
         const taken = await tradingChallengeService.isNicknameTaken(session.data.challenge_id, nickname);
         if (taken) {

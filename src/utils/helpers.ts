@@ -176,3 +176,69 @@ export function formatChallengeTime(time: string): string {
 export function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
+
+/**
+ * Check if a nickname impersonates or mimics the BirrForex/WinnerPip brand.
+ * Returns true if the nickname is blocked.
+ */
+export function isBlockedNickname(nickname: string): boolean {
+  // Step 1: Normalize — lowercase, strip separators
+  let normalized = nickname.toLowerCase().replace(/[\s_\-\.]/g, '');
+
+  // Step 2: Deobfuscate leet-speak
+  normalized = normalized
+    .replace(/0/g, 'o')
+    .replace(/1/g, 'i')
+    .replace(/3/g, 'e')
+    .replace(/4/g, 'a')
+    .replace(/@/g, 'a')
+    .replace(/\$/g, 's')
+    .replace(/5/g, 's')
+    .replace(/7/g, 't')
+    .replace(/8/g, 'b');
+
+  // Step 3: Blocked patterns (checked as substrings)
+  const blockedSubstrings = [
+    'birrforex',
+    'birrfx',
+    'winnerpip',
+    'winnerpips',
+    'wpip',
+    'birrforexadmin',
+    'birrfxadmin',
+    'winnerpipadmin',
+  ];
+
+  for (const blocked of blockedSubstrings) {
+    if (normalized.includes(blocked)) return true;
+  }
+
+  // Step 4: Check "birr" + "forex" appearing anywhere (even separated)
+  if (normalized.includes('birr') && normalized.includes('forex')) return true;
+  if (normalized.includes('birr') && normalized.includes('fx')) return true;
+  if (normalized.includes('winner') && normalized.includes('pip')) return true;
+
+  // Step 5: Check brand keywords combined with authority words
+  const brandKeywords = ['birrforex', 'birrfx', 'birr', 'winnerpip', 'bfx'];
+  const authorityWords = ['admin', 'official', 'support', 'moderator', 'mod', 'team', 'staff', 'helper'];
+
+  for (const brand of brandKeywords) {
+    if (!normalized.includes(brand)) continue;
+    for (const auth of authorityWords) {
+      if (normalized.includes(auth)) return true;
+    }
+  }
+
+  // Step 6: Standalone "bfx" as prefix/suffix with authority words
+  if (normalized.startsWith('bfx') || normalized.endsWith('bfx')) {
+    for (const auth of authorityWords) {
+      if (normalized.includes(auth)) return true;
+    }
+  }
+
+  // Step 7: Exact matches for short brand terms (block "bfx" alone only if combined)
+  const exactBlocked = ['birrforex', 'birrfx', 'winnerpip', 'bfxadmin', 'bfxofficial', 'bfxsupport', 'bfxmod'];
+  if (exactBlocked.includes(normalized)) return true;
+
+  return false;
+}
