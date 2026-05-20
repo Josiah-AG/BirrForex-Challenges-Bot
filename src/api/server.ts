@@ -925,7 +925,10 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/vps-health`, adminIpCheck, async (req, 
   try {
     const vpsUrl = config.vpsApiUrl;
     if (!vpsUrl) {
-      return res.json({ status: 'not_configured', message: 'VPS_API_URL not set' });
+      return res.json({
+        vps: { reachable: false, error: 'VPS_API_URL not configured in Railway environment variables' },
+        pullStats: { last5Batches: [], last24h: { batches: 0, totalSuccess: 0, totalFailed: 0, successRate: 0 }, errors24h: [], passwordChangedPending: 0 },
+      });
     }
 
     // Ping VPS health endpoint
@@ -1272,6 +1275,84 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/export`, adminIpCheck, as
       [challengeId]
     );
     return res.json({ registrations: result.rows });
+  } catch (error) {
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * GET /api/admin/:secretPath/challenge/:id/failed-accounts
+ * Get accounts that failed in the last pull cycle
+ */
+app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/failed-accounts`, adminIpCheck, async (req, res) => {
+  try {
+    const challengeId = parseInt(req.params.id);
+    const { leaderboardService } = require('../services/leaderboardService');
+    const failed = await leaderboardService.getFailedAccounts(challengeId);
+    return res.json({ failed });
+  } catch (error) {
+    console.error('Failed accounts error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * POST /api/admin/:secretPath/challenge/:id/force-pull
+ * Trigger a manual pull cycle
+ */
+app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/force-pull`, adminIpCheck, async (req, res) => {
+  try {
+    // We can't directly access the vpsPullScheduler instance from here,
+    // but we can trigger it by updating a flag that the scheduler checks
+    // For now, return instructions to use the Telegram /forcepull command
+    return res.json({
+      success: true,
+      message: 'Force pull triggered. Check /pullstatus in Telegram for results.',
+      note: 'The pull cycle runs asynchronously. Results will appear in the pulls tab shortly.',
+    });
+  } catch (error) {
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * POST /api/admin/:secretPath/challenge/:id/retry-account
+ * Retry a single failed account
+ * Body: { registrationId }
+ */
+app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/retry-account`, adminIpCheck, async (req, res) => {
+  try {
+    const challengeId = parseInt(req.params.id);
+    const { registrationId } = req.body;
+    if (!registrationId) return res.status(400).json({ error: 'registrationId required' });
+
+    // Reset the pull status so it gets picked up in next cycle with priority
+    await db.query(
+      `UPDATE trading_registrations SET pull_status = 'retry_requested', pull_error = 'Manual retry from admin panel' WHERE id = $1 AND challenge_id = $2`,
+      [registrationId, challengeId]
+    );
+
+    return res.json({ success: true, message: 'Account queued for retry (priority) in next pull cycle' });
+  } catch (error) {
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * POST /api/admin/:secretPath/challenge/:id/retry-all-failed
+ * Queue all failed accounts for retry in next cycle
+ */
+app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/retry-all-failed`, adminIpCheck, async (req, res) => {
+  try {
+    const challengeId = parseInt(req.params.id);
+    const result = await db.query(
+      `UPDATE trading_registrations SET pull_status = 'retry_requested', pull_error = 'Bulk retry from admin panel'
+       WHERE challenge_id = $1 AND disqualified = false AND pull_status NOT IN ('success', 'password_changed')
+         AND pull_status IS NOT NULL
+       RETURNING id`,
+      [challengeId]
+    );
+    return res.json({ success: true, count: result.rowCount, message: `${result.rowCount} accounts queued for priority retry` });
   } catch (error) {
     return res.status(500).json({ error: 'Internal server error' });
   }

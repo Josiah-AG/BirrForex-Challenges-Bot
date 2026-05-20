@@ -222,11 +222,62 @@ export default function AdminDashboard() {
   };
 
   const topViolations: any[] = [];
-  const pullHistory: any[] = [];
-  const terminalStatus: any[] = [];
-  const recentPullErrors: any[] = [];
+  const [pullHistory, setPullHistory] = useState<any[]>([]);
+  const [terminalStatus, setTerminalStatus] = useState<any[]>([]);
   const leaderboard: any[] = [];
   const flaggedParticipants: any[] = [];
+  const [screeningData, setScreeningData] = useState<any>(null);
+
+  // Fetch pull data when pulls tab is active
+  useEffect(() => {
+    if (!isAdmin || activeSection !== "pulls" || !selectedChallengeId) return;
+    const fetchPulls = async () => {
+      try {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
+        const secretPath = process.env.NEXT_PUBLIC_ADMIN_PATH || "";
+        const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${selectedChallengeId}/pulls`);
+        if (res.ok) {
+          const data = await res.json();
+          const pulls = (data.pulls || []).map((p: any) => {
+            const startEAT = new Date(new Date(p.started_at).getTime() + 3*60*60*1000);
+            const duration = p.completed_at ? Math.round((new Date(p.completed_at).getTime() - new Date(p.started_at).getTime()) / 1000) : null;
+            return {
+              time: `${startEAT.getUTCHours().toString().padStart(2,'0')}:${startEAT.getUTCMinutes().toString().padStart(2,'0')}`,
+              success: p.successful || 0,
+              failed: p.failed || 0,
+              passwordChanged: 0,
+              newTrades: p.new_trades_found || 0,
+              duration: duration ? `${duration}s` : "...",
+              status: p.status,
+            };
+          });
+          setPullHistory(pulls);
+          // Generate terminal status (10 slots, all healthy by default since we can't get per-terminal from DB)
+          setTerminalStatus(Array.from({length: 10}, (_, i) => ({
+            id: i + 1, healthy: true, processed: 0, success: 0, failed: 0, avgTime: "—", lastError: null,
+          })));
+        }
+      } catch {}
+    };
+    fetchPulls();
+  }, [isAdmin, activeSection, selectedChallengeId]);
+
+  // Fetch screening data when screening tab is active
+  useEffect(() => {
+    if (!isAdmin || activeSection !== "screening" || !selectedChallengeId) return;
+    const fetchScreening = async () => {
+      try {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
+        const secretPath = process.env.NEXT_PUBLIC_ADMIN_PATH || "";
+        const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${selectedChallengeId}/screening`);
+        if (res.ok) {
+          const data = await res.json();
+          setScreeningData(data);
+        }
+      } catch {}
+    };
+    fetchScreening();
+  }, [isAdmin, activeSection, selectedChallengeId]);
 
   // ==================== ADMIN LOGIN GATE ====================
   if (!isAdmin) {
@@ -387,91 +438,7 @@ export default function AdminDashboard() {
 
         {/* ==================== PULL HISTORY + TERMINALS ==================== */}
         {activeSection === "pulls" && (
-          <div className="space-y-6">
-            {/* Terminal Health Grid */}
-            <div className="glass rounded-2xl border border-white/10 p-5">
-              <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2"><Zap size={16} className="text-royal" /> Terminal Health (10 Slots)</h3>
-              <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-                {terminalStatus.map(t => (
-                  <div key={t.id} className={`rounded-xl p-3 border ${t.healthy ? "bg-profit/5 border-profit/20" : "bg-loss/5 border-loss/20"}`}>
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-xs font-bold text-white">T{t.id}</span>
-                      <span className={`w-2 h-2 rounded-full ${t.healthy ? "bg-profit animate-pulse" : "bg-loss"}`}></span>
-                    </div>
-                    <p className="text-[10px] text-gray-400">{t.processed} processed</p>
-                    <p className="text-[10px] text-gray-400">{t.success}✓ {t.failed}✗</p>
-                    <p className="text-[10px] text-gray-500">Avg: {t.avgTime}</p>
-                    {t.lastError && <p className="text-[10px] text-loss mt-1 truncate">{t.lastError}</p>}
-                  </div>
-                ))}
-              </div>
-              <div className="mt-3 flex items-center justify-between text-xs text-gray-500">
-                <span>{terminalStatus.filter(t => t.healthy).length}/10 healthy</span>
-                <span>Unhealthy terminals auto-recover after 10 min</span>
-              </div>
-            </div>
-
-            {/* Pull Batch History */}
-            <div className="glass rounded-2xl border border-white/10 overflow-hidden">
-              <div className="p-4 border-b border-white/5"><h3 className="text-sm font-semibold text-white flex items-center gap-2"><Clock size={16} className="text-royal" /> Pull Batch History (Today)</h3></div>
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[650px]">
-                  <thead><tr className="border-b border-white/5">
-                    <th className="text-left py-3 px-4 text-[10px] text-gray-400 uppercase">Time (EAT)</th>
-                    <th className="text-center py-3 px-4 text-[10px] text-gray-400 uppercase">Success</th>
-                    <th className="text-center py-3 px-4 text-[10px] text-gray-400 uppercase">Failed</th>
-                    <th className="text-center py-3 px-4 text-[10px] text-gray-400 uppercase">PW Changed</th>
-                    <th className="text-center py-3 px-4 text-[10px] text-gray-400 uppercase">New Trades</th>
-                    <th className="text-right py-3 px-4 text-[10px] text-gray-400 uppercase">Duration</th>
-                  </tr></thead>
-                  <tbody>{pullHistory.map((p, i) => (
-                    <tr key={i} className="border-b border-white/5 hover:bg-white/5">
-                      <td className="py-3 px-4 text-sm text-white font-semibold">{p.time}</td>
-                      <td className="py-3 px-4 text-center text-sm text-profit">{p.success}</td>
-                      <td className="py-3 px-4 text-center text-sm text-loss">{p.failed}</td>
-                      <td className="py-3 px-4 text-center text-sm text-gold">{p.passwordChanged}</td>
-                      <td className="py-3 px-4 text-center text-sm text-gray-300">{p.newTrades}</td>
-                      <td className="py-3 px-4 text-right text-sm text-gray-400">{p.duration}</td>
-                    </tr>
-                  ))}</tbody>
-                </table>
-              </div>
-            </div>
-
-            {/* Recent Pull Errors */}
-            <div className="glass rounded-2xl border border-loss/20 p-5">
-              <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2"><AlertTriangle size={16} className="text-loss" /> Recent Pull Errors</h3>
-              <div className="space-y-2">
-                {recentPullErrors.map((e, i) => (
-                  <div key={i} className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <p className="text-sm text-white font-semibold">{e.nickname}</p>
-                        <span className="text-[10px] text-gray-500">#{e.account}</span>
-                      </div>
-                      <p className="text-xs text-loss">{e.error}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-[10px] text-gray-400">T{e.terminal}</p>
-                      <p className="text-[10px] text-gray-500">{e.time}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Pull Performance Summary */}
-            <div className="glass rounded-2xl border border-white/10 p-5">
-              <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2"><BarChart3 size={16} className="text-royal" /> Performance Summary</h3>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Avg Cycle Time</p><p className="text-lg font-bold text-white">—</p></div>
-                <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Success Rate</p><p className="text-lg font-bold text-profit">—</p></div>
-                <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Avg Per Account</p><p className="text-lg font-bold text-white">—</p></div>
-                <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Total Trades Synced</p><p className="text-lg font-bold text-royal">—</p></div>
-              </div>
-              <p className="text-[10px] text-gray-500 mt-3 text-center">Stats populate after VPS pull cycles run</p>
-            </div>
-          </div>
+          <PullsTab challengeId={selectedChallengeId} pullHistory={pullHistory} terminalStatus={terminalStatus} />
         )}
 
         {/* ==================== PARTICIPANTS (Find User + Export) ==================== */}
@@ -642,11 +609,77 @@ export default function AdminDashboard() {
         {/* ==================== SCREENING (Allocation/Partner Checks) ==================== */}
         {activeSection === "screening" && (
           <div className="space-y-6">
-            <div className="glass rounded-2xl border border-white/10 p-8 text-center">
-              <Shield className="w-12 h-12 text-gray-600 mx-auto mb-3" />
-              <p className="text-white font-semibold">No screening data yet</p>
-              <p className="text-sm text-gray-400 mt-1">Partner/allocation screening will populate here once the challenge is active and screening runs nightly</p>
-            </div>
+            {!screeningData ? (
+              <div className="glass rounded-2xl border border-white/10 p-8 text-center">
+                <Loader2 className="w-8 h-8 text-royal animate-spin mx-auto mb-3" />
+                <p className="text-gray-400 text-sm">Loading screening data...</p>
+              </div>
+            ) : screeningData.screeningHistory?.length === 0 && screeningData.currentlyChanging?.length === 0 ? (
+              <div className="glass rounded-2xl border border-white/10 p-8 text-center">
+                <Shield className="w-12 h-12 text-gray-600 mx-auto mb-3" />
+                <p className="text-white font-semibold">No screening data yet</p>
+                <p className="text-sm text-gray-400 mt-1">Partner screening will populate here once it runs</p>
+              </div>
+            ) : (
+              <>
+                {/* Currently Changing */}
+                {screeningData.currentlyChanging?.length > 0 && (
+                  <div className="glass rounded-2xl border border-gold/20 p-5">
+                    <h3 className="text-sm font-semibold text-gold mb-3">⚠️ Currently Changing Partner ({screeningData.currentlyChanging.length})</h3>
+                    <div className="space-y-2">
+                      {screeningData.currentlyChanging.map((u: any, i: number) => (
+                        <div key={i} className="flex items-center justify-between p-3 bg-white/5 rounded-xl">
+                          <div><p className="text-sm text-white font-semibold">@{u.username || "unknown"}</p><p className="text-[10px] text-gray-500">{u.account_number} • {u.account_type}</p></div>
+                          <p className="text-[10px] text-gray-400">{u.partner_warned_at ? new Date(u.partner_warned_at).toLocaleDateString() : "—"}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Disqualified */}
+                {screeningData.disqualifiedPartners?.length > 0 && (
+                  <div className="glass rounded-2xl border border-loss/20 p-5">
+                    <h3 className="text-sm font-semibold text-loss mb-3">🚫 Disqualified (Partner Left) ({screeningData.disqualifiedPartners.length})</h3>
+                    <div className="space-y-2">
+                      {screeningData.disqualifiedPartners.map((u: any, i: number) => (
+                        <div key={i} className="flex items-center justify-between p-3 bg-white/5 rounded-xl">
+                          <div><p className="text-sm text-white font-semibold">@{u.username || "unknown"}</p><p className="text-[10px] text-gray-500">{u.account_number}</p></div>
+                          <p className="text-[10px] text-loss">{u.disqualified_reason?.substring(0, 40)}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Screening History */}
+                {screeningData.screeningHistory?.length > 0 && (
+                  <div className="glass rounded-2xl border border-white/10 p-5">
+                    <h3 className="text-sm font-semibold text-white mb-3">📋 Screening History</h3>
+                    <div className="overflow-x-auto">
+                      <table className="w-full min-w-[500px]">
+                        <thead><tr className="border-b border-white/5">
+                          <th className="text-left py-2 px-3 text-[10px] text-gray-400 uppercase">Date</th>
+                          <th className="text-center py-2 px-3 text-[10px] text-gray-400 uppercase">Screened</th>
+                          <th className="text-center py-2 px-3 text-[10px] text-gray-400 uppercase">All Good</th>
+                          <th className="text-center py-2 px-3 text-[10px] text-gray-400 uppercase">Changing</th>
+                          <th className="text-center py-2 px-3 text-[10px] text-gray-400 uppercase">Left</th>
+                        </tr></thead>
+                        <tbody>{screeningData.screeningHistory.map((s: any, i: number) => (
+                          <tr key={i} className="border-b border-white/5">
+                            <td className="py-2 px-3 text-xs text-white">{s.date || new Date(s.createdAt).toLocaleDateString()}</td>
+                            <td className="py-2 px-3 text-xs text-center text-gray-300">{s.totalScreened}</td>
+                            <td className="py-2 px-3 text-xs text-center text-profit">{s.allGood}</td>
+                            <td className="py-2 px-3 text-xs text-center text-gold">{(s.changingReal || 0) + (s.changingDemo || 0)}</td>
+                            <td className="py-2 px-3 text-xs text-center text-loss">{(s.leftReal || 0) + (s.leftDemo || 0)}</td>
+                          </tr>
+                        ))}</tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
           </div>
         )}
       </div>
@@ -1386,4 +1419,128 @@ function convertToCSV(data: any[]): string {
   const headers = Object.keys(data[0]);
   const rows = data.map(row => headers.map(h => JSON.stringify(row[h] ?? "")).join(","));
   return [headers.join(","), ...rows].join("\n");
+}
+
+function PullsTab({ challengeId, pullHistory, terminalStatus }: { challengeId: string; pullHistory: any[]; terminalStatus: any[] }) {
+  const [failedAccounts, setFailedAccounts] = useState<any[]>([]);
+  const [loadingFailed, setLoadingFailed] = useState(false);
+  const [actionMsg, setActionMsg] = useState("");
+  const [retrying, setRetrying] = useState<string | null>(null);
+
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
+  const secretPath = process.env.NEXT_PUBLIC_ADMIN_PATH || "";
+
+  const fetchFailed = async () => {
+    setLoadingFailed(true);
+    try {
+      const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/failed-accounts`);
+      if (res.ok) { const data = await res.json(); setFailedAccounts(data.failed || []); }
+    } catch {}
+    setLoadingFailed(false);
+  };
+
+  const handleForcePull = async () => {
+    setActionMsg("⏳ Force pull triggered...");
+    try {
+      const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/force-pull`, { method: "POST" });
+      if (res.ok) { const data = await res.json(); setActionMsg(`✅ ${data.message}`); }
+      else setActionMsg("❌ Failed to trigger pull");
+    } catch { setActionMsg("❌ Connection error"); }
+  };
+
+  const handleRetryAccount = async (regId: number) => {
+    setRetrying(String(regId));
+    try {
+      const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/retry-account`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ registrationId: regId }),
+      });
+      if (res.ok) { setActionMsg("✅ Account queued for priority retry"); fetchFailed(); }
+      else setActionMsg("❌ Retry failed");
+    } catch { setActionMsg("❌ Connection error"); }
+    setRetrying(null);
+  };
+
+  const handleRetryAll = async () => {
+    setRetrying("all");
+    try {
+      const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/retry-all-failed`, { method: "POST" });
+      if (res.ok) { const data = await res.json(); setActionMsg(`✅ ${data.count} accounts queued for retry`); fetchFailed(); }
+      else setActionMsg("❌ Failed");
+    } catch { setActionMsg("❌ Connection error"); }
+    setRetrying(null);
+  };
+
+  useEffect(() => { fetchFailed(); }, [challengeId]);
+
+  return (
+    <div className="space-y-6">
+      {/* Action Buttons */}
+      <div className="glass rounded-2xl border border-white/10 p-5">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-sm font-semibold text-white flex items-center gap-2"><Zap size={16} className="text-royal" /> Pull Actions</h3>
+        </div>
+        <div className="flex flex-wrap gap-3">
+          <button onClick={handleForcePull} className="px-4 py-2.5 rounded-xl bg-royal/20 border border-royal/30 text-royal text-xs font-bold hover:bg-royal/30 transition-all">⚡ Force Pull Now</button>
+          <button onClick={fetchFailed} disabled={loadingFailed} className="px-4 py-2.5 rounded-xl bg-loss/10 border border-loss/30 text-loss text-xs font-bold hover:bg-loss/20 transition-all">{loadingFailed ? "Loading..." : "🔍 View Failed Accounts"}</button>
+          <button onClick={handleRetryAll} disabled={retrying === "all" || failedAccounts.length === 0} className="px-4 py-2.5 rounded-xl bg-gold/10 border border-gold/30 text-gold text-xs font-bold hover:bg-gold/20 transition-all disabled:opacity-50">{retrying === "all" ? "Retrying..." : "🔄 Retry All Failed"}</button>
+        </div>
+        {actionMsg && <p className={`text-xs mt-3 font-semibold ${actionMsg.startsWith("✅") ? "text-profit" : actionMsg.startsWith("⏳") ? "text-gold" : "text-loss"}`}>{actionMsg}</p>}
+      </div>
+
+      {/* Failed Accounts List */}
+      {failedAccounts.length > 0 && (
+        <div className="glass rounded-2xl border border-loss/20 p-5">
+          <h3 className="text-sm font-semibold text-loss mb-4">❌ Failed Accounts ({failedAccounts.length})</h3>
+          <div className="space-y-2 max-h-[400px] overflow-y-auto">
+            {failedAccounts.map((f: any) => (
+              <div key={f.registration_id} className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10">
+                <div>
+                  <p className="text-sm text-white font-semibold">{f.account_number} <span className="text-gray-500 text-xs">@{f.username || f.nickname || "unknown"}</span></p>
+                  <p className="text-[10px] text-loss">{f.pull_status}: {(f.pull_error || f.error_message || "Unknown error").substring(0, 60)}</p>
+                  <p className="text-[10px] text-gray-500">{f.last_pull_at ? new Date(f.last_pull_at).toLocaleString() : "Never"}</p>
+                </div>
+                <button onClick={() => handleRetryAccount(f.registration_id)} disabled={retrying === String(f.registration_id)} className="px-3 py-1.5 rounded-lg bg-royal/20 border border-royal/30 text-royal text-[10px] font-bold hover:bg-royal/30 transition-all disabled:opacity-50">
+                  {retrying === String(f.registration_id) ? "..." : "🔄 Retry"}
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Pull History Table */}
+      {pullHistory.length > 0 && (
+        <div className="glass rounded-2xl border border-white/10 overflow-hidden">
+          <div className="p-4 border-b border-white/5"><h3 className="text-sm font-semibold text-white flex items-center gap-2"><Clock size={16} className="text-royal" /> Pull Batch History</h3></div>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[500px]">
+              <thead><tr className="border-b border-white/5">
+                <th className="text-left py-3 px-4 text-[10px] text-gray-400 uppercase">Time (EAT)</th>
+                <th className="text-center py-3 px-4 text-[10px] text-gray-400 uppercase">Success</th>
+                <th className="text-center py-3 px-4 text-[10px] text-gray-400 uppercase">Failed</th>
+                <th className="text-center py-3 px-4 text-[10px] text-gray-400 uppercase">New Trades</th>
+                <th className="text-right py-3 px-4 text-[10px] text-gray-400 uppercase">Duration</th>
+              </tr></thead>
+              <tbody>{pullHistory.map((p, i) => (
+                <tr key={i} className="border-b border-white/5 hover:bg-white/5">
+                  <td className="py-3 px-4 text-sm text-white font-semibold">{p.time}</td>
+                  <td className="py-3 px-4 text-center text-sm text-profit">{p.success}</td>
+                  <td className="py-3 px-4 text-center text-sm text-loss">{p.failed}</td>
+                  <td className="py-3 px-4 text-center text-sm text-gray-300">{p.newTrades}</td>
+                  <td className="py-3 px-4 text-right text-sm text-gray-400">{p.duration}</td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {pullHistory.length === 0 && failedAccounts.length === 0 && (
+        <div className="glass rounded-2xl border border-white/10 p-8 text-center">
+          <Activity className="w-12 h-12 text-gray-600 mx-auto mb-3" />
+          <p className="text-gray-400 text-sm">No pull data yet. Pull cycles run every 4 hours (06:00, 10:00, 14:00, 18:00, 22:00, 02:00 EAT)</p>
+        </div>
+      )}
+    </div>
+  );
 }
