@@ -30,23 +30,12 @@ export default function Home() {
               <span className="text-xl font-bold gradient-text hidden sm:inline">WinnerPip</span>
             </Link>
             <nav className="flex items-center gap-4 md:gap-6">
-              <Link href="/challenges" className="text-sm md:text-base text-gray-400 hover:text-white transition">
-                Challenges
-              </Link>
-              <Link href="#features" className="text-sm md:text-base text-gray-400 hover:text-white transition hidden sm:inline">
-                Features
-              </Link>
               <Link
                 href="/challenges"
-                className="text-sm md:text-base text-gray-400 hover:text-white transition"
+                className="bg-gradient-brand hover:opacity-90 text-white px-5 py-2.5 md:px-7 md:py-3 rounded-xl transition text-sm md:text-base font-semibold shadow-lg shadow-royal/20 flex items-center gap-2"
               >
-                Login
-              </Link>
-              <Link
-                href="/challenges"
-                className="bg-gradient-brand hover:opacity-90 text-white px-4 py-2 md:px-6 md:py-2.5 rounded-xl transition text-sm md:text-base font-semibold shadow-lg shadow-royal/20"
-              >
-                Sign Up
+                Join Challenge
+                <Zap className="w-4 h-4" />
               </Link>
             </nav>
           </div>
