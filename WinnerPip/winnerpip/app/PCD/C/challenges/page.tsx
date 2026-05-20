@@ -118,14 +118,6 @@ export default function DemoChallengesPage() {
               </div>
               <span className="text-xl font-bold gradient-text hidden sm:inline">WinnerPip</span>
             </Link>
-            <div className="flex items-center gap-3">
-              <Link href="/PCD/C/login" className="text-gray-400 hover:text-white hover:bg-white/5 px-4 py-2 rounded-lg text-sm transition">
-                Sign In
-              </Link>
-              <Link href="/PCD/C/login" className="bg-gradient-brand hover:opacity-90 text-white px-5 py-2 rounded-xl text-sm font-semibold">
-                Register
-              </Link>
-            </div>
           </div>
         </div>
       </header>

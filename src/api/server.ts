@@ -1115,6 +1115,130 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/violations`, adminIpCheck
   }
 });
 
+// ==================== ADMIN: CHALLENGE CRUD ====================
+
+/**
+ * POST /api/admin/:secretPath/challenges
+ * Create a new trading challenge
+ */
+app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenges`, adminIpCheck, async (req, res) => {
+  try {
+    const {
+      title, type, source, team_only,
+      start_date, end_date, registration_deadline,
+      starting_balance, target_balance,
+      prize_pool_text, real_winners_count, demo_winners_count,
+      real_prizes, demo_prizes, pdf_url, video_url,
+    } = req.body;
+
+    if (!title || !type || !start_date || !end_date || !starting_balance) {
+      return res.status(400).json({ error: 'Missing required fields: title, type, start_date, end_date, starting_balance' });
+    }
+    if (!['demo', 'real', 'hybrid'].includes(type)) {
+      return res.status(400).json({ error: 'Type must be demo, real, or hybrid' });
+    }
+
+    const result = await db.query(
+      `INSERT INTO trading_challenges
+       (title, type, status, start_date, end_date, registration_deadline, starting_balance, target_balance,
+        prize_pool_text, real_winners_count, demo_winners_count, real_prizes, demo_prizes,
+        pdf_url, video_url, source, team_only, announcement_posted)
+       VALUES ($1, $2, 'draft', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, false)
+       RETURNING *`,
+      [
+        title, type, start_date, end_date,
+        registration_deadline || end_date,
+        starting_balance, target_balance || 0,
+        prize_pool_text || '', real_winners_count || 0, demo_winners_count || 0,
+        JSON.stringify(real_prizes || []), JSON.stringify(demo_prizes || []),
+        pdf_url || null, video_url || null,
+        source || 'telegram', team_only || false,
+      ]
+    );
+
+    return res.json({ success: true, challenge: result.rows[0] });
+  } catch (error) {
+    console.error('Admin create challenge error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * PATCH /api/admin/:secretPath/challenge/:id/status
+ * Update challenge status
+ */
+app.patch(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/status`, adminIpCheck, async (req, res) => {
+  try {
+    const challengeId = parseInt(req.params.id);
+    const { status } = req.body;
+    const valid = ['draft', 'registration_open', 'active', 'submission_open', 'reviewing', 'completed'];
+    if (!valid.includes(status)) {
+      return res.status(400).json({ error: `Invalid status. Must be: ${valid.join(', ')}` });
+    }
+    await db.query(`UPDATE trading_challenges SET status = $1, updated_at = NOW() WHERE id = $2`, [status, challengeId]);
+    return res.json({ success: true, status });
+  } catch (error) {
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * DELETE /api/admin/:secretPath/challenge/:id
+ * Soft-delete a challenge
+ */
+app.delete(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id`, adminIpCheck, async (req, res) => {
+  try {
+    const challengeId = parseInt(req.params.id);
+    const existing = await db.query(`SELECT title FROM trading_challenges WHERE id = $1`, [challengeId]);
+    if (existing.rows.length === 0) return res.status(404).json({ error: 'Challenge not found' });
+
+    await db.query(`UPDATE trading_challenges SET status = 'deleted', updated_at = NOW() WHERE id = $1`, [challengeId]);
+    return res.json({ success: true, message: `"${existing.rows[0].title}" deleted` });
+  } catch (error) {
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * POST /api/admin/:secretPath/challenge/:id/announce
+ * Mark challenge as announced and change status to registration_open
+ */
+app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/announce`, adminIpCheck, async (req, res) => {
+  try {
+    const challengeId = parseInt(req.params.id);
+    await db.query(
+      `UPDATE trading_challenges SET status = 'registration_open', announcement_posted = true, updated_at = NOW() WHERE id = $1`,
+      [challengeId]
+    );
+    return res.json({ success: true, message: 'Challenge announced and registration opened' });
+  } catch (error) {
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * GET /api/admin/:secretPath/challenge/:id/export
+ * Export registrations as JSON (frontend converts to CSV)
+ */
+app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/export`, adminIpCheck, async (req, res) => {
+  try {
+    const challengeId = parseInt(req.params.id);
+    const result = await db.query(
+      `SELECT r.nickname, r.username, r.email, r.account_number, r.account_type, r.mt5_server,
+              r.registered_at, r.disqualified, r.disqualified_reason, r.source,
+              l.rank, l.current_balance, l.qualified_profit, l.total_trades, l.flagged_trades, l.is_qualified
+       FROM trading_registrations r
+       LEFT JOIN wp_leaderboard l ON r.id = l.registration_id
+       WHERE r.challenge_id = $1 AND (r.status IS NULL OR r.status != 'removed')
+       ORDER BY l.rank ASC NULLS LAST, r.registered_at ASC`,
+      [challengeId]
+    );
+    return res.json({ registrations: result.rows });
+  } catch (error) {
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // ==================== DISCORD BOT API ====================
 
 app.use('/api/discord', discordRoutes);

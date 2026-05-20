@@ -12,7 +12,7 @@ export default function AdminDashboard() {
   const [adminPass, setAdminPass] = useState("");
   const [loginError, setLoginError] = useState("");
   const [loginLoading, setLoginLoading] = useState(false);
-  const [activeSection, setActiveSection] = useState<"overview" | "leaderboard" | "violations" | "pulls" | "screening" | "participants" | "rules" | "health">("overview");
+  const [activeSection, setActiveSection] = useState<"overview" | "leaderboard" | "violations" | "pulls" | "screening" | "participants" | "rules" | "health" | "create">("overview");
   const [selectedParticipant, setSelectedParticipant] = useState<any>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [foundUser, setFoundUser] = useState<any>(null);
@@ -276,6 +276,7 @@ export default function AdminDashboard() {
                 </select>
                 <p className="text-xs text-royal font-semibold">ADMIN PANEL</p>
               </div>
+              <button onClick={() => setActiveSection("create")} className="ml-2 px-3 py-1.5 rounded-lg bg-profit/20 border border-profit/30 text-profit text-xs font-bold hover:bg-profit/30 transition-all">+ New</button>
             </div>
             <div className="flex items-center gap-2">
               <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${challenge.status === "active" ? "bg-profit/20 text-profit border-profit/30" : "bg-white/10 text-gray-300 border-white/20"}`}>● {challenge.status}</span>
@@ -288,8 +289,8 @@ export default function AdminDashboard() {
       <div className="container mx-auto px-4 py-6 max-w-7xl relative">
         {/* NAV TABS */}
         <div className="flex gap-1 p-1 glass rounded-xl border border-white/10 mb-6 overflow-x-auto">
-          {(["overview", "leaderboard", "violations", "pulls", "screening", "participants", "rules", "health"] as const).map(tab => (
-            <button key={tab} onClick={() => setActiveSection(tab)} className={`flex-shrink-0 py-2.5 px-4 rounded-lg text-sm font-semibold transition-all capitalize ${activeSection === tab ? "bg-royal/20 text-royal border border-royal/30" : "text-gray-400 hover:text-white hover:bg-white/5"}`}>{tab === "health" ? "⚡ Health" : tab}</button>
+          {(["overview", "leaderboard", "violations", "pulls", "screening", "participants", "rules", "health", "create"] as const).map(tab => (
+            <button key={tab} onClick={() => setActiveSection(tab)} className={`flex-shrink-0 py-2.5 px-4 rounded-lg text-sm font-semibold transition-all capitalize ${activeSection === tab ? "bg-royal/20 text-royal border border-royal/30" : "text-gray-400 hover:text-white hover:bg-white/5"}`}>{tab === "health" ? "⚡ Health" : tab === "create" ? "+ Create" : tab}</button>
           ))}
         </div>
 
@@ -751,6 +752,11 @@ export default function AdminDashboard() {
         </div>
       )}
 
+      {/* ==================== CREATE CHALLENGE TAB ==================== */}
+      {activeSection === "create" && (
+        <CreateChallengePanel onCreated={(id) => { setActiveSection("overview"); setSelectedChallengeId(String(id)); }} />
+      )}
+
       {/* ==================== HEALTH TAB ==================== */}
       {activeSection === "health" && (
         <HealthCheckPanel />
@@ -982,6 +988,235 @@ function HealthCheckPanel() {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function CreateChallengePanel({ onCreated }: { onCreated: (id: number) => void }) {
+  const [step, setStep] = useState(1); // 1=source, 2=details, 3=rules, 4=review
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const [form, setForm] = useState({
+    source: "telegram" as "telegram" | "discord",
+    team_only: false,
+    title: "",
+    type: "hybrid" as "demo" | "real" | "hybrid",
+    start_date: "",
+    end_date: "",
+    registration_deadline: "",
+    starting_balance: "30",
+    target_balance: "60",
+    prize_pool_text: "",
+    real_winners_count: "3",
+    demo_winners_count: "3",
+    real_prizes: "500,300,200",
+    demo_prizes: "300,200,100",
+    pdf_url: "",
+    video_url: "",
+  });
+
+  const [rules, setRules] = useState({
+    max_lot_size: 0.02,
+    max_open_trades: 3,
+    pair_limit: 2,
+    stop_loss_required: true,
+    max_risk_dollars: 5,
+    daily_loss_cap: 10,
+    max_hold_hours: 24,
+    weekend_trading: false,
+    min_active_days: 7,
+    only_cent_account: false,
+  });
+
+  const handleCreate = async () => {
+    setSaving(true); setError("");
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
+    const secretPath = process.env.NEXT_PUBLIC_ADMIN_PATH || "";
+    try {
+      const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenges`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...form,
+          starting_balance: parseFloat(form.starting_balance),
+          target_balance: parseFloat(form.target_balance),
+          real_winners_count: parseInt(form.real_winners_count),
+          demo_winners_count: parseInt(form.demo_winners_count),
+          real_prizes: form.real_prizes.split(",").map(p => parseFloat(p.trim())).filter(Boolean),
+          demo_prizes: form.demo_prizes.split(",").map(p => parseFloat(p.trim())).filter(Boolean),
+        }),
+      });
+      if (!res.ok) { const d = await res.json(); setError(d.error || "Failed"); setSaving(false); return; }
+      const data = await res.json();
+      const challengeId = data.challenge?.id;
+
+      // Save rules
+      if (challengeId) {
+        await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/rules`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(rules),
+        });
+      }
+
+      onCreated(challengeId);
+    } catch {
+      setError("Could not connect to API");
+    }
+    setSaving(false);
+  };
+
+  return (
+    <div className="container mx-auto px-4 max-w-3xl relative">
+      <div className="glass rounded-2xl border border-white/10 p-6">
+        {/* Progress */}
+        <div className="flex items-center gap-2 mb-6">
+          {[1,2,3,4].map(s => (
+            <div key={s} className={`flex-1 h-1.5 rounded-full transition-all ${s <= step ? "bg-royal" : "bg-white/10"}`} />
+          ))}
+        </div>
+
+        {/* Step 1: Source */}
+        {step === 1 && (
+          <div>
+            <h3 className="text-xl font-bold text-white mb-2">Create New Challenge</h3>
+            <p className="text-sm text-gray-400 mb-6">Choose where this challenge will be announced</p>
+            <div className="grid grid-cols-2 gap-4 mb-6">
+              <button onClick={() => setForm({ ...form, source: "telegram", team_only: false })} className={`p-5 rounded-xl border text-center transition-all ${form.source === "telegram" && !form.team_only ? "border-royal bg-royal/10" : "border-white/20 hover:border-white/30"}`}>
+                <p className="text-2xl mb-2">📱</p>
+                <p className="text-white font-bold text-sm">Telegram</p>
+                <p className="text-[10px] text-gray-500 mt-1">Public challenge</p>
+              </button>
+              <button onClick={() => setForm({ ...form, source: "discord", team_only: true })} className={`p-5 rounded-xl border text-center transition-all ${form.source === "discord" ? "border-gold bg-gold/10" : "border-white/20 hover:border-white/30"}`}>
+                <p className="text-2xl mb-2">🎮</p>
+                <p className="text-white font-bold text-sm">Discord Team</p>
+                <p className="text-[10px] text-gray-500 mt-1">Team-only challenge</p>
+              </button>
+            </div>
+            <button onClick={() => setStep(2)} className="w-full py-3 rounded-xl bg-gradient-brand text-white font-semibold hover:opacity-90 transition-all">Continue</button>
+          </div>
+        )}
+
+        {/* Step 2: Details */}
+        {step === 2 && (
+          <div>
+            <h3 className="text-xl font-bold text-white mb-4">Challenge Details</h3>
+            <div className="space-y-4">
+              <div><label className="text-xs text-gray-400 font-medium mb-1 block">Title *</label><input value={form.title} onChange={e => setForm({...form, title: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm focus:border-royal/50 outline-none" placeholder="Challenge 18 - Hybrid" /></div>
+              <div><label className="text-xs text-gray-400 font-medium mb-1 block">Type *</label>
+                <select value={form.type} onChange={e => setForm({...form, type: e.target.value as any})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm focus:border-royal/50 outline-none">
+                  <option value="hybrid" className="bg-[#0f1629]">Hybrid (Demo + Real)</option>
+                  <option value="demo" className="bg-[#0f1629]">Demo Only</option>
+                  <option value="real" className="bg-[#0f1629]">Real Only</option>
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div><label className="text-xs text-gray-400 font-medium mb-1 block">Start Date *</label><input type="date" value={form.start_date} onChange={e => setForm({...form, start_date: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
+                <div><label className="text-xs text-gray-400 font-medium mb-1 block">End Date *</label><input type="date" value={form.end_date} onChange={e => setForm({...form, end_date: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
+              </div>
+              <div><label className="text-xs text-gray-400 font-medium mb-1 block">Registration Deadline</label><input type="date" value={form.registration_deadline} onChange={e => setForm({...form, registration_deadline: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
+              <div className="grid grid-cols-2 gap-3">
+                <div><label className="text-xs text-gray-400 font-medium mb-1 block">Starting Balance ($) *</label><input value={form.starting_balance} onChange={e => setForm({...form, starting_balance: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
+                <div><label className="text-xs text-gray-400 font-medium mb-1 block">Target Balance ($)</label><input value={form.target_balance} onChange={e => setForm({...form, target_balance: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
+              </div>
+              <div><label className="text-xs text-gray-400 font-medium mb-1 block">Prize Pool Text</label><input value={form.prize_pool_text} onChange={e => setForm({...form, prize_pool_text: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" placeholder="$1,600 Total Prize Pool" /></div>
+              <div className="grid grid-cols-2 gap-3">
+                <div><label className="text-xs text-gray-400 font-medium mb-1 block">Real Winners #</label><input value={form.real_winners_count} onChange={e => setForm({...form, real_winners_count: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
+                <div><label className="text-xs text-gray-400 font-medium mb-1 block">Demo Winners #</label><input value={form.demo_winners_count} onChange={e => setForm({...form, demo_winners_count: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
+              </div>
+              <div><label className="text-xs text-gray-400 font-medium mb-1 block">Real Prizes (comma-separated $)</label><input value={form.real_prizes} onChange={e => setForm({...form, real_prizes: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" placeholder="500,300,200" /></div>
+              <div><label className="text-xs text-gray-400 font-medium mb-1 block">Demo Prizes (comma-separated $)</label><input value={form.demo_prizes} onChange={e => setForm({...form, demo_prizes: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" placeholder="300,200,100" /></div>
+              <div><label className="text-xs text-gray-400 font-medium mb-1 block">PDF URL (optional)</label><input value={form.pdf_url} onChange={e => setForm({...form, pdf_url: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
+              <div><label className="text-xs text-gray-400 font-medium mb-1 block">Video URL (optional)</label><input value={form.video_url} onChange={e => setForm({...form, video_url: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
+            </div>
+            <div className="flex gap-3 mt-6">
+              <button onClick={() => setStep(1)} className="flex-1 py-3 rounded-xl bg-white/5 border border-white/10 text-gray-400 font-semibold hover:bg-white/10 transition-all">Back</button>
+              <button onClick={() => setStep(3)} disabled={!form.title || !form.start_date || !form.end_date} className="flex-1 py-3 rounded-xl bg-gradient-brand text-white font-semibold hover:opacity-90 transition-all disabled:opacity-50">Next: Rules</button>
+            </div>
+          </div>
+        )}
+
+        {/* Step 3: Rules */}
+        {step === 3 && (
+          <div>
+            <h3 className="text-xl font-bold text-white mb-4">Challenge Rules</h3>
+            <div className="space-y-3">
+              <RuleInput label="Max Lot Size" value={rules.max_lot_size} onChange={v => setRules({...rules, max_lot_size: v})} />
+              <RuleInput label="Max Open Trades" value={rules.max_open_trades} onChange={v => setRules({...rules, max_open_trades: v})} />
+              <RuleInput label="Pair Limit" value={rules.pair_limit} onChange={v => setRules({...rules, pair_limit: v})} />
+              <RuleInput label="Max Risk ($)" value={rules.max_risk_dollars} onChange={v => setRules({...rules, max_risk_dollars: v})} />
+              <RuleInput label="Daily Loss Cap ($)" value={rules.daily_loss_cap} onChange={v => setRules({...rules, daily_loss_cap: v})} />
+              <RuleInput label="Max Hold Hours" value={rules.max_hold_hours} onChange={v => setRules({...rules, max_hold_hours: v})} />
+              <RuleInput label="Min Active Days" value={rules.min_active_days} onChange={v => setRules({...rules, min_active_days: v})} />
+              <RuleToggle label="Stop Loss Required" value={rules.stop_loss_required} onChange={v => setRules({...rules, stop_loss_required: v})} />
+              <RuleToggle label="Weekend Trading" value={rules.weekend_trading} onChange={v => setRules({...rules, weekend_trading: v})} />
+              <RuleToggle label="Only Cent Account (Real)" value={rules.only_cent_account} onChange={v => setRules({...rules, only_cent_account: v})} />
+            </div>
+            <div className="flex gap-3 mt-6">
+              <button onClick={() => setStep(2)} className="flex-1 py-3 rounded-xl bg-white/5 border border-white/10 text-gray-400 font-semibold hover:bg-white/10 transition-all">Back</button>
+              <button onClick={() => setStep(4)} className="flex-1 py-3 rounded-xl bg-gradient-brand text-white font-semibold hover:opacity-90 transition-all">Review</button>
+            </div>
+          </div>
+        )}
+
+        {/* Step 4: Review & Confirm */}
+        {step === 4 && (
+          <div>
+            <h3 className="text-xl font-bold text-white mb-4">Review & Create</h3>
+            <div className="space-y-3 mb-6">
+              <ReviewRow label="Source" value={form.source === "discord" ? "Discord (Team)" : "Telegram (Public)"} />
+              <ReviewRow label="Title" value={form.title} />
+              <ReviewRow label="Type" value={form.type} />
+              <ReviewRow label="Period" value={`${form.start_date} → ${form.end_date}`} />
+              <ReviewRow label="Balance" value={`$${form.starting_balance} → $${form.target_balance}`} />
+              <ReviewRow label="Prize Pool" value={form.prize_pool_text || "—"} />
+              <ReviewRow label="Real Prizes" value={form.real_prizes || "—"} />
+              <ReviewRow label="Demo Prizes" value={form.demo_prizes || "—"} />
+              <ReviewRow label="Max Lot" value={String(rules.max_lot_size)} />
+              <ReviewRow label="SL Required" value={rules.stop_loss_required ? "Yes" : "No"} />
+              <ReviewRow label="Daily Loss Cap" value={`$${rules.daily_loss_cap}`} />
+              <ReviewRow label="Min Active Days" value={String(rules.min_active_days)} />
+            </div>
+            {error && <div className="p-3 rounded-xl bg-loss/10 border border-loss/30 mb-4"><p className="text-sm text-loss">{error}</p></div>}
+            <div className="flex gap-3">
+              <button onClick={() => setStep(3)} className="flex-1 py-3 rounded-xl bg-white/5 border border-white/10 text-gray-400 font-semibold hover:bg-white/10 transition-all">Back</button>
+              <button onClick={handleCreate} disabled={saving} className="flex-1 py-3 rounded-xl bg-profit/20 border border-profit/30 text-profit font-bold hover:bg-profit/30 transition-all disabled:opacity-50">
+                {saving ? "Creating..." : "✓ Create Challenge"}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function RuleInput({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) {
+  return (
+    <div className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10">
+      <p className="text-sm text-white font-medium">{label}</p>
+      <input type="number" step="any" value={value} onChange={e => onChange(parseFloat(e.target.value) || 0)} className="w-20 p-2 rounded-lg bg-white/10 border border-white/10 text-white text-sm text-center outline-none" />
+    </div>
+  );
+}
+
+function RuleToggle({ label, value, onChange }: { label: string; value: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <div className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10">
+      <p className="text-sm text-white font-medium">{label}</p>
+      <button onClick={() => onChange(!value)} className={`w-12 h-6 rounded-full transition-all ${value ? "bg-profit" : "bg-white/20"}`}>
+        <div className={`w-5 h-5 bg-white rounded-full transition-transform ${value ? "translate-x-6" : "translate-x-0.5"}`}></div>
+      </button>
+    </div>
+  );
+}
+
+function ReviewRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10">
+      <p className="text-xs text-gray-400">{label}</p>
+      <p className="text-sm text-white font-semibold">{value}</p>
     </div>
   );
 }
