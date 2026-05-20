@@ -46,8 +46,8 @@ export const config = {
   realAccountEquityCheck: process.env.REAL_ACCOUNT_EQUITY_CHECK !== 'false',
   
   // VPS API (for MT5 connection verification)
-  vpsApiUrl: process.env.VPS_API_URL || 'http://108.181.184.223:8000',
-  vpsApiKey: process.env.VPS_API_KEY || 'wp-k8x2m9f4v7j3n6q1w5t8r2y4u7i0p3',
+  vpsApiUrl: process.env.VPS_API_URL || '',
+  vpsApiKey: process.env.VPS_API_KEY || '',
   
   // Schedule
   morningPostTime: process.env.MORNING_POST_TIME || '10:00',

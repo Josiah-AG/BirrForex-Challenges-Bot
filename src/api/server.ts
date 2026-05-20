@@ -203,7 +203,8 @@ app.post('/api/auth/verify-token', async (req, res) => {
 
     // Get fresh user data
     const result = await db.query(
-      `SELECT r.*, c.title as challenge_title, c.status as challenge_status
+      `SELECT r.id, r.telegram_id, r.nickname, r.username, r.account_number, r.account_type, r.mt5_server, r.challenge_id,
+              c.title as challenge_title, c.status as challenge_status
        FROM trading_registrations r
        JOIN trading_challenges c ON r.challenge_id = c.id
        WHERE r.id = $1 AND r.disqualified = false`,
@@ -338,6 +339,13 @@ app.get('/api/challenges/:id/leaderboard', async (req, res) => {
     const challengeId = parseInt(req.params.id);
     const category = req.query.category as string || 'all'; // 'demo', 'real', 'all'
 
+    // Get leaderboard data freshness
+    const freshness = await db.query(
+      `SELECT leaderboard_updated_at FROM trading_challenges WHERE id = $1`,
+      [challengeId]
+    );
+    const dataFrom = freshness.rows[0]?.leaderboard_updated_at || null;
+
     let query = `
       SELECT nickname, account_type, rank, current_balance, adjusted_balance,
              qualified_profit, gross_profit, profit_removed, total_trades,
@@ -357,6 +365,7 @@ app.get('/api/challenges/:id/leaderboard', async (req, res) => {
     const result = await db.query(query, params);
 
     return res.json({
+      dataFrom,
       leaderboard: result.rows.map(r => ({
         nickname: r.nickname,
         accountType: r.account_type,
@@ -407,7 +416,8 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
 
     // Get challenge info
     const reg = await db.query(
-      `SELECT r.*, c.title, c.status, c.start_date, c.end_date, c.starting_balance, c.target_balance
+      `SELECT r.id, r.nickname, r.account_number, r.account_type, r.mt5_server, r.challenge_id,
+              c.title, c.status, c.start_date, c.end_date, c.starting_balance, c.target_balance, c.leaderboard_updated_at
        FROM trading_registrations r
        JOIN trading_challenges c ON r.challenge_id = c.id
        WHERE r.id = $1`,
@@ -418,6 +428,7 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
     const leaderboard = lb.rows[0] || null;
 
     return res.json({
+      dataFrom: registration.leaderboard_updated_at || null,
       challenge: {
         id: registration.challenge_id,
         title: registration.title,
@@ -514,7 +525,10 @@ function verifyToken(token: string): { registrationId: number; telegramId: numbe
       .update(data)
       .digest('base64url');
 
-    if (signature !== expectedSig) return null;
+    // Timing-safe comparison to prevent timing attacks
+    const sigBuffer = Buffer.from(signature, 'base64url');
+    const expectedBuffer = Buffer.from(expectedSig, 'base64url');
+    if (sigBuffer.length !== expectedBuffer.length || !crypto.timingSafeEqual(sigBuffer, expectedBuffer)) return null;
 
     const payload = JSON.parse(Buffer.from(data, 'base64url').toString());
 
@@ -904,6 +918,95 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/pulls`, adminIpCheck, asy
 });
 
 /**
+ * GET /api/admin/:secretPath/vps-health
+ * Full VPS health check — pings VPS server, returns terminal & worker status
+ */
+app.get(`/api/admin/${ADMIN_SECRET_PATH}/vps-health`, adminIpCheck, async (req, res) => {
+  try {
+    const vpsUrl = config.vpsApiUrl;
+    if (!vpsUrl) {
+      return res.json({ status: 'not_configured', message: 'VPS_API_URL not set' });
+    }
+
+    // Ping VPS health endpoint
+    let vpsStatus: any = { reachable: false };
+    try {
+      const axios = require('axios');
+      const healthRes = await axios.get(`${vpsUrl}/health`, {
+        headers: { 'X-API-Key': config.vpsApiKey },
+        timeout: 10000,
+      });
+      vpsStatus = {
+        reachable: true,
+        status: healthRes.data?.status || 'unknown',
+        terminals: healthRes.data?.terminals || null,
+        workers: healthRes.data?.workers || null,
+        uptime: healthRes.data?.uptime || null,
+        version: healthRes.data?.version || null,
+        queue: healthRes.data?.queue || null,
+        raw: healthRes.data,
+      };
+    } catch (vpsErr: any) {
+      vpsStatus = {
+        reachable: false,
+        error: vpsErr.code === 'ECONNABORTED' ? 'Timeout (10s)' : (vpsErr.message || 'Connection failed'),
+      };
+    }
+
+    // Get recent pull stats from DB
+    const recentPulls = await db.query(
+      `SELECT * FROM wp_pull_batches ORDER BY started_at DESC LIMIT 5`
+    );
+
+    // Get error breakdown (last 24h)
+    const errors = await db.query(
+      `SELECT error_code, COUNT(*) as cnt FROM wp_pull_errors WHERE created_at > NOW() - INTERVAL '24 hours' GROUP BY error_code ORDER BY cnt DESC`
+    );
+
+    // Get password-changed count
+    const pwChanged = await db.query(
+      `SELECT COUNT(*) as cnt FROM trading_registrations WHERE pull_status = 'password_changed' AND disqualified = false`
+    );
+
+    // Calculate 24h success rate
+    const stats24h = await db.query(
+      `SELECT COALESCE(SUM(successful),0) as total_success, COALESCE(SUM(failed),0) as total_failed, COUNT(*) as batches FROM wp_pull_batches WHERE started_at > NOW() - INTERVAL '24 hours'`
+    );
+    const s = stats24h.rows[0];
+    const totalAttempts = parseInt(s.total_success) + parseInt(s.total_failed);
+    const successRate = totalAttempts > 0 ? ((parseInt(s.total_success) / totalAttempts) * 100).toFixed(1) : '0';
+
+    return res.json({
+      vps: vpsStatus,
+      pullStats: {
+        last5Batches: recentPulls.rows.map((b: any) => ({
+          id: b.id,
+          startedAt: b.started_at,
+          completedAt: b.completed_at,
+          totalAccounts: b.total_accounts,
+          successful: b.successful,
+          failed: b.failed,
+          newTrades: b.new_trades_found,
+          status: b.status,
+          durationSec: b.completed_at ? Math.round((new Date(b.completed_at).getTime() - new Date(b.started_at).getTime()) / 1000) : null,
+        })),
+        last24h: {
+          batches: parseInt(s.batches),
+          totalSuccess: parseInt(s.total_success),
+          totalFailed: parseInt(s.total_failed),
+          successRate: parseFloat(successRate),
+        },
+        errors24h: errors.rows.map((e: any) => ({ code: e.error_code, count: parseInt(e.cnt) })),
+        passwordChangedPending: parseInt(pwChanged.rows[0].cnt),
+      },
+    });
+  } catch (error) {
+    console.error('VPS health check error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
  * GET /api/admin/:secretPath/challenge/:id/finduser?q=search
  * Search user by username, email, account number, or telegram ID
  */
@@ -915,7 +1018,10 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/finduser`, adminIpCheck, 
     if (!q) return res.status(400).json({ error: 'Search query required' });
 
     const result = await db.query(
-      `SELECT r.*, l.rank, l.current_balance, l.adjusted_balance, l.qualified_profit, l.gross_profit,
+      `SELECT r.id, r.nickname, r.username, r.email, r.telegram_id, r.account_number,
+              r.account_type, r.mt5_server, r.registered_at, r.last_pull_at, r.pull_status,
+              r.partner_status, r.disqualified, r.disqualified_reason,
+              l.rank, l.current_balance, l.adjusted_balance, l.qualified_profit, l.gross_profit,
               l.profit_removed, l.total_trades, l.qualified_trades, l.flagged_trades, l.active_days,
               l.is_qualified, l.last_trade_time, l.last_updated as lb_updated
        FROM trading_registrations r

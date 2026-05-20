@@ -205,14 +205,61 @@ export class WpEvaluationEngine {
       if (result.isQualified) totalQualified++;
     }
 
-    await this.updateRankings(challengeId);
+    // NOTE: Rankings are now managed by leaderboardService (updated at start of next cycle).
+    // This method is kept for backward compatibility but ranking is handled externally.
+    // await this.updateRankings(challengeId);
 
     console.log(`✅ WP Evaluation: ${registrations.rows.length} accounts, ${totalFlagged} flags, ${totalQualified} qualified`);
     return { evaluated: registrations.rows.length, flagged: totalFlagged, qualified: totalQualified };
   }
 
+
   /**
-   * Evaluate a single account
+   * Evaluate a single account — public for per-account streaming evaluation
+   */
+  async evaluateSingleAccount(challengeId: number, registrationId: number): Promise<{ flaggedCount: number; isQualified: boolean }> {
+    const rules = await this.loadRules(challengeId);
+    if (!rules) {
+      console.log(`⚠️ WP Evaluation: No rules for challenge ${challengeId}, skipping account ${registrationId}`);
+      return { flaggedCount: 0, isQualified: false };
+    }
+
+    const challenge = await db.query(`SELECT starting_balance, target_balance, type FROM trading_challenges WHERE id = $1`, [challengeId]);
+    const startingBalance = parseFloat(challenge.rows[0]?.starting_balance || 30);
+    const targetBalance = parseFloat(challenge.rows[0]?.target_balance || 60);
+    const challengeType = challenge.rows[0]?.type;
+
+    const regResult = await db.query(
+      `SELECT id, account_number, telegram_id, username, nickname, account_type
+       FROM trading_registrations WHERE id = $1 AND challenge_id = $2`,
+      [registrationId, challengeId]
+    );
+    if (regResult.rows.length === 0) return { flaggedCount: 0, isQualified: false };
+    const reg = regResult.rows[0];
+
+    // For hybrid challenges with only_cent_account, convert rules for real/cent accounts
+    let effectiveRules = rules;
+    let effectiveStartBalance = startingBalance;
+    let effectiveTargetBalance = targetBalance;
+
+    if (rules.only_cent_account && reg.account_type === 'real') {
+      if (challengeType === 'hybrid') {
+        effectiveRules = {
+          ...rules,
+          max_lot_size: rules.max_lot_size ? rules.max_lot_size * 100 : null,
+          max_risk_dollars: rules.max_risk_dollars ? rules.max_risk_dollars * 100 : null,
+          daily_loss_cap: rules.daily_loss_cap ? rules.daily_loss_cap * 100 : null,
+        };
+        effectiveStartBalance = startingBalance * 100;
+        effectiveTargetBalance = targetBalance * 100;
+      }
+    }
+
+    return this.evaluateAccount(challengeId, reg, effectiveRules, effectiveStartBalance, effectiveTargetBalance);
+  }
+
+  /**
+   * Evaluate a single account (internal)
    */
   private async evaluateAccount(
     challengeId: number, reg: any, rules: RuleConfig, startingBalance: number, targetBalance: number

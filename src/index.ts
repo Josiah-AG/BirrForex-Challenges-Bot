@@ -42,6 +42,7 @@ async function main() {
     // Pass schedulers to bot for testing
     bot.setScheduler(scheduler);
     bot.setTradingScheduler(tradingScheduler);
+    bot.setVpsPullScheduler(vpsPullScheduler);
 
     // Launch bot with retry logic for 409 conflicts
     let retries = 0;

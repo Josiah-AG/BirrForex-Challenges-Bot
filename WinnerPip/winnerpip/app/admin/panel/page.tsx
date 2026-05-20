@@ -12,7 +12,7 @@ export default function AdminDashboard() {
   const [adminPass, setAdminPass] = useState("");
   const [loginError, setLoginError] = useState("");
   const [loginLoading, setLoginLoading] = useState(false);
-  const [activeSection, setActiveSection] = useState<"overview" | "leaderboard" | "violations" | "pulls" | "screening" | "participants" | "rules">("overview");
+  const [activeSection, setActiveSection] = useState<"overview" | "leaderboard" | "violations" | "pulls" | "screening" | "participants" | "rules" | "health">("overview");
   const [selectedParticipant, setSelectedParticipant] = useState<any>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [foundUser, setFoundUser] = useState<any>(null);
@@ -288,8 +288,8 @@ export default function AdminDashboard() {
       <div className="container mx-auto px-4 py-6 max-w-7xl relative">
         {/* NAV TABS */}
         <div className="flex gap-1 p-1 glass rounded-xl border border-white/10 mb-6 overflow-x-auto">
-          {(["overview", "leaderboard", "violations", "pulls", "screening", "participants", "rules"] as const).map(tab => (
-            <button key={tab} onClick={() => setActiveSection(tab)} className={`flex-shrink-0 py-2.5 px-4 rounded-lg text-sm font-semibold transition-all capitalize ${activeSection === tab ? "bg-royal/20 text-royal border border-royal/30" : "text-gray-400 hover:text-white hover:bg-white/5"}`}>{tab}</button>
+          {(["overview", "leaderboard", "violations", "pulls", "screening", "participants", "rules", "health"] as const).map(tab => (
+            <button key={tab} onClick={() => setActiveSection(tab)} className={`flex-shrink-0 py-2.5 px-4 rounded-lg text-sm font-semibold transition-all capitalize ${activeSection === tab ? "bg-royal/20 text-royal border border-royal/30" : "text-gray-400 hover:text-white hover:bg-white/5"}`}>{tab === "health" ? "⚡ Health" : tab}</button>
           ))}
         </div>
 
@@ -751,6 +751,11 @@ export default function AdminDashboard() {
         </div>
       )}
 
+      {/* ==================== HEALTH TAB ==================== */}
+      {activeSection === "health" && (
+        <HealthCheckPanel />
+      )}
+
       {/* ==================== PARTICIPANT DETAIL MODAL ==================== */}
       {selectedParticipant && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-hidden" onClick={() => setSelectedParticipant(null)}>
@@ -783,6 +788,200 @@ function StatCard({ icon, label, value, sub, color }: { icon: React.ReactNode; l
       <div className={`flex items-center gap-2 mb-2 ${color}`}>{icon}<p className="text-[10px] text-gray-400 uppercase tracking-wider font-medium">{label}</p></div>
       <p className={`text-2xl md:text-3xl font-bold ${color}`}>{value}</p>
       <p className="text-[10px] text-gray-500 mt-1">{sub}</p>
+    </div>
+  );
+}
+
+function HealthCheckPanel() {
+  const [healthData, setHealthData] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [lastChecked, setLastChecked] = useState<string | null>(null);
+
+  const runHealthCheck = async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
+      const secretPath = process.env.NEXT_PUBLIC_ADMIN_PATH || "";
+      const res = await fetch(`${apiUrl}/api/admin/${secretPath}/vps-health`);
+      if (res.ok) {
+        const data = await res.json();
+        setHealthData(data);
+        setLastChecked(new Date().toLocaleTimeString());
+      } else {
+        setError("Failed to fetch health data");
+      }
+    } catch {
+      setError("Could not connect to API");
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div className="container mx-auto px-4 max-w-7xl relative">
+      <div className="glass rounded-2xl border border-white/10 p-5">
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-profit/20 rounded-xl border border-profit/30">
+              <Activity className="text-profit w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-white">VPS & Terminal Health</h3>
+              <p className="text-xs text-gray-500">{lastChecked ? `Last checked: ${lastChecked}` : "Click to check"}</p>
+            </div>
+          </div>
+          <button
+            onClick={runHealthCheck}
+            disabled={loading}
+            className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-brand hover:opacity-90 text-white font-semibold text-sm shadow-lg shadow-royal/20 disabled:opacity-50 transition-all"
+          >
+            {loading ? <Loader2 size={16} className="animate-spin" /> : <Zap size={16} />}
+            {loading ? "Checking..." : "Run Health Check"}
+          </button>
+        </div>
+
+        {error && (
+          <div className="p-4 rounded-xl bg-loss/10 border border-loss/30 mb-4">
+            <p className="text-sm text-loss">{error}</p>
+          </div>
+        )}
+
+        {healthData && (
+          <div className="space-y-6">
+            {/* VPS Status */}
+            <div className="p-4 rounded-xl border border-white/10 bg-white/5">
+              <div className="flex items-center gap-3 mb-4">
+                <div className={`w-3 h-3 rounded-full ${healthData.vps.reachable ? "bg-profit animate-pulse" : "bg-loss"}`}></div>
+                <h4 className="text-sm font-bold text-white">VPS Server</h4>
+                <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${healthData.vps.reachable ? "bg-profit/20 text-profit" : "bg-loss/20 text-loss"}`}>
+                  {healthData.vps.reachable ? "ONLINE" : "OFFLINE"}
+                </span>
+              </div>
+
+              {healthData.vps.reachable && healthData.vps.raw && (
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  {healthData.vps.raw.terminals && (
+                    <div className="bg-white/5 rounded-lg p-3 text-center">
+                      <p className="text-[10px] text-gray-500 uppercase">Terminals</p>
+                      <p className="text-xl font-bold text-white">{typeof healthData.vps.raw.terminals === "object" ? JSON.stringify(healthData.vps.raw.terminals.active || healthData.vps.raw.terminals) : healthData.vps.raw.terminals}</p>
+                    </div>
+                  )}
+                  {healthData.vps.raw.workers && (
+                    <div className="bg-white/5 rounded-lg p-3 text-center">
+                      <p className="text-[10px] text-gray-500 uppercase">Workers</p>
+                      <p className="text-xl font-bold text-white">{typeof healthData.vps.raw.workers === "object" ? JSON.stringify(healthData.vps.raw.workers.active || healthData.vps.raw.workers) : healthData.vps.raw.workers}</p>
+                    </div>
+                  )}
+                  {healthData.vps.raw.uptime && (
+                    <div className="bg-white/5 rounded-lg p-3 text-center">
+                      <p className="text-[10px] text-gray-500 uppercase">Uptime</p>
+                      <p className="text-xl font-bold text-profit">{healthData.vps.raw.uptime}</p>
+                    </div>
+                  )}
+                  {healthData.vps.raw.version && (
+                    <div className="bg-white/5 rounded-lg p-3 text-center">
+                      <p className="text-[10px] text-gray-500 uppercase">Version</p>
+                      <p className="text-xl font-bold text-royal">{healthData.vps.raw.version}</p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {healthData.vps.reachable && healthData.vps.raw && (
+                <details className="mt-3">
+                  <summary className="text-xs text-gray-500 cursor-pointer hover:text-gray-300">Raw VPS response</summary>
+                  <pre className="mt-2 p-3 bg-black/30 rounded-lg text-[10px] text-gray-400 overflow-x-auto">{JSON.stringify(healthData.vps.raw, null, 2)}</pre>
+                </details>
+              )}
+
+              {!healthData.vps.reachable && (
+                <p className="text-sm text-loss">{healthData.vps.error || "Cannot reach VPS server"}</p>
+              )}
+            </div>
+
+            {/* Pull Stats (24h) */}
+            <div className="p-4 rounded-xl border border-white/10 bg-white/5">
+              <h4 className="text-sm font-bold text-white mb-4 flex items-center gap-2">
+                <BarChart3 size={16} className="text-royal" /> Pull Stats (Last 24h)
+              </h4>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                <div className="bg-white/5 rounded-lg p-3 text-center">
+                  <p className="text-[10px] text-gray-500 uppercase">Batches</p>
+                  <p className="text-2xl font-bold text-white">{healthData.pullStats.last24h.batches}</p>
+                </div>
+                <div className="bg-white/5 rounded-lg p-3 text-center">
+                  <p className="text-[10px] text-gray-500 uppercase">Success</p>
+                  <p className="text-2xl font-bold text-profit">{healthData.pullStats.last24h.totalSuccess}</p>
+                </div>
+                <div className="bg-white/5 rounded-lg p-3 text-center">
+                  <p className="text-[10px] text-gray-500 uppercase">Failed</p>
+                  <p className="text-2xl font-bold text-loss">{healthData.pullStats.last24h.totalFailed}</p>
+                </div>
+                <div className="bg-white/5 rounded-lg p-3 text-center">
+                  <p className="text-[10px] text-gray-500 uppercase">Success Rate</p>
+                  <p className={`text-2xl font-bold ${healthData.pullStats.last24h.successRate >= 90 ? "text-profit" : healthData.pullStats.last24h.successRate >= 70 ? "text-gold" : "text-loss"}`}>{healthData.pullStats.last24h.successRate}%</p>
+                </div>
+              </div>
+
+              {healthData.pullStats.passwordChangedPending > 0 && (
+                <div className="p-3 rounded-lg bg-gold/10 border border-gold/20 mb-3">
+                  <p className="text-xs text-gold font-semibold">🔑 {healthData.pullStats.passwordChangedPending} accounts with changed passwords (pending 48h)</p>
+                </div>
+              )}
+
+              {/* Error breakdown */}
+              {healthData.pullStats.errors24h.length > 0 && (
+                <div className="mt-3">
+                  <p className="text-xs text-gray-400 font-semibold mb-2">Error Breakdown:</p>
+                  <div className="space-y-1">
+                    {healthData.pullStats.errors24h.map((e: any, i: number) => (
+                      <div key={i} className="flex items-center justify-between p-2 bg-white/5 rounded-lg">
+                        <span className="text-xs text-gray-300">{e.code}</span>
+                        <span className="text-xs font-bold text-loss">{e.count}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Recent Batches */}
+            <div className="p-4 rounded-xl border border-white/10 bg-white/5">
+              <h4 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
+                <Clock size={16} className="text-gold" /> Recent Pull Cycles
+              </h4>
+              <div className="space-y-2">
+                {healthData.pullStats.last5Batches.map((b: any) => (
+                  <div key={b.id} className="flex items-center justify-between p-3 bg-white/5 rounded-lg border border-white/5">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-2 h-2 rounded-full ${b.status === "completed" ? "bg-profit" : b.status === "running" ? "bg-gold animate-pulse" : "bg-loss"}`}></div>
+                      <div>
+                        <p className="text-xs text-white font-medium">
+                          {new Date(new Date(b.startedAt).getTime() + 3*60*60*1000).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })} EAT
+                        </p>
+                        <p className="text-[10px] text-gray-500">{b.totalAccounts} accounts</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-4 text-xs">
+                      <span className="text-profit font-semibold">✓{b.successful}</span>
+                      <span className="text-loss font-semibold">✗{b.failed}</span>
+                      <span className="text-gray-400">{b.durationSec ? `${b.durationSec}s` : "..."}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {!healthData && !loading && !error && (
+          <div className="text-center py-12">
+            <Activity className="w-12 h-12 text-gray-600 mx-auto mb-3" />
+            <p className="text-gray-400 text-sm">Click &quot;Run Health Check&quot; to see VPS terminal and worker status</p>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

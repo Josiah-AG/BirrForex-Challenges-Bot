@@ -17,6 +17,7 @@ export class Bot {
   public bot: Telegraf;
   private scheduler: any;
   private tradingScheduler: any;
+  public vpsPullScheduler: any;
 
   constructor() {
     this.bot = new Telegraf(config.botToken);
@@ -30,6 +31,10 @@ export class Bot {
 
   setTradingScheduler(tradingScheduler: any) {
     this.tradingScheduler = tradingScheduler;
+  }
+
+  setVpsPullScheduler(vpsPullScheduler: any) {
+    this.vpsPullScheduler = vpsPullScheduler;
   }
 
   private async setupBotCommands() {
@@ -105,6 +110,7 @@ export class Bot {
       { command: 'pullstatus', description: 'VPS pull system status' },
       { command: 'forcepull', description: 'Force a VPS pull cycle now' },
       { command: 'terminalhealth', description: 'Check terminal health' },
+      { command: 'failedaccounts', description: 'View & retry failed pull accounts' },
     ], {
       scope: { type: 'chat', chat_id: parseInt(config.adminUserId) }
     });
@@ -309,6 +315,23 @@ export class Bot {
         const result = await db.query(`SELECT * FROM wp_pull_batches ORDER BY started_at DESC LIMIT 5`);
         if (result.rows.length === 0) { await ctx.reply('📊 No pull batches recorded yet.'); return; }
         let text = '<b>📊 VPS PULL STATUS</b>\n\n';
+
+        // Show leaderboard data freshness
+        const { leaderboardService: lbService } = require('../services/leaderboardService');
+        const challenges = await tradingChallengeService.getActiveChallenges();
+        const active = challenges.find((c: any) => c.status === 'active');
+        if (active) {
+          const lastUpdate = await lbService.getLastUpdateTime(active.id);
+          if (lastUpdate) {
+            const eatTime = new Date(new Date(lastUpdate).getTime() + 3 * 60 * 60 * 1000);
+            const dateStr = eatTime.toISOString().split('T')[0];
+            const timeStr2 = `${eatTime.getUTCHours().toString().padStart(2, '0')}:${eatTime.getUTCMinutes().toString().padStart(2, '0')}`;
+            text += `📊 <b>Leaderboard data from:</b> ${dateStr} ${timeStr2} EAT\n\n`;
+          } else {
+            text += `📊 <b>Leaderboard:</b> Not yet updated\n\n`;
+          }
+        }
+
         for (const batch of result.rows) {
           const duration = batch.completed_at ? Math.round((new Date(batch.completed_at).getTime() - new Date(batch.started_at).getTime()) / 1000) : '...';
           const time = new Date(new Date(batch.started_at).getTime() + 3*60*60*1000);
@@ -326,13 +349,15 @@ export class Bot {
       if (!isAdmin(ctx.from!.id)) return;
       await ctx.reply('⏳ Triggering manual pull cycle...');
       try {
-        if (this.tradingScheduler) {
-          // Access vpsPullScheduler through the module
-          const { VpsPullScheduler } = require('../scheduler/vpsPullScheduler');
-          // We can't easily access the instance, so just notify
-          await ctx.reply('⚠️ Use the scheduled pull system. Manual trigger not yet wired.\n\nNext pull runs automatically at the next 4-hour interval.');
+        if (this.vpsPullScheduler) {
+          await this.vpsPullScheduler.runPullCycle();
+          await ctx.reply('✅ Pull cycle completed. Check /pullstatus for results.');
+        } else {
+          await ctx.reply('⚠️ VPS Pull Scheduler not initialized.');
         }
-      } catch (e) { await ctx.reply('❌ Error.'); }
+      } catch (e) {
+        await ctx.reply(`❌ Error: ${(e as Error).message}`);
+      }
     });
 
     this.bot.command('terminalhealth', async (ctx) => {
@@ -362,6 +387,46 @@ export class Bot {
       } catch (e) { await ctx.reply('❌ Error fetching terminal health.'); }
     });
 
+    // Failed accounts dashboard
+    this.bot.command('failedaccounts', async (ctx) => {
+      if (!isAdmin(ctx.from!.id)) return;
+      try {
+        const challenges = await tradingChallengeService.getActiveChallenges();
+        const activeChallenge = challenges.find(c => c.status === 'active');
+        if (!activeChallenge) { await ctx.reply('📊 No active trading challenge.'); return; }
+
+        const { leaderboardService: lbService } = require('../services/leaderboardService');
+        const failed = await lbService.getFailedAccounts(activeChallenge.id);
+
+        if (failed.length === 0) {
+          await ctx.reply('✅ No failed accounts in the current cycle.');
+          return;
+        }
+
+        let text = `<b>❌ FAILED ACCOUNTS — ${activeChallenge.title}</b>\n\n`;
+        text += `Total: ${failed.length}\n\n`;
+
+        const display = failed.slice(0, 10);
+        for (const f of display) {
+          const timeStr = f.last_pull_at ? new Date(new Date(f.last_pull_at).getTime() + 3*60*60*1000).toISOString().substring(11, 16) + ' EAT' : 'N/A';
+          text += `• <b>${f.account_number}</b> (@${f.username || 'unknown'})\n`;
+          text += `  Error: ${f.pull_status} — ${(f.pull_error || f.error_message || 'Unknown').substring(0, 60)}\n`;
+          text += `  Last attempt: ${timeStr}\n\n`;
+        }
+        if (failed.length > 10) text += `<i>+${failed.length - 10} more</i>\n`;
+
+        const buttons = display.map((f: any) => [
+          Markup.button.callback(`🔄 Retry ${f.account_number}`, `wp_retry_${f.registration_id}_${activeChallenge.id}`)
+        ]);
+        buttons.push([Markup.button.callback('🔄 Retry All Failed', `wp_retry_all_${activeChallenge.id}`)]);
+
+        await ctx.reply(text, { parse_mode: 'HTML', ...Markup.inlineKeyboard(buttons) });
+      } catch (e) {
+        console.error('Error in failedaccounts:', e);
+        await ctx.reply('❌ Error fetching failed accounts.');
+      }
+    });
+
     // User commands
     this.bot.command('mystats', (ctx) => this.showMyStats(ctx));
     this.bot.command('winners', (ctx) => this.showWinners(ctx));
@@ -373,6 +438,94 @@ export class Bot {
     // Callback query handlers
     this.bot.on('callback_query', async (ctx) => {
       const data = (ctx.callbackQuery as any).data;
+
+      // WP Pull retry callbacks
+      if (data && data.startsWith('wp_retry_')) {
+        if (!isAdmin(ctx.from!.id)) { await ctx.answerCbQuery('Not authorized'); return; }
+
+        if (data.startsWith('wp_retry_all_')) {
+          const challengeId = parseInt(data.replace('wp_retry_all_', ''));
+          await ctx.answerCbQuery('Retrying all...');
+          await ctx.reply('⏳ Retrying all failed accounts...');
+
+          const { leaderboardService: lbService } = require('../services/leaderboardService');
+          const failed = await lbService.getFailedAccounts(challengeId);
+          let successCount = 0;
+          let failCount = 0;
+
+          if (this.vpsPullScheduler) {
+            for (const f of failed) {
+              const result = await this.vpsPullScheduler.retrySingleAccount(f.registration_id, challengeId);
+              if (result.success) successCount++;
+              else failCount++;
+            }
+          }
+
+          await ctx.reply(
+            `✅ Retry complete\n\n` +
+            `✅ Success: ${successCount}\n` +
+            `❌ Still failing: ${failCount}\n\n` +
+            `${successCount > 0 ? 'Evaluations updated. Use /failedaccounts to see remaining.' : 'No accounts recovered.'}`
+          );
+          return;
+        }
+
+        // Single account retry: wp_retry_{regId}_{challengeId}
+        const parts = data.replace('wp_retry_', '').split('_');
+        const regId = parseInt(parts[0]);
+        const challengeId = parseInt(parts[1]);
+        await ctx.answerCbQuery('Retrying...');
+
+        if (this.vpsPullScheduler) {
+          const result = await this.vpsPullScheduler.retrySingleAccount(regId, challengeId);
+          if (result.success) {
+            await ctx.reply(
+              `✅ <b>Retry successful</b>\n\n` +
+              `Account: ${result.accountNumber}\n` +
+              `Trades: ${result.tradesCount || 0}\n` +
+              `${result.evaluated ? '📊 Evaluation updated' : '⚠️ Evaluation pending'}\n\n` +
+              `Update leaderboard now?`,
+              {
+                parse_mode: 'HTML',
+                ...Markup.inlineKeyboard([
+                  [Markup.button.callback('📊 Update Leaderboard Now', `wp_lb_update_${challengeId}`)],
+                  [Markup.button.callback('⏭️ Add to Next Update', 'wp_lb_skip')],
+                ]),
+              }
+            );
+          } else {
+            await ctx.reply(
+              `❌ <b>Retry failed</b>\n\n` +
+              `Account: ${result.accountNumber}\n` +
+              `Error: ${result.errorCode} — ${result.errorMessage}`,
+              { parse_mode: 'HTML' }
+            );
+          }
+        } else {
+          await ctx.reply('⚠️ Pull scheduler not available.');
+        }
+        return;
+      }
+
+      // WP Leaderboard update callbacks
+      if (data && data.startsWith('wp_lb_')) {
+        if (!isAdmin(ctx.from!.id)) { await ctx.answerCbQuery('Not authorized'); return; }
+
+        if (data.startsWith('wp_lb_update_')) {
+          const challengeId = parseInt(data.replace('wp_lb_update_', ''));
+          await ctx.answerCbQuery();
+          const { leaderboardService: lbService } = require('../services/leaderboardService');
+          await lbService.updateRankings(challengeId);
+          await ctx.reply('✅ Leaderboard rankings updated.');
+          return;
+        }
+        if (data === 'wp_lb_skip') {
+          await ctx.answerCbQuery('Will update at next cycle');
+          await ctx.reply('⏭️ Leaderboard will update at the start of the next pull cycle.');
+          return;
+        }
+        return;
+      }
 
       // Evaluation callbacks (eval_ prefix)
       if (data && data.startsWith('eval_')) {

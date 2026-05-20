@@ -138,6 +138,10 @@ async function migrate() {
     await db.query(`CREATE INDEX IF NOT EXISTS idx_tr_discord_user ON trading_registrations(discord_user_id);`).catch(() => {});
     console.log('✅ Discord integration migration OK');
 
+    // Leaderboard timing migration (v2 pull scheduler)
+    await db.query(`ALTER TABLE trading_challenges ADD COLUMN IF NOT EXISTS leaderboard_updated_at TIMESTAMP;`).catch(() => {});
+    console.log('✅ Leaderboard timing migration OK');
+
     console.log('✅ Database migration completed successfully!');
     process.exit(0);
   } catch (error) {

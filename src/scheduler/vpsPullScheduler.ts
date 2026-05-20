@@ -3,46 +3,38 @@ import axios from 'axios';
 import { Bot } from '../bot/bot';
 import { tradingChallengeService, TradingChallenge } from '../services/tradingChallengeService';
 import { evaluationEngine } from '../services/wpEvaluationEngine';
+import { leaderboardService } from '../services/leaderboardService';
 import { config } from '../config';
 import { db } from '../database/db';
 import { Markup } from 'telegraf';
 
 /**
- * VPS Pull Scheduler — Optimized for 3000 participants
+ * VPS Pull Scheduler v2 — Shared Queue Architecture
  *
- * Architecture:
- * - 10 terminals process accounts in PARALLEL (not sequential)
- * - Each terminal handles ~300 accounts per cycle
- * - Accounts are batched within each terminal (sequential per terminal, parallel across terminals)
- * - Unhealthy terminals get a 10-min cooldown then health-check before reporting to admin
- * - Credential failures notify users immediately with 48h deadline
+ * Changes from v1:
+ * 1. SHARED QUEUE: All accounts in one queue, terminals grab next as they finish
+ *    (fast terminals naturally do more work — work stealing)
+ * 2. PER-ACCOUNT EVALUATION: After each successful pull → immediately evaluate
+ *    (partial evaluations preserved if cycle crashes)
+ * 3. LEADERBOARD TIMING: Rankings update at START of next cycle, not after pull
+ *    Exception: Saturday final sync → immediate leaderboard update
+ * 4. FAILED-FIRST PRIORITY: Accounts that failed last cycle go to front of queue
+ * 5. RETRY WITHIN CYCLE: After all accounts pulled, retry failures (up to 2 passes)
  *
- * Schedule: 6 pulls/day at 06:00, 10:00, 14:00, 18:00, 22:00, 02:00 EAT
- *
- * Weekend logic:
- * - Forex market closes Friday ~22:00 UTC (01:00 EAT Saturday)
- * - Forex market opens Sunday ~22:00 UTC (01:00 EAT Monday)
- * - Saturday first pull (06:00 EAT) always runs as a "sync check" to ensure
- *   all data from Friday's close is captured
- * - Remaining Saturday/Sunday pulls are SKIPPED unless weekend_trading is allowed
- *   in the challenge rules (e.g., crypto-only challenges)
- * - Monday first pull (06:00 EAT) runs normally as the new week starts
- *
- * With 3000 accounts across 10 parallel terminals:
- * - ~300 accounts per terminal
- * - ~1.5s delay between accounts = ~450s (7.5 min) per terminal
- * - Total cycle: ~8-10 min (all terminals run in parallel)
+ * Schedule: 06:00, 10:00, 14:00, 18:00, 22:00, 02:00 EAT
  */
 
 const MAX_TERMINALS = 10;
 const MAX_RETRIES_PER_ACCOUNT = 3;
 const RETRY_DELAY_MS = 3000;
 const ACCOUNT_TIMEOUT_MS = 30000;
-const BATCH_DELAY_MS = 1500; // 1.5s between accounts (balances speed vs API load)
+const BATCH_DELAY_MS = 1500;
 const PASSWORD_WARNING_HOURS = 48;
-const TERMINAL_HEALTH_RECHECK_MS = 10 * 60 * 1000; // 10 minutes
-const TERMINAL_FAILURE_THRESHOLD = 5; // Mark unhealthy after 5 consecutive non-credential failures
-const CREDENTIAL_CONFIRM_ATTEMPTS = 2; // Try credential failures twice to be sure
+const TERMINAL_HEALTH_RECHECK_MS = 10 * 60 * 1000;
+const TERMINAL_FAILURE_THRESHOLD = 5;
+const CREDENTIAL_CONFIRM_ATTEMPTS = 2;
+const CYCLE_RETRY_PASSES = 2;
+const CYCLE_RETRY_WAIT_MS = 30000; // 30s between retry passes
 
 interface PullResult {
   registrationId: number;
@@ -56,6 +48,8 @@ interface PullResult {
   dealsCount?: number;
   balance?: number;
   equity?: number;
+  terminalId?: number;
+  terminalsAttempted?: number[];
 }
 
 interface TerminalState {
@@ -76,6 +70,46 @@ interface AccountToPull {
   telegramId: number;
   username: string | null;
   nickname: string | null;
+  isPriority: boolean; // Failed in last cycle
+}
+
+/**
+ * Shared queue — thread-safe (single-threaded JS, but clear semantics)
+ */
+class SharedQueue {
+  private queue: AccountToPull[] = [];
+  private inProgress = new Set<number>();
+
+  load(accounts: AccountToPull[]) {
+    // Priority accounts (failed last cycle) go to front
+    const priority = accounts.filter(a => a.isPriority);
+    const normal = accounts.filter(a => !a.isPriority);
+    this.queue = [...priority, ...normal];
+    this.inProgress.clear();
+  }
+
+  /** Terminal grabs next available account */
+  next(): AccountToPull | null {
+    if (this.queue.length === 0) return null;
+    const account = this.queue.shift()!;
+    this.inProgress.add(account.registrationId);
+    return account;
+  }
+
+  /** Mark account as done (success or final failure) */
+  done(registrationId: number) {
+    this.inProgress.delete(registrationId);
+  }
+
+  /** Return account to queue (for retry) */
+  requeue(account: AccountToPull) {
+    this.inProgress.delete(account.registrationId);
+    this.queue.push(account);
+  }
+
+  get remaining(): number { return this.queue.length; }
+  get processing(): number { return this.inProgress.size; }
+  get isEmpty(): boolean { return this.queue.length === 0 && this.inProgress.size === 0; }
 }
 
 export class VpsPullScheduler {
@@ -84,13 +118,13 @@ export class VpsPullScheduler {
   private baseUrl: string;
   private apiKey: string;
   private terminals: TerminalState[] = [];
+  private sharedQueue = new SharedQueue();
 
   constructor(bot: Bot) {
     this.bot = bot;
     this.baseUrl = config.vpsApiUrl;
     this.apiKey = config.vpsApiKey;
 
-    // Initialize terminal states
     for (let i = 1; i <= MAX_TERMINALS; i++) {
       this.terminals.push({
         id: i,
@@ -110,22 +144,20 @@ export class VpsPullScheduler {
       return;
     }
 
-    // Run every day (including weekends) — weekend logic handled inside runPullCycle
-    // 6 pulls/day: 06:00, 10:00, 14:00, 18:00, 22:00, 02:00 EAT
-    // EAT = UTC+3, so UTC times: 03:00, 07:00, 11:00, 15:00, 19:00, 23:00
+    // EAT = UTC+3 → UTC times: 03:00, 07:00, 11:00, 15:00, 19:00, 23:00
     cron.schedule('0 3,7,11,15,19,23 * * *', () => this.runPullCycle());
 
     // Check for 48h disqualifications every hour
     cron.schedule('30 * * * *', () => this.checkDisqualifications());
 
-    // Terminal health recheck — runs every 10 min to recover unhealthy terminals
+    // Terminal health recheck every 10 min
     cron.schedule('*/10 * * * *', () => this.recheckUnhealthyTerminals());
 
-    console.log('✅ VPS Pull Scheduler started (6 pulls/day, 10 parallel terminals, weekend-aware)');
+    console.log('✅ VPS Pull Scheduler v2 started (shared queue, per-account eval, 10 terminals)');
   }
 
   /**
-   * Main pull cycle — processes 3000 accounts across 10 parallel terminals
+   * Main pull cycle — shared queue architecture
    */
   async runPullCycle() {
     if (this.isRunning) {
@@ -136,59 +168,32 @@ export class VpsPullScheduler {
     const startTime = Date.now();
 
     try {
-      const challenges = await tradingChallengeService.getActiveChallenges();
-      const activeChallenge = challenges.find(c => c.status === 'active');
-      
-      // Also check for recently-ended WinnerPip challenges that need a final Saturday pull
-      let challengeToPull = activeChallenge;
+      const challengeToPull = await this.resolveChallengeForPull();
       if (!challengeToPull) {
-        // Check if there's a WinnerPip challenge in 'reviewing' status that ended within last 48h
-        const allChallenges = await tradingChallengeService.getAllChallenges();
-        const recentlyEnded = allChallenges.find(c => 
-          c.status === 'reviewing' && 
-          (c.evaluation_type || 'winnerpip') === 'winnerpip' &&
-          !c.winners_posted_at &&
-          (Date.now() - new Date(c.end_date).getTime()) < 48 * 60 * 60 * 1000
-        );
-        if (recentlyEnded) {
-          challengeToPull = recentlyEnded;
-          console.log(`📊 VPS Pull: Final sync pull for recently-ended challenge "${recentlyEnded.title}"`);
-        }
-      }
-
-      if (!challengeToPull) {
-        console.log('📊 VPS Pull: No active or recently-ended challenge');
         this.isRunning = false;
         return;
       }
 
-      // === WEEKEND LOGIC ===
-      const now = new Date();
-      const eatTime = new Date(now.getTime() + 3 * 60 * 60 * 1000);
-      const dayOfWeek = eatTime.getUTCDay(); // 0=Sun, 6=Sat
-      const hourEAT = eatTime.getUTCHours();
-      const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+      // Weekend logic
+      if (await this.shouldSkipWeekend(challengeToPull)) {
+        this.isRunning = false;
+        return;
+      }
 
-      if (isWeekend) {
-        const weekendAllowed = await this.isWeekendTradingAllowed(challengeToPull.id);
+      // Determine if this is the Saturday final sync
+      const isFinalSync = this.isSaturdayFinalSync();
 
-        if (!weekendAllowed) {
-          // Saturday first pull (06:00 EAT = UTC hour 3) — always run as sync check
-          const isSaturdayFirstPull = dayOfWeek === 6 && hourEAT === 6;
-
-          if (isSaturdayFirstPull) {
-            console.log('📊 VPS Pull: Saturday sync check — capturing Friday close data');
-            // Fall through to normal pull logic below
-          } else {
-            console.log(`📊 VPS Pull: Weekend skip (${dayOfWeek === 6 ? 'Sat' : 'Sun'} ${hourEAT}:00 EAT) — forex market closed`);
-            this.isRunning = false;
-            return;
-          }
-        } else {
-          console.log('📊 VPS Pull: Weekend trading allowed — running normal pull');
+      // === STEP 1: Update leaderboard from PREVIOUS cycle's data ===
+      // (Only if not the first pull ever and not final sync)
+      if (!isFinalSync) {
+        const lastUpdate = await leaderboardService.getLastUpdateTime(challengeToPull.id);
+        if (lastUpdate) {
+          console.log('📊 VPS Pull: Updating leaderboard rankings from previous cycle data');
+          await leaderboardService.updateRankings(challengeToPull.id);
         }
       }
 
+      // === STEP 2: Build shared queue with failed-first priority ===
       const accounts = await this.getAccountsToPull(challengeToPull.id);
       if (accounts.length === 0) {
         console.log('📊 VPS Pull: No accounts to pull');
@@ -196,54 +201,57 @@ export class VpsPullScheduler {
         return;
       }
 
-      console.log(`📊 VPS Pull: Starting — ${accounts.length} accounts, ${this.getHealthyTerminalCount()} healthy terminals`);
+      // Mark priority accounts (failed in last cycle)
+      const lastFailures = await leaderboardService.getLastCycleFailures(challengeToPull.id);
+      const prioritySet = new Set(lastFailures);
+      const accountsWithPriority = accounts.map(a => ({
+        ...a,
+        isPriority: prioritySet.has(a.registrationId),
+      }));
+
+      const priorityCount = accountsWithPriority.filter(a => a.isPriority).length;
+      console.log(`📊 VPS Pull: Starting — ${accounts.length} accounts (${priorityCount} priority), ${this.getHealthyTerminalCount()} healthy terminals`);
+
+      // Reset per-cycle terminal stats
+      this.terminals.forEach(t => { t.totalProcessed = 0; t.totalSuccess = 0; t.totalFailed = 0; });
 
       // Create batch record
       const batchId = await this.createPullBatch(challengeToPull.id, accounts.length);
 
-      // Distribute accounts across HEALTHY terminals only
+      // Load shared queue
+      this.sharedQueue.load(accountsWithPriority);
+
+      // === STEP 3: Process with shared queue (terminals grab work) ===
       const healthyTerminals = this.terminals.filter(t => t.isHealthy);
       if (healthyTerminals.length === 0) {
-        console.error('❌ VPS Pull: ALL terminals unhealthy! Aborting cycle.');
+        console.error('❌ VPS Pull: ALL terminals unhealthy! Aborting.');
         await this.completePullBatch(batchId, 0, accounts.length, 0, 'all_terminals_unhealthy');
-        await this.reportCriticalFailure(challengeToPull, 'All 10 terminals are unhealthy. Pull cycle aborted.');
+        await this.reportCriticalFailure(challengeToPull, 'All 10 terminals are unhealthy.');
         this.isRunning = false;
         return;
       }
 
-      const terminalBuckets = this.distributeToTerminals(accounts, healthyTerminals);
+      // Launch terminal workers (they pull from shared queue)
+      const allResults = await this.runSharedQueueWorkers(healthyTerminals, challengeToPull, batchId);
 
-      // Process all terminals IN PARALLEL
-      const terminalPromises = terminalBuckets.map(({ terminal, accounts: termAccounts }) =>
-        this.processTerminalBatch(terminal, termAccounts, challengeToPull, batchId)
+      // === STEP 4: Retry within same cycle (non-credential failures) ===
+      const nonCredentialFailures = allResults.filter(
+        r => !r.success && r.errorCode !== 'invalid_credentials'
       );
 
-      const allResults = (await Promise.all(terminalPromises)).flat();
-
-      // Collect accounts that failed due to terminal issues (not credentials)
-      const terminalFailures = allResults.filter(r => !r.success && r.errorCode === 'terminal_unhealthy');
-      
-      // Redistribute terminal failures to remaining healthy terminals
-      if (terminalFailures.length > 0) {
-        const stillHealthy = this.terminals.filter(t => t.isHealthy);
-        if (stillHealthy.length > 0) {
-          const retryAccounts = terminalFailures.map(f => accounts.find(a => a.registrationId === f.registrationId)!).filter(Boolean);
-          console.log(`🔄 VPS Pull: Redistributing ${retryAccounts.length} accounts to ${stillHealthy.length} healthy terminals`);
-          const retryBuckets = this.distributeToTerminals(retryAccounts, stillHealthy);
-          const retryPromises = retryBuckets.map(({ terminal, accounts: ta }) =>
-            this.processTerminalBatch(terminal, ta, challengeToPull, batchId)
-          );
-          const retryResults = (await Promise.all(retryPromises)).flat();
-          // Merge retry results (replace terminal_unhealthy entries)
-          for (const rr of retryResults) {
-            const idx = allResults.findIndex(r => r.registrationId === rr.registrationId && r.errorCode === 'terminal_unhealthy');
-            if (idx >= 0) allResults[idx] = rr;
-            else allResults.push(rr);
-          }
+      if (nonCredentialFailures.length > 0) {
+        const retryResults = await this.retryCycleFailures(
+          nonCredentialFailures, accounts, challengeToPull, batchId
+        );
+        // Merge retry results
+        for (const rr of retryResults) {
+          const idx = allResults.findIndex(r => r.registrationId === rr.registrationId);
+          if (idx >= 0) allResults[idx] = rr;
+          else allResults.push(rr);
         }
       }
 
-      // Categorize final results
+      // === STEP 5: Categorize final results ===
       const successful = allResults.filter(r => r.success);
       const credentialFailures = allResults.filter(r => !r.success && r.errorCode === 'invalid_credentials');
       const otherFailures = allResults.filter(r => !r.success && r.errorCode !== 'invalid_credentials');
@@ -253,7 +261,7 @@ export class VpsPullScheduler {
         await this.handleCredentialFailure(failure, challengeToPull);
       }
 
-      // Update registration pull statuses in bulk
+      // Bulk update pull statuses
       await this.bulkUpdatePullStatus(allResults);
 
       // Log errors
@@ -265,43 +273,27 @@ export class VpsPullScheduler {
       const newTrades = successful.reduce((sum, r) => sum + (r.tradesCount || 0), 0);
       await this.completePullBatch(batchId, successful.length, credentialFailures.length + otherFailures.length, newTrades, 'completed');
 
+      // === STEP 6: Final sync → immediate leaderboard update ===
+      if (isFinalSync && successful.length > 0) {
+        console.log('📊 VPS Pull: Saturday final sync — updating leaderboard immediately');
+        await leaderboardService.updateRankings(challengeToPull.id);
+      }
+
       const duration = Math.round((Date.now() - startTime) / 1000);
       const terminalSummary = this.terminals.map(t => `T${t.id}:${t.isHealthy ? '✓' : '✗'}`).join(' ');
       console.log(`✅ VPS Pull: Done in ${duration}s — ${successful.length}✓ ${credentialFailures.length}🔑 ${otherFailures.length}✗ | ${terminalSummary}`);
 
-      // Run evaluation engine to update leaderboard
-      if (successful.length > 0) {
-        try {
-          const evalResult = await evaluationEngine.evaluate(challengeToPull.id);
-          console.log(`📊 Evaluation: ${evalResult.evaluated} accounts, ${evalResult.flagged} flags, ${evalResult.qualified} qualified`);
-        } catch (evalError) {
-          console.error('❌ Evaluation engine error:', evalError);
-        }
+      // Log per-terminal distribution (verify work stealing is balanced)
+      const terminalStats = this.terminals
+        .filter(t => t.totalProcessed > 0)
+        .map(t => `T${t.id}:${t.totalSuccess}✓/${t.totalProcessed}`)
+        .join(' ');
+      if (terminalStats) {
+        console.log(`📊 Terminal distribution: ${terminalStats}`);
       }
 
-      // Report to admin for credential failures OR high failure rate
-      const totalAttempts = successful.length + credentialFailures.length + otherFailures.length;
-      const failureRate = totalAttempts > 0 ? ((credentialFailures.length + otherFailures.length) / totalAttempts) * 100 : 0;
-
-      if (credentialFailures.length > 0 || failureRate > 30) {
-        await this.reportToAdmin(challengeToPull, successful.length, credentialFailures, otherFailures, duration);
-      }
-
-      // Critical alert if failure rate exceeds 50%
-      if (failureRate > 50 && totalAttempts > 10) {
-        try {
-          await this.bot.bot.telegram.sendMessage(config.adminUserId,
-            `🚨 <b>HIGH FAILURE RATE WARNING</b>\n\n` +
-            `<b>${challengeToPull.title}</b>\n\n` +
-            `⚠️ <b>${failureRate.toFixed(0)}% of pulls failed</b> this cycle.\n` +
-            `✅ Success: ${successful.length}\n` +
-            `🔑 Credential: ${credentialFailures.length}\n` +
-            `❌ Other: ${otherFailures.length}\n\n` +
-            `Healthy terminals: ${this.getHealthyTerminalCount()}/10\n\n` +
-            `<i>If this persists, consider switching to Legacy evaluation mode via /evaluationtype</i>`,
-            { parse_mode: 'HTML' });
-        } catch (e) {}
-      }
+      // Report to admin
+      await this.maybeReportToAdmin(challengeToPull, successful, credentialFailures, otherFailures, duration);
 
     } catch (error) {
       console.error('❌ VPS Pull: Cycle crashed:', error);
@@ -316,128 +308,189 @@ export class VpsPullScheduler {
   }
 
   /**
-   * Check if weekend trading is allowed for this challenge.
-   * Reads from the 'config' rule in wp_challenge_rules (same as evaluation engine).
-   * If no rule exists, defaults to false (no weekend trading).
+   * Shared queue workers — each terminal grabs next account as it finishes
+   * Fast terminals naturally process more accounts (work stealing)
    */
-  private async isWeekendTradingAllowed(challengeId: number): Promise<boolean> {
-    try {
-      const result = await db.query(
-        `SELECT parameters FROM wp_challenge_rules WHERE challenge_id = $1 AND rule_code = 'config'`,
-        [challengeId]
-      );
-      if (result.rows.length > 0) {
-        const params = result.rows[0].parameters;
-        return params?.weekend_trading === true;
-      }
-      return false;
-    } catch {
-      return false;
-    }
-  }
-
-  /**
-   * Process a batch of accounts on a single terminal (sequential within terminal)
-   */
-  private async processTerminalBatch(
-    terminal: TerminalState,
-    accounts: AccountToPull[],
+  private async runSharedQueueWorkers(
+    healthyTerminals: TerminalState[],
     challenge: TradingChallenge,
     batchId: number
   ): Promise<PullResult[]> {
-    const results: PullResult[] = [];
-    const retryQueue: AccountToPull[] = [];
-    let processedSinceLastRetry = 0;
+    const allResults: PullResult[] = [];
+    const resultsMutex = { results: allResults }; // Reference for workers
 
-    // Process main queue
-    for (let i = 0; i < accounts.length; i++) {
-      const account = accounts[i];
+    const workerPromises = healthyTerminals.map(terminal =>
+      this.terminalWorker(terminal, challenge, batchId, resultsMutex)
+    );
+
+    await Promise.all(workerPromises);
+    return resultsMutex.results;
+  }
+
+  /**
+   * Single terminal worker — keeps grabbing from shared queue until empty
+   */
+  private async terminalWorker(
+    terminal: TerminalState,
+    challenge: TradingChallenge,
+    batchId: number,
+    resultsMutex: { results: PullResult[] }
+  ): Promise<void> {
+    while (true) {
+      const account = this.sharedQueue.next();
+      if (!account) break; // Queue empty
+
+      // Check terminal health
+      if (!terminal.isHealthy) {
+        // Put account back and stop this worker
+        this.sharedQueue.requeue(account);
+        break;
+      }
 
       const result = await this.pullSingleAccount(account, terminal.id);
       terminal.totalProcessed++;
 
       if (result.success) {
-        results.push(result);
         terminal.totalSuccess++;
         terminal.consecutiveFailures = 0;
-        processedSinceLastRetry++;
+        resultsMutex.results.push(result);
 
-        // Save trades/deals
-        if (result.tradesCount && result.tradesCount > 0) {
-          // Trades are saved inside pullSingleAccount
+        // === PER-ACCOUNT EVALUATION (streaming) ===
+        try {
+          await evaluationEngine.evaluateSingleAccount(challenge.id, account.registrationId);
+        } catch (evalErr) {
+          console.error(`⚠️ Eval error for ${account.accountNumber}:`, evalErr);
+          // Non-fatal — evaluation saved partially
         }
       } else {
-        // Check if it's a credential failure (definitive)
         if (result.errorCode === 'invalid_credentials') {
-          results.push(result);
+          resultsMutex.results.push(result);
           terminal.totalFailed++;
         } else {
-          // Terminal/network error — push to retry queue
-          retryQueue.push(account);
-        }
-      }
-
-      // Every 10 accounts, process any retries that have been waiting
-      processedSinceLastRetry++;
-      if (processedSinceLastRetry >= 10 && retryQueue.length > 0) {
-        const retryAccount = retryQueue.shift()!;
-        // Wait a bit before retry
-        await this.delay(2000);
-        const retryResult = await this.pullSingleAccount(retryAccount, terminal.id);
-        if (retryResult.success) {
-          results.push(retryResult);
-          terminal.totalSuccess++;
-        } else if (retryResult.errorCode === 'invalid_credentials') {
-          results.push(retryResult);
-          terminal.totalFailed++;
-        } else {
-          // Still failing — put back for final retry pass
-          retryQueue.push(retryAccount);
-        }
-        processedSinceLastRetry = 0;
-      }
-
-      // Throttle between accounts
-      await this.delay(BATCH_DELAY_MS);
-    }
-
-    // Final retry pass — try all remaining failed accounts one more time
-    if (retryQueue.length > 0) {
-      console.log(`🔄 Terminal ${terminal.id}: Final retry for ${retryQueue.length} accounts`);
-      await this.delay(5000); // Wait 5s before final retry pass
-
-      for (const account of retryQueue) {
-        const result = await this.pullSingleAccount(account, terminal.id);
-        if (result.success) {
-          results.push(result);
-          terminal.totalSuccess++;
-        } else {
-          // Final failure — record it
-          results.push(result);
-          terminal.totalFailed++;
+          // Terminal/network error
           terminal.consecutiveFailures++;
           if (terminal.consecutiveFailures >= TERMINAL_FAILURE_THRESHOLD) {
             terminal.isHealthy = false;
             terminal.unhealthySince = new Date();
             console.log(`⚠️ Terminal ${terminal.id} marked UNHEALTHY`);
+            // Put account back for another terminal
+            this.sharedQueue.requeue(account);
+            break;
           }
+          resultsMutex.results.push(result);
+          terminal.totalFailed++;
         }
-        await this.delay(BATCH_DELAY_MS);
       }
-    }
 
-    return results;
+      this.sharedQueue.done(account.registrationId);
+      await this.delay(BATCH_DELAY_MS);
+    }
   }
 
   /**
-   * Pull a single account with retry
+   * Retry failed accounts within the same cycle.
+   * Up to CYCLE_RETRY_PASSES passes, 30s wait between passes.
+   * Uses router's smart retry (tries multiple terminals).
+   */
+  private async retryCycleFailures(
+    failures: PullResult[],
+    allAccounts: AccountToPull[],
+    challenge: TradingChallenge,
+    batchId: number
+  ): Promise<PullResult[]> {
+    let toRetry = failures.map(f =>
+      allAccounts.find(a => a.registrationId === f.registrationId)
+    ).filter(Boolean) as AccountToPull[];
+
+    const finalResults: PullResult[] = [];
+
+    for (let pass = 1; pass <= CYCLE_RETRY_PASSES; pass++) {
+      if (toRetry.length === 0) break;
+
+      console.log(`🔄 VPS Pull: Retry pass ${pass}/${CYCLE_RETRY_PASSES} — ${toRetry.length} accounts`);
+      await this.delay(CYCLE_RETRY_WAIT_MS);
+
+      const stillFailing: AccountToPull[] = [];
+      const healthyTerminals = this.terminals.filter(t => t.isHealthy);
+      if (healthyTerminals.length === 0) break;
+
+      // Try each account on up to 3 different terminals (smart retry)
+      for (const account of toRetry) {
+        let succeeded = false;
+        const terminalsAttempted: number[] = [];
+
+        for (let t = 0; t < Math.min(3, healthyTerminals.length); t++) {
+          const terminal = healthyTerminals[t % healthyTerminals.length];
+          terminalsAttempted.push(terminal.id);
+
+          const result = await this.pullSingleAccount(account, terminal.id);
+          if (result.success) {
+            result.terminalsAttempted = terminalsAttempted;
+            finalResults.push(result);
+            succeeded = true;
+
+            // Per-account evaluation on retry success
+            try {
+              await evaluationEngine.evaluateSingleAccount(challenge.id, account.registrationId);
+            } catch (e) {}
+            break;
+          }
+
+          if (result.errorCode === 'invalid_credentials') {
+            result.terminalsAttempted = terminalsAttempted;
+            finalResults.push(result);
+            succeeded = true; // Don't retry credentials
+            break;
+          }
+
+          await this.delay(RETRY_DELAY_MS);
+        }
+
+        if (!succeeded) {
+          stillFailing.push(account);
+        }
+        await this.delay(BATCH_DELAY_MS);
+      }
+
+      toRetry = stillFailing;
+    }
+
+    // Mark remaining as final failures
+    for (const account of toRetry) {
+      finalResults.push({
+        registrationId: account.registrationId,
+        accountNumber: account.accountNumber,
+        telegramId: account.telegramId,
+        username: account.username,
+        success: false,
+        errorCode: 'retry_exhausted',
+        errorMessage: `Failed after ${CYCLE_RETRY_PASSES} retry passes`,
+      });
+    }
+
+    // Report persistent failures to admin
+    if (toRetry.length > 0) {
+      try {
+        const failList = toRetry.slice(0, 10).map(a =>
+          `• ${a.accountNumber} (@${a.username || 'unknown'})`
+        ).join('\n');
+        await this.bot.bot.telegram.sendMessage(config.adminUserId,
+          `⚠️ <b>${toRetry.length} accounts still failing after ${CYCLE_RETRY_PASSES} retry passes</b>\n\n${failList}${toRetry.length > 10 ? `\n<i>+${toRetry.length - 10} more</i>` : ''}`,
+          { parse_mode: 'HTML' });
+      } catch (e) {}
+    }
+
+    return finalResults;
+  }
+
+  /**
+   * Pull a single account with retry logic
    */
   private async pullSingleAccount(account: AccountToPull, terminalId: number): Promise<PullResult> {
     let credentialFailCount = 0;
 
     for (let attempt = 1; attempt <= MAX_RETRIES_PER_ACCOUNT; attempt++) {
       try {
-        // Get last pull time for incremental pull
         const lastPullResult = await db.query(
           `SELECT last_pull_at FROM trading_registrations WHERE id = $1`,
           [account.registrationId]
@@ -464,7 +517,6 @@ export class VpsPullScheduler {
         const data = response.data;
 
         if (data.success) {
-          // Save trades and deals
           const tradesCount = data.trades?.length || 0;
           const dealsCount = data.deals?.length || 0;
           if (tradesCount > 0) await this.saveTrades(account, data.trades);
@@ -480,14 +532,14 @@ export class VpsPullScheduler {
             dealsCount,
             balance: data.balance,
             equity: data.equity,
+            terminalId,
           };
         }
 
-        // Check if credential failure
+        // Credential failure check
         const err = (data.message || '').toLowerCase();
         if (err.includes('authorization') || err.includes('invalid') || err.includes('password') || err.includes('credential')) {
           credentialFailCount++;
-          // Try credential failures CREDENTIAL_CONFIRM_ATTEMPTS times to be sure
           if (credentialFailCount < CREDENTIAL_CONFIRM_ATTEMPTS) {
             await this.delay(RETRY_DELAY_MS);
             continue;
@@ -500,10 +552,10 @@ export class VpsPullScheduler {
             success: false,
             errorCode: 'invalid_credentials',
             errorMessage: data.message || 'Invalid credentials',
+            terminalId,
           };
         }
 
-        // Other API error — retry
         if (attempt < MAX_RETRIES_PER_ACCOUNT) {
           await this.delay(RETRY_DELAY_MS * attempt);
           continue;
@@ -517,10 +569,9 @@ export class VpsPullScheduler {
           success: false,
           errorCode: 'api_error',
           errorMessage: data.message || 'API returned failure',
+          terminalId,
         };
-
       } catch (error: any) {
-        // HTTP 401/422 = credential issue
         if (error.response?.status === 401 || error.response?.status === 422) {
           credentialFailCount++;
           if (credentialFailCount < CREDENTIAL_CONFIRM_ATTEMPTS) {
@@ -535,10 +586,10 @@ export class VpsPullScheduler {
             success: false,
             errorCode: 'invalid_credentials',
             errorMessage: error.response?.data?.message || 'Authentication failed',
+            terminalId,
           };
         }
 
-        // Network/timeout — retry
         if (attempt < MAX_RETRIES_PER_ACCOUNT) {
           await this.delay(RETRY_DELAY_MS * attempt);
           continue;
@@ -552,6 +603,7 @@ export class VpsPullScheduler {
           success: false,
           errorCode: error.code === 'ECONNABORTED' ? 'timeout' : 'network_error',
           errorMessage: error.message || 'Connection failed',
+          terminalId,
         };
       }
     }
@@ -564,59 +616,196 @@ export class VpsPullScheduler {
       success: false,
       errorCode: 'max_retries',
       errorMessage: 'Exhausted retries',
+      terminalId,
     };
   }
 
+  // ==================== MANUAL RETRY (Admin) ====================
+
   /**
-   * Recheck unhealthy terminals after 10 min cooldown
+   * Retry a single account on demand (admin button).
+   * Returns result for admin display.
    */
+  async retrySingleAccount(registrationId: number, challengeId: number): Promise<PullResult & { evaluated?: boolean }> {
+    const regResult = await db.query(
+      `SELECT id, account_number, mt5_server, investor_password, telegram_id, username, nickname
+       FROM trading_registrations WHERE id = $1 AND challenge_id = $2`,
+      [registrationId, challengeId]
+    );
+    if (regResult.rows.length === 0) {
+      return {
+        registrationId, accountNumber: '', telegramId: 0, username: null,
+        success: false, errorCode: 'not_found', errorMessage: 'Registration not found',
+      };
+    }
+
+    const reg = regResult.rows[0];
+    const account: AccountToPull = {
+      registrationId: reg.id,
+      accountNumber: reg.account_number,
+      server: reg.mt5_server,
+      investorPassword: reg.investor_password,
+      telegramId: reg.telegram_id,
+      username: reg.username,
+      nickname: reg.nickname,
+      isPriority: true,
+    };
+
+    // Try on up to 3 healthy terminals
+    const healthyTerminals = this.terminals.filter(t => t.isHealthy);
+    if (healthyTerminals.length === 0) {
+      return {
+        registrationId, accountNumber: account.accountNumber,
+        telegramId: account.telegramId, username: account.username,
+        success: false, errorCode: 'no_terminals', errorMessage: 'All terminals unhealthy',
+      };
+    }
+
+    for (let i = 0; i < Math.min(3, healthyTerminals.length); i++) {
+      const terminal = healthyTerminals[i];
+      const result = await this.pullSingleAccount(account, terminal.id);
+
+      if (result.success) {
+        // Update status
+        await db.query(
+          `UPDATE trading_registrations SET last_pull_at = NOW(), pull_status = 'success', pull_error = NULL WHERE id = $1`,
+          [registrationId]
+        );
+
+        // Run evaluation
+        let evaluated = false;
+        try {
+          await evaluationEngine.evaluateSingleAccount(challengeId, registrationId);
+          evaluated = true;
+        } catch (e) {}
+
+        return { ...result, evaluated };
+      }
+
+      if (result.errorCode === 'invalid_credentials') {
+        return result;
+      }
+
+      await this.delay(RETRY_DELAY_MS);
+    }
+
+    return {
+      registrationId, accountNumber: account.accountNumber,
+      telegramId: account.telegramId, username: account.username,
+      success: false, errorCode: 'retry_exhausted', errorMessage: 'Failed on all terminals',
+    };
+  }
+
+  // ==================== HELPER: RESOLVE CHALLENGE ====================
+
+  private async resolveChallengeForPull(): Promise<TradingChallenge | null> {
+    const challenges = await tradingChallengeService.getActiveChallenges();
+    const activeChallenge = challenges.find(c => c.status === 'active');
+
+    if (activeChallenge) return activeChallenge;
+
+    // Check for recently-ended challenge needing final sync
+    const allChallenges = await tradingChallengeService.getAllChallenges();
+    const recentlyEnded = allChallenges.find(c =>
+      c.status === 'reviewing' &&
+      (c.evaluation_type || 'winnerpip') === 'winnerpip' &&
+      !c.winners_posted_at &&
+      (Date.now() - new Date(c.end_date).getTime()) < 48 * 60 * 60 * 1000
+    );
+
+    if (recentlyEnded) {
+      console.log(`📊 VPS Pull: Final sync for recently-ended "${recentlyEnded.title}"`);
+      return recentlyEnded;
+    }
+
+    console.log('📊 VPS Pull: No active or recently-ended challenge');
+    return null;
+  }
+
+  // ==================== HELPER: WEEKEND LOGIC ====================
+
+  private async shouldSkipWeekend(challenge: TradingChallenge): Promise<boolean> {
+    const now = new Date();
+    const eatTime = new Date(now.getTime() + 3 * 60 * 60 * 1000);
+    const dayOfWeek = eatTime.getUTCDay();
+    const hourEAT = eatTime.getUTCHours();
+    const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+
+    if (!isWeekend) return false;
+
+    const weekendAllowed = await this.isWeekendTradingAllowed(challenge.id);
+    if (weekendAllowed) {
+      console.log('📊 VPS Pull: Weekend trading allowed — running normal pull');
+      return false;
+    }
+
+    // Saturday first pull (06:00 EAT) always runs as sync check
+    if (dayOfWeek === 6 && hourEAT === 6) {
+      console.log('📊 VPS Pull: Saturday sync check — capturing Friday close data');
+      return false;
+    }
+
+    console.log(`📊 VPS Pull: Weekend skip (${dayOfWeek === 6 ? 'Sat' : 'Sun'} ${hourEAT}:00 EAT)`);
+    return true;
+  }
+
+  private isSaturdayFinalSync(): boolean {
+    const now = new Date();
+    const eatTime = new Date(now.getTime() + 3 * 60 * 60 * 1000);
+    return eatTime.getUTCDay() === 6 && eatTime.getUTCHours() === 6;
+  }
+
+  private async isWeekendTradingAllowed(challengeId: number): Promise<boolean> {
+    try {
+      const result = await db.query(
+        `SELECT parameters FROM wp_challenge_rules WHERE challenge_id = $1 AND rule_code = 'config'`,
+        [challengeId]
+      );
+      if (result.rows.length > 0) {
+        return result.rows[0].parameters?.weekend_trading === true;
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  }
+
+  // ==================== TERMINAL HEALTH ====================
+
   private async recheckUnhealthyTerminals() {
     const unhealthy = this.terminals.filter(t => !t.isHealthy && t.unhealthySince);
     if (unhealthy.length === 0) return;
 
     for (const terminal of unhealthy) {
       const elapsed = Date.now() - (terminal.unhealthySince?.getTime() || 0);
-      if (elapsed < TERMINAL_HEALTH_RECHECK_MS) continue; // Not yet time to recheck
+      if (elapsed < TERMINAL_HEALTH_RECHECK_MS) continue;
 
       console.log(`🔍 VPS Pull: Health-checking terminal ${terminal.id}...`);
-
-      // Try a simple health check via the API
       const healthy = await this.checkTerminalHealth(terminal.id);
 
       if (healthy) {
         terminal.isHealthy = true;
         terminal.consecutiveFailures = 0;
         terminal.unhealthySince = null;
-        console.log(`✅ Terminal ${terminal.id} recovered — marked healthy`);
+        console.log(`✅ Terminal ${terminal.id} recovered`);
       } else {
-        // Still unhealthy — report to admin (only once per terminal)
-        console.log(`❌ Terminal ${terminal.id} still unhealthy after recheck`);
+        console.log(`❌ Terminal ${terminal.id} still unhealthy`);
         try {
           await this.bot.bot.telegram.sendMessage(config.adminUserId,
             `⚠️ <b>VPS Terminal ${terminal.id} Unhealthy</b>\n\n` +
-            `Terminal has been down since ${terminal.unhealthySince?.toISOString()}\n` +
-            `Failed health-check after 10-min cooldown.\n\n` +
-            `<b>Action needed:</b> Check VPS server status.\n` +
-            `Remaining healthy terminals: ${this.getHealthyTerminalCount()}/10`,
-            { parse_mode: 'HTML' }
-          );
+            `Down since ${terminal.unhealthySince?.toISOString()}\n` +
+            `Healthy terminals: ${this.getHealthyTerminalCount()}/10`,
+            { parse_mode: 'HTML' });
         } catch (e) {}
-        // Reset timer so we don't spam admin — next check in another 10 min
         terminal.unhealthySince = new Date();
       }
     }
   }
 
-  /**
-   * Check if a terminal is responsive
-   */
-  private async checkTerminalHealth(terminalId: number): Promise<boolean> {
+  private async checkTerminalHealth(_terminalId: number): Promise<boolean> {
     try {
-      const response = await axios.get(
-        `${this.baseUrl}/health`,
-        { timeout: 10000 }
-      );
-      return response.status === 200 && (response.data?.status === 'ok');
+      const response = await axios.get(`${this.baseUrl}/health`, { timeout: 10000 });
+      return response.status === 200 && response.data?.status === 'ok';
     } catch {
       return false;
     }
@@ -647,79 +836,15 @@ export class VpsPullScheduler {
       telegramId: r.telegram_id,
       username: r.username,
       nickname: r.nickname,
+      isPriority: false, // Set later by caller
     }));
-  }
-
-  private distributeToTerminals(accounts: AccountToPull[], healthyTerminals: TerminalState[]): { terminal: TerminalState; accounts: AccountToPull[] }[] {
-    const buckets: Map<number, AccountToPull[]> = new Map();
-    healthyTerminals.forEach(t => buckets.set(t.id, []));
-
-    // Round-robin across healthy terminals
-    accounts.forEach((account, idx) => {
-      const terminal = healthyTerminals[idx % healthyTerminals.length];
-      buckets.get(terminal.id)!.push(account);
-    });
-
-    return healthyTerminals.map(t => ({ terminal: t, accounts: buckets.get(t.id)! })).filter(b => b.accounts.length > 0);
   }
 
   // ==================== TRADE/DEAL PERSISTENCE ====================
 
   private async saveTrades(account: AccountToPull, trades: any[]) {
-    // Batch insert for efficiency with 3000 participants
-    const values: any[] = [];
-    const placeholders: string[] = [];
-    let paramIdx = 1;
-
     for (const trade of trades) {
-      placeholders.push(`($${paramIdx}, $${paramIdx+1}, $${paramIdx+2}, $${paramIdx+3}, $${paramIdx+4}, $${paramIdx+5}, $${paramIdx+6}, $${paramIdx+7}, $${paramIdx+8}, $${paramIdx+9}, $${paramIdx+10}, $${paramIdx+11}, $${paramIdx+12}, $${paramIdx+13}, $${paramIdx+14}, $${paramIdx+15}, $${paramIdx+16})`);
-      values.push(
-        account.registrationId, // We'll get challenge_id from a join or pass it
-        account.accountNumber,
-        trade.ticket,
-        trade.symbol || null,
-        trade.type || null,
-        trade.volume || 0,
-        trade.open_time || null,
-        trade.close_time || null,
-        trade.open_price || 0,
-        trade.close_price || 0,
-        trade.stop_loss || null,
-        trade.take_profit || null,
-        trade.profit || 0,
-        trade.commission || 0,
-        trade.swap || 0,
-        trade.comment || null,
-        account.registrationId, // registration_id for the join
-      );
-      paramIdx += 17;
-
-      // Batch in groups of 50 to avoid query size limits
-      if (placeholders.length >= 50) {
-        await this.flushTrades(placeholders.splice(0), values.splice(0));
-      }
-    }
-
-    if (placeholders.length > 0) {
-      await this.flushTrades(placeholders, values);
-    }
-  }
-
-  private async flushTrades(placeholders: string[], values: any[]) {
-    // Simplified: insert one by one with upsert (safer for varied data)
-    // For 3000 users with ~10-50 trades each, individual upserts are fine
-    // The batch approach above collects them but we execute individually for safety
-    const batchSize = placeholders.length;
-    const paramsPerRow = 17;
-
-    for (let i = 0; i < batchSize; i++) {
-      const offset = i * paramsPerRow;
-      const regId = values[offset]; // registration_id
-      const accountNumber = values[offset + 1];
-      const ticket = values[offset + 2];
-
       try {
-        // Get challenge_id from registration
         await db.query(
           `INSERT INTO wp_trades
            (challenge_id, registration_id, account_number, ticket, symbol, trade_type, volume,
@@ -735,16 +860,17 @@ export class VpsPullScheduler {
              swap = EXCLUDED.swap,
              synced_at = NOW()`,
           [
-            regId, accountNumber, ticket,
-            values[offset + 3], values[offset + 4], values[offset + 5],
-            values[offset + 6], values[offset + 7], values[offset + 8],
-            values[offset + 9], values[offset + 10], values[offset + 11],
-            values[offset + 12], values[offset + 13], values[offset + 14],
-            values[offset + 15],
+            account.registrationId, account.accountNumber, trade.ticket,
+            trade.symbol || null, trade.type || null, trade.volume || 0,
+            trade.open_time || null, trade.close_time || null,
+            trade.open_price || 0, trade.close_price || 0,
+            trade.stop_loss || null, trade.take_profit || null,
+            trade.profit || 0, trade.commission || 0, trade.swap || 0,
+            trade.comment || null,
           ]
         );
       } catch (e) {
-        // Skip individual trade errors silently
+        // Skip individual trade errors
       }
     }
   }
@@ -773,17 +899,14 @@ export class VpsPullScheduler {
   // ==================== CREDENTIAL FAILURE HANDLING ====================
 
   private async handleCredentialFailure(failure: PullResult, challenge: TradingChallenge) {
-    // Check if already warned
     const reg = await db.query('SELECT pull_status FROM trading_registrations WHERE id = $1', [failure.registrationId]);
-    if (reg.rows[0]?.pull_status === 'password_changed') return; // Already warned
+    if (reg.rows[0]?.pull_status === 'password_changed') return;
 
-    // Mark as password changed
     await db.query(
       `UPDATE trading_registrations SET pull_status = 'password_changed', pull_error = $1, last_pull_at = NOW() WHERE id = $2`,
       [`Detected at ${new Date().toISOString()}`, failure.registrationId]
     );
 
-    // Notify user
     const botInfo = await this.bot.bot.telegram.getMe();
     try {
       await this.bot.bot.telegram.sendMessage(
@@ -792,7 +915,8 @@ export class VpsPullScheduler {
         `We could not access your MT5 account <b>${failure.accountNumber}</b>.\n\n` +
         `It appears your <b>investor password has been changed</b>.\n\n` +
         `🔑 Please update your investor password using the button below.\n\n` +
-        `⏰ <b>You have 48 hours to update.</b>\nAfter 48 hours without a response, your registration will be disqualified.\n\n` +
+        `⏰ <b>You have 48 hours to update.</b>\n` +
+        `After 48 hours, your registration will be disqualified.\n\n` +
         `<i>If you did not change your password, contact @birrFXadmin immediately.</i>`,
         {
           parse_mode: 'HTML',
@@ -841,11 +965,8 @@ export class VpsPullScheduler {
 
         try {
           await this.bot.bot.telegram.sendMessage(config.adminUserId,
-            `🚫 Auto-DQ: @${reg.username || 'unknown'} (${reg.account_number}) — password not updated in 48h`,
-            { parse_mode: 'HTML' });
+            `🚫 Auto-DQ: @${reg.username || 'unknown'} (${reg.account_number}) — password not updated in 48h`);
         } catch (e) {}
-
-        console.log(`🚫 VPS Pull: Auto-DQ @${reg.username || reg.telegram_id} — password unchanged 48h`);
       }
     } catch (error) {
       console.error('Error in checkDisqualifications:', error);
@@ -855,19 +976,16 @@ export class VpsPullScheduler {
   // ==================== BULK STATUS UPDATE ====================
 
   private async bulkUpdatePullStatus(results: PullResult[]) {
-    // Batch updates for efficiency
     const successIds = results.filter(r => r.success).map(r => r.registrationId);
     const failedResults = results.filter(r => !r.success && r.errorCode !== 'invalid_credentials');
 
     if (successIds.length > 0) {
-      // Bulk update successful pulls
       await db.query(
         `UPDATE trading_registrations SET last_pull_at = NOW(), pull_status = 'success', pull_error = NULL WHERE id = ANY($1)`,
         [successIds]
       );
     }
 
-    // Update failed ones individually (different error messages)
     for (const f of failedResults) {
       await db.query(
         `UPDATE trading_registrations SET last_pull_at = NOW(), pull_status = $1, pull_error = $2 WHERE id = $3`,
@@ -904,16 +1022,34 @@ export class VpsPullScheduler {
 
   // ==================== ADMIN REPORTING ====================
 
-  private async reportToAdmin(challenge: TradingChallenge, successCount: number, credentialFailures: PullResult[], otherFailures: PullResult[], durationSec: number) {
-    const totalAttempts = successCount + credentialFailures.length + otherFailures.length;
-    const failureRate = totalAttempts > 0 ? ((credentialFailures.length + otherFailures.length) / totalAttempts * 100).toFixed(1) : '0';
+  private async maybeReportToAdmin(
+    challenge: TradingChallenge,
+    successful: PullResult[],
+    credentialFailures: PullResult[],
+    otherFailures: PullResult[],
+    durationSec: number
+  ) {
+    const totalAttempts = successful.length + credentialFailures.length + otherFailures.length;
+    const failureRate = totalAttempts > 0 ? ((credentialFailures.length + otherFailures.length) / totalAttempts) * 100 : 0;
+
+    if (credentialFailures.length === 0 && failureRate <= 30) return;
 
     let text = `📊 <b>VPS Pull Report</b>\n<b>${challenge.title}</b>\n\n`;
     text += `⏱️ ${durationSec}s | Terminals: ${this.getHealthyTerminalCount()}/10 healthy\n`;
-    text += `✅ ${successCount} | 🔑 ${credentialFailures.length} | ❌ ${otherFailures.length} | 📉 ${failureRate}% fail rate\n\n`;
+    text += `✅ ${successful.length} | 🔑 ${credentialFailures.length} | ❌ ${otherFailures.length} | 📉 ${failureRate.toFixed(1)}% fail\n\n`;
+
+    // Terminal distribution (work stealing verification)
+    const activeTerminals = this.terminals.filter(t => t.totalProcessed > 0);
+    if (activeTerminals.length > 0) {
+      text += `<b>🖥️ Terminal distribution:</b>\n`;
+      activeTerminals.forEach(t => {
+        text += `  T${t.id}: ${t.totalSuccess}✓ / ${t.totalProcessed} total\n`;
+      });
+      text += '\n';
+    }
 
     if (credentialFailures.length > 0) {
-      text += `<b>🔑 Password Changed (users notified):</b>\n`;
+      text += `<b>🔑 Password Changed (notified):</b>\n`;
       credentialFailures.slice(0, 15).forEach(f => { text += `• @${f.username || 'unknown'} — ${f.accountNumber}\n`; });
       if (credentialFailures.length > 15) text += `<i>+${credentialFailures.length - 15} more</i>\n`;
       text += '\n';
@@ -921,12 +1057,8 @@ export class VpsPullScheduler {
 
     if (otherFailures.length > 0) {
       text += `<b>❌ Other Failures:</b>\n`;
-      // Group by error code
       const grouped = new Map<string, number>();
-      otherFailures.forEach(f => {
-        const code = f.errorCode || 'unknown';
-        grouped.set(code, (grouped.get(code) || 0) + 1);
-      });
+      otherFailures.forEach(f => grouped.set(f.errorCode || 'unknown', (grouped.get(f.errorCode || 'unknown') || 0) + 1));
       grouped.forEach((count, code) => { text += `• ${code}: ${count}\n`; });
       text += '\n';
     }
@@ -936,6 +1068,17 @@ export class VpsPullScheduler {
     try {
       await this.bot.bot.telegram.sendMessage(config.adminUserId, text, { parse_mode: 'HTML' });
     } catch (e) {}
+
+    // Critical alert
+    if (failureRate > 50 && totalAttempts > 10) {
+      try {
+        await this.bot.bot.telegram.sendMessage(config.adminUserId,
+          `🚨 <b>HIGH FAILURE RATE: ${failureRate.toFixed(0)}%</b>\n\n` +
+          `Healthy terminals: ${this.getHealthyTerminalCount()}/10\n` +
+          `<i>Consider switching to Legacy evaluation via /evaluationtype</i>`,
+          { parse_mode: 'HTML' });
+      } catch (e) {}
+    }
   }
 
   private async reportCriticalFailure(challenge: TradingChallenge, message: string) {
