@@ -629,7 +629,10 @@ export default function AdminDashboard() {
                     <div className="space-y-2">
                       {screeningData.currentlyChanging.map((u: any, i: number) => (
                         <div key={i} className="flex items-center justify-between p-3 bg-white/5 rounded-xl">
-                          <div><p className="text-sm text-white font-semibold">@{u.username || "unknown"}</p><p className="text-[10px] text-gray-500">{u.account_number} • {u.account_type}</p></div>
+                          <div>
+                            <p className="text-sm text-white font-semibold">@{u.username || "unknown"}</p>
+                            <p className="text-[10px] text-gray-400">{u.account_number} • {u.account_type} • {u.email || "no email"}</p>
+                          </div>
                           <p className="text-[10px] text-gray-400">{u.partner_warned_at ? (() => { const d = new Date(new Date(u.partner_warned_at).getTime() + 3*60*60*1000); return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,"0")}-${String(d.getUTCDate()).padStart(2,"0")} EAT`; })() : "—"}</p>
                         </div>
                       ))}
@@ -644,7 +647,10 @@ export default function AdminDashboard() {
                     <div className="space-y-2">
                       {screeningData.disqualifiedPartners.map((u: any, i: number) => (
                         <div key={i} className="flex items-center justify-between p-3 bg-white/5 rounded-xl">
-                          <div><p className="text-sm text-white font-semibold">@{u.username || "unknown"}</p><p className="text-[10px] text-gray-500">{u.account_number}</p></div>
+                          <div>
+                            <p className="text-sm text-white font-semibold">@{u.username || "unknown"}</p>
+                            <p className="text-[10px] text-gray-400">{u.account_number} • {u.account_type} • {u.email || "no email"}</p>
+                          </div>
                           <p className="text-[10px] text-loss">{u.disqualified_reason?.substring(0, 40)}</p>
                         </div>
                       ))}
@@ -667,11 +673,35 @@ export default function AdminDashboard() {
                         </tr></thead>
                         <tbody>{screeningData.screeningHistory.map((s: any, i: number) => (
                           <tr key={i} className="border-b border-white/5">
-                            <td className="py-2 px-3 text-xs text-white">{(() => { const dt = s.date || s.createdAt; if (!dt) return "—"; const d = new Date(new Date(dt).getTime() + 3*60*60*1000); return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,"0")}-${String(d.getUTCDate()).padStart(2,"0")} ${String(d.getUTCHours()).padStart(2,"0")}:${String(d.getUTCMinutes()).padStart(2,"0")} EAT`; })()}</td>
+                            <td className="py-2 px-3 text-xs text-white">{(() => { const dt = s.date || s.createdAt; if (!dt) return "—"; const dateOnly = String(dt).split("T")[0]; const mode = s.mode === "day" ? "10:00 AM" : "10:00 PM"; return `${dateOnly} ${mode} EAT`; })()}</td>
                             <td className="py-2 px-3 text-xs text-center text-gray-300">{s.totalScreened}</td>
                             <td className="py-2 px-3 text-xs text-center text-profit">{s.allGood}</td>
-                            <td className="py-2 px-3 text-xs text-center text-gold">{(s.changingReal || 0) + (s.changingDemo || 0)}</td>
-                            <td className="py-2 px-3 text-xs text-center text-loss">{(s.leftReal || 0) + (s.leftDemo || 0)}</td>
+                            <td className="py-2 px-3 text-xs text-center">
+                              {((s.changingReal || 0) + (s.changingDemo || 0)) > 0 ? (
+                                <details className="inline">
+                                  <summary className="text-gold cursor-pointer hover:underline">{(s.changingReal || 0) + (s.changingDemo || 0)}</summary>
+                                  <div className="text-left mt-1 p-2 bg-white/5 rounded-lg">
+                                    {(s.changingUsers || []).map((u: any, j: number) => (
+                                      <p key={j} className="text-[10px] text-gray-300">@{u.username || "?"} • {u.account_number || "?"} • {u.account_type || "?"} • {u.email || ""}</p>
+                                    ))}
+                                    {(!s.changingUsers || s.changingUsers.length === 0) && <p className="text-[10px] text-gray-500">User details not available for this entry</p>}
+                                  </div>
+                                </details>
+                              ) : <span className="text-gold">0</span>}
+                            </td>
+                            <td className="py-2 px-3 text-xs text-center">
+                              {((s.leftReal || 0) + (s.leftDemo || 0)) > 0 ? (
+                                <details className="inline">
+                                  <summary className="text-loss cursor-pointer hover:underline">{(s.leftReal || 0) + (s.leftDemo || 0)}</summary>
+                                  <div className="text-left mt-1 p-2 bg-white/5 rounded-lg">
+                                    {(s.leftUsers || []).map((u: any, j: number) => (
+                                      <p key={j} className="text-[10px] text-gray-300">@{u.username || "?"} • {u.account_number || "?"} • {u.account_type || "?"} • {u.email || ""}</p>
+                                    ))}
+                                    {(!s.leftUsers || s.leftUsers.length === 0) && <p className="text-[10px] text-gray-500">User details not available for this entry</p>}
+                                  </div>
+                                </details>
+                              ) : <span className="text-loss">0</span>}
+                            </td>
                           </tr>
                         ))}</tbody>
                       </table>
@@ -1481,6 +1511,24 @@ function PullsTab({ challengeId, pullHistory, terminalStatus }: { challengeId: s
     setRetrying(null);
   };
 
+  const handleUpdatePassword = async (regId: number, newPassword: string) => {
+    setRetrying(String(regId));
+    try {
+      const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/update-password`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ registrationId: regId, newPassword }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setActionMsg(`✅ ${data.message}`);
+        setTimeout(() => fetchFailed(), 1000);
+      } else {
+        setActionMsg(`❌ ${data.message || "Update failed"}`);
+      }
+    } catch { setActionMsg("❌ Connection error"); }
+    setRetrying(null);
+  };
+
   useEffect(() => { fetchFailed(); }, [challengeId]);
 
   return (
@@ -1511,9 +1559,16 @@ function PullsTab({ challengeId, pullHistory, terminalStatus }: { challengeId: s
                   <p className="text-[10px] text-loss">{f.pull_status}: {(f.pull_error || f.error_message || "Unknown error").substring(0, 60)}</p>
                   <p className="text-[10px] text-gray-500">{f.last_pull_at ? formatEAT(f.last_pull_at) : "Never"}</p>
                 </div>
-                <button onClick={() => handleRetryAccount(f.registration_id)} disabled={retrying === String(f.registration_id)} className="px-3 py-1.5 rounded-lg bg-royal/20 border border-royal/30 text-royal text-[10px] font-bold hover:bg-royal/30 transition-all disabled:opacity-50">
-                  {retrying === String(f.registration_id) ? "..." : "🔄 Retry"}
-                </button>
+                <div className="flex flex-col gap-1.5">
+                  <button onClick={() => handleRetryAccount(f.registration_id)} disabled={retrying === String(f.registration_id)} className="px-3 py-1.5 rounded-lg bg-royal/20 border border-royal/30 text-royal text-[10px] font-bold hover:bg-royal/30 transition-all disabled:opacity-50">
+                    {retrying === String(f.registration_id) ? "..." : "🔄 Retry"}
+                  </button>
+                  {(f.pull_status === "password_changed" || f.pull_status === "invalid_credentials") && (
+                    <button onClick={() => { const pw = prompt("Enter new investor password:"); if (pw) handleUpdatePassword(f.registration_id, pw); }} className="px-3 py-1.5 rounded-lg bg-gold/20 border border-gold/30 text-gold text-[10px] font-bold hover:bg-gold/30 transition-all">
+                      🔑 Update PW
+                    </button>
+                  )}
+                </div>
               </div>
             ))}
           </div>

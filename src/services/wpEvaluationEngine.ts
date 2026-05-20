@@ -526,19 +526,26 @@ export class WpEvaluationEngine {
       `INSERT INTO wp_leaderboard
        (challenge_id, registration_id, account_number, telegram_id, username, nickname, account_type,
         starting_balance, current_balance, adjusted_balance, qualified_profit, gross_profit, profit_removed,
-        total_trades, qualified_trades, flagged_trades, active_days, is_qualified, last_trade_time, last_updated)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,NOW())
+        total_trades, qualified_trades, flagged_trades, active_days, is_qualified, last_trade_time, last_updated,
+        zero_balance_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,NOW(),$20)
        ON CONFLICT (challenge_id, registration_id) DO UPDATE SET
          current_balance=EXCLUDED.current_balance, adjusted_balance=EXCLUDED.adjusted_balance,
          qualified_profit=EXCLUDED.qualified_profit, gross_profit=EXCLUDED.gross_profit,
          profit_removed=EXCLUDED.profit_removed, total_trades=EXCLUDED.total_trades,
          qualified_trades=EXCLUDED.qualified_trades, flagged_trades=EXCLUDED.flagged_trades,
          active_days=EXCLUDED.active_days, is_qualified=EXCLUDED.is_qualified,
-         last_trade_time=EXCLUDED.last_trade_time, last_updated=NOW()`,
+         last_trade_time=EXCLUDED.last_trade_time, last_updated=NOW(),
+         zero_balance_at = CASE
+           WHEN EXCLUDED.current_balance <= 0 AND wp_leaderboard.zero_balance_at IS NULL THEN NOW()
+           WHEN EXCLUDED.current_balance > 0 THEN NULL
+           ELSE wp_leaderboard.zero_balance_at
+         END`,
       [challengeId, reg.id, reg.account_number, reg.telegram_id, reg.username, reg.nickname, reg.account_type,
        startingBalance, data.currentBalance, data.adjustedBalance, data.qualifiedProfit, data.grossProfit,
        data.profitRemoved, data.totalTrades, data.qualifiedTrades, data.flaggedTrades, data.activeDays,
-       data.isQualified, data.lastTradeTime]
+       data.isQualified, data.lastTradeTime,
+       data.currentBalance <= 0 ? new Date() : null]
     );
   }
 

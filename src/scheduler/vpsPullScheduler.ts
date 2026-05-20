@@ -819,13 +819,15 @@ export class VpsPullScheduler {
 
   private async getAccountsToPull(challengeId: number): Promise<AccountToPull[]> {
     const result = await db.query(
-      `SELECT id, account_number, mt5_server, investor_password, telegram_id, username, nickname
-       FROM trading_registrations
-       WHERE challenge_id = $1
-         AND disqualified = false
-         AND investor_password IS NOT NULL
-         AND connection_verified = true
-       ORDER BY id`,
+      `SELECT r.id, r.account_number, r.mt5_server, r.investor_password, r.telegram_id, r.username, r.nickname
+       FROM trading_registrations r
+       LEFT JOIN wp_leaderboard l ON r.id = l.registration_id
+       WHERE r.challenge_id = $1
+         AND r.disqualified = false
+         AND r.investor_password IS NOT NULL
+         AND r.connection_verified = true
+         AND (l.current_balance IS NULL OR l.current_balance > 0)
+       ORDER BY r.id`,
       [challengeId]
     );
     return result.rows.map((r: any) => ({
@@ -836,7 +838,7 @@ export class VpsPullScheduler {
       telegramId: r.telegram_id,
       username: r.username,
       nickname: r.nickname,
-      isPriority: false, // Set later by caller
+      isPriority: false,
     }));
   }
 
@@ -899,7 +901,7 @@ export class VpsPullScheduler {
   // ==================== CREDENTIAL FAILURE HANDLING ====================
 
   private async handleCredentialFailure(failure: PullResult, challenge: TradingChallenge) {
-    const reg = await db.query('SELECT pull_status FROM trading_registrations WHERE id = $1', [failure.registrationId]);
+    const reg = await db.query('SELECT pull_status, source, discord_user_id FROM trading_registrations WHERE id = $1', [failure.registrationId]);
     if (reg.rows[0]?.pull_status === 'password_changed') return;
 
     await db.query(
@@ -907,26 +909,53 @@ export class VpsPullScheduler {
       [`Detected at ${new Date().toISOString()}`, failure.registrationId]
     );
 
-    const botInfo = await this.bot.bot.telegram.getMe();
-    try {
-      await this.bot.bot.telegram.sendMessage(
-        failure.telegramId,
-        `⚠️ <b>Account Access Issue — ${challenge.title}</b>\n\n` +
-        `We could not access your MT5 account <b>${failure.accountNumber}</b>.\n\n` +
-        `It appears your <b>investor password has been changed</b>.\n\n` +
-        `🔑 Please update your investor password using the button below.\n\n` +
-        `⏰ <b>You have 48 hours to update.</b>\n` +
-        `After 48 hours, your registration will be disqualified.\n\n` +
-        `<i>If you did not change your password, contact @birrFXadmin immediately.</i>`,
-        {
-          parse_mode: 'HTML',
-          ...Markup.inlineKeyboard([
-            [Markup.button.url('🔑 Update Investor Password', `https://t.me/${botInfo.username}?start=tc_update_password_${failure.registrationId}`)],
-          ]),
+    const source = reg.rows[0]?.source || 'telegram';
+    const discordUserId = reg.rows[0]?.discord_user_id;
+
+    // Notify via Telegram (for telegram users)
+    if (source === 'telegram' || !discordUserId) {
+      const botInfo = await this.bot.bot.telegram.getMe();
+      try {
+        await this.bot.bot.telegram.sendMessage(
+          failure.telegramId,
+          `⚠️ <b>Account Access Issue — ${challenge.title}</b>\n\n` +
+          `We could not access your MT5 account <b>${failure.accountNumber}</b>.\n\n` +
+          `It appears your <b>investor password has been changed</b>.\n\n` +
+          `🔑 Please update your investor password using the button below.\n\n` +
+          `⏰ <b>You have 24 hours to update.</b>\n` +
+          `After 24 hours, your registration will be disqualified.\n\n` +
+          `<i>If you did not change your password, contact @birrFXadmin immediately.</i>`,
+          {
+            parse_mode: 'HTML',
+            ...Markup.inlineKeyboard([
+              [Markup.button.url('🔑 Update Investor Password', `https://t.me/${botInfo.username}?start=tc_update_password_${failure.registrationId}`)],
+            ]),
+          }
+        );
+      } catch (e) {
+        console.error(`Could not notify Telegram user ${failure.telegramId}:`, e);
+      }
+    }
+
+    // Notify via Discord (for discord users)
+    if (source === 'discord' && discordUserId) {
+      try {
+        const discordBotApiKey = process.env.DISCORD_BOT_API_KEY;
+        const discordBotWebhook = process.env.DISCORD_CREDENTIAL_WEBHOOK;
+        if (discordBotWebhook) {
+          const axios = require('axios');
+          await axios.post(discordBotWebhook, {
+            content: null,
+            embeds: [{
+              title: '⚠️ Account Access Issue',
+              description: `We could not access your MT5 account **${failure.accountNumber}** for **${challenge.title}**.\n\nYour investor password appears to have been changed.\n\n🔑 Please update your password by visiting:\nhttps://winnerpip.com/challenge/${challenge.id}\n\nSign in → you'll see a banner to update your password.\n\n⏰ **You have 24 hours** or your registration will be disqualified.`,
+              color: 0xFF4444,
+            }],
+          }, { timeout: 10000 });
         }
-      );
-    } catch (e) {
-      console.error(`Could not notify user ${failure.telegramId}:`, e);
+      } catch (e) {
+        console.error(`Could not notify Discord user ${discordUserId}:`, e);
+      }
     }
   }
 

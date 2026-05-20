@@ -19,12 +19,47 @@ export class LeaderboardService {
     console.log(`📊 Leaderboard: Updating rankings for challenge ${challengeId}`);
 
     for (const accountType of ['demo', 'real']) {
+      // Tier 1: Active traders (balance > 0, not disqualified) — ranked by adjusted_balance DESC
       await db.query(
         `UPDATE wp_leaderboard SET rank = sub.rn FROM (
           SELECT id, ROW_NUMBER() OVER (ORDER BY adjusted_balance DESC) as rn
-          FROM wp_leaderboard WHERE challenge_id=$1 AND account_type=$2 AND is_disqualified=false
+          FROM wp_leaderboard WHERE challenge_id=$1 AND account_type=$2 AND is_disqualified=false AND (current_balance > 0 OR current_balance IS NULL)
         ) sub WHERE wp_leaderboard.id = sub.id`,
         [challengeId, accountType]
+      );
+
+      // Get count of active traders for offset
+      const activeCount = await db.query(
+        `SELECT COUNT(*) as cnt FROM wp_leaderboard WHERE challenge_id=$1 AND account_type=$2 AND is_disqualified=false AND (current_balance > 0 OR current_balance IS NULL)`,
+        [challengeId, accountType]
+      );
+      const offset = parseInt(activeCount.rows[0].cnt);
+
+      // Tier 2: Zero balance (not disqualified, balance <= 0) — most recent zero first (higher rank)
+      await db.query(
+        `UPDATE wp_leaderboard SET rank = sub.rn FROM (
+          SELECT id, (ROW_NUMBER() OVER (ORDER BY zero_balance_at DESC NULLS LAST)) + $3 as rn
+          FROM wp_leaderboard WHERE challenge_id=$1 AND account_type=$2 AND is_disqualified=false AND current_balance <= 0 AND current_balance IS NOT NULL
+        ) sub WHERE wp_leaderboard.id = sub.id`,
+        [challengeId, accountType, offset]
+      );
+
+      // Get count of zero-balance for offset
+      const zeroCount = await db.query(
+        `SELECT COUNT(*) as cnt FROM wp_leaderboard WHERE challenge_id=$1 AND account_type=$2 AND is_disqualified=false AND current_balance <= 0 AND current_balance IS NOT NULL`,
+        [challengeId, accountType]
+      );
+      const offset2 = offset + parseInt(zeroCount.rows[0].cnt);
+
+      // Tier 3: Disqualified — always last, most recent DQ first (higher rank within DQ tier)
+      await db.query(
+        `UPDATE wp_leaderboard SET rank = sub.rn FROM (
+          SELECT l.id, (ROW_NUMBER() OVER (ORDER BY r.disqualified_at DESC NULLS LAST)) + $3 as rn
+          FROM wp_leaderboard l
+          JOIN trading_registrations r ON l.registration_id = r.id
+          WHERE l.challenge_id=$1 AND l.account_type=$2 AND l.is_disqualified=true
+        ) sub WHERE wp_leaderboard.id = sub.id`,
+        [challengeId, accountType, offset2]
       );
     }
 

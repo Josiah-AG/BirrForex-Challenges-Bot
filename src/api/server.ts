@@ -416,7 +416,7 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
 
     // Get challenge info
     const reg = await db.query(
-      `SELECT r.id, r.nickname, r.account_number, r.account_type, r.mt5_server, r.challenge_id,
+      `SELECT r.id, r.nickname, r.account_number, r.account_type, r.mt5_server, r.challenge_id, r.pull_status,
               c.title, c.status, c.start_date, c.end_date, c.starting_balance, c.target_balance, c.leaderboard_updated_at
        FROM trading_registrations r
        JOIN trading_challenges c ON r.challenge_id = c.id
@@ -443,6 +443,7 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
         accountNumber: registration.account_number,
         accountType: registration.account_type,
         server: registration.mt5_server,
+        pullStatus: registration.pull_status || null,
         rank: leaderboard?.rank || null,
         currentBalance: leaderboard ? parseFloat(leaderboard.current_balance) : parseFloat(registration.starting_balance),
         adjustedBalance: leaderboard ? parseFloat(leaderboard.adjusted_balance) : parseFloat(registration.starting_balance),
@@ -872,11 +873,11 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/screening`, adminIpCheck,
 
     // Currently changing/warned users
     const changing = await db.query(
-      `SELECT username, account_number, account_type, partner_status, partner_warned_at FROM trading_registrations WHERE challenge_id=$1 AND partner_status='CHANGING' AND disqualified=false ORDER BY partner_warned_at DESC`, [challengeId]);
+      `SELECT username, email, account_number, account_type, partner_status, partner_warned_at FROM trading_registrations WHERE challenge_id=$1 AND partner_status='CHANGING' AND disqualified=false ORDER BY partner_warned_at DESC`, [challengeId]);
 
     // Disqualified due to partner change
     const disqualified = await db.query(
-      `SELECT username, account_number, account_type, disqualified_at, disqualified_reason FROM trading_registrations WHERE challenge_id=$1 AND disqualified=true AND disqualified_reason LIKE '%Partner%' ORDER BY disqualified_at DESC`, [challengeId]);
+      `SELECT username, email, account_number, account_type, disqualified_at, disqualified_reason FROM trading_registrations WHERE challenge_id=$1 AND disqualified=true AND disqualified_reason LIKE '%Partner%' ORDER BY disqualified_at DESC`, [challengeId]);
 
     return res.json({
       screeningHistory: results.rows.map(r => ({
@@ -891,6 +892,8 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/screening`, adminIpCheck,
         warningsCleared: r.warnings_cleared,
         reportSent: r.report_sent,
         createdAt: r.created_at,
+        changingUsers: r.changing_users || [],
+        leftUsers: r.left_users || [],
       })),
       currentlyChanging: changing.rows,
       disqualifiedPartners: disqualified.rows,
@@ -1434,6 +1437,130 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/retry-all-failed`, admin
     );
     return res.json({ success: true, count: result.rowCount, message: `${result.rowCount} accounts queued for priority retry` });
   } catch (error) {
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * POST /api/admin/:secretPath/challenge/:id/update-password
+ * Admin updates investor password for a failed account
+ * Body: { registrationId, newPassword }
+ */
+app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/update-password`, adminIpCheck, async (req, res) => {
+  try {
+    const challengeId = parseInt(req.params.id);
+    const { registrationId, newPassword } = req.body;
+    if (!registrationId || !newPassword) return res.status(400).json({ error: 'registrationId and newPassword required' });
+
+    // Get account details
+    const regResult = await db.query(
+      `SELECT account_number, mt5_server, pull_status FROM trading_registrations WHERE id = $1 AND challenge_id = $2`,
+      [registrationId, challengeId]
+    );
+    if (regResult.rows.length === 0) return res.status(404).json({ error: 'Registration not found' });
+    if (regResult.rows[0].pull_status === 'success') return res.json({ success: false, message: 'Already resolved — password was updated from another channel' });
+
+    const reg = regResult.rows[0];
+
+    // Verify new password with VPS
+    const vpsUrl = config.vpsApiUrl;
+    const vpsKey = config.vpsApiKey;
+    if (vpsUrl && vpsKey) {
+      try {
+        const axios = require('axios');
+        const verifyRes = await axios.post(`${vpsUrl}/verify`, {
+          account: reg.account_number, server: reg.mt5_server, password: newPassword, api_key: vpsKey,
+        }, { timeout: 15000 });
+
+        if (verifyRes.data?.success) {
+          // Update password and reset status
+          await db.query(
+            `UPDATE trading_registrations SET investor_password = $1, pull_status = 'success', pull_error = NULL, connection_verified = true, connection_verified_at = NOW() WHERE id = $2`,
+            [newPassword, registrationId]
+          );
+          return res.json({ success: true, verified: true, message: 'Password updated and verified — account is back online' });
+        } else {
+          return res.json({ success: false, verified: false, message: `Verification failed: ${verifyRes.data?.message || 'Invalid password'}` });
+        }
+      } catch (err: any) {
+        // VPS unreachable — save password anyway
+        await db.query(
+          `UPDATE trading_registrations SET investor_password = $1, pull_status = 'pending_verify', pull_error = NULL WHERE id = $2`,
+          [newPassword, registrationId]
+        );
+        return res.json({ success: true, verified: false, message: 'Password saved but VPS unreachable — will verify on next pull cycle' });
+      }
+    } else {
+      // No VPS configured — just save
+      await db.query(
+        `UPDATE trading_registrations SET investor_password = $1, pull_status = 'pending_verify', pull_error = NULL WHERE id = $2`,
+        [newPassword, registrationId]
+      );
+      return res.json({ success: true, verified: false, message: 'Password saved — will verify on next pull cycle' });
+    }
+  } catch (error) {
+    console.error('Admin update password error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * POST /api/me/update-password
+ * User updates their own investor password (from web dashboard banner)
+ * Body: { newPassword }
+ */
+app.post('/api/me/update-password', authMiddleware, async (req: any, res) => {
+  try {
+    const { registrationId } = req.user;
+    const { newPassword } = req.body;
+    if (!newPassword || newPassword.length < 3) return res.status(400).json({ error: 'Password too short' });
+
+    const regResult = await db.query(
+      `SELECT account_number, mt5_server, pull_status, challenge_id FROM trading_registrations WHERE id = $1`,
+      [registrationId]
+    );
+    if (regResult.rows.length === 0) return res.status(404).json({ error: 'Registration not found' });
+    const reg = regResult.rows[0];
+
+    if (reg.pull_status !== 'password_changed') {
+      return res.json({ success: false, message: 'No password update needed — your account is fine' });
+    }
+
+    // Verify with VPS
+    const vpsUrl = config.vpsApiUrl;
+    const vpsKey = config.vpsApiKey;
+    if (vpsUrl && vpsKey) {
+      try {
+        const axios = require('axios');
+        const verifyRes = await axios.post(`${vpsUrl}/verify`, {
+          account: reg.account_number, server: reg.mt5_server, password: newPassword, api_key: vpsKey,
+        }, { timeout: 15000 });
+
+        if (verifyRes.data?.success) {
+          await db.query(
+            `UPDATE trading_registrations SET investor_password = $1, pull_status = 'success', pull_error = NULL, connection_verified = true, connection_verified_at = NOW() WHERE id = $2`,
+            [newPassword, registrationId]
+          );
+          return res.json({ success: true, verified: true, message: 'Password updated! Your account is back online.' });
+        } else {
+          return res.json({ success: false, verified: false, message: 'Incorrect password — please check and try again' });
+        }
+      } catch {
+        await db.query(
+          `UPDATE trading_registrations SET investor_password = $1, pull_status = 'pending_verify', pull_error = NULL WHERE id = $2`,
+          [newPassword, registrationId]
+        );
+        return res.json({ success: true, verified: false, message: 'Password saved — we\'ll verify on the next sync cycle' });
+      }
+    }
+
+    await db.query(
+      `UPDATE trading_registrations SET investor_password = $1, pull_status = 'pending_verify', pull_error = NULL WHERE id = $2`,
+      [newPassword, registrationId]
+    );
+    return res.json({ success: true, verified: false, message: 'Password saved' });
+  } catch (error) {
+    console.error('User update password error:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
 });

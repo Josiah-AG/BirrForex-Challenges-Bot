@@ -142,6 +142,10 @@ async function migrate() {
     await db.query(`ALTER TABLE trading_challenges ADD COLUMN IF NOT EXISTS leaderboard_updated_at TIMESTAMP;`).catch(() => {});
     console.log('✅ Leaderboard timing migration OK');
 
+    // Zero balance tracking migration
+    await db.query(`ALTER TABLE wp_leaderboard ADD COLUMN IF NOT EXISTS zero_balance_at TIMESTAMP;`).catch(() => {});
+    console.log('✅ Zero balance tracking migration OK');
+
     console.log('✅ Database migration completed successfully!');
     process.exit(0);
   } catch (error) {

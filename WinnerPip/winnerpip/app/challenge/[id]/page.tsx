@@ -33,7 +33,7 @@ interface MyStats {
   rank: number | null; currentBalance: number; adjustedBalance: number;
   qualifiedProfit: number; grossProfit: number; profitRemoved: number;
   totalTrades: number; qualifiedTrades: number; flaggedTrades: number;
-  isQualified: boolean; lastUpdated: string | null;
+  isQualified: boolean; lastUpdated: string | null; pullStatus: string | null;
 }
 
 export default function ChallengeDashboard() {
@@ -113,6 +113,7 @@ export default function ChallengeDashboard() {
         flaggedTrades: data.me.flaggedTrades,
         isQualified: data.me.isQualified,
         lastUpdated: data.me.lastUpdated,
+        pullStatus: data.me.pullStatus || null,
       });
       setRecentTrades(data.recentTrades || []);
       setError("");
@@ -377,6 +378,11 @@ export default function ChallengeDashboard() {
 
         {/* ==================== ACTIVE DASHBOARD ==================== */}
         {!loading && !error && isLoggedIn && isActive && myStats && challenge && (<>
+
+          {/* PASSWORD UPDATE BANNER */}
+          {myStats.pullStatus === "password_changed" && (
+            <PasswordUpdateBanner />
+          )}
 
           {/* EMPTY STATE - No trades yet */}
           {hasNoData && (
@@ -715,4 +721,52 @@ function RuleItem({ code, text }: { code: string; text: string }) {
 }
 function DRow({ label, value, color }: { label: string; value: string; color?: string }) {
   return (<div className="bg-white/5 rounded-lg p-3"><p className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">{label}</p><p className={`text-sm font-semibold ${color || "text-white"}`}>{value}</p></div>);
+}
+
+function PasswordUpdateBanner() {
+  const [newPw, setNewPw] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [result, setResult] = useState("");
+  const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+
+  const handleSubmit = async () => {
+    if (!newPw || newPw.length < 3) { setResult("Password too short"); return; }
+    setSubmitting(true); setResult("");
+    try {
+      const token = localStorage.getItem("wp_token");
+      const res = await fetch(`${API_URL}/api/me/update-password`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ newPassword: newPw }),
+      });
+      const data = await res.json();
+      if (data.success && data.verified) {
+        setResult("✅ " + data.message);
+        setTimeout(() => window.location.reload(), 2000);
+      } else if (data.success) {
+        setResult("⚠️ " + data.message);
+      } else {
+        setResult("❌ " + (data.message || "Failed"));
+      }
+    } catch { setResult("❌ Connection error"); }
+    setSubmitting(false);
+  };
+
+  return (
+    <div className="mb-6 p-5 rounded-2xl bg-loss/10 border border-loss/30">
+      <div className="flex items-start gap-3 mb-3">
+        <span className="text-2xl">⚠️</span>
+        <div>
+          <h3 className="text-sm font-bold text-loss">Password Update Required</h3>
+          <p className="text-xs text-gray-400 mt-1">We could not access your MT5 account. Your investor password appears to have been changed. Please enter your new password below.</p>
+          <p className="text-xs text-loss mt-1 font-semibold">⏰ You have 24 hours to update or your registration will be disqualified.</p>
+        </div>
+      </div>
+      <div className="flex gap-2 mt-3">
+        <input type="password" value={newPw} onChange={e => setNewPw(e.target.value)} placeholder="New investor password" className="flex-1 p-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none focus:border-royal/50" />
+        <button onClick={handleSubmit} disabled={submitting || !newPw} className="px-4 py-2.5 rounded-xl bg-royal/20 border border-royal/30 text-royal text-xs font-bold hover:bg-royal/30 transition-all disabled:opacity-50">{submitting ? "..." : "Update"}</button>
+      </div>
+      {result && <p className={`text-xs mt-2 font-semibold ${result.startsWith("✅") ? "text-profit" : result.startsWith("⚠️") ? "text-gold" : "text-loss"}`}>{result}</p>}
+    </div>
+  );
 }
