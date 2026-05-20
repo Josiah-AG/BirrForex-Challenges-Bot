@@ -1217,6 +1217,44 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/announce`, adminIpCheck,
 });
 
 /**
+ * PUT /api/admin/:secretPath/challenge/:id
+ * Update challenge details (title, dates, prizes, etc.)
+ */
+app.put(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id`, adminIpCheck, async (req, res) => {
+  try {
+    const challengeId = parseInt(req.params.id);
+    const fields = req.body;
+    const allowed = ['title', 'type', 'start_date', 'end_date', 'starting_balance', 'target_balance',
+      'prize_pool_text', 'real_winners_count', 'demo_winners_count', 'real_prizes', 'demo_prizes',
+      'pdf_url', 'video_url', 'source', 'team_only'];
+
+    const sets: string[] = [];
+    const values: any[] = [];
+    let idx = 1;
+
+    for (const key of allowed) {
+      if (fields[key] !== undefined) {
+        const val = (key === 'real_prizes' || key === 'demo_prizes') ? JSON.stringify(fields[key]) : fields[key];
+        sets.push(`${key} = $${idx}`);
+        values.push(val);
+        idx++;
+      }
+    }
+
+    if (sets.length === 0) return res.status(400).json({ error: 'No valid fields to update' });
+
+    sets.push(`updated_at = NOW()`);
+    values.push(challengeId);
+
+    await db.query(`UPDATE trading_challenges SET ${sets.join(', ')} WHERE id = $${idx}`, values);
+    return res.json({ success: true });
+  } catch (error) {
+    console.error('Admin update challenge error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
  * GET /api/admin/:secretPath/challenge/:id/export
  * Export registrations as JSON (frontend converts to CSV)
  */

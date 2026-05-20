@@ -12,7 +12,7 @@ export default function AdminDashboard() {
   const [adminPass, setAdminPass] = useState("");
   const [loginError, setLoginError] = useState("");
   const [loginLoading, setLoginLoading] = useState(false);
-  const [activeSection, setActiveSection] = useState<"overview" | "leaderboard" | "violations" | "pulls" | "screening" | "participants" | "rules" | "health" | "create">("overview");
+  const [activeSection, setActiveSection] = useState<"overview" | "leaderboard" | "violations" | "pulls" | "screening" | "participants" | "rules" | "health" | "create" | "settings">("overview");
   const [selectedParticipant, setSelectedParticipant] = useState<any>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [foundUser, setFoundUser] = useState<any>(null);
@@ -289,8 +289,8 @@ export default function AdminDashboard() {
       <div className="container mx-auto px-4 py-6 max-w-7xl relative">
         {/* NAV TABS */}
         <div className="flex gap-1 p-1 glass rounded-xl border border-white/10 mb-6 overflow-x-auto">
-          {(["overview", "leaderboard", "violations", "pulls", "screening", "participants", "rules", "health", "create"] as const).map(tab => (
-            <button key={tab} onClick={() => setActiveSection(tab)} className={`flex-shrink-0 py-2.5 px-4 rounded-lg text-sm font-semibold transition-all capitalize ${activeSection === tab ? "bg-royal/20 text-royal border border-royal/30" : "text-gray-400 hover:text-white hover:bg-white/5"}`}>{tab === "health" ? "⚡ Health" : tab === "create" ? "+ Create" : tab}</button>
+          {(["overview", "participants", "leaderboard", "violations", "pulls", "screening", "rules", "settings", "health"] as const).map(tab => (
+            <button key={tab} onClick={() => setActiveSection(tab)} className={`flex-shrink-0 py-2.5 px-4 rounded-lg text-sm font-semibold transition-all capitalize ${activeSection === tab ? "bg-royal/20 text-royal border border-royal/30" : "text-gray-400 hover:text-white hover:bg-white/5"}`}>{tab === "health" ? "⚡ Health" : tab}</button>
           ))}
         </div>
 
@@ -752,6 +752,11 @@ export default function AdminDashboard() {
         </div>
       )}
 
+      {/* ==================== SETTINGS TAB ==================== */}
+      {activeSection === "settings" && (
+        <ChallengeSettingsPanel challengeId={selectedChallengeId} challenges={challenges} onRefresh={() => { setActiveSection("overview"); }} />
+      )}
+
       {/* ==================== CREATE CHALLENGE TAB ==================== */}
       {activeSection === "create" && (
         <CreateChallengePanel onCreated={(id) => { setActiveSection("overview"); setSelectedChallengeId(String(id)); }} />
@@ -1008,7 +1013,6 @@ function CreateChallengePanel({ onCreated }: { onCreated: (id: number) => void }
     type: "hybrid" as "demo" | "real" | "hybrid",
     start_date: "",
     end_date: "",
-    registration_deadline: "",
     starting_balance: "30",
     target_balance: "60",
     prize_pool_text: "",
@@ -1043,12 +1047,16 @@ function CreateChallengePanel({ onCreated }: { onCreated: (id: number) => void }
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...form,
+          // Convert EAT datetime to UTC (subtract 3 hours)
+          start_date: form.start_date ? new Date(new Date(form.start_date).getTime() - 3 * 60 * 60 * 1000).toISOString() : null,
+          end_date: form.end_date ? new Date(new Date(form.end_date).getTime() - 3 * 60 * 60 * 1000).toISOString() : null,
+          registration_deadline: form.start_date ? new Date(new Date(form.start_date).getTime() - 3 * 60 * 60 * 1000).toISOString() : null,
           starting_balance: parseFloat(form.starting_balance),
           target_balance: parseFloat(form.target_balance),
           real_winners_count: parseInt(form.real_winners_count),
           demo_winners_count: parseInt(form.demo_winners_count),
-          real_prizes: form.real_prizes.split(",").map(p => parseFloat(p.trim())).filter(Boolean),
-          demo_prizes: form.demo_prizes.split(",").map(p => parseFloat(p.trim())).filter(Boolean),
+          real_prizes: form.real_prizes.split(",").map(p => p.trim()).filter(Boolean).map(p => isNaN(Number(p)) ? p : parseFloat(p)),
+          demo_prizes: form.demo_prizes.split(",").map(p => p.trim()).filter(Boolean).map(p => isNaN(Number(p)) ? p : parseFloat(p)),
         }),
       });
       if (!res.ok) { const d = await res.json(); setError(d.error || "Failed"); setSaving(false); return; }
@@ -1116,10 +1124,10 @@ function CreateChallengePanel({ onCreated }: { onCreated: (id: number) => void }
                 </select>
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <div><label className="text-xs text-gray-400 font-medium mb-1 block">Start Date *</label><input type="date" value={form.start_date} onChange={e => setForm({...form, start_date: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
-                <div><label className="text-xs text-gray-400 font-medium mb-1 block">End Date *</label><input type="date" value={form.end_date} onChange={e => setForm({...form, end_date: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
+                <div><label className="text-xs text-gray-400 font-medium mb-1 block">Start Date & Time (EAT) *</label><input type="datetime-local" value={form.start_date} onChange={e => setForm({...form, start_date: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
+                <div><label className="text-xs text-gray-400 font-medium mb-1 block">End Date & Time (EAT) *</label><input type="datetime-local" value={form.end_date} onChange={e => setForm({...form, end_date: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
               </div>
-              <div><label className="text-xs text-gray-400 font-medium mb-1 block">Registration Deadline</label><input type="date" value={form.registration_deadline} onChange={e => setForm({...form, registration_deadline: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
+              <p className="text-[10px] text-gray-500 -mt-2">Registration closes automatically when challenge starts</p>
               <div className="grid grid-cols-2 gap-3">
                 <div><label className="text-xs text-gray-400 font-medium mb-1 block">Starting Balance ($) *</label><input value={form.starting_balance} onChange={e => setForm({...form, starting_balance: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
                 <div><label className="text-xs text-gray-400 font-medium mb-1 block">Target Balance ($)</label><input value={form.target_balance} onChange={e => setForm({...form, target_balance: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
@@ -1223,4 +1231,159 @@ function ReviewRow({ label, value }: { label: string; value: string }) {
       <p className="text-sm text-white font-semibold">{value}</p>
     </div>
   );
+}
+
+function ChallengeSettingsPanel({ challengeId, challenges, onRefresh }: { challengeId: string; challenges: any[]; onRefresh: () => void }) {
+  const challenge = challenges.find(c => String(c.id) === challengeId);
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [editForm, setEditForm] = useState({
+    title: challenge?.title || "",
+    type: challenge?.type || "hybrid",
+    start_date: challenge?.startDate ? new Date(new Date(challenge.startDate).getTime() + 3*60*60*1000).toISOString().slice(0, 16) : "",
+    end_date: challenge?.endDate ? new Date(new Date(challenge.endDate).getTime() + 3*60*60*1000).toISOString().slice(0, 16) : "",
+    starting_balance: String(challenge?.startingBalance || 30),
+    target_balance: String(challenge?.targetBalance || 60),
+    prize_pool_text: challenge?.prizePoolText || "",
+  });
+
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
+  const secretPath = process.env.NEXT_PUBLIC_ADMIN_PATH || "";
+
+  const handleSave = async () => {
+    setSaving(true); setMsg("");
+    try {
+      const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: editForm.title,
+          type: editForm.type,
+          start_date: editForm.start_date ? new Date(new Date(editForm.start_date).getTime() - 3*60*60*1000).toISOString() : undefined,
+          end_date: editForm.end_date ? new Date(new Date(editForm.end_date).getTime() - 3*60*60*1000).toISOString() : undefined,
+          starting_balance: parseFloat(editForm.starting_balance),
+          target_balance: parseFloat(editForm.target_balance),
+          prize_pool_text: editForm.prize_pool_text,
+        }),
+      });
+      if (res.ok) setMsg("✅ Saved");
+      else setMsg("❌ Failed to save");
+    } catch { setMsg("❌ Connection error"); }
+    setSaving(false);
+  };
+
+  const handleStatusChange = async (status: string) => {
+    try {
+      await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/status`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
+      });
+      setMsg(`✅ Status → ${status}`);
+      onRefresh();
+    } catch { setMsg("❌ Failed"); }
+  };
+
+  const handleDelete = async () => {
+    try {
+      await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}`, { method: "DELETE" });
+      setMsg("✅ Challenge deleted");
+      onRefresh();
+    } catch { setMsg("❌ Failed"); }
+  };
+
+  const handleExport = async () => {
+    try {
+      const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/export`);
+      if (res.ok) {
+        const data = await res.json();
+        const csv = convertToCSV(data.registrations);
+        const blob = new Blob([csv], { type: "text/csv" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url; a.download = `challenge_${challengeId}_export.csv`; a.click();
+        setMsg("✅ Exported");
+      }
+    } catch { setMsg("❌ Export failed"); }
+  };
+
+  const handleAnnounce = async () => {
+    try {
+      await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/announce`, { method: "POST" });
+      setMsg("✅ Challenge announced — registration open");
+      onRefresh();
+    } catch { setMsg("❌ Failed"); }
+  };
+
+  if (!challenge) return <div className="text-center py-8 text-gray-400">Select a challenge first</div>;
+
+  return (
+    <div className="container mx-auto px-4 max-w-3xl relative">
+      <div className="glass rounded-2xl border border-white/10 p-6 space-y-6">
+        <div className="flex items-center justify-between">
+          <h3 className="text-xl font-bold text-white">Challenge Settings</h3>
+          <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${challenge.status === "active" ? "bg-profit/20 text-profit border-profit/30" : "bg-white/10 text-gray-300 border-white/20"}`}>{challenge.status}</span>
+        </div>
+
+        {msg && <div className={`p-3 rounded-xl text-sm font-semibold ${msg.startsWith("✅") ? "bg-profit/10 text-profit border border-profit/30" : "bg-loss/10 text-loss border border-loss/30"}`}>{msg}</div>}
+
+        {/* Edit Fields */}
+        <div className="space-y-4">
+          <div><label className="text-xs text-gray-400 font-medium mb-1 block">Title</label><input value={editForm.title} onChange={e => setEditForm({...editForm, title: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
+          <div><label className="text-xs text-gray-400 font-medium mb-1 block">Type</label>
+            <select value={editForm.type} onChange={e => setEditForm({...editForm, type: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none">
+              <option value="hybrid" className="bg-[#0f1629]">Hybrid</option>
+              <option value="demo" className="bg-[#0f1629]">Demo</option>
+              <option value="real" className="bg-[#0f1629]">Real</option>
+            </select>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div><label className="text-xs text-gray-400 font-medium mb-1 block">Start (EAT)</label><input type="datetime-local" value={editForm.start_date} onChange={e => setEditForm({...editForm, start_date: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
+            <div><label className="text-xs text-gray-400 font-medium mb-1 block">End (EAT)</label><input type="datetime-local" value={editForm.end_date} onChange={e => setEditForm({...editForm, end_date: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div><label className="text-xs text-gray-400 font-medium mb-1 block">Starting Balance ($)</label><input value={editForm.starting_balance} onChange={e => setEditForm({...editForm, starting_balance: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
+            <div><label className="text-xs text-gray-400 font-medium mb-1 block">Target Balance ($)</label><input value={editForm.target_balance} onChange={e => setEditForm({...editForm, target_balance: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
+          </div>
+          <div><label className="text-xs text-gray-400 font-medium mb-1 block">Prize Pool Text</label><input value={editForm.prize_pool_text} onChange={e => setEditForm({...editForm, prize_pool_text: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
+          <button onClick={handleSave} disabled={saving} className="w-full py-3 rounded-xl bg-gradient-brand text-white font-semibold hover:opacity-90 transition-all disabled:opacity-50">{saving ? "Saving..." : "Save Changes"}</button>
+        </div>
+
+        {/* Status Actions */}
+        <div className="border-t border-white/10 pt-5">
+          <p className="text-xs text-gray-400 font-semibold mb-3 uppercase tracking-wider">Status Actions</p>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+            <button onClick={() => handleStatusChange("registration_open")} className="p-2.5 rounded-lg bg-profit/10 border border-profit/30 text-profit text-xs font-semibold hover:bg-profit/20 transition-all">Open Registration</button>
+            <button onClick={() => handleStatusChange("active")} className="p-2.5 rounded-lg bg-gold/10 border border-gold/30 text-gold text-xs font-semibold hover:bg-gold/20 transition-all">Start Challenge</button>
+            <button onClick={() => handleStatusChange("reviewing")} className="p-2.5 rounded-lg bg-royal/10 border border-royal/30 text-royal text-xs font-semibold hover:bg-royal/20 transition-all">End → Review</button>
+            <button onClick={() => handleStatusChange("completed")} className="p-2.5 rounded-lg bg-white/5 border border-white/10 text-gray-300 text-xs font-semibold hover:bg-white/10 transition-all">Mark Completed</button>
+            <button onClick={handleAnnounce} className="p-2.5 rounded-lg bg-royal/10 border border-royal/30 text-royal text-xs font-semibold hover:bg-royal/20 transition-all">📢 Announce</button>
+            <button onClick={handleExport} className="p-2.5 rounded-lg bg-white/5 border border-white/10 text-gray-300 text-xs font-semibold hover:bg-white/10 transition-all">📥 Export CSV</button>
+          </div>
+        </div>
+
+        {/* Danger Zone */}
+        <div className="border-t border-loss/20 pt-5">
+          <p className="text-xs text-loss font-semibold mb-3 uppercase tracking-wider">Danger Zone</p>
+          {!confirmDelete ? (
+            <button onClick={() => setConfirmDelete(true)} className="px-4 py-2.5 rounded-lg bg-loss/10 border border-loss/30 text-loss text-xs font-semibold hover:bg-loss/20 transition-all">🗑️ Delete Challenge</button>
+          ) : (
+            <div className="flex items-center gap-3">
+              <p className="text-xs text-loss">Are you sure? This cannot be undone.</p>
+              <button onClick={handleDelete} className="px-4 py-2 rounded-lg bg-loss text-white text-xs font-bold">Yes, Delete</button>
+              <button onClick={() => setConfirmDelete(false)} className="px-4 py-2 rounded-lg bg-white/10 text-gray-300 text-xs font-semibold">Cancel</button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function convertToCSV(data: any[]): string {
+  if (!data || data.length === 0) return "";
+  const headers = Object.keys(data[0]);
+  const rows = data.map(row => headers.map(h => JSON.stringify(row[h] ?? "")).join(","));
+  return [headers.join(","), ...rows].join("\n");
 }
