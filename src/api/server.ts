@@ -1292,7 +1292,22 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/failed-accounts`, adminIp
     const challengeId = parseInt(req.params.id);
     const { leaderboardService } = require('../services/leaderboardService');
     const failed = await leaderboardService.getFailedAccounts(challengeId);
-    return res.json({ failed });
+
+    // Also get skipped accounts (zero balance + disqualified)
+    const skipped = await db.query(
+      `SELECT r.id as registration_id, r.account_number, r.username, r.nickname, r.email, r.account_type, r.disqualified, r.disqualified_reason,
+              l.current_balance, l.zero_balance_at
+       FROM trading_registrations r
+       LEFT JOIN wp_leaderboard l ON r.id = l.registration_id
+       WHERE r.challenge_id = $1
+         AND r.investor_password IS NOT NULL
+         AND r.connection_verified = true
+         AND (r.disqualified = true OR l.zero_balance_at IS NOT NULL)
+       ORDER BY r.disqualified DESC, l.zero_balance_at DESC NULLS LAST`,
+      [challengeId]
+    );
+
+    return res.json({ failed, skipped: skipped.rows });
   } catch (error) {
     console.error('Failed accounts error:', error);
     return res.status(500).json({ error: 'Internal server error' });
