@@ -72,7 +72,7 @@ export default function AdminDashboard() {
     setLoginLoading(false);
   };
 
-  useState(() => { if (typeof window !== "undefined" && localStorage.getItem("wp_admin_path")) setIsAdmin(true); });
+  useState(() => { if (typeof window !== "undefined" && localStorage.getItem("wp_admin_key")) setIsAdmin(true); });
 
   // Fetch challenges list after login — use admin endpoint (shows ALL challenges)
   const [challenges, setChallenges] = useState<any[]>([]);
@@ -293,12 +293,13 @@ export default function AdminDashboard() {
             <h2 className="text-2xl font-bold text-white mb-2">Admin Access</h2>
             <p className="text-gray-400 text-sm mb-6">Enter admin credentials</p>
             {loginError && <div className="p-3 rounded-xl bg-loss/10 border border-loss/30 mb-4"><p className="text-sm text-loss">{loginError}</p></div>}
-            <div className="space-y-4">
-              <Input type="password" placeholder="Admin key" value={adminPass} onChange={(e) => setAdminPass(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleAdminLogin()} />
-              <button onClick={handleAdminLogin} disabled={loginLoading || !adminPass} className="w-full flex items-center justify-center gap-2 p-4 rounded-xl bg-gradient-brand hover:opacity-90 text-white font-semibold disabled:opacity-50">
+            <form onSubmit={(e) => { e.preventDefault(); handleAdminLogin(); }} className="space-y-4" autoComplete="on">
+              <input type="hidden" name="username" value="admin" autoComplete="username" />
+              <Input type="password" name="password" autoComplete="current-password" placeholder="Admin key" value={adminPass} onChange={(e) => setAdminPass(e.target.value)} />
+              <button type="submit" disabled={loginLoading || !adminPass} className="w-full flex items-center justify-center gap-2 p-4 rounded-xl bg-gradient-brand hover:opacity-90 text-white font-semibold disabled:opacity-50">
                 {loginLoading ? <Loader2 size={18} className="animate-spin" /> : <Key size={18} />} Access Dashboard
               </button>
-            </div>
+            </form>
           </div>
         </div>
       </div>
@@ -1710,8 +1711,8 @@ function VerifyButton({ challengeId, registrationId }: { challengeId: string; re
   };
 
   if (status === "checking") return <span className="p-1.5 text-royal"><Loader2 size={14} className="animate-spin" /></span>;
-  if (status === "ok") return <span className="p-1.5 text-profit text-[10px] font-bold" title={detail}>✅</span>;
-  if (status === "fail") return <span className="p-1.5 text-loss text-[10px] font-bold cursor-pointer" title={detail} onClick={handleVerify}>❌</span>;
+  if (status === "ok") return <span className="px-1.5 py-0.5 rounded bg-profit/20 text-profit text-[9px] font-bold">{detail}</span>;
+  if (status === "fail") return <span className="px-1.5 py-0.5 rounded bg-loss/20 text-loss text-[9px] font-bold cursor-pointer" onClick={handleVerify}>❌ {detail}</span>;
 
   return (
     <button onClick={handleVerify} title="Verify Connection" className="p-1.5 rounded-lg hover:bg-profit/20 text-gray-400 hover:text-profit transition-all">

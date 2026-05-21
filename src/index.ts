@@ -32,6 +32,9 @@ async function main() {
     const vpsPullScheduler = new VpsPullScheduler(bot);
     vpsPullScheduler.start();
 
+    // Make vpsPullScheduler accessible globally for the API force-pull endpoint
+    (global as any).__vpsPullScheduler = vpsPullScheduler;
+
     // Pass bot to evaluation engine for notifications
     const { evaluationEngine } = require('./services/wpEvaluationEngine');
     evaluationEngine.setBot(bot);
