@@ -1681,8 +1681,8 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/verify-account`, adminIp
             [registrationId]
           );
           // Get balance from response or from leaderboard
-          let balance = verifyRes.data.balance || verifyRes.data.account_balance || null;
-          let equity = verifyRes.data.equity || verifyRes.data.account_equity || null;
+          let balance = verifyRes.data.balance !== undefined ? verifyRes.data.balance : null;
+          let equity = verifyRes.data.equity !== undefined ? verifyRes.data.equity : null;
           console.log(`[Verify] VPS verify response: balance=${verifyRes.data.balance}, equity=${verifyRes.data.equity}, keys=${Object.keys(verifyRes.data).join(',')}`);
 
           // If VPS didn't return balance, try a quick pull to get it
@@ -1693,8 +1693,8 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/verify-account`, adminIp
                 api_key: vpsKey, terminal_id: attempt,
               }, { timeout: 20000 });
               if (pullRes.data?.success) {
-                balance = pullRes.data.balance || null;
-                equity = pullRes.data.equity || null;
+                balance = pullRes.data.balance !== undefined ? pullRes.data.balance : balance;
+                equity = pullRes.data.equity !== undefined ? pullRes.data.equity : equity;
               }
               console.log(`[Verify] Pull response balance: ${pullRes.data?.balance}, equity: ${pullRes.data?.equity}`);
             } catch (pullErr: any) {

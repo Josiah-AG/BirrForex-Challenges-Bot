@@ -872,7 +872,7 @@ export default function AdminDashboard() {
             </div>
             {verifyPopup.verified && (
               <div className="space-y-2">
-                {(verifyPopup.balance != null && verifyPopup.balance !== 0) ? (
+                {(verifyPopup.balance != null) ? (
                   <>
                     <div className="flex justify-between p-3 bg-white/5 rounded-lg"><span className="text-xs text-gray-400">Balance</span><span className="text-sm text-white font-bold">${Number(verifyPopup.balance).toFixed(2)}</span></div>
                     {verifyPopup.equity != null && <div className="flex justify-between p-3 bg-white/5 rounded-lg"><span className="text-xs text-gray-400">Equity</span><span className="text-sm text-white font-bold">${Number(verifyPopup.equity).toFixed(2)}</span></div>}
