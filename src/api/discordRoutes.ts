@@ -615,7 +615,7 @@ export { router as discordRoutes };
 router.get('/pending-announcements', async (req: Request, res: Response) => {
   try {
     const result = await db.query(
-      `SELECT id, title, type, start_date, end_date, starting_balance, target_balance, prize_pool_text, registration_deadline
+      `SELECT id, title, type, start_date, end_date, starting_balance, target_balance, prize_pool_text, registration_deadline, real_prizes, demo_prizes
        FROM trading_challenges
        WHERE source = 'discord' AND status = 'registration_open' AND discord_channel_message_id = 'pending_announce'`
     );
