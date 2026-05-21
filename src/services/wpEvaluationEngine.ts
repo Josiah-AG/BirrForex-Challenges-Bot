@@ -626,15 +626,16 @@ export class WpEvaluationEngine {
          active_days=EXCLUDED.active_days, is_qualified=EXCLUDED.is_qualified,
          last_trade_time=EXCLUDED.last_trade_time, last_updated=NOW(),
          zero_balance_at = CASE
-           WHEN EXCLUDED.current_balance <= 0 AND wp_leaderboard.zero_balance_at IS NULL THEN NOW()
+           WHEN EXCLUDED.current_balance <= 0 AND EXCLUDED.total_trades > 0 AND wp_leaderboard.zero_balance_at IS NULL THEN NOW()
            WHEN EXCLUDED.current_balance > 0 THEN NULL
+           WHEN EXCLUDED.total_trades = 0 THEN NULL
            ELSE wp_leaderboard.zero_balance_at
          END`,
       [challengeId, reg.id, reg.account_number, reg.telegram_id, reg.username, reg.nickname, reg.account_type,
        startingBalance, data.currentBalance, data.adjustedBalance, data.qualifiedProfit, data.grossProfit,
        data.profitRemoved, data.totalTrades, data.qualifiedTrades, data.flaggedTrades, data.activeDays,
        data.isQualified, data.lastTradeTime,
-       data.currentBalance <= 0 ? new Date() : null]
+       (data.currentBalance <= 0 && data.totalTrades > 0) ? new Date() : null]
     );
   }
 

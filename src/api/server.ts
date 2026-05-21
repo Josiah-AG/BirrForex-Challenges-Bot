@@ -1304,16 +1304,20 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/failed-accounts`, adminIp
     const { leaderboardService } = require('../services/leaderboardService');
     const failed = await leaderboardService.getFailedAccounts(challengeId);
 
-    // Also get skipped accounts (zero balance + disqualified)
+    // Also get skipped accounts (zero balance WITH trades = blown, or disqualified)
+    // Exclude accounts that are still being pulled (0 balance + 0 trades = hasn't deposited yet, still pulling)
     const skipped = await db.query(
       `SELECT r.id as registration_id, r.account_number, r.username, r.nickname, r.email, r.account_type, r.disqualified, r.disqualified_reason,
-              l.current_balance, l.zero_balance_at
+              l.current_balance, l.zero_balance_at, l.total_trades
        FROM trading_registrations r
        LEFT JOIN wp_leaderboard l ON r.id = l.registration_id
        WHERE r.challenge_id = $1
          AND r.investor_password IS NOT NULL
          AND r.connection_verified = true
-         AND (r.disqualified = true OR l.zero_balance_at IS NOT NULL)
+         AND (
+           r.disqualified = true
+           OR (l.zero_balance_at IS NOT NULL AND l.total_trades > 0 AND r.actual_starting_balance IS NOT NULL)
+         )
        ORDER BY r.disqualified DESC, l.zero_balance_at DESC NULLS LAST`,
       [challengeId]
     );
