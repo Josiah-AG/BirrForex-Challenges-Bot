@@ -222,7 +222,8 @@ export default function AdminDashboard() {
     medianBalance: od?.balance?.median?.toFixed(2) || "0.00",
     aboveTarget: od?.qualified || 0,
     qualifiedCount: od?.qualified || 0,
-    lastPullTime: "—", nextPullTime: "—",
+    lastPullTime: od?.pulls?.lastPullAt ? (() => { const d = new Date(new Date(od.pulls.lastPullAt).getTime() + 3*60*60*1000); return `${String(d.getUTCHours()).padStart(2,"0")}:${String(d.getUTCMinutes()).padStart(2,"0")} EAT`; })() : "—",
+    nextPullTime: (() => { const now = new Date(Date.now() + 3*60*60*1000); const h = now.getUTCHours(); const schedule = [0,4,8,12,16,20]; const next = schedule.find(s => s > h) || schedule[0]; return `${String(next).padStart(2,"0")}:00 EAT`; })(),
   };
 
   const topViolations: any[] = [];
@@ -831,13 +832,13 @@ export default function AdminDashboard() {
                       method: "PUT", headers: { "Content-Type": "application/json" },
                       body: JSON.stringify(rulesConfig),
                     });
-                    if (res.ok) { setRulesSaved(true); setTimeout(() => setRulesSaved(false), 3000); }
+                    if (res.ok) { setRulesSaved(true); }
                     else { const d = await res.json(); alert(d.error || "Failed to save rules"); }
                   } catch { alert("Connection error"); }
                 }}
-                disabled={false}
-                className={`px-8 py-3 rounded-xl font-semibold text-sm transition-all ${rulesSaved ? "bg-profit/20 text-profit border border-profit/30" : "bg-gradient-brand hover:opacity-90 text-white shadow-lg shadow-royal/20"}`}>
-                {rulesSaved ? "✓ Rules Saved" : "Save Rules"}
+                disabled={rulesSaved}
+                className={`px-8 py-3 rounded-xl font-semibold text-sm transition-all ${rulesSaved ? "bg-profit/20 text-profit border border-profit/30 cursor-not-allowed" : "bg-gradient-brand hover:opacity-90 text-white shadow-lg shadow-royal/20"}`}>
+                {rulesSaved ? "✓ Rules Saved — Locked" : "Save Rules"}
               </button>
             </div>
           </div>

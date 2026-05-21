@@ -824,6 +824,12 @@ export class VpsPullScheduler {
   // ==================== DATA HELPERS ====================
 
   private async getAccountsToPull(challengeId: number): Promise<AccountToPull[]> {
+    // First, clear zero_balance_at for accounts that have 0 trades (haven't started, not blown)
+    await db.query(
+      `UPDATE wp_leaderboard SET zero_balance_at = NULL WHERE challenge_id = $1 AND total_trades = 0 AND zero_balance_at IS NOT NULL`,
+      [challengeId]
+    ).catch(() => {});
+
     const result = await db.query(
       `SELECT r.id, r.account_number, r.mt5_server, r.investor_password, r.telegram_id, r.username, r.nickname
        FROM trading_registrations r
@@ -832,7 +838,7 @@ export class VpsPullScheduler {
          AND r.disqualified = false
          AND r.investor_password IS NOT NULL
          AND r.connection_verified = true
-         AND (l.zero_balance_at IS NULL OR l.total_trades = 0)
+         AND (l.zero_balance_at IS NULL OR l.total_trades = 0 OR l.id IS NULL)
        ORDER BY r.id`,
       [challengeId]
     );
