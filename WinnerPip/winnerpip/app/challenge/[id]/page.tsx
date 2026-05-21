@@ -222,6 +222,36 @@ export default function ChallengeDashboard() {
     return `${Math.floor(hours / 24)}d ago`;
   };
 
+  // Calculate next pull time (EAT schedule: 00:00, 04:00, 08:00, 12:00, 16:00, 20:00)
+  const getNextPullTime = () => {
+    const now = new Date();
+    const eatNow = new Date(now.getTime() + 3 * 60 * 60 * 1000);
+    const currentHourEAT = eatNow.getUTCHours();
+    const pullHours = [0, 4, 8, 12, 16, 20];
+    let nextHour = pullHours.find(h => h > currentHourEAT);
+    const nextDate = new Date(eatNow);
+    if (nextHour === undefined) {
+      nextHour = 0;
+      nextDate.setUTCDate(nextDate.getUTCDate() + 1);
+    }
+    nextDate.setUTCHours(nextHour, 0, 0, 0);
+    // Convert back from EAT to local display
+    const localNext = new Date(nextDate.getTime() - 3 * 60 * 60 * 1000);
+    const h = nextHour.toString().padStart(2, "0");
+    return `${h}:00 EAT`;
+  };
+
+  const formatEATTime = (dateStr: string | null) => {
+    if (!dateStr) return "—";
+    const d = new Date(dateStr);
+    const eat = new Date(d.getTime() + 3 * 60 * 60 * 1000);
+    const h = eat.getUTCHours().toString().padStart(2, "0");
+    const m = eat.getUTCMinutes().toString().padStart(2, "0");
+    const day = eat.getUTCDate();
+    const month = eat.toLocaleString("en-US", { month: "short", timeZone: "UTC" });
+    return `${month} ${day}, ${h}:${m} EAT`;
+  };
+
   // Determine challenge state
   const isNotStarted = challenge && (challenge.status === "registration_open" || challenge.status === "draft");
   const isActive = challenge && challenge.status === "active";
@@ -384,26 +414,18 @@ export default function ChallengeDashboard() {
             <PasswordUpdateBanner />
           )}
 
-          {/* EMPTY STATE - No trades yet */}
+          {/* NO DATA NOTICE - Show normal dashboard but with a notice */}
           {hasNoData && (
-            <div className="max-w-md mx-auto py-8">
-              <div className="glass rounded-3xl border border-white/10 p-8 text-center">
-                <Activity className="w-12 h-12 text-gray-500 mx-auto mb-4" />
-                <h2 className="text-xl font-bold text-white mb-2">Waiting for Data</h2>
-                <p className="text-gray-400 text-sm mb-2">Your dashboard will update automatically once trades are detected.</p>
-                <p className="text-gray-500 text-xs mb-4">Data is synced every 4 hours. Please wait for the next update cycle.</p>
-                <div className="glass rounded-2xl border border-white/10 p-4 text-left space-y-2">
-                  <div className="flex justify-between text-sm"><span className="text-gray-400">Account</span><span className="text-white font-semibold">#{myStats.accountNumber}</span></div>
-                  <div className="flex justify-between text-sm"><span className="text-gray-400">Starting Balance</span><span className="text-white font-semibold">${challenge.startingBalance}</span></div>
-                  <div className="flex justify-between text-sm"><span className="text-gray-400">Target</span><span className="text-white font-semibold">{challenge.targetBalance > 0 ? `$${challenge.targetBalance}` : "—"}</span></div>
-                  <div className="flex justify-between text-sm"><span className="text-gray-400">Days Left</span><span className="text-gold font-semibold">{daysLeft}</span></div>
-                </div>
+            <div className="mb-4 p-3 rounded-xl bg-gold/10 border border-gold/20 flex items-center gap-3">
+              <Clock size={16} className="text-gold flex-shrink-0" />
+              <div>
+                <p className="text-xs text-gray-300">No trade data yet. Data syncs every 4 hours. Next update: <span className="text-gold font-semibold">{getNextPullTime()}</span></p>
               </div>
             </div>
           )}
 
-          {/* FULL DASHBOARD - Has data */}
-          {!hasNoData && (<>
+          {/* FULL DASHBOARD */}
+          <>
             {/* TOP STATS */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 mb-6">
               <button onClick={() => setShowLeaderboardModal(true)} className="glass rounded-2xl p-4 md:p-5 border border-white/10 text-left hover:border-gold/30 transition-all">
@@ -491,7 +513,9 @@ export default function ChallengeDashboard() {
                 </table>
               </div>
               )}
-              <div className="p-3 border-t border-white/5 text-center"><p className="text-xs text-gray-600">Last updated: {formatRelativeTime(myStats.lastUpdated)}</p></div>
+              <div className="p-3 border-t border-white/5 text-center">
+                <p className="text-xs text-gray-600">Last updated: {formatEATTime(myStats.lastUpdated)} • Next: {getNextPullTime()}</p>
+              </div>
             </div>
             )}
 
@@ -500,7 +524,7 @@ export default function ChallengeDashboard() {
             <div className="glass rounded-2xl border border-white/10 overflow-hidden">
               <div className="p-4 border-b border-white/5 flex items-center justify-between">
                 <div className="flex items-center gap-2"><Trophy size={16} className="text-gold" /><p className="text-sm font-semibold text-white">Leaderboard</p></div>
-                <p className="text-xs text-gray-500">Ranked by qualified profit</p>
+                <p className="text-xs text-gray-500">Next update: {getNextPullTime()}</p>
               </div>
               {leaderboardLoading ? (
                 <div className="p-8 text-center"><Loader2 className="w-6 h-6 text-royal animate-spin mx-auto" /></div>
@@ -559,7 +583,7 @@ export default function ChallengeDashboard() {
               </>)}
             </div>
             )}
-          </>)}
+          </>
         </>)}
       </div>
 

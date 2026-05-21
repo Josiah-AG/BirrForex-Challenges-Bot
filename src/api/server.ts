@@ -423,6 +423,7 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
     // Get challenge info
     const reg = await db.query(
       `SELECT r.id, r.nickname, r.account_number, r.account_type, r.mt5_server, r.challenge_id, r.pull_status,
+              r.actual_starting_balance, r.registration_balance,
               c.title, c.status, c.start_date, c.end_date, c.starting_balance, c.target_balance, c.leaderboard_updated_at
        FROM trading_registrations r
        JOIN trading_challenges c ON r.challenge_id = c.id
@@ -433,6 +434,14 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
     const registration = reg.rows[0];
     const leaderboard = lb.rows[0] || null;
 
+    // Determine the user's actual starting balance
+    const challengeStartingBalance = parseFloat(registration.starting_balance);
+    const actualStartingBalance = registration.actual_starting_balance
+      ? parseFloat(registration.actual_starting_balance)
+      : registration.registration_balance
+        ? parseFloat(registration.registration_balance)
+        : challengeStartingBalance;
+
     return res.json({
       dataFrom: registration.leaderboard_updated_at || null,
       challenge: {
@@ -441,7 +450,7 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
         status: registration.status,
         startDate: registration.start_date,
         endDate: registration.end_date,
-        startingBalance: parseFloat(registration.starting_balance),
+        startingBalance: actualStartingBalance,
         targetBalance: parseFloat(registration.target_balance),
       },
       me: {
@@ -452,8 +461,8 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
         pullStatus: registration.pull_status || null,
         disqualified: registration.disqualified || false,
         rank: leaderboard?.rank || null,
-        currentBalance: leaderboard ? parseFloat(leaderboard.current_balance) : parseFloat(registration.starting_balance),
-        adjustedBalance: leaderboard ? parseFloat(leaderboard.adjusted_balance) : parseFloat(registration.starting_balance),
+        currentBalance: leaderboard ? parseFloat(leaderboard.current_balance) : actualStartingBalance,
+        adjustedBalance: leaderboard ? parseFloat(leaderboard.adjusted_balance) : actualStartingBalance,
         qualifiedProfit: leaderboard ? parseFloat(leaderboard.qualified_profit) : 0,
         grossProfit: leaderboard ? parseFloat(leaderboard.gross_profit) : 0,
         profitRemoved: leaderboard ? parseFloat(leaderboard.profit_removed) : 0,
