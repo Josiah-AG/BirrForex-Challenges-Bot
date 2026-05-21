@@ -1680,7 +1680,17 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/verify-account`, adminIp
             `UPDATE trading_registrations SET connection_verified = true, connection_verified_at = NOW() WHERE id = $1`,
             [registrationId]
           );
-          return res.json({ verified: true, balance: verifyRes.data.balance, equity: verifyRes.data.equity, attempts: attempt });
+          // Get balance from response or from leaderboard
+          let balance = verifyRes.data.balance || verifyRes.data.account_balance || null;
+          let equity = verifyRes.data.equity || verifyRes.data.account_equity || null;
+
+          // If VPS didn't return balance, try to get from leaderboard
+          if (!balance) {
+            const lb = await db.query(`SELECT current_balance FROM wp_leaderboard WHERE registration_id = $1`, [registrationId]);
+            if (lb.rows.length > 0) balance = parseFloat(lb.rows[0].current_balance);
+          }
+
+          return res.json({ verified: true, balance, equity, attempts: attempt });
         } else {
           lastError = verifyRes.data?.message || 'Connection failed';
           // If credential error, don't retry

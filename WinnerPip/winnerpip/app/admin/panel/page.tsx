@@ -1761,8 +1761,14 @@ function VerifyButton({ challengeId, registrationId }: { challengeId: string; re
             </div>
             {result.verified && (
               <div className="space-y-2">
-                <div className="flex justify-between p-3 bg-white/5 rounded-lg"><span className="text-xs text-gray-400">Balance</span><span className="text-sm text-white font-bold">${result.balance || "—"}</span></div>
-                <div className="flex justify-between p-3 bg-white/5 rounded-lg"><span className="text-xs text-gray-400">Equity</span><span className="text-sm text-white font-bold">${result.equity || "—"}</span></div>
+                {(result.balance != null || result.equity != null) ? (
+                  <>
+                    <div className="flex justify-between p-3 bg-white/5 rounded-lg"><span className="text-xs text-gray-400">Balance</span><span className="text-sm text-white font-bold">{result.balance != null ? `$${Number(result.balance).toFixed(2)}` : "N/A"}</span></div>
+                    <div className="flex justify-between p-3 bg-white/5 rounded-lg"><span className="text-xs text-gray-400">Equity</span><span className="text-sm text-white font-bold">{result.equity != null ? `$${Number(result.equity).toFixed(2)}` : "N/A"}</span></div>
+                  </>
+                ) : (
+                  <p className="text-xs text-gray-400 text-center">Connection verified — balance will update on next pull cycle</p>
+                )}
                 {result.attempts > 1 && <p className="text-[10px] text-gray-500 text-center">Verified on attempt {result.attempts}/3</p>}
               </div>
             )}
