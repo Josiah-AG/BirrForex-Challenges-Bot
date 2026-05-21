@@ -149,6 +149,7 @@ async function migrate() {
     // VPS balance tracking on registration
     await db.query(`ALTER TABLE trading_registrations ADD COLUMN IF NOT EXISTS last_known_balance NUMERIC;`).catch(() => {});
     await db.query(`ALTER TABLE trading_registrations ADD COLUMN IF NOT EXISTS registration_balance NUMERIC;`).catch(() => {});
+    await db.query(`ALTER TABLE trading_registrations ADD COLUMN IF NOT EXISTS actual_starting_balance NUMERIC;`).catch(() => {});
     console.log('✅ Zero balance + leaderboard lock + VPS balance migration OK');
 
     console.log('✅ Database migration completed successfully!');

@@ -317,6 +317,79 @@ export class WpEvaluationEngine {
     let grossProfit = 0;
     let profitRemoved = 0;
 
+    // === DEPOSIT DETECTION & ACTUAL STARTING BALANCE ===
+    // Get deals to detect deposits (balance operations)
+    let actualStartBalance = startingBalance;
+    try {
+      const regData = await db.query(
+        `SELECT registration_balance, actual_starting_balance FROM trading_registrations WHERE id = $1`, [reg.id]
+      );
+      const savedActual = regData.rows[0]?.actual_starting_balance;
+      const regBalance = regData.rows[0]?.registration_balance;
+
+      if (savedActual !== null && savedActual !== undefined) {
+        // Already determined
+        actualStartBalance = parseFloat(savedActual);
+      } else {
+        // Detect from deals — find balance deposits (not swap/commission/dividend)
+        const deposits = await db.query(
+          `SELECT profit, time FROM wp_deals
+           WHERE challenge_id = $1 AND registration_id = $2
+             AND (deal_type ILIKE '%balance%' OR deal_type = '2')
+             AND profit > 0
+           ORDER BY time ASC`,
+          [challengeId, reg.id]
+        );
+
+        if (deposits.rows.length > 0) {
+          // First deposit = their actual starting balance
+          const firstDeposit = parseFloat(deposits.rows[0].profit);
+          actualStartBalance = firstDeposit;
+
+          // Save it
+          await db.query(
+            `UPDATE trading_registrations SET actual_starting_balance = $1 WHERE id = $2`,
+            [actualStartBalance, reg.id]
+          );
+
+          // Check for recharging (second deposit = DQ)
+          if (deposits.rows.length > 1) {
+            // Multiple deposits detected — DQ for recharging
+            const secondDeposit = deposits.rows[1];
+            await db.query(
+              `UPDATE trading_registrations SET disqualified = true, disqualified_at = NOW(), disqualified_reason = 'Account recharged — additional deposit detected after challenge start' WHERE id = $1 AND disqualified = false`,
+              [reg.id]
+            );
+            await db.query(
+              `UPDATE wp_leaderboard SET is_disqualified = true, disqualify_reason = 'Recharging — additional deposit' WHERE registration_id = $1`,
+              [reg.id]
+            );
+          }
+        } else if (regBalance !== null && regBalance !== undefined && parseFloat(regBalance) > 0) {
+          // No deals but had balance at registration
+          actualStartBalance = parseFloat(regBalance);
+          await db.query(
+            `UPDATE trading_registrations SET actual_starting_balance = $1 WHERE id = $2`,
+            [actualStartBalance, reg.id]
+          );
+        } else {
+          // Use VPS balance as starting point
+          const vpsData = await db.query(`SELECT last_known_balance FROM trading_registrations WHERE id = $1`, [reg.id]);
+          const vps = vpsData.rows[0]?.last_known_balance;
+          if (vps !== null && vps !== undefined && parseFloat(vps) > 0) {
+            actualStartBalance = parseFloat(vps);
+          } else {
+            actualStartBalance = 0; // They truly have nothing
+          }
+        }
+      }
+    } catch {
+      // Fallback to challenge starting balance
+    }
+
+    // Use actual starting balance for this person's evaluation
+    const effectiveStartBalance = actualStartBalance;
+
     // Pre-compute simultaneous trade violations
     type TimeEvent = { time: number; ticket: number; symbol: string; action: 'open' | 'close' };
     const events: TimeEvent[] = [];
@@ -474,15 +547,15 @@ export class WpEvaluationEngine {
     }
 
     const qualifiedProfit = grossProfit - profitRemoved;
-    const adjustedBalance = startingBalance + qualifiedProfit;
-    const currentBalance = startingBalance + grossProfit;
+    const adjustedBalance = effectiveStartBalance + qualifiedProfit;
+    const currentBalance = effectiveStartBalance + grossProfit;
     const qualifiedTrades = allTrades.length - flaggedCount;
     const tradeDays = new Set(allTrades.map(t => new Date(t.close_time).toISOString().split('T')[0]));
     const activeDays = tradeDays.size;
     const isQualified = adjustedBalance >= targetBalance && activeDays >= rules.min_active_days;
     const lastTrade = allTrades[allTrades.length - 1];
 
-    await this.upsertLeaderboard(challengeId, reg, startingBalance, {
+    await this.upsertLeaderboard(challengeId, reg, effectiveStartBalance, {
       currentBalance, adjustedBalance, qualifiedProfit, grossProfit, profitRemoved,
       totalTrades: allTrades.length, qualifiedTrades, flaggedTrades: flaggedCount,
       activeDays, isQualified, lastTradeTime: lastTrade?.close_time || null,

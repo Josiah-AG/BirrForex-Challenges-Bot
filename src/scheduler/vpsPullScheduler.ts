@@ -838,7 +838,7 @@ export class VpsPullScheduler {
          AND r.disqualified = false
          AND r.investor_password IS NOT NULL
          AND r.connection_verified = true
-         AND (l.zero_balance_at IS NULL OR l.total_trades = 0 OR l.id IS NULL)
+         AND (l.zero_balance_at IS NULL OR l.total_trades = 0 OR l.id IS NULL OR r.actual_starting_balance IS NULL)
        ORDER BY r.id`,
       [challengeId]
     );
