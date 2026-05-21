@@ -3,6 +3,7 @@ import { Bot } from '../bot/bot';
 import { tradingChallengeService, TradingChallenge } from '../services/tradingChallengeService';
 import { exnessService } from '../services/exnessService';
 import { config } from '../config';
+import { db } from '../database/db';
 import { Markup } from 'telegraf';
 
 // Convert stored UTC date to EAT for display
@@ -97,6 +98,7 @@ export class TradingScheduler {
         await this.checkChallengeStart(challenge, dateStr, timeStr);
         await this.checkDailyPosts(challenge, dateStr, timeStr, dayOfWeek);
         await this.checkChallengeEnd(challenge, dateStr, timeStr);
+        await this.checkLeaderboardLock(challenge);
         await this.checkSubmissionDeadline(challenge, dateStr, timeStr);
         await this.checkDailyAdminSummary(challenge, dateStr, timeStr);
         await this.checkAutoEngagement(challenge, dateStr, timeStr, eatTime);
@@ -474,6 +476,55 @@ export class TradingScheduler {
       } catch (e) {
         console.error('Error posting challenge end:', e);
       }
+    }
+  }
+
+  // ==================== LEADERBOARD LOCK (12h after end) ====================
+
+  private leaderboardLockProcessed = new Set<number>();
+
+  private async checkLeaderboardLock(challenge: TradingChallenge) {
+    // Only for reviewing/submission_open challenges (already ended)
+    if (challenge.status !== 'reviewing' && challenge.status !== 'submission_open') return;
+    if (this.leaderboardLockProcessed.has(challenge.id)) return;
+
+    // Check if already locked
+    if ((challenge as any).leaderboard_locked_at) {
+      this.leaderboardLockProcessed.add(challenge.id);
+      return;
+    }
+
+    // Check if 12 hours have passed since end_date
+    const endTime = new Date(challenge.end_date).getTime();
+    const now = Date.now();
+    const hoursSinceEnd = (now - endTime) / (1000 * 60 * 60);
+
+    if (hoursSinceEnd >= 12) {
+      this.leaderboardLockProcessed.add(challenge.id);
+      console.log(`🔒 Locking leaderboard for "${challenge.title}" (${hoursSinceEnd.toFixed(1)}h since end)`);
+
+      // Final leaderboard ranking update
+      try {
+        const { leaderboardService } = require('../services/leaderboardService');
+        await leaderboardService.updateRankings(challenge.id);
+      } catch (e) {
+        console.error('Error updating final rankings:', e);
+      }
+
+      // Mark as locked
+      await db.query(
+        `UPDATE trading_challenges SET leaderboard_locked_at = NOW() WHERE id = $1`,
+        [challenge.id]
+      );
+
+      // Notify admin
+      try {
+        await this.bot.bot.telegram.sendMessage(config.adminUserId,
+          `🔒 <b>Leaderboard Locked</b>\n\n<b>${challenge.title}</b>\n\nFinal rankings are now frozen (12h after end).\nUse /selectwinners to choose winners.`,
+          { parse_mode: 'HTML' });
+      } catch (e) {}
+
+      console.log(`✅ Leaderboard locked for challenge ${challenge.id}`);
     }
   }
 
