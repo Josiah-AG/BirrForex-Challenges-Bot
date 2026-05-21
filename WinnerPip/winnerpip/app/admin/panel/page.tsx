@@ -80,7 +80,10 @@ export default function AdminDashboard() {
     setLoginLoading(false);
   };
 
-  useState(() => { if (typeof window !== "undefined" && localStorage.getItem("wp_admin_key")) setIsAdmin(true); });
+  // Check admin login on mount
+  useEffect(() => {
+    if (typeof window !== "undefined" && localStorage.getItem("wp_admin_key")) setIsAdmin(true);
+  }, []);
 
   // Fetch challenges list after login — use admin endpoint (shows ALL challenges)
   const [challenges, setChallenges] = useState<any[]>([]);
