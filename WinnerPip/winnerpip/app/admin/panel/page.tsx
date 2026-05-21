@@ -812,8 +812,14 @@ export default function AdminDashboard() {
             </div>
 
             {/* Save */}
-            <div className="mt-6 flex justify-end">
-              <button onClick={() => { setRulesSaved(true); setTimeout(() => setRulesSaved(false), 3000); }} className={`px-8 py-3 rounded-xl font-semibold text-sm transition-all ${rulesSaved ? "bg-profit/20 text-profit border border-profit/30" : "bg-gradient-brand hover:opacity-90 text-white shadow-lg shadow-royal/20"}`}>
+            <div className="mt-6 flex justify-end items-center gap-3">
+              {challenge.status !== "draft" && challenge.status !== "registration_open" && (
+                <p className="text-xs text-gray-500">🔒 Rules locked — challenge is {challenge.status}</p>
+              )}
+              <button
+                onClick={() => { setRulesSaved(true); setTimeout(() => setRulesSaved(false), 3000); }}
+                disabled={challenge.status !== "draft" && challenge.status !== "registration_open"}
+                className={`px-8 py-3 rounded-xl font-semibold text-sm transition-all ${rulesSaved ? "bg-profit/20 text-profit border border-profit/30" : challenge.status !== "draft" && challenge.status !== "registration_open" ? "bg-white/5 text-gray-500 border border-white/10 cursor-not-allowed" : "bg-gradient-brand hover:opacity-90 text-white shadow-lg shadow-royal/20"}`}>
                 {rulesSaved ? "✓ Rules Saved" : "Save Rules"}
               </button>
             </div>
