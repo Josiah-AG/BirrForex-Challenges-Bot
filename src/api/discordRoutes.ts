@@ -328,9 +328,11 @@ router.post('/verify-connection', async (req: Request, res: Response) => {
       console.log(`🔍 Discord VPS result: ${JSON.stringify(vpsResult)}`);
 
       if (vpsResult.success) {
+        // Include balance check info for Discord bot to use
+        const balance = vpsResult.balance || 0;
         return res.json({
           verified: true,
-          balance: vpsResult.balance,
+          balance,
           equity: vpsResult.equity,
           server: matchedServer,
         });

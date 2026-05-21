@@ -838,48 +838,116 @@ export class TradingRegistrationHandler {
     const result = await vpsService.verifyConnection(account_number, mt5_server, investor_password);
 
     if (result.success) {
-      // Connection verified — check cent account requirement for real accounts
-      if (account_type === 'real') {
-        // Check if only_cent_account is required
-        const { evaluationEngine: wpEngine } = require('../services/wpEvaluationEngine');
-        const rules = await wpEngine.loadRules(session.data.challenge_id);
-        const onlyCent = rules?.only_cent_account || false;
+      // Get challenge starting balance and target
+      const challenge = await tradingChallengeService.getChallengeById(session.data.challenge_id);
+      const startingBalance = Number(challenge?.starting_balance || 30);
+      const targetBalance = Number(challenge?.target_balance || 60);
+      const vpsBalance = result.balance || 0;
 
-        if (onlyCent && result.balance !== undefined) {
-          // Detect cent account: if balance is > 10x the challenge starting balance, it's cent
-          const challenge = await tradingChallengeService.getChallengeById(session.data.challenge_id);
-          const startingBalance = Number(challenge?.starting_balance || 30);
-          const isCentAccount = result.balance > startingBalance * 5; // Cent accounts show 100x value
+      // For cent accounts: balance is shown in cents (×100), convert for comparison
+      const { evaluationEngine: wpEngine } = require('../services/wpEvaluationEngine');
+      const rules = await wpEngine.loadRules(session.data.challenge_id);
+      const onlyCent = rules?.only_cent_account || false;
+      const isCentAccount = onlyCent && account_type === 'real';
+      const displayBalance = isCentAccount ? (vpsBalance / 100) : vpsBalance;
+      const compareBalance = isCentAccount ? (startingBalance * 100) : startingBalance;
 
-          if (!isCentAccount) {
-            // Not a cent account — reject
-            session.step = 'tc_enter_account_number';
-            await ctx.reply(
-              '❌ <b>Only Cent Accounts Allowed</b>\n\n' +
-              'This challenge requires a <b>Cent Account</b> for the real account category.\n\n' +
-              'Your account appears to be a Standard account.\n\n' +
-              '📋 <b>How to create a Cent Account:</b>\n' +
-              '1. Open Exness → My Accounts\n' +
-              '2. Create New Account → Choose "Standard Cent"\n' +
-              '3. Select MT5 platform\n' +
-              '4. Fund the account\n\n' +
-              'Once ready, submit your cent account:',
-              { parse_mode: 'HTML', ...Markup.inlineKeyboard([
-                [Markup.button.callback('📝 Submit Cent Account', `tc_new_real_acct_${session.data.challenge_id}`)],
-              ]) }
-            );
-            return;
-          }
+      // === DEMO ACCOUNT: must be exactly starting balance ===
+      if (account_type === 'demo') {
+        // For demo cent accounts, compare in cent units
+        const expectedBalance = isCentAccount ? (startingBalance * 100) : startingBalance;
+        const tolerance = expectedBalance * 0.01; // 1% tolerance for rounding
+
+        if (Math.abs(vpsBalance - expectedBalance) > tolerance) {
+          session.step = 'tc_enter_account_number';
+          const displayExpected = isCentAccount ? `${startingBalance * 100}¢ ($${startingBalance})` : `$${startingBalance}`;
+          const displayActual = isCentAccount ? `${vpsBalance}¢ ($${(vpsBalance/100).toFixed(2)})` : `$${vpsBalance.toFixed(2)}`;
+          await ctx.reply(
+            `❌ <b>Balance Mismatch</b>\n\n` +
+            `Your demo account balance is <b>${displayActual}</b> but the challenge requires exactly <b>${displayExpected}</b>.\n\n` +
+            `Please set your balance to <b>${displayExpected}</b> and try again.`,
+            { parse_mode: 'HTML' }
+          );
+          return;
         }
 
-        session.step = 'tc_verifying_real_acct';
-        await ctx.reply('✅ <b>MT5 connection verified!</b>\n\n⏳ Verifying account allocation...', { parse_mode: 'HTML' });
-        await this.verifyRealAccount(ctx, telegramId);
-      } else {
-        // Demo — VPS verified, now ask for nickname
-        await ctx.reply('✅ <b>MT5 connection verified!</b>', { parse_mode: 'HTML' });
+        // Demo balance OK
+        session.data.registration_balance = vpsBalance;
+        await ctx.reply('✅ <b>MT5 connection verified!</b> Balance: ' + (isCentAccount ? `${vpsBalance}¢` : `$${vpsBalance.toFixed(2)}`) + ' ✓', { parse_mode: 'HTML' });
         await this.askForNickname(ctx, telegramId);
+        return;
       }
+
+      // === REAL ACCOUNT: flexible balance rules ===
+
+      // Check cent account requirement
+      if (onlyCent) {
+        const isCent = vpsBalance > startingBalance * 5;
+        if (!isCent) {
+          session.step = 'tc_enter_account_number';
+          await ctx.reply(
+            '❌ <b>Only Cent Accounts Allowed</b>\n\n' +
+            'This challenge requires a <b>Cent Account</b> for the real account category.\n\n' +
+            'Your account appears to be a Standard account.\n\n' +
+            '📋 <b>How to create a Cent Account:</b>\n' +
+            '1. Open Exness → My Accounts\n' +
+            '2. Create New Account → Choose "Standard Cent"\n' +
+            '3. Select MT5 platform\n' +
+            '4. Fund the account\n\n' +
+            'Once ready, submit your cent account:',
+            { parse_mode: 'HTML', ...Markup.inlineKeyboard([
+              [Markup.button.callback('📝 Submit Cent Account', `tc_new_real_acct_${session.data.challenge_id}`)],
+            ]) }
+          );
+          return;
+        }
+      }
+
+      // Balance checks for real accounts
+      const effectiveBalance = isCentAccount ? (vpsBalance / 100) : vpsBalance;
+      const balanceDisplay = isCentAccount ? `${vpsBalance}¢ ($${effectiveBalance.toFixed(2)})` : `$${vpsBalance.toFixed(2)}`;
+      const startDisplay = isCentAccount ? `${startingBalance * 100}¢ ($${startingBalance})` : `$${startingBalance}`;
+
+      if (effectiveBalance > startingBalance) {
+        // Balance exceeds starting balance — reject
+        session.step = 'tc_enter_account_number';
+        await ctx.reply(
+          `❌ <b>Balance Too High</b>\n\n` +
+          `Your account balance is <b>${balanceDisplay}</b> which exceeds the starting balance of <b>${startDisplay}</b>.\n\n` +
+          `Please withdraw or transfer funds so your balance is at or below <b>${startDisplay}</b>, then try registering again.\n\n` +
+          `This ensures fair competition for all participants.`,
+          { parse_mode: 'HTML' }
+        );
+        return;
+      } else if (effectiveBalance === 0) {
+        // Zero balance — accept with warning
+        session.data.registration_balance = vpsBalance;
+        await ctx.reply(
+          `✅ <b>MT5 connection verified!</b>\n\n` +
+          `⚠️ Your account balance is <b>$0.00</b>. Please deposit <b>${startDisplay}</b> (or you can start lower) before the challenge begins.`,
+          { parse_mode: 'HTML' }
+        );
+      } else if (effectiveBalance < startingBalance) {
+        // Below starting balance — accept with info
+        session.data.registration_balance = vpsBalance;
+        await ctx.reply(
+          `✅ <b>MT5 connection verified!</b>\n\n` +
+          `ℹ️ Your balance is <b>${balanceDisplay}</b>. The challenge starting balance is <b>${startDisplay}</b>.\n\n` +
+          `You can still participate — the target remains <b>$${targetBalance}</b> regardless of your starting point. If you want to deposit more, do it before the challenge starts. Recharging after the challenge starts is NOT allowed.`,
+          { parse_mode: 'HTML' }
+        );
+      } else {
+        // Exactly starting balance — perfect
+        session.data.registration_balance = vpsBalance;
+        await ctx.reply(
+          `✅ <b>MT5 connection verified!</b> Balance: <b>${balanceDisplay}</b> ✓\n\nYou're all set!`,
+          { parse_mode: 'HTML' }
+        );
+      }
+
+      session.step = 'tc_verifying_real_acct';
+      await ctx.reply('⏳ Verifying account allocation...', { parse_mode: 'HTML' });
+      await this.verifyRealAccount(ctx, telegramId);
       return;
     }
 
