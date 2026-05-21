@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
 export function middleware(request: NextRequest) {
-  const adminPath = process.env.ADMIN_PATH || process.env.NEXT_PUBLIC_ADMIN_PATH;
+  const adminPath = process.env.WINNERPIP_ADMIN_PATH || process.env.ADMIN_PATH || process.env.NEXT_PUBLIC_ADMIN_PATH;
   const pathname = request.nextUrl.pathname;
 
   // Block direct access to /admin/* — return 404
