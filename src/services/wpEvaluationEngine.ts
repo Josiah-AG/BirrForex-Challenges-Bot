@@ -304,7 +304,9 @@ export class WpEvaluationEngine {
       } catch {
         // Column might not exist yet — use starting balance
       }
-      await this.upsertLeaderboard(challengeId, reg, startingBalance, { currentBalance, adjustedBalance: currentBalance, qualifiedProfit: currentBalance - startingBalance, grossProfit: currentBalance - startingBalance, profitRemoved: 0, totalTrades: 0, qualifiedTrades: 0, flaggedTrades: 0, activeDays: 0, isQualified: false, lastTradeTime: null });
+      // No trades = no profit/loss yet (don't show negative just because they haven't deposited)
+      const profit = currentBalance >= startingBalance ? currentBalance - startingBalance : 0;
+      await this.upsertLeaderboard(challengeId, reg, startingBalance, { currentBalance, adjustedBalance: currentBalance, qualifiedProfit: profit, grossProfit: profit, profitRemoved: 0, totalTrades: 0, qualifiedTrades: 0, flaggedTrades: 0, activeDays: 0, isQualified: false, lastTradeTime: null });
       return { flaggedCount: 0, isQualified: false };
     }
 
