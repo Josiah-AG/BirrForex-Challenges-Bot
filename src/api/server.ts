@@ -1305,14 +1305,74 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/failed-accounts`, adminIp
  */
 app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/force-pull`, adminIpCheck, async (req, res) => {
   try {
-    // We can't directly access the vpsPullScheduler instance from here,
-    // but we can trigger it by updating a flag that the scheduler checks
-    // For now, return instructions to use the Telegram /forcepull command
-    return res.json({
-      success: true,
-      message: 'Force pull triggered. Check /pullstatus in Telegram for results.',
-      note: 'The pull cycle runs asynchronously. Results will appear in the pulls tab shortly.',
-    });
+    const botModule = require('../bot/bot');
+    const botInstance = botModule.bot || botModule.default;
+    if (botInstance && botInstance.vpsPullScheduler) {
+      botInstance.vpsPullScheduler.runPullCycle().catch((e: any) => console.error('Force pull error:', e));
+      return res.json({ success: true, message: 'Pull cycle started. Results will appear shortly.' });
+    }
+    return res.json({ success: true, message: 'Pull scheduler not available — use /forcepull in Telegram' });
+  } catch (error) {
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * GET /api/admin/:secretPath/pull-status
+ * Get current pull cycle status (is it running, progress)
+ */
+app.get(`/api/admin/${ADMIN_SECRET_PATH}/pull-status`, adminIpCheck, async (req, res) => {
+  try {
+    // Check if there's a currently running batch
+    const running = await db.query(
+      `SELECT id, challenge_id, total_accounts, started_at FROM wp_pull_batches WHERE status = 'running' ORDER BY started_at DESC LIMIT 1`
+    );
+
+    if (running.rows.length > 0) {
+      const batch = running.rows[0];
+      // Count how many have been processed so far (success + failed since batch started)
+      const processed = await db.query(
+        `SELECT COUNT(*) as cnt FROM trading_registrations WHERE challenge_id = $1 AND last_pull_at >= $2`,
+        [batch.challenge_id, batch.started_at]
+      );
+      const processedCount = parseInt(processed.rows[0].cnt);
+      const elapsed = Math.round((Date.now() - new Date(batch.started_at).getTime()) / 1000);
+
+      return res.json({
+        isRunning: true,
+        batchId: batch.id,
+        totalAccounts: batch.total_accounts,
+        processed: processedCount,
+        percent: batch.total_accounts > 0 ? Math.round((processedCount / batch.total_accounts) * 100) : 0,
+        elapsedSeconds: elapsed,
+        startedAt: batch.started_at,
+      });
+    }
+
+    // Not running — get last completed batch
+    const last = await db.query(
+      `SELECT id, total_accounts, successful, failed, new_trades_found, status, started_at, completed_at FROM wp_pull_batches ORDER BY started_at DESC LIMIT 1`
+    );
+
+    if (last.rows.length > 0) {
+      const b = last.rows[0];
+      return res.json({
+        isRunning: false,
+        lastBatch: {
+          id: b.id,
+          totalAccounts: b.total_accounts,
+          successful: b.successful,
+          failed: b.failed,
+          newTrades: b.new_trades_found,
+          status: b.status,
+          startedAt: b.started_at,
+          completedAt: b.completed_at,
+          durationSec: b.completed_at ? Math.round((new Date(b.completed_at).getTime() - new Date(b.started_at).getTime()) / 1000) : null,
+        },
+      });
+    }
+
+    return res.json({ isRunning: false, lastBatch: null });
   } catch (error) {
     return res.status(500).json({ error: 'Internal server error' });
   }

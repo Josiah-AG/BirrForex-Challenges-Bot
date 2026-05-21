@@ -1475,13 +1475,54 @@ function PullsTab({ challengeId, pullHistory, terminalStatus }: { challengeId: s
   };
 
   const handleForcePull = async () => {
-    setActionMsg("⏳ Force pull triggered...");
+    setActionMsg("⏳ Starting pull cycle...");
     try {
       const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/force-pull`, { method: "POST" });
-      if (res.ok) { const data = await res.json(); setActionMsg(`✅ ${data.message}`); }
+      if (res.ok) { const data = await res.json(); setActionMsg(`✅ ${data.message}`); startPolling(); }
       else setActionMsg("❌ Failed to trigger pull");
     } catch { setActionMsg("❌ Connection error"); }
   };
+
+  // Poll pull status for progress bar
+  const [pullProgress, setPullProgress] = useState<any>(null);
+  const [polling, setPolling] = useState(false);
+
+  const startPolling = () => {
+    setPolling(true);
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`${apiUrl}/api/admin/${secretPath}/pull-status`);
+        if (res.ok) {
+          const data = await res.json();
+          setPullProgress(data);
+          if (!data.isRunning) {
+            clearInterval(interval);
+            setPolling(false);
+            fetchFailed();
+            // Refresh pull history
+            setTimeout(() => window.location.reload(), 1000);
+          }
+        }
+      } catch {}
+    }, 3000); // Poll every 3 seconds
+    // Also do an immediate check
+    fetch(`${apiUrl}/api/admin/${secretPath}/pull-status`).then(r => r.json()).then(d => setPullProgress(d)).catch(() => {});
+  };
+
+  // Check if a pull is already running on mount
+  useEffect(() => {
+    const checkRunning = async () => {
+      try {
+        const res = await fetch(`${apiUrl}/api/admin/${secretPath}/pull-status`);
+        if (res.ok) {
+          const data = await res.json();
+          setPullProgress(data);
+          if (data.isRunning) startPolling();
+        }
+      } catch {}
+    };
+    checkRunning();
+  }, []);
 
   const handleRetryAccount = async (regId: number) => {
     setRetrying(String(regId));
@@ -1545,6 +1586,33 @@ function PullsTab({ challengeId, pullHistory, terminalStatus }: { challengeId: s
         </div>
         {actionMsg && <p className={`text-xs mt-3 font-semibold ${actionMsg.startsWith("✅") ? "text-profit" : actionMsg.startsWith("⏳") ? "text-gold" : "text-loss"}`}>{actionMsg}</p>}
       </div>
+
+      {/* Pull Progress Bar */}
+      {pullProgress?.isRunning && (
+        <div className="glass rounded-2xl border border-royal/20 p-5">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-white flex items-center gap-2"><Loader2 size={16} className="text-royal animate-spin" /> Pull In Progress</h3>
+            <span className="text-xs text-gray-400">{pullProgress.elapsedSeconds}s elapsed</span>
+          </div>
+          <div className="w-full h-3 bg-white/10 rounded-full overflow-hidden mb-2">
+            <div className="h-full rounded-full bg-gradient-to-r from-royal to-profit transition-all duration-1000" style={{ width: `${pullProgress.percent || 0}%` }} />
+          </div>
+          <div className="flex items-center justify-between text-xs text-gray-400">
+            <span>{pullProgress.processed || 0} / {pullProgress.totalAccounts || 0} accounts</span>
+            <span className="text-royal font-semibold">{pullProgress.percent || 0}%</span>
+          </div>
+        </div>
+      )}
+
+      {/* Last Completed Pull Summary */}
+      {pullProgress && !pullProgress.isRunning && pullProgress.lastBatch && (
+        <div className="glass rounded-2xl border border-profit/20 p-4">
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-profit font-semibold">✅ Last pull: {pullProgress.lastBatch.successful}✓ {pullProgress.lastBatch.failed}✗ — {pullProgress.lastBatch.newTrades} new trades — {pullProgress.lastBatch.durationSec}s</p>
+            <p className="text-[10px] text-gray-500">{pullProgress.lastBatch.completedAt ? new Date(new Date(pullProgress.lastBatch.completedAt).getTime() + 3*60*60*1000).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }) + " EAT" : ""}</p>
+          </div>
+        </div>
+      )}
 
       {/* Failed Accounts List */}
       {failedAccounts.length > 0 && (
