@@ -19,7 +19,14 @@ function discordAuth(req: Request, res: Response, next: any) {
   if (!DISCORD_API_KEY) {
     return res.status(503).json({ error: 'Discord API not configured' });
   }
-  if (!apiKey || apiKey !== DISCORD_API_KEY) {
+  if (!apiKey || apiKey.length !== DISCORD_API_KEY.length) {
+    return res.status(401).json({ error: 'Invalid API key' });
+  }
+  // Timing-safe comparison
+  const crypto = require('crypto');
+  const keyBuffer = Buffer.from(apiKey);
+  const expectedBuffer = Buffer.from(DISCORD_API_KEY);
+  if (!crypto.timingSafeEqual(keyBuffer, expectedBuffer)) {
     return res.status(401).json({ error: 'Invalid API key' });
   }
   next();

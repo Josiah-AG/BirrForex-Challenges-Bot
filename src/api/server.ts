@@ -77,12 +77,13 @@ function adminIpCheck(req: any, res: any, next: any) {
     || '';
   const normalizedIp = String(clientIp).replace('::ffff:', '').trim();
 
+  // Strict equality check (no substring matching)
   const allowed = ADMIN_WHITELISTED_IPS.some(whitelistedIp => 
-    normalizedIp === whitelistedIp || normalizedIp.includes(whitelistedIp)
+    normalizedIp === whitelistedIp
   );
 
   if (!allowed) {
-    console.log(`🚫 Admin access denied from IP: ${normalizedIp} (whitelist: ${ADMIN_WHITELISTED_IPS.join(', ')})`);
+    console.log(`🚫 Admin access denied from IP: ${normalizedIp}`);
     return res.status(403).json({ error: 'Access denied' });
   }
   next();
@@ -503,7 +504,7 @@ function authMiddleware(req: any, res: any, next: any) {
 
 // ==================== TOKEN HELPERS ====================
 
-const TOKEN_SECRET = process.env.WINNERPIP_TOKEN_SECRET || config.botToken; // Use bot token as fallback secret
+const TOKEN_SECRET = process.env.WINNERPIP_TOKEN_SECRET || process.env.BOT_TOKEN || 'change-this-secret-in-production';
 const TOKEN_EXPIRY_HOURS = 72; // 3 days
 
 function generateToken(registrationId: number, telegramId: number): string {
