@@ -321,24 +321,24 @@ export default function AdminDashboard() {
 
       {/* Header */}
       <header className="glass sticky top-0 z-40 border-b border-white/5">
-        <div className="container mx-auto px-4 py-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <Image src="/winnerpip-icon.png" alt="WinnerPip" width={32} height={32} className="rounded-lg" />
-              <div>
-                <select value={selectedChallengeId} onChange={(e) => setSelectedChallengeId(e.target.value)} className="bg-transparent text-sm font-bold text-white border-none outline-none cursor-pointer">
+        <div className="container mx-auto px-3 sm:px-4 py-2 sm:py-3">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+              <Image src="/winnerpip-icon.png" alt="WinnerPip" width={28} height={28} className="rounded-lg flex-shrink-0" />
+              <div className="min-w-0">
+                <select value={selectedChallengeId} onChange={(e) => setSelectedChallengeId(e.target.value)} className="bg-transparent text-xs sm:text-sm font-bold text-white border-none outline-none cursor-pointer max-w-[140px] sm:max-w-none truncate">
                   {challenges.length > 0 ? challenges.map(c => (
                     <option key={c.id} value={String(c.id)} className="bg-[#0f1629] text-white">{c.title} ({c.status})</option>
                   )) : <option value="5" className="bg-[#0f1629]">Challenge 15</option>}
                 </select>
-                <p className="text-xs text-royal font-semibold">ADMIN PANEL</p>
+                <p className="text-[10px] sm:text-xs text-royal font-semibold">ADMIN PANEL</p>
               </div>
-              <button onClick={() => setActiveSection("create")} className="ml-2 px-3 py-1.5 rounded-lg bg-profit/20 border border-profit/30 text-profit text-xs font-bold hover:bg-profit/30 transition-all">+ New</button>
+              <button onClick={() => setActiveSection("create")} className="px-2 sm:px-3 py-1.5 rounded-lg bg-profit/20 border border-profit/30 text-profit text-[10px] sm:text-xs font-bold hover:bg-profit/30 transition-all flex-shrink-0">+ New</button>
             </div>
-            <div className="flex items-center gap-2">
-              <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${challenge.status === "active" ? "bg-profit/20 text-profit border-profit/30" : "bg-white/10 text-gray-300 border-white/20"}`}>● {challenge.status}</span>
-              <span className="text-xs text-gray-500">{overview.totalParticipants} users</span>
-              <button onClick={() => { localStorage.removeItem("wp_admin_key"); window.location.reload(); }} title="Logout" className="p-1.5 rounded-lg hover:bg-loss/20 text-gray-400 hover:text-loss transition-all ml-2">
+            <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
+              <span className={`hidden sm:inline px-3 py-1 rounded-full text-xs font-semibold border ${challenge.status === "active" ? "bg-profit/20 text-profit border-profit/30" : "bg-white/10 text-gray-300 border-white/20"}`}>● {challenge.status}</span>
+              <span className="text-xs text-gray-500">{overview.totalParticipants} <span className="hidden sm:inline">users</span></span>
+              <button onClick={() => { localStorage.removeItem("wp_admin_key"); window.location.reload(); }} title="Logout" className="p-1.5 rounded-lg hover:bg-loss/20 text-gray-400 hover:text-loss transition-all">
                 <LogOut size={14} />
               </button>
             </div>
@@ -347,23 +347,23 @@ export default function AdminDashboard() {
       </header>
 
       <div className="container mx-auto px-4 py-6 max-w-7xl relative">
-        {/* NAV TABS */}
-        <div className="flex gap-1 p-1 glass rounded-xl border border-white/10 mb-6 overflow-x-auto">
+        {/* NAV TABS — scrollable on mobile with scroll indicator */}
+        <div className="flex gap-1 p-1 glass rounded-xl border border-white/10 mb-6 overflow-x-auto scrollbar-hide">
           {(["overview", "participants", "leaderboard", "violations", "pulls", "screening", "rules", "settings", "health"] as const).map(tab => (
-            <button key={tab} onClick={() => setActiveSection(tab)} className={`flex-shrink-0 py-2.5 px-4 rounded-lg text-sm font-semibold transition-all capitalize ${activeSection === tab ? "bg-royal/20 text-royal border border-royal/30" : "text-gray-400 hover:text-white hover:bg-white/5"}`}>{tab === "health" ? "⚡ Health" : tab}</button>
+            <button key={tab} onClick={() => setActiveSection(tab)} className={`flex-shrink-0 py-2 px-3 sm:px-4 rounded-lg text-xs sm:text-sm font-semibold transition-all capitalize ${activeSection === tab ? "bg-royal/20 text-royal border border-royal/30" : "text-gray-400 hover:text-white hover:bg-white/5"}`}>{tab === "health" ? "⚡" : tab}</button>
           ))}
         </div>
 
         {/* ==================== OVERVIEW ==================== */}
         {activeSection === "overview" && (<>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 mb-6">
             <StatCard icon={<Users size={16} />} label="Participants" value={overview.totalParticipants.toLocaleString()} sub={`Demo: ${overview.demoParticipants} | Real: ${overview.realParticipants}`} color="text-royal" />
             <StatCard icon={<Activity size={16} />} label="Total Trades" value={overview.totalTrades.toLocaleString()} sub={`Avg ${overview.avgTradesPerUser}/user • ${overview.totalVolume} lots`} color="text-white" />
             <StatCard icon={<AlertTriangle size={16} />} label="Violations" value={overview.totalViolations.toString()} sub={`${overview.violationRate}% violation rate`} color="text-loss" />
             <StatCard icon={<Trophy size={16} />} label="Above Target" value={overview.aboveTarget.toString()} sub={`${((overview.aboveTarget / overview.totalParticipants) * 100).toFixed(1)}% qualified`} color="text-gold" />
           </div>
 
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 mb-6">
             <StatCard icon={<Target size={16} />} label="Avg Balance" value={`$${overview.avgBalance}`} sub={`Median: $${overview.medianBalance}`} color="text-profit" />
             <StatCard icon={<Zap size={16} />} label="Pulls Today" value={overview.pullsToday.toString()} sub={`Next: ${overview.nextPullTime}`} color="text-royal" />
             <StatCard icon={<Shield size={16} />} label="Pull Success" value={overview.pullsSuccess.toString()} sub={`Failed: ${overview.pullsFailed} | PW Changed: ${overview.passwordChanged}`} color="text-profit" />
@@ -933,10 +933,10 @@ export default function AdminDashboard() {
 
 function StatCard({ icon, label, value, sub, color }: { icon: React.ReactNode; label: string; value: string; sub: string; color: string }) {
   return (
-    <div className="glass rounded-2xl p-4 border border-white/10">
-      <div className={`flex items-center gap-2 mb-2 ${color}`}>{icon}<p className="text-[10px] text-gray-400 uppercase tracking-wider font-medium">{label}</p></div>
-      <p className={`text-2xl md:text-3xl font-bold ${color}`}>{value}</p>
-      <p className="text-[10px] text-gray-500 mt-1">{sub}</p>
+    <div className="glass rounded-xl sm:rounded-2xl p-3 sm:p-4 border border-white/10">
+      <div className={`flex items-center gap-1.5 mb-1.5 ${color}`}>{icon}<p className="text-[9px] sm:text-[10px] text-gray-400 uppercase tracking-wider font-medium">{label}</p></div>
+      <p className={`text-lg sm:text-2xl md:text-3xl font-bold ${color} truncate`}>{value}</p>
+      <p className="text-[9px] sm:text-[10px] text-gray-500 mt-1 truncate">{sub}</p>
     </div>
   );
 }
@@ -1232,16 +1232,16 @@ function CreateChallengePanel({ onCreated }: { onCreated: (id: number) => void }
           <div>
             <h3 className="text-xl font-bold text-white mb-2">Create New Challenge</h3>
             <p className="text-sm text-gray-400 mb-6">Choose where this challenge will be announced</p>
-            <div className="grid grid-cols-2 gap-4 mb-6">
-              <button onClick={() => setForm({ ...form, source: "telegram", team_only: false })} className={`p-5 rounded-xl border text-center transition-all ${form.source === "telegram" && !form.team_only ? "border-royal bg-royal/10" : "border-white/20 hover:border-white/30"}`}>
+            <div className="grid grid-cols-2 gap-3 sm:gap-4 mb-6">
+              <button onClick={() => setForm({ ...form, source: "telegram", team_only: false })} className={`p-4 sm:p-5 rounded-xl border text-center transition-all ${form.source === "telegram" && !form.team_only ? "border-royal bg-royal/10" : "border-white/20 hover:border-white/30"}`}>
                 <p className="text-2xl mb-2">📱</p>
-                <p className="text-white font-bold text-sm">Telegram</p>
-                <p className="text-[10px] text-gray-500 mt-1">Public challenge</p>
+                <p className="text-white font-bold text-xs sm:text-sm">Telegram</p>
+                <p className="text-[10px] text-gray-500 mt-1">Public</p>
               </button>
-              <button onClick={() => setForm({ ...form, source: "discord", team_only: true })} className={`p-5 rounded-xl border text-center transition-all ${form.source === "discord" ? "border-gold bg-gold/10" : "border-white/20 hover:border-white/30"}`}>
+              <button onClick={() => setForm({ ...form, source: "discord", team_only: true })} className={`p-4 sm:p-5 rounded-xl border text-center transition-all ${form.source === "discord" ? "border-gold bg-gold/10" : "border-white/20 hover:border-white/30"}`}>
                 <p className="text-2xl mb-2">🎮</p>
-                <p className="text-white font-bold text-sm">Discord Team</p>
-                <p className="text-[10px] text-gray-500 mt-1">Team-only challenge</p>
+                <p className="text-white font-bold text-xs sm:text-sm">Discord</p>
+                <p className="text-[10px] text-gray-500 mt-1">Team-only</p>
               </button>
             </div>
             <button onClick={() => setStep(2)} className="w-full py-3 rounded-xl bg-gradient-brand text-white font-semibold hover:opacity-90 transition-all">Continue</button>
@@ -1261,7 +1261,7 @@ function CreateChallengePanel({ onCreated }: { onCreated: (id: number) => void }
                   <option value="real" className="bg-[#0f1629]">Real Only</option>
                 </select>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div><label className="text-xs text-gray-400 font-medium mb-1 block">Start Date & Time (EAT) *</label><input type="datetime-local" value={form.start_date} onChange={e => setForm({...form, start_date: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
                 <div><label className="text-xs text-gray-400 font-medium mb-1 block">End Date & Time (EAT) *</label><input type="datetime-local" value={form.end_date} onChange={e => setForm({...form, end_date: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
               </div>
@@ -1476,7 +1476,7 @@ function ChallengeSettingsPanel({ challengeId, challenges, onRefresh }: { challe
               <option value="real" className="bg-[#0f1629]">Real</option>
             </select>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div><label className="text-xs text-gray-400 font-medium mb-1 block">Start (EAT)</label><input type="datetime-local" value={editForm.start_date} onChange={e => setEditForm({...editForm, start_date: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
             <div><label className="text-xs text-gray-400 font-medium mb-1 block">End (EAT)</label><input type="datetime-local" value={editForm.end_date} onChange={e => setEditForm({...editForm, end_date: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
           </div>
@@ -1491,13 +1491,13 @@ function ChallengeSettingsPanel({ challengeId, challenges, onRefresh }: { challe
         {/* Status Actions */}
         <div className="border-t border-white/10 pt-5">
           <p className="text-xs text-gray-400 font-semibold mb-3 uppercase tracking-wider">Status Actions</p>
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-            <button onClick={() => handleStatusChange("registration_open")} className="p-2.5 rounded-lg bg-profit/10 border border-profit/30 text-profit text-xs font-semibold hover:bg-profit/20 transition-all">Open Registration</button>
-            <button onClick={() => handleStatusChange("active")} className="p-2.5 rounded-lg bg-gold/10 border border-gold/30 text-gold text-xs font-semibold hover:bg-gold/20 transition-all">Start Challenge</button>
-            <button onClick={() => handleStatusChange("reviewing")} className="p-2.5 rounded-lg bg-royal/10 border border-royal/30 text-royal text-xs font-semibold hover:bg-royal/20 transition-all">End → Review</button>
-            <button onClick={() => handleStatusChange("completed")} className="p-2.5 rounded-lg bg-white/5 border border-white/10 text-gray-300 text-xs font-semibold hover:bg-white/10 transition-all">Mark Completed</button>
-            <button onClick={handleAnnounce} className="p-2.5 rounded-lg bg-royal/10 border border-royal/30 text-royal text-xs font-semibold hover:bg-royal/20 transition-all">📢 Announce</button>
-            <button onClick={handleExport} className="p-2.5 rounded-lg bg-white/5 border border-white/10 text-gray-300 text-xs font-semibold hover:bg-white/10 transition-all">📥 Export CSV</button>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            <button onClick={() => handleStatusChange("registration_open")} className="p-2 sm:p-2.5 rounded-lg bg-profit/10 border border-profit/30 text-profit text-[10px] sm:text-xs font-semibold hover:bg-profit/20 transition-all">Open Reg</button>
+            <button onClick={() => handleStatusChange("active")} className="p-2 sm:p-2.5 rounded-lg bg-gold/10 border border-gold/30 text-gold text-[10px] sm:text-xs font-semibold hover:bg-gold/20 transition-all">Start</button>
+            <button onClick={() => handleStatusChange("reviewing")} className="p-2 sm:p-2.5 rounded-lg bg-royal/10 border border-royal/30 text-royal text-[10px] sm:text-xs font-semibold hover:bg-royal/20 transition-all">End → Review</button>
+            <button onClick={() => handleStatusChange("completed")} className="p-2 sm:p-2.5 rounded-lg bg-white/5 border border-white/10 text-gray-300 text-[10px] sm:text-xs font-semibold hover:bg-white/10 transition-all">Completed</button>
+            <button onClick={handleAnnounce} className="p-2 sm:p-2.5 rounded-lg bg-royal/10 border border-royal/30 text-royal text-[10px] sm:text-xs font-semibold hover:bg-royal/20 transition-all">📢 Announce</button>
+            <button onClick={handleExport} className="p-2 sm:p-2.5 rounded-lg bg-white/5 border border-white/10 text-gray-300 text-[10px] sm:text-xs font-semibold hover:bg-white/10 transition-all">📥 Export</button>
           </div>
         </div>
 
@@ -1507,7 +1507,7 @@ function ChallengeSettingsPanel({ challengeId, challenges, onRefresh }: { challe
           {!confirmDelete ? (
             <button onClick={() => setConfirmDelete(true)} className="px-4 py-2.5 rounded-lg bg-loss/10 border border-loss/30 text-loss text-xs font-semibold hover:bg-loss/20 transition-all">🗑️ Delete Challenge</button>
           ) : (
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-2 sm:gap-3">
               <p className="text-xs text-loss">Are you sure? This cannot be undone.</p>
               <button onClick={handleDelete} className="px-4 py-2 rounded-lg bg-loss text-white text-xs font-bold">Yes, Delete</button>
               <button onClick={() => setConfirmDelete(false)} className="px-4 py-2 rounded-lg bg-white/10 text-gray-300 text-xs font-semibold">Cancel</button>
