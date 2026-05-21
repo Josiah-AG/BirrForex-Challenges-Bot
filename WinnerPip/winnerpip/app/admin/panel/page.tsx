@@ -10,6 +10,12 @@ export default function AdminDashboard() {
   const [selectedChallengeId, setSelectedChallengeId] = useState<string>("5");
   const [isAdmin, setIsAdmin] = useState(false);
   const [adminPass, setAdminPass] = useState("");
+  const [adminPath, setAdminPath] = useState("");
+
+  // Fetch admin path from server-side (not exposed in JS bundle)
+  useEffect(() => {
+    fetch("/api/admin-config").then(r => r.json()).then(d => { setAdminPath(d.path || ""); if (typeof window !== "undefined") (window as any).__adminPath = d.path || ""; }).catch(() => {});
+  }, []);
   const [loginError, setLoginError] = useState("");
   const [loginLoading, setLoginLoading] = useState(false);
   const [activeSection, setActiveSection] = useState<"overview" | "leaderboard" | "violations" | "pulls" | "screening" | "participants" | "rules" | "health" | "create" | "settings">("overview");
@@ -52,7 +58,7 @@ export default function AdminDashboard() {
   const handleAdminLogin = async () => {
     setLoginError(""); setLoginLoading(true);
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
-    const secretPath = process.env.NEXT_PUBLIC_ADMIN_PATH || "";
+    const secretPath = (typeof window !== "undefined" ? (window as any).__adminPath : "") || "";
     try {
       const res = await fetch(`${apiUrl}/api/admin/${secretPath}/login`, {
         method: "POST",
@@ -82,7 +88,7 @@ export default function AdminDashboard() {
     const fetchChallenges = async () => {
       try {
         const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
-        const secretPath = process.env.NEXT_PUBLIC_ADMIN_PATH || "";
+        const secretPath = (typeof window !== "undefined" ? (window as any).__adminPath : "") || "";
         const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenges`);
         if (res.ok) {
           const data = await res.json();
@@ -102,7 +108,7 @@ export default function AdminDashboard() {
     const fetchOverview = async () => {
       try {
         const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
-        const secretPath = process.env.NEXT_PUBLIC_ADMIN_PATH || "";
+        const secretPath = (typeof window !== "undefined" ? (window as any).__adminPath : "") || "";
         const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${selectedChallengeId}/overview`);
         if (res.ok) {
           const data = await res.json();
@@ -120,7 +126,7 @@ export default function AdminDashboard() {
       setParticipantsLoading(true);
       try {
         const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
-        const secretPath = process.env.NEXT_PUBLIC_ADMIN_PATH || "";
+        const secretPath = (typeof window !== "undefined" ? (window as any).__adminPath : "") || "";
         const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${selectedChallengeId}/participants?page=${participantsPage}`);
         if (res.ok) {
           const data = await res.json();
@@ -144,7 +150,7 @@ export default function AdminDashboard() {
     setActionLoading(true);
     setActionResult("");
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
-    const secretPath = process.env.NEXT_PUBLIC_ADMIN_PATH || "";
+    const secretPath = (typeof window !== "undefined" ? (window as any).__adminPath : "") || "";
 
     try {
       let endpoint = "";
@@ -180,7 +186,7 @@ export default function AdminDashboard() {
     if (!q) return;
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
-      const secretPath = process.env.NEXT_PUBLIC_ADMIN_PATH || "";
+      const secretPath = (typeof window !== "undefined" ? (window as any).__adminPath : "") || "";
       const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${selectedChallengeId}/finduser?q=${encodeURIComponent(q)}`);
       if (res.ok) {
         const data = await res.json();
@@ -235,7 +241,7 @@ export default function AdminDashboard() {
     const fetchPulls = async () => {
       try {
         const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
-        const secretPath = process.env.NEXT_PUBLIC_ADMIN_PATH || "";
+        const secretPath = (typeof window !== "undefined" ? (window as any).__adminPath : "") || "";
         const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${selectedChallengeId}/pulls`);
         if (res.ok) {
           const data = await res.json();
@@ -269,7 +275,7 @@ export default function AdminDashboard() {
     const fetchScreening = async () => {
       try {
         const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
-        const secretPath = process.env.NEXT_PUBLIC_ADMIN_PATH || "";
+        const secretPath = (typeof window !== "undefined" ? (window as any).__adminPath : "") || "";
         const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${selectedChallengeId}/screening`);
         if (res.ok) {
           const data = await res.json();
@@ -549,8 +555,8 @@ export default function AdminDashboard() {
                           <td className="py-2 px-3 text-xs text-gray-400 max-w-[120px] truncate">{p.email || "—"}</td>
                           <td className="py-2 px-3 text-xs text-gray-300">{p.accountNumber}</td>
                           <td className="py-2 px-3"><span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${p.accountType === "real" ? "bg-gold/10 text-gold" : "bg-royal/10 text-royal"}`}>{p.accountType}</span></td>
-                          <td className="py-2 px-3 text-right text-sm text-white">{p.balance != null ? `$${p.balance.toFixed(2)}` : "—"}</td>
-                          <td className={`py-2 px-3 text-right text-sm font-medium ${(p.qualifiedProfit || 0) >= 0 ? "text-profit" : "text-loss"}`}>{p.qualifiedProfit != null ? `$${p.qualifiedProfit.toFixed(2)}` : "—"}</td>
+                          <td className="py-2 px-3 text-right"><span className="text-sm text-white">{p.balance != null ? `$${Number(p.balance).toFixed(2)}` : "—"}</span>{p.lastPullAt && <p className="text-[9px] text-gray-500">{(() => { const d = new Date(new Date(p.lastPullAt).getTime() + 3*60*60*1000); return `${String(d.getUTCHours()).padStart(2,"0")}:${String(d.getUTCMinutes()).padStart(2,"0")} EAT`; })()}</p>}</td>
+                          <td className={`py-2 px-3 text-right text-sm font-medium ${(p.qualifiedProfit ?? 0) >= 0 ? "text-profit" : "text-loss"}`}>{p.qualifiedProfit != null ? `$${Number(p.qualifiedProfit).toFixed(2)}` : "—"}</td>
                           <td className="py-2 px-3 text-center text-xs text-gray-400">{p.totalTrades}</td>
                           <td className="py-2 px-3 text-center">
                             <div className="flex items-center justify-center gap-1">
@@ -934,7 +940,7 @@ function HealthCheckPanel() {
     setError("");
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
-      const secretPath = process.env.NEXT_PUBLIC_ADMIN_PATH || "";
+      const secretPath = (typeof window !== "undefined" ? (window as any).__adminPath : "") || "";
       const res = await fetch(`${apiUrl}/api/admin/${secretPath}/vps-health`);
       if (res.ok) {
         const data = await res.json();
@@ -1160,7 +1166,7 @@ function CreateChallengePanel({ onCreated }: { onCreated: (id: number) => void }
   const handleCreate = async () => {
     setSaving(true); setError("");
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
-    const secretPath = process.env.NEXT_PUBLIC_ADMIN_PATH || "";
+    const secretPath = (typeof window !== "undefined" ? (window as any).__adminPath : "") || "";
     try {
       const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenges`, {
         method: "POST",
@@ -1369,7 +1375,7 @@ function ChallengeSettingsPanel({ challengeId, challenges, onRefresh }: { challe
   });
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
-  const secretPath = process.env.NEXT_PUBLIC_ADMIN_PATH || "";
+  const secretPath = (typeof window !== "undefined" ? (window as any).__adminPath : "") || "";
 
   const handleSave = async () => {
     setSaving(true); setMsg("");
@@ -1522,7 +1528,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus }: { challengeId: s
   };
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
-  const secretPath = process.env.NEXT_PUBLIC_ADMIN_PATH || "";
+  const secretPath = (typeof window !== "undefined" ? (window as any).__adminPath : "") || "";
 
   const fetchFailed = async () => {
     setLoadingFailed(true);
@@ -1737,7 +1743,10 @@ function PullsTab({ challengeId, pullHistory, terminalStatus }: { challengeId: s
       {/* Pull History Table */}
       {pullHistory.length > 0 && (
         <div className="glass rounded-2xl border border-white/10 overflow-hidden">
-          <div className="p-4 border-b border-white/5"><h3 className="text-sm font-semibold text-white flex items-center gap-2"><Clock size={16} className="text-royal" /> Pull Batch History</h3></div>
+          <div className="p-4 border-b border-white/5 flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-white flex items-center gap-2"><Clock size={16} className="text-royal" /> Pull Batch History</h3>
+            <span className="text-[10px] text-gray-400">Next pull: <span className="text-royal font-semibold">{(() => { const now = new Date(Date.now() + 3*60*60*1000); const h = now.getUTCHours(); const schedule = [2,6,10,14,18,22]; const next = schedule.find(s => s > h) || schedule[0]; return `${String(next).padStart(2,"0")}:00 EAT`; })()}</span></span>
+          </div>
           <div className="overflow-x-auto">
             <table className="w-full min-w-[500px]">
               <thead><tr className="border-b border-white/5">
@@ -1778,7 +1787,7 @@ function VerifyButton({ challengeId, registrationId, onResult }: { challengeId: 
   const handleVerify = async () => {
     setChecking(true);
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
-    const secretPath = process.env.NEXT_PUBLIC_ADMIN_PATH || "";
+    const secretPath = (typeof window !== "undefined" ? (window as any).__adminPath : "") || "";
     try {
       const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/verify-account`, {
         method: "POST", headers: { "Content-Type": "application/json" },
