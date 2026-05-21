@@ -1625,6 +1625,54 @@ app.post('/api/me/update-password', authMiddleware, async (req: any, res) => {
   }
 });
 
+/**
+ * POST /api/admin/:secretPath/challenge/:id/verify-account
+ * Check if stored credentials still work for a participant
+ * Body: { registrationId }
+ */
+app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/verify-account`, adminIpCheck, async (req, res) => {
+  try {
+    const challengeId = parseInt(req.params.id);
+    const { registrationId } = req.body;
+    if (!registrationId) return res.status(400).json({ error: 'registrationId required' });
+
+    const regResult = await db.query(
+      `SELECT account_number, mt5_server, investor_password FROM trading_registrations WHERE id = $1 AND challenge_id = $2`,
+      [registrationId, challengeId]
+    );
+    if (regResult.rows.length === 0) return res.status(404).json({ error: 'Registration not found' });
+
+    const reg = regResult.rows[0];
+    const vpsUrl = config.vpsApiUrl;
+    const vpsKey = config.vpsApiKey;
+
+    if (!vpsUrl || !vpsKey) {
+      return res.json({ verified: false, error: 'VPS not configured' });
+    }
+
+    try {
+      const axios = require('axios');
+      const verifyRes = await axios.post(`${vpsUrl}/verify`, {
+        account: reg.account_number, server: reg.mt5_server, password: reg.investor_password, api_key: vpsKey,
+      }, { timeout: 15000 });
+
+      if (verifyRes.data?.success) {
+        await db.query(
+          `UPDATE trading_registrations SET connection_verified = true, connection_verified_at = NOW() WHERE id = $1`,
+          [registrationId]
+        );
+        return res.json({ verified: true, balance: verifyRes.data.balance, equity: verifyRes.data.equity });
+      } else {
+        return res.json({ verified: false, error: verifyRes.data?.message || 'Connection failed' });
+      }
+    } catch (err: any) {
+      return res.json({ verified: false, error: err.message || 'VPS unreachable' });
+    }
+  } catch (error) {
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // ==================== DISCORD BOT API ====================
 
 app.use('/api/discord', discordRoutes);

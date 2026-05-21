@@ -549,6 +549,7 @@ export default function AdminDashboard() {
                           <td className="py-2 px-3 text-center text-xs text-gray-400">{p.totalTrades}</td>
                           <td className="py-2 px-3 text-center">
                             <div className="flex items-center justify-center gap-1">
+                              <VerifyButton challengeId={selectedChallengeId} registrationId={p.id} />
                               <button onClick={() => setActionModal({ type: 'unverify', participant: p })} title="Remove Registration" className="p-1.5 rounded-lg hover:bg-orange-500/20 text-gray-400 hover:text-orange-400 transition-all"><UserMinus size={14} /></button>
                               {!p.disqualified && <button onClick={() => setActionModal({ type: 'disqualify', participant: p })} title="Disqualify" className="p-1.5 rounded-lg hover:bg-loss/20 text-gray-400 hover:text-loss transition-all"><Ban size={14} /></button>}
                             </div>
@@ -1677,5 +1678,44 @@ function PullsTab({ challengeId, pullHistory, terminalStatus }: { challengeId: s
         </div>
       )}
     </div>
+  );
+}
+
+function VerifyButton({ challengeId, registrationId }: { challengeId: string; registrationId: number }) {
+  const [status, setStatus] = useState<"idle" | "checking" | "ok" | "fail">("idle");
+  const [detail, setDetail] = useState("");
+
+  const handleVerify = async () => {
+    setStatus("checking");
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
+    const secretPath = process.env.NEXT_PUBLIC_ADMIN_PATH || "";
+    try {
+      const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/verify-account`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ registrationId }),
+      });
+      const data = await res.json();
+      if (data.verified) {
+        setStatus("ok");
+        setDetail(data.balance ? `$${data.balance}` : "✓");
+      } else {
+        setStatus("fail");
+        setDetail(data.error || "Failed");
+      }
+    } catch {
+      setStatus("fail");
+      setDetail("Error");
+    }
+    setTimeout(() => { setStatus("idle"); setDetail(""); }, 5000);
+  };
+
+  if (status === "checking") return <span className="p-1.5 text-royal"><Loader2 size={14} className="animate-spin" /></span>;
+  if (status === "ok") return <span className="p-1.5 text-profit text-[10px] font-bold" title={detail}>✅</span>;
+  if (status === "fail") return <span className="p-1.5 text-loss text-[10px] font-bold cursor-pointer" title={detail} onClick={handleVerify}>❌</span>;
+
+  return (
+    <button onClick={handleVerify} title="Verify Connection" className="p-1.5 rounded-lg hover:bg-profit/20 text-gray-400 hover:text-profit transition-all">
+      <Shield size={14} />
+    </button>
   );
 }
