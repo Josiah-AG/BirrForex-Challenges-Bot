@@ -551,8 +551,16 @@ export class TradingRegistrationHandler {
         const acctNum = text.trim();
         if (!/^\d+$/.test(acctNum)) { await ctx.reply('❌ Account number must be numeric. Try again:'); return; }
         session.data.account_number = acctNum;
-        // No double-entry needed — VPS login will validate the account
-        await this.showServerButtons(ctx, telegramId);
+
+        // For real accounts: verify allocation BEFORE asking for server/password
+        if (session.data.account_type === 'real') {
+          session.step = 'tc_verifying_real_acct_early';
+          await ctx.reply('⏳ <b>Verifying account allocation...</b>', { parse_mode: 'HTML' });
+          await this.verifyRealAccountEarly(ctx, telegramId);
+        } else {
+          // Demo accounts skip allocation check — go straight to server
+          await this.showServerButtons(ctx, telegramId);
+        }
         break;
       }
 
@@ -945,9 +953,8 @@ export class TradingRegistrationHandler {
         );
       }
 
-      session.step = 'tc_verifying_real_acct';
-      await ctx.reply('⏳ Verifying account allocation...', { parse_mode: 'HTML' });
-      await this.verifyRealAccount(ctx, telegramId);
+      // Allocation already verified early — go straight to nickname
+      await this.askForNickname(ctx, telegramId);
       return;
     }
 
@@ -990,14 +997,9 @@ export class TradingRegistrationHandler {
       case 'api_error':
       default:
         // VPS API is down — proceed without verification (graceful degradation)
+        // Allocation was already verified early, so just go to nickname
         console.log('VPS API error during registration, proceeding without verification:', result.message);
-        if (account_type === 'real') {
-          session.step = 'tc_verifying_real_acct';
-          await ctx.reply('⏳ <b>Verifying account allocation...</b>', { parse_mode: 'HTML' });
-          await this.verifyRealAccount(ctx, telegramId);
-        } else {
-          await this.askForNickname(ctx, telegramId);
-        }
+        await this.askForNickname(ctx, telegramId);
         break;
     }
   }
@@ -1119,6 +1121,52 @@ export class TradingRegistrationHandler {
     }
 
     await ctx.reply('⚠️ Could not verify account. Please try again later.');
+  }
+
+  /**
+   * Early real account allocation check — runs BEFORE server/password.
+   * On success → show server buttons. On failure → ask for new account.
+   */
+  private async verifyRealAccountEarly(ctx: Context, telegramId: number) {
+    const session = userSessions.get(telegramId);
+    if (!session) return;
+
+    const result = await exnessService.verifyRealAccount(session.data.account_number);
+    const challengeId = session.data.challenge_id;
+
+    if (result.status === 'allocated_mt5') {
+      if (result.data?.client_uid && session.data.client_uid && result.data.client_uid !== session.data.client_uid) {
+        session.step = 'tc_enter_account_number';
+        await ctx.reply('⚠️ <b>This account does not belong to the email you registered with.</b>\n\nSend your correct MT5 Real Account Number:',
+          { parse_mode: 'HTML', ...Markup.inlineKeyboard([[Markup.button.callback('📝 Submit New Real Account', `tc_new_real_acct_${challengeId}`)]]) });
+        return;
+      }
+      // Allocation OK — proceed to server selection
+      await this.showServerButtons(ctx, telegramId);
+      return;
+    }
+
+    if (result.status === 'allocated_not_mt5') {
+      session.step = 'tc_enter_account_number';
+      await ctx.reply('⚠️ <b>This account is not MT5.</b> Only MT5 accounts allowed.\nCreate a new MT5 Real account and try again.',
+        { parse_mode: 'HTML', ...Markup.inlineKeyboard([[Markup.button.callback('📝 Submit New Real Account', `tc_new_real_acct_${challengeId}`)]]) });
+      return;
+    }
+
+    if (result.status === 'not_allocated') {
+      session.step = 'tc_enter_account_number';
+      session.data.real_acct_retry = (session.data.real_acct_retry || 0) + 1;
+      await tradingChallengeService.updateDailyStat(session.data.challenge_id, 'real_acct_failures');
+      await tradingChallengeService.logFailedAttempt(session.data.challenge_id, telegramId, ctx.from!.username || null, session.data.email, 'real_acct');
+      const msg = session.data.real_acct_retry >= 2
+        ? '⚠️ <b>Account not yet under BirrForex.</b>\nIt may take a few minutes. Come back after 15 minutes.'
+        : '⚠️ <b>This real account is not under BirrForex.</b>\nCreate a new Real Account within your Exness and transfer funds there.';
+      await ctx.reply(msg, { parse_mode: 'HTML', ...Markup.inlineKeyboard([[Markup.button.callback('📝 Submit New Real Account', `tc_new_real_acct_${challengeId}`)]]) });
+      return;
+    }
+
+    // API error — proceed to server anyway (graceful degradation)
+    await this.showServerButtons(ctx, telegramId);
   }
 
   private async verifyRealAccountChange(ctx: Context, telegramId: number) {

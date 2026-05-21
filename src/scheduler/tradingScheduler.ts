@@ -103,6 +103,9 @@ export class TradingScheduler {
         await this.checkDailyAdminSummary(challenge, dateStr, timeStr);
         await this.checkAutoEngagement(challenge, dateStr, timeStr, eatTime);
         await this.checkPartnerScreening(challenge, dateStr, timeStr);
+        // Discord messages
+        await this.checkDiscordFirstDay(challenge, dateStr, timeStr);
+        await this.checkDiscordLastDay(challenge, dateStr, timeStr);
       }
     } catch (error) {
       console.error('Trading scheduler error:', error);
@@ -476,6 +479,9 @@ export class TradingScheduler {
       } catch (e) {
         console.error('Error posting challenge end:', e);
       }
+
+      // Post Discord end message for team challenges
+      await this.postDiscordEndMessage(challenge);
     }
   }
 
@@ -1160,5 +1166,107 @@ export class TradingScheduler {
     } catch (e) {
       console.error('Error sending daily summary:', e);
     }
+  }
+
+  // ==================== DISCORD CHALLENGE MESSAGES ====================
+
+  /**
+   * Post a message to the Discord challenge webhook (for team-only challenges).
+   * Only posts if the challenge source is 'discord' and webhook is configured.
+   */
+  private async postToDiscord(challenge: TradingChallenge, message: string): Promise<void> {
+    if ((challenge as any).source !== 'discord') return;
+    const webhook = process.env.DISCORD_CHALLENGE_WEBHOOK;
+    if (!webhook) return;
+
+    try {
+      const axios = require('axios');
+      await axios.post(webhook, { content: message }, { timeout: 10000 });
+      console.log(`✅ Discord message posted for ${challenge.title}`);
+    } catch (e) {
+      console.error('Error posting to Discord webhook:', e);
+    }
+  }
+
+  /**
+   * Discord: First day message (08:00 EAT on challenge start day)
+   */
+  private discordFirstDayPosted = new Set<number>();
+
+  private async checkDiscordFirstDay(challenge: TradingChallenge, dateStr: string, timeStr: string) {
+    if (challenge.status !== 'active') return;
+    if ((challenge as any).source !== 'discord') return;
+    if (this.discordFirstDayPosted.has(challenge.id)) return;
+
+    const start = this.toEATStrings(challenge.start_date);
+    const hour = parseInt(timeStr.split(':')[0]);
+    const minute = parseInt(timeStr.split(':')[1]);
+
+    // First day, 08:00-08:04 EAT
+    if (dateStr === start.dateStr && hour === 8 && minute <= 4) {
+      this.discordFirstDayPosted.add(challenge.id);
+
+      const msg = `🚀 **THE CHALLENGE IS LIVE!**\n\n` +
+        `**${challenge.title}** has officially started.\n\n` +
+        `The market is open. Your rules are set. Now it's on you.\n\n` +
+        `⚠️ Remember the rules — trades that break them will have profits removed.\n\n` +
+        `Stay disciplined. Trade your plan. Let the process work.\n\n` +
+        `Track your progress: https://winnerpip.com/challenge/${challenge.id}\n\n` +
+        `Good luck, traders. 🍀`;
+
+      await this.postToDiscord(challenge, msg);
+    }
+  }
+
+  /**
+   * Discord: Last day message (08:00 EAT on challenge end day)
+   */
+  private discordLastDayPosted = new Set<number>();
+
+  private async checkDiscordLastDay(challenge: TradingChallenge, dateStr: string, timeStr: string) {
+    if (challenge.status !== 'active') return;
+    if ((challenge as any).source !== 'discord') return;
+    if (this.discordLastDayPosted.has(challenge.id)) return;
+
+    const end = this.toEATStrings(challenge.end_date);
+    const hour = parseInt(timeStr.split(':')[0]);
+    const minute = parseInt(timeStr.split(':')[1]);
+
+    // Last day, 08:00-08:04 EAT
+    if (dateStr === end.dateStr && hour === 8 && minute <= 4) {
+      this.discordLastDayPosted.add(challenge.id);
+
+      const msg = `🏁 **FINAL DAY — Make It Count**\n\n` +
+        `This is it. Last trading day of **${challenge.title}**.\n\n` +
+        `Whatever your balance is right now — protect it. Don't force trades. Don't revenge trade. If you're ahead, stay ahead.\n\n` +
+        `⏰ Challenge closes tonight.\n` +
+        `📊 Your final balance at close = your result.\n\n` +
+        `No trades after the deadline will be counted.\n\n` +
+        `Finish strong. 💪\n\n` +
+        `Track your standing: https://winnerpip.com/challenge/${challenge.id}`;
+
+      await this.postToDiscord(challenge, msg);
+    }
+  }
+
+  /**
+   * Discord: Challenge end message (when challenge status changes to reviewing)
+   */
+  private discordEndPosted = new Set<number>();
+
+  async postDiscordEndMessage(challenge: TradingChallenge): Promise<void> {
+    if ((challenge as any).source !== 'discord') return;
+    if (this.discordEndPosted.has(challenge.id)) return;
+    this.discordEndPosted.add(challenge.id);
+
+    const msg = `⏰ **CHALLENGE CLOSED**\n\n` +
+      `**${challenge.title}** is officially over.\n\n` +
+      `Thank you to everyone who participated. Whether you hit the target or not — you showed up, you traded, you learned.\n\n` +
+      `📊 Final data sync is in progress.\n` +
+      `🏆 Final rankings will be available by tomorrow midday.\n\n` +
+      `Stay tuned for the results.\n\n` +
+      `View leaderboard: https://winnerpip.com/challenge/${challenge.id}`;
+
+    await this.postToDiscord(challenge, msg);
   }
 }
