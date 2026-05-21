@@ -100,37 +100,45 @@ function adminIpCheck(req: any, res: any, next: any) {
  */
 app.post('/api/auth/login', authLimiter, async (req, res) => {
   try {
-    const { account_number, investor_password } = req.body;
+    const { account_number, investor_password, challenge_id } = req.body;
 
     if (!account_number || !investor_password) {
       return res.status(400).json({ error: 'Account number and investor password are required' });
     }
 
-    // Find registration with this account number and matching investor password
-    const result = await db.query(
-      `SELECT r.*, c.title as challenge_title, c.status as challenge_status, c.id as challenge_id
+    // Build query — if challenge_id provided, scope to that challenge
+    let query = `SELECT r.*, c.title as challenge_title, c.status as challenge_status, c.id as challenge_id
        FROM trading_registrations r
        JOIN trading_challenges c ON r.challenge_id = c.id
        WHERE r.account_number = $1
          AND r.investor_password = $2
-         AND (r.status IS NULL OR r.status != 'removed')
-       ORDER BY r.registered_at DESC
-       LIMIT 1`,
-      [account_number.trim(), investor_password.trim()]
-    );
+         AND (r.status IS NULL OR r.status != 'removed')`;
+    const params: any[] = [account_number.trim(), investor_password.trim()];
+
+    if (challenge_id) {
+      query += ` AND r.challenge_id = $3`;
+      params.push(parseInt(challenge_id));
+    }
+
+    query += ` ORDER BY r.registered_at DESC LIMIT 1`;
+
+    const result = await db.query(query, params);
 
     if (result.rows.length === 0) {
-      // Check if there's a removed or disqualified registration for this account
-      const removedCheck = await db.query(
-        `SELECT r.status, r.disqualified, r.disqualified_reason, c.title as challenge_title
+      // Check if there's a removed registration for this account
+      let removedQuery = `SELECT r.status, r.disqualified, r.disqualified_reason, c.title as challenge_title
          FROM trading_registrations r
          JOIN trading_challenges c ON r.challenge_id = c.id
          WHERE r.account_number = $1
-           AND r.investor_password = $2
-         ORDER BY r.registered_at DESC
-         LIMIT 1`,
-        [account_number.trim(), investor_password.trim()]
-      );
+           AND r.investor_password = $2`;
+      const removedParams: any[] = [account_number.trim(), investor_password.trim()];
+      if (challenge_id) {
+        removedQuery += ` AND r.challenge_id = $3`;
+        removedParams.push(parseInt(challenge_id));
+      }
+      removedQuery += ` ORDER BY r.registered_at DESC LIMIT 1`;
+
+      const removedCheck = await db.query(removedQuery, removedParams);
 
       if (removedCheck.rows.length > 0) {
         const removed = removedCheck.rows[0];
@@ -140,14 +148,6 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
             message: `Your registration for "${removed.challenge_title}" was removed.`,
             reason: removed.disqualified_reason || 'No reason provided',
             canReregister: true,
-          });
-        }
-        if (removed.disqualified) {
-          return res.status(403).json({
-            error: 'disqualified',
-            message: `You have been disqualified from "${removed.challenge_title}".`,
-            reason: removed.disqualified_reason || 'No reason provided',
-            canReregister: false,
           });
         }
       }
@@ -352,20 +352,21 @@ app.get('/api/challenges/:id/leaderboard', async (req, res) => {
     const dataFrom = freshness.rows[0]?.leaderboard_updated_at || null;
 
     let query = `
-      SELECT nickname, account_type, rank, current_balance, adjusted_balance,
-             qualified_profit, gross_profit, profit_removed, total_trades,
-             qualified_trades, flagged_trades, is_qualified, is_disqualified, last_trade_time, last_updated
-      FROM wp_leaderboard
-      WHERE challenge_id = $1
+      SELECT l.nickname, l.account_type, l.rank, l.current_balance, l.adjusted_balance,
+             l.qualified_profit, l.gross_profit, l.profit_removed, l.total_trades,
+             l.qualified_trades, l.flagged_trades, l.is_qualified, l.is_disqualified,
+             l.disqualify_reason, l.last_trade_time, l.last_updated, l.zero_balance_at
+      FROM wp_leaderboard l
+      WHERE l.challenge_id = $1
     `;
     const params: any[] = [challengeId];
 
     if (category === 'demo' || category === 'real') {
-      query += ` AND account_type = $2`;
+      query += ` AND l.account_type = $2`;
       params.push(category);
     }
 
-    query += ` ORDER BY rank ASC NULLS LAST, qualified_profit DESC LIMIT 100`;
+    query += ` ORDER BY l.rank ASC NULLS LAST, l.qualified_profit DESC LIMIT 100`;
 
     const result = await db.query(query, params);
 
@@ -385,6 +386,8 @@ app.get('/api/challenges/:id/leaderboard', async (req, res) => {
         flaggedTrades: r.flagged_trades,
         isQualified: r.is_qualified,
         isDisqualified: r.is_disqualified || false,
+        disqualifyReason: r.disqualify_reason || null,
+        isBlown: r.total_trades > 0 && parseFloat(r.current_balance) <= 0,
         lastTradeTime: r.last_trade_time,
         lastUpdated: r.last_updated,
       })),
@@ -423,7 +426,7 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
     // Get challenge info
     const reg = await db.query(
       `SELECT r.id, r.nickname, r.account_number, r.account_type, r.mt5_server, r.challenge_id, r.pull_status,
-              r.actual_starting_balance, r.registration_balance,
+              r.actual_starting_balance, r.registration_balance, r.disqualified, r.disqualified_reason,
               c.title, c.status, c.start_date, c.end_date, c.starting_balance, c.target_balance, c.leaderboard_updated_at
        FROM trading_registrations r
        JOIN trading_challenges c ON r.challenge_id = c.id
@@ -460,6 +463,7 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
         server: registration.mt5_server,
         pullStatus: registration.pull_status || null,
         disqualified: registration.disqualified || false,
+        disqualifiedReason: registration.disqualified_reason || null,
         rank: leaderboard?.rank || null,
         currentBalance: leaderboard ? parseFloat(leaderboard.current_balance) : actualStartingBalance,
         adjustedBalance: leaderboard ? parseFloat(leaderboard.adjusted_balance) : actualStartingBalance,

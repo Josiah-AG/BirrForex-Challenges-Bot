@@ -20,7 +20,9 @@ interface LeaderboardEntry {
   currentBalance: number; adjustedBalance: number;
   qualifiedProfit: number; grossProfit: number; profitRemoved: number;
   totalTrades: number; qualifiedTrades: number; flaggedTrades: number;
-  isQualified: boolean; lastTradeTime: string | null; lastUpdated: string | null;
+  isQualified: boolean; isDisqualified?: boolean; disqualifyReason?: string | null;
+  isBlown?: boolean;
+  lastTradeTime: string | null; lastUpdated: string | null;
   isMe?: boolean;
 }
 interface ChallengeInfo {
@@ -34,6 +36,7 @@ interface MyStats {
   qualifiedProfit: number; grossProfit: number; profitRemoved: number;
   totalTrades: number; qualifiedTrades: number; flaggedTrades: number;
   isQualified: boolean; lastUpdated: string | null; pullStatus: string | null;
+  disqualified: boolean; disqualifiedReason: string | null;
 }
 
 export default function ChallengeDashboard() {
@@ -114,6 +117,8 @@ export default function ChallengeDashboard() {
         isQualified: data.me.isQualified,
         lastUpdated: data.me.lastUpdated,
         pullStatus: data.me.pullStatus || null,
+        disqualified: data.me.disqualified || false,
+        disqualifiedReason: data.me.disqualifiedReason || null,
       });
       setRecentTrades(data.recentTrades || []);
       setError("");
@@ -182,7 +187,7 @@ export default function ChallengeDashboard() {
     try {
       const res = await fetch(`${API_URL}/api/auth/login`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ account_number: loginAccount, investor_password: loginPassword }),
+        body: JSON.stringify({ account_number: loginAccount, investor_password: loginPassword, challenge_id: params.id }),
       });
       if (res.ok) {
         const d = await res.json();
@@ -205,6 +210,18 @@ export default function ChallengeDashboard() {
   const daysLeft = challenge ? Math.max(0, Math.ceil((new Date(challenge.endDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24))) : 0;
   const progressPercent = challenge && myStats ? Math.min(100, Math.max(0, ((myStats.currentBalance - challenge.startingBalance) / (challenge.targetBalance - challenge.startingBalance)) * 100)) : 0;
   const totalParticipants = leaderboard.length;
+  const isCentAccount = myStats?.accountType === 'real' && myStats.currentBalance > 500; // heuristic for cent
+  const isBlownAccount = myStats && myStats.totalTrades > 0 && myStats.currentBalance <= 0;
+  const showProgressBar = myStats && myStats.totalTrades > 0 && !isBlownAccount && !myStats.disqualified;
+
+  // Format balance with cent support
+  const formatBalance = (amount: number, accountType: string) => {
+    // Cent accounts show in cents
+    if (accountType === 'real' && amount > 500) {
+      return `${amount.toFixed(0)}¢`;
+    }
+    return `$${amount.toFixed(2)}`;
+  };
 
   // Format date helper (shows in EAT)
   const formatDate = (dateStr: string) => {
@@ -414,6 +431,16 @@ export default function ChallengeDashboard() {
             <PasswordUpdateBanner />
           )}
 
+          {/* DISQUALIFIED BANNER (dismissable) */}
+          {myStats.disqualified && (
+            <DismissableBanner type="dq" reason={myStats.disqualifiedReason} />
+          )}
+
+          {/* BLOWN ACCOUNT BANNER */}
+          {isBlownAccount && !myStats.disqualified && (
+            <DismissableBanner type="blown" />
+          )}
+
           {/* NO DATA NOTICE - Show normal dashboard but with a notice */}
           {hasNoData && (
             <div className="mb-4 p-3 rounded-xl bg-gold/10 border border-gold/20 flex items-center gap-3">
@@ -450,12 +477,18 @@ export default function ChallengeDashboard() {
               </div>
             </div>
 
-            {/* PROGRESS BAR */}
-            <div className="glass rounded-2xl p-4 md:p-5 border border-white/10 mb-6">
-              <div className="flex items-center justify-between mb-3"><p className="text-sm font-medium text-gray-300">Progress to Target</p><p className="text-sm font-bold text-white">{progressPercent.toFixed(0)}%</p></div>
-              <div className="w-full h-3 bg-white/10 rounded-full overflow-hidden"><div className="h-full rounded-full bg-gradient-to-r from-royal to-profit transition-all duration-500" style={{ width: `${progressPercent}%` }} /></div>
-              <div className="flex justify-between mt-2 text-xs text-gray-500"><span>${challenge.startingBalance}</span><span>${challenge.targetBalance}</span></div>
-            </div>
+            {/* PROGRESS BAR — only show when user has trades and is active */}
+            {showProgressBar ? (
+              <div className="glass rounded-2xl p-4 md:p-5 border border-white/10 mb-6">
+                <div className="flex items-center justify-between mb-3"><p className="text-sm font-medium text-gray-300">Progress to Target</p><p className="text-sm font-bold text-white">{progressPercent.toFixed(0)}%</p></div>
+                <div className="w-full h-3 bg-white/10 rounded-full overflow-hidden"><div className="h-full rounded-full bg-gradient-to-r from-royal to-profit transition-all duration-500" style={{ width: `${progressPercent}%` }} /></div>
+                <div className="flex justify-between mt-2 text-xs text-gray-500"><span>{formatBalance(challenge.startingBalance, myStats.accountType)}</span><span>{formatBalance(challenge.targetBalance, myStats.accountType)}</span></div>
+              </div>
+            ) : !isBlownAccount && !myStats.disqualified && (
+              <div className="glass rounded-2xl p-4 border border-white/10 mb-6 text-center">
+                <p className="text-xs text-gray-500">Deposit and start trading to track progress</p>
+              </div>
+            )}
 
             {/* MINI STATS */}
             <div className="grid grid-cols-3 md:grid-cols-6 gap-3 mb-6">
@@ -536,13 +569,20 @@ export default function ChallengeDashboard() {
               ) : (
               <div className="divide-y divide-white/5">
                 {leaderboard.map((entry) => (
-                  <button key={entry.rank || entry.nickname} onClick={() => { setShowLeaderboardModal(true); setSelectedUser(entry); }} className={`w-full flex items-center gap-4 px-4 py-3 text-left hover:bg-white/5 transition-colors ${entry.isMe ? "bg-royal/10 border-l-2 border-royal" : ""}`}>
-                    <div className={`flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center text-sm font-bold ${entry.rank === 1 ? "bg-gold/20 text-gold" : entry.rank === 2 ? "bg-gray-400/20 text-gray-300" : entry.rank === 3 ? "bg-orange-500/20 text-orange-400" : "bg-white/5 text-gray-500"}`}>{entry.rank || "—"}</div>
+                  <button key={entry.rank || entry.nickname} onClick={() => { setShowLeaderboardModal(true); setSelectedUser(entry); }} className={`w-full flex items-center gap-4 px-4 py-3 text-left hover:bg-white/5 transition-colors ${entry.isMe ? "bg-royal/10 border-l-2 border-royal" : ""} ${entry.isDisqualified ? "opacity-60" : ""}`}>
+                    <div className={`flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center text-sm font-bold ${entry.isDisqualified ? "bg-loss/20 text-loss" : entry.rank === 1 ? "bg-gold/20 text-gold" : entry.rank === 2 ? "bg-gray-400/20 text-gray-300" : entry.rank === 3 ? "bg-orange-500/20 text-orange-400" : "bg-white/5 text-gray-500"}`}>{entry.rank || "—"}</div>
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2"><p className={`text-sm font-semibold truncate ${entry.isMe ? "text-royal" : "text-white"}`}>{entry.nickname}</p>{entry.isMe && <span className="px-1.5 py-0.5 bg-royal/20 text-royal text-[10px] rounded font-bold">YOU</span>}</div>
+                      <div className="flex items-center gap-2">
+                        <p className={`text-sm font-semibold truncate ${entry.isMe ? "text-royal" : entry.isDisqualified ? "text-gray-500" : "text-white"}`}>{entry.nickname}</p>
+                        {entry.isMe && <span className="px-1.5 py-0.5 bg-royal/20 text-royal text-[10px] rounded font-bold">YOU</span>}
+                        {entry.isDisqualified && <span className="px-1.5 py-0.5 bg-loss/20 text-loss text-[10px] rounded font-bold">DQ</span>}
+                        {entry.isBlown && !entry.isDisqualified && <span className="px-1.5 py-0.5 bg-gray-500/20 text-gray-400 text-[10px] rounded font-bold">💀</span>}
+                      </div>
                       <p className="text-[10px] text-gray-500">{entry.totalTrades} trades • {entry.qualifiedTrades} qualified • {entry.accountType}</p>
                     </div>
-                    <p className="text-sm font-bold text-white">${entry.adjustedBalance.toFixed(2)}</p>
+                    <p className="text-sm font-bold text-white">
+                      {entry.isDisqualified ? <span className="text-loss">DQ</span> : formatBalance(entry.adjustedBalance, entry.accountType)}
+                    </p>
                   </button>
                 ))}
               </div>
@@ -653,23 +693,35 @@ export default function ChallengeDashboard() {
               <div className="p-5">
                 <button onClick={() => setSelectedUser(null)} className="text-gray-400 hover:text-white mb-4 flex items-center gap-1 text-sm"><ArrowLeft size={14} /> Back to leaderboard</button>
                 <div className="flex items-center gap-4 mb-6">
-                  <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-lg font-bold ${selectedUser.rank <= 3 ? "bg-gold/20 text-gold" : "bg-white/10 text-gray-400"}`}>#{selectedUser.rank || "—"}</div>
+                  <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-lg font-bold ${selectedUser.isDisqualified ? "bg-loss/20 text-loss" : selectedUser.rank <= 3 ? "bg-gold/20 text-gold" : "bg-white/10 text-gray-400"}`}>#{selectedUser.rank || "—"}</div>
                   <div>
                     <p className="text-xl font-bold text-white">{selectedUser.nickname}</p>
-                    <p className="text-sm text-gray-400">Balance: <span className="text-white font-semibold">${selectedUser.adjustedBalance.toFixed(2)}</span></p>
+                    <p className="text-sm text-gray-400">
+                      {selectedUser.isDisqualified ? <span className="text-loss font-semibold">Disqualified</span> : <>Balance: <span className="text-white font-semibold">{formatBalance(selectedUser.adjustedBalance, selectedUser.accountType)}</span></>}
+                    </p>
                   </div>
                 </div>
-                <div className="grid grid-cols-3 gap-3 mb-6">
-                  <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500 mb-1">Trades</p><p className="text-lg font-bold text-white">{selectedUser.totalTrades}</p></div>
-                  <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500 mb-1">Qualified</p><p className="text-lg font-bold text-white">{selectedUser.qualifiedTrades}</p></div>
-                  <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500 mb-1">Flagged</p><p className="text-lg font-bold text-loss">{selectedUser.flaggedTrades}</p></div>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Qualified Profit</p><p className={`text-sm font-bold ${selectedUser.qualifiedProfit >= 0 ? "text-profit" : "text-loss"}`}>${selectedUser.qualifiedProfit.toFixed(2)}</p></div>
-                  <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Gross Profit</p><p className="text-sm font-bold text-white">${selectedUser.grossProfit.toFixed(2)}</p></div>
-                  <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Profit Removed</p><p className="text-sm font-bold text-loss">${selectedUser.profitRemoved.toFixed(2)}</p></div>
-                  <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Account Type</p><p className="text-sm font-bold text-white capitalize">{selectedUser.accountType}</p></div>
-                </div>
+                {/* DQ Reason */}
+                {selectedUser.isDisqualified && selectedUser.disqualifyReason && (
+                  <div className="p-4 rounded-xl bg-loss/10 border border-loss/20 mb-4">
+                    <p className="text-xs text-gray-400 mb-1">Disqualification Reason:</p>
+                    <p className="text-sm text-white">{selectedUser.disqualifyReason}</p>
+                  </div>
+                )}
+                {/* Only show stats for non-DQ users */}
+                {!selectedUser.isDisqualified && (<>
+                  <div className="grid grid-cols-3 gap-3 mb-6">
+                    <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500 mb-1">Trades</p><p className="text-lg font-bold text-white">{selectedUser.totalTrades}</p></div>
+                    <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500 mb-1">Qualified</p><p className="text-lg font-bold text-white">{selectedUser.qualifiedTrades}</p></div>
+                    <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500 mb-1">Flagged</p><p className="text-lg font-bold text-loss">{selectedUser.flaggedTrades}</p></div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Qualified Profit</p><p className={`text-sm font-bold ${selectedUser.qualifiedProfit >= 0 ? "text-profit" : "text-loss"}`}>{formatBalance(selectedUser.qualifiedProfit, selectedUser.accountType)}</p></div>
+                    <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Gross Profit</p><p className="text-sm font-bold text-white">{formatBalance(selectedUser.grossProfit, selectedUser.accountType)}</p></div>
+                    <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Profit Removed</p><p className="text-sm font-bold text-loss">{formatBalance(selectedUser.profitRemoved, selectedUser.accountType)}</p></div>
+                    <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Account Type</p><p className="text-sm font-bold text-white capitalize">{selectedUser.accountType}</p></div>
+                  </div>
+                </>)}
               </div>
             )}
           </div>
@@ -791,6 +843,40 @@ function PasswordUpdateBanner() {
         <button onClick={handleSubmit} disabled={submitting || !newPw} className="px-4 py-2.5 rounded-xl bg-royal/20 border border-royal/30 text-royal text-xs font-bold hover:bg-royal/30 transition-all disabled:opacity-50">{submitting ? "..." : "Update"}</button>
       </div>
       {result && <p className={`text-xs mt-2 font-semibold ${result.startsWith("✅") ? "text-profit" : result.startsWith("⚠️") ? "text-gold" : "text-loss"}`}>{result}</p>}
+    </div>
+  );
+}
+
+function DismissableBanner({ type, reason }: { type: "dq" | "blown"; reason?: string | null }) {
+  const [dismissed, setDismissed] = useState(false);
+  if (dismissed) return null;
+
+  if (type === "dq") {
+    return (
+      <div className="mb-4 p-4 rounded-xl bg-loss/10 border border-loss/30 relative">
+        <button onClick={() => setDismissed(true)} className="absolute top-2 right-2 p-1 hover:bg-white/10 rounded-lg"><X size={14} className="text-gray-400" /></button>
+        <div className="flex items-start gap-3">
+          <span className="text-lg">🚫</span>
+          <div>
+            <h3 className="text-sm font-bold text-loss">You have been disqualified</h3>
+            {reason && <p className="text-xs text-gray-400 mt-1">Reason: {reason}</p>}
+            <p className="text-xs text-gray-500 mt-1">You can still view your data and the leaderboard.</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mb-4 p-4 rounded-xl bg-gray-500/10 border border-gray-500/30 relative">
+      <button onClick={() => setDismissed(true)} className="absolute top-2 right-2 p-1 hover:bg-white/10 rounded-lg"><X size={14} className="text-gray-400" /></button>
+      <div className="flex items-start gap-3">
+        <span className="text-lg">💀</span>
+        <div>
+          <h3 className="text-sm font-bold text-gray-300">Your account balance reached $0</h3>
+          <p className="text-xs text-gray-500 mt-1">Your account data is preserved. You can still view the leaderboard.</p>
+        </div>
+      </div>
     </div>
   );
 }

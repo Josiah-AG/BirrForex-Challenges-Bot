@@ -190,6 +190,7 @@ export class VpsPullScheduler {
         const lastUpdate = await leaderboardService.getLastUpdateTime(challengeToPull.id);
         if (lastUpdate) {
           console.log('📊 VPS Pull: Updating leaderboard rankings from previous cycle data');
+          await leaderboardService.ensureAllParticipantsHaveEntries(challengeToPull.id);
           await leaderboardService.updateRankings(challengeToPull.id);
         }
       }
@@ -277,6 +278,7 @@ export class VpsPullScheduler {
       // === STEP 6: Final sync → immediate leaderboard update ===
       if (isFinalSync && successful.length > 0) {
         console.log('📊 VPS Pull: Saturday final sync — updating leaderboard immediately');
+        await leaderboardService.ensureAllParticipantsHaveEntries(challengeToPull.id);
         await leaderboardService.updateRankings(challengeToPull.id);
       }
 
