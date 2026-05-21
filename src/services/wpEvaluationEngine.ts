@@ -295,18 +295,20 @@ export class WpEvaluationEngine {
     );
 
     if (trades.rows.length === 0) {
-      // No trades — use VPS balance if available, otherwise starting balance
+      // No trades — use VPS balance, and person's actual starting balance for profit
       let currentBalance = startingBalance;
+      let actualStartBalance = startingBalance;
       try {
-        const regBalance = await db.query(`SELECT last_known_balance FROM trading_registrations WHERE id = $1`, [reg.id]);
-        const vpsBalance = regBalance.rows[0]?.last_known_balance;
+        const regData = await db.query(`SELECT last_known_balance, registration_balance FROM trading_registrations WHERE id = $1`, [reg.id]);
+        const vpsBalance = regData.rows[0]?.last_known_balance;
+        const regBalance = regData.rows[0]?.registration_balance;
         if (vpsBalance !== null && vpsBalance !== undefined) currentBalance = parseFloat(vpsBalance);
-      } catch {
-        // Column might not exist yet — use starting balance
-      }
-      // No trades = no profit/loss yet (don't show negative just because they haven't deposited)
-      const profit = currentBalance >= startingBalance ? currentBalance - startingBalance : 0;
-      await this.upsertLeaderboard(challengeId, reg, startingBalance, { currentBalance, adjustedBalance: currentBalance, qualifiedProfit: profit, grossProfit: profit, profitRemoved: 0, totalTrades: 0, qualifiedTrades: 0, flaggedTrades: 0, activeDays: 0, isQualified: false, lastTradeTime: null });
+        // Use person's actual registration balance (or 0 if they registered with $0)
+        if (regBalance !== null && regBalance !== undefined) actualStartBalance = parseFloat(regBalance);
+        else if (currentBalance < startingBalance) actualStartBalance = currentBalance; // They haven't deposited yet
+      } catch {}
+      // No trades = profit is $0 (they haven't started trading)
+      await this.upsertLeaderboard(challengeId, reg, actualStartBalance, { currentBalance, adjustedBalance: currentBalance, qualifiedProfit: 0, grossProfit: 0, profitRemoved: 0, totalTrades: 0, qualifiedTrades: 0, flaggedTrades: 0, activeDays: 0, isQualified: false, lastTradeTime: null });
       return { flaggedCount: 0, isQualified: false };
     }
 
