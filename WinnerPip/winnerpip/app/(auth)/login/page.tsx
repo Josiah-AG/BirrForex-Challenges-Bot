@@ -195,7 +195,7 @@ function LoginForm() {
                     <Users className="w-5 h-5 text-royal flex-shrink-0 mt-0.5" />
                     <div>
                       <p className="text-sm text-white font-medium">BirrForex Teams Only Challenge</p>
-                      <p className="text-xs text-gray-400 mt-1">This challenge is exclusively for members of BirrForex Live Trading Team. Register through our Discord server.</p>
+                      <p className="text-xs text-gray-400 mt-1">This challenge is exclusively for members of BirrForex Live Trading Team. Go to our Discord server and find the challenge channel to register.</p>
                     </div>
                   </div>
                   <a
@@ -207,7 +207,7 @@ function LoginForm() {
                     <svg width="18" height="14" viewBox="0 0 71 55" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
                       <path d="M60.1 4.9A58.5 58.5 0 0045.4.2a.2.2 0 00-.2.1 40.8 40.8 0 00-1.8 3.7 54 54 0 00-16.2 0A37.4 37.4 0 0025.4.3a.2.2 0 00-.2-.1A58.4 58.4 0 0010.5 5 59.7 59.7 0 00.4 45a.3.3 0 00.1.2 58.9 58.9 0 0017.7 9 .2.2 0 00.3-.1 42 42 0 003.6-5.9.2.2 0 00-.1-.3 38.8 38.8 0 01-5.5-2.7.2.2 0 01 0-.4c.4-.3.7-.6 1.1-.9a.2.2 0 01.2 0 42 42 0 0035.8 0 .2.2 0 01.2 0l1.1.9a.2.2 0 010 .4 36.4 36.4 0 01-5.5 2.6.2.2 0 00-.1.4 47.2 47.2 0 003.6 5.8.2.2 0 00.3.1A58.7 58.7 0 0070.5 45a.3.3 0 00.1-.2c1.6-16.7-2.7-31.2-11.5-44.1zM23.7 36.8c-3.8 0-7-3.5-7-7.8s3.1-7.8 7-7.8c4 0 7.1 3.5 7 7.8.1 4.3-3 7.8-7 7.8zm25.8 0c-3.9 0-7-3.5-7-7.8s3-7.8 7-7.8c3.9 0 7 3.5 7 7.8-.1 4.3-3.1 7.8-7 7.8z"/>
                     </svg>
-                    Register Through Team Discord Server
+                    Go to Discord Server to Register →
                     <ArrowRight size={14} />
                   </a>
                   <p className="text-center text-xs text-gray-500 mt-3">
