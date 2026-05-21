@@ -1240,6 +1240,62 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/announce`, adminIpCheck,
       `UPDATE trading_challenges SET status = 'registration_open', announcement_posted = true, updated_at = NOW() WHERE id = $1`,
       [challengeId]
     );
+
+    // Get challenge data for announcement
+    const challengeResult = await db.query(`SELECT * FROM trading_challenges WHERE id = $1`, [challengeId]);
+    const challenge = challengeResult.rows[0];
+    if (!challenge) return res.json({ success: true, message: 'Challenge announced' });
+
+    if (challenge.source === 'discord') {
+      // Mark as pending for Discord bot to pick up and post with interactive Register button
+      await db.query(
+        `UPDATE trading_challenges SET discord_channel_message_id = 'pending_announce' WHERE id = $1 AND discord_channel_message_id IS NULL`,
+        [challengeId]
+      ).catch(() => {});
+      return res.json({ success: true, message: 'Registration opened. Discord bot will post the announcement with Register button shortly.' });
+    } else {
+      // Post Telegram announcement to both channels
+      try {
+        const toEAT = (d: Date) => new Date(new Date(d).getTime() + 3 * 60 * 60 * 1000);
+        const startStr = toEAT(challenge.start_date).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
+        const endStr = toEAT(challenge.end_date).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
+
+        let prizeText = '';
+        if (challenge.prize_pool_text) prizeText = `\n🏆 <b>${challenge.prize_pool_text}</b>`;
+
+        let links = '';
+        if (challenge.pdf_url) links += `\n📄 Rules: <a href="${challenge.pdf_url}">Download PDF</a>`;
+        if (challenge.video_url) links += `\n🎥 Guide: <a href="${challenge.video_url}">Watch Video</a>`;
+
+        const text = `<b>🎯 NEW CHALLENGE — Registration Open!</b>\n\n` +
+          `<b>${challenge.title}</b>\n\n` +
+          `A new trading challenge is here. Think you've got what it takes?\n\n` +
+          `💰 <b>Starting Balance:</b> $${challenge.starting_balance}\n` +
+          `🎯 <b>Target:</b> $${challenge.target_balance}\n` +
+          `📅 <b>Start:</b> ${startStr}\n` +
+          `🏁 <b>End:</b> ${endStr}\n` +
+          prizeText + links +
+          `\n\n👉 <b>Tap "Join Challenge" below to register!</b>`;
+
+        const { Markup } = require('telegraf');
+        const botToken = process.env.BOT_TOKEN;
+        const { Telegraf } = require('telegraf');
+        const tempBot = new Telegraf(botToken);
+        const botInfo = await tempBot.telegram.getMe();
+
+        const keyboard = Markup.inlineKeyboard([
+          [Markup.button.url('🚀 Join Challenge', `https://t.me/${botInfo.username}?start=tc_register_${challengeId}`)],
+          [Markup.button.url('💰 Open Exness Account', config.exnessPartnerSignupLink)],
+        ]);
+
+        const opts = { parse_mode: 'HTML' as const, ...keyboard, link_preview_options: { is_disabled: true } };
+        await tempBot.telegram.sendMessage(config.mainChannelId, text, opts);
+        await tempBot.telegram.sendMessage(config.challengeChannelId, text, opts);
+      } catch (e) {
+        console.error('Telegram announce error:', e);
+      }
+    }
+
     return res.json({ success: true, message: 'Challenge announced and registration opened' });
   } catch (error) {
     return res.status(500).json({ error: 'Internal server error' });

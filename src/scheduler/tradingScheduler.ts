@@ -263,6 +263,7 @@ export class TradingScheduler {
 
   private async checkDailyPosts(challenge: TradingChallenge, dateStr: string, timeStr: string, dayOfWeek: number) {
     if (challenge.status !== 'active') return;
+    if ((challenge as any).source === 'discord') return; // Discord challenges don't post to Telegram
     if (dayOfWeek === 0 || dayOfWeek === 6) return;
 
     const tradingDay = this.getTradingDay(challenge, dateStr);
@@ -1172,16 +1173,19 @@ export class TradingScheduler {
 
   /**
    * Post a message to the Discord challenge webhook (for team-only challenges).
-   * Only posts if the challenge source is 'discord' and webhook is configured.
+   * Uses Discord embed format for rich formatting.
    */
-  private async postToDiscord(challenge: TradingChallenge, message: string): Promise<void> {
+  private async postToDiscord(challenge: TradingChallenge, content: string, embed?: any): Promise<void> {
     if ((challenge as any).source !== 'discord') return;
     const webhook = process.env.DISCORD_CHALLENGE_WEBHOOK;
     if (!webhook) return;
 
     try {
       const axios = require('axios');
-      await axios.post(webhook, { content: message }, { timeout: 10000 });
+      const payload: any = {};
+      if (content) payload.content = content;
+      if (embed) payload.embeds = [embed];
+      await axios.post(webhook, payload, { timeout: 10000 });
       console.log(`✅ Discord message posted for ${challenge.title}`);
     } catch (e) {
       console.error('Error posting to Discord webhook:', e);
@@ -1206,15 +1210,22 @@ export class TradingScheduler {
     if (dateStr === start.dateStr && hour === 8 && minute <= 4) {
       this.discordFirstDayPosted.add(challenge.id);
 
-      const msg = `🚀 **THE CHALLENGE IS LIVE!**\n\n` +
-        `**${challenge.title}** has officially started.\n\n` +
-        `The market is open. Your rules are set. Now it's on you.\n\n` +
-        `⚠️ Remember the rules — trades that break them will have profits removed.\n\n` +
-        `Stay disciplined. Trade your plan. Let the process work.\n\n` +
-        `Track your progress: https://winnerpip.com/challenge/${challenge.id}\n\n` +
-        `Good luck, traders. 🍀`;
+      const embed = {
+        title: '🚀 THE CHALLENGE IS LIVE!',
+        description: `**${challenge.title}** has officially started.\n\n` +
+          `The market is open. Your rules are set. Now it's on you.\n\n` +
+          `⚠️ **Remember the rules** — trades that break them will have profits removed.\n\n` +
+          `Stay disciplined. Trade your plan. Let the process work.\n\n` +
+          `Good luck, traders. 🍀`,
+        color: 0x16C784, // green
+        fields: [
+          { name: '📊 Track Progress', value: `[Open Dashboard](https://winnerpip.com/challenge/${challenge.id})`, inline: true },
+        ],
+        footer: { text: 'BirrForex Challenges • WinnerPip' },
+        timestamp: new Date().toISOString(),
+      };
 
-      await this.postToDiscord(challenge, msg);
+      await this.postToDiscord(challenge, '', embed);
     }
   }
 
@@ -1236,16 +1247,23 @@ export class TradingScheduler {
     if (dateStr === end.dateStr && hour === 8 && minute <= 4) {
       this.discordLastDayPosted.add(challenge.id);
 
-      const msg = `🏁 **FINAL DAY — Make It Count**\n\n` +
-        `This is it. Last trading day of **${challenge.title}**.\n\n` +
-        `Whatever your balance is right now — protect it. Don't force trades. Don't revenge trade. If you're ahead, stay ahead.\n\n` +
-        `⏰ Challenge closes tonight.\n` +
-        `📊 Your final balance at close = your result.\n\n` +
-        `No trades after the deadline will be counted.\n\n` +
-        `Finish strong. 💪\n\n` +
-        `Track your standing: https://winnerpip.com/challenge/${challenge.id}`;
+      const embed = {
+        title: '🏁 FINAL DAY — Make It Count',
+        description: `This is it. Last trading day of **${challenge.title}**.\n\n` +
+          `Whatever your balance is right now — **protect it**. Don't force trades. Don't revenge trade. If you're ahead, stay ahead.\n\n` +
+          `⏰ **Challenge closes tonight.**\n` +
+          `📊 Your final balance at close = your result.\n\n` +
+          `No trades after the deadline will be counted.\n\n` +
+          `Finish strong. 💪`,
+        color: 0xF5B400, // gold
+        fields: [
+          { name: '📊 Check Standing', value: `[Open Dashboard](https://winnerpip.com/challenge/${challenge.id})`, inline: true },
+        ],
+        footer: { text: 'BirrForex Challenges • WinnerPip' },
+        timestamp: new Date().toISOString(),
+      };
 
-      await this.postToDiscord(challenge, msg);
+      await this.postToDiscord(challenge, '', embed);
     }
   }
 
@@ -1259,14 +1277,53 @@ export class TradingScheduler {
     if (this.discordEndPosted.has(challenge.id)) return;
     this.discordEndPosted.add(challenge.id);
 
-    const msg = `⏰ **CHALLENGE CLOSED**\n\n` +
-      `**${challenge.title}** is officially over.\n\n` +
-      `Thank you to everyone who participated. Whether you hit the target or not — you showed up, you traded, you learned.\n\n` +
-      `📊 Final data sync is in progress.\n` +
-      `🏆 Final rankings will be available by tomorrow midday.\n\n` +
-      `Stay tuned for the results.\n\n` +
-      `View leaderboard: https://winnerpip.com/challenge/${challenge.id}`;
+    const embed = {
+      title: '⏰ CHALLENGE CLOSED',
+      description: `**${challenge.title}** is officially over.\n\n` +
+        `Thank you to everyone who participated. Whether you hit the target or not — you showed up, you traded, you learned.\n\n` +
+        `📊 **Final data sync is in progress.**\n` +
+        `🏆 **Final rankings will be available by tomorrow midday.**\n\n` +
+        `Stay tuned for the results.`,
+      color: 0x1F6FEB, // royal blue
+      fields: [
+        { name: '📊 View Leaderboard', value: `[Open Dashboard](https://winnerpip.com/challenge/${challenge.id})`, inline: true },
+      ],
+      footer: { text: 'BirrForex Challenges • WinnerPip' },
+      timestamp: new Date().toISOString(),
+    };
 
-    await this.postToDiscord(challenge, msg);
+    await this.postToDiscord(challenge, '', embed);
+  }
+
+  /**
+   * Discord: Announcement message (when admin clicks "Announce" for a Discord challenge)
+   * Called from the API endpoint.
+   */
+  async postDiscordAnnouncement(challenge: TradingChallenge): Promise<void> {
+    if ((challenge as any).source !== 'discord') return;
+
+    const startEAT = toEAT(challenge.start_date);
+    const endEAT = toEAT(challenge.end_date);
+    const startStr = startEAT.toLocaleString('en-US', { weekday: 'long', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
+    const endStr = endEAT.toLocaleString('en-US', { weekday: 'long', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
+
+    const embed = {
+      title: `🎯 ${challenge.title} — Registration Open!`,
+      description: `A new trading challenge is here. Think you've got what it takes?\n\n` +
+        `Register now and prove your skills.`,
+      color: 0x16C784, // green
+      fields: [
+        { name: '💰 Starting Balance', value: `$${challenge.starting_balance}`, inline: true },
+        { name: '🎯 Target', value: `$${challenge.target_balance}`, inline: true },
+        { name: '📅 Start', value: startStr, inline: false },
+        { name: '🏁 End', value: endStr, inline: false },
+        { name: '🏆 Prize Pool', value: (challenge as any).prize_pool_text || 'TBA', inline: false },
+        { name: '📝 Register', value: `Click the **🚀 Register Now** button below this message`, inline: false },
+      ],
+      footer: { text: 'BirrForex Challenges • WinnerPip' },
+      timestamp: new Date().toISOString(),
+    };
+
+    await this.postToDiscord(challenge, '@everyone', embed);
   }
 }

@@ -604,3 +604,44 @@ router.delete('/challenges/:id', async (req: Request, res: Response) => {
 });
 
 export { router as discordRoutes };
+
+// ==================== PENDING ANNOUNCEMENTS (for Discord bot polling) ====================
+
+/**
+ * GET /api/discord/pending-announcements
+ * Returns challenges that need to be announced in Discord (status = registration_open, discord_channel_message_id = 'pending_announce')
+ * Discord bot polls this and posts the announcement with interactive Register button.
+ */
+router.get('/pending-announcements', async (req: Request, res: Response) => {
+  try {
+    const result = await db.query(
+      `SELECT id, title, type, start_date, end_date, starting_balance, target_balance, prize_pool_text, registration_deadline
+       FROM trading_challenges
+       WHERE source = 'discord' AND status = 'registration_open' AND discord_channel_message_id = 'pending_announce'`
+    );
+    return res.json({ pending: result.rows });
+  } catch (error) {
+    console.error('Pending announcements error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * POST /api/discord/mark-announced/:id
+ * Discord bot calls this after posting the announcement to mark it as done.
+ * Body: { message_id }
+ */
+router.post('/mark-announced/:id', async (req: Request, res: Response) => {
+  try {
+    const challengeId = parseInt(param(req, "id"));
+    const { message_id } = req.body;
+    await db.query(
+      `UPDATE trading_challenges SET discord_channel_message_id = $1 WHERE id = $2`,
+      [message_id || 'announced', challengeId]
+    );
+    return res.json({ success: true });
+  } catch (error) {
+    console.error('Mark announced error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
