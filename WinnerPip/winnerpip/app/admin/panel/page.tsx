@@ -1763,10 +1763,15 @@ function VerifyButton({ challengeId, registrationId }: { challengeId: string; re
               <div className="space-y-2">
                 <div className="flex justify-between p-3 bg-white/5 rounded-lg"><span className="text-xs text-gray-400">Balance</span><span className="text-sm text-white font-bold">${result.balance || "—"}</span></div>
                 <div className="flex justify-between p-3 bg-white/5 rounded-lg"><span className="text-xs text-gray-400">Equity</span><span className="text-sm text-white font-bold">${result.equity || "—"}</span></div>
+                {result.attempts > 1 && <p className="text-[10px] text-gray-500 text-center">Verified on attempt {result.attempts}/3</p>}
               </div>
             )}
             {!result.verified && (
-              <p className="text-sm text-loss">{result.error || "Unknown error"}</p>
+              <div>
+                <p className="text-sm text-loss mb-2">{result.error || "Unknown error"}</p>
+                {result.attempts && <p className="text-[10px] text-gray-500">Tried {result.attempts} time{result.attempts > 1 ? "s" : ""} across different terminals</p>}
+                {result.credentialIssue && <p className="text-[10px] text-gold mt-1">⚠️ This looks like a credential issue — password may have changed</p>}
+              </div>
             )}
             <button onClick={() => { setShowPopup(false); setStatus("idle"); }} className="w-full mt-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-gray-300 text-sm font-semibold hover:bg-white/10 transition-all">Close</button>
           </div>

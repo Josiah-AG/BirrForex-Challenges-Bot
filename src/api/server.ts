@@ -1664,24 +1664,40 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/verify-account`, adminIp
       return res.json({ verified: false, error: 'VPS not configured' });
     }
 
-    try {
-      const axios = require('axios');
-      const verifyRes = await axios.post(`${vpsUrl}/verify`, {
-        account: reg.account_number, server: reg.mt5_server, password: reg.investor_password, api_key: vpsKey,
-      }, { timeout: 15000 });
+    // Try up to 3 times with 2s delay between attempts
+    const axios = require('axios');
+    let lastError = '';
 
-      if (verifyRes.data?.success) {
-        await db.query(
-          `UPDATE trading_registrations SET connection_verified = true, connection_verified_at = NOW() WHERE id = $1`,
-          [registrationId]
-        );
-        return res.json({ verified: true, balance: verifyRes.data.balance, equity: verifyRes.data.equity });
-      } else {
-        return res.json({ verified: false, error: verifyRes.data?.message || 'Connection failed' });
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const verifyRes = await axios.post(`${vpsUrl}/verify`, {
+          account: reg.account_number, server: reg.mt5_server, password: reg.investor_password, api_key: vpsKey,
+          terminal_id: attempt, // Try different terminals
+        }, { timeout: 15000 });
+
+        if (verifyRes.data?.success) {
+          await db.query(
+            `UPDATE trading_registrations SET connection_verified = true, connection_verified_at = NOW() WHERE id = $1`,
+            [registrationId]
+          );
+          return res.json({ verified: true, balance: verifyRes.data.balance, equity: verifyRes.data.equity, attempts: attempt });
+        } else {
+          lastError = verifyRes.data?.message || 'Connection failed';
+          // If credential error, don't retry
+          const msg = (lastError).toLowerCase();
+          if (msg.includes('authorization') || msg.includes('invalid') || msg.includes('password')) {
+            return res.json({ verified: false, error: lastError, attempts: attempt, credentialIssue: true });
+          }
+        }
+      } catch (err: any) {
+        lastError = err.code === 'ECONNABORTED' ? 'Timeout' : (err.message || 'VPS unreachable');
       }
-    } catch (err: any) {
-      return res.json({ verified: false, error: err.message || 'VPS unreachable' });
+
+      // Wait 2s before retry (except last attempt)
+      if (attempt < 3) await new Promise(r => setTimeout(r, 2000));
     }
+
+    return res.json({ verified: false, error: `Failed after 3 attempts: ${lastError}`, attempts: 3 });
   } catch (error) {
     return res.status(500).json({ error: 'Internal server error' });
   }
