@@ -479,13 +479,13 @@ export class TradingScheduler {
     }
   }
 
-  // ==================== LEADERBOARD LOCK (12h after end) ====================
+  // ==================== LEADERBOARD LOCK (after 2nd pull post-end) ====================
 
   private leaderboardLockProcessed = new Set<number>();
 
   private async checkLeaderboardLock(challenge: TradingChallenge) {
-    // Only for reviewing/submission_open challenges (already ended)
-    if (challenge.status !== 'reviewing' && challenge.status !== 'submission_open') return;
+    // Only for reviewing challenges (already ended)
+    if (challenge.status !== 'reviewing') return;
     if (this.leaderboardLockProcessed.has(challenge.id)) return;
 
     // Check if already locked
@@ -494,14 +494,18 @@ export class TradingScheduler {
       return;
     }
 
-    // Check if 12 hours have passed since end_date
-    const endTime = new Date(challenge.end_date).getTime();
-    const now = Date.now();
-    const hoursSinceEnd = (now - endTime) / (1000 * 60 * 60);
+    // Count how many pull batches have completed AFTER the end_date
+    const endTime = new Date(challenge.end_date);
+    const pullsAfterEnd = await db.query(
+      `SELECT COUNT(*) as cnt FROM wp_pull_batches WHERE challenge_id = $1 AND status = 'completed' AND started_at > $2`,
+      [challenge.id, endTime.toISOString()]
+    );
+    const pullCount = parseInt(pullsAfterEnd.rows[0].cnt);
 
-    if (hoursSinceEnd >= 12) {
+    // Lock after 2nd pull post-end
+    if (pullCount >= 2) {
       this.leaderboardLockProcessed.add(challenge.id);
-      console.log(`🔒 Locking leaderboard for "${challenge.title}" (${hoursSinceEnd.toFixed(1)}h since end)`);
+      console.log(`🔒 Locking leaderboard for "${challenge.title}" (${pullCount} pulls after end)`);
 
       // Final leaderboard ranking update
       try {
@@ -520,7 +524,7 @@ export class TradingScheduler {
       // Notify admin
       try {
         await this.bot.bot.telegram.sendMessage(config.adminUserId,
-          `🔒 <b>Leaderboard Locked</b>\n\n<b>${challenge.title}</b>\n\nFinal rankings are now frozen (12h after end).\nUse /selectwinners to choose winners.`,
+          `🔒 <b>Leaderboard Locked</b>\n\n<b>${challenge.title}</b>\n\nFinal rankings are now frozen (2 pulls completed after end).\nUse /selectwinners to choose winners.`,
           { parse_mode: 'HTML' });
       } catch (e) {}
 

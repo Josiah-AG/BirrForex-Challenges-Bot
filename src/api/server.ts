@@ -265,9 +265,13 @@ app.get('/api/challenges', async (req, res) => {
       if (!c.announcement_posted && c.status === 'draft') displayStatus = 'coming_soon';
       else if (c.status === 'registration_open') displayStatus = 'registration_open';
       else if (c.status === 'active') displayStatus = 'ongoing';
-      else if (['submission_open', 'reviewing'].includes(c.status) && !c.winners_posted_at) displayStatus = 'evaluation';
+      else if (['submission_open', 'reviewing'].includes(c.status) && !c.winners_posted_at) {
+        // Show "Evaluation" for first 12h after end, then "Ended"
+        const hoursSinceEnd = (Date.now() - new Date(c.end_date).getTime()) / (1000 * 60 * 60);
+        displayStatus = hoursSinceEnd < 12 ? 'evaluation' : 'ended';
+      }
       else if (c.winners_posted_at) displayStatus = 'ended';
-      else if (c.status === 'completed' && !c.winners_posted_at) displayStatus = 'ended'; // Legacy completed challenges without winners_posted_at
+      else if (c.status === 'completed' && !c.winners_posted_at) displayStatus = 'ended';
       else displayStatus = c.status;
 
       // 7-day visibility: hide challenges where winners were posted more than 7 days ago
