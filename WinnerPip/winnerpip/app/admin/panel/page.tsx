@@ -11,10 +11,11 @@ export default function AdminDashboard() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [adminPass, setAdminPass] = useState("");
   const [adminPath, setAdminPath] = useState("");
+  const [adminPathLoaded, setAdminPathLoaded] = useState(false);
 
   // Fetch admin path from server-side (not exposed in JS bundle)
   useEffect(() => {
-    fetch("/api/admin-config").then(r => r.json()).then(d => { setAdminPath(d.path || ""); if (typeof window !== "undefined") (window as any).__adminPath = d.path || ""; }).catch(() => {});
+    fetch("/api/admin-config").then(r => r.json()).then(d => { const p = d.path || ""; setAdminPath(p); if (typeof window !== "undefined") (window as any).__adminPath = p; setAdminPathLoaded(true); }).catch(() => setAdminPathLoaded(true));
   }, []);
   const [loginError, setLoginError] = useState("");
   const [loginLoading, setLoginLoading] = useState(false);
@@ -84,7 +85,7 @@ export default function AdminDashboard() {
   // Fetch challenges list after login — use admin endpoint (shows ALL challenges)
   const [challenges, setChallenges] = useState<any[]>([]);
   useEffect(() => {
-    if (!isAdmin) return;
+    if (!isAdmin || !adminPathLoaded) return;
     const fetchChallenges = async () => {
       try {
         const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
@@ -100,11 +101,11 @@ export default function AdminDashboard() {
       } catch {}
     };
     fetchChallenges();
-  }, [isAdmin]);
+  }, [isAdmin, adminPathLoaded]);
 
   // Fetch overview data when challenge changes
   useEffect(() => {
-    if (!isAdmin || !selectedChallengeId) return;
+    if (!isAdmin || !selectedChallengeId || !adminPathLoaded) return;
     const fetchOverview = async () => {
       try {
         const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
