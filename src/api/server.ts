@@ -1684,13 +1684,35 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/verify-account`, adminIp
           let balance = verifyRes.data.balance || verifyRes.data.account_balance || null;
           let equity = verifyRes.data.equity || verifyRes.data.account_equity || null;
 
-          // If VPS didn't return balance, try to get from leaderboard
+          // If VPS didn't return balance, try a quick pull to get it
           if (!balance) {
-            const lb = await db.query(`SELECT current_balance FROM wp_leaderboard WHERE registration_id = $1`, [registrationId]);
-            if (lb.rows.length > 0) balance = parseFloat(lb.rows[0].current_balance);
+            try {
+              const pullRes = await axios.post(`${vpsUrl}/pull`, {
+                account: reg.account_number, server: reg.mt5_server, password: reg.investor_password,
+                api_key: vpsKey, terminal_id: attempt,
+              }, { timeout: 20000 });
+              if (pullRes.data?.success) {
+                balance = pullRes.data.balance || null;
+                equity = pullRes.data.equity || null;
+              }
+            } catch {}
           }
 
-          return res.json({ verified: true, balance, equity, attempts: attempt });
+          // Still no balance? Get from leaderboard
+          if (!balance) {
+            const lb = await db.query(`SELECT current_balance FROM wp_leaderboard WHERE registration_id = $1`, [registrationId]);
+            if (lb.rows.length > 0 && lb.rows[0].current_balance) balance = parseFloat(lb.rows[0].current_balance);
+          }
+
+          // Get last pull status for context
+          const pullInfo = await db.query(`SELECT pull_status, pull_error, last_pull_at FROM trading_registrations WHERE id = $1`, [registrationId]);
+          const pullStatus = pullInfo.rows[0]?.pull_status;
+          const pullError = pullInfo.rows[0]?.pull_error;
+
+          return res.json({
+            verified: true, balance, equity, attempts: attempt,
+            pullStatus, pullError: pullStatus !== 'success' ? pullError : null,
+          });
         } else {
           lastError = verifyRes.data?.message || 'Connection failed';
           // If credential error, don't retry

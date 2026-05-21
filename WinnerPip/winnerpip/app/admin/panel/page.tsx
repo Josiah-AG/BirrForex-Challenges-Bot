@@ -880,6 +880,12 @@ export default function AdminDashboard() {
                 ) : (
                   <p className="text-xs text-gray-400 text-center p-3">Connection verified — balance will update on next pull cycle</p>
                 )}
+                {verifyPopup.pullStatus && verifyPopup.pullStatus !== "success" && (
+                  <div className="p-3 bg-gold/10 border border-gold/20 rounded-lg mt-2">
+                    <p className="text-xs text-gold font-semibold">⚠️ Pull issue: {verifyPopup.pullStatus}</p>
+                    {verifyPopup.pullError && <p className="text-[10px] text-gray-400 mt-1">{verifyPopup.pullError}</p>}
+                  </div>
+                )}
                 {verifyPopup.attempts > 1 && <p className="text-[10px] text-gray-500 text-center mt-2">Verified on attempt {verifyPopup.attempts}/3</p>}
               </div>
             )}
