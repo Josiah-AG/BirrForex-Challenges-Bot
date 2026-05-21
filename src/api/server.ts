@@ -1683,6 +1683,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/verify-account`, adminIp
           // Get balance from response or from leaderboard
           let balance = verifyRes.data.balance || verifyRes.data.account_balance || null;
           let equity = verifyRes.data.equity || verifyRes.data.account_equity || null;
+          console.log(`[Verify] VPS verify response: balance=${verifyRes.data.balance}, equity=${verifyRes.data.equity}, keys=${Object.keys(verifyRes.data).join(',')}`);
 
           // If VPS didn't return balance, try a quick pull to get it
           if (!balance) {
@@ -1695,7 +1696,10 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/verify-account`, adminIp
                 balance = pullRes.data.balance || null;
                 equity = pullRes.data.equity || null;
               }
-            } catch {}
+              console.log(`[Verify] Pull response balance: ${pullRes.data?.balance}, equity: ${pullRes.data?.equity}`);
+            } catch (pullErr: any) {
+              console.log(`[Verify] Pull failed: ${pullErr.message}`);
+            }
           }
 
           // Still no balance? Get from leaderboard

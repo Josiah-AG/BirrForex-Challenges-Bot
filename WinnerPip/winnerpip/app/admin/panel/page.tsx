@@ -872,17 +872,20 @@ export default function AdminDashboard() {
             </div>
             {verifyPopup.verified && (
               <div className="space-y-2">
-                {(verifyPopup.balance != null || verifyPopup.equity != null) ? (
+                {(verifyPopup.balance != null && verifyPopup.balance !== 0) ? (
                   <>
-                    <div className="flex justify-between p-3 bg-white/5 rounded-lg"><span className="text-xs text-gray-400">Balance</span><span className="text-sm text-white font-bold">{verifyPopup.balance != null ? `$${Number(verifyPopup.balance).toFixed(2)}` : "N/A"}</span></div>
-                    <div className="flex justify-between p-3 bg-white/5 rounded-lg"><span className="text-xs text-gray-400">Equity</span><span className="text-sm text-white font-bold">{verifyPopup.equity != null ? `$${Number(verifyPopup.equity).toFixed(2)}` : "N/A"}</span></div>
+                    <div className="flex justify-between p-3 bg-white/5 rounded-lg"><span className="text-xs text-gray-400">Balance</span><span className="text-sm text-white font-bold">${Number(verifyPopup.balance).toFixed(2)}</span></div>
+                    {verifyPopup.equity != null && <div className="flex justify-between p-3 bg-white/5 rounded-lg"><span className="text-xs text-gray-400">Equity</span><span className="text-sm text-white font-bold">${Number(verifyPopup.equity).toFixed(2)}</span></div>}
                   </>
                 ) : (
-                  <p className="text-xs text-gray-400 text-center p-3">Connection verified — balance will update on next pull cycle</p>
+                  <div className="p-3 bg-white/5 rounded-lg text-center">
+                    <p className="text-xs text-gray-400">✅ Credentials are valid — account is accessible</p>
+                    <p className="text-[10px] text-gray-500 mt-1">Balance will show after the next pull cycle completes</p>
+                  </div>
                 )}
                 {verifyPopup.pullStatus && verifyPopup.pullStatus !== "success" && (
                   <div className="p-3 bg-gold/10 border border-gold/20 rounded-lg mt-2">
-                    <p className="text-xs text-gold font-semibold">⚠️ Pull issue: {verifyPopup.pullStatus}</p>
+                    <p className="text-xs text-gold font-semibold">⚠️ Pull status: {verifyPopup.pullStatus}</p>
                     {verifyPopup.pullError && <p className="text-[10px] text-gray-400 mt-1">{verifyPopup.pullError}</p>}
                   </div>
                 )}
