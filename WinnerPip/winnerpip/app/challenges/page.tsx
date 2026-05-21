@@ -75,14 +75,14 @@ export default function ChallengesPage() {
       case "active":
         return { label: "Ongoing (Live)", color: "bg-gold/20 text-gold border-gold/30" };
       case "evaluation":
-        return { label: "Evaluation", color: "bg-royal/20 text-royal border-royal/30" };
+        return { label: "Final Review", color: "bg-royal/20 text-royal border-royal/30" };
       case "ended":
       case "completed":
         return { label: "Ended", color: "bg-white/5 text-gray-500 border-white/10" };
       case "submission_open":
         return { label: "Submissions Open", color: "bg-royal/20 text-royal border-royal/30" };
       case "reviewing":
-        return { label: "Evaluation", color: "bg-royal/20 text-royal border-royal/30" };
+        return { label: "Final Review", color: "bg-royal/20 text-royal border-royal/30" };
       default:
         return { label: status, color: "bg-white/10 text-gray-400 border-white/20" };
     }
