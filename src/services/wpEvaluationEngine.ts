@@ -220,8 +220,11 @@ export class WpEvaluationEngine {
   async evaluateSingleAccount(challengeId: number, registrationId: number): Promise<{ flaggedCount: number; isQualified: boolean }> {
     const rules = await this.loadRules(challengeId);
     if (!rules) {
-      console.log(`⚠️ WP Evaluation: No rules for challenge ${challengeId}, skipping account ${registrationId}`);
-      return { flaggedCount: 0, isQualified: false };
+      // No rules configured — still create leaderboard entry with basic data
+      console.log(`⚠️ WP Evaluation: No rules for challenge ${challengeId}, creating basic leaderboard entry`);
+      await this.seedDefaultRules(challengeId);
+      // Retry with default rules
+      return this.evaluateSingleAccount(challengeId, registrationId);
     }
 
     const challenge = await db.query(`SELECT starting_balance, target_balance, type FROM trading_challenges WHERE id = $1`, [challengeId]);

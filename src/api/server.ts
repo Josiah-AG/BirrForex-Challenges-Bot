@@ -1812,7 +1812,9 @@ app.put(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/rules`, adminIpCheck, asy
     if (!challenge.rows[0]) return res.status(404).json({ error: 'Challenge not found' });
 
     const status = challenge.rows[0].status;
-    if (!['draft', 'registration_open'].includes(status)) {
+    // Allow saving rules if none exist yet (first-time setup), even if challenge is active
+    const existingRules = await db.query(`SELECT 1 FROM wp_challenge_rules WHERE challenge_id = $1 AND rule_code = 'config'`, [challengeId]);
+    if (!['draft', 'registration_open'].includes(status) && existingRules.rows.length > 0) {
       return res.status(403).json({ error: 'Rules are locked. Cannot modify rules after challenge has started.', locked: true });
     }
 

@@ -823,9 +823,20 @@ export default function AdminDashboard() {
                 <p className="text-xs text-gray-500">🔒 Rules locked — challenge is {challenge.status}</p>
               )}
               <button
-                onClick={() => { setRulesSaved(true); setTimeout(() => setRulesSaved(false), 3000); }}
-                disabled={challenge.status !== "draft" && challenge.status !== "registration_open"}
-                className={`px-8 py-3 rounded-xl font-semibold text-sm transition-all ${rulesSaved ? "bg-profit/20 text-profit border border-profit/30" : challenge.status !== "draft" && challenge.status !== "registration_open" ? "bg-white/5 text-gray-500 border border-white/10 cursor-not-allowed" : "bg-gradient-brand hover:opacity-90 text-white shadow-lg shadow-royal/20"}`}>
+                onClick={async () => {
+                  try {
+                    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
+                    const secretPath = process.env.NEXT_PUBLIC_ADMIN_PATH || "";
+                    const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${selectedChallengeId}/rules`, {
+                      method: "PUT", headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify(rulesConfig),
+                    });
+                    if (res.ok) { setRulesSaved(true); setTimeout(() => setRulesSaved(false), 3000); }
+                    else { const d = await res.json(); alert(d.error || "Failed to save rules"); }
+                  } catch { alert("Connection error"); }
+                }}
+                disabled={false}
+                className={`px-8 py-3 rounded-xl font-semibold text-sm transition-all ${rulesSaved ? "bg-profit/20 text-profit border border-profit/30" : "bg-gradient-brand hover:opacity-90 text-white shadow-lg shadow-royal/20"}`}>
                 {rulesSaved ? "✓ Rules Saved" : "Save Rules"}
               </button>
             </div>
