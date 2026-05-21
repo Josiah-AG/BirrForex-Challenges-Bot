@@ -206,10 +206,15 @@ export default function ChallengeDashboard() {
   const progressPercent = challenge && myStats ? Math.min(100, Math.max(0, ((myStats.currentBalance - challenge.startingBalance) / (challenge.targetBalance - challenge.startingBalance)) * 100)) : 0;
   const totalParticipants = leaderboard.length;
 
-  // Format date helper
+  // Format date helper (shows in EAT)
   const formatDate = (dateStr: string) => {
     const d = new Date(dateStr);
-    return d.toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    const eat = new Date(d.getTime() + 3 * 60 * 60 * 1000);
+    const month = eat.toLocaleString("en-US", { month: "short", timeZone: "UTC" });
+    const day = eat.getUTCDate();
+    const h = eat.getUTCHours().toString().padStart(2, "0");
+    const m = eat.getUTCMinutes().toString().padStart(2, "0");
+    return `${month} ${day}, ${h}:${m}`;
   };
   const formatRelativeTime = (dateStr: string | null) => {
     if (!dateStr) return "Never";
@@ -229,14 +234,9 @@ export default function ChallengeDashboard() {
     const currentHourEAT = eatNow.getUTCHours();
     const pullHours = [0, 4, 8, 12, 16, 20];
     let nextHour = pullHours.find(h => h > currentHourEAT);
-    const nextDate = new Date(eatNow);
     if (nextHour === undefined) {
       nextHour = 0;
-      nextDate.setUTCDate(nextDate.getUTCDate() + 1);
     }
-    nextDate.setUTCHours(nextHour, 0, 0, 0);
-    // Convert back from EAT to local display
-    const localNext = new Date(nextDate.getTime() - 3 * 60 * 60 * 1000);
     const h = nextHour.toString().padStart(2, "0");
     return `${h}:00 EAT`;
   };
