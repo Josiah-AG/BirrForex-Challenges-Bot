@@ -293,9 +293,14 @@ export class WpEvaluationEngine {
 
     if (trades.rows.length === 0) {
       // No trades — use VPS balance if available, otherwise starting balance
-      const regBalance = await db.query(`SELECT last_known_balance FROM trading_registrations WHERE id = $1`, [reg.id]);
-      const vpsBalance = regBalance.rows[0]?.last_known_balance;
-      const currentBalance = vpsBalance !== null && vpsBalance !== undefined ? parseFloat(vpsBalance) : startingBalance;
+      let currentBalance = startingBalance;
+      try {
+        const regBalance = await db.query(`SELECT last_known_balance FROM trading_registrations WHERE id = $1`, [reg.id]);
+        const vpsBalance = regBalance.rows[0]?.last_known_balance;
+        if (vpsBalance !== null && vpsBalance !== undefined) currentBalance = parseFloat(vpsBalance);
+      } catch {
+        // Column might not exist yet — use starting balance
+      }
       await this.upsertLeaderboard(challengeId, reg, startingBalance, { currentBalance, adjustedBalance: currentBalance, qualifiedProfit: currentBalance - startingBalance, grossProfit: currentBalance - startingBalance, profitRemoved: 0, totalTrades: 0, qualifiedTrades: 0, flaggedTrades: 0, activeDays: 0, isQualified: false, lastTradeTime: null });
       return { flaggedCount: 0, isQualified: false };
     }
