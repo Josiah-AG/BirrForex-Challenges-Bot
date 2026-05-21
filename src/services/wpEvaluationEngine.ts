@@ -725,7 +725,7 @@ export class WpEvaluationEngine {
       }
     }
     if (cfg.max_hold_hours) rules.push(`Maximum trade duration: ${cfg.max_hold_hours} hours`);
-    if (!cfg.weekend_trading) rules.push('No weekend trading (Friday 22:00 — Sunday 22:00 UTC)');
+    if (!cfg.weekend_trading) rules.push('No weekend trading');
     if (cfg.min_active_days) rules.push(`Minimum ${cfg.min_active_days} active trading days to qualify`);
     if (isCent) rules.push('Only cent accounts allowed for real account category');
     rules.push('No recharging (additional deposits) allowed during the challenge');
