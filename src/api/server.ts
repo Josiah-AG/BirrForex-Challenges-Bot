@@ -113,7 +113,7 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
        JOIN trading_challenges c ON r.challenge_id = c.id
        WHERE r.account_number = $1
          AND r.investor_password = $2
-         AND r.disqualified = false
+         AND (r.status IS NULL OR r.status != 'removed')
        ORDER BY r.registered_at DESC
        LIMIT 1`,
       [account_number.trim(), investor_password.trim()]
@@ -204,11 +204,11 @@ app.post('/api/auth/verify-token', async (req, res) => {
 
     // Get fresh user data
     const result = await db.query(
-      `SELECT r.id, r.telegram_id, r.nickname, r.username, r.account_number, r.account_type, r.mt5_server, r.challenge_id,
+      `SELECT r.id, r.telegram_id, r.nickname, r.username, r.account_number, r.account_type, r.mt5_server, r.challenge_id, r.disqualified,
               c.title as challenge_title, c.status as challenge_status
        FROM trading_registrations r
        JOIN trading_challenges c ON r.challenge_id = c.id
-       WHERE r.id = $1 AND r.disqualified = false`,
+       WHERE r.id = $1 AND (r.status IS NULL OR r.status != 'removed')`,
       [payload.registrationId]
     );
 
@@ -354,9 +354,9 @@ app.get('/api/challenges/:id/leaderboard', async (req, res) => {
     let query = `
       SELECT nickname, account_type, rank, current_balance, adjusted_balance,
              qualified_profit, gross_profit, profit_removed, total_trades,
-             qualified_trades, flagged_trades, is_qualified, last_trade_time, last_updated
+             qualified_trades, flagged_trades, is_qualified, is_disqualified, last_trade_time, last_updated
       FROM wp_leaderboard
-      WHERE challenge_id = $1 AND is_disqualified = false
+      WHERE challenge_id = $1
     `;
     const params: any[] = [challengeId];
 
@@ -384,6 +384,7 @@ app.get('/api/challenges/:id/leaderboard', async (req, res) => {
         qualifiedTrades: r.qualified_trades,
         flaggedTrades: r.flagged_trades,
         isQualified: r.is_qualified,
+        isDisqualified: r.is_disqualified || false,
         lastTradeTime: r.last_trade_time,
         lastUpdated: r.last_updated,
       })),
@@ -449,6 +450,7 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
         accountType: registration.account_type,
         server: registration.mt5_server,
         pullStatus: registration.pull_status || null,
+        disqualified: registration.disqualified || false,
         rank: leaderboard?.rank || null,
         currentBalance: leaderboard ? parseFloat(leaderboard.current_balance) : parseFloat(registration.starting_balance),
         adjustedBalance: leaderboard ? parseFloat(leaderboard.adjusted_balance) : parseFloat(registration.starting_balance),
@@ -1070,10 +1072,10 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/finduser`, adminIpCheck, 
         server: r.mt5_server,
         registeredAt: r.registered_at,
         rank: r.rank || null,
-        balance: r.current_balance ? parseFloat(r.current_balance) : null,
-        qualifiedProfit: r.qualified_profit ? parseFloat(r.qualified_profit) : 0,
-        grossProfit: r.gross_profit ? parseFloat(r.gross_profit) : 0,
-        profitRemoved: r.profit_removed ? parseFloat(r.profit_removed) : 0,
+        balance: r.current_balance != null ? parseFloat(r.current_balance) : null,
+        qualifiedProfit: r.qualified_profit != null ? parseFloat(r.qualified_profit) : 0,
+        grossProfit: r.gross_profit != null ? parseFloat(r.gross_profit) : 0,
+        profitRemoved: r.profit_removed != null ? parseFloat(r.profit_removed) : 0,
         totalTrades: r.total_trades || 0,
         qualifiedTrades: r.qualified_trades || 0,
         flaggedTrades: r.flagged_trades || 0,

@@ -144,8 +144,9 @@ export class VpsPullScheduler {
       return;
     }
 
-    // EAT = UTC+3 → UTC times: 03:00, 07:00, 11:00, 15:00, 19:00, 23:00
-    cron.schedule('0 3,7,11,15,19,23 * * *', () => this.runPullCycle());
+    // EAT = UTC+3 → UTC times: 21:00, 01:00, 05:00, 09:00, 13:00, 17:00
+    // EAT schedule: 00:00, 04:00, 08:00, 12:00, 16:00, 20:00
+    cron.schedule('0 21,1,5,9,13,17 * * *', () => this.runPullCycle());
 
     // Check for 48h disqualifications every hour
     cron.schedule('30 * * * *', () => this.checkDisqualifications());
@@ -354,6 +355,11 @@ export class VpsPullScheduler {
         terminal.totalSuccess++;
         terminal.consecutiveFailures = 0;
         resultsMutex.results.push(result);
+
+        // Save VPS balance to registration for evaluation to use
+        if (result.balance !== undefined) {
+          await db.query(`UPDATE trading_registrations SET last_known_balance = $1 WHERE id = $2`, [result.balance, account.registrationId]).catch(() => {});
+        }
 
         // === PER-ACCOUNT EVALUATION (streaming) ===
         try {
@@ -826,7 +832,7 @@ export class VpsPullScheduler {
          AND r.disqualified = false
          AND r.investor_password IS NOT NULL
          AND r.connection_verified = true
-         AND (l.zero_balance_at IS NULL)
+         AND (l.zero_balance_at IS NULL OR l.total_trades = 0)
        ORDER BY r.id`,
       [challengeId]
     );
