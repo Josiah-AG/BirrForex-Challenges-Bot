@@ -40,6 +40,7 @@ export default function AdminDashboard() {
   });
   const [rulesSaved, setRulesSaved] = useState(false);
   const [overviewData, setOverviewData] = useState<any>(null);
+  const [verifyPopup, setVerifyPopup] = useState<any>(null);
 
   // Lock scroll on modal
   useEffect(() => {
@@ -553,7 +554,7 @@ export default function AdminDashboard() {
                           <td className="py-2 px-3 text-center text-xs text-gray-400">{p.totalTrades}</td>
                           <td className="py-2 px-3 text-center">
                             <div className="flex items-center justify-center gap-1">
-                              <VerifyButton challengeId={selectedChallengeId} registrationId={p.id} />
+                              <VerifyButton challengeId={selectedChallengeId} registrationId={p.id} onResult={(data: any) => setVerifyPopup(data)} />
                               <button onClick={() => setActionModal({ type: 'unverify', participant: p })} title="Remove Registration" className="p-1.5 rounded-lg hover:bg-orange-500/20 text-gray-400 hover:text-orange-400 transition-all"><UserMinus size={14} /></button>
                               {!p.disqualified && <button onClick={() => setActionModal({ type: 'disqualify', participant: p })} title="Disqualify" className="p-1.5 rounded-lg hover:bg-loss/20 text-gray-400 hover:text-loss transition-all"><Ban size={14} /></button>}
                             </div>
@@ -854,6 +855,42 @@ export default function AdminDashboard() {
               </div>
               <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Account Type</p><span className={`px-3 py-1 rounded text-xs font-semibold ${selectedParticipant.accountType === "real" ? "bg-gold/10 text-gold" : "bg-royal/10 text-royal"}`}>{selectedParticipant.accountType}</span></div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ==================== VERIFY POPUP (rendered at top level to escape overflow) ==================== */}
+      {verifyPopup && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4" style={{zIndex:99999}} onClick={() => setVerifyPopup(null)}>
+          <div className="bg-[#111827] rounded-2xl border border-white/10 p-6 max-w-sm w-full shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-bold text-white">Connection Verification</h3>
+              <button onClick={() => setVerifyPopup(null)} className="p-1 hover:bg-white/10 rounded-lg"><X size={16} className="text-gray-400" /></button>
+            </div>
+            <div className={`p-4 rounded-xl mb-4 ${verifyPopup.verified ? "bg-profit/10 border border-profit/30" : "bg-loss/10 border border-loss/30"}`}>
+              <p className={`text-lg font-bold text-center ${verifyPopup.verified ? "text-profit" : "text-loss"}`}>{verifyPopup.verified ? "✅ Verified" : "❌ Failed"}</p>
+            </div>
+            {verifyPopup.verified && (
+              <div className="space-y-2">
+                {(verifyPopup.balance != null || verifyPopup.equity != null) ? (
+                  <>
+                    <div className="flex justify-between p-3 bg-white/5 rounded-lg"><span className="text-xs text-gray-400">Balance</span><span className="text-sm text-white font-bold">{verifyPopup.balance != null ? `$${Number(verifyPopup.balance).toFixed(2)}` : "N/A"}</span></div>
+                    <div className="flex justify-between p-3 bg-white/5 rounded-lg"><span className="text-xs text-gray-400">Equity</span><span className="text-sm text-white font-bold">{verifyPopup.equity != null ? `$${Number(verifyPopup.equity).toFixed(2)}` : "N/A"}</span></div>
+                  </>
+                ) : (
+                  <p className="text-xs text-gray-400 text-center p-3">Connection verified — balance will update on next pull cycle</p>
+                )}
+                {verifyPopup.attempts > 1 && <p className="text-[10px] text-gray-500 text-center mt-2">Verified on attempt {verifyPopup.attempts}/3</p>}
+              </div>
+            )}
+            {!verifyPopup.verified && (
+              <div>
+                <p className="text-sm text-loss mb-2">{verifyPopup.error || "Unknown error"}</p>
+                {verifyPopup.attempts && <p className="text-[10px] text-gray-500">Tried {verifyPopup.attempts} time{verifyPopup.attempts > 1 ? "s" : ""}</p>}
+                {verifyPopup.credentialIssue && <p className="text-[10px] text-gold mt-1">⚠️ Credential issue — password may have changed</p>}
+              </div>
+            )}
+            <button onClick={() => setVerifyPopup(null)} className="w-full mt-4 py-2.5 rounded-xl bg-white/10 border border-white/10 text-gray-300 text-sm font-semibold hover:bg-white/20 transition-all">Close</button>
           </div>
         </div>
       )}
@@ -1719,13 +1756,12 @@ function PullsTab({ challengeId, pullHistory, terminalStatus }: { challengeId: s
   );
 }
 
-function VerifyButton({ challengeId, registrationId }: { challengeId: string; registrationId: number }) {
-  const [status, setStatus] = useState<"idle" | "checking" | "done">("idle");
-  const [result, setResult] = useState<any>(null);
-  const [showPopup, setShowPopup] = useState(false);
+
+function VerifyButton({ challengeId, registrationId, onResult }: { challengeId: string; registrationId: number; onResult: (data: any) => void }) {
+  const [checking, setChecking] = useState(false);
 
   const handleVerify = async () => {
-    setStatus("checking");
+    setChecking(true);
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
     const secretPath = process.env.NEXT_PUBLIC_ADMIN_PATH || "";
     try {
@@ -1734,55 +1770,16 @@ function VerifyButton({ challengeId, registrationId }: { challengeId: string; re
         body: JSON.stringify({ registrationId }),
       });
       const data = await res.json();
-      setResult(data);
-      setStatus("done");
-      setShowPopup(true);
+      onResult(data);
     } catch {
-      setResult({ verified: false, error: "Connection error" });
-      setStatus("done");
-      setShowPopup(true);
+      onResult({ verified: false, error: "Connection error" });
     }
+    setChecking(false);
   };
 
   return (
-    <>
-      <button onClick={handleVerify} disabled={status === "checking"} title="Verify Connection" className="p-1.5 rounded-lg hover:bg-profit/20 text-gray-400 hover:text-profit transition-all disabled:opacity-50">
-        {status === "checking" ? <Loader2 size={14} className="animate-spin text-royal" /> : <Shield size={14} />}
-      </button>
-      {showPopup && result && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4" style={{position:'fixed',top:0,left:0,right:0,bottom:0}} onClick={() => { setShowPopup(false); setStatus("idle"); }}>
-          <div className="bg-[#111827] rounded-2xl border border-white/10 p-6 max-w-sm w-full shadow-2xl" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-bold text-white">Connection Verification</h3>
-              <button onClick={() => { setShowPopup(false); setStatus("idle"); }} className="p-1 hover:bg-white/10 rounded-lg"><X size={16} className="text-gray-400" /></button>
-            </div>
-            <div className={`p-4 rounded-xl mb-4 ${result.verified ? "bg-profit/10 border border-profit/30" : "bg-loss/10 border border-loss/30"}`}>
-              <p className={`text-lg font-bold ${result.verified ? "text-profit" : "text-loss"}`}>{result.verified ? "✅ Verified" : "❌ Failed"}</p>
-            </div>
-            {result.verified && (
-              <div className="space-y-2">
-                {(result.balance != null || result.equity != null) ? (
-                  <>
-                    <div className="flex justify-between p-3 bg-white/5 rounded-lg"><span className="text-xs text-gray-400">Balance</span><span className="text-sm text-white font-bold">{result.balance != null ? `$${Number(result.balance).toFixed(2)}` : "N/A"}</span></div>
-                    <div className="flex justify-between p-3 bg-white/5 rounded-lg"><span className="text-xs text-gray-400">Equity</span><span className="text-sm text-white font-bold">{result.equity != null ? `$${Number(result.equity).toFixed(2)}` : "N/A"}</span></div>
-                  </>
-                ) : (
-                  <p className="text-xs text-gray-400 text-center">Connection verified — balance will update on next pull cycle</p>
-                )}
-                {result.attempts > 1 && <p className="text-[10px] text-gray-500 text-center">Verified on attempt {result.attempts}/3</p>}
-              </div>
-            )}
-            {!result.verified && (
-              <div>
-                <p className="text-sm text-loss mb-2">{result.error || "Unknown error"}</p>
-                {result.attempts && <p className="text-[10px] text-gray-500">Tried {result.attempts} time{result.attempts > 1 ? "s" : ""} across different terminals</p>}
-                {result.credentialIssue && <p className="text-[10px] text-gold mt-1">⚠️ This looks like a credential issue — password may have changed</p>}
-              </div>
-            )}
-            <button onClick={() => { setShowPopup(false); setStatus("idle"); }} className="w-full mt-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-gray-300 text-sm font-semibold hover:bg-white/10 transition-all">Close</button>
-          </div>
-        </div>
-      )}
-    </>
+    <button onClick={handleVerify} disabled={checking} title="Verify Connection" className="p-1.5 rounded-lg hover:bg-profit/20 text-gray-400 hover:text-profit transition-all disabled:opacity-50">
+      {checking ? <Loader2 size={14} className="animate-spin text-royal" /> : <Shield size={14} />}
+    </button>
   );
 }
