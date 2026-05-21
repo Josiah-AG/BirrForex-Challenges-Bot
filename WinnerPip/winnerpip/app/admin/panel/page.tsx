@@ -1750,8 +1750,8 @@ function VerifyButton({ challengeId, registrationId }: { challengeId: string; re
         {status === "checking" ? <Loader2 size={14} className="animate-spin text-royal" /> : <Shield size={14} />}
       </button>
       {showPopup && result && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => { setShowPopup(false); setStatus("idle"); }}>
-          <div className="glass rounded-2xl border border-white/10 p-6 max-w-sm w-full" onClick={e => e.stopPropagation()}>
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4" style={{position:'fixed',top:0,left:0,right:0,bottom:0}} onClick={() => { setShowPopup(false); setStatus("idle"); }}>
+          <div className="bg-[#111827] rounded-2xl border border-white/10 p-6 max-w-sm w-full shadow-2xl" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-sm font-bold text-white">Connection Verification</h3>
               <button onClick={() => { setShowPopup(false); setStatus("idle"); }} className="p-1 hover:bg-white/10 rounded-lg"><X size={16} className="text-gray-400" /></button>
