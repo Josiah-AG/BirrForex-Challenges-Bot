@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { Input } from "@/components/ui/input";
-import { Trophy, Users, AlertTriangle, Activity, TrendingUp, Target, Shield, Clock, BarChart3, FileText, X, Key, Loader2, ArrowRight, ChevronDown, ChevronUp, Zap, MessageSquare, UserMinus, Ban } from "lucide-react";
+import { Trophy, Users, AlertTriangle, Activity, TrendingUp, Target, Shield, Clock, BarChart3, FileText, X, Key, Loader2, ArrowRight, ChevronDown, ChevronUp, Zap, MessageSquare, UserMinus, Ban, LogOut } from "lucide-react";
 
 export default function AdminDashboard() {
   const [selectedChallengeId, setSelectedChallengeId] = useState<string>("5");
@@ -333,6 +333,9 @@ export default function AdminDashboard() {
             <div className="flex items-center gap-2">
               <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${challenge.status === "active" ? "bg-profit/20 text-profit border-profit/30" : "bg-white/10 text-gray-300 border-white/20"}`}>● {challenge.status}</span>
               <span className="text-xs text-gray-500">{overview.totalParticipants} users</span>
+              <button onClick={() => { localStorage.removeItem("wp_admin_key"); window.location.reload(); }} title="Logout" className="p-1.5 rounded-lg hover:bg-loss/20 text-gray-400 hover:text-loss transition-all ml-2">
+                <LogOut size={14} />
+              </button>
             </div>
           </div>
         </div>
@@ -1717,8 +1720,9 @@ function PullsTab({ challengeId, pullHistory, terminalStatus }: { challengeId: s
 }
 
 function VerifyButton({ challengeId, registrationId }: { challengeId: string; registrationId: number }) {
-  const [status, setStatus] = useState<"idle" | "checking" | "ok" | "fail">("idle");
-  const [detail, setDetail] = useState("");
+  const [status, setStatus] = useState<"idle" | "checking" | "done">("idle");
+  const [result, setResult] = useState<any>(null);
+  const [showPopup, setShowPopup] = useState(false);
 
   const handleVerify = async () => {
     setStatus("checking");
@@ -1730,27 +1734,44 @@ function VerifyButton({ challengeId, registrationId }: { challengeId: string; re
         body: JSON.stringify({ registrationId }),
       });
       const data = await res.json();
-      if (data.verified) {
-        setStatus("ok");
-        setDetail(data.balance ? `$${data.balance}` : "✓");
-      } else {
-        setStatus("fail");
-        setDetail(data.error || "Failed");
-      }
+      setResult(data);
+      setStatus("done");
+      setShowPopup(true);
     } catch {
-      setStatus("fail");
-      setDetail("Error");
+      setResult({ verified: false, error: "Connection error" });
+      setStatus("done");
+      setShowPopup(true);
     }
-    setTimeout(() => { setStatus("idle"); setDetail(""); }, 5000);
   };
 
-  if (status === "checking") return <span className="p-1.5 text-royal"><Loader2 size={14} className="animate-spin" /></span>;
-  if (status === "ok") return <span className="px-1.5 py-0.5 rounded bg-profit/20 text-profit text-[9px] font-bold">{detail}</span>;
-  if (status === "fail") return <span className="px-1.5 py-0.5 rounded bg-loss/20 text-loss text-[9px] font-bold cursor-pointer" onClick={handleVerify}>❌ {detail}</span>;
-
   return (
-    <button onClick={handleVerify} title="Verify Connection" className="p-1.5 rounded-lg hover:bg-profit/20 text-gray-400 hover:text-profit transition-all">
-      <Shield size={14} />
-    </button>
+    <>
+      <button onClick={handleVerify} disabled={status === "checking"} title="Verify Connection" className="p-1.5 rounded-lg hover:bg-profit/20 text-gray-400 hover:text-profit transition-all disabled:opacity-50">
+        {status === "checking" ? <Loader2 size={14} className="animate-spin text-royal" /> : <Shield size={14} />}
+      </button>
+      {showPopup && result && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => { setShowPopup(false); setStatus("idle"); }}>
+          <div className="glass rounded-2xl border border-white/10 p-6 max-w-sm w-full" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-bold text-white">Connection Verification</h3>
+              <button onClick={() => { setShowPopup(false); setStatus("idle"); }} className="p-1 hover:bg-white/10 rounded-lg"><X size={16} className="text-gray-400" /></button>
+            </div>
+            <div className={`p-4 rounded-xl mb-4 ${result.verified ? "bg-profit/10 border border-profit/30" : "bg-loss/10 border border-loss/30"}`}>
+              <p className={`text-lg font-bold ${result.verified ? "text-profit" : "text-loss"}`}>{result.verified ? "✅ Verified" : "❌ Failed"}</p>
+            </div>
+            {result.verified && (
+              <div className="space-y-2">
+                <div className="flex justify-between p-3 bg-white/5 rounded-lg"><span className="text-xs text-gray-400">Balance</span><span className="text-sm text-white font-bold">${result.balance || "—"}</span></div>
+                <div className="flex justify-between p-3 bg-white/5 rounded-lg"><span className="text-xs text-gray-400">Equity</span><span className="text-sm text-white font-bold">${result.equity || "—"}</span></div>
+              </div>
+            )}
+            {!result.verified && (
+              <p className="text-sm text-loss">{result.error || "Unknown error"}</p>
+            )}
+            <button onClick={() => { setShowPopup(false); setStatus("idle"); }} className="w-full mt-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-gray-300 text-sm font-semibold hover:bg-white/10 transition-all">Close</button>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
