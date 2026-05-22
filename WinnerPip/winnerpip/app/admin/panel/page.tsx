@@ -223,7 +223,7 @@ export default function AdminDashboard() {
     aboveTarget: od?.qualified || 0,
     qualifiedCount: od?.qualified || 0,
     lastPullTime: od?.pulls?.lastPullAt ? (() => { const d = new Date(new Date(od.pulls.lastPullAt).getTime() + 3*60*60*1000); return `${String(d.getUTCHours()).padStart(2,"0")}:${String(d.getUTCMinutes()).padStart(2,"0")} EAT`; })() : "—",
-    nextPullTime: (() => { const now = new Date(Date.now() + 3*60*60*1000); const h = now.getUTCHours(); const schedule = [0,4,8,12,16,20]; const next = schedule.find(s => s > h) || schedule[0]; return `${String(next).padStart(2,"0")}:00 EAT`; })(),
+    nextPullTime: (() => { const now = new Date(Date.now() + 3*60*60*1000); const h = now.getUTCHours(); const schedule = [0,4,8,12,16,20]; const next = schedule.find(s => s > h); return next !== undefined ? `${String(next).padStart(2,"0")}:00 EAT` : "00:00 EAT"; })(),
   };
 
   const topViolations: any[] = [];
@@ -1709,7 +1709,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus }: { challengeId: s
         <div className="glass rounded-2xl border border-profit/20 p-4">
           <div className="flex items-center justify-between">
             <p className="text-xs text-profit font-semibold">✅ Last pull: {pullProgress.lastBatch.successful}✓ {pullProgress.lastBatch.failed}✗ — {pullProgress.lastBatch.newTrades} new trades — {pullProgress.lastBatch.durationSec}s</p>
-            <p className="text-[10px] text-gray-500">{pullProgress.lastBatch.completedAt ? new Date(new Date(pullProgress.lastBatch.completedAt).getTime() + 3*60*60*1000).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }) + " EAT" : ""}</p>
+            <p className="text-[10px] text-gray-500">{pullProgress.lastBatch.completedAt ? (() => { const d = new Date(new Date(pullProgress.lastBatch.completedAt).getTime() + 3*60*60*1000); return `${String(d.getUTCHours()).padStart(2,"0")}:${String(d.getUTCMinutes()).padStart(2,"0")} EAT`; })() : ""}</p>
           </div>
         </div>
       )}
@@ -1780,7 +1780,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus }: { challengeId: s
         <div className="glass rounded-2xl border border-white/10 overflow-hidden">
           <div className="p-4 border-b border-white/5 flex items-center justify-between">
             <h3 className="text-sm font-semibold text-white flex items-center gap-2"><Clock size={16} className="text-royal" /> Pull Batch History</h3>
-            <span className="text-[10px] text-gray-400">Next pull: <span className="text-royal font-semibold">{(() => { const now = new Date(Date.now() + 3*60*60*1000); const h = now.getUTCHours(); const schedule = [2,6,10,14,18,22]; const next = schedule.find(s => s > h) || schedule[0]; return `${String(next).padStart(2,"0")}:00 EAT`; })()}</span></span>
+            <span className="text-[10px] text-gray-400">Next pull: <span className="text-royal font-semibold">{(() => { const now = new Date(Date.now() + 3*60*60*1000); const h = now.getUTCHours(); const schedule = [0,4,8,12,16,20]; const next = schedule.find(s => s > h); return next !== undefined ? `${String(next).padStart(2,"0")}:00 EAT` : "00:00 EAT"; })()}</span></span>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full min-w-[500px]">
