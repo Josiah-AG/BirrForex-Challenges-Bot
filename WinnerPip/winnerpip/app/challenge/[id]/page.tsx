@@ -132,29 +132,42 @@ export default function ChallengeDashboard() {
     if (isLoggedIn) fetchDashboard();
   }, [isLoggedIn, fetchDashboard]);
 
-  // Fetch leaderboard
-  const fetchLeaderboard = useCallback(async () => {
+  // Fetch leaderboard with pagination
+  const [leaderboardHasMore, setLeaderboardHasMore] = useState(false);
+  const [leaderboardTotal, setLeaderboardTotal] = useState(0);
+  const [leaderboardLoadingMore, setLeaderboardLoadingMore] = useState(false);
+
+  const fetchLeaderboard = useCallback(async (loadMore = false) => {
     if (!params.id) return;
-    setLeaderboardLoading(true);
+    if (loadMore) setLeaderboardLoadingMore(true);
+    else setLeaderboardLoading(true);
     try {
-      const res = await fetch(`${API_URL}/api/challenges/${params.id}/leaderboard`);
+      const offset = loadMore ? leaderboard.length : 0;
+      const res = await fetch(`${API_URL}/api/challenges/${params.id}/leaderboard?limit=50&offset=${offset}`);
       if (res.ok) {
         const data = await res.json();
         const entries: LeaderboardEntry[] = (data.leaderboard || []).map((entry: LeaderboardEntry) => ({
           ...entry,
           isMe: myStats ? entry.nickname === myStats.nickname : false,
         }));
-        setLeaderboard(entries);
+        if (loadMore) {
+          setLeaderboard(prev => [...prev, ...entries]);
+        } else {
+          setLeaderboard(entries);
+        }
+        setLeaderboardHasMore(data.hasMore || false);
+        setLeaderboardTotal(data.total || entries.length);
       }
     } catch {
       // Silently fail for leaderboard
     }
     setLeaderboardLoading(false);
-  }, [params.id, myStats]);
+    setLeaderboardLoadingMore(false);
+  }, [params.id, myStats, leaderboard.length]);
 
   useEffect(() => {
     if (isLoggedIn && challenge) fetchLeaderboard();
-  }, [isLoggedIn, challenge, fetchLeaderboard]);
+  }, [isLoggedIn, challenge]);
 
   // Fetch rules when challenge is loaded
   useEffect(() => {
@@ -209,7 +222,7 @@ export default function ChallengeDashboard() {
   const violations = recentTrades.filter(t => !t.isQualified);
   const daysLeft = challenge ? Math.max(0, Math.ceil((new Date(challenge.endDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24))) : 0;
   const progressPercent = challenge && myStats ? Math.min(100, Math.max(0, ((myStats.currentBalance - challenge.startingBalance) / (challenge.targetBalance - challenge.startingBalance)) * 100)) : 0;
-  const totalParticipants = leaderboard.length;
+  const totalParticipants = leaderboardTotal || leaderboard.length;
   const isCentAccount = myStats?.accountType === 'real' && myStats.currentBalance > 500; // heuristic for cent
   const isBlownAccount = myStats && myStats.totalTrades > 0 && myStats.currentBalance <= 0;
   const showProgressBar = myStats && myStats.totalTrades > 0 && !isBlownAccount && !myStats.disqualified;
@@ -535,7 +548,7 @@ export default function ChallengeDashboard() {
             {/* TAB NAVIGATION */}
             <div className="flex gap-1 p-1 glass rounded-xl border border-white/10 mb-6">
               <TabBtn active={activeTab === "trades"} onClick={() => setActiveTab("trades")} label="Trades" count={myStats.totalTrades} />
-              <TabBtn active={activeTab === "leaderboard"} onClick={() => { setActiveTab("leaderboard"); if (leaderboard.length === 0) fetchLeaderboard(); }} label="Leaderboard" />
+              <TabBtn active={activeTab === "leaderboard"} onClick={() => { setActiveTab("leaderboard"); if (leaderboard.length === 0) fetchLeaderboard(false); }} label="Leaderboard" />
               <TabBtn active={activeTab === "violations"} onClick={() => setActiveTab("violations")} label="Flagged" count={myStats.flaggedTrades} />
             </div>
 
@@ -615,6 +628,14 @@ export default function ChallengeDashboard() {
                   </button>
                 ))}
               </div>
+              )}
+              {/* Load More button */}
+              {leaderboardHasMore && (
+                <div className="p-3 border-t border-white/5 text-center">
+                  <button onClick={() => fetchLeaderboard(true)} disabled={leaderboardLoadingMore} className="px-4 py-2 rounded-lg bg-white/5 border border-white/10 text-gray-400 text-xs font-semibold hover:bg-white/10 hover:text-white transition-all disabled:opacity-50">
+                    {leaderboardLoadingMore ? "Loading..." : `Load More (${leaderboard.length} of ${leaderboardTotal})`}
+                  </button>
+                </div>
               )}
             </div>
             )}

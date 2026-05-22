@@ -366,12 +366,29 @@ app.get('/api/challenges/:id/leaderboard', async (req, res) => {
       params.push(category);
     }
 
-    query += ` ORDER BY l.rank ASC NULLS LAST, l.qualified_profit DESC LIMIT 100`;
+    query += ` ORDER BY l.rank ASC NULLS LAST, l.qualified_profit DESC`;
+
+    // Pagination: offset/limit from query params
+    const limit = Math.min(parseInt(req.query.limit as string) || 50, 100);
+    const offset = parseInt(req.query.offset as string) || 0;
+    query += ` LIMIT ${limit} OFFSET ${offset}`;
 
     const result = await db.query(query, params);
 
+    // Get total count for pagination
+    let countQuery = `SELECT COUNT(*) as total FROM wp_leaderboard l WHERE l.challenge_id = $1`;
+    const countParams: any[] = [challengeId];
+    if (category === 'demo' || category === 'real') {
+      countQuery += ` AND l.account_type = $2`;
+      countParams.push(category);
+    }
+    const countResult = await db.query(countQuery, countParams);
+    const total = parseInt(countResult.rows[0].total);
+
     return res.json({
       dataFrom,
+      total,
+      hasMore: offset + limit < total,
       leaderboard: result.rows.map(r => ({
         nickname: r.nickname,
         accountType: r.account_type,

@@ -406,7 +406,7 @@ export default function AdminDashboard() {
         {activeSection === "leaderboard" && (
           <div className="glass rounded-2xl border border-white/10 overflow-hidden">
             <div className="p-4 border-b border-white/5 flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-white flex items-center gap-2"><Trophy size={16} className="text-gold" /> Full Leaderboard (Top 10)</h3>
+              <h3 className="text-sm font-semibold text-white flex items-center gap-2"><Trophy size={16} className="text-gold" /> Full Leaderboard</h3>
               <span className="text-xs text-gray-500">Ranked by balance</span>
             </div>
             <div className="overflow-x-auto">
@@ -885,14 +885,21 @@ export default function AdminDashboard() {
               <button onClick={() => setSelectedParticipant(null)} className="p-2 hover:bg-white/10 rounded-lg"><X size={18} className="text-gray-400" /></button>
             </div>
             <div className="p-5 space-y-4">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Rank</p><p className="text-2xl font-bold gradient-text">#{selectedParticipant.rank}</p></div>
-                <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Balance</p><p className="text-2xl font-bold text-white">${selectedParticipant.balance.toFixed(2)}</p></div>
-                <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Win Rate</p><p className="text-lg font-bold text-white">{selectedParticipant.winRate}%</p></div>
-                <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Avg RR</p><p className="text-lg font-bold text-royal">{selectedParticipant.avgRR.toFixed(1)}R</p></div>
-                <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Trades</p><p className="text-lg font-bold text-white">{selectedParticipant.trades}</p></div>
-                <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Violations</p><p className={`text-lg font-bold ${selectedParticipant.violations > 0 ? "text-loss" : "text-profit"}`}>{selectedParticipant.violations}</p></div>
-              </div>
+              {selectedParticipant.isDisqualified ? (
+                <div className="p-4 rounded-xl bg-loss/10 border border-loss/20">
+                  <p className="text-xs text-gray-400 mb-1">Disqualified</p>
+                  <p className="text-sm text-white">{selectedParticipant.disqualifyReason || "No reason provided"}</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Rank</p><p className="text-2xl font-bold gradient-text">#{selectedParticipant.rank || "—"}</p></div>
+                  <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Balance</p><p className="text-2xl font-bold text-white">${Number(selectedParticipant.adjustedBalance || 0).toFixed(2)}</p></div>
+                  <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Profit</p><p className={`text-lg font-bold ${(selectedParticipant.qualifiedProfit || 0) >= 0 ? "text-profit" : "text-loss"}`}>${Number(selectedParticipant.qualifiedProfit || 0).toFixed(2)}</p></div>
+                  <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Gross</p><p className="text-lg font-bold text-white">${Number(selectedParticipant.grossProfit || 0).toFixed(2)}</p></div>
+                  <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Trades</p><p className="text-lg font-bold text-white">{selectedParticipant.totalTrades || 0}</p></div>
+                  <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Flagged</p><p className={`text-lg font-bold ${(selectedParticipant.flaggedTrades || 0) > 0 ? "text-loss" : "text-profit"}`}>{selectedParticipant.flaggedTrades || 0}</p></div>
+                </div>
+              )}
               <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Account Type</p><span className={`px-3 py-1 rounded text-xs font-semibold ${selectedParticipant.accountType === "real" ? "bg-gold/10 text-gold" : "bg-royal/10 text-royal"}`}>{selectedParticipant.accountType}</span></div>
             </div>
           </div>
