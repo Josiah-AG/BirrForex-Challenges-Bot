@@ -184,15 +184,14 @@ export class VpsPullScheduler {
       // Determine if this is the Saturday final sync
       const isFinalSync = this.isSaturdayFinalSync();
 
-      // === STEP 1: Update leaderboard from PREVIOUS cycle's data ===
-      // (Only if not the first pull ever and not final sync)
+      // === STEP 1: Ensure all participants have leaderboard entries + update rankings ===
+      // Always ensure entries exist (even on first pull)
+      await leaderboardService.ensureAllParticipantsHaveEntries(challengeToPull.id);
+
+      // Update rankings from PREVIOUS cycle's data (skip on final sync — will update after pull)
       if (!isFinalSync) {
-        const lastUpdate = await leaderboardService.getLastUpdateTime(challengeToPull.id);
-        if (lastUpdate) {
-          console.log('📊 VPS Pull: Updating leaderboard rankings from previous cycle data');
-          await leaderboardService.ensureAllParticipantsHaveEntries(challengeToPull.id);
-          await leaderboardService.updateRankings(challengeToPull.id);
-        }
+        console.log('📊 VPS Pull: Updating leaderboard rankings');
+        await leaderboardService.updateRankings(challengeToPull.id);
       }
 
       // === STEP 2: Build shared queue with failed-first priority ===

@@ -229,9 +229,25 @@ export default function AdminDashboard() {
   const topViolations: any[] = [];
   const [pullHistory, setPullHistory] = useState<any[]>([]);
   const [terminalStatus, setTerminalStatus] = useState<any[]>([]);
-  const leaderboard: any[] = [];
+  const [leaderboard, setLeaderboard] = useState<any[]>([]);
   const flaggedParticipants: any[] = [];
   const [screeningData, setScreeningData] = useState<any>(null);
+
+  // Fetch leaderboard when leaderboard tab is active
+  useEffect(() => {
+    if (!isAdmin || activeSection !== "leaderboard" || !selectedChallengeId) return;
+    const fetchLeaderboard = async () => {
+      try {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
+        const res = await fetch(`${apiUrl}/api/challenges/${selectedChallengeId}/leaderboard`);
+        if (res.ok) {
+          const data = await res.json();
+          setLeaderboard(data.leaderboard || []);
+        }
+      } catch {}
+    };
+    fetchLeaderboard();
+  }, [isAdmin, activeSection, selectedChallengeId]);
 
   // Fetch pull data when pulls tab is active
   useEffect(() => {
@@ -405,16 +421,16 @@ export default function AdminDashboard() {
                   <th className="text-center py-3 px-4 text-[10px] text-gray-400 uppercase">Avg RR</th>
                   <th className="text-center py-3 px-4 text-[10px] text-gray-400 uppercase">Violations</th>
                 </tr></thead>
-                <tbody>{leaderboard.length === 0 ? <tr><td colSpan={8} className="py-8 text-center text-gray-500">No leaderboard data yet — will populate after VPS pulls and evaluation</td></tr> : leaderboard.map(e => (
-                  <tr key={e.rank} className="border-b border-white/5 hover:bg-white/5 cursor-pointer" onClick={() => setSelectedParticipant(e)}>
-                    <td className="py-3 px-4"><span className={`text-sm font-bold ${e.rank <= 3 ? "text-gold" : "text-gray-400"}`}>{e.rank}</span></td>
-                    <td className="py-3 px-4 text-sm text-white font-semibold">{e.nickname}</td>
+                <tbody>{leaderboard.length === 0 ? <tr><td colSpan={8} className="py-8 text-center text-gray-500">No leaderboard data yet — will populate after VPS pulls and evaluation</td></tr> : leaderboard.map((e: any) => (
+                  <tr key={e.rank || e.nickname} className={`border-b border-white/5 hover:bg-white/5 cursor-pointer ${e.isDisqualified ? "opacity-50" : ""}`} onClick={() => setSelectedParticipant(e)}>
+                    <td className="py-3 px-4"><span className={`text-sm font-bold ${e.isDisqualified ? "text-loss" : e.rank <= 3 ? "text-gold" : "text-gray-400"}`}>{e.rank || "—"}</span></td>
+                    <td className="py-3 px-4 text-sm text-white font-semibold">{e.nickname}{e.isDisqualified ? <span className="ml-2 text-[10px] text-loss">DQ</span> : ""}</td>
                     <td className="py-3 px-4"><span className={`px-2 py-1 rounded text-[10px] font-semibold ${e.accountType === "real" ? "bg-gold/10 text-gold" : "bg-royal/10 text-royal"}`}>{e.accountType}</span></td>
-                    <td className="py-3 px-4 text-right text-sm font-bold text-white">${e.balance.toFixed(2)}</td>
-                    <td className="py-3 px-4 text-center text-sm text-gray-400">{e.trades}</td>
-                    <td className="py-3 px-4 text-center text-sm text-gray-400">{e.winRate}%</td>
-                    <td className="py-3 px-4 text-center text-sm text-royal">{e.avgRR.toFixed(1)}R</td>
-                    <td className="py-3 px-4 text-center">{e.violations > 0 ? <span className="text-loss font-bold">{e.violations}</span> : <span className="text-profit">✓</span>}</td>
+                    <td className="py-3 px-4 text-right text-sm font-bold text-white">{e.isDisqualified ? "DQ" : `$${Number(e.adjustedBalance).toFixed(2)}`}</td>
+                    <td className="py-3 px-4 text-center text-sm text-gray-400">{e.totalTrades}</td>
+                    <td className="py-3 px-4 text-center text-sm text-gray-400">{e.totalTrades > 0 ? `${Math.round((e.qualifiedTrades / e.totalTrades) * 100)}%` : "—"}</td>
+                    <td className="py-3 px-4 text-center text-sm text-royal">{e.totalTrades > 0 ? `$${(e.qualifiedProfit / e.totalTrades).toFixed(2)}` : "—"}</td>
+                    <td className="py-3 px-4 text-center">{e.flaggedTrades > 0 ? <span className="text-loss font-bold">{e.flaggedTrades}</span> : <span className="text-profit">✓</span>}</td>
                   </tr>
                 ))}</tbody>
               </table>
