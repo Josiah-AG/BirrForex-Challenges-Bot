@@ -152,6 +152,53 @@ async function migrate() {
     await db.query(`ALTER TABLE trading_registrations ADD COLUMN IF NOT EXISTS actual_starting_balance NUMERIC;`).catch(() => {});
     console.log('✅ Zero balance + leaderboard lock + VPS balance migration OK');
 
+    // Staging table for atomic leaderboard updates
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS wp_leaderboard_staging (
+        id SERIAL PRIMARY KEY,
+        challenge_id INTEGER NOT NULL,
+        registration_id INTEGER NOT NULL,
+        account_number VARCHAR(50),
+        telegram_id BIGINT,
+        username VARCHAR(100),
+        nickname VARCHAR(30),
+        account_type VARCHAR(10),
+        starting_balance NUMERIC DEFAULT 0,
+        current_balance NUMERIC DEFAULT 0,
+        adjusted_balance NUMERIC DEFAULT 0,
+        qualified_profit NUMERIC DEFAULT 0,
+        gross_profit NUMERIC DEFAULT 0,
+        profit_removed NUMERIC DEFAULT 0,
+        total_trades INTEGER DEFAULT 0,
+        qualified_trades INTEGER DEFAULT 0,
+        flagged_trades INTEGER DEFAULT 0,
+        active_days INTEGER DEFAULT 0,
+        is_qualified BOOLEAN DEFAULT false,
+        is_disqualified BOOLEAN DEFAULT false,
+        disqualify_reason TEXT,
+        last_trade_time TIMESTAMP,
+        zero_balance_at TIMESTAMP,
+        evaluated_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(challenge_id, registration_id)
+      );
+    `).catch(() => {});
+
+    // Pull cycle state tracking (for resume on reboot)
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS wp_pull_cycle_state (
+        id SERIAL PRIMARY KEY,
+        challenge_id INTEGER NOT NULL,
+        cycle_started_at TIMESTAMP NOT NULL,
+        cycle_schedule_time VARCHAR(10),
+        status VARCHAR(20) DEFAULT 'in_progress',
+        total_accounts INTEGER DEFAULT 0,
+        completed_accounts INTEGER DEFAULT 0,
+        completed_at TIMESTAMP,
+        UNIQUE(challenge_id, cycle_started_at)
+      );
+    `).catch(() => {});
+    console.log('✅ Staging table + pull cycle state migration OK');
+
     console.log('✅ Database migration completed successfully!');
     process.exit(0);
   } catch (error) {

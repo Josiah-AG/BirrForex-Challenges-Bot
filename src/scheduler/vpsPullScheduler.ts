@@ -154,7 +154,70 @@ export class VpsPullScheduler {
     // Terminal health recheck every 10 min
     cron.schedule('*/10 * * * *', () => this.recheckUnhealthyTerminals());
 
-    console.log('✅ VPS Pull Scheduler v2 started (shared queue, per-account eval, 10 terminals)');
+    console.log('✅ VPS Pull Scheduler v2 started (shared queue, per-account eval, staging → live flush)');
+
+    // Resume interrupted cycle on startup (after 5s delay for other services to init)
+    setTimeout(() => this.resumeInterruptedCycle(), 5000);
+  }
+
+  /**
+   * Check if there's an incomplete pull cycle from before a reboot/deploy.
+   * If staging has data but cycle wasn't completed, resume pulling remaining accounts.
+   */
+  private async resumeInterruptedCycle() {
+    try {
+      // Check if staging has data (means a cycle was in progress)
+      const staging = await db.query(
+        `SELECT DISTINCT challenge_id FROM wp_leaderboard_staging LIMIT 1`
+      );
+      if (staging.rows.length === 0) return; // No interrupted cycle
+
+      const challengeId = staging.rows[0].challenge_id;
+
+      // Get accounts already in staging (already pulled this cycle)
+      const alreadyPulled = await db.query(
+        `SELECT registration_id FROM wp_leaderboard_staging WHERE challenge_id = $1`,
+        [challengeId]
+      );
+      const pulledIds = new Set(alreadyPulled.rows.map((r: any) => r.registration_id));
+
+      // Get all accounts that should be pulled
+      const allAccounts = await this.getAccountsToPull(challengeId);
+      const remaining = allAccounts.filter(a => !pulledIds.has(a.registrationId));
+
+      if (remaining.length === 0) {
+        console.log(`📊 VPS Pull: Interrupted cycle for challenge ${challengeId} was actually complete. Staging ready for next flush.`);
+        return;
+      }
+
+      console.log(`🔄 VPS Pull: Resuming interrupted cycle — ${remaining.length} accounts remaining (${pulledIds.size} already done)`);
+
+      // Resume pulling remaining accounts
+      if (this.isRunning) return;
+      this.isRunning = true;
+
+      const challenge = await this.resolveChallengeForPull();
+      if (!challenge || challenge.id !== challengeId) {
+        this.isRunning = false;
+        return;
+      }
+
+      const healthyTerminals = this.terminals.filter(t => t.isHealthy);
+      if (healthyTerminals.length === 0) { this.isRunning = false; return; }
+
+      // Load remaining into shared queue and process
+      this.sharedQueue.load(remaining.map(a => ({ ...a, isPriority: false })));
+      const batchId = await this.createPullBatch(challengeId, remaining.length);
+      await this.runSharedQueueWorkers(healthyTerminals, challenge, batchId);
+
+      const duration = Math.round((Date.now() - Date.now()) / 1000);
+      console.log(`✅ VPS Pull: Resumed cycle complete — ${remaining.length} accounts processed`);
+
+      this.isRunning = false;
+    } catch (error) {
+      console.error('⚠️ VPS Pull: Resume interrupted cycle error:', error);
+      this.isRunning = false;
+    }
   }
 
   /**
@@ -184,15 +247,10 @@ export class VpsPullScheduler {
       // Determine if this is the Saturday final sync
       const isFinalSync = this.isSaturdayFinalSync();
 
-      // === STEP 1: Ensure all participants have leaderboard entries + update rankings ===
-      // Always ensure entries exist (even on first pull)
+      // === STEP 1: Flush previous cycle's staging data to live + update rankings ===
+      await leaderboardService.flushStagingToLive(challengeToPull.id);
       await leaderboardService.ensureAllParticipantsHaveEntries(challengeToPull.id);
-
-      // Update rankings from PREVIOUS cycle's data (skip on final sync — will update after pull)
-      if (!isFinalSync) {
-        console.log('📊 VPS Pull: Updating leaderboard rankings');
-        await leaderboardService.updateRankings(challengeToPull.id);
-      }
+      await leaderboardService.updateRankings(challengeToPull.id);
 
       // === STEP 2: Build shared queue with failed-first priority ===
       const accounts = await this.getAccountsToPull(challengeToPull.id);
@@ -276,7 +334,8 @@ export class VpsPullScheduler {
 
       // === STEP 6: Final sync → immediate leaderboard update ===
       if (isFinalSync && successful.length > 0) {
-        console.log('📊 VPS Pull: Saturday final sync — updating leaderboard immediately');
+        console.log('📊 VPS Pull: Saturday final sync — flushing staging + updating leaderboard immediately');
+        await leaderboardService.flushStagingToLive(challengeToPull.id);
         await leaderboardService.ensureAllParticipantsHaveEntries(challengeToPull.id);
         await leaderboardService.updateRankings(challengeToPull.id);
       }

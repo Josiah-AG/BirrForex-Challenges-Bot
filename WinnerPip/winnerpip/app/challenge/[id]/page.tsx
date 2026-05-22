@@ -273,33 +273,33 @@ export default function ChallengeDashboard() {
 
   // Get the last scheduled pull time (not force pulls)
   const getLastScheduledPullTime = (lastUpdated: string | null) => {
-    // Always show the most recent scheduled pull time that has passed
     const now = new Date();
     const eatNow = new Date(now.getTime() + 3 * 60 * 60 * 1000);
     const currentHourEAT = eatNow.getUTCHours();
-    const currentMinEAT = eatNow.getUTCMinutes();
     const pullHours = [0, 4, 8, 12, 16, 20];
 
-    // Find the most recent pull hour that has passed
-    let lastPullHour = pullHours[pullHours.length - 1]; // default to 20:00 (yesterday)
+    // Find the most recent pull hour that has passed (this is when data was flushed)
+    let lastPullHour = 20; // default
     for (let i = pullHours.length - 1; i >= 0; i--) {
-      if (pullHours[i] < currentHourEAT || (pullHours[i] === currentHourEAT && currentMinEAT >= 5)) {
+      if (pullHours[i] <= currentHourEAT) {
         lastPullHour = pullHours[i];
         break;
       }
     }
-
-    // If no pull has passed today, use yesterday's last pull (20:00)
-    const lastPullDate = new Date(eatNow);
-    if (lastPullHour > currentHourEAT || (lastPullHour === currentHourEAT && currentMinEAT < 5)) {
-      lastPullDate.setUTCDate(lastPullDate.getUTCDate() - 1);
+    // If current hour is before first pull (0), use yesterday's 20:00
+    if (currentHourEAT < pullHours[0]) {
       lastPullHour = 20;
     }
 
-    const month = lastPullDate.toLocaleString("en-US", { month: "short", timeZone: "UTC" });
-    const day = lastPullDate.getUTCDate();
-    const h = lastPullHour.toString().padStart(2, "0");
-    return `${month} ${day}, ${h}:00 EAT`;
+    // The data shown is from the cycle BEFORE the flush
+    // Flush happens at lastPullHour, data is from the cycle before that
+    const pullIdx = pullHours.indexOf(lastPullHour);
+    const dataFromHour = pullIdx > 0 ? pullHours[pullIdx - 1] : 20; // previous cycle start
+    const dataToHour = lastPullHour; // previous cycle end = flush time
+
+    const fromStr = String(dataFromHour).padStart(2, "0") + ":00";
+    const toStr = String(dataToHour).padStart(2, "0") + ":00";
+    return `${fromStr} – ${toStr} EAT`;
   };
 
   // Determine challenge state
@@ -589,7 +589,7 @@ export default function ChallengeDashboard() {
               </div>
               )}
               <div className="p-3 border-t border-white/5 text-center">
-                <p className="text-xs text-gray-600">Last updated: {getLastScheduledPullTime(myStats.lastUpdated)} • Next: {getNextPullTime()}</p>
+                <p className="text-xs text-gray-600">Data from: {getLastScheduledPullTime(myStats.lastUpdated)} • Next update: {getNextPullTime()}</p>
               </div>
             </div>
             )}

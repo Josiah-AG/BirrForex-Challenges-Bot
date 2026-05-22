@@ -130,6 +130,47 @@ export class LeaderboardService {
   }
 
   /**
+   * Flush staging data to live leaderboard table.
+   * Called at the START of each new cycle — copies all staging data to live in one transaction.
+   */
+  async flushStagingToLive(challengeId: number): Promise<void> {
+    // Check if staging has data for this challenge
+    const stagingCount = await db.query(
+      `SELECT COUNT(*) as cnt FROM wp_leaderboard_staging WHERE challenge_id = $1`,
+      [challengeId]
+    );
+    if (parseInt(stagingCount.rows[0].cnt) === 0) return;
+
+    console.log(`📊 Leaderboard: Flushing staging → live for challenge ${challengeId}`);
+
+    // Upsert from staging to live in one query
+    await db.query(
+      `INSERT INTO wp_leaderboard
+       (challenge_id, registration_id, account_number, telegram_id, username, nickname, account_type,
+        starting_balance, current_balance, adjusted_balance, qualified_profit, gross_profit, profit_removed,
+        total_trades, qualified_trades, flagged_trades, active_days, is_qualified, last_trade_time, last_updated, zero_balance_at)
+       SELECT challenge_id, registration_id, account_number, telegram_id, username, nickname, account_type,
+              starting_balance, current_balance, adjusted_balance, qualified_profit, gross_profit, profit_removed,
+              total_trades, qualified_trades, flagged_trades, active_days, is_qualified, last_trade_time, NOW(), zero_balance_at
+       FROM wp_leaderboard_staging WHERE challenge_id = $1
+       ON CONFLICT (challenge_id, registration_id) DO UPDATE SET
+         current_balance=EXCLUDED.current_balance, adjusted_balance=EXCLUDED.adjusted_balance,
+         qualified_profit=EXCLUDED.qualified_profit, gross_profit=EXCLUDED.gross_profit,
+         profit_removed=EXCLUDED.profit_removed, total_trades=EXCLUDED.total_trades,
+         qualified_trades=EXCLUDED.qualified_trades, flagged_trades=EXCLUDED.flagged_trades,
+         active_days=EXCLUDED.active_days, is_qualified=EXCLUDED.is_qualified,
+         last_trade_time=EXCLUDED.last_trade_time, last_updated=NOW(),
+         zero_balance_at=EXCLUDED.zero_balance_at`,
+      [challengeId]
+    );
+
+    // Clear staging after flush
+    await db.query(`DELETE FROM wp_leaderboard_staging WHERE challenge_id = $1`, [challengeId]);
+
+    console.log(`✅ Leaderboard: Staging flushed to live for challenge ${challengeId}`);
+  }
+
+  /**
    * Get the timestamp of the last leaderboard update for display purposes.
    */
   async getLastUpdateTime(challengeId: number): Promise<Date | null> {
