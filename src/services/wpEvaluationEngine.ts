@@ -18,7 +18,7 @@ import axios from 'axios';
 
 function getInstrumentInfo(symbol: string): { pipSize: number; contractSize: number; isCent: boolean } {
   const isCent = symbol.endsWith('m') || symbol.endsWith('c');
-  const sym = symbol.replace(/[mc]$/, '').replace(/_x\d+m?$/, '').toUpperCase();
+  const sym = symbol.replace(/[mczr]$/, '').replace(/_x\d+m?$/, '').toUpperCase();
   const hasX100 = symbol.includes('_x100');
   let pipSize: number;
   let contractSize: number;
@@ -38,10 +38,33 @@ function getInstrumentInfo(symbol: string): { pipSize: number; contractSize: num
   return { pipSize, contractSize, isCent };
 }
 
-function calculateSlDollars(symbol: string, volume: number, entryPrice: number, slPrice: number): number {
+/**
+ * Calculate SL risk in account currency using the ratio method.
+ * Works for ALL pairs regardless of quote currency — no VPS call needed.
+ *
+ * Logic: The ratio of (entry→SL distance) to (entry→close distance) tells us
+ * what the loss WOULD have been if SL was hit, relative to the actual P/L.
+ *
+ * For trades where close ≈ entry (profit ≈ 0), we fall back to the old pip-based method
+ * which is accurate for USD-quoted pairs and approximate for others.
+ */
+function calculateSlDollars(symbol: string, volume: number, entryPrice: number, slPrice: number, closePrice?: number, actualProfit?: number): number {
+  if (!slPrice || slPrice === 0) return 0;
+
+  const slDistance = Math.abs(entryPrice - slPrice);
+  const closeDistance = closePrice ? Math.abs(entryPrice - closePrice) : 0;
+
+  // Ratio method: if we have actual profit and meaningful price movement
+  if (actualProfit !== undefined && closePrice && closeDistance > 0) {
+    // actualProfit is what happened with entry→close movement
+    // SL risk is what would happen with entry→SL movement
+    const ratio = slDistance / closeDistance;
+    return Math.abs(actualProfit) * ratio;
+  }
+
+  // Fallback: pip-based calculation (accurate for USD-quoted pairs)
   const { pipSize, contractSize } = getInstrumentInfo(symbol);
-  const priceDiff = Math.abs(entryPrice - slPrice);
-  const pips = priceDiff / pipSize;
+  const pips = slDistance / pipSize;
   const pipValue = volume * contractSize * pipSize;
   return pips * pipValue;
 }
@@ -495,7 +518,8 @@ export class WpEvaluationEngine {
         } else {
           // Check SL risk amount
           if (rules.max_risk_dollars) {
-            const slDollars = calculateSlDollars(trade.symbol, parseFloat(String(trade.volume)), parseFloat(String(trade.open_price)), parseFloat(String(trade.stop_loss)));
+            const tradeProfit = parseFloat(String(trade.profit)) + parseFloat(String(trade.commission || 0)) + parseFloat(String(trade.swap || 0));
+            const slDollars = calculateSlDollars(trade.symbol, parseFloat(String(trade.volume)), parseFloat(String(trade.open_price)), parseFloat(String(trade.stop_loss)), parseFloat(String(trade.close_price)), tradeProfit);
             if (slDollars > rules.max_risk_dollars) {
               violations.push(`SL risk $${slDollars.toFixed(2)} exceeds max $${rules.max_risk_dollars}`);
             }
