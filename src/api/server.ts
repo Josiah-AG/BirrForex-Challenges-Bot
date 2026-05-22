@@ -1277,6 +1277,13 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/announce`, adminIpCheck,
         const startStr = toEAT(challenge.start_date).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
         const endStr = toEAT(challenge.end_date).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
 
+        // Check if cent account challenge
+        const rulesCheck = await db.query(`SELECT parameters FROM wp_challenge_rules WHERE challenge_id = $1 AND rule_code = 'config'`, [challengeId]);
+        const isCent = rulesCheck.rows[0]?.parameters?.only_cent_account && challenge.type !== 'demo';
+        const balUnit = isCent ? '¢' : '';
+        const balPrefix = isCent ? '' : '$';
+        const centNote = isCent ? '\n📋 <b>Cent Account Only</b>' : '';
+
         let prizeText = '';
         if (challenge.prize_pool_text) prizeText = `\n🏆 <b>${challenge.prize_pool_text}</b>`;
 
@@ -1286,9 +1293,9 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/announce`, adminIpCheck,
 
         const text = `<b>🎯 NEW CHALLENGE — Registration Open!</b>\n\n` +
           `<b>${challenge.title}</b>\n\n` +
-          `A new trading challenge is here. Think you've got what it takes?\n\n` +
-          `💰 <b>Starting Balance:</b> $${challenge.starting_balance}\n` +
-          `🎯 <b>Target:</b> $${challenge.target_balance}\n` +
+          `A new trading challenge is here. Think you've got what it takes?${centNote}\n\n` +
+          `💰 <b>Starting Balance:</b> ${balPrefix}${challenge.starting_balance}${balUnit}\n` +
+          `🎯 <b>Target:</b> ${balPrefix}${challenge.target_balance}${balUnit}\n` +
           `📅 <b>Start:</b> ${startStr}\n` +
           `🏁 <b>End:</b> ${endStr}\n` +
           prizeText + links +

@@ -1342,14 +1342,16 @@ function CreateChallengePanel({ onCreated }: { onCreated: (id: number) => void }
               <ReviewRow label="Title" value={form.title} />
               <ReviewRow label="Type" value={form.type} />
               <ReviewRow label="Period" value={`${form.start_date} → ${form.end_date}`} />
-              <ReviewRow label="Balance" value={`$${form.starting_balance} → $${form.target_balance}`} />
+              <ReviewRow label="Balance" value={rules.only_cent_account && form.type !== "demo" ? `${form.starting_balance}¢ → ${form.target_balance}¢` : `$${form.starting_balance} → $${form.target_balance}`} />
               <ReviewRow label="Prize Pool" value={form.prize_pool_text || "—"} />
-              <ReviewRow label="Real Prizes" value={form.real_prizes || "—"} />
-              <ReviewRow label="Demo Prizes" value={form.demo_prizes || "—"} />
+              {form.type !== "demo" && <ReviewRow label="Real Prizes" value={form.real_prizes || "—"} />}
+              {form.type !== "real" && <ReviewRow label="Demo Prizes" value={form.demo_prizes || "—"} />}
               <ReviewRow label="Max Lot" value={String(rules.max_lot_size)} />
               <ReviewRow label="SL Required" value={rules.stop_loss_required ? "Yes" : "No"} />
-              <ReviewRow label="Daily Loss Cap" value={`$${rules.daily_loss_cap}`} />
+              <ReviewRow label="Daily Loss Cap" value={rules.only_cent_account && form.type !== "demo" ? `${rules.daily_loss_cap}¢` : `$${rules.daily_loss_cap}`} />
+              <ReviewRow label="Max Risk" value={rules.only_cent_account && form.type !== "demo" ? `${rules.max_risk_dollars}¢` : `$${rules.max_risk_dollars}`} />
               <ReviewRow label="Min Active Days" value={String(rules.min_active_days)} />
+              {rules.only_cent_account && <ReviewRow label="Cent Account" value="Required" />}
             </div>
             {error && <div className="p-3 rounded-xl bg-loss/10 border border-loss/30 mb-4"><p className="text-sm text-loss">{error}</p></div>}
             <div className="flex gap-3">

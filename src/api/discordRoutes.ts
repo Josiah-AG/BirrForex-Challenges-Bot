@@ -615,11 +615,17 @@ export { router as discordRoutes };
 router.get('/pending-announcements', async (req: Request, res: Response) => {
   try {
     const result = await db.query(
-      `SELECT id, title, type, start_date, end_date, starting_balance, target_balance, prize_pool_text, registration_deadline, real_prizes, demo_prizes
-       FROM trading_challenges
-       WHERE source = 'discord' AND status = 'registration_open' AND discord_channel_message_id = 'pending_announce'`
+      `SELECT c.id, c.title, c.type, c.start_date, c.end_date, c.starting_balance, c.target_balance, c.prize_pool_text, c.registration_deadline, c.real_prizes, c.demo_prizes,
+              r.parameters as rules_config
+       FROM trading_challenges c
+       LEFT JOIN wp_challenge_rules r ON c.id = r.challenge_id AND r.rule_code = 'config'
+       WHERE c.source = 'discord' AND c.status = 'registration_open' AND c.discord_channel_message_id = 'pending_announce'`
     );
-    return res.json({ pending: result.rows });
+    const pending = result.rows.map((row: any) => ({
+      ...row,
+      only_cent_account: row.rules_config?.only_cent_account || false,
+    }));
+    return res.json({ pending });
   } catch (error) {
     console.error('Pending announcements error:', error);
     return res.status(500).json({ error: 'Internal server error' });
