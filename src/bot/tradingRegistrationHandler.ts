@@ -343,6 +343,32 @@ export class TradingRegistrationHandler {
       return true;
     }
 
+    // Server confirmation (fuzzy match)
+    if (data === 'tc_server_confirm_yes') {
+      const session = userSessions.get(telegramId);
+      if (!session) return true;
+      session.data.mt5_server = session.data.pending_server;
+      session.step = 'tc_enter_investor_password';
+      await ctx.answerCbQuery();
+      await ctx.reply(
+        '🔑 Enter your <b>Investor (Read-Only) Password</b>\n\n' +
+        'This allows view-only access to your MT5 account.\n⚠️ <i>NOT your master/trading password.</i>\n\n' +
+        (config.investorPasswordGuideLink ? `📋 <a href="${config.investorPasswordGuideLink}">How to get Investor Password</a>\n\n` : '') +
+        'Send your investor password:',
+        { parse_mode: 'HTML', link_preview_options: { is_disabled: true } }
+      );
+      return true;
+    }
+    if (data === 'tc_server_confirm_no') {
+      const session = userSessions.get(telegramId);
+      if (!session) return true;
+      session.step = 'tc_enter_server_manual';
+      await ctx.answerCbQuery();
+      const example = session.data.account_type === 'demo' ? 'Exness-MT5Trial9' : 'Exness-MT5Real21';
+      await ctx.reply(`Type your <b>MT5 server name</b> again:\nExample: <code>${example}</code>`, { parse_mode: 'HTML' });
+      return true;
+    }
+
     // Change account number
     if (data.startsWith('tc_change_acct_')) {
       const challengeId = parseInt(data.replace('tc_change_acct_', ''));
@@ -564,24 +590,34 @@ export class TradingRegistrationHandler {
         break;
       }
 
-      // === SERVER TYPED MANUALLY (fuzzy match) ===
+      // === SERVER TYPED MANUALLY (fuzzy match with confirmation) ===
       case 'tc_enter_server_manual': {
         const input = text.trim();
         const matched = fuzzyMatchServer(input, session.data.account_type);
         if (matched) {
-          session.data.mt5_server = matched;
-          if (matched.toLowerCase() !== input.toLowerCase()) {
-            await ctx.reply(`✅ Matched to: <b>${matched}</b>`, { parse_mode: 'HTML' });
+          if (matched.toLowerCase() === input.toLowerCase()) {
+            // Exact match — proceed directly
+            session.data.mt5_server = matched;
+            session.step = 'tc_enter_investor_password';
+            await ctx.reply(
+              '🔑 Enter your <b>Investor (Read-Only) Password</b>\n\n' +
+              'This allows view-only access to your MT5 account.\n⚠️ <i>NOT your master/trading password.</i>\n\n' +
+              (config.investorPasswordGuideLink ? `📋 <a href="${config.investorPasswordGuideLink}">How to get Investor Password</a>\n\n` : '') +
+              'Send your investor password:',
+              { parse_mode: 'HTML', link_preview_options: { is_disabled: true } }
+            );
+          } else {
+            // Fuzzy match — ask for confirmation
+            session.data.pending_server = matched;
+            session.step = 'tc_confirm_server';
+            await ctx.reply(
+              `Is your server <b>${matched}</b>?`,
+              { parse_mode: 'HTML', ...Markup.inlineKeyboard([
+                [Markup.button.callback('✅ Yes', `tc_server_confirm_yes`)],
+                [Markup.button.callback('❌ No, let me type again', `tc_server_confirm_no`)],
+              ]) }
+            );
           }
-          // Move to investor password
-          session.step = 'tc_enter_investor_password';
-          await ctx.reply(
-            '🔑 Enter your <b>Investor (Read-Only) Password</b>\n\n' +
-            'This allows view-only access to your MT5 account.\n⚠️ <i>NOT your master/trading password.</i>\n\n' +
-            (config.investorPasswordGuideLink ? `📋 <a href="${config.investorPasswordGuideLink}">How to get Investor Password</a>\n\n` : '') +
-            'Send your investor password:',
-            { parse_mode: 'HTML', link_preview_options: { is_disabled: true } }
-          );
         } else {
           await ctx.reply(
             `❌ Could not match "<b>${input}</b>" to a known server.\n\nPlease select from the buttons or type the exact server name:`,
