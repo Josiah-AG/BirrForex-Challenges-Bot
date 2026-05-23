@@ -1181,7 +1181,7 @@ export class TradingScheduler {
 
     try {
       const axios = require('axios');
-      const payload: any = {};
+      const payload: any = { allowed_mentions: { parse: ['roles', 'everyone'] } };
       if (content) payload.content = content;
       if (embed) payload.embeds = [embed];
       await axios.post(webhook, payload, { timeout: 10000 });
@@ -1224,7 +1224,7 @@ export class TradingScheduler {
         timestamp: new Date().toISOString(),
       };
 
-      await this.postToDiscord(challenge, '', embed);
+      await this.postToDiscord(challenge, '<@&1477959520759189647>', embed);
     }
   }
 
@@ -1262,7 +1262,7 @@ export class TradingScheduler {
         timestamp: new Date().toISOString(),
       };
 
-      await this.postToDiscord(challenge, '', embed);
+      await this.postToDiscord(challenge, '<@&1477959520759189647>', embed);
     }
   }
 
@@ -1291,7 +1291,7 @@ export class TradingScheduler {
       timestamp: new Date().toISOString(),
     };
 
-    await this.postToDiscord(challenge, '', embed);
+    await this.postToDiscord(challenge, '<@&1477959520759189647>', embed);
   }
 
   /**
