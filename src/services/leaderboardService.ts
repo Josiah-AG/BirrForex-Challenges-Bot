@@ -210,7 +210,7 @@ export class LeaderboardService {
        ) e ON true
        WHERE r.challenge_id = $1
          AND r.disqualified = false
-         AND r.pull_status NOT IN ('success', 'password_changed')
+         AND r.pull_status NOT IN ('success', 'password_changed', 'ready', 'never_pulled', 'pending_verify')
          AND r.pull_status IS NOT NULL
        ORDER BY r.last_pull_at DESC`,
       [challengeId]
