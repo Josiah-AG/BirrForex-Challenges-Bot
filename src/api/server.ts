@@ -882,11 +882,32 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
        FROM wp_leaderboard WHERE challenge_id=$1 AND is_disqualified=false`, [challengeId]);
 
     // If no leaderboard data yet, sum starting balances from registrations
+    const rulesCheck = await db.query(`SELECT parameters FROM wp_challenge_rules WHERE challenge_id = $1 AND rule_code = 'config'`, [challengeId]);
+    const challengeIsCentOnly = rulesCheck.rows[0]?.parameters?.only_cent_account || false;
+
+    // For cent-only challenges: all real users are cent, divide by 100
+    // For mixed challenges: only users with is_cent=true get divided
+    const centCondition = challengeIsCentOnly
+      ? `(account_type = 'real')`  // All real users are cent in cent-only challenges
+      : `(is_cent = true)`;        // Only flagged users in mixed challenges
+
     const startingBalanceSum = await db.query(
       `SELECT
-        COALESCE(SUM(CASE WHEN is_cent THEN COALESCE(registration_balance, 0)/100 ELSE COALESCE(registration_balance, 0) END), 0) as total_starting,
-        COALESCE(SUM(CASE WHEN account_type='real' THEN (CASE WHEN is_cent THEN COALESCE(registration_balance, 0)/100 ELSE COALESCE(registration_balance, 0) END) ELSE 0 END), 0) as real_starting,
-        COALESCE(SUM(CASE WHEN account_type='demo' THEN COALESCE(registration_balance, 0) ELSE 0 END), 0) as demo_starting
+        COALESCE(SUM(
+          CASE WHEN ${centCondition}
+            THEN COALESCE(last_known_balance, registration_balance, 0) / 100
+            ELSE COALESCE(last_known_balance, registration_balance, 0)
+          END
+        ), 0) as total_starting,
+        COALESCE(SUM(
+          CASE WHEN account_type = 'real' THEN
+            CASE WHEN ${centCondition}
+              THEN COALESCE(last_known_balance, registration_balance, 0) / 100
+              ELSE COALESCE(last_known_balance, registration_balance, 0)
+            END
+          ELSE 0 END
+        ), 0) as real_starting,
+        COALESCE(SUM(CASE WHEN account_type='demo' THEN COALESCE(last_known_balance, registration_balance, 0) ELSE 0 END), 0) as demo_starting
        FROM trading_registrations WHERE challenge_id=$1 AND (status IS NULL OR status != 'removed')`, [challengeId]);
 
     // Latest screening
