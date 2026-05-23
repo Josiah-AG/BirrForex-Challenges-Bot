@@ -873,9 +873,21 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
     const aboveTarget = await db.query(
       `SELECT COUNT(*) as cnt FROM wp_leaderboard WHERE challenge_id=$1 AND is_qualified=true`, [challengeId]);
 
-    // Balance stats
+    // Balance stats — total balance (normalized to $) split by category
     const balanceStats = await db.query(
-      `SELECT COALESCE(AVG(current_balance),0) as avg_balance, COALESCE(percentile_cont(0.5) WITHIN GROUP (ORDER BY current_balance),0) as median_balance FROM wp_leaderboard WHERE challenge_id=$1 AND is_disqualified=false`, [challengeId]);
+      `SELECT
+        COALESCE(SUM(CASE WHEN is_cent THEN current_balance/100 ELSE current_balance END), 0) as total_balance,
+        COALESCE(SUM(CASE WHEN account_type='real' THEN (CASE WHEN is_cent THEN current_balance/100 ELSE current_balance END) ELSE 0 END), 0) as real_balance,
+        COALESCE(SUM(CASE WHEN account_type='demo' THEN current_balance ELSE 0 END), 0) as demo_balance
+       FROM wp_leaderboard WHERE challenge_id=$1 AND is_disqualified=false`, [challengeId]);
+
+    // If no leaderboard data yet, sum starting balances from registrations
+    const startingBalanceSum = await db.query(
+      `SELECT
+        COALESCE(SUM(CASE WHEN is_cent THEN COALESCE(registration_balance, 0)/100 ELSE COALESCE(registration_balance, 0) END), 0) as total_starting,
+        COALESCE(SUM(CASE WHEN account_type='real' THEN (CASE WHEN is_cent THEN COALESCE(registration_balance, 0)/100 ELSE COALESCE(registration_balance, 0) END) ELSE 0 END), 0) as real_starting,
+        COALESCE(SUM(CASE WHEN account_type='demo' THEN COALESCE(registration_balance, 0) ELSE 0 END), 0) as demo_starting
+       FROM trading_registrations WHERE challenge_id=$1 AND (status IS NULL OR status != 'removed')`, [challengeId]);
 
     // Latest screening
     const latestScreening = await db.query(
@@ -885,6 +897,13 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
     const t = tradeStats.rows[0];
     const p = pullStats.rows[0];
     const b = balanceStats.rows[0];
+    const s = startingBalanceSum.rows[0];
+
+    // Use leaderboard totals if available, otherwise starting balances
+    const hasLeaderboardData = parseFloat(b.total_balance) > 0;
+    const totalBalance = hasLeaderboardData ? parseFloat(b.total_balance) : parseFloat(s.total_starting);
+    const realBalance = hasLeaderboardData ? parseFloat(b.real_balance) : parseFloat(s.real_starting);
+    const demoBalance = hasLeaderboardData ? parseFloat(b.demo_balance) : parseFloat(s.demo_starting);
 
     // Last pull time
     const lastPull = await db.query(
@@ -894,7 +913,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
       participants: { total: parseInt(c.total), demo: parseInt(c.demo), real: parseInt(c.real), disqualified: parseInt(c.disqualified) },
       trades: { total: parseInt(t.total_trades), totalVolume: parseFloat(t.total_volume), violations: parseInt(t.violations) },
       pulls: { today: parseInt(p.pulls_today), success: parseInt(p.total_success), failed: parseInt(p.total_failed), newTrades: parseInt(p.new_trades), passwordChanged: parseInt(pwChanged.rows[0].cnt), lastPullAt: lastPull.rows[0]?.completed_at || null },
-      balance: { average: parseFloat(b.avg_balance), median: parseFloat(b.median_balance) },
+      balance: { total: totalBalance, real: realBalance, demo: demoBalance },
       qualified: parseInt(aboveTarget.rows[0].cnt),
       latestScreening: latestScreening.rows[0] || null,
     });
