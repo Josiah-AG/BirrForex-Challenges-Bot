@@ -1216,10 +1216,10 @@ function CreateChallengePanel({ onCreated }: { onCreated: (id: number) => void }
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...form,
-          // Store dates directly as EAT (no conversion — system treats all dates as EAT)
-          start_date: form.start_date || null,
-          end_date: form.end_date || null,
-          registration_deadline: form.start_date || null,
+          // Convert EAT datetime-local to UTC for storage
+          start_date: form.start_date ? (() => { const [dp, tp] = form.start_date.split('T'); const [y,m,d] = dp.split('-').map(Number); const [h,min] = tp.split(':').map(Number); return new Date(Date.UTC(y, m-1, d, h-3, min)).toISOString(); })() : null,
+          end_date: form.end_date ? (() => { const [dp, tp] = form.end_date.split('T'); const [y,m,d] = dp.split('-').map(Number); const [h,min] = tp.split(':').map(Number); return new Date(Date.UTC(y, m-1, d, h-3, min)).toISOString(); })() : null,
+          registration_deadline: form.start_date ? (() => { const [dp, tp] = form.start_date.split('T'); const [y,m,d] = dp.split('-').map(Number); const [h,min] = tp.split(':').map(Number); return new Date(Date.UTC(y, m-1, d, h-3, min)).toISOString(); })() : null,
           starting_balance: parseFloat(form.starting_balance),
           target_balance: parseFloat(form.target_balance),
           real_winners_count: parseInt(form.real_winners_count),
@@ -1409,11 +1409,31 @@ function ChallengeSettingsPanel({ challengeId, challenges, onRefresh }: { challe
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
+
+  // Convert UTC ISO string from API → EAT datetime-local string for input
+  function formatDateForInput(isoStr: string): string {
+    if (!isoStr) return "";
+    const d = new Date(isoStr);
+    // Add 3 hours to convert UTC → EAT
+    const eat = new Date(d.getTime() + 3 * 60 * 60 * 1000);
+    return `${eat.getUTCFullYear()}-${String(eat.getUTCMonth()+1).padStart(2,'0')}-${String(eat.getUTCDate()).padStart(2,'0')}T${String(eat.getUTCHours()).padStart(2,'0')}:${String(eat.getUTCMinutes()).padStart(2,'0')}`;
+  }
+
+  // Convert EAT datetime-local string → UTC ISO string for API
+  function dateToUTC(eatStr: string): string | undefined {
+    if (!eatStr) return undefined;
+    // eatStr is like "2026-05-25T09:00" — treat as EAT, subtract 3h for UTC
+    const [datePart, timePart] = eatStr.split('T');
+    const [y, m, d] = datePart.split('-').map(Number);
+    const [h, min] = timePart.split(':').map(Number);
+    const eatDate = new Date(Date.UTC(y, m - 1, d, h - 3, min));
+    return eatDate.toISOString();
+  }
   const [editForm, setEditForm] = useState({
     title: challenge?.title || "",
     type: challenge?.type || "hybrid",
-    start_date: challenge?.startDate ? new Date(challenge.startDate).toISOString().slice(0, 16) : "",
-    end_date: challenge?.endDate ? new Date(challenge.endDate).toISOString().slice(0, 16) : "",
+    start_date: challenge?.startDate ? formatDateForInput(challenge.startDate) : "",
+    end_date: challenge?.endDate ? formatDateForInput(challenge.endDate) : "",
     starting_balance: String(challenge?.startingBalance || 30),
     target_balance: String(challenge?.targetBalance || 60),
     prize_pool_text: challenge?.prizePoolText || "",
@@ -1431,8 +1451,8 @@ function ChallengeSettingsPanel({ challengeId, challenges, onRefresh }: { challe
         body: JSON.stringify({
           title: editForm.title,
           type: editForm.type,
-          start_date: editForm.start_date || undefined,
-          end_date: editForm.end_date || undefined,
+          start_date: dateToUTC(editForm.start_date),
+          end_date: dateToUTC(editForm.end_date),
           starting_balance: parseFloat(editForm.starting_balance),
           target_balance: parseFloat(editForm.target_balance),
           prize_pool_text: editForm.prize_pool_text,

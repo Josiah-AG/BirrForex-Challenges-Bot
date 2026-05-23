@@ -34,13 +34,13 @@ export class TradingScheduler {
   }
 
   /**
-   * Convert a stored date to EAT date/time strings.
-   * Dates are stored directly as EAT — no conversion needed.
+   * Convert a stored UTC date to EAT date/time strings.
+   * Dates are stored as UTC in DB. Add 3h to get EAT.
    */
   private toEATStrings(date: Date): { dateStr: string; timeStr: string } {
-    const d = new Date(date);
-    const dateStr = `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, '0')}-${d.getDate().toString().padStart(2, '0')}`;
-    const timeStr = `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+    const d = new Date(new Date(date).getTime() + 3 * 60 * 60 * 1000);
+    const dateStr = `${d.getUTCFullYear()}-${(d.getUTCMonth() + 1).toString().padStart(2, '0')}-${d.getUTCDate().toString().padStart(2, '0')}`;
+    const timeStr = `${d.getUTCHours().toString().padStart(2, '0')}:${d.getUTCMinutes().toString().padStart(2, '0')}`;
     return { dateStr, timeStr };
   }
 
