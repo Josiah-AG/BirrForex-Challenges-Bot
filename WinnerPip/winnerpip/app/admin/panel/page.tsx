@@ -1577,6 +1577,8 @@ function downloadRulesHTML(challenge: any, rulesList: string[], isCent: boolean)
 .rules-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;max-width:800px;margin:0 auto}
 .page.landscape .rules-grid{grid-template-columns:1fr 1fr 1fr;max-width:1400px}
 .rule-card{background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:16px;padding:24px;display:flex;align-items:center;gap:16px}
+.rule-card.centered{grid-column:1/-1;max-width:400px;margin:0 auto}
+.page.landscape .rule-card.centered{max-width:450px}
 .rule-num{width:36px;height:36px;border-radius:10px;background:rgba(31,111,235,0.2);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:#1F6FEB;flex-shrink:0}
 .rule-text{font-size:16px;color:#e2e8f0;font-weight:500}
 .footer{text-align:center;margin-top:auto;padding-top:40px}
@@ -1587,14 +1589,14 @@ function downloadRulesHTML(challenge: any, rulesList: string[], isCent: boolean)
 <div class="glow glow1"></div><div class="glow glow2"></div>
 <div class="header"><div class="title">${challenge.title || 'Trading Challenge'}</div><div class="subtitle">Challenge Rules</div>${isCent ? '<div class="badge">CENT ACCOUNT ONLY</div>' : ''}</div>
 <div class="info-row"><div class="info-item"><div class="info-label">Starting Balance</div><div class="info-value">${unit}${challenge.starting_balance || 0}</div></div><div class="info-item"><div class="info-label">Target</div><div class="info-value gold">${unit}${challenge.target_balance || 0}</div></div><div class="info-item"><div class="info-label">Period</div><div class="info-value" style="font-size:20px">${startDate} → ${endDate}</div></div></div>
-<div class="rules-grid">${rulesList.map((r, i) => `<div class="rule-card"><div class="rule-num">${i + 1}</div><div class="rule-text">${r}</div></div>`).join('')}</div>
+<div class="rules-grid">${rulesList.map((r, i) => `<div class="rule-card${i === rulesList.length - 1 && rulesList.length % 2 !== 0 ? " centered" : ""}"><div class="rule-num">${i + 1}</div><div class="rule-text">${r}</div></div>`).join('')}</div>
 <div class="footer"><div class="footer-text">Trades that break the rules will have profits removed. Losses still count.</div><div class="brand">BirrForex • WinnerPip</div></div>
 </div>
 <div class="page landscape">
 <div class="glow glow1"></div><div class="glow glow2"></div>
 <div class="header"><div class="title" style="font-size:42px">${challenge.title || 'Trading Challenge'}</div><div class="subtitle">Challenge Rules</div>${isCent ? '<div class="badge">CENT ACCOUNT ONLY</div>' : ''}</div>
 <div class="info-row"><div class="info-item"><div class="info-label">Starting Balance</div><div class="info-value">${unit}${challenge.starting_balance || 0}</div></div><div class="info-item"><div class="info-label">Target</div><div class="info-value gold">${unit}${challenge.target_balance || 0}</div></div><div class="info-item"><div class="info-label">Period</div><div class="info-value" style="font-size:20px">${startDate} → ${endDate}</div></div></div>
-<div class="rules-grid">${rulesList.map((r, i) => `<div class="rule-card"><div class="rule-num">${i + 1}</div><div class="rule-text">${r}</div></div>`).join('')}</div>
+<div class="rules-grid">${rulesList.map((r, i) => `<div class="rule-card${i === rulesList.length - 1 && rulesList.length % 2 !== 0 ? " centered" : ""}"><div class="rule-num">${i + 1}</div><div class="rule-text">${r}</div></div>`).join('')}</div>
 <div class="footer"><div class="footer-text">Trades that break the rules will have profits removed. Losses still count.</div><div class="brand">BirrForex • WinnerPip</div></div>
 </div>
 </body></html>`;

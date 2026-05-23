@@ -719,17 +719,15 @@ export class WpEvaluationEngine {
 
     if (cfg.max_lot_size) {
       if (isHybrid && isCent) {
-        rules.push(`Maximum lot size per trade: ${cfg.max_lot_size} (Standard) / ${cfg.max_lot_size * 100} lots (Cent)`);
-      } else if (isCent && challengeType === 'real') {
-        rules.push(`Maximum lot size per trade: ${cfg.max_lot_size} lots`);
+        rules.push(`📊 Maximum lot size: ${cfg.max_lot_size} (Standard) / ${cfg.max_lot_size * 100} lots (Cent)`);
       } else {
-        rules.push(`Maximum lot size per trade: ${cfg.max_lot_size}`);
+        rules.push(`📊 Maximum lot size: ${cfg.max_lot_size} lots`);
       }
     }
-    if (cfg.max_open_trades) rules.push(`Maximum ${cfg.max_open_trades} trades open at the same time`);
-    if (cfg.pair_limit) rules.push(`Maximum ${cfg.pair_limit} trades on the same pair simultaneously`);
+    if (cfg.max_open_trades) rules.push(`📈 Maximum ${cfg.max_open_trades} trades open at the same time`);
+    if (cfg.pair_limit) rules.push(`🔄 Maximum ${cfg.pair_limit} trades on the same pair simultaneously`);
     if (cfg.stop_loss_required) {
-      let t = 'Stop loss required on all trades';
+      let t = '🛡️ Stop loss required on all trades';
       if (cfg.max_risk_dollars) {
         if (isHybrid && isCent) {
           t += ` (max risk: $${cfg.max_risk_dollars} Standard / ${cfg.max_risk_dollars * 100}¢ Cent)`;
@@ -743,21 +741,27 @@ export class WpEvaluationEngine {
     }
     if (cfg.daily_loss_cap) {
       if (isHybrid && isCent) {
-        rules.push(`Daily loss cap: $${cfg.daily_loss_cap} (Standard) / ${cfg.daily_loss_cap * 100}¢ (Cent) from day's opening balance`);
+        rules.push(`⚠️ Daily loss cap: $${cfg.daily_loss_cap} (Standard) / ${cfg.daily_loss_cap * 100}¢ (Cent) from day's opening balance`);
       } else if (isCent && challengeType === 'real') {
-        rules.push(`Daily loss cap: ${cfg.daily_loss_cap}¢ from day's opening balance`);
+        rules.push(`⚠️ Daily loss cap: ${cfg.daily_loss_cap}¢ from day's opening balance`);
       } else {
-        rules.push(`Daily loss cap: $${cfg.daily_loss_cap} from day's opening balance`);
+        rules.push(`⚠️ Daily loss cap: $${cfg.daily_loss_cap} from day's opening balance`);
       }
     }
-    if (cfg.max_hold_hours) rules.push(`Maximum trade duration: ${cfg.max_hold_hours} hours`);
-    if (!cfg.weekend_trading) rules.push('No weekend trading');
-    if (cfg.min_active_days) rules.push(`Minimum ${cfg.min_active_days} active trading days to qualify`);
-    if (isCent) rules.push('Only cent accounts allowed for real account category');
-    rules.push('No recharging (additional deposits) allowed during the challenge');
-    rules.push('Unlimited trades per day — as long as all rules are followed');
-    rules.push('No leverage limit');
-    rules.push('Trades against the rules will have profits disqualified (losses still count)');
+    if (cfg.max_hold_hours) rules.push(`⏱️ Maximum trade duration: ${cfg.max_hold_hours} hours`);
+    if (!cfg.weekend_trading) rules.push('🚫 No weekend trading');
+    if (cfg.min_active_days) rules.push(`📅 Minimum ${cfg.min_active_days} active trading days to qualify`);
+    if (isCent) {
+      if (challengeType === 'real') {
+        rules.push('💰 Cent account only');
+      } else {
+        rules.push('💰 Only cent accounts allowed for real account category');
+      }
+    }
+    rules.push('🚫 No recharging (additional deposits) allowed during the challenge');
+    rules.push('✅ Unlimited trades per day — as long as all rules are followed');
+    rules.push('✅ No leverage limit');
+    rules.push('⚖️ Trades against the rules will have profits disqualified (losses still count)');
     return { rules, isCent };
   }
 }
