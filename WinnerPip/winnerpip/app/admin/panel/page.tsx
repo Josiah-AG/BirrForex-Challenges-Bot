@@ -111,6 +111,14 @@ export default function AdminDashboard() {
           const data = await res.json();
           setOverviewData(data);
         }
+        // Also fetch rules to determine if cent challenge
+        const rulesRes = await fetch(`${apiUrl}/api/challenges/${selectedChallengeId}/rules`);
+        if (rulesRes.ok) {
+          const rulesData = await rulesRes.json();
+          if (rulesData.isCent !== undefined) {
+            setRulesConfig(prev => ({ ...prev, only_cent_account: rulesData.isCent }));
+          }
+        }
       } catch {}
     };
     fetchOverview();
@@ -202,6 +210,16 @@ export default function AdminDashboard() {
     status: selectedChallenge.status,
     type: selectedChallenge.type,
   } : { id: selectedChallengeId, title: "Loading...", status: "—", type: "—" };
+
+  // Currency helper — shows ¢ for cent-only real challenges, $ otherwise
+  const selectedChall = challenges.find(c => String(c.id) === selectedChallengeId);
+  const isCentChallenge = rulesConfig.only_cent_account && selectedChall?.type !== 'demo';
+  const cur = (amount: number | string | null | undefined) => {
+    if (amount == null) return "—";
+    const num = Number(amount);
+    if (isNaN(num)) return "—";
+    return isCentChallenge ? `${num.toFixed(2)}¢` : `$${num.toFixed(2)}`;
+  };
 
   // Use real data from API or fallback to zeros
   const od = overviewData;
@@ -380,7 +398,7 @@ export default function AdminDashboard() {
           </div>
 
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 mb-6">
-            <StatCard icon={<Target size={16} />} label="Avg Balance" value={`$${overview.avgBalance}`} sub={`Median: $${overview.medianBalance}`} color="text-profit" />
+            <StatCard icon={<Target size={16} />} label="Avg Balance" value={isCentChallenge ? `${overview.avgBalance}¢` : `$${overview.avgBalance}`} sub={isCentChallenge ? `Median: ${overview.medianBalance}¢` : `Median: $${overview.medianBalance}`} color="text-profit" />
             <StatCard icon={<Zap size={16} />} label="Pulls Today" value={overview.pullsToday.toString()} sub={`Next: ${overview.nextPullTime}`} color="text-royal" />
             <StatCard icon={<Shield size={16} />} label="Pull Success" value={overview.pullsSuccess.toString()} sub={`Failed: ${overview.pullsFailed} | PW Changed: ${overview.passwordChanged}`} color="text-profit" />
             <StatCard icon={<Clock size={16} />} label="Last Pull" value={overview.lastPullTime} sub="All terminals healthy" color="text-gray-300" />
@@ -426,7 +444,7 @@ export default function AdminDashboard() {
                     <td className="py-3 px-4"><span className={`text-sm font-bold ${e.isDisqualified ? "text-loss" : e.rank <= 3 ? "text-gold" : "text-gray-400"}`}>{e.rank || "—"}</span></td>
                     <td className="py-3 px-4 text-sm text-white font-semibold">{e.nickname}{e.isDisqualified ? <span className="ml-2 text-[10px] text-loss">DQ</span> : ""}</td>
                     <td className="py-3 px-4"><span className={`px-2 py-1 rounded text-[10px] font-semibold ${e.accountType === "real" ? "bg-gold/10 text-gold" : "bg-royal/10 text-royal"}`}>{e.accountType}</span></td>
-                    <td className="py-3 px-4 text-right text-sm font-bold text-white">{e.isDisqualified ? "DQ" : `$${Number(e.adjustedBalance).toFixed(2)}`}</td>
+                    <td className="py-3 px-4 text-right text-sm font-bold text-white">{e.isDisqualified ? "DQ" : cur(e.adjustedBalance)}</td>
                     <td className="py-3 px-4 text-center text-sm text-gray-400">{e.totalTrades}</td>
                     <td className="py-3 px-4 text-center text-sm text-gray-400">{e.totalTrades > 0 ? `${Math.round((e.qualifiedTrades / e.totalTrades) * 100)}%` : "—"}</td>
                     <td className="py-3 px-4 text-center text-sm text-royal">{e.totalTrades > 0 ? `$${(e.qualifiedProfit / e.totalTrades).toFixed(2)}` : "—"}</td>
@@ -901,9 +919,9 @@ export default function AdminDashboard() {
               ) : (
                 <div className="grid grid-cols-2 gap-3">
                   <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Rank</p><p className="text-2xl font-bold gradient-text">#{selectedParticipant.rank || "—"}</p></div>
-                  <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Balance</p><p className="text-2xl font-bold text-white">${Number(selectedParticipant.adjustedBalance || 0).toFixed(2)}</p></div>
-                  <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Profit</p><p className={`text-lg font-bold ${(selectedParticipant.qualifiedProfit || 0) >= 0 ? "text-profit" : "text-loss"}`}>${Number(selectedParticipant.qualifiedProfit || 0).toFixed(2)}</p></div>
-                  <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Gross</p><p className="text-lg font-bold text-white">${Number(selectedParticipant.grossProfit || 0).toFixed(2)}</p></div>
+                  <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Balance</p><p className="text-2xl font-bold text-white">{cur(selectedParticipant.adjustedBalance)}</p></div>
+                  <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Profit</p><p className={`text-lg font-bold ${(selectedParticipant.qualifiedProfit || 0) >= 0 ? "text-profit" : "text-loss"}`}>{cur(selectedParticipant.qualifiedProfit)}</p></div>
+                  <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Gross</p><p className="text-lg font-bold text-white">{cur(selectedParticipant.grossProfit)}</p></div>
                   <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Trades</p><p className="text-lg font-bold text-white">{selectedParticipant.totalTrades || 0}</p></div>
                   <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Flagged</p><p className={`text-lg font-bold ${(selectedParticipant.flaggedTrades || 0) > 0 ? "text-loss" : "text-profit"}`}>{selectedParticipant.flaggedTrades || 0}</p></div>
                 </div>
@@ -929,8 +947,8 @@ export default function AdminDashboard() {
               <div className="space-y-2">
                 {(verifyPopup.balance != null) ? (
                   <>
-                    <div className="flex justify-between p-3 bg-white/5 rounded-lg"><span className="text-xs text-gray-400">Balance</span><span className="text-sm text-white font-bold">${Number(verifyPopup.balance).toFixed(2)}</span></div>
-                    {verifyPopup.equity != null && <div className="flex justify-between p-3 bg-white/5 rounded-lg"><span className="text-xs text-gray-400">Equity</span><span className="text-sm text-white font-bold">${Number(verifyPopup.equity).toFixed(2)}</span></div>}
+                    <div className="flex justify-between p-3 bg-white/5 rounded-lg"><span className="text-xs text-gray-400">Balance</span><span className="text-sm text-white font-bold">{cur(verifyPopup.balance)}</span></div>
+                    {verifyPopup.equity != null && <div className="flex justify-between p-3 bg-white/5 rounded-lg"><span className="text-xs text-gray-400">Equity</span><span className="text-sm text-white font-bold">{cur(verifyPopup.equity)}</span></div>}
                   </>
                 ) : (
                   <div className="p-3 bg-white/5 rounded-lg text-center">
