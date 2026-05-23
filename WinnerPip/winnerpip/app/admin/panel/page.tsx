@@ -214,11 +214,12 @@ export default function AdminDashboard() {
   // Currency helper — shows ¢ for cent-only real challenges, $ otherwise
   const selectedChall = challenges.find(c => String(c.id) === selectedChallengeId);
   const isCentChallenge = rulesConfig.only_cent_account && selectedChall?.type !== 'demo';
-  const cur = (amount: number | string | null | undefined) => {
+  const cur = (amount: number | string | null | undefined, userIsCent?: boolean) => {
     if (amount == null) return "—";
     const num = Number(amount);
     if (isNaN(num)) return "—";
-    return isCentChallenge ? `${num.toFixed(2)}¢` : `$${num.toFixed(2)}`;
+    const showCent = userIsCent !== undefined ? userIsCent : isCentChallenge;
+    return showCent ? `${num.toFixed(2)}¢` : `$${num.toFixed(2)}`;
   };
 
   // Use real data from API or fallback to zeros
@@ -924,9 +925,9 @@ export default function AdminDashboard() {
               ) : (
                 <div className="grid grid-cols-2 gap-3">
                   <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Rank</p><p className="text-2xl font-bold gradient-text">#{selectedParticipant.rank || "—"}</p></div>
-                  <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Balance</p><p className="text-2xl font-bold text-white">{cur(selectedParticipant.adjustedBalance)}</p></div>
-                  <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Profit</p><p className={`text-lg font-bold ${(selectedParticipant.qualifiedProfit || 0) >= 0 ? "text-profit" : "text-loss"}`}>{cur(selectedParticipant.qualifiedProfit)}</p></div>
-                  <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Gross</p><p className="text-lg font-bold text-white">{cur(selectedParticipant.grossProfit)}</p></div>
+                  <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Balance</p><p className="text-2xl font-bold text-white">{cur(selectedParticipant.adjustedBalance, selectedParticipant.isCent)}</p></div>
+                  <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Profit</p><p className={`text-lg font-bold ${(selectedParticipant.qualifiedProfit || 0) >= 0 ? "text-profit" : "text-loss"}`}>{cur(selectedParticipant.qualifiedProfit, selectedParticipant.isCent)}</p></div>
+                  <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Gross</p><p className="text-lg font-bold text-white">{cur(selectedParticipant.grossProfit, selectedParticipant.isCent)}</p></div>
                   <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Trades</p><p className="text-lg font-bold text-white">{selectedParticipant.totalTrades || 0}</p></div>
                   <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Flagged</p><p className={`text-lg font-bold ${(selectedParticipant.flaggedTrades || 0) > 0 ? "text-loss" : "text-profit"}`}>{selectedParticipant.flaggedTrades || 0}</p></div>
                 </div>
@@ -952,8 +953,8 @@ export default function AdminDashboard() {
               <div className="space-y-2">
                 {(verifyPopup.balance != null) ? (
                   <>
-                    <div className="flex justify-between p-3 bg-white/5 rounded-lg"><span className="text-xs text-gray-400">Balance</span><span className="text-sm text-white font-bold">{cur(verifyPopup.balance)}</span></div>
-                    {verifyPopup.equity != null && <div className="flex justify-between p-3 bg-white/5 rounded-lg"><span className="text-xs text-gray-400">Equity</span><span className="text-sm text-white font-bold">{cur(verifyPopup.equity)}</span></div>}
+                    <div className="flex justify-between p-3 bg-white/5 rounded-lg"><span className="text-xs text-gray-400">Balance</span><span className="text-sm text-white font-bold">{cur(verifyPopup.balance, selectedParticipant?.isCent)}</span></div>
+                    {verifyPopup.equity != null && <div className="flex justify-between p-3 bg-white/5 rounded-lg"><span className="text-xs text-gray-400">Equity</span><span className="text-sm text-white font-bold">{cur(verifyPopup.equity, selectedParticipant?.isCent)}</span></div>}
                   </>
                 ) : (
                   <div className="p-3 bg-white/5 rounded-lg text-center">

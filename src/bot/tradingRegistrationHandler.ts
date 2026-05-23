@@ -1001,7 +1001,8 @@ export class TradingRegistrationHandler {
         session.data.registration_balance = vpsBalance;
         await ctx.reply(
           `✅ <b>MT5 connection verified!</b>\n\n` +
-          `⚠️ Your account balance is <b>$0.00</b>. Please deposit <b>${startDisplay}</b> (or you can start lower) before the challenge begins.`,
+          `⚠️ Your account balance is <b>$0.00</b>.\n\n` +
+          `Please deposit before the challenge starts.`,
           { parse_mode: 'HTML' }
         );
       } else if (vpsBalance < compareBalance) {
@@ -1010,7 +1011,8 @@ export class TradingRegistrationHandler {
         await ctx.reply(
           `✅ <b>MT5 connection verified!</b>\n\n` +
           `ℹ️ Your balance is <b>${balanceDisplay}</b>. The challenge starting balance is <b>${startDisplay}</b>.\n\n` +
-          `You can still participate — the target remains <b>$${targetBalance}</b> regardless of your starting point. If you want to deposit more, do it before the challenge starts. Recharging after the challenge starts is NOT allowed.`,
+          `You can still participate — the target remains the same regardless of your starting point.\n\n` +
+          `If you want to deposit more, do it before the challenge starts. After the challenge starts, any additional deposit will result in disqualification.`,
           { parse_mode: 'HTML' }
         );
       } else {

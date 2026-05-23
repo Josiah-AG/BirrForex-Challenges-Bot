@@ -506,13 +506,13 @@ export default function ChallengeDashboard() {
               </button>
               <div className="glass rounded-2xl p-4 md:p-5 border border-white/10">
                 <div className="flex items-center gap-2 mb-2"><TrendingUp size={16} className="text-profit" /><p className="text-[10px] text-gray-400 uppercase tracking-wider font-medium">Profit</p></div>
-                <p className={`text-3xl md:text-4xl font-bold ${myStats.qualifiedProfit >= 0 ? "text-profit" : "text-loss"}`}>${myStats.qualifiedProfit.toFixed(2)}</p>
-                <p className="text-xs text-gray-500 mt-1">Gross: ${myStats.grossProfit.toFixed(2)}</p>
+                <p className={`text-3xl md:text-4xl font-bold ${myStats.qualifiedProfit >= 0 ? "text-profit" : "text-loss"}`}>{formatBalance(myStats.qualifiedProfit, myStats.accountType, myStats.isCent)}</p>
+                <p className="text-xs text-gray-500 mt-1">Gross: {formatBalance(myStats.grossProfit, myStats.accountType, myStats.isCent)}</p>
               </div>
               <div className="glass rounded-2xl p-4 md:p-5 border border-white/10">
                 <div className="flex items-center gap-2 mb-2"><Target size={16} className="text-royal" /><p className="text-[10px] text-gray-400 uppercase tracking-wider font-medium">Balance</p></div>
-                <p className="text-3xl md:text-4xl font-bold text-white">${myStats.currentBalance.toFixed(2)}</p>
-                <p className="text-xs text-gray-500 mt-1">Target: ${formatBalance(challenge.targetBalance, myStats.accountType, myStats.isCent)}</p>
+                <p className="text-3xl md:text-4xl font-bold text-white">{formatBalance(myStats.currentBalance, myStats.accountType, myStats.isCent)}</p>
+                <p className="text-xs text-gray-500 mt-1">Target: {formatBalance(challenge.targetBalance, myStats.accountType, myStats.isCent)}</p>
               </div>
               <div className="glass rounded-2xl p-4 md:p-5 border border-white/10">
                 <div className="flex items-center gap-2 mb-2"><Clock size={16} className="text-gold" /><p className="text-[10px] text-gray-400 uppercase tracking-wider font-medium">Time Left</p></div>

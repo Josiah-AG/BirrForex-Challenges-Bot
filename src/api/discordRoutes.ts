@@ -390,13 +390,34 @@ router.post('/challenges/:id/verify/:registrationId', async (req: Request, res: 
       );
 
       if (vpsResult.success) {
-        // Update registration as verified + save balance
+        // Detect cent account
+        const challengeId = parseInt(param(req, "id"));
+        const challengeData = await db.query(
+          `SELECT c.starting_balance, c.type, r.parameters as rules_config
+           FROM trading_challenges c
+           LEFT JOIN wp_challenge_rules r ON c.id = r.challenge_id AND r.rule_code = 'config'
+           WHERE c.id = $1`, [challengeId]);
+        const startingBalance = parseFloat(challengeData.rows[0]?.starting_balance || 30);
+        const challengeType = challengeData.rows[0]?.type || 'real';
+        const onlyCent = challengeData.rows[0]?.rules_config?.only_cent_account || false;
+        const vpsBalance = vpsResult.balance || 0;
+
+        let isCent = false;
+        if (registration.account_type === 'real') {
+          if (onlyCent) {
+            isCent = true;
+          } else if (vpsBalance > startingBalance * 5) {
+            isCent = true;
+          }
+        }
+
+        // Update registration as verified + save balance + is_cent
         await db.query(
           `UPDATE trading_registrations 
            SET connection_verified = true, connection_verified_at = NOW(), pull_status = 'ready',
-               last_known_balance = $2, registration_balance = $2
+               last_known_balance = $2, registration_balance = $2, is_cent = $3
            WHERE id = $1`,
-          [registrationId, vpsResult.balance || 0]
+          [registrationId, vpsBalance, isCent]
         );
 
         return res.json({
@@ -405,6 +426,7 @@ router.post('/challenges/:id/verify/:registrationId', async (req: Request, res: 
           balance: vpsResult.balance,
           equity: vpsResult.equity,
           server: vpsResult.server,
+          isCent,
         });
       } else {
         return res.json({
