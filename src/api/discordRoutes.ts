@@ -390,12 +390,13 @@ router.post('/challenges/:id/verify/:registrationId', async (req: Request, res: 
       );
 
       if (vpsResult.success) {
-        // Update registration as verified
+        // Update registration as verified + save balance
         await db.query(
           `UPDATE trading_registrations 
-           SET connection_verified = true, connection_verified_at = NOW(), pull_status = 'ready'
+           SET connection_verified = true, connection_verified_at = NOW(), pull_status = 'ready',
+               last_known_balance = $2, registration_balance = $2
            WHERE id = $1`,
-          [registrationId]
+          [registrationId, vpsResult.balance || 0]
         );
 
         return res.json({

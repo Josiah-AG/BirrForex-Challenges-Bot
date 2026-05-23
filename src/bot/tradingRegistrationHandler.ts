@@ -1303,10 +1303,10 @@ export class TradingRegistrationHandler {
         client_uid: session.data.client_uid || null,
       });
 
-      // Save investor password and cent flag to the registration
+      // Save investor password, cent flag, and registration balance
       if (session.data.investor_password) {
-        await db.query('UPDATE trading_registrations SET investor_password = $1, connection_verified = true, connection_verified_at = NOW(), is_cent = $3 WHERE id = $2',
-          [session.data.investor_password, reg.id, session.data.is_cent || false]);
+        await db.query('UPDATE trading_registrations SET investor_password = $1, connection_verified = true, connection_verified_at = NOW(), is_cent = $3, registration_balance = $4, last_known_balance = $4 WHERE id = $2',
+          [session.data.investor_password, reg.id, session.data.is_cent || false, session.data.registration_balance || null]);
       }
 
       // Remove from failed attempts if they were there
