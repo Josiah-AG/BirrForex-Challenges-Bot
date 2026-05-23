@@ -444,7 +444,7 @@ export default function AdminDashboard() {
                     <td className="py-3 px-4"><span className={`text-sm font-bold ${e.isDisqualified ? "text-loss" : e.rank <= 3 ? "text-gold" : "text-gray-400"}`}>{e.rank || "—"}</span></td>
                     <td className="py-3 px-4 text-sm text-white font-semibold">{e.nickname}{e.isDisqualified ? <span className="ml-2 text-[10px] text-loss">DQ</span> : ""}</td>
                     <td className="py-3 px-4"><span className={`px-2 py-1 rounded text-[10px] font-semibold ${e.accountType === "real" ? "bg-gold/10 text-gold" : "bg-royal/10 text-royal"}`}>{e.accountType}</span></td>
-                    <td className="py-3 px-4 text-right text-sm font-bold text-white">{e.isDisqualified ? "DQ" : cur(e.adjustedBalance)}</td>
+                    <td className="py-3 px-4 text-right text-sm font-bold text-white">{e.isDisqualified ? "DQ" : e.isCent ? `${Number(e.adjustedBalance).toFixed(2)}¢` : `$${Number(e.adjustedBalance).toFixed(2)}`}</td>
                     <td className="py-3 px-4 text-center text-sm text-gray-400">{e.totalTrades}</td>
                     <td className="py-3 px-4 text-center text-sm text-gray-400">{e.totalTrades > 0 ? `${Math.round((e.qualifiedTrades / e.totalTrades) * 100)}%` : "—"}</td>
                     <td className="py-3 px-4 text-center text-sm text-royal">{e.totalTrades > 0 ? `$${(e.qualifiedProfit / e.totalTrades).toFixed(2)}` : "—"}</td>

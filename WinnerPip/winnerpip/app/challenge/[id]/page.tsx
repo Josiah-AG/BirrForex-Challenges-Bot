@@ -21,7 +21,7 @@ interface LeaderboardEntry {
   qualifiedProfit: number; grossProfit: number; profitRemoved: number;
   totalTrades: number; qualifiedTrades: number; flaggedTrades: number;
   isQualified: boolean; isDisqualified?: boolean; disqualifyReason?: string | null;
-  isBlown?: boolean;
+  isBlown?: boolean; isCent?: boolean;
   lastTradeTime: string | null; lastUpdated: string | null;
   isMe?: boolean;
 }
@@ -37,6 +37,7 @@ interface MyStats {
   totalTrades: number; qualifiedTrades: number; flaggedTrades: number;
   isQualified: boolean; lastUpdated: string | null; pullStatus: string | null;
   disqualified: boolean; disqualifiedReason: string | null;
+  isCent: boolean;
 }
 
 export default function ChallengeDashboard() {
@@ -119,6 +120,7 @@ export default function ChallengeDashboard() {
         pullStatus: data.me.pullStatus || null,
         disqualified: data.me.disqualified || false,
         disqualifiedReason: data.me.disqualifiedReason || null,
+        isCent: data.me.isCent || false,
       });
       setRecentTrades(data.recentTrades || []);
       setError("");
@@ -143,7 +145,8 @@ export default function ChallengeDashboard() {
     else setLeaderboardLoading(true);
     try {
       const offset = loadMore ? leaderboard.length : 0;
-      const res = await fetch(`${API_URL}/api/challenges/${params.id}/leaderboard?limit=50&offset=${offset}`);
+      const category = myStats?.accountType || 'all';
+      const res = await fetch(`${API_URL}/api/challenges/${params.id}/leaderboard?limit=50&offset=${offset}&category=${category}`);
       if (res.ok) {
         const data = await res.json();
         const entries: LeaderboardEntry[] = (data.leaderboard || []).map((entry: LeaderboardEntry) => ({
@@ -227,11 +230,10 @@ export default function ChallengeDashboard() {
   const isBlownAccount = myStats && myStats.totalTrades > 0 && myStats.currentBalance <= 0;
   const showProgressBar = myStats && myStats.totalTrades > 0 && !isBlownAccount && !myStats.disqualified;
 
-  // Format balance with cent support
-  const formatBalance = (amount: number, accountType: string) => {
-    // Cent accounts show in cents
-    if (accountType === 'real' && amount > 500) {
-      return `${amount.toFixed(0)}¢`;
+  // Format balance with cent support — uses isCent flag from API
+  const formatBalance = (amount: number, accountType: string, isCent?: boolean) => {
+    if (isCent) {
+      return `${amount.toFixed(2)}¢`;
     }
     return `$${amount.toFixed(2)}`;
   };
@@ -510,7 +512,7 @@ export default function ChallengeDashboard() {
               <div className="glass rounded-2xl p-4 md:p-5 border border-white/10">
                 <div className="flex items-center gap-2 mb-2"><Target size={16} className="text-royal" /><p className="text-[10px] text-gray-400 uppercase tracking-wider font-medium">Balance</p></div>
                 <p className="text-3xl md:text-4xl font-bold text-white">${myStats.currentBalance.toFixed(2)}</p>
-                <p className="text-xs text-gray-500 mt-1">Target: ${challenge.targetBalance}</p>
+                <p className="text-xs text-gray-500 mt-1">Target: ${formatBalance(challenge.targetBalance, myStats.accountType, myStats.isCent)}</p>
               </div>
               <div className="glass rounded-2xl p-4 md:p-5 border border-white/10">
                 <div className="flex items-center gap-2 mb-2"><Clock size={16} className="text-gold" /><p className="text-[10px] text-gray-400 uppercase tracking-wider font-medium">Time Left</p></div>
@@ -524,7 +526,7 @@ export default function ChallengeDashboard() {
               <div className="glass rounded-2xl p-4 md:p-5 border border-white/10 mb-6">
                 <div className="flex items-center justify-between mb-3"><p className="text-sm font-medium text-gray-300">Progress to Target</p><p className="text-sm font-bold text-white">{progressPercent.toFixed(0)}%</p></div>
                 <div className="w-full h-3 bg-white/10 rounded-full overflow-hidden"><div className="h-full rounded-full bg-gradient-to-r from-royal to-profit transition-all duration-500" style={{ width: `${progressPercent}%` }} /></div>
-                <div className="flex justify-between mt-2 text-xs text-gray-500"><span>{formatBalance(challenge.startingBalance, myStats.accountType)}</span><span>{formatBalance(challenge.targetBalance, myStats.accountType)}</span></div>
+                <div className="flex justify-between mt-2 text-xs text-gray-500"><span>{formatBalance(challenge.startingBalance, myStats.accountType, myStats.isCent)}</span><span>{formatBalance(challenge.targetBalance, myStats.accountType, myStats.isCent)}</span></div>
               </div>
             ) : !isBlownAccount && !myStats.disqualified && (
               <div className="glass rounded-2xl p-4 border border-white/10 mb-6 text-center">
@@ -536,13 +538,13 @@ export default function ChallengeDashboard() {
             <div className="grid grid-cols-3 md:grid-cols-6 gap-3 mb-6">
               <MiniStat label="Trades" value={myStats.totalTrades.toString()} icon={<Activity size={14} />} />
               <MiniStat label="Qualified" value={myStats.qualifiedTrades.toString()} icon={<Award size={14} />} />
-              <MiniStat label="Removed" value={`$${myStats.profitRemoved.toFixed(2)}`} icon={<Target size={14} />} color="text-royal" />
+              <MiniStat label="Removed" value={`${formatBalance(myStats.profitRemoved, myStats.accountType, myStats.isCent)}`} icon={<Target size={14} />} color="text-royal" />
               <button onClick={() => setShowViolationsModal(true)} className="glass rounded-xl p-3 border border-white/10 text-center hover:border-loss/30 transition-all">
                 <div className="flex items-center justify-center gap-1 mb-1 text-loss"><AlertTriangle size={14} /><p className="text-[9px] uppercase tracking-wider font-medium">Flagged</p></div>
                 <p className="text-lg font-bold text-loss">{myStats.flaggedTrades}</p>
               </button>
-              <MiniStat label="Gross" value={`$${myStats.grossProfit.toFixed(2)}`} icon={<ChevronUp size={14} />} color="text-profit" />
-              <MiniStat label="Net" value={`$${myStats.qualifiedProfit.toFixed(2)}`} icon={<ChevronDown size={14} />} color={myStats.qualifiedProfit >= 0 ? "text-profit" : "text-loss"} />
+              <MiniStat label="Gross" value={`${formatBalance(myStats.grossProfit, myStats.accountType, myStats.isCent)}`} icon={<ChevronUp size={14} />} color="text-profit" />
+              <MiniStat label="Net" value={`${formatBalance(myStats.qualifiedProfit, myStats.accountType, myStats.isCent)}`} icon={<ChevronDown size={14} />} color={myStats.qualifiedProfit >= 0 ? "text-profit" : "text-loss"} />
             </div>
 
             {/* TAB NAVIGATION */}
@@ -623,7 +625,7 @@ export default function ChallengeDashboard() {
                       <p className="text-[10px] text-gray-500">{entry.totalTrades} trades • {entry.qualifiedTrades} qualified • {entry.accountType}</p>
                     </div>
                     <p className="text-sm font-bold text-white">
-                      {entry.isDisqualified ? <span className="text-loss">DQ</span> : formatBalance(entry.adjustedBalance, entry.accountType)}
+                      {entry.isDisqualified ? <span className="text-loss">DQ</span> : formatBalance(entry.adjustedBalance, entry.accountType, entry.isCent)}
                     </p>
                   </button>
                 ))}
@@ -747,7 +749,7 @@ export default function ChallengeDashboard() {
                   <div>
                     <p className="text-xl font-bold text-white">{selectedUser.nickname}</p>
                     <p className="text-sm text-gray-400">
-                      {selectedUser.isDisqualified ? <span className="text-loss font-semibold">Disqualified</span> : <>Balance: <span className="text-white font-semibold">{formatBalance(selectedUser.adjustedBalance, selectedUser.accountType)}</span></>}
+                      {selectedUser.isDisqualified ? <span className="text-loss font-semibold">Disqualified</span> : <>Balance: <span className="text-white font-semibold">{formatBalance(selectedUser.adjustedBalance, selectedUser.accountType, selectedUser.isCent)}</span></>}
                     </p>
                   </div>
                 </div>
@@ -766,9 +768,9 @@ export default function ChallengeDashboard() {
                     <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500 mb-1">Flagged</p><p className="text-lg font-bold text-loss">{selectedUser.flaggedTrades}</p></div>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
-                    <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Qualified Profit</p><p className={`text-sm font-bold ${selectedUser.qualifiedProfit >= 0 ? "text-profit" : "text-loss"}`}>{formatBalance(selectedUser.qualifiedProfit, selectedUser.accountType)}</p></div>
-                    <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Gross Profit</p><p className="text-sm font-bold text-white">{formatBalance(selectedUser.grossProfit, selectedUser.accountType)}</p></div>
-                    <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Profit Removed</p><p className="text-sm font-bold text-loss">{formatBalance(selectedUser.profitRemoved, selectedUser.accountType)}</p></div>
+                    <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Qualified Profit</p><p className={`text-sm font-bold ${selectedUser.qualifiedProfit >= 0 ? "text-profit" : "text-loss"}`}>{formatBalance(selectedUser.qualifiedProfit, selectedUser.accountType, selectedUser.isCent)}</p></div>
+                    <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Gross Profit</p><p className="text-sm font-bold text-white">{formatBalance(selectedUser.grossProfit, selectedUser.accountType, selectedUser.isCent)}</p></div>
+                    <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Profit Removed</p><p className="text-sm font-bold text-loss">{formatBalance(selectedUser.profitRemoved, selectedUser.accountType, selectedUser.isCent)}</p></div>
                     <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Account Type</p><p className="text-sm font-bold text-white capitalize">{selectedUser.accountType}</p></div>
                   </div>
                 </>)}
