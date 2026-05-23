@@ -1526,6 +1526,15 @@ function ChallengeSettingsPanel({ challengeId, challenges, onRefresh }: { challe
           </div>
         </div>
 
+        {/* Social Media Exports */}
+        <div className="border-t border-white/10 pt-5">
+          <p className="text-xs text-gray-400 font-semibold mb-3 uppercase tracking-wider">Social Media Exports</p>
+          <div className="grid grid-cols-2 gap-2">
+            <button onClick={async () => { try { const r = await fetch(`${apiUrl}/api/challenges/${challengeId}/rules`); const d = await r.json(); downloadRulesHTML(editForm, d.rules || [], d.isCent || false); } catch { downloadRulesHTML(editForm, [], false); } }} className="p-2.5 rounded-lg bg-royal/10 border border-royal/30 text-royal text-xs font-semibold hover:bg-royal/20 transition-all">📋 Download Rules</button>
+            <button onClick={async () => { try { const r = await fetch(`${apiUrl}/api/challenges/${challengeId}/leaderboard?limit=10`); const d = await r.json(); downloadLeaderboardHTML(editForm, d.leaderboard || []); } catch { downloadLeaderboardHTML(editForm, []); } }} className="p-2.5 rounded-lg bg-gold/10 border border-gold/30 text-gold text-xs font-semibold hover:bg-gold/20 transition-all">🏆 Export Leaderboard</button>
+          </div>
+        </div>
+
         {/* Danger Zone */}
         <div className="border-t border-loss/20 pt-5">
           <p className="text-xs text-loss font-semibold mb-3 uppercase tracking-wider">Danger Zone</p>
@@ -1542,6 +1551,114 @@ function ChallengeSettingsPanel({ challengeId, challenges, onRefresh }: { challe
       </div>
     </div>
   );
+}
+
+// ==================== SOCIAL MEDIA HTML EXPORTS ====================
+
+function downloadRulesHTML(challenge: any, rulesList: string[], isCent: boolean) {
+  const unit = isCent ? '¢' : '$';
+  const startDate = challenge.start_date ? new Date(challenge.start_date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) : '—';
+  const endDate = challenge.end_date ? new Date(challenge.end_date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) : '—';
+
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${challenge.title} - Rules</title><style>
+*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Inter',system-ui,sans-serif;background:#0a0e1a}
+.page{width:1080px;height:1920px;padding:80px;display:flex;flex-direction:column;justify-content:center;background:linear-gradient(135deg,#0a0e1a 0%,#111827 50%,#0a0e1a 100%);position:relative;overflow:hidden;page-break-after:always}
+.page.landscape{width:1920px;height:1080px;padding:60px 100px}
+.glow{position:absolute;width:600px;height:600px;border-radius:50%;filter:blur(150px);opacity:0.15}
+.glow1{top:-200px;right:-100px;background:#1F6FEB}.glow2{bottom:-200px;left:-100px;background:#F5B400}
+.header{text-align:center;margin-bottom:60px}
+.title{font-size:48px;font-weight:800;color:#fff;margin-bottom:12px}
+.subtitle{font-size:20px;color:#94a3b8;font-weight:500}
+.badge{display:inline-block;padding:8px 20px;border-radius:20px;background:rgba(31,111,235,0.2);border:1px solid rgba(31,111,235,0.4);color:#1F6FEB;font-size:14px;font-weight:700;margin-top:16px}
+.info-row{display:flex;justify-content:center;gap:40px;margin-bottom:50px}
+.info-item{text-align:center}.info-label{font-size:13px;color:#64748b;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px}
+.info-value{font-size:28px;font-weight:700;color:#fff}
+.info-value.gold{color:#F5B400}
+.rules-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;max-width:800px;margin:0 auto}
+.page.landscape .rules-grid{grid-template-columns:1fr 1fr 1fr;max-width:1400px}
+.rule-card{background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:16px;padding:24px;display:flex;align-items:center;gap:16px}
+.rule-num{width:36px;height:36px;border-radius:10px;background:rgba(31,111,235,0.2);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:#1F6FEB;flex-shrink:0}
+.rule-text{font-size:16px;color:#e2e8f0;font-weight:500}
+.footer{text-align:center;margin-top:auto;padding-top:40px}
+.footer-text{font-size:14px;color:#475569}
+.brand{font-size:16px;font-weight:700;color:#64748b;margin-top:8px}
+</style></head><body>
+<div class="page">
+<div class="glow glow1"></div><div class="glow glow2"></div>
+<div class="header"><div class="title">${challenge.title || 'Trading Challenge'}</div><div class="subtitle">Challenge Rules</div>${isCent ? '<div class="badge">CENT ACCOUNT ONLY</div>' : ''}</div>
+<div class="info-row"><div class="info-item"><div class="info-label">Starting Balance</div><div class="info-value">${unit}${challenge.starting_balance || 0}</div></div><div class="info-item"><div class="info-label">Target</div><div class="info-value gold">${unit}${challenge.target_balance || 0}</div></div><div class="info-item"><div class="info-label">Period</div><div class="info-value" style="font-size:20px">${startDate} → ${endDate}</div></div></div>
+<div class="rules-grid">${rulesList.map((r, i) => `<div class="rule-card"><div class="rule-num">${i + 1}</div><div class="rule-text">${r}</div></div>`).join('')}</div>
+<div class="footer"><div class="footer-text">Trades that break the rules will have profits removed. Losses still count.</div><div class="brand">BirrForex • WinnerPip</div></div>
+</div>
+<div class="page landscape">
+<div class="glow glow1"></div><div class="glow glow2"></div>
+<div class="header"><div class="title" style="font-size:42px">${challenge.title || 'Trading Challenge'}</div><div class="subtitle">Challenge Rules</div>${isCent ? '<div class="badge">CENT ACCOUNT ONLY</div>' : ''}</div>
+<div class="info-row"><div class="info-item"><div class="info-label">Starting Balance</div><div class="info-value">${unit}${challenge.starting_balance || 0}</div></div><div class="info-item"><div class="info-label">Target</div><div class="info-value gold">${unit}${challenge.target_balance || 0}</div></div><div class="info-item"><div class="info-label">Period</div><div class="info-value" style="font-size:20px">${startDate} → ${endDate}</div></div></div>
+<div class="rules-grid">${rulesList.map((r, i) => `<div class="rule-card"><div class="rule-num">${i + 1}</div><div class="rule-text">${r}</div></div>`).join('')}</div>
+<div class="footer"><div class="footer-text">Trades that break the rules will have profits removed. Losses still count.</div><div class="brand">BirrForex • WinnerPip</div></div>
+</div>
+</body></html>`;
+
+  const blob = new Blob([html], { type: 'text/html' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = `${(challenge.title || 'challenge').replace(/\s+/g, '_')}_rules.html`; a.click();
+  URL.revokeObjectURL(url);
+}
+
+function downloadLeaderboardHTML(challenge: any, lb: any[]) {
+  const top10 = lb.slice(0, 10);
+  const medals = ['🥇', '🥈', '🥉'];
+
+  const rowsHTML = top10.map((e, i) => {
+    const medal = i < 3 ? medals[i] : `${i + 1}`;
+    const rankClass = i === 0 ? 'gold' : i === 1 ? 'silver' : i === 2 ? 'bronze' : '';
+    const bal = e.isDisqualified ? 'DQ' : `$${Number(e.adjustedBalance).toFixed(2)}`;
+    return `<div class="lb-row ${rankClass}"><div class="lb-rank">${medal}</div><div class="lb-name">${e.nickname || '—'}</div><div class="lb-type">${e.accountType}</div><div class="lb-balance">${bal}</div><div class="lb-trades">${e.totalTrades} trades</div></div>`;
+  }).join('');
+
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${challenge.title} - Leaderboard</title><style>
+*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Inter',system-ui,sans-serif;background:#0a0e1a}
+.page{width:1080px;height:1920px;padding:80px;display:flex;flex-direction:column;background:linear-gradient(135deg,#0a0e1a 0%,#111827 50%,#0a0e1a 100%);position:relative;overflow:hidden;page-break-after:always}
+.page.landscape{width:1920px;height:1080px;padding:60px 100px}
+.glow{position:absolute;width:600px;height:600px;border-radius:50%;filter:blur(150px);opacity:0.15}
+.glow1{top:-200px;right:-100px;background:#F5B400}.glow2{bottom:-200px;left:-100px;background:#16C784}
+.header{text-align:center;margin-bottom:50px}
+.title{font-size:44px;font-weight:800;color:#fff;margin-bottom:8px}
+.subtitle{font-size:18px;color:#94a3b8}
+.trophy{font-size:60px;margin-bottom:16px}
+.lb-container{flex:1;display:flex;flex-direction:column;gap:12px;max-width:900px;margin:0 auto;width:100%}
+.page.landscape .lb-container{max-width:1400px}
+.lb-row{display:flex;align-items:center;gap:20px;padding:20px 28px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:16px;transition:all 0.2s}
+.lb-row.gold{background:rgba(245,180,0,0.08);border-color:rgba(245,180,0,0.3)}
+.lb-row.silver{background:rgba(192,192,192,0.06);border-color:rgba(192,192,192,0.2)}
+.lb-row.bronze{background:rgba(205,127,50,0.06);border-color:rgba(205,127,50,0.2)}
+.lb-rank{font-size:28px;width:50px;text-align:center;font-weight:700;color:#64748b}
+.lb-row.gold .lb-rank{color:#F5B400}.lb-row.silver .lb-rank{color:#C0C0C0}.lb-row.bronze .lb-rank{color:#CD7F32}
+.lb-name{flex:1;font-size:20px;font-weight:700;color:#fff}
+.lb-type{font-size:12px;padding:4px 12px;border-radius:8px;background:rgba(31,111,235,0.15);color:#1F6FEB;font-weight:600;text-transform:uppercase}
+.lb-balance{font-size:22px;font-weight:700;color:#16C784;min-width:120px;text-align:right}
+.lb-trades{font-size:13px;color:#64748b;min-width:80px;text-align:right}
+.footer{text-align:center;margin-top:auto;padding-top:30px}
+.brand{font-size:16px;font-weight:700;color:#475569}
+</style></head><body>
+<div class="page">
+<div class="glow glow1"></div><div class="glow glow2"></div>
+<div class="header"><div class="trophy">🏆</div><div class="title">${challenge.title || 'Trading Challenge'}</div><div class="subtitle">Leaderboard — Top 10</div></div>
+<div class="lb-container">${rowsHTML}</div>
+<div class="footer"><div class="brand">BirrForex • WinnerPip</div></div>
+</div>
+<div class="page landscape">
+<div class="glow glow1"></div><div class="glow glow2"></div>
+<div class="header" style="margin-bottom:30px"><div class="trophy" style="font-size:48px">🏆</div><div class="title" style="font-size:38px">${challenge.title || 'Trading Challenge'}</div><div class="subtitle">Leaderboard — Top 10</div></div>
+<div class="lb-container">${rowsHTML}</div>
+<div class="footer"><div class="brand">BirrForex • WinnerPip</div></div>
+</div>
+</body></html>`;
+
+  const blob = new Blob([html], { type: 'text/html' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = `${(challenge.title || 'challenge').replace(/\s+/g, '_')}_leaderboard.html`; a.click();
+  URL.revokeObjectURL(url);
 }
 
 function convertToCSV(data: any[]): string {
