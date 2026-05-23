@@ -60,6 +60,16 @@ export const MT5_SERVERS = {
     'Exness-MT5Real18',
     'Exness-MT5Real19',
     'Exness-MT5Real20',
+    'Exness-MT5Real21',
+    'Exness-MT5Real22',
+    'Exness-MT5Real23',
+    'Exness-MT5Real24',
+    'Exness-MT5Real25',
+    'Exness-MT5Real26',
+    'Exness-MT5Real27',
+    'Exness-MT5Real28',
+    'Exness-MT5Real29',
+    'Exness-MT5Real30',
   ],
 };
 
@@ -75,13 +85,16 @@ export function fuzzyMatchServer(input: string, accountType: 'demo' | 'real'): s
   const exact = servers.find(s => s.toLowerCase() === normalized);
   if (exact) return exact;
 
-  // Try matching just the number at the end
-  const numMatch = normalized.match(/(\d+)\s*$/);
+  // Try matching just the number at the end (handles "21", "exness mt5 21", "real21", "mt5real21", etc.)
+  const numMatch = input.match(/(\d+)\s*$/);
   if (numMatch) {
     const num = numMatch[1];
     const prefix = accountType === 'demo' ? 'Exness-MT5Trial' : 'Exness-MT5Real';
     const candidate = `${prefix}${num}`;
     if (servers.includes(candidate)) return candidate;
+    // Even if not in our list, if it's a reasonable number, accept it as a valid server
+    const numInt = parseInt(num);
+    if (numInt >= 2 && numInt <= 50) return candidate;
   }
 
   // Try partial match — user typed something like "trial9" or "real9" or "mt5trial9"

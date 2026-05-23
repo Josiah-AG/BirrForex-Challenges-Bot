@@ -1229,6 +1229,21 @@ export class Bot {
         await tradingRegistrationHandler.handleTextInput(ctx, ctx.message.text);
         return;
       }
+
+      // If user sends a DM but has no session — might have been mid-registration before restart
+      if (ctx.chat?.type === 'private' && !isAdmin(telegramId)) {
+        const { tradingChallengeService } = require('../services/tradingChallengeService');
+        const challenges = await tradingChallengeService.getActiveChallenges();
+        const regOpen = challenges.find((c: any) => c.status === 'registration_open');
+        if (regOpen) {
+          const botInfo = await ctx.telegram.getMe();
+          await ctx.reply(
+            `⚠️ <b>System restarted</b> — your registration session was lost.\n\nPlease tap the button below to start again.`,
+            { parse_mode: 'HTML', ...require('telegraf').Markup.inlineKeyboard([[require('telegraf').Markup.button.url('🚀 Register Again', `https://t.me/${botInfo.username}?start=tc_register_${regOpen.id}`)]]) }
+          );
+          return;
+        }
+      }
     });
 
     // Photo handler (for trading challenge screenshots and additional posts)
