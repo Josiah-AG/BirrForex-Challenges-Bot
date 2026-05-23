@@ -863,7 +863,15 @@ export default function AdminDashboard() {
 
       {/* ==================== SETTINGS TAB ==================== */}
       {activeSection === "settings" && (
-        <ChallengeSettingsPanel challengeId={selectedChallengeId} challenges={challenges} onRefresh={() => { setActiveSection("overview"); }} />
+        <ChallengeSettingsPanel challengeId={selectedChallengeId} challenges={challenges} onRefresh={async () => {
+          // Refetch challenges after save
+          try {
+            const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
+            const secretPath = process.env.NEXT_PUBLIC_ADMIN_PATH || "";
+            const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenges`);
+            if (res.ok) { const data = await res.json(); setChallenges(data.challenges || []); }
+          } catch {}
+        }} />
       )}
 
       {/* ==================== CREATE CHALLENGE TAB ==================== */}
@@ -1208,10 +1216,10 @@ function CreateChallengePanel({ onCreated }: { onCreated: (id: number) => void }
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...form,
-          // Convert EAT datetime to UTC (subtract 3 hours)
-          start_date: form.start_date ? new Date(new Date(form.start_date).getTime() - 3 * 60 * 60 * 1000).toISOString() : null,
-          end_date: form.end_date ? new Date(new Date(form.end_date).getTime() - 3 * 60 * 60 * 1000).toISOString() : null,
-          registration_deadline: form.start_date ? new Date(new Date(form.start_date).getTime() - 3 * 60 * 60 * 1000).toISOString() : null,
+          // Store dates directly as EAT (no conversion — system treats all dates as EAT)
+          start_date: form.start_date || null,
+          end_date: form.end_date || null,
+          registration_deadline: form.start_date || null,
           starting_balance: parseFloat(form.starting_balance),
           target_balance: parseFloat(form.target_balance),
           real_winners_count: parseInt(form.real_winners_count),
@@ -1404,8 +1412,8 @@ function ChallengeSettingsPanel({ challengeId, challenges, onRefresh }: { challe
   const [editForm, setEditForm] = useState({
     title: challenge?.title || "",
     type: challenge?.type || "hybrid",
-    start_date: challenge?.startDate ? new Date(new Date(challenge.startDate).getTime() + 3*60*60*1000).toISOString().slice(0, 16) : "",
-    end_date: challenge?.endDate ? new Date(new Date(challenge.endDate).getTime() + 3*60*60*1000).toISOString().slice(0, 16) : "",
+    start_date: challenge?.startDate ? new Date(challenge.startDate).toISOString().slice(0, 16) : "",
+    end_date: challenge?.endDate ? new Date(challenge.endDate).toISOString().slice(0, 16) : "",
     starting_balance: String(challenge?.startingBalance || 30),
     target_balance: String(challenge?.targetBalance || 60),
     prize_pool_text: challenge?.prizePoolText || "",
@@ -1423,15 +1431,21 @@ function ChallengeSettingsPanel({ challengeId, challenges, onRefresh }: { challe
         body: JSON.stringify({
           title: editForm.title,
           type: editForm.type,
-          start_date: editForm.start_date ? new Date(new Date(editForm.start_date).getTime() - 3*60*60*1000).toISOString() : undefined,
-          end_date: editForm.end_date ? new Date(new Date(editForm.end_date).getTime() - 3*60*60*1000).toISOString() : undefined,
+          start_date: editForm.start_date || undefined,
+          end_date: editForm.end_date || undefined,
           starting_balance: parseFloat(editForm.starting_balance),
           target_balance: parseFloat(editForm.target_balance),
           prize_pool_text: editForm.prize_pool_text,
         }),
       });
-      if (res.ok) setMsg("✅ Saved");
-      else setMsg("❌ Failed to save");
+      if (res.ok) {
+        setMsg("✅ Saved successfully");
+        // Trigger parent to refetch challenges
+        setTimeout(() => onRefresh(), 500);
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        setMsg(`❌ Failed: ${errData.error || res.statusText}`);
+      }
     } catch { setMsg("❌ Connection error"); }
     setSaving(false);
   };
