@@ -895,20 +895,21 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
       `SELECT
         COALESCE(SUM(
           CASE WHEN ${centCondition}
-            THEN COALESCE(last_known_balance, registration_balance, 0) / 100
-            ELSE COALESCE(last_known_balance, registration_balance, 0)
+            THEN COALESCE(last_known_balance, registration_balance) / 100
+            ELSE COALESCE(last_known_balance, registration_balance)
           END
         ), 0) as total_starting,
         COALESCE(SUM(
           CASE WHEN account_type = 'real' THEN
             CASE WHEN ${centCondition}
-              THEN COALESCE(last_known_balance, registration_balance, 0) / 100
-              ELSE COALESCE(last_known_balance, registration_balance, 0)
+              THEN COALESCE(last_known_balance, registration_balance) / 100
+              ELSE COALESCE(last_known_balance, registration_balance)
             END
           ELSE 0 END
         ), 0) as real_starting,
-        COALESCE(SUM(CASE WHEN account_type='demo' THEN COALESCE(last_known_balance, registration_balance, 0) ELSE 0 END), 0) as demo_starting
-       FROM trading_registrations WHERE challenge_id=$1 AND (status IS NULL OR status != 'removed')`, [challengeId]);
+        COALESCE(SUM(CASE WHEN account_type='demo' THEN COALESCE(last_known_balance, registration_balance) ELSE 0 END), 0) as demo_starting,
+        COUNT(*) as total_count
+       FROM trading_registrations WHERE challenge_id=$1 AND disqualified=false AND investor_password IS NOT NULL`, [challengeId]);
 
     // Latest screening
     const latestScreening = await db.query(
@@ -920,11 +921,22 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
     const b = balanceStats.rows[0];
     const s = startingBalanceSum.rows[0];
 
-    // Use leaderboard totals if available, otherwise starting balances
+    // Use leaderboard totals if available, otherwise starting balances from registrations
     const hasLeaderboardData = parseFloat(b.total_balance) > 0;
-    const totalBalance = hasLeaderboardData ? parseFloat(b.total_balance) : parseFloat(s.total_starting);
-    const realBalance = hasLeaderboardData ? parseFloat(b.real_balance) : parseFloat(s.real_starting);
-    const demoBalance = hasLeaderboardData ? parseFloat(b.demo_balance) : parseFloat(s.demo_starting);
+    let totalBalance = hasLeaderboardData ? parseFloat(b.total_balance) : parseFloat(s.total_starting);
+    let realBalance = hasLeaderboardData ? parseFloat(b.real_balance) : parseFloat(s.real_starting);
+    let demoBalance = hasLeaderboardData ? parseFloat(b.demo_balance) : parseFloat(s.demo_starting);
+
+    // If still 0 but we have verified participants (legacy users without saved balance), estimate from challenge starting_balance
+    if (!hasLeaderboardData && totalBalance === 0 && parseInt(s.total_count) > 0) {
+      const challengeData = await db.query(`SELECT starting_balance FROM trading_challenges WHERE id = $1`, [challengeId]);
+      const challengeStartBal = parseFloat(challengeData.rows[0]?.starting_balance || 0);
+      if (challengeStartBal > 0) {
+        totalBalance = challengeStartBal * parseInt(s.total_count);
+        realBalance = challengeStartBal * parseInt(c.real);
+        demoBalance = challengeStartBal * parseInt(c.demo);
+      }
+    }
 
     // Last pull time
     const lastPull = await db.query(
@@ -1851,6 +1863,14 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/verify-account`, adminIp
             } catch (pullErr: any) {
               console.log(`[Verify] Pull failed: ${pullErr.message}`);
             }
+          }
+
+          // Save balance to registration for overview display
+          if (balance !== null && balance !== undefined) {
+            await db.query(
+              `UPDATE trading_registrations SET last_known_balance = $1, registration_balance = COALESCE(registration_balance, $1) WHERE id = $2`,
+              [balance, registrationId]
+            );
           }
 
           // Still no balance? Get from leaderboard
