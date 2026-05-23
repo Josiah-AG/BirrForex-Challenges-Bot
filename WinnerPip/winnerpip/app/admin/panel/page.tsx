@@ -248,6 +248,7 @@ export default function AdminDashboard() {
   const [pullHistory, setPullHistory] = useState<any[]>([]);
   const [terminalStatus, setTerminalStatus] = useState<any[]>([]);
   const [leaderboard, setLeaderboard] = useState<any[]>([]);
+  const [leaderboardCategory, setLeaderboardCategory] = useState<"all" | "demo" | "real">("all");
   const flaggedParticipants: any[] = [];
   const [screeningData, setScreeningData] = useState<any>(null);
 
@@ -257,7 +258,7 @@ export default function AdminDashboard() {
     const fetchLeaderboard = async () => {
       try {
         const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
-        const res = await fetch(`${apiUrl}/api/challenges/${selectedChallengeId}/leaderboard`);
+        const res = await fetch(`${apiUrl}/api/challenges/${selectedChallengeId}/leaderboard?category=${leaderboardCategory}`);
         if (res.ok) {
           const data = await res.json();
           setLeaderboard(data.leaderboard || []);
@@ -265,7 +266,7 @@ export default function AdminDashboard() {
       } catch {}
     };
     fetchLeaderboard();
-  }, [isAdmin, activeSection, selectedChallengeId]);
+  }, [isAdmin, activeSection, selectedChallengeId, leaderboardCategory]);
 
   // Fetch pull data when pulls tab is active
   useEffect(() => {
@@ -424,8 +425,12 @@ export default function AdminDashboard() {
         {activeSection === "leaderboard" && (
           <div className="glass rounded-2xl border border-white/10 overflow-hidden">
             <div className="p-4 border-b border-white/5 flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-white flex items-center gap-2"><Trophy size={16} className="text-gold" /> Full Leaderboard</h3>
-              <span className="text-xs text-gray-500">Ranked by balance</span>
+              <h3 className="text-sm font-semibold text-white flex items-center gap-2"><Trophy size={16} className="text-gold" /> Leaderboard</h3>
+              <div className="flex gap-1">
+                {(["all", "real", "demo"] as const).map(cat => (
+                  <button key={cat} onClick={() => setLeaderboardCategory(cat)} className={`px-3 py-1 rounded-lg text-[10px] font-semibold transition-all capitalize ${leaderboardCategory === cat ? "bg-royal/20 text-royal border border-royal/30" : "text-gray-500 hover:text-white"}`}>{cat}</button>
+                ))}
+              </div>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[700px]">
