@@ -256,20 +256,23 @@ export class WpEvaluationEngine {
     const challengeType = challenge.rows[0]?.type;
 
     const regResult = await db.query(
-      `SELECT id, account_number, telegram_id, username, nickname, account_type
+      `SELECT id, account_number, telegram_id, username, nickname, account_type, is_cent
        FROM trading_registrations WHERE id = $1 AND challenge_id = $2`,
       [registrationId, challengeId]
     );
     if (regResult.rows.length === 0) return { flaggedCount: 0, isQualified: false };
     const reg = regResult.rows[0];
+    const userIsCent = reg.is_cent || false;
 
     // For hybrid challenges with only_cent_account, convert rules for real/cent accounts
+    // Also for per-user cent detection (when only_cent_account is OFF but user has cent account)
     let effectiveRules = rules;
     let effectiveStartBalance = startingBalance;
     let effectiveTargetBalance = targetBalance;
 
     if (rules.only_cent_account && reg.account_type === 'real') {
       if (challengeType === 'hybrid') {
+        // Hybrid + cent-only: admin entered in standard, convert to cent
         effectiveRules = {
           ...rules,
           max_lot_size: rules.max_lot_size ? rules.max_lot_size * 100 : null,
@@ -279,6 +282,18 @@ export class WpEvaluationEngine {
         effectiveStartBalance = startingBalance * 100;
         effectiveTargetBalance = targetBalance * 100;
       }
+      // Real-only + cent-only: admin already entered in cent terms, no conversion
+    } else if (!rules.only_cent_account && userIsCent && reg.account_type === 'real') {
+      // Per-user cent detection: user chose cent account in a standard challenge
+      // Admin entered rules in $ terms, convert to cent for this user
+      effectiveRules = {
+        ...rules,
+        max_lot_size: rules.max_lot_size ? rules.max_lot_size * 100 : null,
+        max_risk_dollars: rules.max_risk_dollars ? rules.max_risk_dollars * 100 : null,
+        daily_loss_cap: rules.daily_loss_cap ? rules.daily_loss_cap * 100 : null,
+      };
+      effectiveStartBalance = startingBalance * 100;
+      effectiveTargetBalance = targetBalance * 100;
     }
 
     return this.evaluateAccount(challengeId, reg, effectiveRules, effectiveStartBalance, effectiveTargetBalance);
@@ -635,16 +650,20 @@ export class WpEvaluationEngine {
   }
 
   private async upsertLeaderboard(challengeId: number, reg: any, startingBalance: number, data: any) {
+    const userIsCent = reg.is_cent || false;
+    const normalizedBalance = userIsCent ? data.adjustedBalance / 100 : data.adjustedBalance;
+
     // Write to staging table (not live) — will be flushed to live at next cycle start
     await db.query(
       `INSERT INTO wp_leaderboard_staging
-       (challenge_id, registration_id, account_number, telegram_id, username, nickname, account_type,
-        starting_balance, current_balance, adjusted_balance, qualified_profit, gross_profit, profit_removed,
+       (challenge_id, registration_id, account_number, telegram_id, username, nickname, account_type, is_cent,
+        starting_balance, current_balance, adjusted_balance, normalized_balance, qualified_profit, gross_profit, profit_removed,
         total_trades, qualified_trades, flagged_trades, active_days, is_qualified, last_trade_time,
         zero_balance_at, evaluated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,NOW())
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,NOW())
        ON CONFLICT (challenge_id, registration_id) DO UPDATE SET
          current_balance=EXCLUDED.current_balance, adjusted_balance=EXCLUDED.adjusted_balance,
+         normalized_balance=EXCLUDED.normalized_balance, is_cent=EXCLUDED.is_cent,
          qualified_profit=EXCLUDED.qualified_profit, gross_profit=EXCLUDED.gross_profit,
          profit_removed=EXCLUDED.profit_removed, total_trades=EXCLUDED.total_trades,
          qualified_trades=EXCLUDED.qualified_trades, flagged_trades=EXCLUDED.flagged_trades,
@@ -657,8 +676,8 @@ export class WpEvaluationEngine {
            ELSE wp_leaderboard_staging.zero_balance_at
          END,
          evaluated_at=NOW()`,
-      [challengeId, reg.id, reg.account_number, reg.telegram_id, reg.username, reg.nickname, reg.account_type,
-       startingBalance, data.currentBalance, data.adjustedBalance, data.qualifiedProfit, data.grossProfit,
+      [challengeId, reg.id, reg.account_number, reg.telegram_id, reg.username, reg.nickname, reg.account_type, userIsCent,
+       startingBalance, data.currentBalance, data.adjustedBalance, normalizedBalance, data.qualifiedProfit, data.grossProfit,
        data.profitRemoved, data.totalTrades, data.qualifiedTrades, data.flaggedTrades, data.activeDays,
        data.isQualified, data.lastTradeTime,
        (data.currentBalance <= 0 && data.totalTrades > 0) ? new Date() : null]

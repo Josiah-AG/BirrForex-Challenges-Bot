@@ -150,6 +150,13 @@ async function migrate() {
     await db.query(`ALTER TABLE trading_registrations ADD COLUMN IF NOT EXISTS last_known_balance NUMERIC;`).catch(() => {});
     await db.query(`ALTER TABLE trading_registrations ADD COLUMN IF NOT EXISTS registration_balance NUMERIC;`).catch(() => {});
     await db.query(`ALTER TABLE trading_registrations ADD COLUMN IF NOT EXISTS actual_starting_balance NUMERIC;`).catch(() => {});
+    // Per-user cent account detection
+    await db.query(`ALTER TABLE trading_registrations ADD COLUMN IF NOT EXISTS is_cent BOOLEAN DEFAULT false;`).catch(() => {});
+    // Leaderboard cent + normalized columns
+    await db.query(`ALTER TABLE wp_leaderboard ADD COLUMN IF NOT EXISTS is_cent BOOLEAN DEFAULT false;`).catch(() => {});
+    await db.query(`ALTER TABLE wp_leaderboard ADD COLUMN IF NOT EXISTS normalized_balance NUMERIC DEFAULT 0;`).catch(() => {});
+    await db.query(`ALTER TABLE wp_leaderboard_staging ADD COLUMN IF NOT EXISTS is_cent BOOLEAN DEFAULT false;`).catch(() => {});
+    await db.query(`ALTER TABLE wp_leaderboard_staging ADD COLUMN IF NOT EXISTS normalized_balance NUMERIC DEFAULT 0;`).catch(() => {});
     console.log('✅ Zero balance + leaderboard lock + VPS balance migration OK');
 
     // Staging table for atomic leaderboard updates
@@ -163,9 +170,11 @@ async function migrate() {
         username VARCHAR(100),
         nickname VARCHAR(30),
         account_type VARCHAR(10),
+        is_cent BOOLEAN DEFAULT false,
         starting_balance NUMERIC DEFAULT 0,
         current_balance NUMERIC DEFAULT 0,
         adjusted_balance NUMERIC DEFAULT 0,
+        normalized_balance NUMERIC DEFAULT 0,
         qualified_profit NUMERIC DEFAULT 0,
         gross_profit NUMERIC DEFAULT 0,
         profit_removed NUMERIC DEFAULT 0,

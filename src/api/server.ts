@@ -355,7 +355,8 @@ app.get('/api/challenges/:id/leaderboard', async (req, res) => {
       SELECT l.nickname, l.account_type, l.rank, l.current_balance, l.adjusted_balance,
              l.qualified_profit, l.gross_profit, l.profit_removed, l.total_trades,
              l.qualified_trades, l.flagged_trades, l.is_qualified, l.is_disqualified,
-             l.disqualify_reason, l.last_trade_time, l.last_updated, l.zero_balance_at
+             l.disqualify_reason, l.last_trade_time, l.last_updated, l.zero_balance_at,
+             l.is_cent, l.normalized_balance
       FROM wp_leaderboard l
       WHERE l.challenge_id = $1
     `;
@@ -405,6 +406,7 @@ app.get('/api/challenges/:id/leaderboard', async (req, res) => {
         isDisqualified: r.is_disqualified || false,
         disqualifyReason: r.disqualify_reason || null,
         isBlown: r.total_trades > 0 && parseFloat(r.current_balance) <= 0,
+        isCent: r.is_cent || false,
         lastTradeTime: r.last_trade_time,
         lastUpdated: r.last_updated,
       })),
@@ -443,7 +445,7 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
     // Get challenge info
     const reg = await db.query(
       `SELECT r.id, r.nickname, r.account_number, r.account_type, r.mt5_server, r.challenge_id, r.pull_status,
-              r.actual_starting_balance, r.registration_balance, r.disqualified, r.disqualified_reason,
+              r.actual_starting_balance, r.registration_balance, r.disqualified, r.disqualified_reason, r.is_cent,
               c.title, c.status, c.start_date, c.end_date, c.starting_balance, c.target_balance, c.leaderboard_updated_at
        FROM trading_registrations r
        JOIN trading_challenges c ON r.challenge_id = c.id
@@ -481,6 +483,7 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
         pullStatus: registration.pull_status || null,
         disqualified: registration.disqualified || false,
         disqualifiedReason: registration.disqualified_reason || null,
+        isCent: registration.is_cent || false,
         rank: leaderboard?.rank || null,
         currentBalance: leaderboard ? parseFloat(leaderboard.current_balance) : actualStartingBalance,
         adjustedBalance: leaderboard ? parseFloat(leaderboard.adjusted_balance) : actualStartingBalance,

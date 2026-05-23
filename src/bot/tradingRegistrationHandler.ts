@@ -892,9 +892,39 @@ export class TradingRegistrationHandler {
       const { evaluationEngine: wpEngine } = require('../services/wpEvaluationEngine');
       const rules = await wpEngine.loadRules(session.data.challenge_id);
       const onlyCent = rules?.only_cent_account || false;
-      const isCentAccount = onlyCent && account_type === 'real';
-      const displayBalance = isCentAccount ? (vpsBalance / 100) : vpsBalance;
-      const compareBalance = isCentAccount ? (startingBalance * 100) : startingBalance;
+      const challengeInfo = await tradingChallengeService.getChallengeById(session.data.challenge_id);
+      const challengeType = challengeInfo?.type || 'real';
+
+      // Detect cent account:
+      // - If only_cent_account ON + real type: admin entered in cent terms, VPS is in cents, no conversion
+      // - If only_cent_account ON + hybrid type: admin entered in $ terms, VPS is in cents, need conversion
+      // - If only_cent_account OFF + balance > starting*5: user chose cent account voluntarily
+      let isCentAccount = false;
+      if (onlyCent && account_type === 'real') {
+        isCentAccount = true;
+      } else if (!onlyCent && account_type === 'real' && vpsBalance > startingBalance * 5) {
+        isCentAccount = true;
+      }
+
+      session.data.is_cent = isCentAccount;
+
+      // Determine display and comparison values
+      let displayBalance: number;
+      let compareBalance: number;
+
+      if (isCentAccount && onlyCent && challengeType === 'real') {
+        // Cent-only real: admin entered in cents, VPS in cents — compare directly
+        displayBalance = vpsBalance; // show raw cents
+        compareBalance = startingBalance; // compare cents to cents
+      } else if (isCentAccount && (challengeType === 'hybrid' || !onlyCent)) {
+        // Hybrid cent OR voluntary cent in standard challenge: admin entered in $, VPS in cents
+        displayBalance = vpsBalance / 100; // convert to $ for display
+        compareBalance = startingBalance * 100; // convert $ to cents for comparison
+      } else {
+        // Standard account — no conversion
+        displayBalance = vpsBalance;
+        compareBalance = startingBalance;
+      }
 
       // === DEMO ACCOUNT: must be exactly starting balance ===
       if (account_type === 'demo') {
@@ -947,12 +977,15 @@ export class TradingRegistrationHandler {
         }
       }
 
-      // Balance checks for real accounts
-      const effectiveBalance = isCentAccount ? (vpsBalance / 100) : vpsBalance;
-      const balanceDisplay = isCentAccount ? `${vpsBalance}¢ ($${effectiveBalance.toFixed(2)})` : `$${vpsBalance.toFixed(2)}`;
-      const startDisplay = isCentAccount ? `${startingBalance * 100}¢ ($${startingBalance})` : `$${startingBalance}`;
+      // Balance checks for real accounts — use pre-computed values
+      const balanceDisplay = isCentAccount ? `${vpsBalance}¢` : `$${vpsBalance.toFixed(2)}`;
+      const startDisplay = (isCentAccount && onlyCent && challengeType === 'real')
+        ? `${startingBalance}¢`
+        : isCentAccount
+          ? `${startingBalance * 100}¢ ($${startingBalance})`
+          : `$${startingBalance}`;
 
-      if (effectiveBalance > startingBalance) {
+      if (vpsBalance > compareBalance) {
         // Balance exceeds starting balance — reject
         session.step = 'tc_enter_account_number';
         await ctx.reply(
@@ -963,7 +996,7 @@ export class TradingRegistrationHandler {
           { parse_mode: 'HTML' }
         );
         return;
-      } else if (effectiveBalance === 0) {
+      } else if (vpsBalance === 0) {
         // Zero balance — accept with warning
         session.data.registration_balance = vpsBalance;
         await ctx.reply(
@@ -971,7 +1004,7 @@ export class TradingRegistrationHandler {
           `⚠️ Your account balance is <b>$0.00</b>. Please deposit <b>${startDisplay}</b> (or you can start lower) before the challenge begins.`,
           { parse_mode: 'HTML' }
         );
-      } else if (effectiveBalance < startingBalance) {
+      } else if (vpsBalance < compareBalance) {
         // Below starting balance — accept with info
         session.data.registration_balance = vpsBalance;
         await ctx.reply(
@@ -1270,10 +1303,10 @@ export class TradingRegistrationHandler {
         client_uid: session.data.client_uid || null,
       });
 
-      // Save investor password to the registration (wp_schema column)
+      // Save investor password and cent flag to the registration
       if (session.data.investor_password) {
-        await db.query('UPDATE trading_registrations SET investor_password = $1, connection_verified = true, connection_verified_at = NOW() WHERE id = $2',
-          [session.data.investor_password, reg.id]);
+        await db.query('UPDATE trading_registrations SET investor_password = $1, connection_verified = true, connection_verified_at = NOW(), is_cent = $3 WHERE id = $2',
+          [session.data.investor_password, reg.id, session.data.is_cent || false]);
       }
 
       // Remove from failed attempts if they were there

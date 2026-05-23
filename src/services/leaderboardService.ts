@@ -23,11 +23,11 @@ export class LeaderboardService {
       let offset = 0;
 
       // Tier 1: Active traders (has trades, balance > 0, not DQ'd)
-      // Sorted by: adjusted_balance DESC, total_trades DESC, last_trade_time ASC, avg profit per trade DESC
+      // Sorted by: normalized_balance DESC ($ equivalent), total_trades DESC, last_trade_time ASC
       const tier1 = await db.query(
         `UPDATE wp_leaderboard SET rank = sub.rn FROM (
           SELECT id, ROW_NUMBER() OVER (
-            ORDER BY adjusted_balance DESC, total_trades DESC, last_trade_time ASC,
+            ORDER BY COALESCE(normalized_balance, adjusted_balance) DESC, total_trades DESC, last_trade_time ASC,
             CASE WHEN total_trades > 0 THEN qualified_profit / total_trades ELSE 0 END DESC
           ) as rn
           FROM wp_leaderboard
@@ -146,15 +146,16 @@ export class LeaderboardService {
     // Upsert from staging to live in one query
     await db.query(
       `INSERT INTO wp_leaderboard
-       (challenge_id, registration_id, account_number, telegram_id, username, nickname, account_type,
-        starting_balance, current_balance, adjusted_balance, qualified_profit, gross_profit, profit_removed,
+       (challenge_id, registration_id, account_number, telegram_id, username, nickname, account_type, is_cent,
+        starting_balance, current_balance, adjusted_balance, normalized_balance, qualified_profit, gross_profit, profit_removed,
         total_trades, qualified_trades, flagged_trades, active_days, is_qualified, last_trade_time, last_updated, zero_balance_at)
-       SELECT challenge_id, registration_id, account_number, telegram_id, username, nickname, account_type,
-              starting_balance, current_balance, adjusted_balance, qualified_profit, gross_profit, profit_removed,
+       SELECT challenge_id, registration_id, account_number, telegram_id, username, nickname, account_type, is_cent,
+              starting_balance, current_balance, adjusted_balance, normalized_balance, qualified_profit, gross_profit, profit_removed,
               total_trades, qualified_trades, flagged_trades, active_days, is_qualified, last_trade_time, NOW(), zero_balance_at
        FROM wp_leaderboard_staging WHERE challenge_id = $1
        ON CONFLICT (challenge_id, registration_id) DO UPDATE SET
          current_balance=EXCLUDED.current_balance, adjusted_balance=EXCLUDED.adjusted_balance,
+         normalized_balance=EXCLUDED.normalized_balance, is_cent=EXCLUDED.is_cent,
          qualified_profit=EXCLUDED.qualified_profit, gross_profit=EXCLUDED.gross_profit,
          profit_removed=EXCLUDED.profit_removed, total_trades=EXCLUDED.total_trades,
          qualified_trades=EXCLUDED.qualified_trades, flagged_trades=EXCLUDED.flagged_trades,
