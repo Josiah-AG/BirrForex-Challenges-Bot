@@ -4,9 +4,14 @@ import { exnessService } from '../services/exnessService';
 import { vpsService, MT5_SERVERS, fuzzyMatchServer } from '../services/vpsService';
 import { config } from '../config';
 import { db } from '../database/db';
+import * as fs from 'fs';
+import * as path from 'path';
 
 // Convert stored UTC date to EAT for display
 const toEAT = (d: Date) => new Date(new Date(d).getTime() + 3 * 60 * 60 * 1000);
+
+// File for persisting active registration sessions (survives restarts)
+const SESSIONS_FILE = path.join(process.cwd(), 'data', 'tg_registration_sessions.json');
 
 interface UserSession {
   step: string;
@@ -20,6 +25,46 @@ const knownUsers = new Map<number, { username: string | null; firstName: string 
 
 // Store pending manual review data for approve/reject callbacks
 const pendingManualReviews = new Map<number, any>();
+
+/** Save active registration sessions to disk */
+function saveSessionsToDisk() {
+  try {
+    const dir = path.dirname(SESSIONS_FILE);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    const toSave: Record<string, { challengeId: number; savedAt: string }> = {};
+    for (const [uid, session] of userSessions) {
+      const challengeId = session.data?.challenge_id;
+      if (challengeId) {
+        toSave[String(uid)] = { challengeId, savedAt: new Date().toISOString() };
+      }
+    }
+    fs.writeFileSync(SESSIONS_FILE, JSON.stringify(toSave));
+  } catch (e) {
+    // Non-fatal
+  }
+}
+
+/** Load interrupted sessions from disk (returns {telegramId: challengeId}). Deletes file after reading. */
+function loadInterruptedSessions(): Map<number, number> {
+  const result = new Map<number, number>();
+  try {
+    if (fs.existsSync(SESSIONS_FILE)) {
+      const raw = JSON.parse(fs.readFileSync(SESSIONS_FILE, 'utf-8'));
+      const now = Date.now();
+      for (const [uidStr, info] of Object.entries(raw)) {
+        const { challengeId, savedAt } = info as any;
+        // Only include sessions less than 24h old
+        if (savedAt && (now - new Date(savedAt).getTime()) > 24 * 3600 * 1000) continue;
+        result.set(parseInt(uidStr), challengeId);
+      }
+      // Delete file after loading (one-time use)
+      fs.unlinkSync(SESSIONS_FILE);
+    }
+  } catch (e) {
+    // Non-fatal
+  }
+  return result;
+}
 
 export class TradingRegistrationHandler {
 
@@ -93,6 +138,7 @@ export class TradingRegistrationHandler {
     // Start registration flow
     if (challenge.type === 'hybrid') {
       userSessions.set(telegramId, { step: 'tc_select_type', data: { challenge_id: challengeId } });
+      saveSessionsToDisk();
 
       const medals = ['🥇', '🥈', '🥉', '4️⃣', '5️⃣'];
       const formatPrize = (p: any) => { const n = parseFloat(String(p)); return isNaN(n) ? String(p) : `$${n}`; };
@@ -124,6 +170,7 @@ export class TradingRegistrationHandler {
     } else {
       const accountType = challenge.type as 'demo' | 'real';
       userSessions.set(telegramId, { step: 'tc_enter_email', data: { challenge_id: challengeId, account_type: accountType } });
+      saveSessionsToDisk();
       await ctx.reply('📧 Please send your <b>Exness email address:</b>', { parse_mode: 'HTML' });
     }
   }
@@ -1325,6 +1372,7 @@ export class TradingRegistrationHandler {
       if (session.data.real_acct_retry > 0) await tradingChallengeService.updateDailyStat(session.data.challenge_id, 'real_acct_recoveries');
 
       userSessions.delete(telegramId);
+      saveSessionsToDisk();
 
       const acctLabel = session.data.account_type === 'demo' ? 'Demo' : 'Real';
       const startStr = toEAT(challenge.start_date).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
@@ -1514,6 +1562,38 @@ export class TradingRegistrationHandler {
         await ctx.telegram.sendMessage(config.adminUserId, adminText, { parse_mode: 'HTML', ...keyboard });
       }
     } catch (e) { console.error('Error sending manual review to admin:', e); }
+  }
+
+  /**
+   * On startup: proactively DM users who were mid-registration before restart.
+   * Only notifies users whose session is < 24h old.
+   */
+  async notifyInterruptedUsers(telegram: any) {
+    const interrupted = loadInterruptedSessions();
+    if (interrupted.size === 0) return;
+
+    console.log(`🔄 TG: Notifying ${interrupted.size} users about interrupted registration...`);
+
+    for (const [telegramId, challengeId] of interrupted) {
+      try {
+        const botInfo = await telegram.getMe();
+        await telegram.sendMessage(
+          telegramId,
+          `⚠️ <b>System restarted</b> — your registration session was interrupted.\n\nPlease tap the button below to continue:`,
+          {
+            parse_mode: 'HTML',
+            ...Markup.inlineKeyboard([
+              [Markup.button.url('🚀 Register Again', `https://t.me/${botInfo.username}?start=tc_register_${challengeId}`)],
+            ]),
+          }
+        );
+        await new Promise(r => setTimeout(r, 500)); // Rate limit
+      } catch (e) {
+        console.log(`⚠️ Could not notify TG user ${telegramId}: ${(e as Error).message}`);
+      }
+    }
+
+    console.log(`✅ TG: Restart notifications sent to ${interrupted.size} users`);
   }
 }
 
