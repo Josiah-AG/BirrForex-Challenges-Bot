@@ -1001,28 +1001,10 @@ export class TradingRegistrationHandler {
 
       // === REAL ACCOUNT: flexible balance rules ===
 
-      // Check cent account requirement
-      if (onlyCent) {
-        const isCent = vpsBalance > startingBalance * 5;
-        if (!isCent) {
-          session.step = 'tc_enter_account_number';
-          await ctx.reply(
-            '❌ <b>Only Cent Accounts Allowed</b>\n\n' +
-            'This challenge requires a <b>Cent Account</b> for the real account category.\n\n' +
-            'Your account appears to be a Standard account.\n\n' +
-            '📋 <b>How to create a Cent Account:</b>\n' +
-            '1. Open Exness → My Accounts\n' +
-            '2. Create New Account → Choose "Standard Cent"\n' +
-            '3. Select MT5 platform\n' +
-            '4. Fund the account\n\n' +
-            'Once ready, submit your cent account:',
-            { parse_mode: 'HTML', ...Markup.inlineKeyboard([
-              [Markup.button.callback('📝 Submit Cent Account', `tc_new_real_acct_${session.data.challenge_id}`)],
-            ]) }
-          );
-          return;
-        }
-      }
+      // Check cent account requirement — for cent-only challenges, we already set isCentAccount=true above
+      // No need to re-check; the user is on a cent-only challenge so their account IS cent by requirement
+      // (The old heuristic `balance > startingBalance * 5` was wrong for cent-only challenges
+      //  where admin enters values in cent terms)
 
       // Balance checks for real accounts — use pre-computed values
       const balanceDisplay = isCentAccount ? `${vpsBalance}¢` : `$${vpsBalance.toFixed(2)}`;

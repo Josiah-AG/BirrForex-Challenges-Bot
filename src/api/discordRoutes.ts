@@ -348,39 +348,42 @@ router.post('/verify-connection', async (req: Request, res: Response) => {
             startingBalance = parseFloat(challengeData.rows[0]?.starting_balance || 0);
             centOnly = challengeData.rows[0]?.rules_config?.only_cent_account || false;
 
-            // Cent detection: balance > startingBalance × 5
-            isCentAccount = balance > startingBalance * 5;
-
-            // Cent-only check: reject standard accounts
-            if (centOnly && accountType === 'real' && !isCentAccount) {
-              return res.json({
-                verified: true,
-                balance,
-                equity: vpsResult.equity,
-                server: matchedServer,
-                rejected: true,
-                rejectionReason: 'cent_only',
-                message: 'This challenge requires a Cent Account. Your account appears to be a Standard account. Please create a Standard Cent account on Exness and try again.',
-              });
+            // Cent detection logic:
+            // - If cent-only challenge: ALL real accounts are treated as cent (admin requires it)
+            // - If mixed challenge: detect by balance > startingBalance × 5
+            if (centOnly && accountType === 'real') {
+              isCentAccount = true; // Cent-only challenge = all real accounts are cent by definition
+            } else if (!centOnly && accountType === 'real' && balance > startingBalance * 5) {
+              isCentAccount = true; // Mixed challenge: heuristic detection
             }
 
-            // Balance too high check
-            const compareBalance = (centOnly && challengeData.rows[0]?.type === 'real')
-              ? startingBalance  // Cent-only real: admin entered in cent terms
-              : isCentAccount
-                ? startingBalance * 100  // Voluntary cent: convert $ to cents
-                : startingBalance;  // Standard
-
-            if (balance > compareBalance) {
-              return res.json({
-                verified: true,
-                balance,
-                equity: vpsResult.equity,
-                server: matchedServer,
-                rejected: true,
-                rejectionReason: 'balance_too_high',
-                message: `Your balance (${isCentAccount ? balance + '¢' : '$' + balance.toFixed(2)}) exceeds the starting balance. Please withdraw or transfer funds so your balance is at or below the starting balance.`,
-              });
+            // Balance too high check (only for non-cent-only, since cent-only trusts the user)
+            if (!centOnly) {
+              const compareBalance = isCentAccount ? startingBalance * 100 : startingBalance;
+              if (balance > compareBalance) {
+                return res.json({
+                  verified: true,
+                  balance,
+                  equity: vpsResult.equity,
+                  server: matchedServer,
+                  rejected: true,
+                  rejectionReason: 'balance_too_high',
+                  message: `Your balance (${isCentAccount ? balance + '¢' : '$' + balance.toFixed(2)}) exceeds the starting balance. Please withdraw or transfer funds so your balance is at or below the starting balance.`,
+                });
+              }
+            } else {
+              // Cent-only: check balance against cent starting balance
+              if (balance > startingBalance) {
+                return res.json({
+                  verified: true,
+                  balance,
+                  equity: vpsResult.equity,
+                  server: matchedServer,
+                  rejected: true,
+                  rejectionReason: 'balance_too_high',
+                  message: `Your balance (${balance}¢) exceeds the starting balance of ${startingBalance}¢. Please withdraw or transfer funds.`,
+                });
+              }
             }
           }
         }
