@@ -155,6 +155,7 @@ def execute_mt5_operation(terminal_path: str, account: int, server: str, passwor
             "balance": account_info.balance,
             "equity": account_info.equity,
             "server": account_info.server,
+            "currency": account_info.currency,
         }
 
     # === PULL ===
@@ -305,6 +306,7 @@ class VerifyResponse(BaseModel):
     balance: Optional[float] = None
     equity: Optional[float] = None
     server: Optional[str] = None
+    currency: Optional[str] = None
 
 
 class PullRequest(BaseModel):
