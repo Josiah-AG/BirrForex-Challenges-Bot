@@ -227,10 +227,8 @@ router.post('/challenges/:id/register', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Registration is not open for this challenge' });
     }
 
-    // Check registration deadline
-    if (c.registration_deadline && new Date() > new Date(c.registration_deadline)) {
-      return res.status(400).json({ error: 'Registration deadline has passed' });
-    }
+    // Registration is open as long as challenge status is 'registration_open'
+    // No separate deadline — status change to 'active' closes registration
 
     // Check if already registered (by discord_user_id or account_number) — exclude removed registrations
     const existing = await db.query(
