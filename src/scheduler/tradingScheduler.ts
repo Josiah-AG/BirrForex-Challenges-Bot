@@ -117,6 +117,7 @@ export class TradingScheduler {
 
   private async checkCountdowns(challenge: TradingChallenge, dateStr: string, timeStr: string, eatTime: Date) {
     if (challenge.status !== 'registration_open') return;
+    if ((challenge as any).source === 'discord') return; // Discord challenges post via Discord bot
 
     // Only between 08:00-08:05 EAT (5 minute window for resilience)
     const hour = eatTime.getUTCHours();
@@ -659,6 +660,7 @@ export class TradingScheduler {
   private async checkAutoEngagement(challenge: TradingChallenge, dateStr: string, timeStr: string, eatTime: Date) {
     // Only for registration_open challenges
     if (challenge.status !== 'registration_open') return;
+    if ((challenge as any).source === 'discord') return; // Discord engagement handled by Discord bot
 
     // Only between 8:30 AM and 9:30 PM EAT
     const hour = eatTime.getUTCHours();
