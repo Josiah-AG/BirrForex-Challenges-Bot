@@ -330,12 +330,16 @@ router.post('/verify-connection', async (req: Request, res: Response) => {
 
       if (vpsResult.success) {
         const balance = vpsResult.balance || 0;
+        const currency = vpsResult.currency || '';
 
         // If challenge_id provided, check cent-only and balance rules
         let centOnly = false;
         let isCentAccount = false;
         let startingBalance = 0;
         let balanceRejection: string | null = null;
+
+        // Detect cent account by currency: USC = US Cent
+        isCentAccount = currency.toUpperCase() === 'USC' || currency.toUpperCase() === 'USCENT';
 
         if (challenge_id) {
           const challengeData = await db.query(
@@ -348,17 +352,36 @@ router.post('/verify-connection', async (req: Request, res: Response) => {
             startingBalance = parseFloat(challengeData.rows[0]?.starting_balance || 0);
             centOnly = challengeData.rows[0]?.rules_config?.only_cent_account || false;
 
-            // Cent detection logic:
-            // - If cent-only challenge: ALL real accounts are treated as cent (admin requires it)
-            // - If mixed challenge: detect by balance > startingBalance × 5
-            if (centOnly && accountType === 'real') {
-              isCentAccount = true; // Cent-only challenge = all real accounts are cent by definition
-            } else if (!centOnly && accountType === 'real' && balance > startingBalance * 5) {
-              isCentAccount = true; // Mixed challenge: heuristic detection
+            // Cent-only check: reject standard accounts
+            if (centOnly && accountType === 'real' && !isCentAccount) {
+              return res.json({
+                verified: true,
+                balance,
+                equity: vpsResult.equity,
+                server: matchedServer,
+                currency,
+                rejected: true,
+                rejectionReason: 'cent_only',
+                message: 'This challenge requires a Cent Account. Your account currency is not USC (US Cent). Please create a Standard Cent account on Exness and try again.',
+              });
             }
 
-            // Balance too high check (only for non-cent-only, since cent-only trusts the user)
-            if (!centOnly) {
+            // Balance too high check
+            if (centOnly && accountType === 'real') {
+              // Cent-only real: admin entered in cent terms, compare directly
+              if (balance > startingBalance) {
+                return res.json({
+                  verified: true,
+                  balance,
+                  equity: vpsResult.equity,
+                  server: matchedServer,
+                  currency,
+                  rejected: true,
+                  rejectionReason: 'balance_too_high',
+                  message: `Your balance (${balance}¢) exceeds the starting balance of ${startingBalance}¢. Please withdraw or transfer funds.`,
+                });
+              }
+            } else if (!centOnly && accountType === 'real') {
               const compareBalance = isCentAccount ? startingBalance * 100 : startingBalance;
               if (balance > compareBalance) {
                 return res.json({
@@ -366,22 +389,10 @@ router.post('/verify-connection', async (req: Request, res: Response) => {
                   balance,
                   equity: vpsResult.equity,
                   server: matchedServer,
+                  currency,
                   rejected: true,
                   rejectionReason: 'balance_too_high',
-                  message: `Your balance (${isCentAccount ? balance + '¢' : '$' + balance.toFixed(2)}) exceeds the starting balance. Please withdraw or transfer funds so your balance is at or below the starting balance.`,
-                });
-              }
-            } else {
-              // Cent-only: check balance against cent starting balance
-              if (balance > startingBalance) {
-                return res.json({
-                  verified: true,
-                  balance,
-                  equity: vpsResult.equity,
-                  server: matchedServer,
-                  rejected: true,
-                  rejectionReason: 'balance_too_high',
-                  message: `Your balance (${balance}¢) exceeds the starting balance of ${startingBalance}¢. Please withdraw or transfer funds.`,
+                  message: `Your balance (${isCentAccount ? balance + '¢' : '$' + balance.toFixed(2)}) exceeds the starting balance. Please withdraw or transfer funds.`,
                 });
               }
             }
@@ -393,6 +404,7 @@ router.post('/verify-connection', async (req: Request, res: Response) => {
           balance,
           equity: vpsResult.equity,
           server: matchedServer,
+          currency,
           isCentAccount,
           centOnly,
         });
@@ -450,7 +462,7 @@ router.post('/challenges/:id/verify/:registrationId', async (req: Request, res: 
       );
 
       if (vpsResult.success) {
-        // Detect cent account
+        // Detect cent account by currency from VPS
         const challengeId = parseInt(param(req, "id"));
         const challengeData = await db.query(
           `SELECT c.starting_balance, c.type, r.parameters as rules_config
@@ -461,14 +473,23 @@ router.post('/challenges/:id/verify/:registrationId', async (req: Request, res: 
         const challengeType = challengeData.rows[0]?.type || 'real';
         const onlyCent = challengeData.rows[0]?.rules_config?.only_cent_account || false;
         const vpsBalance = vpsResult.balance || 0;
+        const vpsCurrency = (vpsResult.currency || '').toUpperCase();
 
-        let isCent = false;
-        if (registration.account_type === 'real') {
-          if (onlyCent) {
-            isCent = true;
-          } else if (vpsBalance > startingBalance * 5) {
-            isCent = true;
-          }
+        // Detect cent by currency (USC = US Cent)
+        let isCent = vpsCurrency === 'USC' || vpsCurrency === 'USCENT';
+
+        // Cent-only challenge: reject if not cent
+        if (onlyCent && registration.account_type === 'real' && !isCent) {
+          return res.json({
+            success: true,
+            verified: true,
+            balance: vpsBalance,
+            equity: vpsResult.equity,
+            server: vpsResult.server,
+            rejected: true,
+            rejectionReason: 'cent_only',
+            message: 'This challenge requires a Cent Account (currency: USC). Your account is Standard (USD).',
+          });
         }
 
         // Update registration as verified + save balance + is_cent

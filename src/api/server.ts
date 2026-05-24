@@ -1865,11 +1865,13 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/verify-account`, adminIp
             }
           }
 
-          // Save balance to registration for overview display
+          // Save balance to registration for overview display + detect cent by currency
           if (balance !== null && balance !== undefined) {
+            const vpsCurrency = (verifyRes.data.currency || '').toUpperCase();
+            const isCent = vpsCurrency === 'USC' || vpsCurrency === 'USCENT';
             await db.query(
-              `UPDATE trading_registrations SET last_known_balance = $1, registration_balance = COALESCE(registration_balance, $1) WHERE id = $2`,
-              [balance, registrationId]
+              `UPDATE trading_registrations SET last_known_balance = $1, registration_balance = COALESCE(registration_balance, $1), is_cent = $3 WHERE id = $2`,
+              [balance, registrationId, isCent]
             );
           }
 
