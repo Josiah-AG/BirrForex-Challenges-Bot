@@ -305,12 +305,13 @@ router.post('/challenges/:id/register', async (req: Request, res: Response) => {
 
 /**
  * POST /api/discord/verify-connection
- * Body: { account_number, mt5_server, investor_password }
+ * Body: { account_number, mt5_server, investor_password, challenge_id? }
  * Verifies VPS connection WITHOUT requiring a registration ID (pre-save check)
+ * If challenge_id provided, also checks cent-only and balance rules
  */
 router.post('/verify-connection', async (req: Request, res: Response) => {
   try {
-    const { account_number, mt5_server, investor_password } = req.body;
+    const { account_number, mt5_server, investor_password, challenge_id } = req.body;
 
     if (!account_number || !mt5_server || !investor_password) {
       return res.status(400).json({ error: 'Missing required fields', verified: false });
@@ -328,13 +329,69 @@ router.post('/verify-connection', async (req: Request, res: Response) => {
       console.log(`🔍 Discord VPS result: ${JSON.stringify(vpsResult)}`);
 
       if (vpsResult.success) {
-        // Include balance check info for Discord bot to use
         const balance = vpsResult.balance || 0;
+
+        // If challenge_id provided, check cent-only and balance rules
+        let centOnly = false;
+        let isCentAccount = false;
+        let startingBalance = 0;
+        let balanceRejection: string | null = null;
+
+        if (challenge_id) {
+          const challengeData = await db.query(
+            `SELECT c.starting_balance, c.type, r.parameters as rules_config
+             FROM trading_challenges c
+             LEFT JOIN wp_challenge_rules r ON c.id = r.challenge_id AND r.rule_code = 'config'
+             WHERE c.id = $1`, [challenge_id]);
+
+          if (challengeData.rows.length > 0) {
+            startingBalance = parseFloat(challengeData.rows[0]?.starting_balance || 0);
+            centOnly = challengeData.rows[0]?.rules_config?.only_cent_account || false;
+
+            // Cent detection: balance > startingBalance × 5
+            isCentAccount = balance > startingBalance * 5;
+
+            // Cent-only check: reject standard accounts
+            if (centOnly && accountType === 'real' && !isCentAccount) {
+              return res.json({
+                verified: true,
+                balance,
+                equity: vpsResult.equity,
+                server: matchedServer,
+                rejected: true,
+                rejectionReason: 'cent_only',
+                message: 'This challenge requires a Cent Account. Your account appears to be a Standard account. Please create a Standard Cent account on Exness and try again.',
+              });
+            }
+
+            // Balance too high check
+            const compareBalance = (centOnly && challengeData.rows[0]?.type === 'real')
+              ? startingBalance  // Cent-only real: admin entered in cent terms
+              : isCentAccount
+                ? startingBalance * 100  // Voluntary cent: convert $ to cents
+                : startingBalance;  // Standard
+
+            if (balance > compareBalance) {
+              return res.json({
+                verified: true,
+                balance,
+                equity: vpsResult.equity,
+                server: matchedServer,
+                rejected: true,
+                rejectionReason: 'balance_too_high',
+                message: `Your balance (${isCentAccount ? balance + '¢' : '$' + balance.toFixed(2)}) exceeds the starting balance. Please withdraw or transfer funds so your balance is at or below the starting balance.`,
+              });
+            }
+          }
+        }
+
         return res.json({
           verified: true,
           balance,
           equity: vpsResult.equity,
           server: matchedServer,
+          isCentAccount,
+          centOnly,
         });
       } else {
         return res.json({
