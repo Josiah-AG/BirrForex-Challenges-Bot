@@ -1030,10 +1030,11 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/vps-health`, adminIpCheck, async (req, 
       });
     }
 
+    const axios = require('axios');
+
     // Ping VPS health endpoint
     let vpsStatus: any = { reachable: false };
     try {
-      const axios = require('axios');
       const healthRes = await axios.get(`${vpsUrl}/health`, {
         headers: { 'X-API-Key': config.vpsApiKey },
         timeout: 10000,
@@ -1046,6 +1047,8 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/vps-health`, adminIpCheck, async (req, 
         uptime: healthRes.data?.uptime || null,
         version: healthRes.data?.version || null,
         queue: healthRes.data?.queue || null,
+        healthy_terminals: healthRes.data?.healthy_terminals || [],
+        unhealthy_terminals: healthRes.data?.unhealthy_terminals || [],
         raw: healthRes.data,
       };
     } catch (vpsErr: any) {
@@ -1054,6 +1057,53 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/vps-health`, adminIpCheck, async (req, 
         error: vpsErr.code === 'ECONNABORTED' ? 'Timeout (10s)' : (vpsErr.message || 'Connection failed'),
       };
     }
+
+    // Deep terminal check: verify base account on each terminal (1-10)
+    // Base account: 435924397 / Abc@1234 / Exness-MT5Trial9
+    let terminalResults: any[] = [];
+    if (vpsStatus.reachable && req.query.deep === 'true') {
+      const BASE_ACCOUNT = '435924397';
+      const BASE_SERVER = 'Exness-MT5Trial9';
+      const BASE_PASSWORD = 'Abc@1234';
+
+      const terminalChecks = [];
+      for (let tid = 1; tid <= 10; tid++) {
+        terminalChecks.push(
+          (async (terminalId: number) => {
+            try {
+              const verifyRes = await axios.post(`${vpsUrl}/verify`, {
+                account: BASE_ACCOUNT,
+                server: BASE_SERVER,
+                password: BASE_PASSWORD,
+                api_key: config.vpsApiKey,
+                terminal_id: terminalId,
+              }, { timeout: 20000 });
+
+              const data = verifyRes.data;
+              return {
+                terminal: terminalId,
+                success: data.success || false,
+                balance: data.balance,
+                currency: data.currency,
+                error: data.success ? null : (data.message || 'Unknown error'),
+                terminalUsed: data.terminal_used,
+              };
+            } catch (err: any) {
+              return {
+                terminal: terminalId,
+                success: false,
+                error: err.code === 'ECONNABORTED' ? 'Timeout (20s)' : (err.message || 'Connection failed'),
+              };
+            }
+          })(tid)
+        );
+      }
+
+      terminalResults = await Promise.all(terminalChecks);
+    }
+
+    const successCount = terminalResults.filter(t => t.success).length;
+    const failedTerminals = terminalResults.filter(t => !t.success);
 
     // Get recent pull stats from DB
     const recentPulls = await db.query(
@@ -1080,6 +1130,11 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/vps-health`, adminIpCheck, async (req, 
 
     return res.json({
       vps: vpsStatus,
+      deepCheck: terminalResults.length > 0 ? {
+        summary: `${successCount}/10 terminals working`,
+        results: terminalResults,
+        failed: failedTerminals,
+      } : null,
       pullStats: {
         last5Batches: recentPulls.rows.map((b: any) => ({
           id: b.id,

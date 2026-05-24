@@ -90,6 +90,7 @@ class VerifyRequest(BaseModel):
     server: str
     password: str
     api_key: str
+    terminal_id: Optional[int] = None
 
 
 class PullRequest(BaseModel):
@@ -139,6 +140,7 @@ async def health():
 async def verify(req: VerifyRequest):
     """
     Verify credentials with smart retry:
+    - If terminal_id specified: target that specific terminal (for health checks)
     - Credential error → return immediately
     - Terminal error → retry same terminal, then try different ones
     - Fails on 3 different terminals → return failure
@@ -150,6 +152,34 @@ async def verify(req: VerifyRequest):
     tried_terminals = set()
     last_error = "All workers failed"
 
+    # If terminal_id specified, target that specific terminal only (no failover)
+    if req.terminal_id and 1 <= req.terminal_id <= NUM_WORKERS:
+        wid = req.terminal_id
+        for retry in range(MAX_RETRIES_SAME_TERMINAL + 1):
+            try:
+                async with httpx.AsyncClient(timeout=WORKER_TIMEOUT) as client:
+                    resp = await client.post(
+                        f"{worker_url(wid)}/verify",
+                        json={
+                            "account": req.account,
+                            "server": req.server,
+                            "password": req.password,
+                            "api_key": req.api_key,
+                        },
+                    )
+                    data = resp.json()
+                    data["terminal_used"] = wid
+                    data["retries"] = retry
+                    data["terminals_tried"] = 1
+                    return data
+            except Exception as e:
+                if retry < MAX_RETRIES_SAME_TERMINAL:
+                    await asyncio.sleep(RETRY_DELAY)
+                    continue
+                return {"success": False, "message": f"Terminal {wid}: {str(e)[:200]}", "terminal_used": wid}
+        return {"success": False, "message": f"Terminal {wid} failed after retries", "terminal_used": wid}
+
+    # Normal round-robin with failover
     # Try up to MAX_DIFFERENT_TERMINALS different terminals
     while len(tried_terminals) < MAX_DIFFERENT_TERMINALS:
         # Pick next terminal
