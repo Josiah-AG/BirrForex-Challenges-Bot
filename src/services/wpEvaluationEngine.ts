@@ -535,7 +535,10 @@ export class WpEvaluationEngine {
           if (rules.max_risk_dollars) {
             const tradeProfit = parseFloat(String(trade.profit)) + parseFloat(String(trade.commission || 0)) + parseFloat(String(trade.swap || 0));
             const slDollars = calculateSlDollars(trade.symbol, parseFloat(String(trade.volume)), parseFloat(String(trade.open_price)), parseFloat(String(trade.stop_loss)), parseFloat(String(trade.close_price)), tradeProfit);
-            if (slDollars > rules.max_risk_dollars) {
+            // Tolerance: +$0.50 for standard accounts, +20¢ for cent accounts
+            // If max_risk_dollars > 50, it's in cent terms (already ×100)
+            const slTolerance = rules.max_risk_dollars > 50 ? 20 : 0.5;
+            if (slDollars > rules.max_risk_dollars + slTolerance) {
               violations.push(`SL risk $${slDollars.toFixed(2)} exceeds max $${rules.max_risk_dollars}`);
             }
           }
