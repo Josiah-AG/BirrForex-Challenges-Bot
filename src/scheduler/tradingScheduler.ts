@@ -220,8 +220,10 @@ export class TradingScheduler {
         await tradingChallengeService.updateChallengeStatus(challenge.id, 'active');
         console.log(`✅ Trading challenge ${challenge.id} "${challenge.title}" is now ACTIVE (${dateStr} ${timeStr} EAT)`);
 
-        // Send challenge start photo post to BOTH channels
-        await this.postChallengeStartAnnouncement(challenge);
+        // Only post to Telegram channels for Telegram-source challenges
+        if ((challenge as any).source !== 'discord') {
+          await this.postChallengeStartAnnouncement(challenge);
+        }
       }
     }
   }
@@ -420,22 +422,26 @@ export class TradingScheduler {
   async endChallenge(challenge: TradingChallenge) {
     const evaluationType = challenge.evaluation_type || 'winnerpip';
 
+    // Skip Telegram posts for Discord-source challenges
+    const isDiscord = (challenge as any).source === 'discord';
+
     if (evaluationType === 'legacy') {
       // LEGACY MODE: Post submission request with 48h window
       const deadline = new Date(Date.now() + 48 * 60 * 60 * 1000);
       await tradingChallengeService.setSubmissionDeadline(challenge.id, deadline);
       await tradingChallengeService.updateChallengeStatus(challenge.id, 'submission_open');
 
-      const deadlineStr = toEAT(deadline).toLocaleString('en-US', { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
-      const botInfo = await this.bot.bot.telegram.getMe();
+      if (!isDiscord) {
+        const deadlineStr = toEAT(deadline).toLocaleString('en-US', { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
+        const botInfo = await this.bot.bot.telegram.getMe();
 
-      let guideLink = '';
-      if (config.investorPasswordGuideLink) {
-        guideLink = `\n📋 How to get your Investor Password: <a href="${config.investorPasswordGuideLink}">Guide Link</a>\n`;
-      }
+        let guideLink = '';
+        if (config.investorPasswordGuideLink) {
+          guideLink = `\n📋 How to get your Investor Password: <a href="${config.investorPasswordGuideLink}">Guide Link</a>\n`;
+        }
 
-      const text = `<b>🏁 CHALLENGE IS OVER!</b>\n\n` +
-        `<b>${challenge.title}</b> has officially ended!\n\n` +
+        const text = `<b>🏁 CHALLENGE IS OVER!</b>\n\n` +
+          `<b>${challenge.title}</b> has officially ended!\n\n` +
         `What an exciting race! We hope you all gained valuable experience and sharpened your trading skills throughout this challenge.\n\n` +
         `<i>Thank you to every participant for your dedication and effort!</i> 💪\n\n` +
         `🎯 <b>If you hit the target ($${challenge.target_balance}), submit your details for evaluation!</b>\n\n` +
@@ -459,10 +465,12 @@ export class TradingScheduler {
       } catch (e) {
         console.error('Error posting challenge end:', e);
       }
+      } // end if (!isDiscord)
     } else {
       // WINNERPIP MODE: Post "challenge ended, final check in progress" — no submission window
       await tradingChallengeService.updateChallengeStatus(challenge.id, 'reviewing');
 
+      if (!isDiscord) {
       const text = `<b>🏁 CHALLENGE IS OVER!</b>\n\n` +
         `<b>${challenge.title}</b> has officially ended!\n\n` +
         `What an exciting race! We hope you all gained valuable experience and sharpened your trading skills throughout this challenge.\n\n` +
@@ -481,6 +489,7 @@ export class TradingScheduler {
       } catch (e) {
         console.error('Error posting challenge end:', e);
       }
+      } // end if (!isDiscord)
 
       // Post Discord end message for team challenges
       await this.postDiscordEndMessage(challenge);
