@@ -674,3 +674,43 @@ router.post('/mark-announced/:id', async (req: Request, res: Response) => {
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
+
+
+// ==================== PENDING LAST CHANCE (for Discord bot polling) ====================
+
+/**
+ * GET /api/discord/pending-lastchance
+ * Returns challenges that need a "last chance to register" post (discord_channel_message_id = 'pending_lastchance')
+ */
+router.get('/pending-lastchance', async (req: Request, res: Response) => {
+  try {
+    const result = await db.query(
+      `SELECT id, title, type, start_date, starting_balance, target_balance, prize_pool_text
+       FROM trading_challenges
+       WHERE source = 'discord' AND status = 'registration_open' AND discord_channel_message_id = 'pending_lastchance'`
+    );
+    return res.json({ pending: result.rows });
+  } catch (error) {
+    console.error('Pending lastchance error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * POST /api/discord/mark-lastchance-done/:id
+ * Discord bot calls this after posting the last chance message.
+ */
+router.post('/mark-lastchance-done/:id', async (req: Request, res: Response) => {
+  try {
+    const challengeId = parseInt(param(req, "id"));
+    // Restore the original message_id (the announcement message) or just mark as done
+    await db.query(
+      `UPDATE trading_challenges SET discord_channel_message_id = 'lastchance_posted' WHERE id = $1 AND discord_channel_message_id = 'pending_lastchance'`,
+      [challengeId]
+    );
+    return res.json({ success: true });
+  } catch (error) {
+    console.error('Mark lastchance done error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});

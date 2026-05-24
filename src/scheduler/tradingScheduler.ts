@@ -1291,23 +1291,16 @@ export class TradingScheduler {
     if (daysUntilStart === 1 && hour === 8 && minute <= 4) {
       this.discordRegReminderPosted.add(challenge.id);
 
-      const startEAT = toEAT(challenge.start_date);
-      const startStr = startEAT.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
-
-      const embed = {
-        title: '🚨 LAST CHANCE TO REGISTER!',
-        description: `**${challenge.title}** starts **TOMORROW** (${startStr} EAT).\n\n` +
-          `After the challenge starts, registration closes and no more entries will be accepted.\n\n` +
-          `💰 Starting Balance: **$${challenge.starting_balance}**\n` +
-          `🎯 Target: **$${challenge.target_balance}**\n\n` +
-          `Don't miss out — register **NOW!** 🚀`,
-        color: 0xFF4444, // red/urgent
-        footer: { text: 'BirrForex Challenges • Registration closing soon' },
-        timestamp: new Date().toISOString(),
-      };
-
-      await this.postToDiscord(challenge, '<@&1477959520759189647>', embed);
-      console.log(`✅ Discord: Last chance to register posted for ${challenge.title}`);
+      // Set flag in DB for Discord bot to pick up via polling (so it posts with Register button)
+      try {
+        await db.query(
+          `UPDATE trading_challenges SET discord_channel_message_id = 'pending_lastchance' WHERE id = $1 AND discord_channel_message_id != 'pending_lastchance'`,
+          [challenge.id]
+        );
+        console.log(`✅ Discord: Last chance flag set for ${challenge.title} — Discord bot will post with Register button`);
+      } catch (e) {
+        console.error('Error setting last chance flag:', e);
+      }
     }
   }
 
