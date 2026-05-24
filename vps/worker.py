@@ -311,6 +311,7 @@ def do_verify(account: int, server: str, password: str) -> dict:
         "balance": account_info.balance,
         "equity": account_info.equity,
         "server": account_info.server,
+        "currency": account_info.currency,
         "terminal_id": TERMINAL_ID,
     }
 
