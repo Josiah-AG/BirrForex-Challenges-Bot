@@ -8,6 +8,7 @@ export interface VpsVerifyResult {
   balance?: number;
   equity?: number;
   server?: string;
+  currency?: string;
 }
 
 export interface VpsAccountInfo {
@@ -204,6 +205,7 @@ class VpsService {
             balance: data.balance,
             equity: data.equity,
             server: data.server || server,
+            currency: data.currency || undefined,
           };
         }
 
