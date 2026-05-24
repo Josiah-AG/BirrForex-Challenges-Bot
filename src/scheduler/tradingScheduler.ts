@@ -105,6 +105,7 @@ export class TradingScheduler {
         // Discord messages
         await this.checkDiscordFirstDay(challenge, dateStr, timeStr);
         await this.checkDiscordLastDay(challenge, dateStr, timeStr);
+        await this.checkDiscordRegistrationReminder(challenge, dateStr, timeStr);
       }
     } catch (error) {
       console.error('Trading scheduler error:', error);
@@ -1265,6 +1266,48 @@ export class TradingScheduler {
       };
 
       await this.postToDiscord(challenge, '<@&1477959520759189647>', embed);
+    }
+  }
+
+  /**
+   * Discord: Last chance to register (day before challenge starts, 08:00 EAT)
+   */
+  private discordRegReminderPosted = new Set<number>();
+
+  private async checkDiscordRegistrationReminder(challenge: TradingChallenge, dateStr: string, timeStr: string) {
+    if (challenge.status !== 'registration_open') return;
+    if ((challenge as any).source !== 'discord') return;
+    if (this.discordRegReminderPosted.has(challenge.id)) return;
+
+    const start = this.toEATStrings(challenge.start_date);
+    const startMs = new Date(start.dateStr).getTime();
+    const nowMs = new Date(dateStr).getTime();
+    const daysUntilStart = Math.round((startMs - nowMs) / (1000 * 60 * 60 * 24));
+
+    const hour = parseInt(timeStr.split(':')[0]);
+    const minute = parseInt(timeStr.split(':')[1]);
+
+    // 1 day before start, 08:00-08:04 EAT
+    if (daysUntilStart === 1 && hour === 8 && minute <= 4) {
+      this.discordRegReminderPosted.add(challenge.id);
+
+      const startEAT = toEAT(challenge.start_date);
+      const startStr = startEAT.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
+
+      const embed = {
+        title: '🚨 LAST CHANCE TO REGISTER!',
+        description: `**${challenge.title}** starts **TOMORROW** (${startStr} EAT).\n\n` +
+          `After the challenge starts, registration closes and no more entries will be accepted.\n\n` +
+          `💰 Starting Balance: **$${challenge.starting_balance}**\n` +
+          `🎯 Target: **$${challenge.target_balance}**\n\n` +
+          `Don't miss out — register **NOW!** 🚀`,
+        color: 0xFF4444, // red/urgent
+        footer: { text: 'BirrForex Challenges • Registration closing soon' },
+        timestamp: new Date().toISOString(),
+      };
+
+      await this.postToDiscord(challenge, '<@&1477959520759189647>', embed);
+      console.log(`✅ Discord: Last chance to register posted for ${challenge.title}`);
     }
   }
 
