@@ -358,6 +358,7 @@ app.get('/api/challenges/:id/leaderboard', async (req, res) => {
              l.disqualify_reason, l.last_trade_time, l.last_updated, l.zero_balance_at,
              l.is_cent, l.normalized_balance
       FROM wp_leaderboard l
+      JOIN trading_registrations r ON l.registration_id = r.id AND (r.status IS NULL OR r.status != 'removed')
       WHERE l.challenge_id = $1
     `;
     const params: any[] = [challengeId];
@@ -377,7 +378,7 @@ app.get('/api/challenges/:id/leaderboard', async (req, res) => {
     const result = await db.query(query, params);
 
     // Get total count for pagination
-    let countQuery = `SELECT COUNT(*) as total FROM wp_leaderboard l WHERE l.challenge_id = $1`;
+    let countQuery = `SELECT COUNT(*) as total FROM wp_leaderboard l JOIN trading_registrations r ON l.registration_id = r.id AND (r.status IS NULL OR r.status != 'removed') WHERE l.challenge_id = $1`;
     const countParams: any[] = [challengeId];
     if (category === 'demo' || category === 'real') {
       countQuery += ` AND l.account_type = $2`;
@@ -946,7 +947,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
       participants: { total: parseInt(c.total), demo: parseInt(c.demo), real: parseInt(c.real), disqualified: parseInt(c.disqualified) },
       trades: { total: parseInt(t.total_trades), totalVolume: parseFloat(t.total_volume), violations: parseInt(t.violations) },
       pulls: { today: parseInt(p.pulls_today), success: parseInt(p.total_success), failed: parseInt(p.total_failed), newTrades: parseInt(p.new_trades), passwordChanged: parseInt(pwChanged.rows[0].cnt), lastPullAt: lastPull.rows[0]?.completed_at || null },
-      balance: { total: totalBalance, real: realBalance, demo: demoBalance },
+      balance: { total: totalBalance, real: realBalance, demo: demoBalance, isCentOnly: challengeIsCentOnly },
       qualified: parseInt(aboveTarget.rows[0].cnt),
       latestScreening: latestScreening.rows[0] || null,
     });
@@ -1538,10 +1539,22 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/failed-accounts`, adminIp
  */
 app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/force-pull`, adminIpCheck, async (req, res) => {
   try {
+    const challengeId = parseInt(req.params.id as string);
     const globalScheduler = (global as any).__vpsPullScheduler;
     if (globalScheduler) {
-      globalScheduler.runPullCycle().catch((e: any) => console.error('Force pull error:', e));
-      return res.json({ success: true, message: 'Pull cycle started. Watch the progress bar.' });
+      // Run pull cycle, then force flush + rank update after completion
+      globalScheduler.runPullCycle().then(async () => {
+        try {
+          const { leaderboardService } = require('../services/leaderboardService');
+          await leaderboardService.flushStagingToLive(challengeId);
+          await leaderboardService.ensureAllParticipantsHaveEntries(challengeId);
+          await leaderboardService.updateRankings(challengeId);
+          console.log(`✅ Force pull: Rankings updated for challenge ${challengeId}`);
+        } catch (e) {
+          console.error('Force pull ranking update error:', e);
+        }
+      }).catch((e: any) => console.error('Force pull error:', e));
+      return res.json({ success: true, message: 'Pull cycle started + rankings will update after completion.' });
     }
     return res.json({ success: false, message: 'Pull scheduler not initialized yet — try again in a moment' });
   } catch (error) {
