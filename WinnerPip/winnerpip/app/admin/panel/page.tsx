@@ -442,7 +442,7 @@ export default function AdminDashboard() {
                   <th className="text-right py-3 px-4 text-[10px] text-gray-400 uppercase">Balance</th>
                   <th className="text-center py-3 px-4 text-[10px] text-gray-400 uppercase">Trades</th>
                   <th className="text-center py-3 px-4 text-[10px] text-gray-400 uppercase">Win%</th>
-                  <th className="text-center py-3 px-4 text-[10px] text-gray-400 uppercase">Avg RR</th>
+                  <th className="text-center py-3 px-4 text-[10px] text-gray-400 uppercase">Profit</th>
                   <th className="text-center py-3 px-4 text-[10px] text-gray-400 uppercase">Violations</th>
                 </tr></thead>
                 <tbody>{leaderboard.length === 0 ? <tr><td colSpan={8} className="py-8 text-center text-gray-500">No leaderboard data yet — will populate after VPS pulls and evaluation</td></tr> : leaderboard.map((e: any) => (
@@ -453,7 +453,7 @@ export default function AdminDashboard() {
                     <td className="py-3 px-4 text-right text-sm font-bold text-white">{e.isDisqualified ? "DQ" : e.isCent ? `${Number(e.adjustedBalance).toFixed(2)}¢` : `$${Number(e.adjustedBalance).toFixed(2)}`}</td>
                     <td className="py-3 px-4 text-center text-sm text-gray-400">{e.totalTrades}</td>
                     <td className="py-3 px-4 text-center text-sm text-gray-400">{e.totalTrades > 0 ? `${Math.round((e.qualifiedTrades / e.totalTrades) * 100)}%` : "—"}</td>
-                    <td className="py-3 px-4 text-center text-sm text-royal">{e.totalTrades > 0 ? `$${(e.qualifiedProfit / e.totalTrades).toFixed(2)}` : "—"}</td>
+                    <td className="py-3 px-4 text-center text-sm text-royal">{e.totalTrades > 0 ? (e.isCent ? `${Number(e.qualifiedProfit).toFixed(2)}¢` : `$${Number(e.qualifiedProfit).toFixed(2)}`) : "—"}</td>
                     <td className="py-3 px-4 text-center">{e.flaggedTrades > 0 ? <span className="text-loss font-bold">{e.flaggedTrades}</span> : <span className="text-profit">✓</span>}</td>
                   </tr>
                 ))}</tbody>
