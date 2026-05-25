@@ -858,9 +858,23 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
     const counts = await db.query(
       `SELECT COUNT(*) as total, COUNT(CASE WHEN account_type='demo' THEN 1 END) as demo, COUNT(CASE WHEN account_type='real' THEN 1 END) as real, COUNT(CASE WHEN disqualified=true THEN 1 END) as disqualified FROM trading_registrations WHERE challenge_id=$1`, [challengeId]);
 
-    // Trade stats
+    // Trade stats — only count trades within challenge period
+    const challengeDatesForStats = await db.query(`SELECT start_date, end_date FROM trading_challenges WHERE id = $1`, [challengeId]);
+    const cStart = challengeDatesForStats.rows[0]?.start_date;
+    const cEnd = challengeDatesForStats.rows[0]?.end_date;
+    let tradeFilter = '';
+    const tradeParams: any[] = [challengeId];
+    if (cStart) {
+      const graceStart = new Date(new Date(cStart).getTime() - 3 * 60 * 60 * 1000);
+      tradeFilter += ` AND close_time >= $2`;
+      tradeParams.push(graceStart.toISOString());
+    }
+    if (cEnd) {
+      tradeFilter += ` AND close_time <= $${tradeParams.length + 1}`;
+      tradeParams.push(new Date(cEnd).toISOString());
+    }
     const tradeStats = await db.query(
-      `SELECT COUNT(*) as total_trades, COALESCE(SUM(volume),0) as total_volume, COUNT(CASE WHEN is_qualified=false THEN 1 END) as violations FROM wp_trades WHERE challenge_id=$1`, [challengeId]);
+      `SELECT COUNT(*) as total_trades, COALESCE(SUM(volume),0) as total_volume, COUNT(CASE WHEN is_qualified=false THEN 1 END) as violations FROM wp_trades WHERE challenge_id=$1${tradeFilter}`, tradeParams);
 
     // Pull stats (today)
     const pullStats = await db.query(
@@ -1573,6 +1587,44 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/force-pull-rank`, adminI
       return res.json({ success: true, message: 'Pull cycle started + rankings will update after completion.' });
     }
     return res.json({ success: false, message: 'Pull scheduler not initialized yet — try again in a moment' });
+  } catch (error) {
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * POST /api/admin/:secretPath/challenge/:id/full-pull
+ * Full pull (non-incremental) + evaluate + flush + rank update.
+ * Resets last_pull_at for all accounts so VPS pulls entire history.
+ */
+app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/full-pull`, adminIpCheck, async (req, res) => {
+  try {
+    const challengeId = parseInt(req.params.id as string);
+    const globalScheduler = (global as any).__vpsPullScheduler;
+    if (!globalScheduler) {
+      return res.json({ success: false, message: 'Pull scheduler not initialized yet' });
+    }
+
+    // Reset last_pull_at for all accounts in this challenge (forces full history pull)
+    await db.query(
+      `UPDATE trading_registrations SET last_pull_at = NULL WHERE challenge_id = $1 AND disqualified = false AND investor_password IS NOT NULL`,
+      [challengeId]
+    );
+
+    // Run pull cycle, then evaluate + rank
+    globalScheduler.runPullCycle().then(async () => {
+      try {
+        const { leaderboardService } = require('../services/leaderboardService');
+        await leaderboardService.flushStagingToLive(challengeId);
+        await leaderboardService.ensureAllParticipantsHaveEntries(challengeId);
+        await leaderboardService.updateRankings(challengeId);
+        console.log(`✅ Full pull + evaluate + rank: Complete for challenge ${challengeId}`);
+      } catch (e) {
+        console.error('Full pull rank update error:', e);
+      }
+    }).catch((e: any) => console.error('Full pull error:', e));
+
+    return res.json({ success: true, message: 'Full pull started (non-incremental). Will evaluate + update rankings after completion.' });
   } catch (error) {
     return res.status(500).json({ error: 'Internal server error' });
   }
