@@ -75,7 +75,7 @@ export default function ChallengeDashboard() {
     const fetchUserTrades = async () => {
       try {
         const apiUrl = process.env.NEXT_PUBLIC_API_URL || "";
-        const res = await fetch(`${apiUrl}/api/challenges/${id}/user-trades?nickname=${encodeURIComponent(selectedUser.nickname)}`);
+        const res = await fetch(`${apiUrl}/api/challenges/${params.id}/user-trades?nickname=${encodeURIComponent(selectedUser.nickname)}`);
         if (res.ok) {
           const data = await res.json();
           setSelectedUserTrades(data.trades || []);
@@ -83,7 +83,7 @@ export default function ChallengeDashboard() {
       } catch { setSelectedUserTrades([]); }
     };
     fetchUserTrades();
-  }, [selectedUser, id]);
+  }, [selectedUser, params.id]);
 
   // Check auth on mount
   useEffect(() => {
