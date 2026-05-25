@@ -245,18 +245,19 @@ export default function AdminDashboard() {
     nextPullTime: (() => { const now = new Date(Date.now() + 3*60*60*1000); const h = now.getUTCHours(); const schedule = [0,4,8,12,16,20]; const next = schedule.find(s => s > h); return next !== undefined ? `${String(next).padStart(2,"0")}:00 EAT` : "00:00 EAT"; })(),
   };
 
-  const topViolations = flaggedParticipants.flatMap(p => p.rules || []).reduce((acc: any[], rule: string) => {
-    const existing = acc.find(v => v.rule === rule);
-    if (existing) existing.count++;
-    else acc.push({ rule, count: 1 });
-    return acc;
-  }, []).sort((a: any, b: any) => b.count - a.count).slice(0, 5);
   const [pullHistory, setPullHistory] = useState<any[]>([]);
   const [terminalStatus, setTerminalStatus] = useState<any[]>([]);
   const [leaderboard, setLeaderboard] = useState<any[]>([]);
   const [leaderboardCategory, setLeaderboardCategory] = useState<"all" | "demo" | "real">("all");
   const [flaggedParticipants, setFlaggedParticipants] = useState<any[]>([]);
   const [screeningData, setScreeningData] = useState<any>(null);
+
+  const topViolations = flaggedParticipants.flatMap(p => p.rules || []).reduce((acc: any[], rule: string) => {
+    const existing = acc.find(v => v.rule === rule);
+    if (existing) existing.count++;
+    else acc.push({ rule, count: 1 });
+    return acc;
+  }, []).sort((a: any, b: any) => b.count - a.count).slice(0, 5);
 
   // Fetch leaderboard when leaderboard tab is active
   useEffect(() => {
