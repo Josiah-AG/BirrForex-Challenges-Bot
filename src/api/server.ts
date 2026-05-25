@@ -432,16 +432,23 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
       [registrationId]
     );
 
-    // Get recent trades
-    const trades = await db.query(
-      `SELECT ticket, symbol, trade_type, volume, open_time, close_time,
+    // Get recent trades (within challenge period)
+    const regInfo = await db.query(`SELECT challenge_id FROM trading_registrations WHERE id = $1`, [registrationId]);
+    const cId = regInfo.rows[0]?.challenge_id;
+    const cDates = await db.query(`SELECT start_date, end_date FROM trading_challenges WHERE id = $1`, [cId]);
+    const cStartDate = cDates.rows[0]?.start_date;
+    let tradesQuery = `SELECT ticket, symbol, trade_type, volume, open_time, close_time,
               open_price, close_price, profit, commission, swap, is_qualified, violations
        FROM wp_trades
-       WHERE registration_id = $1
-       ORDER BY close_time DESC
-       LIMIT 50`,
-      [registrationId]
-    );
+       WHERE challenge_id = $1 AND registration_id = $2`;
+    const tradesParams: any[] = [cId, registrationId];
+    if (cStartDate) {
+      const graceStart = new Date(new Date(cStartDate).getTime() - 3 * 60 * 60 * 1000);
+      tradesQuery += ` AND close_time >= $3`;
+      tradesParams.push(graceStart.toISOString());
+    }
+    tradesQuery += ` ORDER BY close_time DESC LIMIT 50`;
+    const trades = await db.query(tradesQuery, tradesParams);
 
     // Get challenge info
     const reg = await db.query(

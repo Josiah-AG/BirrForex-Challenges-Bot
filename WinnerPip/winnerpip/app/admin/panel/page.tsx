@@ -250,7 +250,7 @@ export default function AdminDashboard() {
   const [terminalStatus, setTerminalStatus] = useState<any[]>([]);
   const [leaderboard, setLeaderboard] = useState<any[]>([]);
   const [leaderboardCategory, setLeaderboardCategory] = useState<"all" | "demo" | "real">("all");
-  const flaggedParticipants: any[] = [];
+  const [flaggedParticipants, setFlaggedParticipants] = useState<any[]>([]);
   const [screeningData, setScreeningData] = useState<any>(null);
 
   // Fetch leaderboard when leaderboard tab is active
@@ -268,6 +268,32 @@ export default function AdminDashboard() {
     };
     fetchLeaderboard();
   }, [isAdmin, activeSection, selectedChallengeId, leaderboardCategory]);
+
+  // Fetch violations when violations tab is active
+  useEffect(() => {
+    if (!isAdmin || activeSection !== "violations" || !selectedChallengeId) return;
+    const fetchViolations = async () => {
+      try {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
+        const secretPath = process.env.NEXT_PUBLIC_ADMIN_PATH || "";
+        const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${selectedChallengeId}/violations`);
+        if (res.ok) {
+          const data = await res.json();
+          setFlaggedParticipants((data.violations || []).map((v: any) => ({
+            nickname: v.nickname || v.username,
+            account: v.account_number,
+            violations: parseInt(v.violation_count),
+            profitRemoved: parseFloat(v.profit_removed),
+            rules: (v.flagged_trades || []).slice(0, 3).map((t: any) => {
+              const violations = typeof t.violations === 'string' ? JSON.parse(t.violations) : (t.violations || []);
+              return violations[0] || 'Rule violation';
+            }),
+          })));
+        }
+      } catch {}
+    };
+    fetchViolations();
+  }, [isAdmin, activeSection, selectedChallengeId]);
 
   // Fetch pull data when pulls tab is active
   useEffect(() => {
