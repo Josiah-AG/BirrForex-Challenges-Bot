@@ -245,7 +245,12 @@ export default function AdminDashboard() {
     nextPullTime: (() => { const now = new Date(Date.now() + 3*60*60*1000); const h = now.getUTCHours(); const schedule = [0,4,8,12,16,20]; const next = schedule.find(s => s > h); return next !== undefined ? `${String(next).padStart(2,"0")}:00 EAT` : "00:00 EAT"; })(),
   };
 
-  const topViolations: any[] = [];
+  const topViolations = flaggedParticipants.flatMap(p => p.rules || []).reduce((acc: any[], rule: string) => {
+    const existing = acc.find(v => v.rule === rule);
+    if (existing) existing.count++;
+    else acc.push({ rule, count: 1 });
+    return acc;
+  }, []).sort((a: any, b: any) => b.count - a.count).slice(0, 5);
   const [pullHistory, setPullHistory] = useState<any[]>([]);
   const [terminalStatus, setTerminalStatus] = useState<any[]>([]);
   const [leaderboard, setLeaderboard] = useState<any[]>([]);
@@ -269,9 +274,10 @@ export default function AdminDashboard() {
     fetchLeaderboard();
   }, [isAdmin, activeSection, selectedChallengeId, leaderboardCategory]);
 
-  // Fetch violations when violations tab is active
+  // Fetch violations when violations tab OR overview is active
   useEffect(() => {
-    if (!isAdmin || activeSection !== "violations" || !selectedChallengeId) return;
+    if (!isAdmin || !selectedChallengeId) return;
+    if (activeSection !== "violations" && activeSection !== "overview") return;
     const fetchViolations = async () => {
       try {
         const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
@@ -284,7 +290,8 @@ export default function AdminDashboard() {
             account: v.account_number,
             violations: parseInt(v.violation_count),
             profitRemoved: parseFloat(v.profit_removed),
-            rules: (v.flagged_trades || []).slice(0, 3).map((t: any) => {
+            flaggedTrades: v.flagged_trades || [],
+            rules: (v.flagged_trades || []).slice(0, 5).map((t: any) => {
               const violations = typeof t.violations === 'string' ? JSON.parse(t.violations) : (t.violations || []);
               return violations[0] || 'Rule violation';
             }),
@@ -493,20 +500,42 @@ export default function AdminDashboard() {
           <div className="space-y-4">
             <div className="glass rounded-2xl border border-loss/20 p-5">
               <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2"><AlertTriangle size={16} className="text-loss" /> Participants with Violations</h3>
+              {flaggedParticipants.length === 0 ? (
+                <p className="text-sm text-gray-500">No violations detected yet.</p>
+              ) : (
               <div className="space-y-3">
                 {flaggedParticipants.map((p, i) => (
-                  <div key={i} className="flex items-center justify-between p-4 bg-white/5 rounded-xl border border-white/10 hover:border-loss/30 transition-all">
-                    <div>
-                      <p className="text-white font-semibold">{p.nickname}</p>
-                      <p className="text-xs text-gray-500">Acct: {p.account} • {p.rules.join(", ")}</p>
+                  <details key={i} className="group">
+                    <summary className="flex items-center justify-between p-4 bg-white/5 rounded-xl border border-white/10 hover:border-loss/30 transition-all cursor-pointer list-none">
+                      <div>
+                        <p className="text-white font-semibold">{p.nickname}</p>
+                        <p className="text-xs text-gray-500">Acct: {p.account}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-loss font-bold">{p.violations} flags</p>
+                        <p className="text-xs text-gray-500">{isCentChallenge ? `${p.profitRemoved.toFixed(2)}¢` : `$${p.profitRemoved.toFixed(2)}`} removed</p>
+                      </div>
+                    </summary>
+                    <div className="mt-2 ml-4 space-y-2">
+                      {(p.flaggedTrades || []).map((t: any, j: number) => {
+                        const violations = typeof t.violations === 'string' ? JSON.parse(t.violations) : (t.violations || []);
+                        return (
+                          <div key={j} className="p-3 bg-loss/5 rounded-lg border border-loss/10">
+                            <div className="flex justify-between items-center mb-1">
+                              <span className="text-xs text-white font-medium">{t.symbol} #{t.ticket}</span>
+                              <span className={`text-xs font-bold ${parseFloat(t.profit) >= 0 ? 'text-profit' : 'text-loss'}`}>{isCentChallenge ? `${parseFloat(t.profit).toFixed(2)}¢` : `$${parseFloat(t.profit).toFixed(2)}`}</span>
+                            </div>
+                            {violations.map((v: string, k: number) => (
+                              <p key={k} className="text-[10px] text-loss">⚠️ {v}</p>
+                            ))}
+                          </div>
+                        );
+                      })}
                     </div>
-                    <div className="text-right">
-                      <p className="text-loss font-bold">{p.violations} flags</p>
-                      <p className="text-xs text-gray-500">-${p.profitRemoved.toFixed(2)} removed</p>
-                    </div>
-                  </div>
+                  </details>
                 ))}
               </div>
+              )}
             </div>
           </div>
         )}
