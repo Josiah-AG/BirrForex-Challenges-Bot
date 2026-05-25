@@ -19,6 +19,13 @@ export class LeaderboardService {
   async updateRankings(challengeId: number): Promise<void> {
     console.log(`📊 Leaderboard: Updating rankings for challenge ${challengeId}`);
 
+    // Clean up: remove leaderboard entries for removed/deleted registrations
+    await db.query(
+      `DELETE FROM wp_leaderboard WHERE challenge_id = $1 AND registration_id NOT IN (
+        SELECT id FROM trading_registrations WHERE challenge_id = $1 AND (status IS NULL OR status != 'removed')
+      )`, [challengeId]
+    );
+
     for (const accountType of ['demo', 'real']) {
       let offset = 0;
 
