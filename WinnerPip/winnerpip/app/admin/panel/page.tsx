@@ -444,11 +444,11 @@ export default function AdminDashboard() {
           <div className="glass rounded-2xl border border-white/10 p-5 mb-6">
             <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2"><AlertTriangle size={16} className="text-loss" /> Top Rule Violations</h3>
             <div className="space-y-3">
-              {topViolations.length === 0 ? <p className="text-sm text-gray-500">No violation data yet — will populate after VPS pulls begin</p> : topViolations.map((v, i) => (
+              {topViolations.length === 0 ? <p className="text-sm text-gray-500">No violation data yet — will populate after VPS pulls begin</p> : topViolations.map((v: any, i: number) => (
                 <div key={i} className="flex items-center gap-3">
                   <div className="flex-1">
-                    <div className="flex justify-between mb-1"><span className="text-sm text-gray-300">{v.rule}</span><span className="text-xs text-gray-500">{v.count} ({v.percentage}%)</span></div>
-                    <div className="w-full h-2 bg-white/10 rounded-full overflow-hidden"><div className="h-full bg-loss/60 rounded-full" style={{ width: `${v.percentage}%` }} /></div>
+                    <div className="flex justify-between mb-1"><span className="text-sm text-gray-300">{v.rule}</span><span className="text-xs text-gray-500">{v.count}</span></div>
+                    <div className="w-full h-2 bg-white/10 rounded-full overflow-hidden"><div className="h-full bg-loss/60 rounded-full" style={{ width: `${Math.min((v.count / Math.max(...topViolations.map((x: any) => x.count), 1)) * 100, 100)}%` }} /></div>
                   </div>
                 </div>
               ))}
