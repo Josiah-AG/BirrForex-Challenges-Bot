@@ -252,6 +252,8 @@ class TradingChallengeService {
   }
 
   async deleteRegistration(registrationId: number): Promise<void> {
+    await db.query('DELETE FROM wp_leaderboard WHERE registration_id = $1', [registrationId]);
+    await db.query('DELETE FROM wp_leaderboard_staging WHERE registration_id = $1', [registrationId]);
     await db.query('DELETE FROM trading_registrations WHERE id = $1', [registrationId]);
   }
 

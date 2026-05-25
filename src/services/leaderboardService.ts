@@ -45,10 +45,10 @@ export class LeaderboardService {
       );
       offset = parseInt(tier1Count.rows[0].cnt);
 
-      // Tier 2: Haven't started trading (0 trades, not DQ'd) — by registration date ASC
+      // Tier 2: Haven't started trading (0 trades, not DQ'd) — by balance DESC, then registration date ASC
       await db.query(
         `UPDATE wp_leaderboard SET rank = sub.rn FROM (
-          SELECT l.id, (ROW_NUMBER() OVER (ORDER BY r.registered_at ASC)) + $3 as rn
+          SELECT l.id, (ROW_NUMBER() OVER (ORDER BY l.current_balance DESC NULLS LAST, r.registered_at ASC)) + $3 as rn
           FROM wp_leaderboard l
           JOIN trading_registrations r ON l.registration_id = r.id
           WHERE l.challenge_id=$1 AND l.account_type=$2 AND l.is_disqualified=false
