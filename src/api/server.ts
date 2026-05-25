@@ -1539,19 +1539,35 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/failed-accounts`, adminIp
  */
 app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/force-pull`, adminIpCheck, async (req, res) => {
   try {
+    const globalScheduler = (global as any).__vpsPullScheduler;
+    if (globalScheduler) {
+      globalScheduler.runPullCycle().catch((e: any) => console.error('Force pull error:', e));
+      return res.json({ success: true, message: 'Pull cycle started. Watch the progress bar.' });
+    }
+    return res.json({ success: false, message: 'Pull scheduler not initialized yet — try again in a moment' });
+  } catch (error) {
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * POST /api/admin/:secretPath/challenge/:id/force-pull-rank
+ * Trigger a manual pull cycle AND update rankings after completion
+ */
+app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/force-pull-rank`, adminIpCheck, async (req, res) => {
+  try {
     const challengeId = parseInt(req.params.id as string);
     const globalScheduler = (global as any).__vpsPullScheduler;
     if (globalScheduler) {
-      // Run pull cycle, then force flush + rank update after completion
       globalScheduler.runPullCycle().then(async () => {
         try {
           const { leaderboardService } = require('../services/leaderboardService');
           await leaderboardService.flushStagingToLive(challengeId);
           await leaderboardService.ensureAllParticipantsHaveEntries(challengeId);
           await leaderboardService.updateRankings(challengeId);
-          console.log(`✅ Force pull: Rankings updated for challenge ${challengeId}`);
+          console.log(`✅ Force pull + rank: Rankings updated for challenge ${challengeId}`);
         } catch (e) {
-          console.error('Force pull ranking update error:', e);
+          console.error('Force pull rank update error:', e);
         }
       }).catch((e: any) => console.error('Force pull error:', e));
       return res.json({ success: true, message: 'Pull cycle started + rankings will update after completion.' });
