@@ -419,6 +419,56 @@ app.get('/api/challenges/:id/leaderboard', async (req, res) => {
 });
 
 /**
+ * GET /api/challenges/:id/user-trades?nickname=xxx
+ * Returns recent trades for a user (public, for leaderboard detail view)
+ */
+app.get('/api/challenges/:id/user-trades', async (req, res) => {
+  try {
+    const challengeId = parseInt(req.params.id);
+    const nickname = req.query.nickname as string;
+    if (!nickname) return res.json({ trades: [] });
+
+    // Find registration by nickname
+    const reg = await db.query(
+      `SELECT r.id, c.start_date FROM trading_registrations r
+       JOIN trading_challenges c ON r.challenge_id = c.id
+       WHERE r.challenge_id = $1 AND LOWER(r.nickname) = LOWER($2) AND (r.status IS NULL OR r.status != 'removed')`,
+      [challengeId, nickname]
+    );
+    if (reg.rows.length === 0) return res.json({ trades: [] });
+
+    const registrationId = reg.rows[0].id;
+    const startDate = reg.rows[0].start_date;
+
+    // Get trades within challenge period
+    let query = `SELECT symbol, trade_type, volume, profit, commission, swap, close_time, is_qualified, violations
+       FROM wp_trades WHERE challenge_id = $1 AND registration_id = $2`;
+    const params: any[] = [challengeId, registrationId];
+    if (startDate) {
+      const graceStart = new Date(new Date(startDate).getTime() - 3 * 60 * 60 * 1000);
+      query += ` AND close_time >= $3`;
+      params.push(graceStart.toISOString());
+    }
+    query += ` ORDER BY close_time DESC LIMIT 20`;
+
+    const trades = await db.query(query, params);
+
+    return res.json({
+      trades: trades.rows.map((t: any) => ({
+        symbol: t.symbol,
+        type: t.trade_type,
+        volume: parseFloat(t.volume),
+        profit: parseFloat(t.profit) + parseFloat(t.commission || 0) + parseFloat(t.swap || 0),
+        closeTime: t.close_time,
+        isQualified: t.is_qualified,
+      })),
+    });
+  } catch (error) {
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
  * GET /api/me/dashboard
  * Requires auth. Returns the user's personal dashboard data.
  */

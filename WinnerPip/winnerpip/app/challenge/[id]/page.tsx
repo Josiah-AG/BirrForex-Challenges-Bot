@@ -48,6 +48,7 @@ export default function ChallengeDashboard() {
   const [showLeaderboardModal, setShowLeaderboardModal] = useState(false);
   const [showViolationsModal, setShowViolationsModal] = useState(false);
   const [selectedUser, setSelectedUser] = useState<LeaderboardEntry | null>(null);
+  const [selectedUserTrades, setSelectedUserTrades] = useState<any[]>([]);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [showLogin, setShowLogin] = useState(false);
   const [loginAccount, setLoginAccount] = useState("");
@@ -64,6 +65,25 @@ export default function ChallengeDashboard() {
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [leaderboardLoading, setLeaderboardLoading] = useState(false);
   const [challengeRules, setChallengeRules] = useState<string[]>([]);
+
+  // Fetch trades when a user is selected in leaderboard modal
+  useEffect(() => {
+    if (!selectedUser || !selectedUser.nickname || selectedUser.totalTrades === 0) {
+      setSelectedUserTrades([]);
+      return;
+    }
+    const fetchUserTrades = async () => {
+      try {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "";
+        const res = await fetch(`${apiUrl}/api/challenges/${id}/user-trades?nickname=${encodeURIComponent(selectedUser.nickname)}`);
+        if (res.ok) {
+          const data = await res.json();
+          setSelectedUserTrades(data.trades || []);
+        }
+      } catch { setSelectedUserTrades([]); }
+    };
+    fetchUserTrades();
+  }, [selectedUser, id]);
 
   // Check auth on mount
   useEffect(() => {
@@ -773,6 +793,29 @@ export default function ChallengeDashboard() {
                     <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Profit Removed</p><p className="text-sm font-bold text-loss">{formatBalance(selectedUser.profitRemoved, selectedUser.accountType, selectedUser.isCent)}</p></div>
                     <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Account Type</p><p className="text-sm font-bold text-white capitalize">{selectedUser.accountType}</p></div>
                   </div>
+                  {/* Recent Trades */}
+                  {selectedUserTrades.length > 0 && (
+                    <div className="mt-4">
+                      <p className="text-xs font-semibold text-gray-400 mb-2">Recent Trades</p>
+                      <div className="space-y-2">
+                        {selectedUserTrades.slice(0, 5).map((t, i) => (
+                          <div key={i} className="flex items-center justify-between py-2 px-3 bg-white/5 rounded-lg">
+                            <div className="flex items-center gap-2">
+                              <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${t.type?.toLowerCase() === 'buy' ? 'bg-profit/20 text-profit' : 'bg-loss/20 text-loss'}`}>{t.type}</span>
+                              <div>
+                                <p className="text-xs text-white font-medium">{t.symbol}</p>
+                                <p className="text-[10px] text-gray-500">{t.closeTime ? new Date(t.closeTime).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''}</p>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <p className={`text-xs font-bold ${t.profit >= 0 ? 'text-profit' : 'text-loss'}`}>{selectedUser.isCent ? `${t.profit.toFixed(2)}¢` : `$${t.profit.toFixed(2)}`}</p>
+                              <p className="text-[10px] text-gray-500">{t.volume} lot</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </>)}
               </div>
             )}
