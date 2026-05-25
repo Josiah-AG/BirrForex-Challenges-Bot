@@ -115,12 +115,13 @@ async function fetchCandles(symbol: string, fromTime: Date, toTime: Date): Promi
       {
         symbol,
         timeframe: 'M1',
-        from_time: fromTime.toISOString().replace('T', ' ').substring(0, 19),
-        to_time: toTime.toISOString().replace('T', ' ').substring(0, 19),
+        from_time: fromTime.toISOString(),
+        to_time: toTime.toISOString(),
+        api_key: config.vpsApiKey,
         terminal_id: 1,
       },
       {
-        headers: { 'Content-Type': 'application/json', 'X-API-Key': config.vpsApiKey },
+        headers: { 'Content-Type': 'application/json' },
         timeout: 15000,
       }
     );
@@ -558,10 +559,16 @@ export class WpEvaluationEngine {
 
       // Hold time
       if (rules.max_hold_hours) {
-        const holdMs = new Date(trade.close_time).getTime() - new Date(trade.open_time).getTime();
-        const holdHours = holdMs / (1000 * 60 * 60);
-        if (holdHours > rules.max_hold_hours) {
-          violations.push(`Held ${holdHours.toFixed(1)}h exceeds max ${rules.max_hold_hours}h`);
+        if (trade.open_time && trade.close_time) {
+          const openMs = new Date(trade.open_time).getTime();
+          const closeMs = new Date(trade.close_time).getTime();
+          // Only check if both dates are valid and open_time is after year 2000
+          if (openMs > 946684800000 && closeMs > openMs) {
+            const holdHours = (closeMs - openMs) / (1000 * 60 * 60);
+            if (holdHours > rules.max_hold_hours) {
+              violations.push(`Held ${holdHours.toFixed(1)}h exceeds max ${rules.max_hold_hours}h`);
+            }
+          }
         }
       }
 

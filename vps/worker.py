@@ -312,6 +312,11 @@ def do_verify(account: int, server: str, password: str) -> dict:
         "equity": account_info.equity,
         "server": account_info.server,
         "currency": account_info.currency,
+        "leverage": account_info.leverage,
+        "margin_free": account_info.margin_free,
+        "profit": account_info.profit,
+        "login": account_info.login,
+        "trade_mode": account_info.trade_mode,
         "terminal_id": TERMINAL_ID,
     }
 
@@ -338,10 +343,24 @@ def do_pull(account: int, server: str, password: str, from_date: str = None) -> 
 
     date_to = datetime.now(timezone.utc)
 
-    # Fetch deals
+    # Fetch deals (all trade history)
     trades_raw = mt5.history_deals_get(date_from, date_to)
     trades_list = []
     deals_list = []
+
+    # Fetch orders (provides SL, TP, open_time)
+    orders_raw = mt5.history_orders_get(date_from, date_to)
+    orders_by_position = {}
+    if orders_raw is not None:
+        for order in orders_raw:
+            pos_id = order.position_id
+            if pos_id and pos_id not in orders_by_position:
+                orders_by_position[pos_id] = {
+                    "sl": order.sl,
+                    "tp": order.tp,
+                    "open_time": datetime.fromtimestamp(order.time_setup, tz=timezone.utc).isoformat() if order.time_setup else None,
+                    "open_price": order.price_open,
+                }
 
     if trades_raw is not None:
         for deal in trades_raw:
@@ -365,18 +384,38 @@ def do_pull(account: int, server: str, password: str, from_date: str = None) -> 
 
             if deal.entry == 1 and deal.symbol:
                 trade_type = "Buy" if deal.type == 0 else "Sell" if deal.type == 1 else "Other"
+                pos_id = deal.position_id or deal.ticket
+                order_info = orders_by_position.get(pos_id, {})
                 trades_list.append({
-                    "ticket": deal.position_id or deal.ticket,
+                    "ticket": pos_id,
                     "symbol": deal.symbol,
                     "type": trade_type,
                     "volume": deal.volume,
+                    "open_time": order_info.get("open_time"),
                     "close_time": datetime.fromtimestamp(deal.time, tz=timezone.utc).isoformat(),
+                    "open_price": order_info.get("open_price", deal.price),
                     "close_price": deal.price,
+                    "stop_loss": order_info.get("sl", 0),
+                    "take_profit": order_info.get("tp", 0),
                     "profit": deal.profit,
                     "commission": deal.commission,
                     "swap": deal.swap,
                     "comment": deal.comment,
                 })
+
+    # Fallback: match open times from entry==0 deals if orders didn't provide them
+    open_times = {}
+    open_prices = {}
+    for deal_dict in deals_list:
+        if deal_dict["entry"] == 0 and deal_dict.get("position_id"):
+            open_times[deal_dict["position_id"]] = deal_dict["time"]
+            open_prices[deal_dict["position_id"]] = deal_dict["price"]
+
+    for trade in trades_list:
+        if not trade.get("open_time"):
+            trade["open_time"] = open_times.get(trade["ticket"])
+        if not trade.get("open_price") or trade["open_price"] == trade.get("close_price"):
+            trade["open_price"] = open_prices.get(trade["ticket"], trade.get("close_price", 0))
 
     return {
         "success": True,
@@ -387,6 +426,53 @@ def do_pull(account: int, server: str, password: str, from_date: str = None) -> 
         "deals": deals_list,
         "terminal_id": TERMINAL_ID,
     }
+
+
+# ==================== CANDLES ====================
+
+def do_candles(symbol: str, timeframe: str, from_time: str, to_time: str) -> dict:
+    """Fetch OHLC candle data for a symbol. Uses the base account (already logged in)."""
+    import MetaTrader5 as mt5
+
+    # Map timeframe string to MT5 constant
+    tf_map = {
+        "M1": mt5.TIMEFRAME_M1,
+        "M5": mt5.TIMEFRAME_M5,
+        "M15": mt5.TIMEFRAME_M15,
+        "H1": mt5.TIMEFRAME_H1,
+        "H4": mt5.TIMEFRAME_H4,
+        "D1": mt5.TIMEFRAME_D1,
+    }
+    tf = tf_map.get(timeframe, mt5.TIMEFRAME_M1)
+
+    try:
+        date_from = datetime.fromisoformat(from_time.replace("Z", "+00:00").replace(" ", "T"))
+        date_to = datetime.fromisoformat(to_time.replace("Z", "+00:00").replace(" ", "T"))
+    except:
+        return {"success": False, "message": "Invalid date format"}
+
+    # Restore base account for candle data (candles don't need user login)
+    if not _ipc_connected:
+        if not mt5.initialize(TERMINAL_PATH):
+            return {"success": False, "message": "MT5 not initialized"}
+
+    rates = mt5.copy_rates_range(symbol, tf, date_from, date_to)
+
+    if rates is None or len(rates) == 0:
+        return {"success": False, "message": f"No candle data for {symbol}", "candles": []}
+
+    candles = []
+    for rate in rates:
+        candles.append({
+            "time": datetime.fromtimestamp(rate[0], tz=timezone.utc).isoformat(),
+            "open": float(rate[1]),
+            "high": float(rate[2]),
+            "low": float(rate[3]),
+            "close": float(rate[4]),
+            "volume": int(rate[5]),
+        })
+
+    return {"success": True, "candles": candles, "count": len(candles)}
 
 
 # ==================== MODELS ====================
@@ -404,6 +490,15 @@ class PullRequest(BaseModel):
     password: str
     api_key: str
     from_date: Optional[str] = None
+
+
+class CandlesRequest(BaseModel):
+    symbol: str
+    timeframe: str = "M1"
+    from_time: str
+    to_time: str
+    api_key: str
+    terminal_id: Optional[int] = None
 
 
 # ==================== ENDPOINTS ====================
@@ -445,6 +540,17 @@ def pull(req: PullRequest):
         result = do_pull(account_number, req.server, req.password, req.from_date)
 
     _schedule_idle_restore()
+    return result
+
+
+@app.post("/candles")
+def candles(req: CandlesRequest):
+    if req.api_key != API_KEY:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+
+    with _lock:
+        result = do_candles(req.symbol, req.timeframe, req.from_time, req.to_time)
+
     return result
 
 

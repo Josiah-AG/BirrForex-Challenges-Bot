@@ -102,6 +102,15 @@ class PullRequest(BaseModel):
     from_date: Optional[str] = None
 
 
+class CandlesRequest(BaseModel):
+    symbol: str
+    timeframe: str = "M1"
+    from_time: str
+    to_time: str
+    api_key: str
+    terminal_id: Optional[int] = None
+
+
 # ==================== ENDPOINTS ====================
 
 @app.get("/health")
@@ -336,6 +345,39 @@ async def pull(req: PullRequest):
         "terminals_tried": len(tried_terminals),
         "terminal_used": current_terminal,
     }
+
+
+# ==================== CANDLES ENDPOINT ====================
+
+@app.post("/api/v1/candles")
+async def get_candles(req: CandlesRequest):
+    """Fetch M1 candle data — routes to any healthy worker."""
+    if req.api_key != API_KEY:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+
+    # Pick a healthy worker (any will do — candles use base account)
+    wid = req.terminal_id if req.terminal_id and 1 <= req.terminal_id <= NUM_WORKERS else 1
+    for i in range(NUM_WORKERS):
+        candidate = ((wid - 1 + i) % NUM_WORKERS) + 1
+        if worker_healthy[candidate - 1]:
+            wid = candidate
+            break
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                f"{worker_url(wid)}/candles",
+                json={
+                    "symbol": req.symbol,
+                    "timeframe": req.timeframe,
+                    "from_time": req.from_time,
+                    "to_time": req.to_time,
+                    "api_key": req.api_key,
+                },
+            )
+            return resp.json()
+    except Exception as e:
+        return {"success": False, "message": f"Candles fetch error: {str(e)[:200]}"}
 
 
 # ==================== STARTUP ====================

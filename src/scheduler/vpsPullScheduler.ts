@@ -890,6 +890,47 @@ export class VpsPullScheduler {
       [challengeId]
     ).catch(() => {});
 
+    // Check if we should exclude late depositors (0 balance, 0 trades, not enough days left)
+    let lateExcludeIds: number[] = [];
+    try {
+      const challengeInfo = await db.query(
+        `SELECT end_date FROM trading_challenges WHERE id = $1`, [challengeId]);
+      const rulesInfo = await db.query(
+        `SELECT parameters FROM wp_challenge_rules WHERE challenge_id = $1 AND rule_code = 'config'`, [challengeId]);
+      const minActiveDays = rulesInfo.rows[0]?.parameters?.min_active_days || 0;
+      const endDate = challengeInfo.rows[0]?.end_date;
+
+      if (minActiveDays > 0 && endDate) {
+        // Calculate trading days remaining (weekdays only)
+        const now = new Date();
+        const end = new Date(endDate);
+        let tradingDaysLeft = 0;
+        const d = new Date(now);
+        while (d <= end) {
+          const day = d.getDay();
+          if (day !== 0 && day !== 6) tradingDaysLeft++;
+          d.setDate(d.getDate() + 1);
+        }
+
+        // If not enough days left, find users with 0 trades + 0 balance (haven't deposited)
+        if (tradingDaysLeft < minActiveDays) {
+          const lateUsers = await db.query(
+            `SELECT r.id FROM trading_registrations r
+             LEFT JOIN wp_leaderboard l ON r.id = l.registration_id
+             WHERE r.challenge_id = $1 AND r.disqualified = false
+               AND (l.total_trades = 0 OR l.total_trades IS NULL)
+               AND (l.current_balance IS NULL OR l.current_balance <= 0)
+               AND r.actual_starting_balance IS NULL`,
+            [challengeId]
+          );
+          lateExcludeIds = lateUsers.rows.map((r: any) => r.id);
+          if (lateExcludeIds.length > 0) {
+            console.log(`⏰ VPS Pull: Excluding ${lateExcludeIds.length} late depositors (${tradingDaysLeft} days left < ${minActiveDays} min required)`);
+          }
+        }
+      }
+    } catch {}
+
     const result = await db.query(
       `SELECT r.id, r.account_number, r.mt5_server, r.investor_password, r.telegram_id, r.username, r.nickname
        FROM trading_registrations r
@@ -902,7 +943,11 @@ export class VpsPullScheduler {
        ORDER BY r.id`,
       [challengeId]
     );
-    return result.rows.map((r: any) => ({
+
+    // Filter out late depositors
+    const accounts = result.rows.filter((r: any) => !lateExcludeIds.includes(r.id));
+
+    return accounts.map((r: any) => ({
       registrationId: r.id,
       accountNumber: r.account_number,
       server: r.mt5_server,

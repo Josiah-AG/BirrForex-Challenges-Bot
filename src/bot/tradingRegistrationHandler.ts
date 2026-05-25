@@ -934,6 +934,7 @@ export class TradingRegistrationHandler {
       const startingBalance = Number(challenge?.starting_balance || 30);
       const targetBalance = Number(challenge?.target_balance || 60);
       const vpsBalance = result.balance || 0;
+      const vpsCurrency = (result.currency || '').toUpperCase();
 
       // For cent accounts: balance is shown in cents (×100), convert for comparison
       const { evaluationEngine: wpEngine } = require('../services/wpEvaluationEngine');
@@ -942,14 +943,13 @@ export class TradingRegistrationHandler {
       const challengeInfo = await tradingChallengeService.getChallengeById(session.data.challenge_id);
       const challengeType = challengeInfo?.type || 'real';
 
-      // Detect cent account:
-      // - If only_cent_account ON + real type: admin entered in cent terms, VPS is in cents, no conversion
-      // - If only_cent_account ON + hybrid type: admin entered in $ terms, VPS is in cents, need conversion
-      // - If only_cent_account OFF + balance > starting*5: user chose cent account voluntarily
+      // Detect cent account by currency (USC = US Cent)
+      // Fallback to balance heuristic only if currency not available
       let isCentAccount = false;
-      if (onlyCent && account_type === 'real') {
+      if (vpsCurrency === 'USC' || vpsCurrency === 'USCENT') {
         isCentAccount = true;
-      } else if (!onlyCent && account_type === 'real' && vpsBalance > startingBalance * 5) {
+      } else if (!vpsCurrency && account_type === 'real' && vpsBalance > startingBalance * 5) {
+        // Fallback heuristic only when VPS doesn't return currency
         isCentAccount = true;
       }
 
@@ -1001,10 +1001,25 @@ export class TradingRegistrationHandler {
 
       // === REAL ACCOUNT: flexible balance rules ===
 
-      // Check cent account requirement — for cent-only challenges, we already set isCentAccount=true above
-      // No need to re-check; the user is on a cent-only challenge so their account IS cent by requirement
-      // (The old heuristic `balance > startingBalance * 5` was wrong for cent-only challenges
-      //  where admin enters values in cent terms)
+      // Check cent account requirement — reject standard accounts in cent-only challenges
+      if (onlyCent && account_type === 'real' && !isCentAccount) {
+        session.step = 'tc_enter_account_number';
+        await ctx.reply(
+          '❌ <b>Only Cent Accounts Allowed</b>\n\n' +
+          'This challenge requires a <b>Cent Account</b> (currency: USC).\n\n' +
+          'Your account appears to be a Standard account (currency: USD).\n\n' +
+          '📋 <b>How to create a Cent Account:</b>\n' +
+          '1. Open Exness → My Accounts\n' +
+          '2. Create New Account → Choose "Standard Cent"\n' +
+          '3. Select MT5 platform\n' +
+          '4. Fund the account\n\n' +
+          'Once ready, submit your cent account:',
+          { parse_mode: 'HTML', ...Markup.inlineKeyboard([
+            [Markup.button.callback('📝 Submit Cent Account', `tc_new_real_acct_${session.data.challenge_id}`)],
+          ]) }
+        );
+        return;
+      }
 
       // Balance checks for real accounts — use pre-computed values
       const balanceDisplay = isCentAccount ? `${vpsBalance}¢` : `$${vpsBalance.toFixed(2)}`;
