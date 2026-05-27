@@ -186,12 +186,13 @@ export class WpEvaluationEngine {
       return this.evaluate(challengeId);
     }
 
-    const challenge = await db.query(`SELECT starting_balance, target_balance FROM trading_challenges WHERE id = $1`, [challengeId]);
+    const challenge = await db.query(`SELECT starting_balance, target_balance, type FROM trading_challenges WHERE id = $1`, [challengeId]);
     const startingBalance = parseFloat(challenge.rows[0]?.starting_balance || 30);
     const targetBalance = parseFloat(challenge.rows[0]?.target_balance || 60);
+    const challengeType = challenge.rows[0]?.type;
 
     const registrations = await db.query(
-      `SELECT id, account_number, telegram_id, username, nickname, account_type
+      `SELECT id, account_number, telegram_id, username, nickname, account_type, is_cent
        FROM trading_registrations WHERE challenge_id = $1 AND disqualified = false AND investor_password IS NOT NULL`,
       [challengeId]
     );
@@ -200,29 +201,30 @@ export class WpEvaluationEngine {
     let totalQualified = 0;
 
     for (const reg of registrations.rows) {
-      // For hybrid challenges with only_cent_account, convert rules for real/cent accounts
+      // Determine if conversion is needed for this user
+      // Rule: Admin enters in CENT terms ONLY for "Real + cent-only" challenges.
+      // All other scenarios: admin enters in STANDARD terms.
+      // Convert ×100 when: user is cent AND challenge is NOT "real + cent-only"
       let effectiveRules = rules;
       let effectiveStartBalance = startingBalance;
       let effectiveTargetBalance = targetBalance;
 
-      if (rules.only_cent_account && reg.account_type === 'real') {
-        // Check if this is a hybrid challenge (rules entered in standard, need conversion)
-        const challengeTypeResult = await db.query('SELECT type FROM trading_challenges WHERE id = $1', [challengeId]);
-        const challengeType = challengeTypeResult.rows[0]?.type;
+      const userIsCent = reg.is_cent || false;
+      const isRealCentOnly = challengeType === 'real' && rules.only_cent_account;
 
-        if (challengeType === 'hybrid') {
-          // Hybrid: admin entered rules in standard perspective, convert to cent (×100)
-          effectiveRules = {
-            ...rules,
-            max_lot_size: rules.max_lot_size ? rules.max_lot_size * 100 : null,
-            max_risk_dollars: rules.max_risk_dollars ? rules.max_risk_dollars * 100 : null,
-            daily_loss_cap: rules.daily_loss_cap ? rules.daily_loss_cap * 100 : null,
-          };
-          effectiveStartBalance = startingBalance * 100;
-          effectiveTargetBalance = targetBalance * 100;
-        }
-        // For real-only challenges: admin already entered in cent values, use as-is
+      if (userIsCent && !isRealCentOnly) {
+        // User is cent but admin entered in standard terms → convert ×100
+        effectiveRules = {
+          ...rules,
+          max_lot_size: rules.max_lot_size ? rules.max_lot_size * 100 : null,
+          max_risk_dollars: rules.max_risk_dollars ? rules.max_risk_dollars * 100 : null,
+          daily_loss_cap: rules.daily_loss_cap ? rules.daily_loss_cap * 100 : null,
+        };
+        effectiveStartBalance = startingBalance * 100;
+        effectiveTargetBalance = targetBalance * 100;
       }
+      // If isRealCentOnly: admin entered in cent terms, all users are cent → no conversion
+      // If user is NOT cent: admin entered in standard terms → no conversion
 
       const result = await this.evaluateAccount(challengeId, reg, effectiveRules, effectiveStartBalance, effectiveTargetBalance);
       totalFlagged += result.flaggedCount;
@@ -265,28 +267,18 @@ export class WpEvaluationEngine {
     const reg = regResult.rows[0];
     const userIsCent = reg.is_cent || false;
 
-    // For hybrid challenges with only_cent_account, convert rules for real/cent accounts
-    // Also for per-user cent detection (when only_cent_account is OFF but user has cent account)
+    // Determine if conversion is needed for this user
+    // Rule: Admin enters in CENT terms ONLY for "Real + cent-only" challenges.
+    // All other scenarios: admin enters in STANDARD terms.
+    // Convert ×100 when: user is cent AND challenge is NOT "real + cent-only"
     let effectiveRules = rules;
     let effectiveStartBalance = startingBalance;
     let effectiveTargetBalance = targetBalance;
 
-    if (rules.only_cent_account && reg.account_type === 'real') {
-      if (challengeType === 'hybrid') {
-        // Hybrid + cent-only: admin entered in standard, convert to cent
-        effectiveRules = {
-          ...rules,
-          max_lot_size: rules.max_lot_size ? rules.max_lot_size * 100 : null,
-          max_risk_dollars: rules.max_risk_dollars ? rules.max_risk_dollars * 100 : null,
-          daily_loss_cap: rules.daily_loss_cap ? rules.daily_loss_cap * 100 : null,
-        };
-        effectiveStartBalance = startingBalance * 100;
-        effectiveTargetBalance = targetBalance * 100;
-      }
-      // Real-only + cent-only: admin already entered in cent terms, no conversion
-    } else if (!rules.only_cent_account && userIsCent && reg.account_type === 'real') {
-      // Per-user cent detection: user chose cent account in a standard challenge
-      // Admin entered rules in $ terms, convert to cent for this user
+    const isRealCentOnly = challengeType === 'real' && rules.only_cent_account;
+
+    if (userIsCent && !isRealCentOnly) {
+      // User is cent but admin entered in standard terms → convert ×100
       effectiveRules = {
         ...rules,
         max_lot_size: rules.max_lot_size ? rules.max_lot_size * 100 : null,
@@ -296,6 +288,8 @@ export class WpEvaluationEngine {
       effectiveStartBalance = startingBalance * 100;
       effectiveTargetBalance = targetBalance * 100;
     }
+    // If isRealCentOnly: admin entered in cent terms, all users are cent → no conversion
+    // If user is NOT cent: admin entered in standard terms → no conversion
 
     return this.evaluateAccount(challengeId, reg, effectiveRules, effectiveStartBalance, effectiveTargetBalance);
   }
@@ -744,11 +738,21 @@ export class WpEvaluationEngine {
     // Get challenge type to determine display format
     const challengeResult = await db.query('SELECT type FROM trading_challenges WHERE id = $1', [challengeId]);
     const challengeType = challengeResult.rows[0]?.type || 'demo';
-    const isHybrid = challengeType === 'hybrid';
+
+    // Determine display mode:
+    // - "cent_only": Real + cent-only → admin entered in cent terms, display in ¢
+    // - "dual": Flexible (real or hybrid) where cent users may exist → show both $ and ¢
+    // - "standard": Demo only or no cent possibility → display in $
+    const isRealCentOnly = challengeType === 'real' && isCent;
+    const isFlexibleWithCent = !isRealCentOnly && (challengeType === 'real' || challengeType === 'hybrid');
+    // Show dual format when: hybrid (always has potential for cent in real category) OR real+flexible
+    const showDual = isFlexibleWithCent && (isCent || challengeType === 'hybrid' || challengeType === 'real');
 
     if (cfg.max_lot_size) {
-      if (isHybrid && isCent) {
-        rules.push(`📊 Maximum lot size: ${cfg.max_lot_size} (Standard) / ${cfg.max_lot_size * 100} lots (Cent)`);
+      if (showDual) {
+        rules.push(`📊 Maximum lot size: ${cfg.max_lot_size} lots (Standard) / ${cfg.max_lot_size * 100} lots (Cent)`);
+      } else if (isRealCentOnly) {
+        rules.push(`📊 Maximum lot size: ${cfg.max_lot_size} lots`);
       } else {
         rules.push(`📊 Maximum lot size: ${cfg.max_lot_size} lots`);
       }
@@ -758,9 +762,9 @@ export class WpEvaluationEngine {
     if (cfg.stop_loss_required) {
       let t = '🛡️ Stop loss required on all trades';
       if (cfg.max_risk_dollars) {
-        if (isHybrid && isCent) {
+        if (showDual) {
           t += ` (max risk: $${cfg.max_risk_dollars} Standard / ${cfg.max_risk_dollars * 100}¢ Cent)`;
-        } else if (isCent && challengeType === 'real') {
+        } else if (isRealCentOnly) {
           t += ` (max risk: ${cfg.max_risk_dollars}¢)`;
         } else {
           t += ` (max risk: $${cfg.max_risk_dollars})`;
@@ -769,9 +773,9 @@ export class WpEvaluationEngine {
       rules.push(t);
     }
     if (cfg.daily_loss_cap) {
-      if (isHybrid && isCent) {
+      if (showDual) {
         rules.push(`⚠️ Daily loss cap: $${cfg.daily_loss_cap} (Standard) / ${cfg.daily_loss_cap * 100}¢ (Cent) from day's opening balance`);
-      } else if (isCent && challengeType === 'real') {
+      } else if (isRealCentOnly) {
         rules.push(`⚠️ Daily loss cap: ${cfg.daily_loss_cap}¢ from day's opening balance`);
       } else {
         rules.push(`⚠️ Daily loss cap: $${cfg.daily_loss_cap} from day's opening balance`);
@@ -781,7 +785,7 @@ export class WpEvaluationEngine {
     if (!cfg.weekend_trading) rules.push('🚫 No weekend trading');
     if (cfg.min_active_days) rules.push(`📅 Minimum ${cfg.min_active_days} active trading days to qualify`);
     if (isCent) {
-      if (challengeType === 'real') {
+      if (isRealCentOnly) {
         rules.push('💰 Cent account only');
       } else {
         rules.push('💰 Only cent accounts allowed for real account category');

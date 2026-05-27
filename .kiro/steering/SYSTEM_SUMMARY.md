@@ -366,3 +366,39 @@ start_vps.bat
 5. **Admin panel "Find User" search** — trades shown there don't filter by challenge period.
 
 6. **Client leaderboard modal** — trades only show for users who have trades within challenge period. If trades exist but are pre-challenge, nothing shows.
+
+
+## RULES SYSTEM — Correct Logic (Updated May 25, 2026)
+
+### Admin Input Context:
+| Scenario | Admin enters in |
+|----------|----------------|
+| Demo only | Standard ($) |
+| Real + cent-only | Cent (¢) |
+| Real + flexible | Standard ($) |
+| Hybrid + cent-only | Standard ($) |
+| Hybrid + flexible | Standard ($) |
+
+### Evaluation Engine Conversion:
+Convert ×100 ONLY when: `user.is_cent = true` AND challenge is NOT "Real + cent-only"
+
+| Scenario | User is cent? | Conversion |
+|----------|--------------|------------|
+| Demo only | No | None |
+| Real + cent-only | Yes | None (admin entered in ¢) |
+| Real + flexible | Yes | ×100 |
+| Real + flexible | No | None |
+| Hybrid + cent-only (real user) | Yes | ×100 |
+| Hybrid + cent-only (demo user) | No | None |
+| Hybrid + flexible (cent user) | Yes | ×100 |
+| Hybrid + flexible (standard/demo) | No | None |
+
+### Display Logic:
+- **Real + cent-only**: Show in ¢ only (e.g., "max risk: 500¢")
+- **Demo only / Standard only**: Show in $ only (e.g., "max risk: $5")
+- **Flexible or Hybrid with cent possibility**: Show dual (e.g., "max risk: $5 Standard / 500¢ Cent")
+
+### Key Code Location:
+- Conversion: `wpEvaluationEngine.ts` → `evaluateSingleAccount()` and `evaluate()`
+- Display: `wpEvaluationEngine.ts` → `getRulesForDisplay()`
+- `isRealCentOnly = challengeType === 'real' && rules.only_cent_account`
