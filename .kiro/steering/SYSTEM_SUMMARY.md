@@ -284,3 +284,85 @@ start_vps.bat
 ### VPS Pull Scheduler:
 - Checks `wp_leaderboard_staging` on startup for interrupted cycles
 - If staging has data, resumes pulling remaining accounts
+
+
+## SESSION LOG — May 24-25, 2026
+
+### Changes Made This Session:
+
+**Cent Account Detection (CRITICAL FIX):**
+- VPS worker now returns `currency` field (`USC` = cent, `USD` = standard)
+- All detection points use `currency` from VPS — no more balance heuristics
+- Cent-only challenges reject standard accounts (currency != USC)
+- `is_cent` saved on registration and updated on shield verify
+
+**VPS Pull — Complete Trade Data:**
+- Worker now calls `mt5.history_orders_get()` in addition to `mt5.history_deals_get()`
+- Trades include: `open_time` (from order's time_setup), `stop_loss`, `take_profit`, `open_price`, `close_price`
+- Fallback: if orders don't have data, matches from entry==0 deals by position_id
+- Verify returns: `currency`, `leverage`, `margin_free`, `profit`, `login`, `trade_mode`
+
+**VPS Candles Endpoint (NEW):**
+- `/candles` endpoint on worker: calls `mt5.copy_rates_range()` for M1 OHLC data
+- `/api/v1/candles` on router: routes to any healthy worker
+- Evaluation engine's `fetchCandles` now sends `api_key` in body (matches VPS format)
+- Fake SL detection will now work (previously endpoint didn't exist)
+
+**Ranking System (CHANGED):**
+- Tier 1: Balance > 0 (traded or not) — by `adjusted_balance DESC`, `total_trades DESC`
+- Tier 2: Blown (balance ≤ 0) — by `zero_balance_at DESC` (most recent = higher)
+- Tier 3: DQ — by `disqualified_at DESC` (most recent = higher)
+- Cleanup: removes leaderboard entries for removed/deleted registrations before ranking
+
+**Hold Time Check Fix:**
+- Validates `open_time` exists and is valid (after year 2000) before calculating
+- Previously: NULL open_time → epoch → 56 years hold time → false violation
+
+**SL Risk Tolerance:**
+- Standard: +$0.50 buffer (flags at $5.51+ if limit is $5)
+- Cent: +20¢ buffer (flags at 121¢+ if limit is 100¢)
+
+**Admin Panel Fixes:**
+- Violations tab: fetches from API (was hardcoded empty), expandable per-user with trade details
+- Top Rule Violations on overview: derives from actual violation data
+- "AVG RR" column → "Profit" column with proper ¢/$ display
+- Total Balance shows ¢ for cent-only challenges
+- Three pull buttons: Force Pull | Pull + Update Rankings | Full Pull + Evaluate + Rank
+- Leaderboard filters out removed registrations
+- VPS Health deep check: tests login on each terminal individually
+
+**Client Dashboard Fixes:**
+- Profit/Balance cards use `formatBalance()` (respects per-user cent)
+- Leaderboard user detail modal: fetches and shows "Recent Trades" (symbol, type, profit, date)
+- Trades query uses challenge period date filter
+
+**Discord Bot Fixes:**
+- Registration deadline removed (registration open until status changes to active)
+- Cent-only check uses VPS `currency` field
+- `!lastchance <id>` command + auto-trigger (1 day before start, 08:00 EAT)
+- Restart session persistence (24h window, proactive DM on startup)
+- `handle_registration_message` no longer intercepts all DMs
+
+**Telegram Bot Fixes:**
+- Zero balance message simplified: "Please deposit before the challenge starts"
+- Cent-only rejection uses VPS `currency` field
+- Session persistence to disk + proactive restart DMs
+- Old "wait for DM" restart handler removed
+
+**Scheduler Fixes:**
+- Discord challenges: skip ALL Telegram posts (countdowns, daily, start, end, engagement)
+- Discord first day / last day / end messages fire via webhook or bot polling
+
+### Known Issues / Flaws to Fix Next Session:
+
+1. **Trades not showing for users on client dashboard** — The `wp_trades` table has trades but they may not be linked to the correct `registration_id` if user re-registered. Need to verify data integrity.
+
+2. **Evaluation may not be running correctly** — Bella FX shows 5 trades/5 flagged but balance didn't change. Need to verify the evaluation is actually computing profit from trades within challenge period.
+
+3. **VPS needs restart** — The candles endpoint and full trade data (open_time, SL, TP) require VPS restart with new code. After restart, hit "Full Pull + Evaluate + Rank" to re-sync.
+
+4. **Some users still show $ instead of ¢** — Legacy registrations before currency fix. Shield verify updates them one by one. Could add a bulk update.
+
+5. **Admin panel "Find User" search** — trades shown there don't filter by challenge period.
+
+6. **Client leaderboard modal** — trades only show for users who have trades within challenge period. If trades exist but are pre-challenge, nothing shows.
