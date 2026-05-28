@@ -27,14 +27,16 @@ export interface TradingChallenge {
 export interface TradingRegistration {
   id: number;
   challenge_id: number;
-  telegram_id: number;
+  user_id: number;
   username: string | null;
   nickname: string | null;
   account_type: 'demo' | 'real';
+  account_subtype: string;
   email: string;
   account_number: string;
   mt5_server: string | null;
   client_uid: string | null;
+  source: string;
   status: string;
   partner_status: string | null;
   partner_warned_at: Date | null;
@@ -171,7 +173,7 @@ class TradingChallengeService {
 
   async registerUser(data: {
     challenge_id: number;
-    telegram_id: number;
+    user_id: number;
     username: string | null;
     nickname?: string | null;
     account_type: 'demo' | 'real';
@@ -179,26 +181,27 @@ class TradingChallengeService {
     account_number: string;
     mt5_server: string | null;
     client_uid: string | null;
+    source?: string;
   }): Promise<TradingRegistration> {
     const result = await db.query(
       `INSERT INTO trading_registrations
-       (challenge_id, telegram_id, username, nickname, account_type, email, account_number, mt5_server, client_uid)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       (challenge_id, user_id, username, nickname, account_type, email, account_number, mt5_server, client_uid, source)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        RETURNING *`,
       [
-        data.challenge_id, data.telegram_id, data.username,
+        data.challenge_id, data.user_id, data.username,
         data.nickname || null,
         data.account_type, data.email, data.account_number,
-        data.mt5_server, data.client_uid,
+        data.mt5_server, data.client_uid, data.source || 'telegram',
       ]
     );
     return result.rows[0];
   }
 
-  async getRegistration(challengeId: number, telegramId: number): Promise<TradingRegistration | null> {
+  async getRegistration(challengeId: number, userId: number): Promise<TradingRegistration | null> {
     const result = await db.query(
-      'SELECT * FROM trading_registrations WHERE challenge_id = $1 AND telegram_id = $2',
-      [challengeId, telegramId]
+      'SELECT * FROM trading_registrations WHERE challenge_id = $1 AND user_id = $2',
+      [challengeId, userId]
     );
     return result.rows[0] || null;
   }
@@ -321,7 +324,7 @@ class TradingChallengeService {
 
   async getSubmissions(challengeId: number): Promise<(TradingSubmission & TradingRegistration)[]> {
     const result = await db.query(
-      `SELECT s.*, r.telegram_id, r.username, r.account_type, r.email, r.account_number, r.mt5_server
+      `SELECT s.*, r.user_id, r.username, r.account_type, r.email, r.account_number, r.mt5_server
        FROM trading_submissions s
        JOIN trading_registrations r ON s.registration_id = r.id
        WHERE s.challenge_id = $1
@@ -333,7 +336,7 @@ class TradingChallengeService {
 
   async getSubmissionsByCategory(challengeId: number, category: 'demo' | 'real'): Promise<(TradingSubmission & TradingRegistration)[]> {
     const result = await db.query(
-      `SELECT s.*, r.telegram_id, r.username, r.account_type, r.email, r.account_number, r.mt5_server
+      `SELECT s.*, r.user_id, r.username, r.account_type, r.email, r.account_number, r.mt5_server
        FROM trading_submissions s
        JOIN trading_registrations r ON s.registration_id = r.id
        WHERE s.challenge_id = $1 AND r.account_type = $2
@@ -375,9 +378,9 @@ class TradingChallengeService {
     return result.rows[0];
   }
 
-  async getWinners(challengeId: number): Promise<(TradingWinner & { username: string; email: string; account_number: string; account_type: string; final_balance: number; telegram_id: number })[]> {
+  async getWinners(challengeId: number): Promise<(TradingWinner & { username: string; email: string; account_number: string; account_type: string; final_balance: number; user_id: number })[]> {
     const result = await db.query(
-      `SELECT w.*, r.username, r.email, r.account_number, r.account_type, r.telegram_id, s.final_balance
+      `SELECT w.*, r.username, r.email, r.account_number, r.account_type, r.user_id, s.final_balance
        FROM trading_winners w
        JOIN trading_registrations r ON w.registration_id = r.id
        LEFT JOIN trading_submissions s ON s.registration_id = r.id
@@ -440,27 +443,27 @@ class TradingChallengeService {
 
   // ==================== FAILED ATTEMPTS ====================
 
-  async logFailedAttempt(challengeId: number, telegramId: number, username: string | null, email: string | null, failureType: string): Promise<void> {
+  async logFailedAttempt(challengeId: number, userId: number, username: string | null, email: string | null, failureType: string): Promise<void> {
     await db.query(
       `INSERT INTO trading_failed_attempts (challenge_id, telegram_id, username, email, failure_type, attempted_at, engaged)
        VALUES ($1, $2, $3, $4, $5, NOW(), false)
        ON CONFLICT (challenge_id, telegram_id)
        DO UPDATE SET failure_type = $5, email = COALESCE($4, trading_failed_attempts.email), username = COALESCE($3, trading_failed_attempts.username), attempted_at = NOW(), engaged = false`,
-      [challengeId, telegramId, username, email, failureType]
+      [challengeId, userId, username, email, failureType]
     );
   }
 
-  async markConverted(challengeId: number, telegramId: number): Promise<void> {
+  async markConverted(challengeId: number, userId: number): Promise<void> {
     await db.query(
       `UPDATE trading_failed_attempts SET converted = true, converted_at = NOW() WHERE challenge_id = $1 AND telegram_id = $2`,
-      [challengeId, telegramId]
+      [challengeId, userId]
     );
   }
 
   async getEngageableFailedAttempts(challengeId: number): Promise<any[]> {
     const result = await db.query(
       `SELECT fa.* FROM trading_failed_attempts fa
-       LEFT JOIN trading_registrations tr ON fa.challenge_id = tr.challenge_id AND fa.telegram_id = tr.telegram_id
+       LEFT JOIN trading_registrations tr ON fa.challenge_id = tr.challenge_id AND fa.telegram_id = tr.user_id
        WHERE fa.challenge_id = $1
        AND fa.attempted_at < NOW() - INTERVAL '24 hours'
        AND tr.id IS NULL
@@ -477,7 +480,7 @@ class TradingChallengeService {
     const interval = isLast3Days ? '24 hours' : '48 hours';
     const result = await db.query(
       `SELECT fa.* FROM trading_failed_attempts fa
-       LEFT JOIN trading_registrations tr ON fa.challenge_id = tr.challenge_id AND fa.telegram_id = tr.telegram_id
+       LEFT JOIN trading_registrations tr ON fa.challenge_id = tr.challenge_id AND fa.telegram_id = tr.user_id
        WHERE fa.challenge_id = $1
        AND tr.id IS NULL
        AND fa.converted = false
@@ -497,7 +500,7 @@ class TradingChallengeService {
       `SELECT fa.*, 
        CASE WHEN tr.id IS NOT NULL THEN true ELSE false END as later_registered
        FROM trading_failed_attempts fa
-       LEFT JOIN trading_registrations tr ON fa.challenge_id = tr.challenge_id AND fa.telegram_id = tr.telegram_id
+       LEFT JOIN trading_registrations tr ON fa.challenge_id = tr.challenge_id AND fa.telegram_id = tr.user_id
        WHERE fa.challenge_id = $1
        ORDER BY fa.attempted_at DESC`,
       [challengeId]
@@ -505,12 +508,12 @@ class TradingChallengeService {
     return result.rows;
   }
 
-  async markEngaged(challengeId: number, telegramId: number, successful: boolean): Promise<void> {
+  async markEngaged(challengeId: number, userId: number, successful: boolean): Promise<void> {
     await db.query(
       `UPDATE trading_failed_attempts 
        SET engaged = true, engage_count = engage_count + 1, last_engaged_at = NOW(), engage_successful = $3
        WHERE challenge_id = $1 AND telegram_id = $2`,
-      [challengeId, telegramId, successful]
+      [challengeId, userId, successful]
     );
   }
 

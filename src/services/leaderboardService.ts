@@ -97,10 +97,10 @@ export class LeaderboardService {
   async ensureAllParticipantsHaveEntries(challengeId: number): Promise<void> {
     await db.query(
       `INSERT INTO wp_leaderboard
-       (challenge_id, registration_id, account_number, telegram_id, username, nickname, account_type,
+       (challenge_id, registration_id, account_number, user_id, username, nickname, account_type,
         starting_balance, current_balance, adjusted_balance, qualified_profit, gross_profit, profit_removed,
         total_trades, qualified_trades, flagged_trades, active_days, is_qualified, last_updated)
-       SELECT r.challenge_id, r.id, r.account_number, r.telegram_id, r.username, r.nickname, r.account_type,
+       SELECT r.challenge_id, r.id, r.account_number, r.user_id, r.username, r.nickname, r.account_type,
               COALESCE(r.actual_starting_balance, r.registration_balance, c.starting_balance),
               COALESCE(r.last_known_balance, r.registration_balance, 0),
               COALESCE(r.actual_starting_balance, r.registration_balance, c.starting_balance),
@@ -132,10 +132,10 @@ export class LeaderboardService {
     // Upsert from staging to live in one query
     await db.query(
       `INSERT INTO wp_leaderboard
-       (challenge_id, registration_id, account_number, telegram_id, username, nickname, account_type, is_cent,
+       (challenge_id, registration_id, account_number, user_id, username, nickname, account_type, is_cent,
         starting_balance, current_balance, adjusted_balance, normalized_balance, qualified_profit, gross_profit, profit_removed,
         total_trades, qualified_trades, flagged_trades, active_days, is_qualified, last_trade_time, last_updated, zero_balance_at)
-       SELECT challenge_id, registration_id, account_number, telegram_id, username, nickname, account_type, is_cent,
+       SELECT challenge_id, registration_id, account_number, user_id, username, nickname, account_type, is_cent,
               starting_balance, current_balance, adjusted_balance, normalized_balance, qualified_profit, gross_profit, profit_removed,
               total_trades, qualified_trades, flagged_trades, active_days, is_qualified, last_trade_time, NOW(), zero_balance_at
        FROM wp_leaderboard_staging WHERE challenge_id = $1
@@ -176,7 +176,7 @@ export class LeaderboardService {
       `SELECT
         r.id as registration_id,
         r.account_number,
-        r.telegram_id,
+        r.user_id,
         r.username,
         r.nickname,
         r.email,
@@ -226,7 +226,7 @@ export class LeaderboardService {
 export interface FailedAccount {
   registration_id: number;
   account_number: string;
-  telegram_id: number;
+  user_id: number;
   username: string | null;
   nickname: string | null;
   email: string | null;

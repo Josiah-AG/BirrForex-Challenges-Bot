@@ -92,7 +92,7 @@ CREATE TABLE IF NOT EXISTS wp_leaderboard (
     challenge_id INTEGER REFERENCES trading_challenges(id) ON DELETE CASCADE,
     registration_id INTEGER REFERENCES trading_registrations(id) ON DELETE CASCADE,
     account_number VARCHAR(50) NOT NULL,
-    telegram_id BIGINT,
+    user_id BIGINT,
     username VARCHAR(255),
     nickname VARCHAR(30),
     account_type VARCHAR(10) NOT NULL,
@@ -147,7 +147,7 @@ CREATE INDEX IF NOT EXISTS idx_wp_deals_time ON wp_deals(time);
 -- Leaderboard
 CREATE INDEX IF NOT EXISTS idx_wp_leaderboard_challenge ON wp_leaderboard(challenge_id);
 CREATE INDEX IF NOT EXISTS idx_wp_leaderboard_rank ON wp_leaderboard(challenge_id, account_type, rank);
-CREATE INDEX IF NOT EXISTS idx_wp_leaderboard_telegram ON wp_leaderboard(telegram_id);
+CREATE INDEX IF NOT EXISTS idx_wp_leaderboard_user_id ON wp_leaderboard(user_id);
 
 -- Pull batches
 CREATE INDEX IF NOT EXISTS idx_wp_pull_batches_challenge ON wp_pull_batches(challenge_id);

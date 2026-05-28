@@ -224,7 +224,7 @@ export class TradingAdminHandler {
 
       // Notify user
       try {
-        await ctx.telegram.sendMessage(reg.telegram_id,
+        await ctx.telegram.sendMessage(reg.user_id,
           `⚠️ <b>Registration Retracted</b>\n\n` +
           `Your registration for <b>${challengeTitle}</b> has been canceled because you didn't submit your <b>${reasonField}</b> properly.\n\n` +
           `Please register again and make sure to enter the correct details.\n\n` +
@@ -267,7 +267,7 @@ export class TradingAdminHandler {
       try {
         await tradingChallengeService.registerUser({
           challenge_id: d.challenge_id,
-          telegram_id: d.user_telegram_id,
+          user_id: d.user_telegram_id,
           username: d.username,
           account_type: d.account_type,
           email: d.email,
@@ -669,7 +669,7 @@ export class TradingAdminHandler {
         const reg = regs.find(r =>
           r.username?.toLowerCase() === input ||
           r.email?.toLowerCase() === input ||
-          String(r.telegram_id) === input
+          String(r.user_id) === input
         );
 
         if (!reg) {
@@ -1515,7 +1515,7 @@ export class TradingAdminHandler {
     const reg = regs.find(r =>
       r.username?.toLowerCase() === search ||
       r.email?.toLowerCase() === search ||
-      String(r.telegram_id) === search
+      String(r.user_id) === search
     );
 
     if (reg) {
@@ -1537,7 +1537,7 @@ export class TradingAdminHandler {
       await ctx.reply(
         `<b>🔍 USER FOUND</b>\n\n${status}\n\n` +
         `👤 <b>Username:</b> @${reg.username || 'unknown'}\n` +
-        `🆔 <b>Telegram ID:</b> <code>${reg.telegram_id}</code>\n` +
+        `🆔 <b>Telegram ID:</b> <code>${reg.user_id}</code>\n` +
         `📧 <b>Email:</b> ${reg.email}\n` +
         `📊 <b>Category:</b> ${acctLabel}\n` +
         `🏦 <b>Account:</b> ${reg.account_number}\n` +
@@ -1637,7 +1637,7 @@ export class TradingAdminHandler {
       // Notify user
       try {
         await ctx.telegram.sendMessage(
-          reg.telegram_id,
+          reg.user_id,
           `⚠️ Your registration for the trading challenge has been removed by an administrator.\n\nIf you believe this is an error, please contact @birrFXadmin.`
         );
       } catch (e) {
@@ -1860,7 +1860,7 @@ export class TradingAdminHandler {
     if (registrations.length === 0) { await ctx.reply('❌ No registrations found.'); return; }
 
     const header = 'Username,Telegram ID,Email,Type,Account Number,MT5 Server,Status,Registered At\n';
-    const toRow = (r: any) => `@${r.username || 'unknown'},${r.telegram_id},${r.email},${r.account_type},${r.account_number},${r.mt5_server || 'N/A'},${r.status},${new Date(r.registered_at).toISOString()}\n`;
+    const toRow = (r: any) => `@${r.username || 'unknown'},${r.user_id},${r.email},${r.account_type},${r.account_number},${r.mt5_server || 'N/A'},${r.status},${new Date(r.registered_at).toISOString()}\n`;
     const prefix = challenge.title.replace(/\s+/g, '_');
 
     try {
@@ -2058,7 +2058,7 @@ export class TradingAdminHandler {
     const registrations = await tradingChallengeService.getAllRegistrations(challengeId);
     if (registrations.length === 0) { await ctx.reply('❌ No registrations found.'); return; }
     const header = 'Username,Telegram ID,Email,Type,Account Number,MT5 Server,Status,Registered At\n';
-    const toRow = (r: any) => `@${r.username || 'unknown'},${r.telegram_id},${r.email},${r.account_type},${r.account_number},${r.mt5_server || 'N/A'},${r.status},${new Date(r.registered_at).toISOString()}\n`;
+    const toRow = (r: any) => `@${r.username || 'unknown'},${r.user_id},${r.email},${r.account_type},${r.account_number},${r.mt5_server || 'N/A'},${r.status},${new Date(r.registered_at).toISOString()}\n`;
     const prefix = challenge.title.replace(/\s+/g, '_');
     try {
       if (challenge.type === 'hybrid') {
@@ -2382,7 +2382,7 @@ export class TradingAdminHandler {
         `<i>Thank you for participating and congratulations!</i> 🎉`;
 
       try {
-        await ctx.telegram.sendMessage(winner.telegram_id, text, { parse_mode: 'HTML' });
+        await ctx.telegram.sendMessage(winner.user_id, text, { parse_mode: 'HTML' });
       } catch (e) {
         console.error(`Could not DM winner ${winner.username}:`, e);
       }
@@ -2401,7 +2401,7 @@ export class TradingAdminHandler {
       reg = regs.find(r =>
         r.username?.toLowerCase() === searchInput ||
         r.email?.toLowerCase() === searchInput ||
-        String(r.telegram_id) === searchInput
+        String(r.user_id) === searchInput
       );
       if (reg) break;
     }
@@ -2414,7 +2414,7 @@ export class TradingAdminHandler {
     const text = `<b>📩 MESSAGE FROM BIRRFOREX CHALLENGE TEAM</b>\n\n${message}\n\n⚠️ Please reply to <b>@birrFXadmin</b> with the requested information.\n<i>(Include a screenshot of this message)</i>`;
 
     try {
-      await ctx.telegram.sendMessage(reg.telegram_id, text, { parse_mode: 'HTML' });
+      await ctx.telegram.sendMessage(reg.user_id, text, { parse_mode: 'HTML' });
       await ctx.reply(`✅ Message sent to @${reg.username || reg.email}`);
     } catch (e) {
       await ctx.reply(`❌ Could not send message. User may have blocked the bot.`);
@@ -2448,7 +2448,7 @@ export class TradingAdminHandler {
     const text = `<b>❌ DISQUALIFIED</b>\n\nYou have been disqualified from <b>${challengeTitle}</b>.\n\n<b>Reason:</b> ${reason}\n\nIf you believe this is an error, please contact @birrFXadmin.`;
 
     try {
-      await ctx.telegram.sendMessage(reg.telegram_id, text, { parse_mode: 'HTML' });
+      await ctx.telegram.sendMessage(reg.user_id, text, { parse_mode: 'HTML' });
       await ctx.reply(`✅ @${username} disqualified and notified.\nReason: ${reason}`);
     } catch (e) {
       await ctx.reply(`✅ @${username} disqualified. Could not send DM notification.`);
@@ -3100,7 +3100,7 @@ export class TradingAdminHandler {
 
     try {
       const result = await db.query(
-        `SELECT l.*, r.email, r.investor_password, r.telegram_id, r.username, r.nickname, r.account_number, r.mt5_server, r.account_type
+        `SELECT l.*, r.email, r.investor_password, r.user_id, r.username, r.nickname, r.account_number, r.mt5_server, r.account_type
          FROM wp_leaderboard l
          JOIN trading_registrations r ON l.registration_id = r.id
          WHERE l.challenge_id = $1
@@ -3116,7 +3116,7 @@ export class TradingAdminHandler {
       // Generate CSV
       const header = 'Rank,Nickname,Username,Telegram_ID,Email,Account_Number,Server,Account_Type,Investor_Password,Current_Balance,Adjusted_Balance,Qualified_Profit,Gross_Profit,Profit_Removed,Total_Trades,Qualified_Trades,Flagged_Trades,Active_Days,Is_Qualified,Last_Trade_Time\n';
       const rows = result.rows.map(r =>
-        `${r.rank || 'N/A'},${r.nickname || 'N/A'},@${r.username || 'unknown'},${r.telegram_id},${r.email},${r.account_number},${r.mt5_server || 'N/A'},${r.account_type},${r.investor_password || 'N/A'},${parseFloat(r.current_balance).toFixed(2)},${parseFloat(r.adjusted_balance).toFixed(2)},${parseFloat(r.qualified_profit).toFixed(2)},${parseFloat(r.gross_profit).toFixed(2)},${parseFloat(r.profit_removed).toFixed(2)},${r.total_trades},${r.qualified_trades},${r.flagged_trades},${r.active_days},${r.is_qualified},${r.last_trade_time || 'N/A'}`
+        `${r.rank || 'N/A'},${r.nickname || 'N/A'},@${r.username || 'unknown'},${r.user_id},${r.email},${r.account_number},${r.mt5_server || 'N/A'},${r.account_type},${r.investor_password || 'N/A'},${parseFloat(r.current_balance).toFixed(2)},${parseFloat(r.adjusted_balance).toFixed(2)},${parseFloat(r.qualified_profit).toFixed(2)},${parseFloat(r.gross_profit).toFixed(2)},${parseFloat(r.profit_removed).toFixed(2)},${r.total_trades},${r.qualified_trades},${r.flagged_trades},${r.active_days},${r.is_qualified},${r.last_trade_time || 'N/A'}`
       ).join('\n');
 
       const csv = header + rows;

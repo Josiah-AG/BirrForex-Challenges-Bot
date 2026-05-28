@@ -402,3 +402,76 @@ Convert ×100 ONLY when: `user.is_cent = true` AND challenge is NOT "Real + cent
 - Conversion: `wpEvaluationEngine.ts` → `evaluateSingleAccount()` and `evaluate()`
 - Display: `wpEvaluationEngine.ts` → `getRulesForDisplay()`
 - `isRealCentOnly = challengeType === 'real' && rules.only_cent_account`
+
+
+## SESSION LOG — May 28, 2026
+
+### Changes Made This Session:
+
+**1. Database Schema Overhaul:**
+- Renamed `telegram_id` → `user_id` on `trading_registrations` table
+- Renamed `telegram_id` → `user_id` on `wp_leaderboard` table
+- Renamed `telegram_id` → `user_id` on `wp_leaderboard_staging` table
+- Dropped `discord_user_id` column (redundant — `user_id` + `source` is sufficient)
+- Added `account_subtype` column to `trading_registrations` (values: standard, standard_cent, pro, raw_spread, zero, unknown)
+- Updated all indexes accordingly
+- Migration is safe to re-run (uses IF EXISTS / IF NOT EXISTS checks)
+
+**2. Code Refactoring (telegram_id → user_id):**
+- Updated `TradingRegistration` interface: `telegram_id` → `user_id`, added `account_subtype`, `source`
+- Updated `tradingChallengeService.ts`: `registerUser()` now takes `user_id` + `source`, `getRegistration()` uses `user_id`
+- Updated `tradingRegistrationHandler.ts`: all registration flows use `user_id`
+- Updated `wpEvaluationEngine.ts`: queries and upsert use `user_id`
+- Updated `leaderboardService.ts`: all queries use `user_id`
+- Updated `vpsPullScheduler.ts`: `AccountToPull.userId`, `PullResult.userId`
+- Updated `discordRoutes.ts`: registration uses `user_id` directly (no more BigInt workaround)
+- Updated `evaluationService.ts`: JOIN queries reference `r.user_id`
+- Updated `tradingAdminHandler.ts`: all `reg.telegram_id` → `reg.user_id`
+- Updated `tradingScheduler.ts`: all `reg.telegram_id` → `reg.user_id`
+- Note: `trading_evaluations` and `trading_failed_attempts` tables still use `telegram_id` (legacy, separate tables)
+
+**3. TG Bot Registration — Account Subtype Check:**
+- VPS `/verify` response now includes `account_subtype` field (mapped in `vpsService.ts`)
+- `verifyVpsConnection()` now checks `account_subtype` from VPS response
+- Rejects Pro/Raw Spread/Zero accounts for both demo and real challenges
+- Shows clear error message with instructions to create Standard account
+- Saves `account_subtype` to database on successful registration
+
+**4. TG Bot Registration — Credential Failure Flow:**
+- Per spec: invalid credentials now sends user back to account number step (not password step)
+- Message shows "Send your MT5 Demo/Real Account Number:" instead of asking for password again
+
+**5. Discord API — New Endpoint:**
+- Added `POST /api/discord/verify-real-account` endpoint
+- Body: `{ account_number }`
+- Response: `{ status: "allocated_mt5" | "allocated_not_mt5" | "not_allocated" | "api_error" }`
+- Uses existing `exnessService.verifyRealAccount()` logic
+
+**6. Discord API — Enhanced verify-connection Response:**
+- `POST /api/discord/verify-connection` now returns `accountSubtype` field
+- `POST /api/discord/challenges/:id/verify/:regId` now saves `account_subtype` to DB
+
+**7. Evaluation Engine — Adaptive Timeframe Fake SL Detection:**
+- Replaced fixed M1 timeframe with adaptive selection based on hold duration:
+  - < 20 min → M1
+  - 20 min – 1 hr → M5
+  - 1 hr – 6 hr → M15
+  - 6 hr – 24 hr → H1
+  - > 24 hr (if allowed) → H4
+  - > 24 hr (if not allowed) → SKIP (already flagged for hold time)
+- Implemented candle exclusion rule: first and last candles excluded from check
+- Only checks candles that started AFTER trade opened AND ended BEFORE trade closed
+
+**8. Evaluation Engine — SL Check Failure Logging:**
+- When candle fetch fails, returns 'FAILED' instead of null
+- Failed SL checks logged to `wp_pull_errors` with `error_code = 'sl_check_failed'`
+- Stores JSON with `trades_unchecked` count and `tickets` array
+- Admin can see which accounts have incomplete SL verification
+
+### What's Left (Not Done This Session):
+
+1. **Discord Bot (Python) rewrite** — `challenge_bot.py` needs full rewrite per REGISTRATION_FLOW_SPEC (email verification, allocation check, server select menu, account subtype handling, all buttons). This is a separate repo.
+2. **Admin panel SL check failure reporting** — The data is now logged to `wp_pull_errors`, but the WinnerPip admin panel UI needs a "Fake SL Check Incomplete" section with retry button.
+3. **Admin panel CSV export format** — Minor formatting updates.
+4. **VPS restart** — New code needs VPS restart to activate candles endpoint and account_subtype detection.
+5. **Bulk update legacy registrations** — Old registrations without `account_subtype` need backfill via shield verify.

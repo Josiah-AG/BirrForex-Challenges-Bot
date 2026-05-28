@@ -706,7 +706,7 @@ export class Bot {
             for (const sub of pending) {
               try {
                 await ctx.telegram.sendMessage(
-                  sub.telegram_id,
+                  sub.user_id,
                   '⚠️ <b>Final Notice — ' + (challenge?.title || 'Challenge') + '</b>\n\n' +
                   'We previously asked you to resubmit your account details but <b>haven\'t received them yet</b>.\n\n' +
                   'Please submit your details now using the button below.\n\n' +
@@ -720,7 +720,7 @@ export class Bot {
                 );
                 sent++;
                 await new Promise(r => setTimeout(r, 2000));
-              } catch (e) { console.error('Error warning user ' + sub.telegram_id, e); }
+              } catch (e) { console.error('Error warning user ' + sub.user_id, e); }
             }
             await ctx.reply('✅ Final warning sent to ' + sent + '/' + pending.length + ' users.');
             return;
@@ -763,7 +763,7 @@ export class Bot {
             for (const u of changingUsers) {
               try {
                 await ctx.telegram.sendMessage(
-                  u.telegram_id,
+                  u.user_id,
                   '⚠️ <b>Partnership Warning — ' + challengeTitle + '</b>\n\n' +
                   'We detected a partner change request on your Exness account.\n\n' +
                   'As per the challenge rules, your account must remain under <b>BirrForex</b> to be eligible for rewards.\n\n' +
@@ -791,10 +791,10 @@ export class Bot {
                 // Delete submission
                 await db.query('DELETE FROM trading_submissions WHERE id = $1', [u.sub_id]);
                 // Delete evaluation if exists
-                await db.query('DELETE FROM trading_evaluations WHERE challenge_id = $1 AND telegram_id = $2', [session.challengeId, u.telegram_id]);
+                await db.query('DELETE FROM trading_evaluations WHERE challenge_id = $1 AND user_id = $2', [session.challengeId, u.user_id]);
                 // Notify user
                 await ctx.telegram.sendMessage(
-                  u.telegram_id,
+                  u.user_id,
                   '🚫 <b>Submission Disqualified — ' + challengeTitle + '</b>\n\n' +
                   'Your submission has been disqualified because your Exness account is no longer under <b>BirrForex</b> partnership.\n\n' +
                   'As per the challenge rules, your account must remain under BirrForex throughout the challenge and evaluation period.\n\n' +

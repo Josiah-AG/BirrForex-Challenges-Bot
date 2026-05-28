@@ -323,12 +323,12 @@ export class TradingRegistrationHandler {
     try {
       const telegramId = ctx.from!.id;
       const sub = await db.query(
-        'SELECT s.*, r.account_number, r.telegram_id, r.username FROM trading_submissions s JOIN trading_registrations r ON s.registration_id = r.id WHERE s.id = $1',
+        'SELECT s.*, r.account_number, r.user_id, r.username FROM trading_submissions s JOIN trading_registrations r ON s.registration_id = r.id WHERE s.id = $1',
         [submissionId]
       );
       if (!sub.rows[0]) { await ctx.reply('❌ Submission not found.'); return; }
       const submission = sub.rows[0];
-      if (String(submission.telegram_id) !== String(telegramId)) { await ctx.reply('❌ This resubmission link is not for your account.'); return; }
+      if (String(submission.user_id) !== String(telegramId)) { await ctx.reply('❌ This resubmission link is not for your account.'); return; }
       userSessions.set(telegramId, {
         step: 'tc_resubmit_account',
         data: { submission_id: submissionId, registration_id: submission.registration_id, original_account_number: submission.account_number, challenge_id: submission.challenge_id },
@@ -748,7 +748,7 @@ export class TradingRegistrationHandler {
             { parse_mode: 'HTML', ...Markup.inlineKeyboard([[Markup.button.callback('📧 Submit Email Again', `tc_submit_retry_email_${session.data.challenge_id}`)]]) });
           return;
         }
-        if (String(reg.telegram_id) !== String(telegramId)) {
+        if (String(reg.user_id) !== String(telegramId)) {
           await ctx.reply('❌ <b>This email is registered under a different account.</b>\n\nUse the Telegram account you registered with.',
             { parse_mode: 'HTML', ...Markup.inlineKeyboard([[Markup.button.callback('📧 Submit Email Again', `tc_submit_retry_email_${session.data.challenge_id}`)]]) });
           return;
@@ -935,6 +935,7 @@ export class TradingRegistrationHandler {
       const targetBalance = Number(challenge?.target_balance || 60);
       const vpsBalance = result.balance || 0;
       const vpsCurrency = (result.currency || '').toUpperCase();
+      const vpsAccountSubtype = result.account_subtype || 'unknown';
 
       // For cent accounts: balance is shown in cents (×100), convert for comparison
       const { evaluationEngine: wpEngine } = require('../services/wpEvaluationEngine');
@@ -944,16 +945,53 @@ export class TradingRegistrationHandler {
       const challengeType = challengeInfo?.type || 'real';
 
       // Detect cent account by currency (USC = US Cent)
-      // Fallback to balance heuristic only if currency not available
       let isCentAccount = false;
       if (vpsCurrency === 'USC' || vpsCurrency === 'USCENT') {
-        isCentAccount = true;
-      } else if (!vpsCurrency && account_type === 'real' && vpsBalance > startingBalance * 5) {
-        // Fallback heuristic only when VPS doesn't return currency
         isCentAccount = true;
       }
 
       session.data.is_cent = isCentAccount;
+      session.data.account_subtype = vpsAccountSubtype;
+
+      // === ACCOUNT SUBTYPE CHECK (per spec) ===
+      // For non-cent accounts, reject Pro/Raw/Zero — only Standard allowed
+      if (!isCentAccount && account_type !== 'demo') {
+        // Real standard accounts must be "standard" subtype
+        if (vpsAccountSubtype === 'pro' || vpsAccountSubtype === 'raw_spread' || vpsAccountSubtype === 'zero') {
+          session.step = 'tc_enter_account_number';
+          await ctx.reply(
+            '❌ <b>Account Type Not Allowed</b>\n\n' +
+            `Your account is a <b>${vpsAccountSubtype === 'pro' ? 'Pro' : vpsAccountSubtype === 'zero' ? 'Zero' : 'Raw Spread'}</b> account. This challenge only accepts <b>Standard</b> or <b>Standard Cent</b> accounts.\n\n` +
+            '📋 <b>How to create a Standard Account:</b>\n' +
+            '1. Open Exness → My Accounts\n' +
+            '2. Create New Account → Choose "Standard" or "Standard Cent"\n' +
+            '3. Select MT5 platform\n' +
+            '4. Fund the account\n\n' +
+            'Once ready, submit your standard account:',
+            { parse_mode: 'HTML', ...Markup.inlineKeyboard([
+              [Markup.button.callback('📝 Submit Another Account', `tc_new_real_acct_${session.data.challenge_id}`)],
+            ]) }
+          );
+          return;
+        }
+      }
+      // For demo accounts, also check subtype
+      if (account_type === 'demo' && vpsAccountSubtype !== 'standard' && vpsAccountSubtype !== 'unknown') {
+        session.step = 'tc_enter_account_number';
+        await ctx.reply(
+          '❌ <b>Account Type Not Allowed</b>\n\n' +
+          `Your account is a <b>${vpsAccountSubtype === 'pro' ? 'Pro' : vpsAccountSubtype === 'zero' ? 'Zero' : 'Raw Spread'}</b> account. This challenge only accepts <b>Standard</b> accounts.\n\n` +
+          '📋 <b>How to create a Standard Account:</b>\n' +
+          '1. Open Exness → My Accounts\n' +
+          '2. Create New Account → Choose "Standard"\n' +
+          '3. Select MT5 platform\n\n' +
+          'Once ready, submit your standard account:',
+          { parse_mode: 'HTML', ...Markup.inlineKeyboard([
+            [Markup.button.callback('📝 Submit Another Account', `tc_new_real_acct_${session.data.challenge_id}`)],
+          ]) }
+        );
+        return;
+      }
 
       // Determine display and comparison values
       let displayBalance: number;
@@ -1076,14 +1114,14 @@ export class TradingRegistrationHandler {
     // Handle failures
     switch (result.status) {
       case 'invalid_credentials':
-        session.step = 'tc_enter_investor_password';
+        session.step = 'tc_enter_account_number';
         await ctx.reply(
           '❌ <b>Connection failed — Invalid credentials</b>\n\n' +
           'The investor password or account number/server combination is incorrect.\n\n' +
           'Please double-check:\n' +
           `• Account: <code>${account_number}</code>\n` +
           `• Server: <code>${mt5_server}</code>\n\n` +
-          '🔑 Enter your <b>Investor (Read-Only) Password</b> again:',
+          `Send your MT5 ${account_type === 'demo' ? 'Demo' : 'Real'} Account Number:`,
           { parse_mode: 'HTML' }
         );
         break;
@@ -1339,7 +1377,7 @@ export class TradingRegistrationHandler {
 
       const reg = await tradingChallengeService.registerUser({
         challenge_id: session.data.challenge_id,
-        telegram_id: telegramId,
+        user_id: telegramId,
         username: ctx.from!.username || null,
         nickname: session.data.nickname || null,
         account_type: session.data.account_type,
@@ -1349,10 +1387,10 @@ export class TradingRegistrationHandler {
         client_uid: session.data.client_uid || null,
       });
 
-      // Save investor password, cent flag, and registration balance
+      // Save investor password, cent flag, account_subtype, and registration balance
       if (session.data.investor_password) {
-        await db.query('UPDATE trading_registrations SET investor_password = $1, connection_verified = true, connection_verified_at = NOW(), is_cent = $3, registration_balance = $4, last_known_balance = $4 WHERE id = $2',
-          [session.data.investor_password, reg.id, session.data.is_cent || false, session.data.registration_balance || null]);
+        await db.query('UPDATE trading_registrations SET investor_password = $1, connection_verified = true, connection_verified_at = NOW(), is_cent = $3, account_subtype = $4, registration_balance = $5, last_known_balance = $5 WHERE id = $2',
+          [session.data.investor_password, reg.id, session.data.is_cent || false, session.data.account_subtype || 'standard', session.data.registration_balance || null]);
       }
 
       // Remove from failed attempts if they were there
@@ -1500,7 +1538,7 @@ export class TradingRegistrationHandler {
 
     // Verify this registration belongs to the user
     const result = await db.query(
-      'SELECT * FROM trading_registrations WHERE id = $1 AND telegram_id = $2',
+      'SELECT * FROM trading_registrations WHERE id = $1 AND user_id = $2',
       [registrationId, telegramId]
     );
 

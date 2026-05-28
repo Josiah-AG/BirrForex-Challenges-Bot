@@ -9,6 +9,7 @@ export interface VpsVerifyResult {
   equity?: number;
   server?: string;
   currency?: string;
+  account_subtype?: string;
 }
 
 export interface VpsAccountInfo {
@@ -206,6 +207,7 @@ class VpsService {
             equity: data.equity,
             server: data.server || server,
             currency: data.currency || undefined,
+            account_subtype: data.account_subtype || undefined,
           };
         }
 

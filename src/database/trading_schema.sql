@@ -28,14 +28,16 @@ CREATE TABLE IF NOT EXISTS trading_challenges (
 CREATE TABLE IF NOT EXISTS trading_registrations (
     id SERIAL PRIMARY KEY,
     challenge_id INTEGER REFERENCES trading_challenges(id) ON DELETE CASCADE,
-    telegram_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL,
     username VARCHAR(255),
     nickname VARCHAR(30),
     account_type VARCHAR(10) NOT NULL CHECK (account_type IN ('demo', 'real')),
+    account_subtype VARCHAR(20) DEFAULT 'standard',
     email VARCHAR(500) NOT NULL,
     account_number VARCHAR(50) NOT NULL,
     mt5_server VARCHAR(100),
     client_uid VARCHAR(100),
+    source VARCHAR(20) DEFAULT 'telegram',
     status VARCHAR(30) DEFAULT 'registered',
     partner_status VARCHAR(30),
     partner_warned_at TIMESTAMP,
@@ -44,7 +46,7 @@ CREATE TABLE IF NOT EXISTS trading_registrations (
     disqualified_reason TEXT,
     registered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(challenge_id, telegram_id),
+    UNIQUE(challenge_id, user_id),
     UNIQUE(challenge_id, email)
 );
 
@@ -145,7 +147,7 @@ CREATE TABLE IF NOT EXISTS trading_screening_results (
 
 CREATE INDEX IF NOT EXISTS idx_tc_dates ON trading_challenges(start_date, end_date);
 CREATE INDEX IF NOT EXISTS idx_tr_challenge ON trading_registrations(challenge_id);
-CREATE INDEX IF NOT EXISTS idx_tr_telegram ON trading_registrations(telegram_id);
+CREATE INDEX IF NOT EXISTS idx_tr_user_id ON trading_registrations(user_id);
 CREATE INDEX IF NOT EXISTS idx_tr_email ON trading_registrations(email);
 CREATE INDEX IF NOT EXISTS idx_ts_challenge ON trading_submissions(challenge_id);
 CREATE INDEX IF NOT EXISTS idx_tw_challenge ON trading_winners(challenge_id);

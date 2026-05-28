@@ -196,14 +196,14 @@ class EvaluationService {
 
   async getUnevaluatedSubmissions(challengeId: number): Promise<any[]> {
     const result = await db.query(
-      `SELECT s.*, r.account_number, r.account_type, r.username, r.telegram_id, r.email
+      `SELECT s.*, r.account_number, r.account_type, r.username, r.user_id, r.email
        FROM trading_submissions s
        JOIN trading_registrations r ON s.registration_id = r.id
        LEFT JOIN trading_evaluations e ON e.challenge_id = s.challenge_id AND (
          e.account_number = r.account_number 
          OR (LENGTH(REGEXP_REPLACE(r.account_number, '[^0-9]', '', 'g')) >= 4 AND REGEXP_REPLACE(e.account_number, '[^0-9]', '', 'g') = REGEXP_REPLACE(r.account_number, '[^0-9]', '', 'g'))
          OR e.registration_id = r.id
-         OR (e.telegram_id = r.telegram_id AND e.telegram_id > 0)
+         OR (e.telegram_id = r.user_id AND e.telegram_id > 0)
        )
        WHERE s.challenge_id = $1 AND e.id IS NULL
        ORDER BY s.final_balance DESC`,
@@ -215,12 +215,12 @@ class EvaluationService {
   // Get next unevaluated submission (skips resubmission-requested, real first then demo, highest balance)
   async getNextUnevaluated(challengeId: number): Promise<{ submission: any; remainingReal: number; remainingDemo: number } | null> {
     const skipCondition = `AND NOT (COALESCE(s.is_resubmission, false) = true AND s.resubmitted_at IS NULL)`;
-    // Match evaluations by: exact account number, numeric-only account number (min 4 digits), registration_id, or telegram_id
+    // Match evaluations by: exact account number, numeric-only account number (min 4 digits), registration_id, or user_id
     const matchCondition = `(
       e.account_number = r.account_number 
       OR (LENGTH(REGEXP_REPLACE(r.account_number, '[^0-9]', '', 'g')) >= 4 AND REGEXP_REPLACE(e.account_number, '[^0-9]', '', 'g') = REGEXP_REPLACE(r.account_number, '[^0-9]', '', 'g'))
       OR e.registration_id = r.id
-      OR (e.telegram_id = r.telegram_id AND e.telegram_id > 0)
+      OR (e.telegram_id = r.user_id AND e.telegram_id > 0)
     )`;
     const countResult = await db.query(
       `SELECT r.account_type, COUNT(*) as cnt
@@ -238,7 +238,7 @@ class EvaluationService {
 
     const priorityType = remainingReal > 0 ? 'real' : 'demo';
     const result = await db.query(
-      `SELECT s.*, r.account_number, r.account_type, r.username, r.telegram_id, r.email, r.mt5_server, s.investor_password
+      `SELECT s.*, r.account_number, r.account_type, r.username, r.user_id, r.email, r.mt5_server, s.investor_password
        FROM trading_submissions s
        JOIN trading_registrations r ON s.registration_id = r.id
        LEFT JOIN trading_evaluations e ON e.challenge_id = s.challenge_id AND ${matchCondition}
@@ -256,7 +256,7 @@ class EvaluationService {
   async findSubmissionByAccount(challengeId: number, accountNumber: string): Promise<any | null> {
     const cleanAcct = accountNumber.replace(/\D/g, '');
     const result = await db.query(
-      `SELECT s.*, r.account_number, r.account_type, r.username, r.telegram_id, r.email, r.mt5_server
+      `SELECT s.*, r.account_number, r.account_type, r.username, r.user_id, r.email, r.mt5_server
        FROM trading_submissions s
        JOIN trading_registrations r ON s.registration_id = r.id
        WHERE s.challenge_id = $1 AND REGEXP_REPLACE(r.account_number, '[^0-9]', '', 'g') = $2`,
@@ -277,14 +277,14 @@ class EvaluationService {
 
   async getPendingResubmissions(challengeId: number): Promise<any[]> {
     const result = await db.query(
-      `SELECT s.*, r.account_number, r.account_type, r.username, r.telegram_id, r.email
+      `SELECT s.*, r.account_number, r.account_type, r.username, r.user_id, r.email
        FROM trading_submissions s
        JOIN trading_registrations r ON s.registration_id = r.id
        LEFT JOIN trading_evaluations e ON e.challenge_id = s.challenge_id AND (
          e.account_number = r.account_number 
          OR (LENGTH(REGEXP_REPLACE(r.account_number, '[^0-9]', '', 'g')) >= 4 AND REGEXP_REPLACE(e.account_number, '[^0-9]', '', 'g') = REGEXP_REPLACE(r.account_number, '[^0-9]', '', 'g'))
          OR e.registration_id = r.id
-         OR (e.telegram_id = r.telegram_id AND e.telegram_id > 0)
+         OR (e.telegram_id = r.user_id AND e.telegram_id > 0)
        )
        WHERE s.challenge_id = $1 AND COALESCE(s.is_resubmission, false) = true AND s.resubmitted_at IS NULL AND e.id IS NULL
        ORDER BY s.final_balance DESC`,
@@ -346,14 +346,14 @@ class EvaluationService {
   async searchSubmission(challengeId: number, searchTerm: string): Promise<any[]> {
     const term = searchTerm.replace(/^@/, '').trim();
     const result = await db.query(
-      `SELECT s.*, r.account_number, r.account_type, r.username, r.telegram_id, r.email, r.mt5_server
+      `SELECT s.*, r.account_number, r.account_type, r.username, r.user_id, r.email, r.mt5_server
        FROM trading_submissions s
        JOIN trading_registrations r ON s.registration_id = r.id
        WHERE s.challenge_id = $1 AND (
          r.username ILIKE $2 OR
          r.email ILIKE $2 OR
          r.account_number = $3 OR
-         r.telegram_id::text = $3
+         r.user_id::text = $3
        )`,
       [challengeId, '%' + term + '%', term]
     );

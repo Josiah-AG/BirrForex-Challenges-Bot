@@ -108,13 +108,13 @@ interface TradeRow {
 /**
  * Fetch M1 candles from VPS API for SL validation
  */
-async function fetchCandles(symbol: string, fromTime: Date, toTime: Date): Promise<{ low: number; high: number }[] | null> {
+async function fetchCandles(symbol: string, fromTime: Date, toTime: Date, timeframe: string = 'M1'): Promise<{ time: string; low: number; high: number; open: number; close: number }[] | null> {
   try {
     const response = await axios.post(
       `${config.vpsApiUrl}/api/v1/candles`,
       {
         symbol,
-        timeframe: 'M1',
+        timeframe,
         from_time: fromTime.toISOString(),
         to_time: toTime.toISOString(),
         api_key: config.vpsApiKey,
@@ -135,19 +135,60 @@ async function fetchCandles(symbol: string, fromTime: Date, toTime: Date): Promi
 }
 
 /**
- * Check if price crossed the SL level during the trade's open period.
- * Returns violation message or null.
+ * Adaptive timeframe selection based on trade hold duration.
+ * Returns the timeframe string and period in milliseconds.
  */
-async function validateSlWithCandles(trade: TradeRow): Promise<string | null> {
+function selectTimeframe(holdMinutes: number, maxHoldHours: number | null): { timeframe: string; periodMs: number } | null {
+  if (holdMinutes < 20) return { timeframe: 'M1', periodMs: 60 * 1000 };
+  if (holdMinutes < 60) return { timeframe: 'M5', periodMs: 5 * 60 * 1000 };
+  if (holdMinutes < 360) return { timeframe: 'M15', periodMs: 15 * 60 * 1000 };
+  if (holdMinutes < 1440) return { timeframe: 'H1', periodMs: 60 * 60 * 1000 };
+  // > 24 hours
+  if (maxHoldHours && holdMinutes > maxHoldHours * 60) {
+    // Trade already flagged for hold time violation — skip SL check
+    return null;
+  }
+  return { timeframe: 'H4', periodMs: 4 * 60 * 60 * 1000 };
+}
+
+/**
+ * Check if price crossed the SL level during the trade's open period.
+ * Uses adaptive timeframe and excludes first/last candles per spec.
+ * Returns violation message or null. Returns 'FAILED' string if candle fetch failed.
+ */
+async function validateSlWithCandles(trade: TradeRow, maxHoldHours: number | null = null): Promise<string | null | 'FAILED'> {
   if (!trade.stop_loss || parseFloat(String(trade.stop_loss)) === 0) return null;
+  if (!trade.open_time || !trade.close_time) return null;
 
   const sl = parseFloat(String(trade.stop_loss));
   const isBuy = trade.trade_type?.toLowerCase() === 'buy';
+  const openMs = new Date(trade.open_time).getTime();
+  const closeMs = new Date(trade.close_time).getTime();
 
-  const candles = await fetchCandles(trade.symbol, new Date(trade.open_time), new Date(trade.close_time));
-  if (!candles || candles.length === 0) return null; // Can't verify — skip
+  if (openMs <= 946684800000 || closeMs <= openMs) return null; // Invalid times
 
-  for (const candle of candles) {
+  const holdMinutes = (closeMs - openMs) / (60 * 1000);
+
+  // Select adaptive timeframe
+  const tf = selectTimeframe(holdMinutes, maxHoldHours);
+  if (!tf) return null; // Skip — trade already flagged for hold time
+
+  const candles = await fetchCandles(trade.symbol, new Date(trade.open_time), new Date(trade.close_time), tf.timeframe);
+  if (!candles || candles.length === 0) return 'FAILED'; // Can't verify — report failure
+
+  // Filter: exclude first and last candle per spec
+  // First candle = the one whose time <= open_time (started before/at trade open)
+  // Last candle = the one whose time + period > close_time (extends past trade close)
+  const safeCandles = candles.filter(candle => {
+    const candleTime = new Date(candle.time).getTime();
+    const candleEnd = candleTime + tf.periodMs;
+    // Candle must have started AFTER trade opened AND ended BEFORE trade closed
+    return candleTime > openMs && candleEnd <= closeMs;
+  });
+
+  if (safeCandles.length === 0) return null; // Not enough candles to verify
+
+  for (const candle of safeCandles) {
     if (isBuy) {
       // Buy trade: SL is below entry. If candle low went at/below SL, it should have triggered
       if (candle.low <= sl) {
@@ -192,7 +233,7 @@ export class WpEvaluationEngine {
     const challengeType = challenge.rows[0]?.type;
 
     const registrations = await db.query(
-      `SELECT id, account_number, telegram_id, username, nickname, account_type, is_cent
+      `SELECT id, account_number, user_id, username, nickname, account_type, is_cent
        FROM trading_registrations WHERE challenge_id = $1 AND disqualified = false AND investor_password IS NOT NULL`,
       [challengeId]
     );
@@ -259,7 +300,7 @@ export class WpEvaluationEngine {
     const challengeType = challenge.rows[0]?.type;
 
     const regResult = await db.query(
-      `SELECT id, account_number, telegram_id, username, nickname, account_type, is_cent
+      `SELECT id, account_number, user_id, username, nickname, account_type, is_cent
        FROM trading_registrations WHERE id = $1 AND challenge_id = $2`,
       [registrationId, challengeId]
     );
@@ -501,6 +542,7 @@ export class WpEvaluationEngine {
     }
 
     // Evaluate each trade
+    const slCheckFailures: { ticket: number; symbol: string }[] = [];
     for (const trade of allTrades) {
       const violations: string[] = [];
       const tradeNet = parseFloat(String(trade.profit)) + parseFloat(String(trade.commission || 0)) + parseFloat(String(trade.swap || 0));
@@ -538,9 +580,12 @@ export class WpEvaluationEngine {
             }
           }
 
-          // Fake SL detection via candle data
-          const fakeSl = await validateSlWithCandles(trade);
-          if (fakeSl) {
+          // Fake SL detection via candle data (adaptive timeframe)
+          const fakeSl = await validateSlWithCandles(trade, rules.max_hold_hours || null);
+          if (fakeSl === 'FAILED') {
+            // Log SL check failure for admin visibility
+            slCheckFailures.push({ ticket: trade.ticket, symbol: trade.symbol });
+          } else if (fakeSl) {
             violations.push(fakeSl);
           }
         }
@@ -589,6 +634,20 @@ export class WpEvaluationEngine {
       await this.notifyDailyDrawdown(reg, drawdownBreachDay, drawdownBreachTime, rules.daily_loss_cap!);
     }
 
+    // === SL CHECK FAILURE LOGGING ===
+    if (slCheckFailures.length > 0) {
+      try {
+        await db.query(
+          `INSERT INTO wp_pull_errors (pull_batch_id, registration_id, account_number, error_code, error_message)
+           VALUES (0, $1, $2, 'sl_check_failed', $3)
+           ON CONFLICT DO NOTHING`,
+          [reg.id, reg.account_number, JSON.stringify({ trades_unchecked: slCheckFailures.length, tickets: slCheckFailures.map(f => f.ticket) })]
+        );
+      } catch (e) {
+        console.log(`⚠️ Could not log SL check failure for ${reg.account_number}:`, (e as Error).message);
+      }
+    }
+
     const qualifiedProfit = grossProfit - profitRemoved;
     const adjustedBalance = effectiveStartBalance + qualifiedProfit;
     const currentBalance = effectiveStartBalance + grossProfit;
@@ -628,7 +687,7 @@ export class WpEvaluationEngine {
     if (this.bot) {
       try {
         await this.bot.bot.telegram.sendMessage(
-          reg.telegram_id,
+          reg.user_id,
           `⚠️ <b>Daily Drawdown Reached</b>\n\n` +
           `You hit your daily loss limit of <b>$${cap}</b> at <b>${time} EAT</b>.\n\n` +
           `🛑 Cool it down — any profits you make for the rest of today will <b>NOT be counted</b> toward your qualified balance.\n\n` +
@@ -637,7 +696,7 @@ export class WpEvaluationEngine {
           { parse_mode: 'HTML' }
         );
       } catch (e) {
-        console.error(`Could not notify user ${reg.telegram_id} about drawdown:`, e);
+        console.error(`Could not notify user ${reg.user_id} about drawdown:`, e);
       }
     }
   }
@@ -660,7 +719,7 @@ export class WpEvaluationEngine {
     // Write to staging table (not live) — will be flushed to live at next cycle start
     await db.query(
       `INSERT INTO wp_leaderboard_staging
-       (challenge_id, registration_id, account_number, telegram_id, username, nickname, account_type, is_cent,
+       (challenge_id, registration_id, account_number, user_id, username, nickname, account_type, is_cent,
         starting_balance, current_balance, adjusted_balance, normalized_balance, qualified_profit, gross_profit, profit_removed,
         total_trades, qualified_trades, flagged_trades, active_days, is_qualified, last_trade_time,
         zero_balance_at, evaluated_at)
@@ -680,7 +739,7 @@ export class WpEvaluationEngine {
            ELSE wp_leaderboard_staging.zero_balance_at
          END,
          evaluated_at=NOW()`,
-      [challengeId, reg.id, reg.account_number, reg.telegram_id, reg.username, reg.nickname, reg.account_type, userIsCent,
+      [challengeId, reg.id, reg.account_number, reg.user_id || reg.telegram_id, reg.username, reg.nickname, reg.account_type, userIsCent,
        startingBalance, data.currentBalance, data.adjustedBalance, normalizedBalance, data.qualifiedProfit, data.grossProfit,
        data.profitRemoved, data.totalTrades, data.qualifiedTrades, data.flaggedTrades, data.activeDays,
        data.isQualified, data.lastTradeTime,

@@ -159,6 +159,57 @@ async function migrate() {
     await db.query(`ALTER TABLE wp_leaderboard_staging ADD COLUMN IF NOT EXISTS normalized_balance NUMERIC DEFAULT 0;`).catch(() => {});
     console.log('✅ Zero balance + leaderboard lock + VPS balance migration OK');
 
+    // ==================== SCHEMA OVERHAUL: telegram_id → user_id + account_subtype ====================
+    // Rename telegram_id → user_id on trading_registrations (holds TG or Discord ID based on source)
+    await db.query(`
+      DO $$ BEGIN
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'trading_registrations' AND column_name = 'telegram_id')
+           AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'trading_registrations' AND column_name = 'user_id') THEN
+          -- Drop the old unique constraint that references telegram_id
+          ALTER TABLE trading_registrations DROP CONSTRAINT IF EXISTS trading_registrations_challenge_id_telegram_id_key;
+          -- Rename column
+          ALTER TABLE trading_registrations RENAME COLUMN telegram_id TO user_id;
+          -- Recreate unique constraint with new name
+          ALTER TABLE trading_registrations ADD CONSTRAINT trading_registrations_challenge_id_user_id_key UNIQUE (challenge_id, user_id);
+        END IF;
+      END $$;
+    `).catch((e: any) => console.log('telegram_id→user_id rename (registrations):', e.message));
+
+    // Rename telegram_id → user_id on wp_leaderboard
+    await db.query(`
+      DO $$ BEGIN
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'wp_leaderboard' AND column_name = 'telegram_id')
+           AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'wp_leaderboard' AND column_name = 'user_id') THEN
+          ALTER TABLE wp_leaderboard RENAME COLUMN telegram_id TO user_id;
+        END IF;
+      END $$;
+    `).catch((e: any) => console.log('telegram_id→user_id rename (leaderboard):', e.message));
+
+    // Rename telegram_id → user_id on wp_leaderboard_staging
+    await db.query(`
+      DO $$ BEGIN
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'wp_leaderboard_staging' AND column_name = 'telegram_id')
+           AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'wp_leaderboard_staging' AND column_name = 'user_id') THEN
+          ALTER TABLE wp_leaderboard_staging RENAME COLUMN telegram_id TO user_id;
+        END IF;
+      END $$;
+    `).catch((e: any) => console.log('telegram_id→user_id rename (staging):', e.message));
+
+    // Drop discord_user_id column (redundant — user_id + source is sufficient)
+    await db.query(`ALTER TABLE trading_registrations DROP COLUMN IF EXISTS discord_user_id;`).catch(() => {});
+
+    // Add account_subtype column
+    await db.query(`ALTER TABLE trading_registrations ADD COLUMN IF NOT EXISTS account_subtype VARCHAR(20) DEFAULT 'standard';`).catch(() => {});
+
+    // Update index: drop old telegram index, create user_id index
+    await db.query(`DROP INDEX IF EXISTS idx_tr_telegram;`).catch(() => {});
+    await db.query(`CREATE INDEX IF NOT EXISTS idx_tr_user_id ON trading_registrations(user_id);`).catch(() => {});
+    await db.query(`DROP INDEX IF EXISTS idx_wp_leaderboard_telegram;`).catch(() => {});
+    await db.query(`CREATE INDEX IF NOT EXISTS idx_wp_leaderboard_user_id ON wp_leaderboard(user_id);`).catch(() => {});
+    await db.query(`DROP INDEX IF EXISTS idx_tr_discord_user;`).catch(() => {});
+
+    console.log('✅ Schema overhaul: telegram_id → user_id + account_subtype OK');
+
     // Staging table for atomic leaderboard updates
     await db.query(`
       CREATE TABLE IF NOT EXISTS wp_leaderboard_staging (

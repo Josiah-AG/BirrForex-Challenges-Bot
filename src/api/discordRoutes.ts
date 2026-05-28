@@ -230,10 +230,10 @@ router.post('/challenges/:id/register', async (req: Request, res: Response) => {
     // Registration is open as long as challenge status is 'registration_open'
     // No separate deadline — status change to 'active' closes registration
 
-    // Check if already registered (by discord_user_id or account_number) — exclude removed registrations
+    // Check if already registered (by user_id or account_number) — exclude removed registrations
     const existing = await db.query(
       `SELECT id, status FROM trading_registrations 
-       WHERE challenge_id = $1 AND (discord_user_id = $2 OR account_number = $3)
+       WHERE challenge_id = $1 AND (user_id = $2 OR account_number = $3)
          AND (status IS NULL OR status != 'removed')`,
       [challengeId, discord_user_id, account_number]
     );
@@ -245,7 +245,7 @@ router.post('/challenges/:id/register', async (req: Request, res: Response) => {
     // Delete any old removed registration for this user (so they can re-register cleanly)
     await db.query(
       `DELETE FROM trading_registrations 
-       WHERE challenge_id = $1 AND (discord_user_id = $2 OR account_number = $3) AND status = 'removed'`,
+       WHERE challenge_id = $1 AND (user_id = $2 OR account_number = $3) AND status = 'removed'`,
       [challengeId, discord_user_id, account_number]
     );
 
@@ -257,18 +257,15 @@ router.post('/challenges/:id/register', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'This challenge only accepts real accounts' });
     }
 
-    // Insert registration (use discord_user_id as telegram_id placeholder with offset to avoid conflicts)
-    // We use a large offset to distinguish Discord users from Telegram users
-    const discordTelegramId = BigInt(discord_user_id);
-
+    // Insert registration — user_id holds the Discord user ID, source='discord'
     const regResult = await db.query(
       `INSERT INTO trading_registrations 
-       (challenge_id, telegram_id, discord_user_id, username, nickname, account_type, email,
+       (challenge_id, user_id, username, nickname, account_type, email,
         account_number, mt5_server, investor_password, source, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'discord', 'registered')
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'discord', 'registered')
        RETURNING *`,
       [
-        challengeId, discordTelegramId, discord_user_id,
+        challengeId, discord_user_id,
         username || '', nickname || username || '',
         account_type, email || '',
         account_number, mt5_server, investor_password,
@@ -405,6 +402,7 @@ router.post('/verify-connection', async (req: Request, res: Response) => {
           currency,
           isCentAccount,
           centOnly,
+          accountSubtype: vpsResult.account_subtype || (isCentAccount ? 'standard_cent' : 'standard'),
         });
       } else {
         return res.json({
@@ -490,13 +488,13 @@ router.post('/challenges/:id/verify/:registrationId', async (req: Request, res: 
           });
         }
 
-        // Update registration as verified + save balance + is_cent
+        // Update registration as verified + save balance + is_cent + account_subtype
         await db.query(
           `UPDATE trading_registrations 
            SET connection_verified = true, connection_verified_at = NOW(), pull_status = 'ready',
-               last_known_balance = $2, registration_balance = $2, is_cent = $3
+               last_known_balance = $2, registration_balance = $2, is_cent = $3, account_subtype = $4
            WHERE id = $1`,
-          [registrationId, vpsBalance, isCent]
+          [registrationId, vpsBalance, isCent, vpsResult.account_subtype || (isCent ? 'standard_cent' : 'standard')]
         );
 
         return res.json({
@@ -706,6 +704,36 @@ router.delete('/challenges/:id', async (req: Request, res: Response) => {
 });
 
 export { router as discordRoutes };
+
+// ==================== VERIFY REAL ACCOUNT ALLOCATION ====================
+
+/**
+ * POST /api/discord/verify-real-account
+ * Body: { account_number }
+ * Checks if a real account is allocated under BirrForex + is MT5
+ * Response: { status: "allocated_mt5" | "allocated_not_mt5" | "not_allocated" | "api_error" }
+ */
+router.post('/verify-real-account', async (req: Request, res: Response) => {
+  try {
+    const { account_number } = req.body;
+
+    if (!account_number) {
+      return res.status(400).json({ error: 'Missing account_number', status: 'api_error' });
+    }
+
+    // Use the exnessService to verify real account allocation
+    const { exnessService } = require('../services/exnessService');
+    const result = await exnessService.verifyRealAccount(account_number);
+
+    return res.json({
+      status: result.status, // 'allocated_mt5' | 'allocated_not_mt5' | 'not_allocated' | 'api_error'
+      data: result.data || null,
+    });
+  } catch (error) {
+    console.error('Discord verify-real-account error:', error);
+    return res.status(500).json({ status: 'api_error', error: 'Internal server error' });
+  }
+});
 
 // ==================== PENDING ANNOUNCEMENTS (for Discord bot polling) ====================
 

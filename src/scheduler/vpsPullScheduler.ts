@@ -39,7 +39,7 @@ const CYCLE_RETRY_WAIT_MS = 30000; // 30s between retry passes
 interface PullResult {
   registrationId: number;
   accountNumber: string;
-  telegramId: number;
+  userId: number;
   username: string | null;
   success: boolean;
   errorCode?: string;
@@ -67,7 +67,7 @@ interface AccountToPull {
   accountNumber: string;
   server: string;
   investorPassword: string;
-  telegramId: number;
+  userId: number;
   username: string | null;
   nickname: string | null;
   isPriority: boolean; // Failed in last cycle
@@ -526,7 +526,7 @@ export class VpsPullScheduler {
       finalResults.push({
         registrationId: account.registrationId,
         accountNumber: account.accountNumber,
-        telegramId: account.telegramId,
+        userId: account.userId,
         username: account.username,
         success: false,
         errorCode: 'retry_exhausted',
@@ -591,7 +591,7 @@ export class VpsPullScheduler {
           return {
             registrationId: account.registrationId,
             accountNumber: account.accountNumber,
-            telegramId: account.telegramId,
+            userId: account.userId,
             username: account.username,
             success: true,
             tradesCount,
@@ -613,7 +613,7 @@ export class VpsPullScheduler {
           return {
             registrationId: account.registrationId,
             accountNumber: account.accountNumber,
-            telegramId: account.telegramId,
+            userId: account.userId,
             username: account.username,
             success: false,
             errorCode: 'invalid_credentials',
@@ -630,7 +630,7 @@ export class VpsPullScheduler {
         return {
           registrationId: account.registrationId,
           accountNumber: account.accountNumber,
-          telegramId: account.telegramId,
+          userId: account.userId,
           username: account.username,
           success: false,
           errorCode: 'api_error',
@@ -647,7 +647,7 @@ export class VpsPullScheduler {
           return {
             registrationId: account.registrationId,
             accountNumber: account.accountNumber,
-            telegramId: account.telegramId,
+            userId: account.userId,
             username: account.username,
             success: false,
             errorCode: 'invalid_credentials',
@@ -664,7 +664,7 @@ export class VpsPullScheduler {
         return {
           registrationId: account.registrationId,
           accountNumber: account.accountNumber,
-          telegramId: account.telegramId,
+          userId: account.userId,
           username: account.username,
           success: false,
           errorCode: error.code === 'ECONNABORTED' ? 'timeout' : 'network_error',
@@ -677,7 +677,7 @@ export class VpsPullScheduler {
     return {
       registrationId: account.registrationId,
       accountNumber: account.accountNumber,
-      telegramId: account.telegramId,
+      userId: account.userId,
       username: account.username,
       success: false,
       errorCode: 'max_retries',
@@ -694,13 +694,13 @@ export class VpsPullScheduler {
    */
   async retrySingleAccount(registrationId: number, challengeId: number): Promise<PullResult & { evaluated?: boolean }> {
     const regResult = await db.query(
-      `SELECT id, account_number, mt5_server, investor_password, telegram_id, username, nickname
+      `SELECT id, account_number, mt5_server, investor_password, user_id, username, nickname
        FROM trading_registrations WHERE id = $1 AND challenge_id = $2`,
       [registrationId, challengeId]
     );
     if (regResult.rows.length === 0) {
       return {
-        registrationId, accountNumber: '', telegramId: 0, username: null,
+        registrationId, accountNumber: '', userId: 0, username: null,
         success: false, errorCode: 'not_found', errorMessage: 'Registration not found',
       };
     }
@@ -711,7 +711,7 @@ export class VpsPullScheduler {
       accountNumber: reg.account_number,
       server: reg.mt5_server,
       investorPassword: reg.investor_password,
-      telegramId: reg.telegram_id,
+      userId: reg.user_id,
       username: reg.username,
       nickname: reg.nickname,
       isPriority: true,
@@ -722,7 +722,7 @@ export class VpsPullScheduler {
     if (healthyTerminals.length === 0) {
       return {
         registrationId, accountNumber: account.accountNumber,
-        telegramId: account.telegramId, username: account.username,
+        userId: account.userId, username: account.username,
         success: false, errorCode: 'no_terminals', errorMessage: 'All terminals unhealthy',
       };
     }
@@ -757,7 +757,7 @@ export class VpsPullScheduler {
 
     return {
       registrationId, accountNumber: account.accountNumber,
-      telegramId: account.telegramId, username: account.username,
+      userId: account.userId, username: account.username,
       success: false, errorCode: 'retry_exhausted', errorMessage: 'Failed on all terminals',
     };
   }
@@ -932,7 +932,7 @@ export class VpsPullScheduler {
     } catch {}
 
     const result = await db.query(
-      `SELECT r.id, r.account_number, r.mt5_server, r.investor_password, r.telegram_id, r.username, r.nickname
+      `SELECT r.id, r.account_number, r.mt5_server, r.investor_password, r.user_id, r.username, r.nickname
        FROM trading_registrations r
        LEFT JOIN wp_leaderboard l ON r.id = l.registration_id
        WHERE r.challenge_id = $1
@@ -952,7 +952,7 @@ export class VpsPullScheduler {
       accountNumber: r.account_number,
       server: r.mt5_server,
       investorPassword: r.investor_password,
-      telegramId: r.telegram_id,
+      userId: r.user_id,
       username: r.username,
       nickname: r.nickname,
       isPriority: false,
@@ -1034,7 +1034,7 @@ export class VpsPullScheduler {
       const botInfo = await this.bot.bot.telegram.getMe();
       try {
         await this.bot.bot.telegram.sendMessage(
-          failure.telegramId,
+          failure.userId,
           `⚠️ <b>Account Access Issue — ${challenge.title}</b>\n\n` +
           `We could not access your MT5 account <b>${failure.accountNumber}</b>.\n\n` +
           `It appears your <b>investor password has been changed</b>.\n\n` +
@@ -1050,7 +1050,7 @@ export class VpsPullScheduler {
           }
         );
       } catch (e) {
-        console.error(`Could not notify Telegram user ${failure.telegramId}:`, e);
+        console.error(`Could not notify Telegram user ${failure.userId}:`, e);
       }
     }
 
@@ -1085,7 +1085,7 @@ export class VpsPullScheduler {
       if (!activeChallenge) return;
 
       const result = await db.query(
-        `SELECT id, telegram_id, username, account_number
+        `SELECT id, user_id, username, account_number
          FROM trading_registrations
          WHERE challenge_id = $1
            AND pull_status = 'password_changed'
@@ -1101,7 +1101,7 @@ export class VpsPullScheduler {
         );
 
         try {
-          await this.bot.bot.telegram.sendMessage(reg.telegram_id,
+          await this.bot.bot.telegram.sendMessage(reg.user_id,
             `🚫 <b>Registration Disqualified — ${activeChallenge.title}</b>\n\n` +
             `Account <b>${reg.account_number}</b> has been disqualified.\n\n` +
             `📛 <b>Reason:</b> Investor password was changed and not updated within 48 hours.\n\n` +

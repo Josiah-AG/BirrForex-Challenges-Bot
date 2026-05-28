@@ -900,15 +900,15 @@ export class TradingScheduler {
             if (mode === 'day') {
               // Day mode: send DM immediately
               try {
-                await this.bot.bot.telegram.sendMessage(reg.telegram_id, warningMsg, { parse_mode: 'HTML' });
-                console.log(`  ⚠️ Day screening: DM sent to @${reg.username || reg.telegram_id}`);
+                await this.bot.bot.telegram.sendMessage(reg.user_id, warningMsg, { parse_mode: 'HTML' });
+                console.log(`  ⚠️ Day screening: DM sent to @${reg.username || reg.user_id}`);
               } catch (e) {
-                console.error(`  Failed to DM ${reg.telegram_id}:`, e);
+                console.error(`  Failed to DM ${reg.user_id}:`, e);
               }
               await new Promise(r => setTimeout(r, 2000));
             } else {
               // Night mode: queue for 8 AM delivery
-              this.pendingMessages.push({ telegramId: reg.telegram_id, message: warningMsg });
+              this.pendingMessages.push({ telegramId: reg.user_id, message: warningMsg });
             }
 
             changingUsers.push({ ...reg, client_uid: shortUid });
@@ -926,14 +926,14 @@ export class TradingScheduler {
 
             if (mode === 'day') {
               try {
-                await this.bot.bot.telegram.sendMessage(reg.telegram_id, disqualifyMsg, { parse_mode: 'HTML' });
-                console.log(`  ❌ Day screening: Disqualify DM sent to @${reg.username || reg.telegram_id}`);
+                await this.bot.bot.telegram.sendMessage(reg.user_id, disqualifyMsg, { parse_mode: 'HTML' });
+                console.log(`  ❌ Day screening: Disqualify DM sent to @${reg.username || reg.user_id}`);
               } catch (e) {
-                console.error(`  Failed to DM ${reg.telegram_id}:`, e);
+                console.error(`  Failed to DM ${reg.user_id}:`, e);
               }
               await new Promise(r => setTimeout(r, 2000));
             } else {
-              this.pendingMessages.push({ telegramId: reg.telegram_id, message: disqualifyMsg });
+              this.pendingMessages.push({ telegramId: reg.user_id, message: disqualifyMsg });
             }
 
             leftUsers.push({ ...reg, client_uid: shortUid });
