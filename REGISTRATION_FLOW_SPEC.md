@@ -789,3 +789,207 @@ Same message as Telegram but without the deep link button (Discord doesn't need 
 2. Update VPS `verify-connection` response handling in Discord bot
 3. Rewrite Discord registration flow in `challenge_bot.py` step by step
 4. Test each path (Demo, Real+cent, Real+flex, Hybrid+cent, Hybrid+flex)
+
+
+---
+
+## DATABASE: What Gets Saved After Successful Registration
+
+### Table: `trading_registrations`
+
+#### Scenario 1: Demo Only Challenge (Standard account, balance $30)
+
+| Column | Value |
+|--------|-------|
+| challenge_id | 1 |
+| telegram_id | 2138352441 |
+| discord_user_id | NULL (or Discord ID if from Discord) |
+| username | @traderX |
+| nickname | TraderX |
+| account_type | `demo` |
+| email | user@example.com |
+| account_number | 435924397 |
+| mt5_server | Exness-MT5Trial9 |
+| investor_password | Abc@1234 |
+| client_uid | abc123-short-uid |
+| source | `telegram` or `discord` |
+| status | NULL (active) |
+| is_cent | `false` |
+| account_subtype | `standard` |
+| registration_balance | 30.00 |
+| last_known_balance | 30.00 |
+| actual_starting_balance | NULL (set later by evaluation on first deposit detection) |
+| connection_verified | `true` |
+| connection_verified_at | 2026-05-25 00:00:00 |
+| pull_status | `never_pulled` |
+| disqualified | `false` |
+| registered_at | 2026-05-25 00:00:00 |
+
+---
+
+#### Scenario 2: Real Only + Cent-Only (Cent account, balance 1000¢)
+
+| Column | Value |
+|--------|-------|
+| challenge_id | 2 |
+| telegram_id | 123456789 |
+| username | @centTrader |
+| nickname | CentKing |
+| account_type | `real` |
+| email | cent@example.com |
+| account_number | 161584935 |
+| mt5_server | Exness-MT5Real21 |
+| investor_password | Pass@123 |
+| client_uid | def456-short-uid |
+| source | `telegram` |
+| is_cent | `true` |
+| account_subtype | `standard_cent` |
+| registration_balance | 1000.00 (raw cents from VPS) |
+| last_known_balance | 1000.00 |
+| actual_starting_balance | NULL |
+| connection_verified | `true` |
+| pull_status | `never_pulled` |
+| disqualified | `false` |
+
+**Note:** Balance stored as raw VPS value (1000 = 1000¢). The system knows it's cents because `is_cent = true`.
+
+---
+
+#### Scenario 3: Real Only + Flexible — User chose CENT account
+
+| Column | Value |
+|--------|-------|
+| challenge_id | 3 |
+| account_type | `real` |
+| account_number | 161584895 |
+| mt5_server | Exness-MT5Real21 |
+| is_cent | `true` |
+| account_subtype | `standard_cent` |
+| registration_balance | 10000.00 (raw cents = $100 equivalent) |
+| last_known_balance | 10000.00 |
+
+**Note:** Admin set starting_balance = 100 ($). User has 10000¢ = $100. Stored as raw 10000.
+
+---
+
+#### Scenario 4: Real Only + Flexible — User chose STANDARD account
+
+| Column | Value |
+|--------|-------|
+| challenge_id | 3 |
+| account_type | `real` |
+| account_number | 133643354 |
+| mt5_server | Exness-MT5Real9 |
+| is_cent | `false` |
+| account_subtype | `standard` |
+| registration_balance | 100.00 (dollars) |
+| last_known_balance | 100.00 |
+
+---
+
+#### Scenario 5: Hybrid + Cent-Only — User chose DEMO
+
+| Column | Value |
+|--------|-------|
+| challenge_id | 4 |
+| account_type | `demo` |
+| account_number | 435924397 |
+| mt5_server | Exness-MT5Trial9 |
+| is_cent | `false` |
+| account_subtype | `standard` |
+| registration_balance | 30.00 |
+| last_known_balance | 30.00 |
+
+---
+
+#### Scenario 6: Hybrid + Cent-Only — User chose REAL (must be cent)
+
+| Column | Value |
+|--------|-------|
+| challenge_id | 4 |
+| account_type | `real` |
+| account_number | 161584935 |
+| mt5_server | Exness-MT5Real21 |
+| is_cent | `true` |
+| account_subtype | `standard_cent` |
+| registration_balance | 3000.00 (raw cents = $30 equivalent, admin set starting_balance=30) |
+| last_known_balance | 3000.00 |
+
+---
+
+#### Scenario 7: Hybrid + Flexible — User chose REAL with CENT account
+
+| Column | Value |
+|--------|-------|
+| challenge_id | 5 |
+| account_type | `real` |
+| is_cent | `true` |
+| account_subtype | `standard_cent` |
+| registration_balance | 3000.00 (raw cents) |
+
+---
+
+#### Scenario 8: Hybrid + Flexible — User chose REAL with STANDARD account
+
+| Column | Value |
+|--------|-------|
+| challenge_id | 5 |
+| account_type | `real` |
+| is_cent | `false` |
+| account_subtype | `standard` |
+| registration_balance | 30.00 (dollars) |
+
+---
+
+#### Scenario 9: User registered with $0 balance (hasn't deposited yet)
+
+| Column | Value |
+|--------|-------|
+| registration_balance | 0 |
+| last_known_balance | 0 |
+| actual_starting_balance | NULL (will be set when first deposit detected during pulls) |
+
+---
+
+#### Scenario 10: Discord registration (team email used)
+
+| Column | Value |
+|--------|-------|
+| telegram_id | 987654321012345 (Discord user ID as BigInt) |
+| discord_user_id | 987654321012345 |
+| source | `discord` |
+| (all other fields same as equivalent Telegram scenario) |
+
+---
+
+### New Column: `account_subtype` (TO BE ADDED)
+
+```sql
+ALTER TABLE trading_registrations ADD COLUMN IF NOT EXISTS account_subtype VARCHAR(20) DEFAULT 'standard';
+```
+
+Values: `standard`, `standard_cent`, `pro`, `raw_spread`, `zero`, `unknown`
+
+---
+
+### How Balance is Stored vs Interpreted
+
+| is_cent | registration_balance | What it means | How evaluation uses it |
+|---------|---------------------|---------------|----------------------|
+| false | 30.00 | $30.00 | Compare directly to rules (in $) |
+| false | 100.00 | $100.00 | Compare directly to rules (in $) |
+| true | 1000.00 | 1000¢ ($10) | If Real+cent-only: compare to rules as-is (admin entered in ¢). Otherwise: rules ×100 then compare |
+| true | 10000.00 | 10000¢ ($100) | Same logic |
+
+---
+
+### How `actual_starting_balance` Gets Set Later
+
+During VPS pulls, the evaluation engine detects the first deposit:
+1. Looks at `wp_deals` for balance deposits (deal_type = 'balance' or '2', profit > 0)
+2. First deposit amount = `actual_starting_balance`
+3. Saved: `UPDATE trading_registrations SET actual_starting_balance = $1`
+4. Second deposit = DQ (recharging)
+
+If user registered with balance > 0 and no deposits detected:
+- `actual_starting_balance` = `registration_balance`
