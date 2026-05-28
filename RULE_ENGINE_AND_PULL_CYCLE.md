@@ -272,7 +272,26 @@ for candle in safeCandles:
     if candle.high >= SL → FLAG "SL not active — price reached {high} above SL {sl}"
 ```
 
-**Graceful degradation:** If VPS candles endpoint fails or returns empty → skip fake SL check for that trade (don't flag, don't block evaluation).
+**Graceful degradation:** If VPS candles endpoint fails or returns empty → skip fake SL check for that trade (don't flag, don't block evaluation). BUT log the failure for admin visibility.
+
+**Failed SL Check Reporting (Admin Pulls Tab):**
+
+When fake SL detection fails for any trade, the system logs it to `wp_pull_errors` with `error_code = 'sl_check_failed'`. The admin Pulls tab shows a section:
+
+```
+⚠️ Fake SL Check Incomplete (3 accounts)
+
+• Bella FX (161584947) — 5 trades unchecked — Candles timeout
+• olanzo (161584905) — 2 trades unchecked — VPS unavailable
+• CR7 (161584935) — 1 trade unchecked — Symbol not found
+
+[🔄 Retry SL Check]
+```
+
+The "Retry SL Check" button re-runs ONLY the fake SL detection for the listed accounts (fetches candles and re-evaluates those specific trades). It does NOT re-pull trade data — just the candle verification step.
+
+**Data stored for retry:**
+- `wp_pull_errors` table: `error_code = 'sl_check_failed'`, `registration_id`, `error_message` = JSON with trade tickets that failed
 
 **7. Daily Loss Cap**
 Track running balance per day:
