@@ -211,7 +211,7 @@ Send your nickname:
 **If too short/long:** `❌ Nickname must be 3-20 characters. Try again:`
 **If invalid chars:** `❌ Only letters, numbers, and underscores allowed. Try again:`
 **If taken:** `❌ "TraderX" is already taken. Choose a different nickname:`
-**If brand impersonation:** `❌ You cannot use that nickname — it's too similar to our brand.`
+**If brand impersonation:** `❌ You cannot use this nickname. Please choose a different one:`
 
 ### A8. Registration Complete
 ```
