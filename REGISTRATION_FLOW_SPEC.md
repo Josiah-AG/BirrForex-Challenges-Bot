@@ -548,3 +548,226 @@ Proceed without verification (graceful degradation). Log the issue.
 ❌ Nickname "TraderX" was just taken! Choose a different one:
 ```
 → Back to nickname step
+
+
+---
+
+## DISCORD-SPECIFIC DIFFERENCES
+
+The flow is identical to Telegram in logic, but Discord has these UI/UX differences:
+
+---
+
+### D-1. Registration Trigger
+- **Telegram:** User clicks deep link button → bot DMs them
+- **Discord:** User clicks "🚀 Register Now" button in #challenges → bot DMs them
+
+---
+
+### D-2. Email Step (Discord has extra option)
+
+Discord users are already team members with emails in the attendance database.
+So Discord shows an EXTRA choice before email:
+
+```
+📋 Challenge Registration
+"BFX Teams Challenge 1"
+Type: REAL
+
+How would you like to register?
+
+[✅ Use my team Exness account]  [📧 Use another Exness account]
+```
+
+**If "Use my team Exness account":**
+- System looks up `member_emails` table in Discord's SQLite DB
+- If email found: auto-fills email, skips to account type (if hybrid) or account number
+- Allocation + KYC check still runs on this email (via Discord bot's own ExnessAPI class)
+- If email NOT found in DB: "⚠️ We couldn't find an email linked to your team registration. Please enter your Exness email address below:"
+
+**If "Use another Exness account":**
+- Proceeds to manual email entry (same as Telegram)
+- Allocation + KYC check runs on the entered email
+
+---
+
+### D-3. Account Type Selection (Hybrid only)
+
+```
+What type of account are you registering with?
+
+[📊 Demo Account]  [💰 Real Account]
+```
+(Discord buttons, same as Telegram inline buttons)
+
+---
+
+### D-4. Server Selection
+
+Discord uses a **Select Menu (dropdown)** instead of many buttons:
+
+For Demo:
+```
+🖥️ Select your MT5 Trading Server:
+
+[▼ Select Server]
+  - Exness-MT5Trial2
+  - Exness-MT5Trial3
+  - Exness-MT5Trial7
+  - Exness-MT5Trial9
+  - ✍️ Type Manually
+```
+
+For Real:
+```
+🖥️ Select your MT5 Trading Server:
+
+[▼ Select Server]
+  - Exness-MT5Real9
+  - Exness-MT5Real15
+  - Exness-MT5Real21
+  - Exness-MT5Real22
+  - ... (all real servers)
+  - ✍️ Type Manually
+```
+
+**If "Type Manually" selected:**
+```
+Type your MT5 server name below:
+Example: Exness-MT5Real21
+```
+
+**Fuzzy match confirmation (buttons, NOT text):**
+```
+Is your server Exness-MT5Real21?
+
+[✅ Yes]  [❌ No, let me type again]
+```
+
+---
+
+### D-5. All Error/Retry States Use Buttons
+
+Every error state that needs user action uses Discord buttons:
+
+```
+❌ Only Cent Accounts Allowed
+...message...
+
+[📝 Submit Cent Account]  [❌ Cancel]
+```
+
+```
+❌ Account Type Not Allowed
+...message...
+
+[📝 Submit Another Account]  [❌ Cancel]
+```
+
+```
+❌ Balance Too High
+...message...
+
+[📝 Submit Another Account]  [❌ Cancel]
+```
+
+```
+❌ Connection failed — Invalid credentials
+...message...
+
+[🔄 Try Again]  [❌ Cancel]
+```
+"Try Again" goes back to account number step.
+
+---
+
+### D-6. Allocation + KYC Check
+
+Discord bot has its own `ExnessAPI` class (in `bot.py`) that can:
+- `check_allocation(email)` — returns affiliation data
+- `get_kyc_status(full_uuid)` — returns KYC status
+- `verify_user(email)` — full flow (allocation → UUID → KYC)
+
+For challenge registration, Discord bot calls its own `exness_api.verify_user(email)`:
+- If `status == "not_allocated"`: show allocation failed message + buttons
+- If `status == "pending_kyc"` (kyc_passed = false): show KYC message + buttons
+- If `status == "verified"`: proceed
+
+Messages are IDENTICAL to Telegram (same text, same buttons).
+
+---
+
+### D-7. Real Account Allocation Check
+
+Discord currently does NOT check real account allocation before server/password.
+This needs to be added. Two options:
+
+**Option A:** Add `/api/discord/verify-real-account` endpoint on TG Bot API
+**Option B:** Discord bot calls its own ExnessAPI to check account allocation
+
+Recommended: **Option A** — add API endpoint. The TG Bot already has `exnessService.verifyRealAccount()` which checks if a specific account number is under BirrForex + is MT5. Expose it as an API endpoint for Discord to call.
+
+New endpoint:
+```
+POST /api/discord/verify-real-account
+Body: { account_number }
+Response: { status: "allocated_mt5" | "allocated_not_mt5" | "not_allocated" | "api_error" }
+```
+
+---
+
+### D-8. VPS Verify
+
+Discord already calls `POST /api/discord/verify-connection` which does VPS check.
+This endpoint needs to be enhanced to also return `account_subtype` (already planned in VPS worker update).
+
+The Discord bot then checks the response and shows appropriate messages with buttons.
+
+---
+
+### D-9. Nickname
+
+Same as Telegram — user types nickname, bot validates:
+- Length (3-20)
+- Characters (alphanumeric + underscore)
+- Uniqueness (API check)
+- Brand check
+
+---
+
+### D-10. Registration Complete
+
+Same message as Telegram but without the deep link button (Discord doesn't need it):
+```
+✅ Registration Complete!
+
+📋 Your Registration:
+🏷️ Nickname: TraderX
+📧 Email: user@example.com
+🏦 Real Account: 161584935
+🖥️ Server: Exness-MT5Real21
+📊 Type: Real
+🔑 Investor Password: ✅ Saved
+
+⏳ Challenge starts: May 25, 2026, 12:00 AM
+
+⚠️ IMPORTANT: Do NOT change your investor password until the challenge ends.
+
+[🔄 Change Account Number]
+```
+
+---
+
+## IMPLEMENTATION PLAN FOR DISCORD
+
+1. **Add API endpoint:** `POST /api/discord/verify-email` — wraps `exnessService.verifyEmail()`
+2. **Add API endpoint:** `POST /api/discord/verify-real-account` — wraps `exnessService.verifyRealAccount()`
+3. **Update `challenge_bot.py`:**
+   - Add email verification step (call API or use own ExnessAPI)
+   - Add real account allocation check (call API)
+   - Replace text-based server input with Select Menu
+   - Add account subtype rejection handling
+   - Remove password confirmation (already done)
+   - Add all balance check messages with buttons
+   - Ensure fuzzy match uses buttons (already partially done)
+4. **Update VPS verify-connection endpoint:** Already returns `account_subtype` (from VPS worker update)
