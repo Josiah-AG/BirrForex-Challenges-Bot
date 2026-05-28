@@ -139,17 +139,7 @@ This is the password that allows view-only access to your MT5 account.
 Send your investor password:
 ```
 
-### A6. Confirm Password
-```
-🔑 Enter the investor password again to confirm:
-```
-
-**If mismatch:**
-```
-❌ Passwords don't match. Please enter your investor password again:
-```
-
-### A7. VPS Verification
+### A6. VPS Verification
 ```
 ⏳ Verifying MT5 connection...
 This may take up to 30 seconds.
@@ -167,9 +157,9 @@ Please double-check:
 • Account: 435924397
 • Server: Exness-MT5Trial9
 
-🔑 Enter your Investor (Read-Only) Password again:
+Send your MT5 Demo Account Number:
 ```
-→ Back to A5
+→ Back to A3 (account number)
 
 **If account subtype is NOT standard (Pro/Raw/Zero):**
 ```
@@ -204,9 +194,9 @@ Please set your balance to $30.00 and try again.
 ```
 ✅ MT5 connection verified! Balance: $30.00 ✓
 ```
-→ Proceed to A8
+→ Proceed to A7
 
-### A8. Nickname
+### A7. Nickname
 ```
 🏷️ Almost done! Choose a Challenge Nickname
 
@@ -223,7 +213,7 @@ Send your nickname:
 **If taken:** `❌ "TraderX" is already taken. Choose a different nickname:`
 **If brand impersonation:** `❌ You cannot use that nickname — it's too similar to our brand.`
 
-### A9. Registration Complete
+### A8. Registration Complete
 ```
 ✅ Registration Complete!
 
@@ -290,7 +280,7 @@ Create a new MT5 Real account and try again.
 
 **If allocated + MT5:** → Proceed to B5
 
-### B5-B6. Server Selection + Password (Same as A4-A6 but with Real servers)
+### B5-B6. Server Selection + Password (Same as A4-A5 but with Real servers)
 Servers shown: `Exness-MT5Real9, Real15, Real21, Real22, Real23, Real24, Real25, Real26, Real27, Real28, Real29, Real30`
 
 ### B7. VPS Verification
@@ -298,7 +288,19 @@ Servers shown: `Exness-MT5Real9, Real15, Real21, Real22, Real23, Real24, Real25,
 ⏳ Verifying MT5 connection...
 ```
 
-**If login failed:** Same as A7 login failed → back to B5
+**If login failed:**
+```
+❌ Connection failed — Invalid credentials
+
+The investor password or account number/server combination is incorrect.
+
+Please double-check:
+• Account: 161584935
+• Server: Exness-MT5Real21
+
+Send your MT5 Real Account Number:
+```
+→ Back to B3
 
 **If currency = USD (not cent):**
 ```
