@@ -638,9 +638,8 @@ export class WpEvaluationEngine {
     if (slCheckFailures.length > 0) {
       try {
         await db.query(
-          `INSERT INTO wp_pull_errors (pull_batch_id, registration_id, account_number, error_code, error_message)
-           VALUES (0, $1, $2, 'sl_check_failed', $3)
-           ON CONFLICT DO NOTHING`,
+          `INSERT INTO wp_pull_errors (registration_id, account_number, error_code, error_message)
+           VALUES ($1, $2, 'sl_check_failed', $3)`,
           [reg.id, reg.account_number, JSON.stringify({ trades_unchecked: slCheckFailures.length, tickets: slCheckFailures.map(f => f.ticket) })]
         );
       } catch (e) {
@@ -678,8 +677,8 @@ export class WpEvaluationEngine {
 
     // Record notification
     await db.query(
-      `INSERT INTO wp_pull_errors (pull_batch_id, registration_id, account_number, error_code, error_message)
-       VALUES (0, $1, $2, 'drawdown_notified', $3)`,
+      `INSERT INTO wp_pull_errors (registration_id, account_number, error_code, error_message)
+       VALUES ($1, $2, 'drawdown_notified', $3)`,
       [reg.id, reg.account_number, `Drawdown $${cap} reached at ${time} EAT on ${day}`]
     );
 

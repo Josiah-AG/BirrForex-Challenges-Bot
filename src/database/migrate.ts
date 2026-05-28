@@ -208,6 +208,10 @@ async function migrate() {
     await db.query(`CREATE INDEX IF NOT EXISTS idx_wp_leaderboard_user_id ON wp_leaderboard(user_id);`).catch(() => {});
     await db.query(`DROP INDEX IF EXISTS idx_tr_discord_user;`).catch(() => {});
 
+    // Make pull_batch_id nullable on wp_pull_errors (allows logging errors outside of a pull batch)
+    await db.query(`ALTER TABLE wp_pull_errors ALTER COLUMN pull_batch_id DROP NOT NULL;`).catch(() => {});
+    await db.query(`ALTER TABLE wp_pull_errors DROP CONSTRAINT IF EXISTS wp_pull_errors_pull_batch_id_fkey;`).catch(() => {});
+
     console.log('✅ Schema overhaul: telegram_id → user_id + account_subtype OK');
 
     // Staging table for atomic leaderboard updates

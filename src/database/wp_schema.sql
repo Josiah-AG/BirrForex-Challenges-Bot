@@ -27,10 +27,10 @@ CREATE TABLE IF NOT EXISTS wp_pull_batches (
     created_at TIMESTAMP DEFAULT NOW()
 );
 
--- 3. Pull Errors — Individual account pull failures
+-- 3. Pull Errors — Individual account pull failures (pull_batch_id nullable for out-of-band logs)
 CREATE TABLE IF NOT EXISTS wp_pull_errors (
     id SERIAL PRIMARY KEY,
-    pull_batch_id INTEGER REFERENCES wp_pull_batches(id) ON DELETE CASCADE,
+    pull_batch_id INTEGER,
     registration_id INTEGER REFERENCES trading_registrations(id) ON DELETE CASCADE,
     account_number VARCHAR(50) NOT NULL,
     error_code VARCHAR(50),
