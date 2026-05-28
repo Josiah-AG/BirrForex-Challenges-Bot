@@ -222,14 +222,57 @@ tolerance = rules.max_risk > 50 ? 20 : 0.5  // 20¢ for cent, $0.50 for standard
 if slRisk > rules.max_risk + tolerance → FLAG
 ```
 
-**6. Fake SL Detection (M1 candle check)**
+**6. Fake SL Detection (Candle-based verification)**
+
+Checks if price actually crossed the SL level during the trade's open period. If it did but the trade wasn't closed by SL, the SL was "fake" (set after the fact or moved).
+
+**Adaptive Timeframe Selection (based on hold duration):**
+
+| Hold Duration | Timeframe | Reason |
+|---|---|---|
+| < 20 min | M1 | Short trade, need precision |
+| 20 min – 1 hr | M5 | ~12 candles max |
+| 1 hr – 6 hr | M15 | ~24 candles max |
+| 6 hr – 24 hr | H1 | ~24 candles max |
+| > 24 hr (if max_hold_hours allows) | H4 | Keeps data small |
+| > 24 hr (if max_hold_hours does NOT allow) | SKIP | Trade already flagged for hold time violation |
+
+**Candle Exclusion Rule:**
+- **EXCLUDE the first candle** (where trade opened) — high/low may have been printed before trade was actually opened
+- **EXCLUDE the last candle** (where trade closed) — high/low may have been printed after trade was already closed
+- **Only check candles FULLY within the trade period** — candles that started AFTER trade opened AND ended BEFORE trade closed
+
+**Logic:**
 ```
-Fetch M1 candles from VPS for trade.symbol between open_time and close_time
-For each candle:
-  - Buy trade: if candle.low <= SL → "SL not active — price reached X below SL"
-  - Sell trade: if candle.high >= SL → "SL not active — price reached X above SL"
+holdMinutes = (close_time - open_time) / 60000
+
+// Select timeframe
+if holdMinutes < 20: timeframe = "M1"
+elif holdMinutes < 60: timeframe = "M5"
+elif holdMinutes < 360: timeframe = "M15"
+elif holdMinutes < 1440: timeframe = "H1"
+elif max_hold_hours allows > 24h: timeframe = "H4"
+else: SKIP (already flagged for hold time)
+
+// Fetch candles
+candles = fetchCandles(symbol, timeframe, open_time, close_time)
+
+// Filter: exclude first and last candle
+// First candle = the one whose time <= open_time
+// Last candle = the one whose time + period > close_time
+safeCandles = candles where:
+  candle.time > open_time  (started AFTER trade opened)
+  AND candle.time + candlePeriod <= close_time  (ended BEFORE trade closed)
+
+// Check each safe candle
+for candle in safeCandles:
+  if trade is BUY:
+    if candle.low <= SL → FLAG "SL not active — price reached {low} below SL {sl}"
+  if trade is SELL:
+    if candle.high >= SL → FLAG "SL not active — price reached {high} above SL {sl}"
 ```
-If price crossed SL but trade wasn't closed → FLAG (fake SL)
+
+**Graceful degradation:** If VPS candles endpoint fails or returns empty → skip fake SL check for that trade (don't flag, don't block evaluation).
 
 **7. Daily Loss Cap**
 Track running balance per day:
