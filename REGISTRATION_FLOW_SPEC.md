@@ -1076,6 +1076,75 @@ During VPS pulls, the evaluation engine detects the first deposit:
 If user registered with balance > 0 and no deposits detected:
 - `actual_starting_balance` = `registration_balance`
 
+---
+
+## BALANCE FIELDS EXPLAINED
+
+### `registration_balance`
+The balance the VPS reported at the exact moment of registration. This is a one-time snapshot taken during the VPS verify step. It NEVER changes after registration. It records what the user had when they signed up.
+
+### `last_known_balance`
+The most recent balance from the VPS. Updated every pull cycle (6 times per day). This is the "live" balance. Used for:
+- Admin overview "Total Balance" display
+- Shield icon verification
+- Leaderboard `current_balance` (via evaluation)
+
+### `actual_starting_balance`
+The balance the system uses as the user's starting point to calculate profit. This is the REAL baseline for the challenge. Determined by deposit detection logic (see below). Once set, it doesn't change.
+
+**Profit formula:** `profit = current_balance - actual_starting_balance`
+
+---
+
+## FIRST DEPOSIT DETECTION LOGIC
+
+Runs during each evaluation cycle. Determines the user's true starting balance.
+
+### How it works:
+
+1. Query `wp_deals` for this user's balance deposits:
+   ```sql
+   SELECT profit, time FROM wp_deals
+   WHERE challenge_id = X AND registration_id = Y
+     AND (deal_type ILIKE '%balance%' OR deal_type = '2')
+     AND profit > 0
+   ORDER BY time ASC
+   ```
+   This finds all explicit deposit operations (NOT swap, commission, or dividends).
+
+2. **If deposits found:**
+   - First deposit amount → saved as `actual_starting_balance`
+   - Second deposit → **DQ for recharging** (additional deposit not allowed)
+
+3. **If NO deposits found but `registration_balance` > 0:**
+   - User registered with money already in account
+   - `actual_starting_balance = registration_balance`
+
+4. **If NO deposits found and `registration_balance` = 0:**
+   - User hasn't deposited yet
+   - `actual_starting_balance` stays NULL
+   - Profit = $0 (hasn't started)
+   - System keeps pulling, waiting for first deposit
+
+### Scenarios:
+
+| Registered with | Deposits after start | actual_starting_balance | Result |
+|----------------|---------------------|------------------------|--------|
+| 1000¢ | None | 1000 (from registration_balance) | Normal |
+| 0¢ | 800¢ on day 2 | 800 (first deposit) | Normal |
+| 0¢ | 800¢ day 2, then 200¢ day 3 | 800 (first deposit) | **DQ** (recharging) |
+| 500¢ | 500¢ more after start | 500 (from registration_balance) | **DQ** (recharging — any deposit after start with existing balance) |
+| 0¢ | None (never deposits) | NULL | Stays at 0 profit, keeps pulling |
+
+### What counts as a deposit:
+- `deal_type = 'balance'` or `deal_type = '2'` with `profit > 0`
+
+### What does NOT count as a deposit:
+- Swap (deal_type = swap)
+- Commission (deal_type = commission)
+- Dividends
+- Trade profits/losses
+
 
 ---
 
