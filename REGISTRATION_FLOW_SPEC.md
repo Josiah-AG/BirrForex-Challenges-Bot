@@ -1009,3 +1009,57 @@ During VPS pulls, the evaluation engine detects the first deposit:
 
 If user registered with balance > 0 and no deposits detected:
 - `actual_starting_balance` = `registration_balance`
+
+
+---
+
+## CSV EXPORT FORMAT (Export Registrations)
+
+Accessible from: Telegram `/exportregistrations` command OR WinnerPip Admin Panel Settings tab.
+Shows ALL participants for a challenge regardless of source (Telegram + Discord unified).
+
+### Column Order:
+
+```
+#, Registered, Source, Nickname, Username, User ID, Email, Type, Acct Type, Account, Server, Investor Password, Initial Balance, Last Pulled Balance, Status
+```
+
+### Example CSV:
+
+```csv
+#,Registered,Source,Nickname,Username,User ID,Email,Type,Acct Type,Account,Server,Investor Password,Initial Balance,Last Pulled Balance,Status
+1,2026-05-24 08:30 EAT,telegram,MK,@mk_kaizen,2138352441,mekuanent@gmail.com,real,standard_cent,161584921,Exness-MT5Real21,Pass@123,1000¢,985¢,Active
+2,2026-05-24 09:15 EAT,discord,Bella FX,bella_fx,987654321012345,bella@gmail.com,real,standard_cent,161584947,Exness-MT5Real21,Abc@456,1000¢,704¢,Active
+3,2026-05-24 09:20 EAT,discord,CR7,kete7227,876543210987654,haliketemaw@gmail.com,real,standard_cent,161584935,Exness-MT5Real21,Xyz@789,1000¢,1000¢,Active
+4,2026-05-24 10:00 EAT,telegram,kidus_t_w,@kidus_tilahun,1234567890,kidus@gmail.com,real,standard,161585319,Exness-MT5Real9,Kid@321,$100.00,$95.50,Active
+5,2026-05-24 10:30 EAT,discord,Soberboy,herand1318,765432109876543,henochs@gmail.com,real,standard_cent,161584898,Exness-MT5Real21,Sob@111,1000¢,NA,Active
+6,2026-05-24 11:00 EAT,telegram,TraderPro,@traderpro,9876543210,pro@gmail.com,demo,standard,435924397,Exness-MT5Trial9,Pro@222,$30.00,$30.00,Active
+7,2026-05-24 12:00 EAT,discord,FireMan,feron11,654321098765432,fireman@gmail.com,real,standard_cent,161584895,Exness-MT5Real21,Fire@333,0¢,0¢,DQ
+```
+
+### Column Definitions:
+
+| # | Column | Description |
+|---|--------|-------------|
+| 1 | # | Row number |
+| 2 | Registered | Registration date/time in EAT |
+| 3 | Source | `telegram` or `discord` |
+| 4 | Nickname | Challenge leaderboard display name |
+| 5 | Username | Platform username (TG: @handle, Discord: username) |
+| 6 | User ID | Platform user ID (Telegram ID or Discord ID) |
+| 7 | Email | Exness registered email |
+| 8 | Type | `real` or `demo` (competition category) |
+| 9 | Acct Type | `standard`, `standard_cent`, `pro`, `zero`, `unknown` |
+| 10 | Account | MT5 account number |
+| 11 | Server | MT5 server name |
+| 12 | Investor Password | Read-only MT5 password (plaintext) |
+| 13 | Initial Balance | `actual_starting_balance` or `registration_balance` with ¢/$ |
+| 14 | Last Pulled Balance | `last_known_balance` from most recent VPS pull (NA if never pulled) |
+| 15 | Status | `Active` or `DQ` |
+
+### Notes:
+- Initial Balance = `actual_starting_balance` if set (first deposit detected), otherwise `registration_balance`
+- Last Pulled Balance = `last_known_balance` updated every pull cycle. Shows `NA` if pulls haven't started
+- Balance shows with ¢ for cent accounts, $ for standard
+- DQ users included at the bottom with Status = DQ
+- Telegram usernames show with `@` prefix, Discord without
