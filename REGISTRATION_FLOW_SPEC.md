@@ -760,14 +760,32 @@ Same message as Telegram but without the deep link button (Discord doesn't need 
 
 ## IMPLEMENTATION PLAN FOR DISCORD
 
-1. **Add API endpoint:** `POST /api/discord/verify-email` — wraps `exnessService.verifyEmail()`
-2. **Add API endpoint:** `POST /api/discord/verify-real-account` — wraps `exnessService.verifyRealAccount()`
-3. **Update `challenge_bot.py`:**
-   - Add email verification step (call API or use own ExnessAPI)
-   - Add real account allocation check (call API)
-   - Replace text-based server input with Select Menu
-   - Add account subtype rejection handling
-   - Remove password confirmation (already done)
-   - Add all balance check messages with buttons
-   - Ensure fuzzy match uses buttons (already partially done)
-4. **Update VPS verify-connection endpoint:** Already returns `account_subtype` (from VPS worker update)
+### Approach:
+- **Email verification (allocation + KYC):** Use Discord bot's own `ExnessAPI` class (already in `bot.py`, already works for onboarding). No API call to TG Bot needed.
+- **Real account allocation check:** Add `POST /api/discord/verify-real-account` endpoint on TG Bot API (reuses existing `exnessService.verifyRealAccount()` logic).
+- **VPS verify:** Already uses `POST /api/discord/verify-connection` — just needs `account_subtype` handling (VPS worker already returns it).
+- **Server selection:** Replace text input with Discord Select Menu (dropdown).
+- **All confirmations/errors:** Use Discord buttons (no text-based yes/no).
+
+### Files to modify:
+
+**TG Bot (Node.js):**
+- `src/api/discordRoutes.ts` — Add `POST /api/discord/verify-real-account` endpoint
+
+**Discord Bot (Python):**
+- `challenge_bot.py` — Rewrite `handle_registration_message()` and `start_registration_dm()`:
+  1. Add email verification using `_exness_api.verify_user(email)`
+  2. Add real account allocation check (call TG Bot API)
+  3. Replace server text input with Select Menu
+  4. Add account subtype rejection handling from VPS response
+  5. Add all balance check messages with proper ¢/$ display
+  6. Remove password confirmation (already done)
+  7. Ensure all error states have buttons (Submit Another Account, Cancel)
+  8. Add fuzzy match confirmation with buttons (already partially done)
+  9. Handle "Use team email" vs "Use another email" flow
+
+### Order of implementation:
+1. Add `POST /api/discord/verify-real-account` to TG Bot API
+2. Update VPS `verify-connection` response handling in Discord bot
+3. Rewrite Discord registration flow in `challenge_bot.py` step by step
+4. Test each path (Demo, Real+cent, Real+flex, Hybrid+cent, Hybrid+flex)
