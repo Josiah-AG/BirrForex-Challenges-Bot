@@ -304,6 +304,24 @@ def do_verify(account: int, server: str, password: str) -> dict:
     if not account_info:
         return {"success": False, "message": "Could not get account info"}
 
+    # Detect account subtype by checking available symbols
+    account_subtype = "unknown"
+    if account_info.currency == "USC":
+        account_subtype = "standard_cent"
+    else:
+        # Check which EURUSD variant exists on this account
+        sym_m = mt5.symbol_info("EURUSDm")
+        sym_z = mt5.symbol_info("EURUSDz")
+        sym_raw = mt5.symbol_info("EURUSD")
+        if sym_m and sym_m.visible is not None:
+            account_subtype = "standard"
+        elif sym_z and sym_z.visible is not None:
+            account_subtype = "zero"
+        elif sym_raw and sym_raw.visible is not None:
+            account_subtype = "pro"
+        else:
+            account_subtype = "unknown"
+
     return {
         "success": True,
         "message": "Credentials verified successfully",
@@ -312,6 +330,7 @@ def do_verify(account: int, server: str, password: str) -> dict:
         "equity": account_info.equity,
         "server": account_info.server,
         "currency": account_info.currency,
+        "account_subtype": account_subtype,
         "leverage": account_info.leverage,
         "margin_free": account_info.margin_free,
         "profit": account_info.profit,
