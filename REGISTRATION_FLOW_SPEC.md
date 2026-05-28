@@ -802,8 +802,7 @@ Same message as Telegram but without the deep link button (Discord doesn't need 
 | Column | Value |
 |--------|-------|
 | challenge_id | 1 |
-| telegram_id | 2138352441 |
-| discord_user_id | NULL (or Discord ID if from Discord) |
+| user_id | 2138352441 |
 | username | @traderX |
 | nickname | TraderX |
 | account_type | `demo` |
@@ -812,7 +811,7 @@ Same message as Telegram but without the deep link button (Discord doesn't need 
 | mt5_server | Exness-MT5Trial9 |
 | investor_password | Abc@1234 |
 | client_uid | abc123-short-uid |
-| source | `telegram` or `discord` |
+| source | `telegram` |
 | status | NULL (active) |
 | is_cent | `false` |
 | account_subtype | `standard` |
@@ -825,6 +824,8 @@ Same message as Telegram but without the deep link button (Discord doesn't need 
 | disqualified | `false` |
 | registered_at | 2026-05-25 00:00:00 |
 
+**Note:** `user_id` + `source` tells us the platform. If `source = 'telegram'`, user_id is a Telegram ID. If `source = 'discord'`, user_id is a Discord ID. `username` is the platform username (@handle).
+
 ---
 
 #### Scenario 2: Real Only + Cent-Only (Cent account, balance 1000¢)
@@ -832,7 +833,7 @@ Same message as Telegram but without the deep link button (Discord doesn't need 
 | Column | Value |
 |--------|-------|
 | challenge_id | 2 |
-| telegram_id | 123456789 |
+| user_id | 123456789 |
 | username | @centTrader |
 | nickname | CentKing |
 | account_type | `real` |
@@ -955,10 +956,12 @@ Same message as Telegram but without the deep link button (Discord doesn't need 
 
 | Column | Value |
 |--------|-------|
-| telegram_id | 987654321012345 (Discord user ID as BigInt) |
-| discord_user_id | 987654321012345 |
+| user_id | 987654321012345 (Discord user ID) |
+| username | traderX (Discord username, no @) |
 | source | `discord` |
 | (all other fields same as equivalent Telegram scenario) |
+
+**Note:** Same `user_id` column — `source` tells us it's a Discord ID. No separate `discord_user_id` column needed.
 
 ---
 
@@ -969,6 +972,19 @@ ALTER TABLE trading_registrations ADD COLUMN IF NOT EXISTS account_subtype VARCH
 ```
 
 Values: `standard`, `standard_cent`, `pro`, `raw_spread`, `zero`, `unknown`
+
+### Schema Change: Rename `telegram_id` → `user_id`, Remove `discord_user_id`
+
+```sql
+-- Rename telegram_id to user_id (holds either Telegram or Discord ID based on source)
+ALTER TABLE trading_registrations RENAME COLUMN telegram_id TO user_id;
+-- Drop discord_user_id (redundant — user_id + source is sufficient)
+ALTER TABLE trading_registrations DROP COLUMN IF EXISTS discord_user_id;
+```
+
+The `source` column (`telegram` or `discord`) tells the system which platform the `user_id` and `username` belong to.
+
+**Impact:** All code that references `telegram_id` must be updated to `user_id`. The `wp_leaderboard` table also has `telegram_id` → rename to `user_id`.
 
 ---
 
