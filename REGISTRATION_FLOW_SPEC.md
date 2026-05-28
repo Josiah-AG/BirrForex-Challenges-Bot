@@ -481,33 +481,99 @@ Admin entered rules in STANDARD terms. Demo = standard. Real = standard OR cent.
 
 ## VPS VERIFY ENDPOINT RESPONSE FORMAT
 
+**Endpoint:** `POST http://108.181.184.223:8000/verify`
+**Auth:** `api_key` in body
+
+### Actual Response (Cent Account — tested May 25, 2026):
 ```json
 {
-  "success": true,
-  "balance": 1000.0,
-  "equity": 1000.0,
-  "currency": "USC",
-  "account_subtype": "standard_cent",
-  "server": "Exness-MT5Real21",
-  "leverage": 2000,
-  "login": 161584935
+    "success": true,
+    "message": "Credentials verified successfully",
+    "account_name": "TC1",
+    "balance": 0.0,
+    "equity": 0.0,
+    "server": "Exness-MT5Real21",
+    "currency": "USC",
+    "account_subtype": "standard_cent",
+    "leverage": 2000,
+    "margin_free": 0.0,
+    "profit": 0.0,
+    "login": 161584895,
+    "trade_mode": 2,
+    "terminal_id": 1,
+    "terminal_used": 1,
+    "retries": 0,
+    "terminals_tried": 1
 }
 ```
 
-`account_subtype` values:
-- `standard` — EURUSDm available (Standard account)
-- `standard_cent` — EURUSDc available (Standard Cent)
-- `pro` — EURUSD available, no suffix (Pro account)
-- `raw_spread` — EURUSD available, no suffix (Raw Spread)
-- `zero` — EURUSDz available (Zero account)
+### Actual Response (Standard Demo Account — tested May 25, 2026):
+```json
+{
+    "success": true,
+    "message": "Credentials verified successfully",
+    "account_name": "Standard",
+    "balance": 909867.38,
+    "equity": 909866.87,
+    "server": "Exness-MT5Trial9",
+    "currency": "USD",
+    "account_subtype": "standard",
+    "leverage": 500,
+    "margin_free": 909862.22,
+    "profit": -0.51,
+    "login": 435924397,
+    "trade_mode": 0,
+    "terminal_id": 2,
+    "terminal_used": 2,
+    "retries": 0,
+    "terminals_tried": 1
+}
+```
 
-Detection logic on VPS:
-1. If currency = USC → `standard_cent`
-2. If currency = USD:
-   - Check `mt5.symbol_info("EURUSDm")` → if exists → `standard`
-   - Check `mt5.symbol_info("EURUSDz")` → if exists → `zero`
-   - Check `mt5.symbol_info("EURUSD")` → if exists → `pro` (or `raw_spread`)
-   - None found → `unknown`
+### Failed Login Response:
+```json
+{
+    "success": false,
+    "message": "Login failed: (error_code, 'error description')",
+    "terminal_used": 3
+}
+```
+
+### Field Descriptions:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| success | bool | Whether login succeeded |
+| message | string | Status message |
+| account_name | string | MT5 account display name |
+| balance | float | Account balance (raw — in cents for USC, dollars for USD) |
+| equity | float | Account equity |
+| server | string | Connected server name |
+| currency | string | `"USC"` = cent account, `"USD"` = standard |
+| account_subtype | string | `"standard"`, `"standard_cent"`, `"pro"`, `"zero"`, `"unknown"` |
+| leverage | int | Account leverage (e.g., 500, 2000) |
+| margin_free | float | Free margin |
+| profit | float | Current floating P/L |
+| login | int | MT5 login number |
+| trade_mode | int | 0=demo, 2=real |
+| terminal_id | int | Which terminal processed the request |
+| terminal_used | int | Same as terminal_id (router adds this) |
+| retries | int | Number of retries before success |
+| terminals_tried | int | How many different terminals were attempted |
+
+### Detection Logic (on VPS worker):
+```
+if currency == "USC":
+    account_subtype = "standard_cent"
+elif symbol_info("EURUSDm") exists:
+    account_subtype = "standard"
+elif symbol_info("EURUSDz") exists:
+    account_subtype = "zero"
+elif symbol_info("EURUSD") exists:
+    account_subtype = "pro"
+else:
+    account_subtype = "unknown"
+```
 
 ---
 
