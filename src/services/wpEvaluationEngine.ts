@@ -233,7 +233,7 @@ export class WpEvaluationEngine {
     const challengeType = challenge.rows[0]?.type;
 
     const registrations = await db.query(
-      `SELECT id, account_number, user_id, username, nickname, account_type, is_cent
+      `SELECT id, account_number, user_id, username, nickname, account_type, is_cent, source
        FROM trading_registrations WHERE challenge_id = $1 AND disqualified = false AND investor_password IS NOT NULL`,
       [challengeId]
     );
@@ -300,7 +300,7 @@ export class WpEvaluationEngine {
     const challengeType = challenge.rows[0]?.type;
 
     const regResult = await db.query(
-      `SELECT id, account_number, user_id, username, nickname, account_type, is_cent
+      `SELECT id, account_number, user_id, username, nickname, account_type, is_cent, source
        FROM trading_registrations WHERE id = $1 AND challenge_id = $2`,
       [registrationId, challengeId]
     );
@@ -682,8 +682,12 @@ export class WpEvaluationEngine {
       [reg.id, reg.account_number, `Drawdown $${cap} reached at ${time} EAT on ${day}`]
     );
 
-    // Send Telegram notification
+    // Send Telegram notification (only for Telegram users — skip Discord users)
     if (this.bot) {
+      // Check source — Discord user IDs are > 10 digits, or check source column
+      const source = reg.source || 'telegram';
+      if (source !== 'telegram') return; // Don't try to DM Discord users via Telegram
+
       try {
         await this.bot.bot.telegram.sendMessage(
           reg.user_id,
