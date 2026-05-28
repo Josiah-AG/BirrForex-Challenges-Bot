@@ -147,7 +147,7 @@ CREATE INDEX IF NOT EXISTS idx_wp_deals_time ON wp_deals(time);
 -- Leaderboard
 CREATE INDEX IF NOT EXISTS idx_wp_leaderboard_challenge ON wp_leaderboard(challenge_id);
 CREATE INDEX IF NOT EXISTS idx_wp_leaderboard_rank ON wp_leaderboard(challenge_id, account_type, rank);
-CREATE INDEX IF NOT EXISTS idx_wp_leaderboard_user_id ON wp_leaderboard(user_id);
+-- Note: user_id index created by migration (handles rename from telegram_id)
 
 -- Pull batches
 CREATE INDEX IF NOT EXISTS idx_wp_pull_batches_challenge ON wp_pull_batches(challenge_id);

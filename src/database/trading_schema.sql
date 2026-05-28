@@ -147,7 +147,7 @@ CREATE TABLE IF NOT EXISTS trading_screening_results (
 
 CREATE INDEX IF NOT EXISTS idx_tc_dates ON trading_challenges(start_date, end_date);
 CREATE INDEX IF NOT EXISTS idx_tr_challenge ON trading_registrations(challenge_id);
-CREATE INDEX IF NOT EXISTS idx_tr_user_id ON trading_registrations(user_id);
+-- Note: user_id index created by migration (handles rename from telegram_id)
 CREATE INDEX IF NOT EXISTS idx_tr_email ON trading_registrations(email);
 CREATE INDEX IF NOT EXISTS idx_ts_challenge ON trading_submissions(challenge_id);
 CREATE INDEX IF NOT EXISTS idx_tw_challenge ON trading_winners(challenge_id);

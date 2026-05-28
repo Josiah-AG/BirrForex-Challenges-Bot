@@ -618,6 +618,51 @@ Proceed without verification (graceful degradation). Log the issue.
 
 ---
 
+## FAILED ATTEMPTS & RE-ENGAGEMENT (Telegram Only)
+
+Failed attempt tracking and re-engagement DMs are **Telegram-only** features. Discord does NOT track failed attempts or send re-engagement messages.
+
+### What Gets Logged:
+When a user fails at any verification step, the system logs it to `trading_failed_attempts`:
+- **allocation** — Email not under BirrForex
+- **kyc** — KYC verification not passed
+- **real_acct** — Real account not allocated under BirrForex / not MT5
+
+### Table: `trading_failed_attempts`
+| Column | Description |
+|--------|-------------|
+| challenge_id | Which challenge |
+| telegram_id | User's Telegram ID (always Telegram — Discord doesn't use this) |
+| username | Telegram username |
+| email | Email they tried |
+| failure_type | 'allocation', 'kyc', or 'real_acct' |
+| attempted_at | When they failed |
+| engage_count | How many re-engagement DMs sent |
+| last_engaged_at | When last DM was sent |
+| engage_successful | Whether DM was delivered |
+| converted | Whether they later registered successfully |
+| converted_at | When they converted |
+
+### Re-Engagement Logic:
+- **First DM:** 24 hours after failure (if user hasn't registered)
+- **Subsequent DMs:** Every 48 hours (or 24 hours in last 3 days before challenge start)
+- **Stops when:** User registers (converted=true) OR challenge starts
+- **Message content:** Tailored to failure type (allocation → partner change guide, KYC → verification guide, real_acct → create new account guide)
+- **Each DM includes:** "Register Now" deep link button
+
+### Admin Commands:
+- `/engagefailedusers` — Manually trigger re-engagement DMs
+- `/exportfailedattempts` — Export CSV of all failed attempts
+- `/regstats` — Shows failure counts alongside registration stats
+
+### Why Telegram Only:
+- Discord team members are already onboarded (email verified, allocation confirmed during onboarding)
+- Discord users rarely fail at allocation/KYC since they're pre-screened
+- Discord bot doesn't have deep link mechanism for re-engagement
+- The `trading_failed_attempts` table uses `telegram_id` column (not `user_id`) — it's exclusively for Telegram users
+
+---
+
 ## DISCORD-SPECIFIC DIFFERENCES
 
 The flow is identical to Telegram in logic, but Discord has these UI/UX differences:
