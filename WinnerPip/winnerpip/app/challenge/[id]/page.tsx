@@ -245,7 +245,7 @@ export default function ChallengeDashboard() {
   // Computed values
   const violations = recentTrades.filter(t => !t.isQualified);
   const daysLeft = challenge ? Math.max(0, Math.ceil((new Date(challenge.endDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24))) : 0;
-  const progressPercent = challenge && myStats ? Math.min(100, Math.max(0, ((myStats.adjustedBalance - challenge.startingBalance) / (challenge.targetBalance - challenge.startingBalance)) * 100)) : 0;
+  const progressPercent = challenge && myStats ? ((myStats.adjustedBalance - challenge.startingBalance) / (challenge.targetBalance - challenge.startingBalance)) * 100 : 0;
   const totalParticipants = leaderboardTotal || leaderboard.length;
   const isCentAccount = myStats?.accountType === 'real' && myStats.currentBalance > 500; // heuristic for cent
   const isBlownAccount = myStats && myStats.totalTrades > 0 && myStats.currentBalance <= 0;
@@ -532,8 +532,8 @@ export default function ChallengeDashboard() {
               </div>
               <div className="glass rounded-2xl p-4 md:p-5 border border-white/10">
                 <div className="flex items-center gap-2 mb-2"><Target size={16} className="text-royal" /><p className="text-[10px] text-gray-400 uppercase tracking-wider font-medium">Balance</p></div>
-                <p className="text-3xl md:text-4xl font-bold text-white">{formatBalance(myStats.currentBalance, myStats.accountType, myStats.isCent)}</p>
-                <p className="text-xs text-gray-500 mt-1">Target: {formatBalance(challenge.targetBalance, myStats.accountType, myStats.isCent)}</p>
+                <p className="text-3xl md:text-4xl font-bold text-white">{formatBalance(myStats.adjustedBalance, myStats.accountType, myStats.isCent)}</p>
+                <p className="text-xs text-gray-500 mt-1">Gross: {formatBalance(myStats.currentBalance, myStats.accountType, myStats.isCent)}</p>
               </div>
               <div className="glass rounded-2xl p-4 md:p-5 border border-white/10">
                 <div className="flex items-center gap-2 mb-2"><Clock size={16} className="text-gold" /><p className="text-[10px] text-gray-400 uppercase tracking-wider font-medium">Time Left</p></div>
@@ -545,8 +545,8 @@ export default function ChallengeDashboard() {
             {/* PROGRESS BAR — only show when user has trades and is active */}
             {showProgressBar ? (
               <div className="glass rounded-2xl p-4 md:p-5 border border-white/10 mb-6">
-                <div className="flex items-center justify-between mb-3"><p className="text-sm font-medium text-gray-300">Progress to Target</p><p className="text-sm font-bold text-white">{progressPercent.toFixed(0)}%</p></div>
-                <div className="w-full h-3 bg-white/10 rounded-full overflow-hidden"><div className="h-full rounded-full bg-gradient-to-r from-royal to-profit transition-all duration-500" style={{ width: `${progressPercent}%` }} /></div>
+                <div className="flex items-center justify-between mb-3"><p className="text-sm font-medium text-gray-300">Progress to Target</p><p className={`text-sm font-bold ${progressPercent >= 0 ? "text-white" : "text-loss"}`}>{progressPercent.toFixed(0)}%</p></div>
+                <div className="w-full h-3 bg-white/10 rounded-full overflow-hidden"><div className={`h-full rounded-full transition-all duration-500 ${progressPercent >= 0 ? "bg-gradient-to-r from-royal to-profit" : "bg-loss"}`} style={{ width: `${Math.min(100, Math.max(0, progressPercent))}%` }} /></div>
                 <div className="flex justify-between mt-2 text-xs text-gray-500"><span>{formatBalance(challenge.startingBalance, myStats.accountType, myStats.isCent)}</span><span>{formatBalance(challenge.targetBalance, myStats.accountType, myStats.isCent)}</span></div>
               </div>
             ) : !isBlownAccount && !myStats.disqualified && (
