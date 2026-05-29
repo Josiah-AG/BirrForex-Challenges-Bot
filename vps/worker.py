@@ -350,19 +350,17 @@ def do_pull(account: int, server: str, password: str, from_date: str = None) -> 
     balance = account_info.balance if account_info else 0
     equity = account_info.equity if account_info else 0
 
-    # Date range — MT5 Python API expects naive datetimes (interpreted as UTC by MT5)
+    # Date range
     if from_date:
         try:
             date_from = datetime.fromisoformat(from_date.replace("Z", "+00:00"))
-            # Convert to naive UTC (strip timezone info for MT5 API compatibility)
-            date_from = date_from.replace(tzinfo=None)
             date_from = date_from - timedelta(hours=1)
         except:
-            date_from = datetime(2020, 1, 1)
+            date_from = datetime(2020, 1, 1, tzinfo=timezone.utc)
     else:
-        date_from = datetime(2020, 1, 1)
+        date_from = datetime(2020, 1, 1, tzinfo=timezone.utc)
 
-    date_to = datetime.utcnow()
+    date_to = datetime.now(timezone.utc)
 
     # Fetch deals (all trade history)
     trades_raw = mt5.history_deals_get(date_from, date_to)

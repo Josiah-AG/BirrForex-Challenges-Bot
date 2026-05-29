@@ -557,25 +557,30 @@ export class VpsPullScheduler {
 
     for (let attempt = 1; attempt <= MAX_RETRIES_PER_ACCOUNT; attempt++) {
       try {
-        // Incremental pull — use last_pull_at as from_date
-        // Only pull trades since last successful pull to reduce VPS load
+        // Incremental pull: use last_pull_at if available
+        // First pull (last_pull_at = NULL): no from_date → VPS pulls full history
+        // Subsequent pulls: from_date = last_pull_at → only new trades
         const lastPullResult = await db.query(
           `SELECT last_pull_at FROM trading_registrations WHERE id = $1`,
           [account.registrationId]
         );
         const lastPullAt = lastPullResult.rows[0]?.last_pull_at;
-        const fromDate = lastPullAt ? new Date(lastPullAt).toISOString() : null;
+
+        const requestBody: any = {
+          account: account.accountNumber,
+          server: account.server,
+          password: account.investorPassword,
+          api_key: this.apiKey,
+          terminal_id: terminalId,
+        };
+        // Only send from_date if we have a previous successful pull timestamp
+        if (lastPullAt) {
+          requestBody.from_date = new Date(lastPullAt).toISOString();
+        }
 
         const response = await axios.post(
           `${this.baseUrl}/pull`,
-          {
-            account: account.accountNumber,
-            server: account.server,
-            password: account.investorPassword,
-            api_key: this.apiKey,
-            terminal_id: terminalId,
-            from_date: fromDate,
-          },
+          requestBody,
           {
             headers: { 'Content-Type': 'application/json' },
             timeout: ACCOUNT_TIMEOUT_MS,
