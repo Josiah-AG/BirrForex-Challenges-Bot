@@ -645,17 +645,17 @@ export default function AdminDashboard() {
                         <th className="text-center py-2 px-3 text-[10px] text-gray-400 font-medium uppercase">Actions</th>
                       </tr></thead>
                       <tbody>{participantsList.map((p) => (
-                        <tr key={p.id} className={`border-b border-white/5 hover:bg-white/5 transition-colors ${p.disqualified ? "opacity-50 bg-loss/5" : ""}`}>
+                        <tr key={p.id} className={`border-b border-white/5 hover:bg-white/5 cursor-pointer transition-colors ${p.disqualified ? "opacity-50 bg-loss/5" : ""}`} onClick={() => { setSearchQuery(p.nickname || p.accountNumber); handleSearch(p.nickname || p.accountNumber); }}>
                           <td className="py-2 px-3 text-xs text-gray-500">{p.rank || "—"}</td>
                           <td className="py-2 px-3 text-sm text-white font-medium">{p.nickname || "—"}</td>
                           <td className="py-2 px-3 text-xs text-gray-400">{p.username ? `@${p.username}` : "—"}</td>
                           <td className="py-2 px-3 text-xs text-gray-400 max-w-[120px] truncate">{p.email || "—"}</td>
                           <td className="py-2 px-3 text-xs text-gray-300">{p.accountNumber}</td>
                           <td className="py-2 px-3"><span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${p.accountType === "real" ? "bg-gold/10 text-gold" : "bg-royal/10 text-royal"}`}>{p.accountType}</span></td>
-                          <td className="py-2 px-3 text-right"><span className="text-sm text-white">{p.balance != null ? `$${Number(p.balance).toFixed(2)}` : "—"}</span>{p.lastPullAt && <p className="text-[9px] text-gray-500">{(() => { const d = new Date(new Date(p.lastPullAt).getTime() + 3*60*60*1000); return `${String(d.getUTCHours()).padStart(2,"0")}:${String(d.getUTCMinutes()).padStart(2,"0")} EAT`; })()}</p>}</td>
+                          <td className="py-2 px-3 text-right"><span className="text-sm text-white">{p.adjustedBalance != null ? `$${Number(p.adjustedBalance).toFixed(2)}` : (p.balance != null ? `$${Number(p.balance).toFixed(2)}` : "—")}</span>{p.balance != null && p.adjustedBalance != null && <p className="text-[9px] text-gray-500">Gross: ${Number(p.balance).toFixed(2)}</p>}{p.lastPullAt && <p className="text-[9px] text-gray-500">{(() => { const d = new Date(new Date(p.lastPullAt).getTime() + 3*60*60*1000); return `${String(d.getUTCHours()).padStart(2,"0")}:${String(d.getUTCMinutes()).padStart(2,"0")} EAT`; })()}</p>}</td>
                           <td className={`py-2 px-3 text-right text-sm font-medium ${(p.qualifiedProfit ?? 0) >= 0 ? "text-profit" : "text-loss"}`}>{p.qualifiedProfit != null ? `$${Number(p.qualifiedProfit).toFixed(2)}` : "—"}</td>
                           <td className="py-2 px-3 text-center text-xs text-gray-400">{p.totalTrades}</td>
-                          <td className="py-2 px-3 text-center">
+                          <td className="py-2 px-3 text-center" onClick={(e) => e.stopPropagation()}>
                             <div className="flex items-center justify-center gap-1">
                               <VerifyButton challengeId={selectedChallengeId} registrationId={p.id} onResult={(data: any) => setVerifyPopup(data)} />
                               <button onClick={() => setActionModal({ type: 'unverify', participant: p })} title="Remove Registration" className="p-1.5 rounded-lg hover:bg-orange-500/20 text-gray-400 hover:text-orange-400 transition-all"><UserMinus size={14} /></button>

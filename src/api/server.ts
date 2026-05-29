@@ -1608,16 +1608,46 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/user-trades-mt5`, adminIp
       [challengeId, registrationId]
     );
 
-    // Get user info for header
+    // Get user info + challenge info
     const reg = await db.query(
-      `SELECT nickname, account_number, mt5_server FROM trading_registrations WHERE id = $1`,
+      `SELECT r.nickname, r.account_number, r.mt5_server, r.account_type, r.is_cent,
+              c.title, c.start_date, c.end_date
+       FROM trading_registrations r
+       JOIN trading_challenges c ON r.challenge_id = c.id
+       WHERE r.id = $1`,
       [registrationId]
     );
     const user = reg.rows[0] || {};
 
+    // Compute MT5-style results
+    const positions = trades.rows;
+    const grossProfit = positions.filter((t: any) => parseFloat(t.profit) > 0).reduce((s: number, t: any) => s + parseFloat(t.profit), 0);
+    const grossLoss = positions.filter((t: any) => parseFloat(t.profit) < 0).reduce((s: number, t: any) => s + parseFloat(t.profit), 0);
+    const totalNetProfit = grossProfit + grossLoss;
+    const profitFactor = grossLoss !== 0 ? Math.abs(grossProfit / grossLoss) : 0;
+    const totalTrades = positions.length;
+    const profitTrades = positions.filter((t: any) => parseFloat(t.profit) > 0).length;
+    const lossTrades = positions.filter((t: any) => parseFloat(t.profit) <= 0).length;
+    const shortTrades = positions.filter((t: any) => t.trade_type?.toLowerCase() === 'sell');
+    const longTrades = positions.filter((t: any) => t.trade_type?.toLowerCase() === 'buy');
+    const shortWon = shortTrades.filter((t: any) => parseFloat(t.profit) > 0).length;
+    const longWon = longTrades.filter((t: any) => parseFloat(t.profit) > 0).length;
+    const largestProfit = positions.length > 0 ? Math.max(...positions.map((t: any) => parseFloat(t.profit))) : 0;
+    const largestLoss = positions.length > 0 ? Math.min(...positions.map((t: any) => parseFloat(t.profit))) : 0;
+    const avgProfit = profitTrades > 0 ? grossProfit / profitTrades : 0;
+    const avgLoss = lossTrades > 0 ? grossLoss / lossTrades : 0;
+
     return res.json({
-      user: { nickname: user.nickname, accountNumber: user.account_number, server: user.mt5_server },
-      trades: trades.rows.map((t: any) => ({
+      header: {
+        title: 'Trade History Report',
+        name: user.nickname || '',
+        account: `${user.account_number} (${user.is_cent ? 'USC' : 'USD'}, ${user.mt5_server}, ${user.account_type}, Hedge)`,
+        company: 'Exness Technologies Ltd',
+        date: new Date().toISOString().split('T')[0].replace(/-/g, '.'),
+        challenge: user.title || '',
+        period: `${user.start_date ? new Date(user.start_date).toISOString().split('T')[0] : ''} to ${user.end_date ? new Date(user.end_date).toISOString().split('T')[0] : ''}`,
+      },
+      positions: positions.map((t: any) => ({
         Time: t.open_time,
         Position: t.ticket,
         Symbol: t.symbol,
@@ -1631,9 +1661,32 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/user-trades-mt5`, adminIp
         Commission: parseFloat(t.commission || 0),
         Swap: parseFloat(t.swap || 0),
         Profit: parseFloat(t.profit),
-        Qualified: t.is_qualified ? 'Yes' : 'No',
-        Violations: t.violations && t.violations.length > 0 ? (typeof t.violations === 'string' ? t.violations : JSON.stringify(t.violations)) : '',
+        Comment: t.comment || '',
       })),
+      results: {
+        'Total Net Profit': totalNetProfit.toFixed(2),
+        'Gross Profit': grossProfit.toFixed(2),
+        'Gross Loss': grossLoss.toFixed(2),
+        'Profit Factor': profitFactor.toFixed(2),
+        'Total Trades': totalTrades,
+        'Short Trades (won %)': `${shortTrades.length} (${shortTrades.length > 0 ? ((shortWon / shortTrades.length) * 100).toFixed(1) : 0}%)`,
+        'Long Trades (won %)': `${longTrades.length} (${longTrades.length > 0 ? ((longWon / longTrades.length) * 100).toFixed(1) : 0}%)`,
+        'Profit Trades (% of total)': `${profitTrades} (${totalTrades > 0 ? ((profitTrades / totalTrades) * 100).toFixed(1) : 0}%)`,
+        'Loss Trades (% of total)': `${lossTrades} (${totalTrades > 0 ? ((lossTrades / totalTrades) * 100).toFixed(1) : 0}%)`,
+        'Largest profit trade': largestProfit.toFixed(2),
+        'Largest loss trade': largestLoss.toFixed(2),
+        'Average profit trade': avgProfit.toFixed(2),
+        'Average loss trade': avgLoss.toFixed(2),
+      },
+      evaluation: {
+        qualified: positions.filter((t: any) => t.is_qualified).length,
+        flagged: positions.filter((t: any) => !t.is_qualified).length,
+        profitRemoved: positions.filter((t: any) => !t.is_qualified && parseFloat(t.profit) > 0).reduce((s: number, t: any) => s + parseFloat(t.profit), 0).toFixed(2),
+        violations: positions.filter((t: any) => !t.is_qualified).map((t: any) => ({
+          ticket: t.ticket, symbol: t.symbol, profit: parseFloat(t.profit),
+          reasons: t.violations || [],
+        })),
+      },
     });
   } catch (error) {
     return res.status(500).json({ error: 'Internal server error' });
