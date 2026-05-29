@@ -645,7 +645,7 @@ export default function AdminDashboard() {
                         <th className="text-center py-2 px-3 text-[10px] text-gray-400 font-medium uppercase">Actions</th>
                       </tr></thead>
                       <tbody>{participantsList.map((p) => (
-                        <tr key={p.id} className={`border-b border-white/5 hover:bg-white/5 cursor-pointer transition-colors ${p.disqualified ? "opacity-50 bg-loss/5" : ""}`} onClick={async () => { const q = p.nickname || p.accountNumber; setSearchQuery(q); try { const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${selectedChallengeId}/find-user?q=${encodeURIComponent(q)}`); if (res.ok) { const data = await res.json(); if (data.user) setFoundUser(data.user); } } catch {} }}>
+                        <tr key={p.id} className={`border-b border-white/5 hover:bg-white/5 cursor-pointer transition-colors ${p.disqualified ? "opacity-50 bg-loss/5" : ""}`} onClick={async () => { const q = p.nickname || p.accountNumber; setSearchQuery(q); try { const _api = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com"; const _path = process.env.NEXT_PUBLIC_ADMIN_PATH || ""; const res = await fetch(`${_api}/api/admin/${_path}/challenge/${selectedChallengeId}/find-user?q=${encodeURIComponent(q)}`); if (res.ok) { const data = await res.json(); if (data.user) setFoundUser(data.user); } } catch {} }}>
                           <td className="py-2 px-3 text-xs text-gray-500">{p.rank || "—"}</td>
                           <td className="py-2 px-3 text-sm text-white font-medium">{p.nickname || "—"}</td>
                           <td className="py-2 px-3 text-xs text-gray-400">{p.username ? `@${p.username}` : "—"}</td>
