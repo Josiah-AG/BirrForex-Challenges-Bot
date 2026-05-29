@@ -737,7 +737,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/participants`, adminIpChe
               r.email, r.account_number, r.mt5_server, r.status, r.partner_status,
               r.disqualified, r.disqualified_reason, r.registered_at, r.source,
               r.connection_verified, r.pull_status, r.last_pull_at,
-              l.rank, l.current_balance, l.qualified_profit, l.total_trades, l.flagged_trades,
+              l.rank, l.current_balance, l.adjusted_balance, l.qualified_profit, l.total_trades, l.flagged_trades,
               c.source as challenge_source
        FROM trading_registrations r
        LEFT JOIN wp_leaderboard l ON r.id = l.registration_id
