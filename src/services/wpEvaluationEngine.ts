@@ -161,7 +161,14 @@ async function validateSlWithCandles(trade: TradeRow, maxHoldHours: number | nul
   if (!trade.open_time || !trade.close_time) return null;
 
   const sl = parseFloat(String(trade.stop_loss));
+  const closePrice = parseFloat(String(trade.close_price));
   const isBuy = trade.trade_type?.toLowerCase() === 'buy';
+
+  // If trade closed AT the SL price, it's a legitimate SL closure — not fake
+  // Use small tolerance for floating point (0.001 for forex, 0.01 for metals/indices)
+  const slTolerance = sl > 100 ? 0.5 : 0.00001;
+  if (Math.abs(closePrice - sl) <= slTolerance) return null;
+
   const openMs = new Date(trade.open_time).getTime();
   const closeMs = new Date(trade.close_time).getTime();
 
