@@ -547,7 +547,7 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
         status: registration.status,
         startDate: registration.start_date,
         endDate: registration.end_date,
-        startingBalance: challengeStartingBalance,
+        startingBalance: actualStartingBalance,
         targetBalance: parseFloat(registration.target_balance),
       },
       me: {
