@@ -1597,17 +1597,19 @@ function ChallengeSettingsPanel({ challengeId, challenges, onRefresh }: { challe
     } catch { setMsg("❌ Failed"); }
   };
 
-  const handleExport = async () => {
+  const handleExport = async (type: 'registrations' | 'leaderboard' = 'registrations') => {
     try {
-      const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/export`);
+      const endpoint = type === 'leaderboard' ? 'export-leaderboard' : 'export-registrations';
+      const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/${endpoint}`);
       if (res.ok) {
         const data = await res.json();
-        const csv = convertToCSV(data.registrations);
+        const rows = type === 'leaderboard' ? data.leaderboard : data.registrations;
+        const csv = convertToCSV(rows);
         const blob = new Blob([csv], { type: "text/csv" });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
-        a.href = url; a.download = `challenge_${challengeId}_export.csv`; a.click();
-        setMsg("✅ Exported");
+        a.href = url; a.download = `challenge_${challengeId}_${type}.csv`; a.click();
+        setMsg(`✅ ${type === 'leaderboard' ? 'Leaderboard' : 'Registrations'} exported`);
       }
     } catch { setMsg("❌ Export failed"); }
   };
@@ -1663,7 +1665,8 @@ function ChallengeSettingsPanel({ challengeId, challenges, onRefresh }: { challe
             <button onClick={() => handleStatusChange("reviewing")} className="p-2 sm:p-2.5 rounded-lg bg-royal/10 border border-royal/30 text-royal text-[10px] sm:text-xs font-semibold hover:bg-royal/20 transition-all">End → Review</button>
             <button onClick={() => handleStatusChange("completed")} className="p-2 sm:p-2.5 rounded-lg bg-white/5 border border-white/10 text-gray-300 text-[10px] sm:text-xs font-semibold hover:bg-white/10 transition-all">Completed</button>
             <button onClick={handleAnnounce} className="p-2 sm:p-2.5 rounded-lg bg-royal/10 border border-royal/30 text-royal text-[10px] sm:text-xs font-semibold hover:bg-royal/20 transition-all">📢 Announce</button>
-            <button onClick={handleExport} className="p-2 sm:p-2.5 rounded-lg bg-white/5 border border-white/10 text-gray-300 text-[10px] sm:text-xs font-semibold hover:bg-white/10 transition-all">📥 Export</button>
+            <button onClick={() => handleExport('registrations')} className="p-2 sm:p-2.5 rounded-lg bg-white/5 border border-white/10 text-gray-300 text-[10px] sm:text-xs font-semibold hover:bg-white/10 transition-all">📥 Registrations</button>
+            <button onClick={() => handleExport('leaderboard')} className="p-2 sm:p-2.5 rounded-lg bg-white/5 border border-white/10 text-gray-300 text-[10px] sm:text-xs font-semibold hover:bg-white/10 transition-all">📊 Leaderboard</button>
           </div>
         </div>
 
