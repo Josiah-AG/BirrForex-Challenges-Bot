@@ -416,9 +416,11 @@ export class VpsPullScheduler {
         terminal.consecutiveFailures = 0;
         resultsMutex.results.push(result);
 
-        // Save VPS balance to registration for evaluation to use
+        // Save VPS balance and mark pull time for progress tracking
         if (result.balance !== undefined) {
-          await db.query(`UPDATE trading_registrations SET last_known_balance = $1 WHERE id = $2`, [result.balance, account.registrationId]).catch(() => {});
+          await db.query(`UPDATE trading_registrations SET last_known_balance = $1, last_pull_at = NOW() WHERE id = $2`, [result.balance, account.registrationId]).catch(() => {});
+        } else {
+          await db.query(`UPDATE trading_registrations SET last_pull_at = NOW() WHERE id = $1`, [account.registrationId]).catch(() => {});
         }
 
         // === PER-ACCOUNT EVALUATION (streaming) ===
