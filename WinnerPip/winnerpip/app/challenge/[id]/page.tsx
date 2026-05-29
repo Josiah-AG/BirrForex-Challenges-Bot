@@ -806,7 +806,10 @@ export default function ChallengeDashboard() {
                                 <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${t.type?.toLowerCase() === 'buy' ? 'bg-profit/20 text-profit' : 'bg-loss/20 text-loss'}`}>{t.type}</span>
                                 <div>
                                   <p className="text-xs text-white font-medium">{t.symbol}</p>
-                                  <p className="text-[10px] text-gray-500">{t.closeTime ? new Date(t.closeTime).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''}</p>
+                                  <p className="text-[10px] text-gray-500">
+                                    {t.openTime ? new Date(t.openTime).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''}{' '}
+                                    {t.openTime ? new Date(new Date(t.openTime).getTime() + 3*60*60*1000).toISOString().substring(11,16) : ''} → {t.closeTime ? new Date(new Date(t.closeTime).getTime() + 3*60*60*1000).toISOString().substring(11,16) : ''}
+                                  </p>
                                 </div>
                               </div>
                               <div className="text-right">
