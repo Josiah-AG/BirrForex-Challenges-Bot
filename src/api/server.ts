@@ -1754,6 +1754,91 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/export-evaluation`, admin
 });
 
 /**
+ * GET /api/admin/:secretPath/challenge/:id/user-evaluation?registration_id=X
+ * Per-user evaluation report — same format as Telegram /evaluate command
+ */
+app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/user-evaluation`, adminIpCheck, async (req, res) => {
+  try {
+    const challengeId = parseInt(req.params.id);
+    const registrationId = parseInt(req.query.registration_id as string);
+    if (!registrationId) return res.status(400).json({ error: 'registration_id required' });
+
+    // Get user + leaderboard data
+    const reg = await db.query(
+      `SELECT r.nickname, r.username, r.account_number, r.account_type, r.mt5_server, r.is_cent,
+              r.registration_balance, r.actual_starting_balance,
+              l.rank, l.starting_balance, l.current_balance, l.adjusted_balance,
+              l.qualified_profit, l.gross_profit, l.profit_removed,
+              l.total_trades, l.qualified_trades, l.flagged_trades, l.active_days,
+              l.is_qualified, l.is_disqualified, l.disqualify_reason
+       FROM trading_registrations r
+       LEFT JOIN wp_leaderboard l ON r.id = l.registration_id
+       WHERE r.id = $1 AND r.challenge_id = $2`,
+      [registrationId, challengeId]
+    );
+    if (reg.rows.length === 0) return res.status(404).json({ error: 'User not found' });
+    const u = reg.rows[0];
+
+    // Get flagged trades with violations
+    const flagged = await db.query(
+      `SELECT ticket, symbol, trade_type, volume, open_time, close_time, profit, violations
+       FROM wp_trades WHERE challenge_id = $1 AND registration_id = $2 AND is_qualified = false
+       ORDER BY close_time ASC`,
+      [challengeId, registrationId]
+    );
+
+    // Build text report (same style as Telegram evaluate)
+    const currency = u.is_cent ? '¢' : '$';
+    let report = `📊 EVALUATION REPORT\n`;
+    report += `═══════════════════════════════════\n\n`;
+    report += `👤 ${u.nickname || u.username || 'Unknown'}\n`;
+    report += `📅 Account: ${u.account_number} (${u.account_type})\n`;
+    report += `🖥️ Server: ${u.mt5_server}\n`;
+    report += `#️⃣ Rank: ${u.rank || 'N/A'}\n\n`;
+    report += `💰 Starting Balance: ${currency}${parseFloat(u.starting_balance || u.actual_starting_balance || u.registration_balance || 0).toFixed(2)}\n`;
+    report += `💰 Current Balance: ${currency}${parseFloat(u.current_balance || 0).toFixed(2)}\n`;
+    report += `💰 Adjusted Balance: ${currency}${parseFloat(u.adjusted_balance || 0).toFixed(2)}\n`;
+    report += `📈 Gross P&L: ${currency}${parseFloat(u.gross_profit || 0).toFixed(2)}\n`;
+    report += `📈 Qualified P&L: ${currency}${parseFloat(u.qualified_profit || 0).toFixed(2)}\n`;
+    report += `➖ P&L Removed: ${currency}${parseFloat(u.profit_removed || 0).toFixed(2)}\n\n`;
+    report += `📊 Total Trades: ${u.total_trades || 0}\n`;
+    report += `✅ Qualified: ${u.qualified_trades || 0}\n`;
+    report += `🚩 Flagged: ${u.flagged_trades || 0}\n`;
+    report += `📅 Active Days: ${u.active_days || 0}\n\n`;
+
+    if (u.is_disqualified) {
+      report += `🚫 STATUS: DISQUALIFIED\n`;
+      report += `📛 Reason: ${u.disqualify_reason || 'N/A'}\n\n`;
+    } else if (u.is_qualified) {
+      report += `✅ STATUS: QUALIFIED\n\n`;
+    } else {
+      report += `❌ STATUS: Below Target\n\n`;
+    }
+
+    if (flagged.rows.length > 0) {
+      report += `═══════════════════════════════════\n`;
+      report += `🚩 FLAGGED TRADES (${flagged.rows.length})\n`;
+      report += `═══════════════════════════════════\n\n`;
+      flagged.rows.forEach((t: any, i: number) => {
+        const violations = t.violations || [];
+        const violationText = Array.isArray(violations) ? violations.map((v: any) => typeof v === 'string' ? v : v.detail || JSON.stringify(v)).join(', ') : String(violations);
+        report += `${i + 1}. #${t.ticket} | ${t.symbol} | ${t.trade_type} | ${t.volume} lot\n`;
+        report += `   P&L: ${currency}${parseFloat(t.profit).toFixed(2)}\n`;
+        report += `   ⚠️ ${violationText}\n\n`;
+      });
+    }
+
+    report += `═══════════════════════════════════\n`;
+    report += `Generated: ${new Date().toISOString().replace('T', ' ').substring(0, 19)} UTC\n`;
+
+    return res.json({ report, user: u, flaggedTrades: flagged.rows });
+  } catch (error) {
+    console.error('User evaluation error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
  * GET /api/admin/:secretPath/challenge/:id/export-registrations
  * Full registration data export — all columns from trading_registrations
  */
