@@ -1299,6 +1299,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/finduser`, adminIpCheck, 
     return res.json({
       found: true,
       user: {
+        id: r.id,
         nickname: r.nickname,
         username: r.username,
         email: r.email,
