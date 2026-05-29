@@ -37,7 +37,7 @@ interface MyStats {
   totalTrades: number; qualifiedTrades: number; flaggedTrades: number;
   isQualified: boolean; lastUpdated: string | null; pullStatus: string | null;
   disqualified: boolean; disqualifiedReason: string | null;
-  isCent: boolean;
+  isCent: boolean; lastPullAt: string | null;
 }
 
 export default function ChallengeDashboard() {
@@ -141,6 +141,7 @@ export default function ChallengeDashboard() {
         disqualified: data.me.disqualified || false,
         disqualifiedReason: data.me.disqualifiedReason || null,
         isCent: data.me.isCent || false,
+        lastPullAt: data.me.lastPullAt || null,
       });
       setRecentTrades(data.recentTrades || []);
       setError("");
@@ -611,7 +612,7 @@ export default function ChallengeDashboard() {
               </div>
               )}
               <div className="p-3 border-t border-white/5 text-center">
-                <p className="text-xs text-gray-600">Data from: {getLastScheduledPullTime(myStats.lastUpdated)} • Next update: {getNextPullTime()}</p>
+                <p className="text-xs text-gray-600">Last updated: {myStats.lastPullAt ? formatRelativeTime(myStats.lastPullAt) : 'Never'} • Next update: {getNextPullTime()}</p>
               </div>
             </div>
             )}
