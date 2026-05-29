@@ -983,7 +983,8 @@ export class VpsPullScheduler {
             trade.symbol || null, trade.type || null, trade.volume || 0,
             trade.open_time || null, trade.close_time || null,
             trade.open_price || 0, trade.close_price || 0,
-            trade.stop_loss || null, trade.take_profit || null,
+            trade.stop_loss != null ? trade.stop_loss : null,
+            trade.take_profit != null ? trade.take_profit : null,
             trade.profit || 0, trade.commission || 0, trade.swap || 0,
             trade.comment || null,
           ]
@@ -1018,7 +1019,7 @@ export class VpsPullScheduler {
   // ==================== CREDENTIAL FAILURE HANDLING ====================
 
   private async handleCredentialFailure(failure: PullResult, challenge: TradingChallenge) {
-    const reg = await db.query('SELECT pull_status, source, discord_user_id FROM trading_registrations WHERE id = $1', [failure.registrationId]);
+    const reg = await db.query('SELECT pull_status, source FROM trading_registrations WHERE id = $1', [failure.registrationId]);
     if (reg.rows[0]?.pull_status === 'password_changed') return;
 
     await db.query(
@@ -1027,10 +1028,9 @@ export class VpsPullScheduler {
     );
 
     const source = reg.rows[0]?.source || 'telegram';
-    const discordUserId = reg.rows[0]?.discord_user_id;
 
-    // Notify via Telegram (for telegram users)
-    if (source === 'telegram' || !discordUserId) {
+    // Notify via Telegram (for telegram users only)
+    if (source === 'telegram') {
       const botInfo = await this.bot.bot.telegram.getMe();
       try {
         await this.bot.bot.telegram.sendMessage(
@@ -1055,9 +1055,8 @@ export class VpsPullScheduler {
     }
 
     // Notify via Discord (for discord users)
-    if (source === 'discord' && discordUserId) {
+    if (source === 'discord') {
       try {
-        const discordBotApiKey = process.env.DISCORD_BOT_API_KEY;
         const discordBotWebhook = process.env.DISCORD_CREDENTIAL_WEBHOOK;
         if (discordBotWebhook) {
           const axios = require('axios');
@@ -1071,7 +1070,7 @@ export class VpsPullScheduler {
           }, { timeout: 10000 });
         }
       } catch (e) {
-        console.error(`Could not notify Discord user ${discordUserId}:`, e);
+        console.error(`Could not notify Discord user ${failure.userId}:`, e);
       }
     }
   }
@@ -1132,9 +1131,11 @@ export class VpsPullScheduler {
       );
     }
 
+    // Only update last_pull_at for FAILED results — don't advance the timestamp
+    // This ensures the next pull will re-fetch from the same point
     for (const f of failedResults) {
       await db.query(
-        `UPDATE trading_registrations SET last_pull_at = NOW(), pull_status = $1, pull_error = $2 WHERE id = $3`,
+        `UPDATE trading_registrations SET pull_status = $1, pull_error = $2 WHERE id = $3`,
         [f.errorCode || 'failed', f.errorMessage || 'Unknown', f.registrationId]
       );
     }
