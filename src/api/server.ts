@@ -1587,6 +1587,62 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/export`, adminIpCheck, as
 });
 
 /**
+ * GET /api/admin/:secretPath/challenge/:id/export-registrations
+ * Full registration data export — all columns from trading_registrations
+ */
+app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/export-registrations`, adminIpCheck, async (req, res) => {
+  try {
+    const challengeId = parseInt(req.params.id);
+    const result = await db.query(
+      `SELECT r.id, r.user_id, r.username, r.nickname, r.account_type, r.account_subtype,
+              r.email, r.account_number, r.mt5_server, r.investor_password, r.client_uid,
+              r.source, r.status, r.is_cent, r.connection_verified, r.connection_verified_at,
+              r.registration_balance, r.last_known_balance, r.actual_starting_balance,
+              r.pull_status, r.pull_error, r.last_pull_at,
+              r.partner_status, r.partner_warned_at,
+              r.disqualified, r.disqualified_at, r.disqualified_reason,
+              r.registered_at, r.updated_at
+       FROM trading_registrations r
+       WHERE r.challenge_id = $1 AND (r.status IS NULL OR r.status != 'removed')
+       ORDER BY r.registered_at ASC`,
+      [challengeId]
+    );
+    return res.json({ registrations: result.rows });
+  } catch (error) {
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * GET /api/admin/:secretPath/challenge/:id/export-leaderboard
+ * Full leaderboard export — latest pull data with all client details
+ */
+app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/export-leaderboard`, adminIpCheck, async (req, res) => {
+  try {
+    const challengeId = parseInt(req.params.id);
+    const result = await db.query(
+      `SELECT l.rank, l.nickname, l.account_type, l.is_cent,
+              l.starting_balance, l.current_balance, l.adjusted_balance, l.normalized_balance,
+              l.qualified_profit, l.gross_profit, l.profit_removed,
+              l.total_trades, l.qualified_trades, l.flagged_trades, l.active_days,
+              l.is_qualified, l.is_disqualified, l.disqualify_reason,
+              l.last_trade_time, l.last_updated, l.zero_balance_at,
+              r.username, r.email, r.account_number, r.mt5_server, r.investor_password,
+              r.source, r.registration_balance, r.actual_starting_balance,
+              r.pull_status, r.last_pull_at, r.registered_at
+       FROM wp_leaderboard l
+       JOIN trading_registrations r ON l.registration_id = r.id
+       WHERE l.challenge_id = $1
+       ORDER BY l.account_type, l.rank ASC NULLS LAST`,
+      [challengeId]
+    );
+    return res.json({ leaderboard: result.rows });
+  } catch (error) {
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
  * GET /api/admin/:secretPath/challenge/:id/failed-accounts
  * Get accounts that failed in the last pull cycle
  */
