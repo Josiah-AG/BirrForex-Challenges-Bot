@@ -392,6 +392,25 @@ export class WpEvaluationEngine {
         if (regBalance !== null && regBalance !== undefined) actualStartBalance = parseFloat(regBalance);
         else if (currentBalance < startingBalance) actualStartBalance = currentBalance; // They haven't deposited yet
       } catch {}
+
+      // === AUTO-DQ: 0 trades and can't meet min_active_days ===
+      if (rules.min_active_days) {
+        const challengeEndResult = await db.query(`SELECT end_date FROM trading_challenges WHERE id = $1`, [challengeId]);
+        const challengeEnd = challengeEndResult.rows[0]?.end_date;
+        if (challengeEnd) {
+          const now = new Date();
+          const end = new Date(challengeEnd);
+          const remainingDays = Math.max(0, Math.ceil((end.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
+          if (remainingDays < rules.min_active_days) {
+            // 0 active days + not enough remaining = impossible
+            await db.query(
+              `UPDATE trading_registrations SET disqualified = true, disqualified_at = NOW(), disqualified_reason = $1 WHERE id = $2 AND disqualified = false`,
+              [`Cannot meet minimum ${rules.min_active_days} active trading days (0 days traded, ${remainingDays} days left)`, reg.id]
+            );
+          }
+        }
+      }
+
       // No trades = profit is $0 (they haven't started trading)
       await this.upsertLeaderboard(challengeId, reg, actualStartBalance, { currentBalance, adjustedBalance: currentBalance, qualifiedProfit: 0, grossProfit: 0, profitRemoved: 0, totalTrades: 0, qualifiedTrades: 0, flaggedTrades: 0, activeDays: 0, isQualified: false, lastTradeTime: null });
       return { flaggedCount: 0, isQualified: false };
@@ -664,7 +683,33 @@ export class WpEvaluationEngine {
     const qualifiedTrades = allTrades.length - flaggedCount;
     const tradeDays = new Set(allTrades.map(t => new Date(t.close_time).toISOString().split('T')[0]));
     const activeDays = tradeDays.size;
-    const isQualified = adjustedBalance >= targetBalance && activeDays >= rules.min_active_days;
+
+    // === AUTO-DQ: Cannot meet min_active_days ===
+    if (rules.min_active_days && activeDays < rules.min_active_days) {
+      // Calculate remaining trading days until challenge end
+      const challengeEndResult = await db.query(`SELECT end_date FROM trading_challenges WHERE id = $1`, [challengeId]);
+      const challengeEnd = challengeEndResult.rows[0]?.end_date;
+      if (challengeEnd) {
+        const now = new Date();
+        const end = new Date(challengeEnd);
+        const remainingDays = Math.max(0, Math.ceil((end.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
+        const maxPossibleDays = activeDays + remainingDays;
+
+        if (maxPossibleDays < rules.min_active_days) {
+          // Impossible to meet requirement — auto-DQ
+          await db.query(
+            `UPDATE trading_registrations SET disqualified = true, disqualified_at = NOW(), disqualified_reason = $1 WHERE id = $2 AND disqualified = false`,
+            [`Cannot meet minimum ${rules.min_active_days} active trading days (${activeDays} days traded, ${remainingDays} days left)`, reg.id]
+          );
+          await db.query(
+            `UPDATE wp_leaderboard SET is_disqualified = true, disqualify_reason = $1 WHERE registration_id = $2`,
+            [`Cannot meet minimum ${rules.min_active_days} active days`, reg.id]
+          );
+        }
+      }
+    }
+
+    const isQualified = adjustedBalance >= targetBalance && activeDays >= (rules.min_active_days || 0);
     const lastTrade = allTrades[allTrades.length - 1];
 
     await this.upsertLeaderboard(challengeId, reg, effectiveStartBalance, {
