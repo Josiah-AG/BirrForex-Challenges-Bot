@@ -557,6 +557,8 @@ export class VpsPullScheduler {
 
     for (let attempt = 1; attempt <= MAX_RETRIES_PER_ACCOUNT; attempt++) {
       try {
+        // Incremental pull — use last_pull_at as from_date
+        // Only pull trades since last successful pull to reduce VPS load
         const lastPullResult = await db.query(
           `SELECT last_pull_at FROM trading_registrations WHERE id = $1`,
           [account.registrationId]
@@ -983,8 +985,7 @@ export class VpsPullScheduler {
             trade.symbol || null, trade.type || null, trade.volume || 0,
             trade.open_time || null, trade.close_time || null,
             trade.open_price || 0, trade.close_price || 0,
-            trade.stop_loss != null ? trade.stop_loss : null,
-            trade.take_profit != null ? trade.take_profit : null,
+            trade.stop_loss || null, trade.take_profit || null,
             trade.profit || 0, trade.commission || 0, trade.swap || 0,
             trade.comment || null,
           ]
