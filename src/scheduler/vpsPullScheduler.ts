@@ -408,7 +408,7 @@ export class VpsPullScheduler {
         break;
       }
 
-      const result = await this.pullSingleAccount(account, terminal.id);
+      const result = await this.pullSingleAccount(account, terminal.id, challenge);
       terminal.totalProcessed++;
 
       if (result.success) {
@@ -489,7 +489,7 @@ export class VpsPullScheduler {
           const terminal = healthyTerminals[t % healthyTerminals.length];
           terminalsAttempted.push(terminal.id);
 
-          const result = await this.pullSingleAccount(account, terminal.id);
+          const result = await this.pullSingleAccount(account, terminal.id, challenge);
           if (result.success) {
             result.terminalsAttempted = terminalsAttempted;
             finalResults.push(result);
@@ -552,19 +552,16 @@ export class VpsPullScheduler {
   /**
    * Pull a single account with retry logic
    */
-  private async pullSingleAccount(account: AccountToPull, terminalId: number): Promise<PullResult> {
+  private async pullSingleAccount(account: AccountToPull, terminalId: number, challenge?: any): Promise<PullResult> {
     let credentialFailCount = 0;
 
     for (let attempt = 1; attempt <= MAX_RETRIES_PER_ACCOUNT; attempt++) {
       try {
-        // Incremental pull: use last_pull_at if available
-        // First pull (last_pull_at = NULL): no from_date → VPS pulls full history
-        // Subsequent pulls: from_date = last_pull_at → only new trades
-        const lastPullResult = await db.query(
-          `SELECT last_pull_at FROM trading_registrations WHERE id = $1`,
-          [account.registrationId]
-        );
-        const lastPullAt = lastPullResult.rows[0]?.last_pull_at;
+        // Always pull from challenge start date — ensures no trades are missed
+        // The VPS needs opening deals to construct full trade objects, so we
+        // can't use last_pull_at (would miss trades opened before that time)
+        // ON CONFLICT upsert handles duplicates efficiently
+        const fromDate = challenge?.start_date ? new Date(challenge.start_date).toISOString() : undefined;
 
         const requestBody: any = {
           account: account.accountNumber,
@@ -573,10 +570,7 @@ export class VpsPullScheduler {
           api_key: this.apiKey,
           terminal_id: terminalId,
         };
-        // Only send from_date if we have a previous successful pull timestamp
-        if (lastPullAt) {
-          requestBody.from_date = new Date(lastPullAt).toISOString();
-        }
+        if (fromDate) requestBody.from_date = fromDate;
 
         const response = await axios.post(
           `${this.baseUrl}/pull`,
@@ -736,7 +730,9 @@ export class VpsPullScheduler {
 
     for (let i = 0; i < Math.min(3, healthyTerminals.length); i++) {
       const terminal = healthyTerminals[i];
-      const result = await this.pullSingleAccount(account, terminal.id);
+      // Load challenge for from_date
+      const challengeData = await db.query(`SELECT start_date FROM trading_challenges WHERE id = $1`, [challengeId]);
+      const result = await this.pullSingleAccount(account, terminal.id, challengeData.rows[0]);
 
       if (result.success) {
         // Update status
