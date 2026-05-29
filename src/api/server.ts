@@ -521,6 +521,7 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
     const reg = await db.query(
       `SELECT r.id, r.nickname, r.account_number, r.account_type, r.mt5_server, r.challenge_id, r.pull_status,
               r.actual_starting_balance, r.registration_balance, r.disqualified, r.disqualified_reason, r.is_cent,
+              r.last_pull_at,
               c.title, c.status, c.start_date, c.end_date, c.starting_balance, c.target_balance, c.leaderboard_updated_at
        FROM trading_registrations r
        JOIN trading_challenges c ON r.challenge_id = c.id
@@ -560,6 +561,7 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
         disqualifiedReason: registration.disqualified_reason || null,
         isCent: registration.is_cent || false,
         actualStartingBalance: actualStartingBalance,
+        lastPullAt: registration.last_pull_at || null,
         rank: leaderboard?.rank || null,
         currentBalance: leaderboard ? parseFloat(leaderboard.current_balance) : actualStartingBalance,
         adjustedBalance: leaderboard ? parseFloat(leaderboard.adjusted_balance) : actualStartingBalance,

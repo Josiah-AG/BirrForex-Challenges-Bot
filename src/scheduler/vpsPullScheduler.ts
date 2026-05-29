@@ -965,24 +965,31 @@ export class VpsPullScheduler {
   // ==================== TRADE/DEAL PERSISTENCE ====================
 
   private async saveTrades(account: AccountToPull, trades: any[]) {
+    // Get challenge_id for this registration
+    const regResult = await db.query(`SELECT challenge_id FROM trading_registrations WHERE id = $1`, [account.registrationId]);
+    const challengeId = regResult.rows[0]?.challenge_id;
+    if (!challengeId) return;
+
+    // Only replace data if we actually got trades from VPS
+    // If pull returned 0 trades, keep existing data (user may have trades from previous pulls)
+    if (trades.length === 0) return;
+
+    // Delete existing trades then insert fresh (complete replacement)
+    await db.query(
+      `DELETE FROM wp_trades WHERE challenge_id = $1 AND registration_id = $2`,
+      [challengeId, account.registrationId]
+    );
+
     for (const trade of trades) {
       try {
         await db.query(
           `INSERT INTO wp_trades
            (challenge_id, registration_id, account_number, ticket, symbol, trade_type, volume,
             open_time, close_time, open_price, close_price, stop_loss, take_profit,
-            profit, commission, swap, comment)
-           SELECT r.challenge_id, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
-           FROM trading_registrations r WHERE r.id = $1
-           ON CONFLICT (challenge_id, account_number, ticket) DO UPDATE SET
-             profit = EXCLUDED.profit,
-             close_time = EXCLUDED.close_time,
-             close_price = EXCLUDED.close_price,
-             commission = EXCLUDED.commission,
-             swap = EXCLUDED.swap,
-             synced_at = NOW()`,
+            profit, commission, swap, comment, synced_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, NOW())`,
           [
-            account.registrationId, account.accountNumber, trade.ticket,
+            challengeId, account.registrationId, account.accountNumber, trade.ticket,
             trade.symbol || null, trade.type || null, trade.volume || 0,
             trade.open_time || null, trade.close_time || null,
             trade.open_price || 0, trade.close_price || 0,
@@ -992,23 +999,35 @@ export class VpsPullScheduler {
           ]
         );
       } catch (e) {
-        // Skip individual trade errors
+        // Skip individual trade errors (e.g. duplicate ticket within same batch)
       }
     }
   }
 
   private async saveDeals(account: AccountToPull, deals: any[]) {
+    // Get challenge_id for this registration
+    const regResult = await db.query(`SELECT challenge_id FROM trading_registrations WHERE id = $1`, [account.registrationId]);
+    const challengeId = regResult.rows[0]?.challenge_id;
+    if (!challengeId) return;
+
+    // Only replace if we got deals
+    if (deals.length === 0) return;
+
+    // Delete existing deals then insert fresh
+    await db.query(
+      `DELETE FROM wp_deals WHERE challenge_id = $1 AND registration_id = $2`,
+      [challengeId, account.registrationId]
+    );
+
     for (const deal of deals) {
       try {
         await db.query(
           `INSERT INTO wp_deals
            (challenge_id, registration_id, account_number, ticket, deal_type, symbol,
-            direction, volume, price, profit, balance, comment, time)
-           SELECT r.challenge_id, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
-           FROM trading_registrations r WHERE r.id = $1
-           ON CONFLICT (challenge_id, account_number, ticket) DO NOTHING`,
+            direction, volume, price, profit, balance, comment, time, synced_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW())`,
           [
-            account.registrationId, account.accountNumber,
+            challengeId, account.registrationId, account.accountNumber,
             deal.ticket, deal.type || null, deal.symbol || null,
             deal.direction || null, deal.volume || 0, deal.price || 0,
             deal.profit || 0, deal.balance || 0, deal.comment || null, deal.time || null,
