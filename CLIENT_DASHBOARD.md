@@ -402,3 +402,44 @@ Flagged trades must be visually distinct with violation reason visible WITHOUT t
 - **Blurred dashboard for pre-start:** Use the same dashboard layout with placeholder/zero values, apply `blur-md` + dark overlay
 - **API for user trades:** Already exists at `/api/challenges/{id}/user-trades?nickname={name}` — needs pagination support (add `limit` and `offset` params)
 - **Flagged trade inline reason:** The `violations[]` array is already returned in trade data — just render it visibly instead of hiding behind a tap
+
+
+---
+
+## CRITICAL FIXES NEEDED (Next Session)
+
+### 1. VPS Worker — Missing Partial Close Trades
+
+**Problem:** VPS worker returns 10 trades but real MT5 has 18. Missing trades are partial closes (when a position is partially closed, MT5 creates new tickets for each partial).
+
+**Root cause:** In `vps/worker.py`, the `do_pull` function constructs trades from deals. It only creates a trade entry when it finds a closing deal (entry=1) and matches it with an opening deal. But partial closes create multiple closing deals for the same position_id with different volumes — the worker only captures one.
+
+**Fix needed in `vps/worker.py`:**
+- For each closing deal (entry=1), create a separate trade entry
+- Don't skip deals that share the same position_id
+- Each partial close should be its own trade with its own ticket, volume, and profit
+
+**Test:** Pull account 161584921 and verify 18 trades returned (not 10)
+
+### 2. Export MT5 History — Generate Proper XLSX
+
+**Problem:** Current export is a flat CSV. Real MT5 export is an xlsx with:
+- Header: "Trade History Report", Name, Account, Company, Date
+- "Positions" section with trades table
+- "Orders" section
+- "Deals" section
+- "Results" section (Total Net Profit, Gross Profit, Gross Loss, Profit Factor, etc.)
+- Balance chart
+
+**Fix needed:**
+- Backend endpoint generates xlsx using the `xlsx` library (already in dependencies)
+- Frontend downloads as `.xlsx` file (not `.csv`)
+- File name: `ReportHistory-{accountNumber}.xlsx`
+
+### 3. Export Evaluation — Per-User Report
+
+**Status:** Backend endpoint `/user-evaluation` is done and deployed. Frontend button added. Should be working after WinnerPip redeploys.
+
+### 4. Export Evaluation (Settings) — Whole Challenge
+
+**Status:** Button added to Settings section. Uses `challengeId` (in scope). Should work after redeploy.
