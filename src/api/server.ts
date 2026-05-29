@@ -1777,24 +1777,25 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/pull-status`, adminIpCheck, async (req,
       const batch = running.rows[0];
       const elapsed = Math.round((Date.now() - new Date(batch.started_at).getTime()) / 1000);
 
-      // If batch has been "running" for more than 15 minutes, it's stale — mark it completed
-      if (elapsed > 900) {
-        await db.query(`UPDATE wp_pull_batches SET status = 'completed', completed_at = NOW() WHERE id = $1`, [batch.id]);
-        // Fall through to show last completed
-      } else {
-        // Count how many have been processed so far (success + failed since batch started)
-        const processed = await db.query(
-          `SELECT COUNT(*) as cnt FROM trading_registrations WHERE challenge_id = $1 AND last_pull_at >= $2`,
-          [batch.challenge_id, batch.started_at]
-        );
-        const processedCount = parseInt(processed.rows[0].cnt);
+      // Count how many have been processed so far (success + failed since batch started)
+      const processed = await db.query(
+        `SELECT COUNT(*) as cnt FROM trading_registrations WHERE challenge_id = $1 AND last_pull_at >= $2`,
+        [batch.challenge_id, batch.started_at]
+      );
+      const processedCount = Math.min(parseInt(processed.rows[0].cnt), batch.total_accounts);
+      const percent = batch.total_accounts > 0 ? Math.min(100, Math.round((processedCount / batch.total_accounts) * 100)) : 0;
 
+      // If all accounts processed, batch is done — mark completed
+      if (processedCount >= batch.total_accounts) {
+        await db.query(`UPDATE wp_pull_batches SET status = 'completed', completed_at = NOW() WHERE id = $1 AND status = 'running'`, [batch.id]);
+        // Return as not running so frontend hides the progress bar
+      } else {
         return res.json({
           isRunning: true,
           batchId: batch.id,
           totalAccounts: batch.total_accounts,
-          processed: Math.min(processedCount, batch.total_accounts),
-          percent: batch.total_accounts > 0 ? Math.min(100, Math.round((processedCount / batch.total_accounts) * 100)) : 0,
+          processed: processedCount,
+          percent,
           elapsedSeconds: elapsed,
           startedAt: batch.started_at,
         });

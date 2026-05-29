@@ -245,7 +245,7 @@ export default function ChallengeDashboard() {
   // Computed values
   const violations = recentTrades.filter(t => !t.isQualified);
   const daysLeft = challenge ? Math.max(0, Math.ceil((new Date(challenge.endDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24))) : 0;
-  const progressPercent = challenge && myStats ? Math.min(100, Math.max(0, ((myStats.currentBalance - challenge.startingBalance) / (challenge.targetBalance - challenge.startingBalance)) * 100)) : 0;
+  const progressPercent = challenge && myStats ? Math.min(100, Math.max(0, ((myStats.adjustedBalance - challenge.startingBalance) / (challenge.targetBalance - challenge.startingBalance)) * 100)) : 0;
   const totalParticipants = leaderboardTotal || leaderboard.length;
   const isCentAccount = myStats?.accountType === 'real' && myStats.currentBalance > 500; // heuristic for cent
   const isBlownAccount = myStats && myStats.totalTrades > 0 && myStats.currentBalance <= 0;
