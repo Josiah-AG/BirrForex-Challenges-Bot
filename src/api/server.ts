@@ -770,6 +770,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/participants`, adminIpChe
         lastPullAt: r.last_pull_at,
         rank: r.rank,
         balance: r.current_balance != null ? parseFloat(r.current_balance) : null,
+        adjustedBalance: r.adjusted_balance != null ? parseFloat(r.adjusted_balance) : null,
         qualifiedProfit: r.qualified_profit != null ? parseFloat(r.qualified_profit) : null,
         totalTrades: r.total_trades || 0,
         flaggedTrades: r.flagged_trades || 0,
@@ -1583,6 +1584,116 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/export`, adminIpCheck, as
       [challengeId]
     );
     return res.json({ registrations: result.rows });
+  } catch (error) {
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * GET /api/admin/:secretPath/challenge/:id/user-trades-mt5?registration_id=X
+ * Export user's trades in MT5 format (same columns as MT5 History export)
+ */
+app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/user-trades-mt5`, adminIpCheck, async (req, res) => {
+  try {
+    const challengeId = parseInt(req.params.id);
+    const registrationId = parseInt(req.query.registration_id as string);
+    if (!registrationId) return res.status(400).json({ error: 'registration_id required' });
+
+    const trades = await db.query(
+      `SELECT ticket, symbol, trade_type, volume, open_time, close_time,
+              open_price, close_price, stop_loss, take_profit,
+              profit, commission, swap, comment, is_qualified, violations
+       FROM wp_trades WHERE challenge_id = $1 AND registration_id = $2
+       ORDER BY open_time ASC`,
+      [challengeId, registrationId]
+    );
+
+    // Get user info for header
+    const reg = await db.query(
+      `SELECT nickname, account_number, mt5_server FROM trading_registrations WHERE id = $1`,
+      [registrationId]
+    );
+    const user = reg.rows[0] || {};
+
+    return res.json({
+      user: { nickname: user.nickname, accountNumber: user.account_number, server: user.mt5_server },
+      trades: trades.rows.map((t: any) => ({
+        Time: t.open_time,
+        Position: t.ticket,
+        Symbol: t.symbol,
+        Type: t.trade_type,
+        Volume: parseFloat(t.volume),
+        Price: parseFloat(t.open_price),
+        'S / L': t.stop_loss ? parseFloat(t.stop_loss) : '',
+        'T / P': t.take_profit ? parseFloat(t.take_profit) : '',
+        'Close Time': t.close_time,
+        'Close Price': parseFloat(t.close_price),
+        Commission: parseFloat(t.commission || 0),
+        Swap: parseFloat(t.swap || 0),
+        Profit: parseFloat(t.profit),
+        Qualified: t.is_qualified ? 'Yes' : 'No',
+        Violations: t.violations && t.violations.length > 0 ? (typeof t.violations === 'string' ? t.violations : JSON.stringify(t.violations)) : '',
+      })),
+    });
+  } catch (error) {
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * GET /api/admin/:secretPath/challenge/:id/export-evaluation
+ * Full evaluation report CSV — per-user summary with all metrics
+ * Similar to what the Telegram /exportleaderboard command produces
+ */
+app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/export-evaluation`, adminIpCheck, async (req, res) => {
+  try {
+    const challengeId = parseInt(req.params.id);
+    const result = await db.query(
+      `SELECT l.rank, l.nickname, l.account_type, l.is_cent,
+              l.starting_balance, l.current_balance, l.adjusted_balance,
+              l.qualified_profit, l.gross_profit, l.profit_removed,
+              l.total_trades, l.qualified_trades, l.flagged_trades, l.active_days,
+              l.is_qualified, l.is_disqualified, l.disqualify_reason,
+              l.last_trade_time, l.zero_balance_at,
+              r.username, r.email, r.account_number, r.mt5_server,
+              r.investor_password, r.source, r.registered_at,
+              r.actual_starting_balance, r.registration_balance
+       FROM wp_leaderboard l
+       JOIN trading_registrations r ON l.registration_id = r.id
+       WHERE l.challenge_id = $1
+       ORDER BY l.account_type, l.rank ASC NULLS LAST`,
+      [challengeId]
+    );
+
+    // Build evaluation report rows
+    const evaluation = result.rows.map((r: any) => ({
+      Rank: r.rank || 'N/A',
+      Nickname: r.nickname || '',
+      Username: r.username || '',
+      Email: r.email || '',
+      'Account Number': r.account_number,
+      Server: r.mt5_server || '',
+      'Account Type': r.account_type,
+      'Is Cent': r.is_cent ? 'Yes' : 'No',
+      'Starting Balance': parseFloat(r.starting_balance || 0).toFixed(2),
+      'Current Balance': parseFloat(r.current_balance || 0).toFixed(2),
+      'Adjusted Balance': parseFloat(r.adjusted_balance || 0).toFixed(2),
+      'Qualified P&L': parseFloat(r.qualified_profit || 0).toFixed(2),
+      'Gross P&L': parseFloat(r.gross_profit || 0).toFixed(2),
+      'P&L Removed': parseFloat(r.profit_removed || 0).toFixed(2),
+      'Total Trades': r.total_trades || 0,
+      'Qualified Trades': r.qualified_trades || 0,
+      'Flagged Trades': r.flagged_trades || 0,
+      'Active Days': r.active_days || 0,
+      'Is Qualified': r.is_qualified ? 'Yes' : 'No',
+      'Is Disqualified': r.is_disqualified ? 'Yes' : 'No',
+      'DQ Reason': r.disqualify_reason || '',
+      'Last Trade': r.last_trade_time || '',
+      'Registered At': r.registered_at || '',
+      Source: r.source || 'telegram',
+    }));
+
+    return res.json({ evaluation });
   } catch (error) {
     return res.status(500).json({ error: 'Internal server error' });
   }
