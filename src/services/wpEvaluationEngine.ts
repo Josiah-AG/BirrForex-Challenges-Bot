@@ -162,12 +162,19 @@ async function validateSlWithCandles(trade: TradeRow, maxHoldHours: number | nul
 
   const sl = parseFloat(String(trade.stop_loss));
   const closePrice = parseFloat(String(trade.close_price));
+  const openPrice = parseFloat(String(trade.open_price));
   const isBuy = trade.trade_type?.toLowerCase() === 'buy';
 
   // If trade closed AT the SL price, it's a legitimate SL closure — not fake
-  // Use small tolerance for floating point (0.001 for forex, 0.01 for metals/indices)
   const slTolerance = sl > 100 ? 0.5 : 0.00001;
   if (Math.abs(closePrice - sl) <= slTolerance) return null;
+
+  // Only check fake SL if SL is on the correct side (loss-protection side)
+  // BUY: SL should be BELOW entry (protects against price dropping)
+  // SELL: SL should be ABOVE entry (protects against price rising)
+  // If SL is on the "wrong" side (profit-locking/trailing stop), skip check
+  if (isBuy && sl >= openPrice) return null;  // SL above entry for buy = trailing/breakeven
+  if (!isBuy && sl <= openPrice) return null; // SL below entry for sell = trailing/breakeven
 
   const openMs = new Date(trade.open_time).getTime();
   const closeMs = new Date(trade.close_time).getTime();
@@ -184,12 +191,9 @@ async function validateSlWithCandles(trade: TradeRow, maxHoldHours: number | nul
   if (!candles || candles.length === 0) return 'FAILED'; // Can't verify — report failure
 
   // Filter: exclude first and last candle per spec
-  // First candle = the one whose time <= open_time (started before/at trade open)
-  // Last candle = the one whose time + period > close_time (extends past trade close)
   const safeCandles = candles.filter(candle => {
     const candleTime = new Date(candle.time).getTime();
     const candleEnd = candleTime + tf.periodMs;
-    // Candle must have started AFTER trade opened AND ended BEFORE trade closed
     return candleTime > openMs && candleEnd <= closeMs;
   });
 
