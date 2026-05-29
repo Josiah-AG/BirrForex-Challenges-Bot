@@ -158,14 +158,14 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
     const registration = result.rows[0];
 
     // Generate a session token (simple JWT-like token for now)
-    const token = generateToken(registration.id, registration.telegram_id);
+    const token = generateToken(registration.id, registration.user_id);
 
     return res.json({
       success: true,
       token,
       user: {
         registrationId: registration.id,
-        telegramId: registration.telegram_id,
+        userId: registration.user_id,
         nickname: registration.nickname,
         username: registration.username,
         accountNumber: registration.account_number,
@@ -204,7 +204,7 @@ app.post('/api/auth/verify-token', async (req, res) => {
 
     // Get fresh user data
     const result = await db.query(
-      `SELECT r.id, r.telegram_id, r.nickname, r.username, r.account_number, r.account_type, r.mt5_server, r.challenge_id, r.disqualified,
+      `SELECT r.id, r.user_id, r.nickname, r.username, r.account_number, r.account_type, r.mt5_server, r.challenge_id, r.disqualified,
               c.title as challenge_title, c.status as challenge_status
        FROM trading_registrations r
        JOIN trading_challenges c ON r.challenge_id = c.id
@@ -222,7 +222,7 @@ app.post('/api/auth/verify-token', async (req, res) => {
       success: true,
       user: {
         registrationId: reg.id,
-        telegramId: reg.telegram_id,
+        telegramId: reg.user_id,
         nickname: reg.nickname,
         username: reg.username,
         accountNumber: reg.account_number,
@@ -426,7 +426,9 @@ app.get('/api/challenges/:id/user-trades', async (req, res) => {
   try {
     const challengeId = parseInt(req.params.id);
     const nickname = req.query.nickname as string;
-    if (!nickname) return res.json({ trades: [] });
+    const limit = Math.min(parseInt(req.query.limit as string) || 50, 100);
+    const offset = parseInt(req.query.offset as string) || 0;
+    if (!nickname) return res.json({ trades: [], total: 0, hasMore: false });
 
     // Find registration by nickname
     const reg = await db.query(
@@ -435,32 +437,47 @@ app.get('/api/challenges/:id/user-trades', async (req, res) => {
        WHERE r.challenge_id = $1 AND LOWER(r.nickname) = LOWER($2) AND (r.status IS NULL OR r.status != 'removed')`,
       [challengeId, nickname]
     );
-    if (reg.rows.length === 0) return res.json({ trades: [] });
+    if (reg.rows.length === 0) return res.json({ trades: [], total: 0, hasMore: false });
 
     const registrationId = reg.rows[0].id;
     const startDate = reg.rows[0].start_date;
 
-    // Get trades within challenge period
-    let query = `SELECT symbol, trade_type, volume, profit, commission, swap, close_time, is_qualified, violations
-       FROM wp_trades WHERE challenge_id = $1 AND registration_id = $2`;
-    const params: any[] = [challengeId, registrationId];
+    // Build date filter
+    let dateFilter = '';
+    const baseParams: any[] = [challengeId, registrationId];
     if (startDate) {
       const graceStart = new Date(new Date(startDate).getTime() - 3 * 60 * 60 * 1000);
-      query += ` AND close_time >= $3`;
-      params.push(graceStart.toISOString());
+      dateFilter = ` AND close_time >= $3`;
+      baseParams.push(graceStart.toISOString());
     }
-    query += ` ORDER BY close_time DESC LIMIT 20`;
 
-    const trades = await db.query(query, params);
+    // Get total count
+    const countResult = await db.query(
+      `SELECT COUNT(*) as total FROM wp_trades WHERE challenge_id = $1 AND registration_id = $2${dateFilter}`,
+      baseParams
+    );
+    const total = parseInt(countResult.rows[0].total);
+
+    // Get trades with pagination
+    const trades = await db.query(
+      `SELECT symbol, trade_type, volume, profit, commission, swap, close_time, open_time, is_qualified, violations
+       FROM wp_trades WHERE challenge_id = $1 AND registration_id = $2${dateFilter}
+       ORDER BY close_time DESC LIMIT ${limit} OFFSET ${offset}`,
+      baseParams
+    );
 
     return res.json({
+      total,
+      hasMore: offset + limit < total,
       trades: trades.rows.map((t: any) => ({
         symbol: t.symbol,
         type: t.trade_type,
         volume: parseFloat(t.volume),
         profit: parseFloat(t.profit) + parseFloat(t.commission || 0) + parseFloat(t.swap || 0),
         closeTime: t.close_time,
+        openTime: t.open_time,
         isQualified: t.is_qualified,
+        violations: t.violations || [],
       })),
     });
   } catch (error) {
@@ -530,7 +547,7 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
         status: registration.status,
         startDate: registration.start_date,
         endDate: registration.end_date,
-        startingBalance: actualStartingBalance,
+        startingBalance: challengeStartingBalance,
         targetBalance: parseFloat(registration.target_balance),
       },
       me: {
@@ -542,6 +559,7 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
         disqualified: registration.disqualified || false,
         disqualifiedReason: registration.disqualified_reason || null,
         isCent: registration.is_cent || false,
+        actualStartingBalance: actualStartingBalance,
         rank: leaderboard?.rank || null,
         currentBalance: leaderboard ? parseFloat(leaderboard.current_balance) : actualStartingBalance,
         adjustedBalance: leaderboard ? parseFloat(leaderboard.adjusted_balance) : actualStartingBalance,
@@ -713,7 +731,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/participants`, adminIpChe
 
     // Get paginated participants
     const result = await db.query(
-      `SELECT r.id, r.telegram_id, r.discord_user_id, r.username, r.nickname, r.account_type,
+      `SELECT r.id, r.user_id, r.source, r.username, r.nickname, r.account_type,
               r.email, r.account_number, r.mt5_server, r.status, r.partner_status,
               r.disqualified, r.disqualified_reason, r.registered_at, r.source,
               r.connection_verified, r.pull_status, r.last_pull_at,
@@ -731,8 +749,8 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/participants`, adminIpChe
     return res.json({
       participants: result.rows.map((r: any) => ({
         id: r.id,
-        telegramId: r.telegram_id,
-        discordUserId: r.discord_user_id,
+        telegramId: r.user_id,
+        source: r.source,
         username: r.username,
         nickname: r.nickname,
         accountType: r.account_type,
@@ -744,7 +762,6 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/participants`, adminIpChe
         disqualified: r.disqualified,
         disqualifiedReason: r.disqualified_reason,
         registeredAt: r.registered_at,
-        source: r.source || 'telegram',
         challengeSource: r.challenge_source || 'telegram',
         connectionVerified: r.connection_verified,
         pullStatus: r.pull_status,
@@ -782,7 +799,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/unverify`, adminIpCheck,
     }
 
     const reg = await db.query(
-      `SELECT r.telegram_id, r.discord_user_id, r.username, r.nickname, r.account_number, r.source, c.title
+      `SELECT r.user_id, r.source, r.username, r.nickname, r.account_number, r.source, c.title
        FROM trading_registrations r
        JOIN trading_challenges c ON r.challenge_id = c.id
        WHERE r.id = $1 AND r.challenge_id = $2`,
@@ -807,13 +824,13 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/unverify`, adminIpCheck,
     // DM the user
     let dmSent = false;
     const isDiscordUser = user.source === 'discord';
-    if (!isDiscordUser && user.telegram_id) {
+    if (!isDiscordUser && user.user_id) {
       try {
         const botModule = require('../bot/bot');
         const botInstance = botModule.bot || botModule.default;
         if (botInstance && botInstance.bot) {
           await botInstance.bot.telegram.sendMessage(
-            user.telegram_id,
+            user.user_id,
             `⚠️ <b>Registration Removed</b>\n<b>${user.title}</b>\n\n` +
             `Your registration (account ${user.account_number}) has been removed.\n\n` +
             `📛 <b>Reason:</b> ${reason}\n\n` +
@@ -848,7 +865,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/disqualify`, adminIpChec
     }
 
     const reg = await db.query(
-      `SELECT r.telegram_id, r.discord_user_id, r.username, r.nickname, r.account_number, r.source, c.title
+      `SELECT r.user_id, r.source, r.username, r.nickname, r.account_number, r.source, c.title
        FROM trading_registrations r
        JOIN trading_challenges c ON r.challenge_id = c.id
        WHERE r.id = $1 AND r.challenge_id = $2`,
@@ -876,13 +893,13 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/disqualify`, adminIpChec
     // DM the user
     let dmSent = false;
     const isDiscordUser = user.source === 'discord';
-    if (!isDiscordUser && user.telegram_id) {
+    if (!isDiscordUser && user.user_id) {
       try {
         const botModule = require('../bot/bot');
         const botInstance = botModule.bot || botModule.default;
         if (botInstance && botInstance.bot) {
           await botInstance.bot.telegram.sendMessage(
-            user.telegram_id,
+            user.user_id,
             `🚫 <b>Disqualified</b>\n<b>${user.title}</b>\n\n` +
             `Your account ${user.account_number} has been disqualified from the challenge.\n\n` +
             `📛 <b>Reason:</b> ${reason}\n\n` +
@@ -1247,7 +1264,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/finduser`, adminIpCheck, 
     if (!q) return res.status(400).json({ error: 'Search query required' });
 
     const result = await db.query(
-      `SELECT r.id, r.nickname, r.username, r.email, r.telegram_id, r.account_number,
+      `SELECT r.id, r.nickname, r.username, r.email, r.user_id, r.account_number,
               r.account_type, r.mt5_server, r.registered_at, r.last_pull_at, r.pull_status,
               r.partner_status, r.disqualified, r.disqualified_reason,
               l.rank, l.current_balance, l.adjusted_balance, l.qualified_profit, l.gross_profit,
@@ -1257,7 +1274,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/finduser`, adminIpCheck, 
        LEFT JOIN wp_leaderboard l ON r.id = l.registration_id
        WHERE r.challenge_id = $1 AND (
          LOWER(r.username) = $2 OR LOWER(r.email) = $2 OR r.account_number = $2
-         OR CAST(r.telegram_id AS TEXT) = $2 OR LOWER(r.nickname) = $2
+         OR CAST(r.user_id AS TEXT) = $2 OR LOWER(r.nickname) = $2
        )
        LIMIT 1`,
       [challengeId, q]
@@ -1282,7 +1299,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/finduser`, adminIpCheck, 
         nickname: r.nickname,
         username: r.username,
         email: r.email,
-        telegramId: r.telegram_id,
+        telegramId: r.user_id,
         accountNumber: r.account_number,
         accountType: r.account_type,
         server: r.mt5_server,
