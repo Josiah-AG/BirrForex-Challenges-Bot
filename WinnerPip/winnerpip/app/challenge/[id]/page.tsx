@@ -1018,22 +1018,36 @@ export default function ChallengeDashboard() {
               <Trophy className="w-16 h-16 text-gold mx-auto mb-4" />
               <h2 className="text-2xl font-bold text-white mb-2">Challenge Completed</h2>
               <p className="text-gray-400 text-sm mb-6">Final results are in. {myStats.rank ? `You finished #${myStats.rank}` : "Check your final standing below."}</p>
-              <div className="grid grid-cols-2 gap-3 mb-6">
+              <div className="grid grid-cols-2 gap-3 mb-4">
                 <div className="bg-white/5 rounded-xl p-3 text-center">
                   <p className="text-[10px] text-gray-500 uppercase mb-1">Final Rank</p>
                   <p className="text-2xl font-bold gradient-text">{myStats.rank ? `#${myStats.rank}` : "—"}</p>
                 </div>
                 <div className="bg-white/5 rounded-xl p-3 text-center">
-                  <p className="text-[10px] text-gray-500 uppercase mb-1">Net Profit</p>
-                  <p className={`text-2xl font-bold ${myStats.qualifiedProfit >= 0 ? "text-profit" : "text-loss"}`}>{formatBalance(myStats.qualifiedProfit, myStats.accountType, myStats.isCent)}</p>
+                  <p className="text-[10px] text-gray-500 uppercase mb-1">Adjusted Balance</p>
+                  <p className="text-2xl font-bold text-white">{formatBalance(myStats.adjustedBalance, myStats.accountType, myStats.isCent)}</p>
                 </div>
                 <div className="bg-white/5 rounded-xl p-3 text-center">
-                  <p className="text-[10px] text-gray-500 uppercase mb-1">Final Balance</p>
-                  <p className="text-2xl font-bold text-white">{formatBalance(myStats.adjustedBalance, myStats.accountType, myStats.isCent)}</p>
+                  <p className="text-[10px] text-gray-500 uppercase mb-1">Net Qualified Profit</p>
+                  <p className={`text-2xl font-bold ${myStats.qualifiedProfit >= 0 ? "text-profit" : "text-loss"}`}>{formatBalance(myStats.qualifiedProfit, myStats.accountType, myStats.isCent)}</p>
                 </div>
                 <div className="bg-white/5 rounded-xl p-3 text-center">
                   <p className="text-[10px] text-gray-500 uppercase mb-1">Total Trades</p>
                   <p className="text-2xl font-bold text-white">{myStats.totalTrades}</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-3 mb-4">
+                <div className="bg-white/5 rounded-xl p-3 text-center">
+                  <p className="text-[10px] text-gray-500 uppercase mb-1">Flagged</p>
+                  <p className="text-lg font-bold text-loss">{myStats.flaggedTrades}</p>
+                </div>
+                <div className="bg-white/5 rounded-xl p-3 text-center">
+                  <p className="text-[10px] text-gray-500 uppercase mb-1">Best Trade</p>
+                  <p className="text-lg font-bold text-profit">{recentTrades.length > 0 ? `+${formatBalance(Math.max(...recentTrades.map(t => t.profit)), myStats.accountType, myStats.isCent)}` : "—"}</p>
+                </div>
+                <div className="bg-white/5 rounded-xl p-3 text-center">
+                  <p className="text-[10px] text-gray-500 uppercase mb-1">Worst Trade</p>
+                  <p className="text-lg font-bold text-loss">{recentTrades.length > 0 ? formatBalance(Math.min(...recentTrades.map(t => t.profit)), myStats.accountType, myStats.isCent) : "—"}</p>
                 </div>
               </div>
               <button onClick={() => setShowCompletedPopup(false)} className="w-full flex items-center justify-center gap-2 p-4 rounded-xl bg-gradient-brand hover:opacity-90 text-white font-semibold transition-all shadow-lg shadow-royal/20">
