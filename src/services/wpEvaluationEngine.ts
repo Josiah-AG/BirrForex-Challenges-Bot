@@ -135,6 +135,36 @@ async function fetchCandles(symbol: string, fromTime: Date, toTime: Date, timefr
 }
 
 /**
+ * Calculate the maximum allowed SL price level from max_risk_dollars.
+ * This is the price at which a properly-placed SL would trigger a max-risk loss.
+ * 
+ * IMPORTANT: max_risk_dollars is already in account currency ($ for standard, ¢ for cent).
+ * We use FULL contract size (not ÷100 for cent) because the profit formula on MT5 is:
+ *   profit_in_account_currency = volume × contractSize × priceMove
+ * For cent accounts, MT5 reports profit in cents with the FULL contract size.
+ * The ÷100 in getInstrumentInfo is for pip-value-in-USD calculations, not for this.
+ */
+function calculateMaxSlPrice(symbol: string, volume: number, entryPrice: number, maxRiskDollars: number, isBuy: boolean): number {
+  // Get base instrument info but use FULL contract size (not cent-adjusted)
+  const sym = symbol.replace(/[mczr]$/, '').replace(/_x\d+m?$/, '').toUpperCase();
+  let contractSize: number;
+
+  if (sym.includes('XAUUSD') || sym === 'XAU' || sym.includes('GOLD')) contractSize = 100;
+  else if (sym.includes('XAGUSD') || sym === 'XAG') contractSize = 5000;
+  else if (sym.includes('JPY')) contractSize = 100000;
+  else contractSize = 100000;
+
+  // priceMove that causes max_risk loss: max_risk = volume × contractSize × priceMove
+  // So: priceMove = max_risk / (volume × contractSize)
+  const priceMove = maxRiskDollars / (volume * contractSize);
+  if (priceMove <= 0 || !isFinite(priceMove)) return 0;
+
+  // For BUY: SL is below entry. For SELL: SL is above entry.
+  if (isBuy) return entryPrice - priceMove;
+  else return entryPrice + priceMove;
+}
+
+/**
  * Adaptive timeframe selection based on trade hold duration.
  * Returns the timeframe string and period in milliseconds.
  */
@@ -152,29 +182,45 @@ function selectTimeframe(holdMinutes: number, maxHoldHours: number | null): { ti
 }
 
 /**
- * Check if price crossed the SL level during the trade's open period.
- * Uses adaptive timeframe and excludes first/last candles per spec.
- * Returns violation message or null. Returns 'FAILED' string if candle fetch failed.
+ * Format candle open time in EAT for violation messages.
+ * Returns simple time like "10:30 EAT" or "13:00 EAT"
  */
-async function validateSlWithCandles(trade: TradeRow, maxHoldHours: number | null = null): Promise<string | null | 'FAILED'> {
-  if (!trade.stop_loss || parseFloat(String(trade.stop_loss)) === 0) return null;
-  if (!trade.open_time || !trade.close_time) return null;
+function formatCandleTimeEAT(candleTimeISO: string, periodMs: number): string {
+  const utc = new Date(candleTimeISO);
+  const eat = new Date(utc.getTime() + 3 * 60 * 60 * 1000); // UTC+3
+  const h = eat.getUTCHours().toString().padStart(2, '0');
+  const m = eat.getUTCMinutes().toString().padStart(2, '0');
+  return `${h}:${m} EAT`;
+}
 
-  const sl = parseFloat(String(trade.stop_loss));
-  const closePrice = parseFloat(String(trade.close_price));
+/**
+ * Fake SL Detection — checks if price went past the max allowed SL level during the trade.
+ * 
+ * Logic: If the user had placed a proper SL at max_risk distance from entry when the trade
+ * opened, would it have been hit? If YES → the trade should have been a loss, not a winner.
+ * The user likely ran the trade without SL, then added one later after it went into profit.
+ *
+ * Only flags WINNING trades (losers don't benefit from this cheat).
+ * Uses adaptive timeframe candles, excludes first/last candle.
+ * Returns violation message, null (valid), or 'FAILED' (candle fetch error).
+ */
+async function validateSlWithCandles(trade: TradeRow, maxHoldHours: number | null = null, maxRiskDollars: number = 0): Promise<string | null | 'FAILED'> {
+  if (!trade.open_time || !trade.close_time) return null;
+  if (!maxRiskDollars || maxRiskDollars <= 0) return null;
+
+  const profit = parseFloat(String(trade.profit));
+  // Only check winning trades — losers don't benefit from fake SL
+  if (profit <= 0) return null;
+
   const openPrice = parseFloat(String(trade.open_price));
+  const volume = parseFloat(String(trade.volume));
   const isBuy = trade.trade_type?.toLowerCase() === 'buy';
 
-  // If trade closed AT the SL price, it's a legitimate SL closure — not fake
-  const slTolerance = sl > 100 ? 0.5 : 0.00001;
-  if (Math.abs(closePrice - sl) <= slTolerance) return null;
+  if (!openPrice || !volume) return null;
 
-  // Only check fake SL if SL is on the correct side (loss-protection side)
-  // BUY: SL should be BELOW entry (protects against price dropping)
-  // SELL: SL should be ABOVE entry (protects against price rising)
-  // If SL is on the "wrong" side (profit-locking/trailing stop), skip check
-  if (isBuy && sl >= openPrice) return null;  // SL above entry for buy = trailing/breakeven
-  if (!isBuy && sl <= openPrice) return null; // SL below entry for sell = trailing/breakeven
+  // Calculate the max allowed SL price (where SL should have been if placed at open)
+  const maxSlPrice = calculateMaxSlPrice(trade.symbol, volume, openPrice, maxRiskDollars, isBuy);
+  if (maxSlPrice <= 0) return null;
 
   const openMs = new Date(trade.open_time).getTime();
   const closeMs = new Date(trade.close_time).getTime();
@@ -190,7 +236,7 @@ async function validateSlWithCandles(trade: TradeRow, maxHoldHours: number | nul
   const candles = await fetchCandles(trade.symbol, new Date(trade.open_time), new Date(trade.close_time), tf.timeframe);
   if (!candles || candles.length === 0) return 'FAILED'; // Can't verify — report failure
 
-  // Filter: exclude first and last candle per spec
+  // Filter: exclude first and last candle (entry/exit candles have partial data)
   const safeCandles = candles.filter(candle => {
     const candleTime = new Date(candle.time).getTime();
     const candleEnd = candleTime + tf.periodMs;
@@ -199,21 +245,22 @@ async function validateSlWithCandles(trade: TradeRow, maxHoldHours: number | nul
 
   if (safeCandles.length === 0) return null; // Not enough candles to verify
 
+  // Check if price crossed the max SL level during the trade
   for (const candle of safeCandles) {
     if (isBuy) {
-      // Buy trade: SL is below entry. If candle low went at/below SL, it should have triggered
-      if (candle.low <= sl) {
-        return `SL not active — price reached ${candle.low} (below SL ${sl}) during open period but trade was not closed`;
+      if (candle.low <= maxSlPrice) {
+        const eatTime = formatCandleTimeEAT(candle.time, tf.periodMs);
+        return `SL placed late. Price passed the maximum allowed risk ($${maxRiskDollars}, SL @ ${maxSlPrice.toFixed(5)}) during trade open period on the ${tf.timeframe} candle formed at ${eatTime}. Trade should have been closed by SL at that time`;
       }
     } else {
-      // Sell trade: SL is above entry. If candle high went at/above SL, it should have triggered
-      if (candle.high >= sl) {
-        return `SL not active — price reached ${candle.high} (above SL ${sl}) during open period but trade was not closed`;
+      if (candle.high >= maxSlPrice) {
+        const eatTime = formatCandleTimeEAT(candle.time, tf.periodMs);
+        return `SL placed late. Price passed the maximum allowed risk ($${maxRiskDollars}, SL @ ${maxSlPrice.toFixed(5)}) during trade open period on the ${tf.timeframe} candle formed at ${eatTime}. Trade should have been closed by SL at that time`;
       }
     }
   }
 
-  return null; // SL is valid — price never crossed it
+  return null; // Valid — price never crossed max SL level during trade
 }
 
 // ==================== ENGINE ====================
@@ -611,7 +658,8 @@ export class WpEvaluationEngine {
           }
 
           // Fake SL detection via candle data (adaptive timeframe)
-          const fakeSl = await validateSlWithCandles(trade, rules.max_hold_hours || null);
+          // Checks if price went past max allowed SL during trade — if yes, trade should have been a loss
+          const fakeSl = await validateSlWithCandles(trade, rules.max_hold_hours || null, rules.max_risk_dollars || 0);
           if (fakeSl === 'FAILED') {
             // Log SL check failure for admin visibility
             slCheckFailures.push({ ticket: trade.ticket, symbol: trade.symbol });

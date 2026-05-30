@@ -523,7 +523,8 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
       `SELECT r.id, r.nickname, r.account_number, r.account_type, r.mt5_server, r.challenge_id, r.pull_status,
               r.actual_starting_balance, r.registration_balance, r.disqualified, r.disqualified_reason, r.is_cent,
               r.last_pull_at,
-              c.title, c.status, c.start_date, c.end_date, c.starting_balance, c.target_balance, c.leaderboard_updated_at
+              c.title, c.status, c.start_date, c.end_date, c.starting_balance, c.target_balance, c.leaderboard_updated_at,
+              c.real_winners_count, c.demo_winners_count
        FROM trading_registrations r
        JOIN trading_challenges c ON r.challenge_id = c.id
        WHERE r.id = $1`,
@@ -551,6 +552,7 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
         endDate: registration.end_date,
         startingBalance: actualStartingBalance,
         targetBalance: parseFloat(registration.target_balance),
+        winnersCount: parseInt(registration.real_winners_count || 0) + parseInt(registration.demo_winners_count || 0),
       },
       me: {
         nickname: registration.nickname,
