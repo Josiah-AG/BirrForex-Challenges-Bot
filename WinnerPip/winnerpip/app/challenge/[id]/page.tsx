@@ -29,6 +29,7 @@ interface ChallengeInfo {
   id: number; title: string; status: string;
   startDate: string; endDate: string;
   startingBalance: number; targetBalance: number;
+  winnersCount: number;
 }
 interface MyStats {
   nickname: string; accountNumber: string; accountType: string; server: string;
@@ -511,8 +512,8 @@ export default function ChallengeDashboard() {
                 <div className="flex items-center justify-center gap-1 mb-1 text-loss"><AlertTriangle size={14} /><p className="text-[9px] uppercase tracking-wider font-medium">Flagged</p></div>
                 <p className="text-lg font-bold text-loss">{myStats.flaggedTrades}</p>
               </button>
-              <MiniStat label="Total P&L" value={`${formatBalance(myStats.grossProfit, myStats.accountType, myStats.isCent)}`} icon={<ChevronUp size={14} />} color="text-profit" />
-              <MiniStat label="Net P&L" value={`${formatBalance(myStats.qualifiedProfit, myStats.accountType, myStats.isCent)}`} icon={<ChevronDown size={14} />} color={myStats.qualifiedProfit >= 0 ? "text-profit" : "text-loss"} />
+              <MiniStat label="Win Rate" value={`${winRate}%`} icon={<ChevronUp size={14} />} color={winRate >= 50 ? "text-profit" : "text-loss"} />
+              <MiniStat label="Avg RR" value={avgRR > 0 ? avgRR.toFixed(2) : "—"} icon={<ChevronDown size={14} />} color="text-royal" />
             </div>
 
             {/* TAB NAVIGATION */}
@@ -577,8 +578,8 @@ export default function ChallengeDashboard() {
               ) : (
               <div className="divide-y divide-white/5">
                 {leaderboard.map((entry) => (
-                  <button key={entry.rank || entry.nickname} onClick={() => { setShowLeaderboardModal(true); setSelectedUser(entry); }} className={`w-full flex items-center gap-4 px-4 py-3 text-left hover:bg-white/5 transition-colors ${entry.isMe ? "bg-royal/10 border-l-2 border-royal" : ""} ${entry.isDisqualified ? "opacity-60" : ""}`}>
-                    <div className={`flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center text-sm font-bold ${entry.isDisqualified ? "bg-loss/20 text-loss" : entry.rank === 1 ? "bg-gold/20 text-gold" : entry.rank === 2 ? "bg-gray-400/20 text-gray-300" : entry.rank === 3 ? "bg-orange-500/20 text-orange-400" : "bg-white/5 text-gray-500"}`}>{entry.rank || "—"}</div>
+                  <button key={entry.rank || entry.nickname} onClick={() => { setShowLeaderboardModal(true); setSelectedUser(entry); }} className={`w-full flex items-center gap-4 px-4 py-3 text-left hover:bg-white/5 transition-colors ${entry.isMe ? "bg-royal/10 border-l-2 border-royal" : (challenge && entry.adjustedBalance >= challenge.targetBalance && !entry.isDisqualified) ? "bg-profit/5 border-l-2 border-profit/30" : ""} ${entry.isDisqualified ? "opacity-60" : ""}`}>
+                    <div className={`flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center text-sm font-bold ${entry.isDisqualified ? "bg-loss/20 text-loss" : (challenge && entry.rank <= (challenge.winnersCount || 3) && entry.adjustedBalance >= challenge.targetBalance) ? "bg-gold/20 text-gold" : "bg-white/5 text-gray-500"}`}>{entry.rank || "—"}</div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         <p className={`text-sm font-semibold truncate ${entry.isMe ? "text-royal" : entry.isDisqualified ? "text-gray-500" : "text-white"}`}>{entry.nickname}</p>
@@ -790,8 +791,8 @@ export default function ChallengeDashboard() {
               ) : (
               <div className="divide-y divide-white/5">
                 {leaderboard.map((entry) => (
-                  <button key={entry.rank || entry.nickname} onClick={() => { setShowLeaderboardModal(true); setSelectedUser(entry); }} className={`w-full flex items-center gap-4 px-4 py-3 text-left hover:bg-white/5 transition-colors ${entry.isMe ? "bg-royal/10 border-l-2 border-royal" : ""} ${entry.isDisqualified ? "opacity-60" : ""}`}>
-                    <div className={`flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center text-sm font-bold ${entry.isDisqualified ? "bg-loss/20 text-loss" : entry.rank === 1 ? "bg-gold/20 text-gold" : entry.rank === 2 ? "bg-gray-400/20 text-gray-300" : entry.rank === 3 ? "bg-orange-500/20 text-orange-400" : "bg-white/5 text-gray-500"}`}>{entry.rank || "—"}</div>
+                  <button key={entry.rank || entry.nickname} onClick={() => { setShowLeaderboardModal(true); setSelectedUser(entry); }} className={`w-full flex items-center gap-4 px-4 py-3 text-left hover:bg-white/5 transition-colors ${entry.isMe ? "bg-royal/10 border-l-2 border-royal" : (challenge && entry.adjustedBalance >= challenge.targetBalance && !entry.isDisqualified) ? "bg-profit/5 border-l-2 border-profit/30" : ""} ${entry.isDisqualified ? "opacity-60" : ""}`}>
+                    <div className={`flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center text-sm font-bold ${entry.isDisqualified ? "bg-loss/20 text-loss" : (challenge && entry.rank <= (challenge.winnersCount || 3) && entry.adjustedBalance >= challenge.targetBalance) ? "bg-gold/20 text-gold" : "bg-white/5 text-gray-500"}`}>{entry.rank || "—"}</div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         <p className={`text-sm font-semibold truncate ${entry.isMe ? "text-royal" : entry.isDisqualified ? "text-gray-500" : "text-white"}`}>{entry.nickname}</p>
@@ -909,7 +910,7 @@ export default function ChallengeDashboard() {
               <div className="divide-y divide-white/5">
                 {leaderboard.map((entry) => (
                   <button key={entry.rank || entry.nickname} onClick={() => setSelectedUser(entry)} className={`w-full flex items-center gap-4 px-4 py-3 text-left hover:bg-white/5 transition-colors ${entry.isMe ? "bg-royal/10 border-l-2 border-royal" : ""}`}>
-                    <div className={`flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center text-sm font-bold ${entry.rank === 1 ? "bg-gold/20 text-gold" : entry.rank === 2 ? "bg-gray-400/20 text-gray-300" : entry.rank === 3 ? "bg-orange-500/20 text-orange-400" : "bg-white/5 text-gray-500"}`}>{entry.rank || "—"}</div>
+                    <div className={`flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center text-sm font-bold ${(challenge && entry.rank <= (challenge.winnersCount || 3) && entry.adjustedBalance >= challenge.targetBalance) ? "bg-gold/20 text-gold" : "bg-white/5 text-gray-500"}`}>{entry.rank || "—"}</div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2"><p className={`text-sm font-semibold truncate ${entry.isMe ? "text-royal" : "text-white"}`}>{entry.nickname}</p>{entry.isMe && <span className="px-1.5 py-0.5 bg-royal/20 text-royal text-[10px] rounded font-bold">YOU</span>}</div>
                       <p className="text-[10px] text-gray-500">{entry.totalTrades} trades • {entry.qualifiedTrades} qualified</p>
