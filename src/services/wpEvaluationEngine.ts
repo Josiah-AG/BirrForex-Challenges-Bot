@@ -208,10 +208,6 @@ async function validateSlWithCandles(trade: TradeRow, maxHoldHours: number | nul
   if (!trade.open_time || !trade.close_time) return null;
   if (!maxRiskDollars || maxRiskDollars <= 0) return null;
 
-  const profit = parseFloat(String(trade.profit));
-  // Only check winning trades — losers don't benefit from fake SL
-  if (profit <= 0) return null;
-
   const openPrice = parseFloat(String(trade.open_price));
   const volume = parseFloat(String(trade.volume));
   const isBuy = trade.trade_type?.toLowerCase() === 'buy';
