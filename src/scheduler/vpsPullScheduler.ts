@@ -414,6 +414,72 @@ export class VpsPullScheduler {
   }
 
   /**
+   * Run pull cycle for a specific challenge ID — bypasses status checks.
+   * Used by admin "Full Pull + Evaluate + Rank" button.
+   */
+  async runPullCycleForChallenge(challengeId: number) {
+    if (this.isRunning) {
+      console.log('⚠️ VPS Pull: Already running, skipping');
+      return;
+    }
+    this.isRunning = true;
+    const startTime = Date.now();
+
+    try {
+      // Load challenge directly by ID (no status check)
+      const challengeResult = await db.query(
+        `SELECT id, title, type, status, start_date, end_date, starting_balance, target_balance, evaluation_type, winners_posted_at FROM trading_challenges WHERE id = $1`,
+        [challengeId]
+      );
+      if (challengeResult.rows.length === 0) {
+        console.log(`⚠️ VPS Pull: Challenge ${challengeId} not found`);
+        this.isRunning = false;
+        return;
+      }
+      const challengeToPull = challengeResult.rows[0];
+      console.log(`📊 VPS Pull: Admin full pull for "${challengeToPull.title}" (status: ${challengeToPull.status})`);
+
+      // Build shared queue
+      const accounts = await this.getAccountsToPull(challengeId);
+      if (accounts.length === 0) {
+        console.log('📊 VPS Pull: No accounts to pull');
+        this.isRunning = false;
+        return;
+      }
+
+      console.log(`📊 VPS Pull: ${accounts.length} accounts, ${this.getHealthyTerminalCount()} healthy terminals`);
+      this.terminals.forEach(t => { t.totalProcessed = 0; t.totalSuccess = 0; t.totalFailed = 0; });
+
+      const batchId = await this.createPullBatch(challengeId, accounts.length);
+      this.sharedQueue.load(accounts.map(a => ({ ...a, isPriority: false })));
+
+      const healthyTerminals = this.terminals.filter(t => t.isHealthy);
+      if (healthyTerminals.length === 0) {
+        console.error('❌ VPS Pull: ALL terminals unhealthy');
+        await this.completePullBatch(batchId, 0, accounts.length, 0, 'all_terminals_unhealthy');
+        this.isRunning = false;
+        return;
+      }
+
+      const allResults = await this.runSharedQueueWorkers(healthyTerminals, challengeToPull, batchId);
+
+      const successful = allResults.filter(r => r.success);
+      const failed = allResults.filter(r => !r.success);
+      const newTrades = successful.reduce((sum, r) => sum + (r.tradesCount || 0), 0);
+      await this.completePullBatch(batchId, successful.length, failed.length, newTrades, 'completed');
+      await this.bulkUpdatePullStatus(allResults);
+
+      const duration = Math.round((Date.now() - startTime) / 1000);
+      console.log(`✅ VPS Pull: Admin full pull done in ${duration}s — ${successful.length}✓ ${failed.length}✗ | ${newTrades} trades`);
+
+    } catch (error) {
+      console.error('❌ VPS Pull: Admin full pull crashed:', error);
+    } finally {
+      this.isRunning = false;
+    }
+  }
+
+  /**
    * Shared queue workers — each terminal grabs next account as it finishes
    * Fast terminals naturally process more accounts (work stealing)
    */
