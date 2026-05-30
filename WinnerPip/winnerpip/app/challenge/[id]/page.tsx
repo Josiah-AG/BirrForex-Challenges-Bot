@@ -252,6 +252,14 @@ export default function ChallengeDashboard() {
   const isBlownAccount = myStats && myStats.totalTrades > 0 && myStats.currentBalance <= 0;
   const showProgressBar = myStats && myStats.totalTrades > 0 && !isBlownAccount && !myStats.disqualified;
 
+  // Win Rate & Avg RR (computed from trades)
+  const winningTrades = recentTrades.filter(t => t.profit > 0);
+  const losingTrades = recentTrades.filter(t => t.profit < 0);
+  const winRate = recentTrades.length > 0 ? Math.round((winningTrades.length / recentTrades.length) * 100) : 0;
+  const avgWin = winningTrades.length > 0 ? winningTrades.reduce((s, t) => s + t.profit, 0) / winningTrades.length : 0;
+  const avgLoss = losingTrades.length > 0 ? Math.abs(losingTrades.reduce((s, t) => s + t.profit, 0) / losingTrades.length) : 0;
+  const avgRR = avgLoss > 0 ? avgWin / avgLoss : 0;
+
   // Format balance with cent support — uses isCent flag from API
   const formatBalance = (amount: number, accountType: string, isCent?: boolean) => {
     if (isCent) {
@@ -712,8 +720,8 @@ export default function ChallengeDashboard() {
                 <div className="flex items-center justify-center gap-1 mb-1 text-loss"><AlertTriangle size={14} /><p className="text-[9px] uppercase tracking-wider font-medium">Flagged</p></div>
                 <p className="text-lg font-bold text-loss">{myStats.flaggedTrades}</p>
               </button>
-              <MiniStat label="Total P&L" value={`${formatBalance(myStats.grossProfit, myStats.accountType, myStats.isCent)}`} icon={<ChevronUp size={14} />} color="text-profit" />
-              <MiniStat label="Net P&L" value={`${formatBalance(myStats.qualifiedProfit, myStats.accountType, myStats.isCent)}`} icon={<ChevronDown size={14} />} color={myStats.qualifiedProfit >= 0 ? "text-profit" : "text-loss"} />
+              <MiniStat label="Win Rate" value={`${winRate}%`} icon={<ChevronUp size={14} />} color={winRate >= 50 ? "text-profit" : "text-loss"} />
+              <MiniStat label="Avg RR" value={avgRR > 0 ? avgRR.toFixed(2) : "—"} icon={<ChevronDown size={14} />} color="text-royal" />
             </div>
 
             {/* TAB NAVIGATION */}
@@ -931,11 +939,26 @@ export default function ChallengeDashboard() {
                 )}
                 {/* Only show stats for non-DQ users */}
                 {!selectedUser.isDisqualified && (<>
-                  <div className="grid grid-cols-3 gap-3 mb-6">
+                  <div className="grid grid-cols-3 gap-3 mb-4">
                     <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500 mb-1">Trades</p><p className="text-lg font-bold text-white">{selectedUser.totalTrades}</p></div>
                     <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500 mb-1">Qualified</p><p className="text-lg font-bold text-white">{selectedUser.qualifiedTrades}</p></div>
                     <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500 mb-1">Flagged</p><p className="text-lg font-bold text-loss">{selectedUser.flaggedTrades}</p></div>
                   </div>
+                  {/* Win Rate & Avg RR */}
+                  {selectedUserTrades.length > 0 && (() => {
+                    const wins = selectedUserTrades.filter((t: any) => t.profit > 0);
+                    const losses = selectedUserTrades.filter((t: any) => t.profit < 0);
+                    const wr = Math.round((wins.length / selectedUserTrades.length) * 100);
+                    const aw = wins.length > 0 ? wins.reduce((s: number, t: any) => s + t.profit, 0) / wins.length : 0;
+                    const al = losses.length > 0 ? Math.abs(losses.reduce((s: number, t: any) => s + t.profit, 0) / losses.length) : 0;
+                    const rr = al > 0 ? aw / al : 0;
+                    return (
+                      <div className="grid grid-cols-2 gap-3 mb-4">
+                        <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500 mb-1">Win Rate</p><p className={`text-lg font-bold ${wr >= 50 ? "text-profit" : "text-loss"}`}>{wr}%</p></div>
+                        <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500 mb-1">Avg RR</p><p className="text-lg font-bold text-royal">{rr > 0 ? rr.toFixed(2) : "—"}</p></div>
+                      </div>
+                    );
+                  })()}
                   <div className="grid grid-cols-2 gap-3">
                     <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Net P&L</p><p className={`text-sm font-bold ${selectedUser.qualifiedProfit >= 0 ? "text-profit" : "text-loss"}`}>{formatBalance(selectedUser.qualifiedProfit, selectedUser.accountType, selectedUser.isCent)}</p></div>
                     <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Total P&L</p><p className="text-sm font-bold text-white">{formatBalance(selectedUser.grossProfit, selectedUser.accountType, selectedUser.isCent)}</p></div>
