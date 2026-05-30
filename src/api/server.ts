@@ -2127,6 +2127,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/force-pull-rank`, adminI
  * POST /api/admin/:secretPath/challenge/:id/full-pull
  * Full pull (non-incremental) + evaluate + flush + rank update.
  * Resets last_pull_at for all accounts so VPS pulls entire history.
+ * Works regardless of challenge status (admin override).
  */
 app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/full-pull`, adminIpCheck, async (req, res) => {
   try {
@@ -2142,18 +2143,41 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/full-pull`, adminIpCheck
       [challengeId]
     );
 
-    // Run pull cycle, then evaluate + rank
+    // Temporarily set challenge status to 'active' if it's ended, so the scheduler picks it up
+    const challengeResult = await db.query(`SELECT status FROM trading_challenges WHERE id = $1`, [challengeId]);
+    const originalStatus = challengeResult.rows[0]?.status;
+    const needsStatusOverride = originalStatus && originalStatus !== 'active';
+
+    if (needsStatusOverride) {
+      await db.query(`UPDATE trading_challenges SET status = 'active' WHERE id = $1`, [challengeId]);
+    }
+
+    // Run pull cycle, then evaluate + rank, then restore status
     globalScheduler.runPullCycle().then(async () => {
       try {
+        // Restore original status
+        if (needsStatusOverride) {
+          await db.query(`UPDATE trading_challenges SET status = $1 WHERE id = $2`, [originalStatus, challengeId]);
+        }
         const { leaderboardService } = require('../services/leaderboardService');
         await leaderboardService.flushStagingToLive(challengeId);
         await leaderboardService.ensureAllParticipantsHaveEntries(challengeId);
         await leaderboardService.updateRankings(challengeId);
         console.log(`✅ Full pull + evaluate + rank: Complete for challenge ${challengeId}`);
       } catch (e) {
+        // Restore status even on error
+        if (needsStatusOverride) {
+          await db.query(`UPDATE trading_challenges SET status = $1 WHERE id = $2`, [originalStatus, challengeId]).catch(() => {});
+        }
         console.error('Full pull rank update error:', e);
       }
-    }).catch((e: any) => console.error('Full pull error:', e));
+    }).catch(async (e: any) => {
+      // Restore status on pull error
+      if (needsStatusOverride) {
+        await db.query(`UPDATE trading_challenges SET status = $1 WHERE id = $2`, [originalStatus, challengeId]).catch(() => {});
+      }
+      console.error('Full pull error:', e);
+    });
 
     return res.json({ success: true, message: 'Full pull started (non-incremental). Will evaluate + update rankings after completion.' });
   } catch (error) {
