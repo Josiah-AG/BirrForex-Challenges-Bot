@@ -245,8 +245,9 @@ export class VpsPullScheduler {
         return;
       }
 
-      // Determine if this is the Saturday final sync
-      const isFinalSync = this.isSaturdayFinalSync();
+      // Determine if this is a final sync (Saturday OR challenge ended)
+      const isChallengeEnded = challengeToPull.status === 'reviewing' || challengeToPull.status === 'completed';
+      const isFinalSync = this.isSaturdayFinalSync() || isChallengeEnded;
 
       // === STEP 1: Flush previous cycle's staging data to live + update rankings ===
       await leaderboardService.flushStagingToLive(challengeToPull.id);
@@ -560,21 +561,23 @@ export class VpsPullScheduler {
 
     for (let attempt = 1; attempt <= MAX_RETRIES_PER_ACCOUNT; attempt++) {
       try {
-        // Incremental pull strategy:
-        // - First pull (lastPullAt is null): fetch deals from challenge start date (full history)
-        // - Subsequent pulls: fetch deals from last 5 hours (4h window + 1h confidence overlap)
+        // Pull strategy:
+        // - Challenge ended (status = reviewing): FULL pull from challenge start (final sync)
+        // - First pull (lastPullAt is null): FULL pull from challenge start
+        // - Subsequent pulls during active challenge: incremental (5h window)
         // - Orders always fetch from challenge start (lightweight, provides open_time/open_price)
         const challengeStartDate = challenge?.start_date ? new Date(challenge.start_date).toISOString() : undefined;
+        const isChallengeEnded = challenge?.status === 'reviewing' || challenge?.status === 'completed';
         let fromDate: string;
 
-        if (account.lastPullAt) {
+        if (isChallengeEnded || !account.lastPullAt) {
+          // Full pull: challenge ended (final sync) OR first-ever pull
+          fromDate = challengeStartDate || new Date(2020, 0, 1).toISOString();
+        } else {
           // Incremental: last 5 hours (4h window + 1h overlap for confidence)
           const now = new Date();
           const incrementalFrom = new Date(now.getTime() - 5 * 60 * 60 * 1000);
           fromDate = incrementalFrom.toISOString();
-        } else {
-          // First pull: get all deals from challenge start
-          fromDate = challengeStartDate || new Date(2020, 0, 1).toISOString();
         }
 
         const ordersFromDate = challengeStartDate || fromDate;
@@ -791,7 +794,9 @@ export class VpsPullScheduler {
 
     if (activeChallenge) return activeChallenge;
 
-    // Check for recently-ended challenge needing final sync
+    // Check for recently-ended challenge needing final sync pulls
+    // After challenge ends (status = reviewing), do 2 more full pull cycles
+    // to ensure all trades are captured with complete data
     const allChallenges = await tradingChallengeService.getAllChallenges();
     const recentlyEnded = allChallenges.find(c =>
       c.status === 'reviewing' &&
@@ -801,8 +806,21 @@ export class VpsPullScheduler {
     );
 
     if (recentlyEnded) {
-      console.log(`📊 VPS Pull: Final sync for recently-ended "${recentlyEnded.title}"`);
-      return recentlyEnded;
+      // Count how many pull batches have run since challenge ended
+      const postEndPulls = await db.query(
+        `SELECT COUNT(*) as cnt FROM wp_pull_batches 
+         WHERE challenge_id = $1 AND started_at > $2 AND status = 'completed'`,
+        [recentlyEnded.id, new Date(recentlyEnded.end_date).toISOString()]
+      );
+      const pullsSinceEnd = parseInt(postEndPulls.rows[0]?.cnt || '0');
+
+      if (pullsSinceEnd < 2) {
+        console.log(`📊 VPS Pull: Final full sync #${pullsSinceEnd + 1}/2 for "${recentlyEnded.title}"`);
+        return recentlyEnded;
+      } else {
+        console.log(`📊 VPS Pull: "${recentlyEnded.title}" — 2 final syncs complete. No more pulls needed.`);
+        return null;
+      }
     }
 
     console.log('📊 VPS Pull: No active or recently-ended challenge');
