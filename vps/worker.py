@@ -340,8 +340,12 @@ def do_verify(account: int, server: str, password: str) -> dict:
     }
 
 
-def do_pull(account: int, server: str, password: str, from_date: str = None) -> dict:
-    """Pull trade history — fast path with fallback and self-heal."""
+def do_pull(account: int, server: str, password: str, from_date: str = None, orders_from_date: str = None) -> dict:
+    """Pull trade history — incremental approach.
+    
+    from_date: Filter deals from this time (incremental window, e.g. last 5 hours)
+    orders_from_date: Filter orders from this time (challenge start — needed for open_time/open_price)
+    """
     if not login_user(account, password, server):
         error = mt5.last_error()
         return {"success": False, "message": f"Login failed: {error}"}
@@ -350,7 +354,7 @@ def do_pull(account: int, server: str, password: str, from_date: str = None) -> 
     balance = account_info.balance if account_info else 0
     equity = account_info.equity if account_info else 0
 
-    # Date range
+    # Date range for deals (incremental window)
     if from_date:
         try:
             date_from = datetime.fromisoformat(from_date.replace("Z", "+00:00"))
@@ -360,15 +364,25 @@ def do_pull(account: int, server: str, password: str, from_date: str = None) -> 
     else:
         date_from = datetime(2020, 1, 1, tzinfo=timezone.utc)
 
+    # Date range for orders (full challenge period — lightweight, provides open_time/open_price)
+    if orders_from_date:
+        try:
+            orders_date_from = datetime.fromisoformat(orders_from_date.replace("Z", "+00:00"))
+            orders_date_from = orders_date_from - timedelta(hours=1)
+        except:
+            orders_date_from = date_from
+    else:
+        orders_date_from = date_from
+
     date_to = datetime.now(timezone.utc)
 
-    # Fetch deals (all trade history)
+    # Fetch deals (filtered to incremental window)
     trades_raw = mt5.history_deals_get(date_from, date_to)
     trades_list = []
     deals_list = []
 
-    # Fetch orders (provides SL, TP, open_time)
-    orders_raw = mt5.history_orders_get(date_from, date_to)
+    # Fetch orders from full challenge period (provides SL, TP, open_time for any position)
+    orders_raw = mt5.history_orders_get(orders_date_from, date_to)
     orders_by_position = {}
     if orders_raw is not None:
         for order in orders_raw:
@@ -380,6 +394,9 @@ def do_pull(account: int, server: str, password: str, from_date: str = None) -> 
                     "open_time": datetime.fromtimestamp(order.time_setup, tz=timezone.utc).isoformat() if order.time_setup else None,
                     "open_price": order.price_open,
                 }
+
+    # First pass: collect all deals and index opening deals by position_id
+    open_deals_by_position = {}  # position_id -> {time, price, type}
 
     if trades_raw is not None:
         for deal in trades_raw:
@@ -401,40 +418,56 @@ def do_pull(account: int, server: str, password: str, from_date: str = None) -> 
             }
             deals_list.append(deal_dict)
 
+            # Index opening deals (entry==0) by position_id for open_time/open_price lookup
+            if deal.entry == 0 and deal.symbol and deal.position_id:
+                open_deals_by_position[deal.position_id] = {
+                    "time": datetime.fromtimestamp(deal.time, tz=timezone.utc).isoformat(),
+                    "price": deal.price,
+                    "type": deal.type,
+                }
+
+        # Second pass: each closing deal (entry==1) becomes its own trade
+        # This correctly handles partial closes — each partial close deal is a separate trade
+        for deal in trades_raw:
             if deal.entry == 1 and deal.symbol:
-                trade_type = "Buy" if deal.type == 0 else "Sell" if deal.type == 1 else "Other"
+                # Use the deal's own ticket as the trade ticket (unique per partial close)
+                trade_ticket = deal.ticket
                 pos_id = deal.position_id or deal.ticket
+
+                # Determine trade direction from the OPENING deal's type
+                # (closing deal type is inverted: buy close = sell deal, sell close = buy deal)
+                open_deal = open_deals_by_position.get(pos_id, {})
+                if open_deal:
+                    # Opening deal type: 0=buy, 1=sell
+                    trade_type = "Buy" if open_deal.get("type") == 0 else "Sell" if open_deal.get("type") == 1 else "Other"
+                else:
+                    # Fallback: invert the closing deal type
+                    trade_type = "Sell" if deal.type == 0 else "Buy" if deal.type == 1 else "Other"
+
+                # Get order info for SL/TP
                 order_info = orders_by_position.get(pos_id, {})
+
+                # Open time/price: prefer order info, then opening deal, then fallback
+                open_time = order_info.get("open_time") or open_deal.get("time")
+                open_price = order_info.get("open_price") or open_deal.get("price", deal.price)
+
                 trades_list.append({
-                    "ticket": pos_id,
+                    "ticket": trade_ticket,
+                    "position_id": pos_id,
                     "symbol": deal.symbol,
                     "type": trade_type,
                     "volume": deal.volume,
-                    "open_time": order_info.get("open_time"),
+                    "open_time": open_time,
                     "close_time": datetime.fromtimestamp(deal.time, tz=timezone.utc).isoformat(),
-                    "open_price": order_info.get("open_price", deal.price),
+                    "open_price": open_price,
                     "close_price": deal.price,
                     "stop_loss": order_info.get("sl", 0),
                     "take_profit": order_info.get("tp", 0),
                     "profit": deal.profit,
                     "commission": deal.commission,
                     "swap": deal.swap,
-                    "comment": deal.comment,
+                    "comment": deal.comment or "",
                 })
-
-    # Fallback: match open times from entry==0 deals if orders didn't provide them
-    open_times = {}
-    open_prices = {}
-    for deal_dict in deals_list:
-        if deal_dict["entry"] == 0 and deal_dict.get("position_id"):
-            open_times[deal_dict["position_id"]] = deal_dict["time"]
-            open_prices[deal_dict["position_id"]] = deal_dict["price"]
-
-    for trade in trades_list:
-        if not trade.get("open_time"):
-            trade["open_time"] = open_times.get(trade["ticket"])
-        if not trade.get("open_price") or trade["open_price"] == trade.get("close_price"):
-            trade["open_price"] = open_prices.get(trade["ticket"], trade.get("close_price", 0))
 
     return {
         "success": True,
@@ -509,6 +542,7 @@ class PullRequest(BaseModel):
     password: str
     api_key: str
     from_date: Optional[str] = None
+    orders_from_date: Optional[str] = None
 
 
 class CandlesRequest(BaseModel):
@@ -556,7 +590,7 @@ def pull(req: PullRequest):
     account_number = int(req.account.replace("#", "").replace(" ", ""))
 
     with _lock:
-        result = do_pull(account_number, req.server, req.password, req.from_date)
+        result = do_pull(account_number, req.server, req.password, req.from_date, req.orders_from_date)
 
     _schedule_idle_restore()
     return result

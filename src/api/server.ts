@@ -6,6 +6,7 @@ import { config } from '../config';
 import { vpsService } from '../services/vpsService';
 import crypto from 'crypto';
 import { discordRoutes } from './discordRoutes';
+import * as XLSX from 'xlsx';
 
 const app = express();
 
@@ -1695,6 +1696,152 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/user-trades-mt5`, adminIp
 });
 
 /**
+ * GET /api/admin/:secretPath/challenge/:id/user-trades-xlsx?registration_id=X
+ * Export user's trades as a proper MT5-style .xlsx file with Header, Positions, Deals, Results sections
+ */
+app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/user-trades-xlsx`, adminIpCheck, async (req, res) => {
+  try {
+    const challengeId = parseInt(req.params.id);
+    const registrationId = parseInt(req.query.registration_id as string);
+    if (!registrationId) return res.status(400).json({ error: 'registration_id required' });
+
+    const trades = await db.query(
+      `SELECT ticket, symbol, trade_type, volume, open_time, close_time,
+              open_price, close_price, stop_loss, take_profit,
+              profit, commission, swap, comment, is_qualified, violations
+       FROM wp_trades WHERE challenge_id = $1 AND registration_id = $2
+       ORDER BY open_time ASC`,
+      [challengeId, registrationId]
+    );
+
+    const reg = await db.query(
+      `SELECT r.nickname, r.account_number, r.mt5_server, r.account_type, r.is_cent,
+              c.title, c.start_date, c.end_date
+       FROM trading_registrations r
+       JOIN trading_challenges c ON r.challenge_id = c.id
+       WHERE r.id = $1`,
+      [registrationId]
+    );
+    const user = reg.rows[0] || {};
+    const positions = trades.rows;
+
+    // Compute results
+    const grossProfit = positions.filter((t: any) => parseFloat(t.profit) > 0).reduce((s: number, t: any) => s + parseFloat(t.profit), 0);
+    const grossLoss = positions.filter((t: any) => parseFloat(t.profit) < 0).reduce((s: number, t: any) => s + parseFloat(t.profit), 0);
+    const totalNetProfit = grossProfit + grossLoss;
+    const profitFactor = grossLoss !== 0 ? Math.abs(grossProfit / grossLoss) : 0;
+    const totalTrades = positions.length;
+    const profitTrades = positions.filter((t: any) => parseFloat(t.profit) > 0).length;
+    const lossTrades = positions.filter((t: any) => parseFloat(t.profit) <= 0).length;
+    const shortTrades = positions.filter((t: any) => t.trade_type?.toLowerCase() === 'sell');
+    const longTrades = positions.filter((t: any) => t.trade_type?.toLowerCase() === 'buy');
+    const shortWon = shortTrades.filter((t: any) => parseFloat(t.profit) > 0).length;
+    const longWon = longTrades.filter((t: any) => parseFloat(t.profit) > 0).length;
+    const largestProfit = positions.length > 0 ? Math.max(...positions.map((t: any) => parseFloat(t.profit))) : 0;
+    const largestLoss = positions.length > 0 ? Math.min(...positions.map((t: any) => parseFloat(t.profit))) : 0;
+    const avgProfit = profitTrades > 0 ? grossProfit / profitTrades : 0;
+    const avgLoss = lossTrades > 0 ? grossLoss / lossTrades : 0;
+    const totalCommission = positions.reduce((s: number, t: any) => s + parseFloat(t.commission || 0), 0);
+    const totalSwap = positions.reduce((s: number, t: any) => s + parseFloat(t.swap || 0), 0);
+
+    // Build the workbook
+    const wb = XLSX.utils.book_new();
+    const wsData: any[][] = [];
+
+    // === HEADER SECTION ===
+    wsData.push(['Trade History Report']);
+    wsData.push([]);
+    wsData.push(['Name:', '', user.nickname || '']);
+    wsData.push(['Account:', '', `${user.account_number || ''} (${user.is_cent ? 'USC' : 'USD'}, ${user.mt5_server || ''}, ${user.account_type || ''}, Hedge)`]);
+    wsData.push(['Company:', '', 'Exness Technologies Ltd']);
+    wsData.push(['Date:', '', new Date().toISOString().split('T')[0].replace(/-/g, '.')]);
+    wsData.push([]);
+
+    // === POSITIONS SECTION ===
+    wsData.push(['Positions']);
+    wsData.push(['Time', 'Position', 'Symbol', 'Type', 'Volume', 'Price', 'S / L', 'T / P', 'Time', 'Price', 'Commission', 'Swap', 'Profit', 'Comment']);
+
+    for (const t of positions) {
+      const openTime = t.open_time ? new Date(t.open_time).toISOString().replace('T', ' ').replace('Z', '').slice(0, 19).replace(/-/g, '.') : '';
+      const closeTime = t.close_time ? new Date(t.close_time).toISOString().replace('T', ' ').replace('Z', '').slice(0, 19).replace(/-/g, '.') : '';
+      wsData.push([
+        openTime,
+        t.ticket,
+        t.symbol,
+        t.trade_type,
+        parseFloat(t.volume),
+        parseFloat(t.open_price),
+        t.stop_loss ? parseFloat(t.stop_loss) : '',
+        t.take_profit ? parseFloat(t.take_profit) : '',
+        closeTime,
+        parseFloat(t.close_price),
+        parseFloat(t.commission || 0),
+        parseFloat(t.swap || 0),
+        parseFloat(t.profit),
+        t.comment || '',
+      ]);
+    }
+
+    // Positions summary row
+    wsData.push(['', '', '', '', '', '', '', '', '', '', totalCommission.toFixed(2), totalSwap.toFixed(2), totalNetProfit.toFixed(2), '']);
+    wsData.push([]);
+
+    // === DEALS SECTION ===
+    wsData.push(['Deals']);
+    wsData.push(['Time', 'Deal', 'Symbol', 'Type', 'Direction', 'Volume', 'Price', 'Order', 'Commission', 'Swap', 'Profit', 'Balance', 'Comment']);
+
+    // Build deals from positions (open + close entries)
+    for (const t of positions) {
+      const openTime = t.open_time ? new Date(t.open_time).toISOString().replace('T', ' ').replace('Z', '').slice(0, 19).replace(/-/g, '.') : '';
+      const closeTime = t.close_time ? new Date(t.close_time).toISOString().replace('T', ' ').replace('Z', '').slice(0, 19).replace(/-/g, '.') : '';
+      const direction = t.trade_type?.toLowerCase() === 'buy' ? 'in' : 'in';
+      const closeDirection = 'out';
+      const dealType = t.trade_type?.toLowerCase() === 'buy' ? 'buy' : 'sell';
+      const closeDealType = t.trade_type?.toLowerCase() === 'buy' ? 'sell' : 'buy';
+
+      // Opening deal
+      wsData.push([openTime, '', t.symbol, dealType, direction, parseFloat(t.volume), parseFloat(t.open_price), '', 0, 0, 0, '', '']);
+      // Closing deal
+      wsData.push([closeTime, '', t.symbol, closeDealType, closeDirection, parseFloat(t.volume), parseFloat(t.close_price), '', parseFloat(t.commission || 0), parseFloat(t.swap || 0), parseFloat(t.profit), '', t.comment || '']);
+    }
+    wsData.push([]);
+
+    // === RESULTS SECTION ===
+    wsData.push(['Results']);
+    wsData.push([]);
+    wsData.push(['Total Net Profit:', '', totalNetProfit.toFixed(2), '', 'Gross Profit:', '', grossProfit.toFixed(2), '', 'Gross Loss:', '', grossLoss.toFixed(2)]);
+    wsData.push(['Profit Factor:', '', profitFactor.toFixed(2)]);
+    wsData.push([]);
+    wsData.push(['Total Trades:', '', totalTrades, '', `Short Trades (won %):`, '', `${shortTrades.length} (${shortTrades.length > 0 ? ((shortWon / shortTrades.length) * 100).toFixed(1) : '0.0'}%)`, '', `Long Trades (won %):`, '', `${longTrades.length} (${longTrades.length > 0 ? ((longWon / longTrades.length) * 100).toFixed(1) : '0.0'}%)`]);
+    wsData.push([]);
+    wsData.push([`Profit Trades (% of total):`, '', `${profitTrades} (${totalTrades > 0 ? ((profitTrades / totalTrades) * 100).toFixed(1) : '0.0'}%)`, '', `Loss Trades (% of total):`, '', `${lossTrades} (${totalTrades > 0 ? ((lossTrades / totalTrades) * 100).toFixed(1) : '0.0'}%)`]);
+    wsData.push(['Largest profit trade:', '', largestProfit.toFixed(2), '', 'Largest loss trade:', '', largestLoss.toFixed(2)]);
+    wsData.push(['Average profit trade:', '', avgProfit.toFixed(2), '', 'Average loss trade:', '', avgLoss.toFixed(2)]);
+
+    // Create worksheet and set column widths
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+    ws['!cols'] = [
+      { wch: 20 }, { wch: 12 }, { wch: 12 }, { wch: 8 }, { wch: 8 }, { wch: 10 },
+      { wch: 10 }, { wch: 10 }, { wch: 20 }, { wch: 10 }, { wch: 12 }, { wch: 8 },
+      { wch: 10 }, { wch: 16 },
+    ];
+
+    XLSX.utils.book_append_sheet(wb, ws, 'History');
+
+    // Write to buffer
+    const xlsxBuffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+
+    const filename = `ReportHistory-${user.account_number || registrationId}.xlsx`;
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    return res.send(Buffer.from(xlsxBuffer));
+  } catch (error) {
+    console.error('XLSX export error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
  * GET /api/admin/:secretPath/challenge/:id/export-evaluation
  * Full evaluation report CSV — per-user summary with all metrics
  * Similar to what the Telegram /exportleaderboard command produces
@@ -2123,6 +2270,10 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/retry-account`, adminIpC
         const lastPull = await db.query(`SELECT last_pull_at FROM trading_registrations WHERE id = $1`, [registrationId]);
         const fromDate = lastPull.rows[0]?.last_pull_at ? new Date(lastPull.rows[0].last_pull_at).toISOString() : null;
 
+        // Get challenge start_date for orders (provides open_time/open_price for all positions)
+        const challengeInfo = await db.query(`SELECT start_date FROM trading_challenges WHERE id = $1`, [challengeId]);
+        const ordersFromDate = challengeInfo.rows[0]?.start_date ? new Date(challengeInfo.rows[0].start_date).toISOString() : fromDate;
+
         const response = await axios.post(`${vpsUrl}/pull`, {
           account: reg.account_number,
           server: reg.mt5_server,
@@ -2130,6 +2281,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/retry-account`, adminIpC
           api_key: vpsKey,
           terminal_id: terminalId,
           from_date: fromDate,
+          orders_from_date: ordersFromDate,
         }, { timeout: 30000 });
 
         if (response.data?.success) {

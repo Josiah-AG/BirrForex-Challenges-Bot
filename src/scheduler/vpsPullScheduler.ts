@@ -71,6 +71,7 @@ interface AccountToPull {
   username: string | null;
   nickname: string | null;
   isPriority: boolean; // Failed in last cycle
+  lastPullAt: string | null; // null = never pulled before (first pull uses full range)
 }
 
 /**
@@ -559,11 +560,24 @@ export class VpsPullScheduler {
 
     for (let attempt = 1; attempt <= MAX_RETRIES_PER_ACCOUNT; attempt++) {
       try {
-        // Always pull from challenge start date — ensures no trades are missed
-        // The VPS needs opening deals to construct full trade objects, so we
-        // can't use last_pull_at (would miss trades opened before that time)
-        // ON CONFLICT upsert handles duplicates efficiently
-        const fromDate = challenge?.start_date ? new Date(challenge.start_date).toISOString() : undefined;
+        // Incremental pull strategy:
+        // - First pull (lastPullAt is null): fetch deals from challenge start date (full history)
+        // - Subsequent pulls: fetch deals from last 5 hours (4h window + 1h confidence overlap)
+        // - Orders always fetch from challenge start (lightweight, provides open_time/open_price)
+        const challengeStartDate = challenge?.start_date ? new Date(challenge.start_date).toISOString() : undefined;
+        let fromDate: string;
+
+        if (account.lastPullAt) {
+          // Incremental: last 5 hours (4h window + 1h overlap for confidence)
+          const now = new Date();
+          const incrementalFrom = new Date(now.getTime() - 5 * 60 * 60 * 1000);
+          fromDate = incrementalFrom.toISOString();
+        } else {
+          // First pull: get all deals from challenge start
+          fromDate = challengeStartDate || new Date(2020, 0, 1).toISOString();
+        }
+
+        const ordersFromDate = challengeStartDate || fromDate;
 
         const requestBody: any = {
           account: account.accountNumber,
@@ -571,8 +585,9 @@ export class VpsPullScheduler {
           password: account.investorPassword,
           api_key: this.apiKey,
           terminal_id: terminalId,
+          from_date: fromDate,
+          orders_from_date: ordersFromDate,
         };
-        if (fromDate) requestBody.from_date = fromDate;
 
         const response = await axios.post(
           `${this.baseUrl}/pull`,
@@ -697,7 +712,7 @@ export class VpsPullScheduler {
    */
   async retrySingleAccount(registrationId: number, challengeId: number): Promise<PullResult & { evaluated?: boolean }> {
     const regResult = await db.query(
-      `SELECT id, account_number, mt5_server, investor_password, user_id, username, nickname
+      `SELECT id, account_number, mt5_server, investor_password, user_id, username, nickname, last_pull_at
        FROM trading_registrations WHERE id = $1 AND challenge_id = $2`,
       [registrationId, challengeId]
     );
@@ -718,6 +733,7 @@ export class VpsPullScheduler {
       username: reg.username,
       nickname: reg.nickname,
       isPriority: true,
+      lastPullAt: reg.last_pull_at ? new Date(reg.last_pull_at).toISOString() : null,
     };
 
     // Try on up to 3 healthy terminals
@@ -937,7 +953,7 @@ export class VpsPullScheduler {
     } catch {}
 
     const result = await db.query(
-      `SELECT r.id, r.account_number, r.mt5_server, r.investor_password, r.user_id, r.username, r.nickname
+      `SELECT r.id, r.account_number, r.mt5_server, r.investor_password, r.user_id, r.username, r.nickname, r.last_pull_at
        FROM trading_registrations r
        LEFT JOIN wp_leaderboard l ON r.id = l.registration_id
        WHERE r.challenge_id = $1
@@ -961,6 +977,7 @@ export class VpsPullScheduler {
       username: r.username,
       nickname: r.nickname,
       isPriority: false,
+      lastPullAt: r.last_pull_at ? new Date(r.last_pull_at).toISOString() : null,
     }));
   }
 
@@ -972,16 +989,11 @@ export class VpsPullScheduler {
     const challengeId = regResult.rows[0]?.challenge_id;
     if (!challengeId) return;
 
-    // Only replace data if we actually got trades from VPS
-    // If pull returned 0 trades, keep existing data (user may have trades from previous pulls)
+    // Only save if we actually got trades from VPS
     if (trades.length === 0) return;
 
-    // Delete existing trades then insert fresh (complete replacement)
-    await db.query(
-      `DELETE FROM wp_trades WHERE challenge_id = $1 AND registration_id = $2`,
-      [challengeId, account.registrationId]
-    );
-
+    // UPSERT: Insert new trades, update existing ones (by unique constraint: challenge_id, account_number, ticket)
+    // This supports incremental pulls — we only get recent trades but don't lose older ones
     for (const trade of trades) {
       try {
         await db.query(
@@ -989,7 +1001,22 @@ export class VpsPullScheduler {
            (challenge_id, registration_id, account_number, ticket, symbol, trade_type, volume,
             open_time, close_time, open_price, close_price, stop_loss, take_profit,
             profit, commission, swap, comment, synced_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, NOW())`,
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, NOW())
+           ON CONFLICT (challenge_id, account_number, ticket) DO UPDATE SET
+             symbol = EXCLUDED.symbol,
+             trade_type = EXCLUDED.trade_type,
+             volume = EXCLUDED.volume,
+             open_time = EXCLUDED.open_time,
+             close_time = EXCLUDED.close_time,
+             open_price = EXCLUDED.open_price,
+             close_price = EXCLUDED.close_price,
+             stop_loss = EXCLUDED.stop_loss,
+             take_profit = EXCLUDED.take_profit,
+             profit = EXCLUDED.profit,
+             commission = EXCLUDED.commission,
+             swap = EXCLUDED.swap,
+             comment = EXCLUDED.comment,
+             synced_at = NOW()`,
           [
             challengeId, account.registrationId, account.accountNumber, trade.ticket,
             trade.symbol || null, trade.type || null, trade.volume || 0,
@@ -1001,7 +1028,7 @@ export class VpsPullScheduler {
           ]
         );
       } catch (e) {
-        // Skip individual trade errors (e.g. duplicate ticket within same batch)
+        // Skip individual trade errors
       }
     }
   }
@@ -1012,22 +1039,28 @@ export class VpsPullScheduler {
     const challengeId = regResult.rows[0]?.challenge_id;
     if (!challengeId) return;
 
-    // Only replace if we got deals
+    // Only save if we got deals
     if (deals.length === 0) return;
 
-    // Delete existing deals then insert fresh
-    await db.query(
-      `DELETE FROM wp_deals WHERE challenge_id = $1 AND registration_id = $2`,
-      [challengeId, account.registrationId]
-    );
-
+    // UPSERT: Insert new deals, update existing ones (by unique constraint: challenge_id, account_number, ticket)
     for (const deal of deals) {
       try {
         await db.query(
           `INSERT INTO wp_deals
            (challenge_id, registration_id, account_number, ticket, deal_type, symbol,
             direction, volume, price, profit, balance, comment, time, synced_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW())`,
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW())
+           ON CONFLICT (challenge_id, account_number, ticket) DO UPDATE SET
+             deal_type = EXCLUDED.deal_type,
+             symbol = EXCLUDED.symbol,
+             direction = EXCLUDED.direction,
+             volume = EXCLUDED.volume,
+             price = EXCLUDED.price,
+             profit = EXCLUDED.profit,
+             balance = EXCLUDED.balance,
+             comment = EXCLUDED.comment,
+             time = EXCLUDED.time,
+             synced_at = NOW()`,
           [
             challengeId, account.registrationId, account.accountNumber,
             deal.ticket, deal.type || null, deal.symbol || null,
