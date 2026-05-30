@@ -336,10 +336,53 @@ export class VpsPullScheduler {
 
       // === STEP 6: Final sync → immediate leaderboard update ===
       if (isFinalSync && successful.length > 0) {
-        console.log('📊 VPS Pull: Saturday final sync — flushing staging + updating leaderboard immediately');
+        console.log('📊 VPS Pull: Final sync — flushing staging + updating leaderboard immediately');
         await leaderboardService.flushStagingToLive(challengeToPull.id);
         await leaderboardService.ensureAllParticipantsHaveEntries(challengeToPull.id);
         await leaderboardService.updateRankings(challengeToPull.id);
+      }
+
+      // === STEP 7: Auto-DQ users who can't meet min_active_days (challenge ended) ===
+      if (isChallengeEnded) {
+        try {
+          const rulesResult = await db.query(
+            `SELECT parameters FROM wp_challenge_rules WHERE challenge_id = $1 AND rule_code = 'config'`,
+            [challengeToPull.id]
+          );
+          const minActiveDays = rulesResult.rows[0]?.parameters?.min_active_days || 0;
+
+          if (minActiveDays > 0) {
+            // DQ users with fewer active days than required (including 0 trades)
+            const underperformers = await db.query(
+              `SELECT r.id, r.account_number, r.username, COALESCE(l.active_days, 0) as active_days
+               FROM trading_registrations r
+               LEFT JOIN wp_leaderboard l ON r.id = l.registration_id
+               WHERE r.challenge_id = $1
+                 AND r.disqualified = false
+                 AND (COALESCE(l.active_days, 0) < $2)`,
+              [challengeToPull.id, minActiveDays]
+            );
+
+            if (underperformers.rows.length > 0) {
+              for (const u of underperformers.rows) {
+                await db.query(
+                  `UPDATE trading_registrations SET disqualified = true, disqualified_at = NOW(), disqualified_reason = $1 WHERE id = $2 AND disqualified = false`,
+                  [`Did not meet minimum ${minActiveDays} active trading days (traded ${u.active_days} days)`, u.id]
+                );
+                await db.query(
+                  `UPDATE wp_leaderboard SET is_disqualified = true, disqualify_reason = $1 WHERE registration_id = $2`,
+                  [`Did not meet minimum ${minActiveDays} active days (${u.active_days}/${minActiveDays})`, u.id]
+                );
+              }
+              console.log(`📊 VPS Pull: Auto-DQ'd ${underperformers.rows.length} users for insufficient active days`);
+
+              // Re-rank after DQs
+              await leaderboardService.updateRankings(challengeToPull.id);
+            }
+          }
+        } catch (e) {
+          console.error('⚠️ Auto-DQ check error:', e);
+        }
       }
 
       const duration = Math.round((Date.now() - startTime) / 1000);
@@ -940,7 +983,7 @@ export class VpsPullScheduler {
       const endDate = challengeInfo.rows[0]?.end_date;
 
       if (minActiveDays > 0 && endDate) {
-        // Calculate trading days remaining (weekdays only)
+        // Calculate remaining TRADING days (weekdays only)
         const now = new Date();
         const end = new Date(endDate);
         let tradingDaysLeft = 0;
@@ -951,22 +994,44 @@ export class VpsPullScheduler {
           d.setDate(d.getDate() + 1);
         }
 
-        // If not enough days left, find users with 0 trades + 0 balance (haven't deposited)
-        if (tradingDaysLeft < minActiveDays) {
-          const lateUsers = await db.query(
-            `SELECT r.id FROM trading_registrations r
-             LEFT JOIN wp_leaderboard l ON r.id = l.registration_id
-             WHERE r.challenge_id = $1 AND r.disqualified = false
-               AND (l.total_trades = 0 OR l.total_trades IS NULL)
-               AND (l.current_balance IS NULL OR l.current_balance <= 0)
-               AND r.actual_starting_balance IS NULL`,
-            [challengeId]
-          );
-          lateExcludeIds = lateUsers.rows.map((r: any) => r.id);
-          if (lateExcludeIds.length > 0) {
-            console.log(`⏰ VPS Pull: Excluding ${lateExcludeIds.length} late depositors (${tradingDaysLeft} days left < ${minActiveDays} min required)`);
+        // Auto-DQ users who can't possibly meet min_active_days anymore
+        // This covers users with 0 trades (never pulled/evaluated) AND users with some trades but not enough
+        const cantMeetRequirement = await db.query(
+          `SELECT r.id, r.account_number, r.username, COALESCE(l.active_days, 0) as active_days
+           FROM trading_registrations r
+           LEFT JOIN wp_leaderboard l ON r.id = l.registration_id
+           WHERE r.challenge_id = $1
+             AND r.disqualified = false
+             AND (COALESCE(l.active_days, 0) + $2) < $3`,
+          [challengeId, tradingDaysLeft, minActiveDays]
+        );
+
+        if (cantMeetRequirement.rows.length > 0) {
+          for (const u of cantMeetRequirement.rows) {
+            await db.query(
+              `UPDATE trading_registrations SET disqualified = true, disqualified_at = NOW(), disqualified_reason = $1 WHERE id = $2 AND disqualified = false`,
+              [`Active trading day requirement not fulfilled (${u.active_days} days traded, ${tradingDaysLeft} trading days left, need ${minActiveDays})`, u.id]
+            );
+            await db.query(
+              `UPDATE wp_leaderboard SET is_disqualified = true, disqualify_reason = $1 WHERE registration_id = $2`,
+              [`Active trading day requirement not fulfilled (${u.active_days}/${minActiveDays} days)`, u.id]
+            );
           }
+          console.log(`📊 VPS Pull: Auto-DQ'd ${cantMeetRequirement.rows.length} users — cannot meet ${minActiveDays} active days requirement`);
         }
+
+        // Exclude already-DQ'd users from pull (they'll be filtered by disqualified=false in main query)
+        // Also exclude 0-trade + 0-balance users who haven't deposited (no point pulling empty accounts)
+        const lateUsers = await db.query(
+          `SELECT r.id FROM trading_registrations r
+           LEFT JOIN wp_leaderboard l ON r.id = l.registration_id
+           WHERE r.challenge_id = $1 AND r.disqualified = false
+             AND (l.total_trades = 0 OR l.total_trades IS NULL)
+             AND (l.current_balance IS NULL OR l.current_balance <= 0)
+             AND r.actual_starting_balance IS NULL`,
+          [challengeId]
+        );
+        lateExcludeIds = lateUsers.rows.map((r: any) => r.id);
       }
     } catch {}
 
