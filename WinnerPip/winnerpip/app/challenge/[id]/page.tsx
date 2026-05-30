@@ -47,6 +47,7 @@ export default function ChallengeDashboard() {
   const [selectedTrade, setSelectedTrade] = useState<Trade | null>(null);
   const [showLeaderboardModal, setShowLeaderboardModal] = useState(false);
   const [showViolationsModal, setShowViolationsModal] = useState(false);
+  const [showCompletedPopup, setShowCompletedPopup] = useState(false);
   const [selectedUser, setSelectedUser] = useState<LeaderboardEntry | null>(null);
   const [selectedUserTrades, setSelectedUserTrades] = useState<any[]>([]);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -209,7 +210,7 @@ export default function ChallengeDashboard() {
   }, [params.id]);
 
   // Lock body scroll when any modal is open
-  const anyModalOpen = showRules || !!selectedTrade || showLeaderboardModal || showViolationsModal;
+  const anyModalOpen = showRules || !!selectedTrade || showLeaderboardModal || showViolationsModal || showCompletedPopup;
   useEffect(() => {
     if (anyModalOpen) {
       document.body.style.overflow = "hidden";
@@ -330,6 +331,17 @@ export default function ChallengeDashboard() {
   const isActive = challenge && challenge.status === "active";
   const isCompleted = challenge && (challenge.status === "completed" || challenge.status === "submission_open" || challenge.status === "reviewing");
   const hasNoData = myStats && myStats.totalTrades === 0 && isActive;
+
+  // Show completed popup once per session when challenge ends
+  useEffect(() => {
+    if (isCompleted && isLoggedIn && myStats && !loading) {
+      const dismissedKey = `challenge_completed_seen_${params.id}`;
+      if (!sessionStorage.getItem(dismissedKey)) {
+        setShowCompletedPopup(true);
+        sessionStorage.setItem(dismissedKey, "1");
+      }
+    }
+  }, [isCompleted, isLoggedIn, myStats, loading, params.id]);
 
   return (
     <div className="min-h-screen bg-[#0a0e1a]">
@@ -454,35 +466,171 @@ export default function ChallengeDashboard() {
           </div>
         )}
 
-        {/* ==================== COMPLETED STATE ==================== */}
-        {!loading && !error && isLoggedIn && isCompleted && myStats && challenge && (
-          <div className="space-y-6">
-            <div className="glass rounded-2xl border border-gold/30 p-6 text-center">
-              <Trophy className="w-12 h-12 text-gold mx-auto mb-3" />
-              <h2 className="text-2xl font-bold text-white mb-1">Challenge Completed</h2>
-              <p className="text-gray-400 text-sm">Final results are in. {myStats.rank ? `You finished #${myStats.rank}` : "Check your final standing below."}</p>
-            </div>
-            {/* Show final stats */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
-              <div className="glass rounded-2xl p-4 md:p-5 border border-white/10 text-center">
-                <div className="flex items-center justify-center gap-2 mb-2"><Trophy size={16} className="text-gold" /><p className="text-[10px] text-gray-400 uppercase tracking-wider font-medium">Final Rank</p></div>
+        {/* ==================== COMPLETED STATE — now shows full dashboard with popup ==================== */}
+        {!loading && !error && isLoggedIn && isCompleted && myStats && challenge && (<>
+
+          {/* FULL DASHBOARD (same as active) */}
+          <>
+            {/* TOP STATS */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 mb-6">
+              <button onClick={() => setShowLeaderboardModal(true)} className="glass rounded-2xl p-4 md:p-5 border border-white/10 text-left hover:border-gold/30 transition-all">
+                <div className="flex items-center gap-2 mb-2"><Trophy size={16} className="text-gold" /><p className="text-[10px] text-gray-400 uppercase tracking-wider font-medium">Final Rank</p></div>
                 <p className="text-3xl md:text-4xl font-bold gradient-text">{myStats.rank ? `#${myStats.rank}` : "—"}</p>
+                <p className="text-xs text-gray-500 mt-1">of {totalParticipants || "—"}</p>
+              </button>
+              <div className="glass rounded-2xl p-4 md:p-5 border border-white/10">
+                <div className="flex items-center gap-2 mb-2"><TrendingUp size={16} className="text-profit" /><p className="text-[10px] text-gray-400 uppercase tracking-wider font-medium">Final Profit</p></div>
+                <p className={`text-3xl md:text-4xl font-bold ${myStats.qualifiedProfit >= 0 ? "text-profit" : "text-loss"}`}>{formatBalance(myStats.qualifiedProfit, myStats.accountType, myStats.isCent)}</p>
+                <p className="text-xs text-gray-500 mt-1">Total P&L: {formatBalance(myStats.grossProfit, myStats.accountType, myStats.isCent)}</p>
               </div>
-              <div className="glass rounded-2xl p-4 md:p-5 border border-white/10 text-center">
-                <div className="flex items-center justify-center gap-2 mb-2"><TrendingUp size={16} className="text-profit" /><p className="text-[10px] text-gray-400 uppercase tracking-wider font-medium">Final Profit</p></div>
-                <p className={`text-3xl md:text-4xl font-bold ${myStats.qualifiedProfit >= 0 ? "text-profit" : "text-loss"}`}>${myStats.qualifiedProfit.toFixed(2)}</p>
+              <div className="glass rounded-2xl p-4 md:p-5 border border-white/10">
+                <div className="flex items-center gap-2 mb-2"><Target size={16} className="text-royal" /><p className="text-[10px] text-gray-400 uppercase tracking-wider font-medium">Final Balance</p></div>
+                <p className="text-3xl md:text-4xl font-bold text-white">{formatBalance(myStats.adjustedBalance, myStats.accountType, myStats.isCent)}</p>
+                <p className="text-xs text-gray-500 mt-1">Gross: {formatBalance(myStats.currentBalance, myStats.accountType, myStats.isCent)}</p>
               </div>
-              <div className="glass rounded-2xl p-4 md:p-5 border border-white/10 text-center">
-                <div className="flex items-center justify-center gap-2 mb-2"><Target size={16} className="text-royal" /><p className="text-[10px] text-gray-400 uppercase tracking-wider font-medium">Final Balance</p></div>
-                <p className="text-3xl md:text-4xl font-bold text-white">${myStats.currentBalance.toFixed(2)}</p>
-              </div>
-              <div className="glass rounded-2xl p-4 md:p-5 border border-white/10 text-center">
-                <div className="flex items-center justify-center gap-2 mb-2"><Activity size={16} className="text-gray-400" /><p className="text-[10px] text-gray-400 uppercase tracking-wider font-medium">Total Trades</p></div>
+              <div className="glass rounded-2xl p-4 md:p-5 border border-white/10">
+                <div className="flex items-center gap-2 mb-2"><Activity size={16} className="text-gray-400" /><p className="text-[10px] text-gray-400 uppercase tracking-wider font-medium">Total Trades</p></div>
                 <p className="text-3xl md:text-4xl font-bold text-white">{myStats.totalTrades}</p>
               </div>
             </div>
-          </div>
-        )}
+
+            {/* MINI STATS */}
+            <div className="grid grid-cols-3 md:grid-cols-6 gap-3 mb-6">
+              <MiniStat label="Trades" value={myStats.totalTrades.toString()} icon={<Activity size={14} />} />
+              <MiniStat label="Qualified" value={myStats.qualifiedTrades.toString()} icon={<Award size={14} />} />
+              <MiniStat label="Removed" value={`${formatBalance(myStats.profitRemoved, myStats.accountType, myStats.isCent)}`} icon={<Target size={14} />} color="text-royal" />
+              <button onClick={() => setShowViolationsModal(true)} className="glass rounded-xl p-3 border border-white/10 text-center hover:border-loss/30 transition-all">
+                <div className="flex items-center justify-center gap-1 mb-1 text-loss"><AlertTriangle size={14} /><p className="text-[9px] uppercase tracking-wider font-medium">Flagged</p></div>
+                <p className="text-lg font-bold text-loss">{myStats.flaggedTrades}</p>
+              </button>
+              <MiniStat label="Total P&L" value={`${formatBalance(myStats.grossProfit, myStats.accountType, myStats.isCent)}`} icon={<ChevronUp size={14} />} color="text-profit" />
+              <MiniStat label="Net P&L" value={`${formatBalance(myStats.qualifiedProfit, myStats.accountType, myStats.isCent)}`} icon={<ChevronDown size={14} />} color={myStats.qualifiedProfit >= 0 ? "text-profit" : "text-loss"} />
+            </div>
+
+            {/* TAB NAVIGATION */}
+            <div className="flex gap-1 p-1 glass rounded-xl border border-white/10 mb-6">
+              <TabBtn active={activeTab === "trades"} onClick={() => setActiveTab("trades")} label="Trades" count={myStats.totalTrades} />
+              <TabBtn active={activeTab === "leaderboard"} onClick={() => { setActiveTab("leaderboard"); if (leaderboard.length === 0) fetchLeaderboard(false); }} label="Leaderboard" />
+              <TabBtn active={activeTab === "violations"} onClick={() => setActiveTab("violations")} label="Flagged" count={myStats.flaggedTrades} />
+            </div>
+
+            {/* TRADES TAB */}
+            {activeTab === "trades" && (
+            <div className="glass rounded-2xl border border-white/10 overflow-hidden">
+              <div className="p-4 border-b border-white/5 flex items-center justify-between">
+                <p className="text-sm font-semibold text-white">All Trades</p>
+                <p className="text-xs text-gray-500">Tap a trade for details</p>
+              </div>
+              {recentTrades.length === 0 ? (
+                <div className="p-8 text-center">
+                  <Activity className="w-10 h-10 text-gray-600 mx-auto mb-2" />
+                  <p className="text-gray-400 text-sm">No trades recorded.</p>
+                </div>
+              ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[550px]">
+                  <thead><tr className="border-b border-white/5">
+                    <th className="text-left py-3 px-4 text-[10px] text-gray-400 font-medium uppercase">Date</th>
+                    <th className="text-left py-3 px-4 text-[10px] text-gray-400 font-medium uppercase">Symbol</th>
+                    <th className="text-left py-3 px-4 text-[10px] text-gray-400 font-medium uppercase">Type</th>
+                    <th className="text-right py-3 px-4 text-[10px] text-gray-400 font-medium uppercase">Profit</th>
+                    <th className="text-center py-3 px-4 text-[10px] text-gray-400 font-medium uppercase">Vol</th>
+                    <th className="text-center py-3 px-4 text-[10px] text-gray-400 font-medium uppercase">Status</th>
+                  </tr></thead>
+                  <tbody>{recentTrades.map((t) => (
+                    <tr key={t.ticket} onClick={() => setSelectedTrade(t)} className={`border-b border-white/5 hover:bg-white/5 cursor-pointer transition-colors ${!t.isQualified ? "bg-loss/5" : ""}`}>
+                      <td className="py-3 px-4 text-xs text-gray-400">{formatDate(t.closeTime)}</td>
+                      <td className="py-3 px-4 text-sm text-white font-semibold">{t.symbol}</td>
+                      <td className="py-3 px-4"><span className={`px-2 py-1 rounded-md text-[10px] font-semibold ${t.type === "Buy" ? "bg-profit/10 text-profit" : "bg-loss/10 text-loss"}`}>{t.type}</span></td>
+                      <td className={`py-3 px-4 text-right text-sm font-bold ${t.profit >= 0 ? "text-profit" : "text-loss"}`}>{t.profit >= 0 ? "+" : ""}${t.profit.toFixed(2)}</td>
+                      <td className="py-3 px-4 text-center text-xs text-gray-400">{t.volume}</td>
+                      <td className="py-3 px-4 text-center">{t.isQualified ? <span className="text-profit">✓</span> : <span className="text-loss">🚩</span>}</td>
+                    </tr>
+                  ))}</tbody>
+                </table>
+              </div>
+              )}
+            </div>
+            )}
+
+            {/* LEADERBOARD TAB */}
+            {activeTab === "leaderboard" && (
+            <div className="glass rounded-2xl border border-white/10 overflow-hidden">
+              <div className="p-4 border-b border-white/5 flex items-center justify-between">
+                <div className="flex items-center gap-2"><Trophy size={16} className="text-gold" /><p className="text-sm font-semibold text-white">Final Leaderboard</p></div>
+              </div>
+              {leaderboardLoading ? (
+                <div className="p-8 text-center"><Loader2 className="w-6 h-6 text-royal animate-spin mx-auto" /></div>
+              ) : leaderboard.length === 0 ? (
+                <div className="p-8 text-center">
+                  <Trophy className="w-10 h-10 text-gray-600 mx-auto mb-2" />
+                  <p className="text-gray-400 text-sm">No leaderboard data yet.</p>
+                </div>
+              ) : (
+              <div className="divide-y divide-white/5">
+                {leaderboard.map((entry) => (
+                  <button key={entry.rank || entry.nickname} onClick={() => { setShowLeaderboardModal(true); setSelectedUser(entry); }} className={`w-full flex items-center gap-4 px-4 py-3 text-left hover:bg-white/5 transition-colors ${entry.isMe ? "bg-royal/10 border-l-2 border-royal" : ""} ${entry.isDisqualified ? "opacity-60" : ""}`}>
+                    <div className={`flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center text-sm font-bold ${entry.isDisqualified ? "bg-loss/20 text-loss" : entry.rank === 1 ? "bg-gold/20 text-gold" : entry.rank === 2 ? "bg-gray-400/20 text-gray-300" : entry.rank === 3 ? "bg-orange-500/20 text-orange-400" : "bg-white/5 text-gray-500"}`}>{entry.rank || "—"}</div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className={`text-sm font-semibold truncate ${entry.isMe ? "text-royal" : entry.isDisqualified ? "text-gray-500" : "text-white"}`}>{entry.nickname}</p>
+                        {entry.isMe && <span className="px-1.5 py-0.5 bg-royal/20 text-royal text-[10px] rounded font-bold">YOU</span>}
+                        {entry.isDisqualified && <span className="px-1.5 py-0.5 bg-loss/20 text-loss text-[10px] rounded font-bold">DQ</span>}
+                      </div>
+                      <p className="text-[10px] text-gray-500">{entry.totalTrades} trades • {entry.qualifiedTrades} qualified</p>
+                    </div>
+                    <p className="text-sm font-bold text-white">
+                      {entry.isDisqualified ? <span className="text-loss">DQ</span> : formatBalance(entry.adjustedBalance, entry.accountType, entry.isCent)}
+                    </p>
+                  </button>
+                ))}
+              </div>
+              )}
+              {leaderboardHasMore && (
+                <div className="p-3 border-t border-white/5 text-center">
+                  <button onClick={() => fetchLeaderboard(true)} disabled={leaderboardLoadingMore} className="px-4 py-2 rounded-lg bg-white/5 border border-white/10 text-gray-400 text-xs font-semibold hover:bg-white/10 hover:text-white transition-all disabled:opacity-50">
+                    {leaderboardLoadingMore ? "Loading..." : `Load More (${leaderboard.length} of ${leaderboardTotal})`}
+                  </button>
+                </div>
+              )}
+            </div>
+            )}
+
+            {/* VIOLATIONS TAB */}
+            {activeTab === "violations" && (
+            <div className="space-y-3">
+              {violations.length === 0 ? (
+                <div className="glass rounded-2xl border border-white/10 p-8 text-center">
+                  <Shield className="w-12 h-12 text-profit mx-auto mb-3" />
+                  <p className="text-white font-semibold">No violations!</p>
+                  <p className="text-sm text-gray-400 mt-1">All your trades followed the rules</p>
+                </div>
+              ) : (<>
+                <div className="glass rounded-xl border border-loss/20 p-4"><p className="text-xs text-gray-300"><span className="text-loss font-semibold">{violations.length} flagged trades</span> — Profits removed. Losses still count.</p></div>
+                {violations.map((t) => (
+                  <div key={t.ticket} onClick={() => setSelectedTrade(t)} className="glass rounded-2xl border border-loss/20 p-4 bg-loss/5 cursor-pointer hover:border-loss/40 transition-all">
+                    <div className="flex items-start gap-3">
+                      <div className="p-2 bg-loss/20 rounded-lg flex-shrink-0"><AlertTriangle size={14} className="text-loss" /></div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="text-white font-semibold">{t.symbol}</span>
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${t.type === "Buy" ? "bg-profit/10 text-profit" : "bg-loss/10 text-loss"}`}>{t.type}</span>
+                          <span className="text-xs text-gray-500">{formatDate(t.closeTime)}</span>
+                        </div>
+                        {t.violations.length > 0 && <div className="bg-loss/10 border border-loss/20 rounded-lg p-2 mb-2"><p className="text-sm text-white">{t.violations[0]}</p></div>}
+                        <div className="flex gap-4 text-xs text-gray-400">
+                          <span>Lots: {t.volume}</span>
+                          <span>Profit removed: <span className="text-loss font-semibold">${t.profit.toFixed(2)}</span></span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </>)}
+            </div>
+            )}
+          </>
+        </>)}
 
         {/* ==================== ACTIVE DASHBOARD ==================== */}
         {!loading && !error && isLoggedIn && isActive && myStats && challenge && (<>
@@ -857,6 +1005,40 @@ export default function ChallengeDashboard() {
                   <div className="flex gap-4 text-xs text-gray-400"><span>Lots: {t.volume}</span><span>Profit removed: <span className="text-loss font-semibold">${t.profit.toFixed(2)}</span></span></div>
                 </div>
               ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ==================== CHALLENGE COMPLETED POPUP ==================== */}
+      {showCompletedPopup && myStats && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-hidden" onClick={() => setShowCompletedPopup(false)}>
+          <div className="glass rounded-2xl max-w-md w-full border border-gold/30 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="p-6 text-center">
+              <Trophy className="w-16 h-16 text-gold mx-auto mb-4" />
+              <h2 className="text-2xl font-bold text-white mb-2">Challenge Completed</h2>
+              <p className="text-gray-400 text-sm mb-6">Final results are in. {myStats.rank ? `You finished #${myStats.rank}` : "Check your final standing below."}</p>
+              <div className="grid grid-cols-2 gap-3 mb-6">
+                <div className="bg-white/5 rounded-xl p-3 text-center">
+                  <p className="text-[10px] text-gray-500 uppercase mb-1">Final Rank</p>
+                  <p className="text-2xl font-bold gradient-text">{myStats.rank ? `#${myStats.rank}` : "—"}</p>
+                </div>
+                <div className="bg-white/5 rounded-xl p-3 text-center">
+                  <p className="text-[10px] text-gray-500 uppercase mb-1">Net Profit</p>
+                  <p className={`text-2xl font-bold ${myStats.qualifiedProfit >= 0 ? "text-profit" : "text-loss"}`}>{formatBalance(myStats.qualifiedProfit, myStats.accountType, myStats.isCent)}</p>
+                </div>
+                <div className="bg-white/5 rounded-xl p-3 text-center">
+                  <p className="text-[10px] text-gray-500 uppercase mb-1">Final Balance</p>
+                  <p className="text-2xl font-bold text-white">{formatBalance(myStats.adjustedBalance, myStats.accountType, myStats.isCent)}</p>
+                </div>
+                <div className="bg-white/5 rounded-xl p-3 text-center">
+                  <p className="text-[10px] text-gray-500 uppercase mb-1">Total Trades</p>
+                  <p className="text-2xl font-bold text-white">{myStats.totalTrades}</p>
+                </div>
+              </div>
+              <button onClick={() => setShowCompletedPopup(false)} className="w-full flex items-center justify-center gap-2 p-4 rounded-xl bg-gradient-brand hover:opacity-90 text-white font-semibold transition-all shadow-lg shadow-royal/20">
+                View Full Dashboard
+              </button>
             </div>
           </div>
         </div>
