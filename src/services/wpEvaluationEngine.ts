@@ -247,13 +247,13 @@ async function validateSlWithCandles(trade: TradeRow, maxHoldHours: number | nul
       if (candle.low <= maxSlPrice) {
         const eatTime = formatCandleTimeEAT(candle.time, tf.periodMs);
         const riskLabel = trade.symbol.endsWith('c') ? `¢${maxRiskDollars}` : `$${maxRiskDollars}`;
-        return `SL placed late. Price passed the maximum allowed risk (${riskLabel}, SL @ ${maxSlPrice.toFixed(5)}) during trade open period on the ${tf.timeframe} candle formed at ${eatTime}. Trade should have been closed by SL at that time`;
+        return `SL violated. Price exceeded the maximum allowed risk (${riskLabel}, SL should be @ ${maxSlPrice.toFixed(5)}) on the ${tf.timeframe} candle formed at ${eatTime}. Trade should have been closed at that point`;
       }
     } else {
       if (candle.high >= maxSlPrice) {
         const eatTime = formatCandleTimeEAT(candle.time, tf.periodMs);
         const riskLabel = trade.symbol.endsWith('c') ? `¢${maxRiskDollars}` : `$${maxRiskDollars}`;
-        return `SL placed late. Price passed the maximum allowed risk (${riskLabel}, SL @ ${maxSlPrice.toFixed(5)}) during trade open period on the ${tf.timeframe} candle formed at ${eatTime}. Trade should have been closed by SL at that time`;
+        return `SL violated. Price exceeded the maximum allowed risk (${riskLabel}, SL should be @ ${maxSlPrice.toFixed(5)}) on the ${tf.timeframe} candle formed at ${eatTime}. Trade should have been closed at that point`;
       }
     }
   }
@@ -640,31 +640,36 @@ export class WpEvaluationEngine {
 
       // Stop loss checks
       if (rules.stop_loss_required) {
-        if (!trade.stop_loss || parseFloat(String(trade.stop_loss)) === 0) {
-          violations.push(`No stop loss set`);
-        } else {
-          // Check SL risk amount
-          if (rules.max_risk_dollars) {
-            const tradeProfit = parseFloat(String(trade.profit)) + parseFloat(String(trade.commission || 0)) + parseFloat(String(trade.swap || 0));
-            const slDollars = calculateSlDollars(trade.symbol, parseFloat(String(trade.volume)), parseFloat(String(trade.open_price)), parseFloat(String(trade.stop_loss)), parseFloat(String(trade.close_price)), tradeProfit);
-            // Tolerance: +$0.50 for standard accounts, +20¢ for cent accounts
-            // If max_risk_dollars > 50, it's in cent terms (already ×100)
-            const slTolerance = rules.max_risk_dollars > 50 ? 20 : 0.5;
-            if (slDollars > rules.max_risk_dollars + slTolerance) {
-              violations.push(`SL risk $${slDollars.toFixed(2)} exceeds max $${rules.max_risk_dollars}`);
-            }
+        // Check if SL risk exceeds max (only when SL is present)
+        if (trade.stop_loss && parseFloat(String(trade.stop_loss)) !== 0 && rules.max_risk_dollars) {
+          const tradeProfit = parseFloat(String(trade.profit)) + parseFloat(String(trade.commission || 0)) + parseFloat(String(trade.swap || 0));
+          const slDollars = calculateSlDollars(trade.symbol, parseFloat(String(trade.volume)), parseFloat(String(trade.open_price)), parseFloat(String(trade.stop_loss)), parseFloat(String(trade.close_price)), tradeProfit);
+          const slTolerance = rules.max_risk_dollars > 50 ? 20 : 0.5;
+          if (slDollars > rules.max_risk_dollars + slTolerance) {
+            violations.push(`SL risk $${slDollars.toFixed(2)} exceeds max $${rules.max_risk_dollars}`);
           }
+        }
 
-          // Fake SL detection via candle data (adaptive timeframe)
-          // Checks if price went past max allowed SL during trade — if yes, SL was placed late
-          if (rules.max_risk_dollars) {
-            const fakeSl = await validateSlWithCandles(trade, rules.max_hold_hours || null, rules.max_risk_dollars || 0);
-            if (fakeSl === 'FAILED') {
-              slCheckFailures.push({ ticket: trade.ticket, symbol: trade.symbol });
-            } else if (fakeSl) {
-              violations.push(fakeSl);
+        // SL violation candle check — runs on ALL trades regardless of SL presence
+        // Checks if price exceeded max allowed risk level during the trade
+        // Catches: no SL, SL removed after open, SL set too wide
+        if (rules.max_risk_dollars) {
+          const slViolation = await validateSlWithCandles(trade, rules.max_hold_hours || null, rules.max_risk_dollars || 0);
+          if (slViolation === 'FAILED') {
+            slCheckFailures.push({ ticket: trade.ticket, symbol: trade.symbol });
+            // Can't verify — fall back to SL presence check
+            if (!trade.stop_loss || parseFloat(String(trade.stop_loss)) === 0) {
+              violations.push(`No SL set (SL not detected on entry)`);
             }
+          } else if (slViolation) {
+            violations.push(slViolation);
+          } else if (!trade.stop_loss || parseFloat(String(trade.stop_loss)) === 0) {
+            // Candle check passed (price never breached max SL) but no SL detected
+            // This means trade was short enough that we couldn't verify, or price never went against
+            violations.push(`No SL set (SL not detected on entry)`);
           }
+        } else if (!trade.stop_loss || parseFloat(String(trade.stop_loss)) === 0) {
+          violations.push(`No SL set (SL not detected on entry)`);
         }
       }
 
