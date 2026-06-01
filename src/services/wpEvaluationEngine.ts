@@ -246,12 +246,14 @@ async function validateSlWithCandles(trade: TradeRow, maxHoldHours: number | nul
     if (isBuy) {
       if (candle.low <= maxSlPrice) {
         const eatTime = formatCandleTimeEAT(candle.time, tf.periodMs);
-        return `SL placed late. Price passed the maximum allowed risk ($${maxRiskDollars}, SL @ ${maxSlPrice.toFixed(5)}) during trade open period on the ${tf.timeframe} candle formed at ${eatTime}. Trade should have been closed by SL at that time`;
+        const riskLabel = trade.symbol.endsWith('c') ? `¢${maxRiskDollars}` : `$${maxRiskDollars}`;
+        return `SL placed late. Price passed the maximum allowed risk (${riskLabel}, SL @ ${maxSlPrice.toFixed(5)}) during trade open period on the ${tf.timeframe} candle formed at ${eatTime}. Trade should have been closed by SL at that time`;
       }
     } else {
       if (candle.high >= maxSlPrice) {
         const eatTime = formatCandleTimeEAT(candle.time, tf.periodMs);
-        return `SL placed late. Price passed the maximum allowed risk ($${maxRiskDollars}, SL @ ${maxSlPrice.toFixed(5)}) during trade open period on the ${tf.timeframe} candle formed at ${eatTime}. Trade should have been closed by SL at that time`;
+        const riskLabel = trade.symbol.endsWith('c') ? `¢${maxRiskDollars}` : `$${maxRiskDollars}`;
+        return `SL placed late. Price passed the maximum allowed risk (${riskLabel}, SL @ ${maxSlPrice.toFixed(5)}) during trade open period on the ${tf.timeframe} candle formed at ${eatTime}. Trade should have been closed by SL at that time`;
       }
     }
   }
