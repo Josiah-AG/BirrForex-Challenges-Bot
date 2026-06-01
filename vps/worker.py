@@ -376,6 +376,17 @@ def do_pull(account: int, server: str, password: str, from_date: str = None, ord
 
     date_to = datetime.now(timezone.utc)
 
+    # Capture SL/TP of currently open positions (only reliable source for modified SL/TP)
+    open_positions_sl = {}
+    try:
+        open_pos = mt5.positions_get()
+        if open_pos:
+            for pos in open_pos:
+                if pos.sl or pos.tp:
+                    open_positions_sl[pos.ticket] = {"sl": pos.sl, "tp": pos.tp}
+    except:
+        pass
+
     # Wait for terminal to sync history after account switch.
     # Poll history_deals_get until count stabilizes (two consecutive calls return same count).
     prev_count = -1
@@ -463,6 +474,8 @@ def do_pull(account: int, server: str, password: str, from_date: str = None, ord
                 "commission": deal.commission,
                 "swap": deal.swap,
                 "fee": deal.fee if hasattr(deal, "fee") else 0,
+                "sl": deal.sl if hasattr(deal, "sl") else 0,
+                "tp": deal.tp if hasattr(deal, "tp") else 0,
                 "comment": deal.comment,
                 "position_id": deal.position_id,
             }
@@ -523,6 +536,20 @@ def do_pull(account: int, server: str, password: str, from_date: str = None, ord
                 open_time = order_info.get("open_time") or open_deal.get("time")
                 open_price = order_info.get("open_price") or open_deal.get("price", deal.price)
 
+                # Get SL/TP: prefer order info, then deal's own sl/tp (if available in newer MT5)
+                final_sl = order_info.get("sl", 0)
+                final_tp = order_info.get("tp", 0)
+                # Fallback: use deal.sl/tp if available (MT5 build 4150+)
+                if not final_sl and hasattr(deal, "sl") and deal.sl:
+                    final_sl = deal.sl
+                if not final_tp and hasattr(deal, "tp") and deal.tp:
+                    final_tp = deal.tp
+                # Fallback: use open position SL/TP (captured before history fetch)
+                if not final_sl and pos_id in open_positions_sl:
+                    final_sl = open_positions_sl[pos_id].get("sl", 0)
+                if not final_tp and pos_id in open_positions_sl:
+                    final_tp = open_positions_sl[pos_id].get("tp", 0)
+
                 trades_list.append({
                     "ticket": trade_ticket,
                     "position_id": pos_id,
@@ -533,8 +560,8 @@ def do_pull(account: int, server: str, password: str, from_date: str = None, ord
                     "close_time": datetime.fromtimestamp(deal.time, tz=timezone.utc).isoformat(),
                     "open_price": open_price,
                     "close_price": deal.price,
-                    "stop_loss": order_info.get("sl", 0),
-                    "take_profit": order_info.get("tp", 0),
+                    "stop_loss": final_sl,
+                    "take_profit": final_tp,
                     "profit": deal.profit,
                     "commission": deal.commission,
                     "swap": deal.swap,
