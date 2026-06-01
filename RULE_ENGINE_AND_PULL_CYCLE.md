@@ -27,7 +27,17 @@ Railway (Node.js) → VPS Router (port 8000) → Workers (ports 8001-8010)
 - Scheduled cron (automatic, 6x daily)
 - "Force Pull Now" button (admin, incremental)
 - "Pull + Update Rankings" button (admin, incremental + flush + rank)
-- "Full Pull + Evaluate + Rank" button (admin, resets last_pull_at, full history)
+- "Full Pull + Evaluate + Rank" button (admin, resets last_pull_at, full history, works on ANY challenge status)
+
+### Incremental Pull Strategy:
+- **First pull** (last_pull_at is NULL): full pull from challenge start date
+- **Subsequent pulls**: only last 5 hours (4h window + 1h confidence overlap)
+- **Orders**: always fetched from challenge start (lightweight, provides open_time/open_price/SL/TP)
+- **After challenge ends**: 2 final FULL pulls (from challenge start), then stops
+- **UPSERT**: trades saved with ON CONFLICT DO UPDATE (no data loss, duplicates handled)
+
+### History Sync:
+After account login, the worker polls `history_deals_get` until the count stabilizes (two consecutive calls return same count). This ensures the terminal has finished downloading history from the broker before reading it.
 
 ---
 
@@ -43,10 +53,12 @@ Railway (Node.js) → VPS Router (port 8000) → Workers (ports 8001-8010)
   "password": "Pass@123",
   "api_key": "wp-k8x2m9f4v7j3n6q1w5t8r2y4u7i0p3",
   "terminal_id": 1,
-  "from_date": "2026-05-25T00:00:00Z"
+  "from_date": "2026-05-29T05:00:00Z",
+  "orders_from_date": "2026-05-25T00:00:00Z"
 }
 ```
-- `from_date`: If provided, only pulls deals/orders after this time (incremental). If NULL, pulls entire history.
+- `from_date`: Deals window (incremental — last 5h, or challenge start for first/final pulls)
+- `orders_from_date`: Orders window (always challenge start — provides open_time/open_price/SL for all positions)
 
 ### Response:
 ```json
@@ -102,11 +114,16 @@ Railway (Node.js) → VPS Router (port 8000) → Workers (ports 8001-8010)
 ```
 
 ### How trades are constructed:
-1. VPS calls `mt5.history_deals_get(from_date, now)` — gets all deals
-2. VPS calls `mt5.history_orders_get(from_date, now)` — gets all orders (for SL, TP, open_time)
-3. For each deal with `entry == 1` (close entry) and `symbol` present → creates a trade
-4. Matches `open_time`, `open_price`, `stop_loss`, `take_profit` from orders by `position_id`
-5. Fallback: if orders don't have data, matches from entry==0 deals
+1. VPS calls `mt5.history_deals_get(from_date, now)` — gets deals (polls until count stabilizes)
+2. VPS calls `mt5.history_orders_get(orders_from_date, now)` — gets orders for SL/TP/open_time
+3. For each deal with `entry == 1` (close) and `symbol` present → creates a trade
+4. Each closing deal = its own trade (unique ticket per partial close)
+5. Trade direction from the OPENING deal's type (not closing deal — which is inverted)
+6. SL/TP resolution (in priority order):
+   - Opening order's SL/TP (set at entry time)
+   - Closing order's SL/TP (if triggered by SL/TP)
+   - `deal.sl`/`deal.tp` fields (MT5 build 4150+, broker-dependent)
+7. Open_time/open_price from orders, fallback to opening deal
 
 ---
 
@@ -203,95 +220,41 @@ Pre-compute using time events (open/close times of all trades):
 **3. Pair Limit (same symbol simultaneous)**
 Same as above but per-symbol.
 
-**4. Stop Loss Required**
+**4. Stop Loss Required — Two-Layer Detection**
+
+**Layer 1: SL at Entry Check**
 ```
-if !trade.stop_loss || trade.stop_loss == 0 → FLAG "No stop loss set"
+if opening_order.sl == 0 → FLAG "No SL set (SL not detected on entry)"
 ```
+The opening order's SL field reliably shows whether SL was placed when the trade was opened. If SL=0, the user opened without SL — violation.
 
-**5. Max SL Risk (dollar amount)**
-Uses ratio method:
-```
-slDistance = |entry_price - sl_price|
-closeDistance = |entry_price - close_price|
-if closeDistance > 0:
-    slRisk = |actual_profit| × (slDistance / closeDistance)
-else:
-    slRisk = pip-based calculation (fallback)
-
-tolerance = rules.max_risk > 50 ? 20 : 0.5  // 20¢ for cent, $0.50 for standard
-if slRisk > rules.max_risk + tolerance → FLAG
-```
-
-**6. Fake SL Detection (Candle-based verification)**
-
-Checks if price actually crossed the SL level during the trade's open period. If it did but the trade wasn't closed by SL, the SL was "fake" (set after the fact or moved).
-
-**Adaptive Timeframe Selection (based on hold duration):**
-
-| Hold Duration | Timeframe | Reason |
-|---|---|---|
-| < 20 min | M1 | Short trade, need precision |
-| 20 min – 1 hr | M5 | ~12 candles max |
-| 1 hr – 6 hr | M15 | ~24 candles max |
-| 6 hr – 24 hr | H1 | ~24 candles max |
-| > 24 hr (if max_hold_hours allows) | H4 | Keeps data small |
-| > 24 hr (if max_hold_hours does NOT allow) | SKIP | Trade already flagged for hold time violation |
-
-**Candle Exclusion Rule:**
-- **EXCLUDE the first candle** (where trade opened) — high/low may have been printed before trade was actually opened
-- **EXCLUDE the last candle** (where trade closed) — high/low may have been printed after trade was already closed
-- **Only check candles FULLY within the trade period** — candles that started AFTER trade opened AND ended BEFORE trade closed
-
-**Logic:**
-```
-holdMinutes = (close_time - open_time) / 60000
-
-// Select timeframe
-if holdMinutes < 20: timeframe = "M1"
-elif holdMinutes < 60: timeframe = "M5"
-elif holdMinutes < 360: timeframe = "M15"
-elif holdMinutes < 1440: timeframe = "H1"
-elif max_hold_hours allows > 24h: timeframe = "H4"
-else: SKIP (already flagged for hold time)
-
-// Fetch candles
-candles = fetchCandles(symbol, timeframe, open_time, close_time)
-
-// Filter: exclude first and last candle
-// First candle = the one whose time <= open_time
-// Last candle = the one whose time + period > close_time
-safeCandles = candles where:
-  candle.time > open_time  (started AFTER trade opened)
-  AND candle.time + candlePeriod <= close_time  (ended BEFORE trade closed)
-
-// Check each safe candle
-for candle in safeCandles:
-  if trade is BUY:
-    if candle.low <= SL → FLAG "SL not active — price reached {low} below SL {sl}"
-  if trade is SELL:
-    if candle.high >= SL → FLAG "SL not active — price reached {high} above SL {sl}"
-```
-
-**Graceful degradation:** If VPS candles endpoint fails or returns empty → skip fake SL check for that trade (don't flag, don't block evaluation). BUT log the failure for admin visibility.
-
-**Failed SL Check Reporting (Admin Pulls Tab):**
-
-When fake SL detection fails for any trade, the system logs it to `wp_pull_errors` with `error_code = 'sl_check_failed'`. The admin Pulls tab shows a section:
+**Layer 2: SL Violation Candle Check (runs on ALL trades)**
+Even if SL was set at entry, the user might remove or widen it after. This check verifies that price never exceeded the max allowed risk level during the trade.
 
 ```
-⚠️ Fake SL Check Incomplete (3 accounts)
+maxSlPrice = entry_price ± (max_risk / (volume × contractSize))
+  // For BUY: maxSlPrice = entry - priceMove (below entry)
+  // For SELL: maxSlPrice = entry + priceMove (above entry)
 
-• Bella FX (161584947) — 5 trades unchecked — Candles timeout
-• olanzo (161584905) — 2 trades unchecked — VPS unavailable
-• CR7 (161584935) — 1 trade unchecked — Symbol not found
-
-[🔄 Retry SL Check]
+// Fetch candles during trade period (adaptive timeframe)
+// Exclude first and last candle
+for each safe candle:
+  if BUY and candle.low <= maxSlPrice → FLAG
+  if SELL and candle.high >= maxSlPrice → FLAG
 ```
 
-The "Retry SL Check" button re-runs ONLY the fake SL detection for the listed accounts (fetches candles and re-evaluates those specific trades). It does NOT re-pull trade data — just the candle verification step.
+**Flag message:**
+`"SL violated. Price exceeded the maximum allowed risk (¢500, SL should be @ 4791.958) on the H1 candle formed at 13:00 EAT. Trade should have been closed at that point"`
 
-**Data stored for retry:**
-- `wp_pull_errors` table: `error_code = 'sl_check_failed'`, `registration_id`, `error_message` = JSON with trade tickets that failed
+**When candle check fails (VPS timeout, symbol not found):**
+- Log to `wp_pull_errors` with `error_code = 'sl_check_failed'`
+- Fall back to Layer 1 check only (SL presence on opening order)
+
+**Note on SL data from VPS:**
+- The VPS captures SL from the **opening order** — this is the SL set at entry time
+- If user modifies SL after opening, MT5 does NOT store this in order history
+- The candle check is the only way to detect removed/widened SL after opening
+- This applies equally to ALL users — fair enforcement
 
 **7. Daily Loss Cap**
 Track running balance per day:
@@ -395,6 +358,24 @@ Sorted by: `disqualified_at DESC` (most recently DQ'd = higher rank)
   "count": 45
 }
 ```
+
+---
+
+## AUTO-DISQUALIFICATION
+
+### Active Trading Days Check (runs every pull cycle)
+```
+remaining_trading_days = count weekdays from now to challenge_end
+if (user.active_days + remaining_trading_days) < min_active_days:
+    → DQ "Active trading day requirement not fulfilled (X days traded, Y left, need Z)"
+```
+This runs for ALL non-DQ'd users every cycle — including those with 0 trades who are excluded from pulls.
+
+### Password Changed (48h deadline)
+If VPS returns credential error → notify user → 48h to update → auto-DQ if not updated.
+
+### Second Deposit (Recharging)
+Detected from `wp_deals` balance entries. First deposit = starting balance. Second = DQ.
 
 ---
 
