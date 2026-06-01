@@ -401,6 +401,28 @@ def do_pull(account: int, server: str, password: str, from_date: str = None, ord
             break
         prev_order_count = current_count
         time.sleep(0.3)
+
+    orders_by_position = {}
+    if orders_raw is not None:
+        for order in orders_raw:
+            pos_id = order.position_id
+            if not pos_id:
+                continue
+            if pos_id not in orders_by_position:
+                # First order for this position — store open_time and open_price
+                orders_by_position[pos_id] = {
+                    "sl": order.sl,
+                    "tp": order.tp,
+                    "open_time": datetime.fromtimestamp(order.time_setup, tz=timezone.utc).isoformat() if order.time_setup else None,
+                    "open_price": order.price_open,
+                }
+            else:
+                # Later order for same position — update SL/TP if non-zero
+                # (user may have added/modified SL after opening)
+                if order.sl and order.sl != 0:
+                    orders_by_position[pos_id]["sl"] = order.sl
+                if order.tp and order.tp != 0:
+                    orders_by_position[pos_id]["tp"] = order.tp
     orders_by_position = {}
     if orders_raw is not None:
         for order in orders_raw:
@@ -472,8 +494,28 @@ def do_pull(account: int, server: str, password: str, from_date: str = None, ord
                     # Fallback: invert the closing deal type
                     trade_type = "Sell" if deal.type == 0 else "Buy" if deal.type == 1 else "Other"
 
-                # Get order info for SL/TP
+                # Get order info for SL/TP — use per-position lookup for accuracy
                 order_info = orders_by_position.get(pos_id, {})
+
+                # If SL is still 0, do a targeted per-position order lookup
+                # This catches SL/TP set via modify orders not in the date-range query
+                if not order_info.get("sl") and pos_id:
+                    pos_orders = mt5.history_orders_get(position=pos_id)
+                    if pos_orders:
+                        for po in pos_orders:
+                            if not order_info:
+                                order_info = {
+                                    "sl": po.sl,
+                                    "tp": po.tp,
+                                    "open_time": datetime.fromtimestamp(po.time_setup, tz=timezone.utc).isoformat() if po.time_setup else None,
+                                    "open_price": po.price_open,
+                                }
+                            if po.sl and po.sl != 0:
+                                order_info["sl"] = po.sl
+                            if po.tp and po.tp != 0:
+                                order_info["tp"] = po.tp
+                        # Cache for other partial closes of same position
+                        orders_by_position[pos_id] = order_info
 
                 # Open time/price: prefer order info, then opening deal, then fallback
                 open_time = order_info.get("open_time") or open_deal.get("time")
