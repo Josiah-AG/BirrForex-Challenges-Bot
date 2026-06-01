@@ -387,13 +387,23 @@ def do_pull(account: int, server: str, password: str, from_date: str = None, ord
     if orders_raw is not None:
         for order in orders_raw:
             pos_id = order.position_id
-            if pos_id and pos_id not in orders_by_position:
+            if not pos_id:
+                continue
+            if pos_id not in orders_by_position:
+                # First order for this position — store open_time and open_price
                 orders_by_position[pos_id] = {
                     "sl": order.sl,
                     "tp": order.tp,
                     "open_time": datetime.fromtimestamp(order.time_setup, tz=timezone.utc).isoformat() if order.time_setup else None,
                     "open_price": order.price_open,
                 }
+            else:
+                # Later order for same position — update SL/TP if non-zero
+                # (user may have added/modified SL after opening)
+                if order.sl and order.sl != 0:
+                    orders_by_position[pos_id]["sl"] = order.sl
+                if order.tp and order.tp != 0:
+                    orders_by_position[pos_id]["tp"] = order.tp
 
     # First pass: collect all deals and index opening deals by position_id
     open_deals_by_position = {}  # position_id -> {time, price, type}

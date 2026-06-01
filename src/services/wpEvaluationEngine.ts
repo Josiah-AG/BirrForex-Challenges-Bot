@@ -654,13 +654,14 @@ export class WpEvaluationEngine {
           }
 
           // Fake SL detection via candle data (adaptive timeframe)
-          // Checks if price went past max allowed SL during trade — if yes, trade should have been a loss
-          const fakeSl = await validateSlWithCandles(trade, rules.max_hold_hours || null, rules.max_risk_dollars || 0);
-          if (fakeSl === 'FAILED') {
-            // Log SL check failure for admin visibility
-            slCheckFailures.push({ ticket: trade.ticket, symbol: trade.symbol });
-          } else if (fakeSl) {
-            violations.push(fakeSl);
+          // Checks if price went past max allowed SL during trade — if yes, SL was placed late
+          if (rules.max_risk_dollars) {
+            const fakeSl = await validateSlWithCandles(trade, rules.max_hold_hours || null, rules.max_risk_dollars || 0);
+            if (fakeSl === 'FAILED') {
+              slCheckFailures.push({ ticket: trade.ticket, symbol: trade.symbol });
+            } else if (fakeSl) {
+              violations.push(fakeSl);
+            }
           }
         }
       }
