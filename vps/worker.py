@@ -376,13 +376,31 @@ def do_pull(account: int, server: str, password: str, from_date: str = None, ord
 
     date_to = datetime.now(timezone.utc)
 
-    # Fetch deals (filtered to incremental window)
-    trades_raw = mt5.history_deals_get(date_from, date_to)
+    # Wait for terminal to sync history after account switch.
+    # Poll history_deals_get until count stabilizes (two consecutive calls return same count).
+    prev_count = -1
+    trades_raw = None
+    for attempt in range(10):
+        trades_raw = mt5.history_deals_get(date_from, date_to)
+        current_count = len(trades_raw) if trades_raw is not None else 0
+        if current_count == prev_count and current_count >= 0:
+            break  # History is stable
+        prev_count = current_count
+        time.sleep(0.5)
+
     trades_list = []
     deals_list = []
 
-    # Fetch orders from full challenge period (provides SL, TP, open_time for any position)
-    orders_raw = mt5.history_orders_get(orders_date_from, date_to)
+    # Same approach for orders — poll until stable
+    prev_order_count = -1
+    orders_raw = None
+    for attempt in range(10):
+        orders_raw = mt5.history_orders_get(orders_date_from, date_to)
+        current_count = len(orders_raw) if orders_raw is not None else 0
+        if current_count == prev_order_count and current_count >= 0:
+            break
+        prev_order_count = current_count
+        time.sleep(0.3)
     orders_by_position = {}
     if orders_raw is not None:
         for order in orders_raw:
