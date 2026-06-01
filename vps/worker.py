@@ -497,25 +497,27 @@ def do_pull(account: int, server: str, password: str, from_date: str = None, ord
                 # Get order info for SL/TP — use per-position lookup for accuracy
                 order_info = orders_by_position.get(pos_id, {})
 
-                # If SL is still 0, do a targeted per-position order lookup
-                # This catches SL/TP set via modify orders not in the date-range query
-                if not order_info.get("sl") and pos_id:
-                    pos_orders = mt5.history_orders_get(position=pos_id)
-                    if pos_orders:
-                        for po in pos_orders:
+                # If SL is still 0, look up the CLOSING ORDER by ticket
+                # The closing order (deal.order) carries the final SL/TP of the position
+                if not order_info.get("sl") and deal.order:
+                    closing_order = mt5.history_orders_get(ticket=deal.order)
+                    if closing_order and len(closing_order) > 0:
+                        co = closing_order[0]
+                        if co.sl and co.sl != 0:
                             if not order_info:
                                 order_info = {
-                                    "sl": po.sl,
-                                    "tp": po.tp,
-                                    "open_time": datetime.fromtimestamp(po.time_setup, tz=timezone.utc).isoformat() if po.time_setup else None,
-                                    "open_price": po.price_open,
+                                    "sl": co.sl,
+                                    "tp": co.tp,
+                                    "open_time": None,
+                                    "open_price": None,
                                 }
-                            if po.sl and po.sl != 0:
-                                order_info["sl"] = po.sl
-                            if po.tp and po.tp != 0:
-                                order_info["tp"] = po.tp
+                            else:
+                                order_info["sl"] = co.sl
+                            if co.tp and co.tp != 0:
+                                order_info["tp"] = co.tp
                         # Cache for other partial closes of same position
-                        orders_by_position[pos_id] = order_info
+                        if order_info.get("sl"):
+                            orders_by_position[pos_id] = order_info
 
                 # Open time/price: prefer order info, then opening deal, then fallback
                 open_time = order_info.get("open_time") or open_deal.get("time")
