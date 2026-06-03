@@ -136,32 +136,42 @@ async function fetchCandles(symbol: string, fromTime: Date, toTime: Date, timefr
 
 /**
  * Calculate the maximum allowed SL price level from max_risk_dollars.
- * This is the price at which a properly-placed SL would trigger a max-risk loss.
- * 
- * IMPORTANT: max_risk_dollars is already in account currency ($ for standard, ¢ for cent).
- * We use FULL contract size (not ÷100 for cent) because the profit formula on MT5 is:
- *   profit_in_account_currency = volume × contractSize × priceMove
- * For cent accounts, MT5 reports profit in cents with the FULL contract size.
- * The ÷100 in getInstrumentInfo is for pip-value-in-USD calculations, not for this.
+ *
+ * Uses ratio method when actual trade data is available — this handles ALL instruments
+ * correctly including non-USD quoted pairs (USDJPY, EURJPY, XAU, etc.) because
+ * MT5 profit is already in account currency, so the ratio automatically encodes
+ * whatever conversion rate applied during the trade.
+ *
+ * Fallback: pip-based formula (accurate for USD-quoted pairs only).
  */
-function calculateMaxSlPrice(symbol: string, volume: number, entryPrice: number, maxRiskDollars: number, isBuy: boolean): number {
-  // Get base instrument info but use FULL contract size (not cent-adjusted)
+function calculateMaxSlPrice(
+  symbol: string, volume: number, entryPrice: number, maxRiskDollars: number, isBuy: boolean,
+  closePrice?: number, actualProfit?: number
+): number {
+  // Ratio method — derive price move from actual trade data
+  if (closePrice !== undefined && actualProfit !== undefined) {
+    const closeDistance = Math.abs(entryPrice - closePrice);
+    const absProfit = Math.abs(actualProfit);
+    if (closeDistance > 0 && absProfit > 0) {
+      // $1 in account currency = closeDistance / absProfit price units
+      const slPriceMove = closeDistance * (maxRiskDollars / absProfit);
+      if (slPriceMove > 0 && isFinite(slPriceMove)) {
+        return isBuy ? entryPrice - slPriceMove : entryPrice + slPriceMove;
+      }
+    }
+  }
+
+  // Fallback: pip-based (accurate for USD-quoted pairs)
   const sym = symbol.replace(/[mczr]$/, '').replace(/_x\d+m?$/, '').toUpperCase();
   let contractSize: number;
-
   if (sym.includes('XAUUSD') || sym === 'XAU' || sym.includes('GOLD')) contractSize = 100;
   else if (sym.includes('XAGUSD') || sym === 'XAG') contractSize = 5000;
   else if (sym.includes('JPY')) contractSize = 100000;
   else contractSize = 100000;
 
-  // priceMove that causes max_risk loss: max_risk = volume × contractSize × priceMove
-  // So: priceMove = max_risk / (volume × contractSize)
   const priceMove = maxRiskDollars / (volume * contractSize);
   if (priceMove <= 0 || !isFinite(priceMove)) return 0;
-
-  // For BUY: SL is below entry. For SELL: SL is above entry.
-  if (isBuy) return entryPrice - priceMove;
-  else return entryPrice + priceMove;
+  return isBuy ? entryPrice - priceMove : entryPrice + priceMove;
 }
 
 /**
@@ -194,71 +204,72 @@ function formatCandleTimeEAT(candleTimeISO: string, periodMs: number): string {
 }
 
 /**
- * Fake SL Detection — checks if price went past the max allowed SL level during the trade.
- * 
- * Logic: If the user had placed a proper SL at max_risk distance from entry when the trade
- * opened, would it have been hit? If YES → the trade should have been a loss, not a winner.
- * The user likely ran the trade without SL, then added one later after it went into profit.
+ * Fake SL Detection — only runs on winning trades where SL was set at entry.
+ * Checks if price went past the max allowed risk level during the trade, which
+ * means the SL was removed or widened after opening (cheating).
  *
- * Only flags WINNING trades (losers don't benefit from this cheat).
- * Uses adaptive timeframe candles, excludes first/last candle.
+ * Uses 10% tolerance internally so marginal cases are not flagged.
+ * Messages show the admin-set max risk (not the tolerance-adjusted value).
+ * Uses ratio method for currency conversion — works for all instruments.
  * Returns violation message, null (valid), or 'FAILED' (candle fetch error).
  */
 async function validateSlWithCandles(trade: TradeRow, maxHoldHours: number | null = null, maxRiskDollars: number = 0): Promise<string | null | 'FAILED'> {
   if (!trade.open_time || !trade.close_time) return null;
   if (!maxRiskDollars || maxRiskDollars <= 0) return null;
 
-  const openPrice = parseFloat(String(trade.open_price));
-  const volume = parseFloat(String(trade.volume));
-  const isBuy = trade.trade_type?.toLowerCase() === 'buy';
+  const openPrice  = parseFloat(String(trade.open_price));
+  const closePrice = parseFloat(String(trade.close_price));
+  const volume     = parseFloat(String(trade.volume));
+  const tradeNet   = parseFloat(String(trade.profit)) + parseFloat(String(trade.commission || 0)) + parseFloat(String(trade.swap || 0));
+  const isBuy      = trade.trade_type?.toLowerCase() === 'buy';
 
   if (!openPrice || !volume) return null;
 
-  // Calculate the max allowed SL price (where SL should have been if placed at open)
-  const maxSlPrice = calculateMaxSlPrice(trade.symbol, volume, openPrice, maxRiskDollars, isBuy);
+  // 10% tolerance — internal threshold only, message shows raw maxRiskDollars
+  const effectiveMaxRisk = maxRiskDollars * 1.10;
+
+  // Ratio method for correct non-USD conversion; fallback to pip-based
+  const maxSlPrice = calculateMaxSlPrice(trade.symbol, volume, openPrice, effectiveMaxRisk, isBuy, closePrice, tradeNet);
   if (maxSlPrice <= 0) return null;
 
-  const openMs = new Date(trade.open_time).getTime();
+  const openMs  = new Date(trade.open_time).getTime();
   const closeMs = new Date(trade.close_time).getTime();
-
-  if (openMs <= 946684800000 || closeMs <= openMs) return null; // Invalid times
+  if (openMs <= 946684800000 || closeMs <= openMs) return null;
 
   const holdMinutes = (closeMs - openMs) / (60 * 1000);
-
-  // Select adaptive timeframe
   const tf = selectTimeframe(holdMinutes, maxHoldHours);
-  if (!tf) return null; // Skip — trade already flagged for hold time
+  if (!tf) return null;
 
   const candles = await fetchCandles(trade.symbol, new Date(trade.open_time), new Date(trade.close_time), tf.timeframe);
-  if (!candles || candles.length === 0) return 'FAILED'; // Can't verify — report failure
+  if (!candles || candles.length === 0) return 'FAILED';
 
-  // Filter: exclude first and last candle (entry/exit candles have partial data)
+  // Exclude first and last candle (entry/exit candles have partial data)
   const safeCandles = candles.filter(candle => {
     const candleTime = new Date(candle.time).getTime();
-    const candleEnd = candleTime + tf.periodMs;
+    const candleEnd  = candleTime + tf.periodMs;
     return candleTime > openMs && candleEnd <= closeMs;
   });
 
-  if (safeCandles.length === 0) return null; // Not enough candles to verify
+  if (safeCandles.length === 0) return null;
 
-  // Check if price crossed the max SL level during the trade
+  // Message shows admin-set max (not tolerance-adjusted)
+  const riskLabel = trade.symbol.endsWith('c') ? `¢${maxRiskDollars}` : `$${maxRiskDollars}`;
+
   for (const candle of safeCandles) {
     if (isBuy) {
       if (candle.low <= maxSlPrice) {
         const eatTime = formatCandleTimeEAT(candle.time, tf.periodMs);
-        const riskLabel = trade.symbol.endsWith('c') ? `¢${maxRiskDollars}` : `$${maxRiskDollars}`;
         return `SL violated. Price exceeded the maximum allowed risk (${riskLabel}, SL should be @ ${maxSlPrice.toFixed(5)}) on the ${tf.timeframe} candle formed at ${eatTime}. Trade should have been closed at that point`;
       }
     } else {
       if (candle.high >= maxSlPrice) {
         const eatTime = formatCandleTimeEAT(candle.time, tf.periodMs);
-        const riskLabel = trade.symbol.endsWith('c') ? `¢${maxRiskDollars}` : `$${maxRiskDollars}`;
         return `SL violated. Price exceeded the maximum allowed risk (${riskLabel}, SL should be @ ${maxSlPrice.toFixed(5)}) on the ${tf.timeframe} candle formed at ${eatTime}. Trade should have been closed at that point`;
       }
     }
   }
 
-  return null; // Valid — price never crossed max SL level during trade
+  return null;
 }
 
 // ==================== ENGINE ====================
@@ -664,70 +675,73 @@ export class WpEvaluationEngine {
 
       // Max lot size
       if (rules.max_lot_size && parseFloat(String(trade.volume)) > rules.max_lot_size) {
-        violations.push(`Lot size ${trade.volume} exceeds max ${rules.max_lot_size}`);
+        violations.push(`Lot size ${trade.volume} exceeds max ${rules.max_lot_size} lots`);
       }
 
       // Max open trades
       if (maxOpenViolators.has(trade.ticket)) {
-        violations.push(`Exceeded ${rules.max_open_trades} simultaneous trades`);
+        violations.push(`Exceeded max ${rules.max_open_trades} simultaneous open trades`);
       }
 
       // Pair limit
       if (pairViolators.has(trade.ticket)) {
-        violations.push(`Exceeded ${rules.pair_limit} simultaneous ${trade.symbol} trades`);
+        violations.push(`Exceeded max ${rules.pair_limit} simultaneous ${trade.symbol} trades`);
       }
 
       // Stop loss checks
       if (rules.stop_loss_required) {
-        // Check if SL risk exceeds max (only when SL is present)
-        if (trade.stop_loss && parseFloat(String(trade.stop_loss)) !== 0 && rules.max_risk_dollars) {
-          const tradeProfit = parseFloat(String(trade.profit)) + parseFloat(String(trade.commission || 0)) + parseFloat(String(trade.swap || 0));
-          const slDollars = calculateSlDollars(trade.symbol, parseFloat(String(trade.volume)), parseFloat(String(trade.open_price)), parseFloat(String(trade.stop_loss)), parseFloat(String(trade.close_price)), tradeProfit);
-          const slTolerance = rules.max_risk_dollars > 50 ? 20 : 0.5;
-          if (slDollars > rules.max_risk_dollars + slTolerance) {
-            violations.push(`SL risk $${slDollars.toFixed(2)} exceeds max $${rules.max_risk_dollars}`);
-          }
-        }
+        const sl = parseFloat(String(trade.stop_loss));
+        const hasSl = sl !== 0 && !isNaN(sl);
+        const currency = reg.is_cent ? '¢' : '$';
 
-        // SL violation candle check — runs on ALL trades regardless of SL presence
-        // Checks if price exceeded max allowed risk level during the trade
-        // Catches: no SL, SL removed after open, SL set too wide
-        if (rules.max_risk_dollars) {
-          const slViolation = await validateSlWithCandles(trade, rules.max_hold_hours || null, rules.max_risk_dollars || 0);
-          if (slViolation === 'FAILED') {
-            slCheckFailures.push({ ticket: trade.ticket, symbol: trade.symbol });
-            // Can't verify — fall back to SL presence check
-            if (!trade.stop_loss || parseFloat(String(trade.stop_loss)) === 0) {
-              violations.push(`No SL set (SL not detected on entry)`);
+        if (!hasSl) {
+          // No SL at entry — immediate flag, no further SL checks
+          violations.push(`No stop loss set on entry`);
+        } else {
+          // SL was set at entry — check if it was valid and not removed/widened later
+
+          // Layer A: SL risk check with 10% tolerance (internal only — message shows raw max)
+          if (rules.max_risk_dollars) {
+            const slDollars = calculateSlDollars(
+              trade.symbol, parseFloat(String(trade.volume)),
+              parseFloat(String(trade.open_price)), sl,
+              parseFloat(String(trade.close_price)), tradeNet
+            );
+            const tolerance = rules.max_risk_dollars * 0.10;
+            if (slDollars > rules.max_risk_dollars + tolerance) {
+              violations.push(`SL risk ${currency}${slDollars.toFixed(2)} exceeds max ${currency}${rules.max_risk_dollars}`);
             }
-          } else if (slViolation) {
-            violations.push(slViolation);
-          } else if (!trade.stop_loss || parseFloat(String(trade.stop_loss)) === 0) {
-            // Candle check passed (price never breached max SL) but no SL detected
-            // This means trade was short enough that we couldn't verify, or price never went against
-            violations.push(`No SL set (SL not detected on entry)`);
           }
-        } else if (!trade.stop_loss || parseFloat(String(trade.stop_loss)) === 0) {
-          violations.push(`No SL set (SL not detected on entry)`);
+
+          // Layer B: Fake SL candle check — only on winning trades
+          // Detects SL removed or widened after entry
+          if (rules.max_risk_dollars && tradeNet > 0) {
+            const slViolation = await validateSlWithCandles(trade, rules.max_hold_hours || null, rules.max_risk_dollars);
+            if (slViolation === 'FAILED') {
+              slCheckFailures.push({ ticket: trade.ticket, symbol: trade.symbol });
+              // Candle fetch failed — log but don't penalise (benefit of doubt)
+            } else if (slViolation) {
+              violations.push(slViolation);
+            }
+          }
         }
       }
 
       // Daily loss cap
       if (dailyDrawdownFlagged.has(trade.ticket)) {
-        violations.push(`Profit after daily $${rules.daily_loss_cap} drawdown breach`);
+        const currency = reg.is_cent ? '¢' : '$';
+        const capDisplay = rules.daily_loss_cap ? `${currency}${(rules.daily_loss_cap).toFixed(2)}` : '';
+        violations.push(`Profit after daily ${capDisplay} drawdown breach`);
       }
 
       // Hold time
-      if (rules.max_hold_hours) {
-        if (trade.open_time && trade.close_time) {
-          const openMs = new Date(trade.open_time).getTime();
-          const closeMs = new Date(trade.close_time).getTime();
-          // Only check if both dates are valid and open_time is after year 2000
-          if (openMs > 946684800000 && closeMs > openMs) {
-            const holdHours = (closeMs - openMs) / (1000 * 60 * 60);
-            if (holdHours > rules.max_hold_hours) {
-              violations.push(`Held ${holdHours.toFixed(1)}h exceeds max ${rules.max_hold_hours}h`);
-            }
+      if (rules.max_hold_hours && trade.open_time && trade.close_time) {
+        const openMs  = new Date(trade.open_time).getTime();
+        const closeMs = new Date(trade.close_time).getTime();
+        if (openMs > 946684800000 && closeMs > openMs) {
+          const holdHours = (closeMs - openMs) / (1000 * 60 * 60);
+          if (holdHours > rules.max_hold_hours) {
+            violations.push(`Held ${holdHours.toFixed(1)}h exceeds max ${rules.max_hold_hours}h`);
           }
         }
       }

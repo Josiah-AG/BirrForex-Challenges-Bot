@@ -1928,15 +1928,73 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/user-evaluation`, adminIp
     if (reg.rows.length === 0) return res.status(404).json({ error: 'User not found' });
     const u = reg.rows[0];
 
-    // Get flagged trades with violations
-    const flagged = await db.query(
-      `SELECT ticket, symbol, trade_type, volume, open_time, close_time, profit, violations
-       FROM wp_trades WHERE challenge_id = $1 AND registration_id = $2 AND is_qualified = false
-       ORDER BY close_time ASC`,
+    // Get ALL trades (flagged and qualified) — needed for simultaneous group time context
+    const allTrades = await db.query(
+      `SELECT ticket, symbol, trade_type, volume, open_time, close_time, profit, commission, swap, is_qualified, violations
+       FROM wp_trades WHERE challenge_id = $1 AND registration_id = $2
+       ORDER BY open_time ASC`,
       [challengeId, registrationId]
     );
 
-    // Build text report (same style as Telegram evaluate)
+    const flaggedTrades = allTrades.rows.filter((t: any) => !t.is_qualified);
+
+    // ── Build simultaneous violation groups ────────────────────────────────
+    // A trade is "simultaneous-only" if its only violations are the simultaneous ones.
+    // Those go exclusively in the groups section. Trades with other violations too
+    // appear in the main list (with "See simultaneous group below") AND in the groups.
+    const SIMUL_PATTERNS = [/Exceeded max \d+ simultaneous open trades/, /Exceeded max \d+ simultaneous .+ trades/];
+    const isSimulViolation = (v: string) => SIMUL_PATTERNS.some(p => p.test(v));
+
+    // Find simultaneous violator tickets
+    const simulTickets = new Set<number>();
+    for (const t of flaggedTrades) {
+      const violations: string[] = Array.isArray(t.violations) ? t.violations : [];
+      if (violations.some(isSimulViolation)) simulTickets.add(t.ticket);
+    }
+
+    // Build groups: find all "peak" windows where violations occurred.
+    // Group = set of trades that share the same simultaneous-violation window.
+    // Strategy: for each violating trade, collect all trades that overlap its open period.
+    const tradeMap = new Map(allTrades.rows.map((t: any) => [t.ticket, t]));
+    const grouped = new Map<string, Set<number>>(); // groupKey → set of tickets
+
+    for (const ticket of simulTickets) {
+      const t = tradeMap.get(ticket) as any;
+      if (!t) continue;
+      const tOpen  = new Date(t.open_time).getTime();
+      const tClose = new Date(t.close_time).getTime();
+
+      // Find all trades open simultaneously with this one
+      const overlap = allTrades.rows
+        .filter((o: any) => {
+          const oOpen  = new Date(o.open_time).getTime();
+          const oClose = new Date(o.close_time).getTime();
+          return oOpen < tClose && oClose > tOpen; // overlapping periods
+        })
+        .map((o: any) => o.ticket);
+
+      // Build a stable group key from sorted ticket list
+      const key = [...new Set(overlap)].sort().join(',');
+      if (!grouped.has(key)) grouped.set(key, new Set());
+      overlap.forEach((tk: number) => grouped.get(key)!.add(tk));
+    }
+
+    // Deduplicate groups: if group A's tickets are a subset of group B's, drop A
+    const groupList = [...grouped.values()].map(s => [...s].sort((a, b) => a - b));
+    const finalGroups: number[][] = groupList.filter((g, i) =>
+      !groupList.some((other, j) => j !== i && g.every(tk => other.includes(tk)) && other.length > g.length)
+    );
+
+    // Trades whose ONLY violations are simultaneous → omit from main list
+    const simulOnlyTickets = new Set<number>();
+    for (const t of flaggedTrades) {
+      const violations: string[] = Array.isArray(t.violations) ? t.violations : [];
+      if (violations.length > 0 && violations.every(isSimulViolation)) {
+        simulOnlyTickets.add(t.ticket);
+      }
+    }
+
+    // ── Build report ───────────────────────────────────────────────────────
     const currency = u.is_cent ? '¢' : '$';
     let report = `📊 EVALUATION REPORT\n`;
     report += `═══════════════════════════════════\n\n`;
@@ -1964,23 +2022,71 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/user-evaluation`, adminIp
       report += `❌ STATUS: Below Target\n\n`;
     }
 
-    if (flagged.rows.length > 0) {
+    // ── Main flagged trades list (excludes simul-only trades) ──────────────
+    const mainFlagged = flaggedTrades.filter((t: any) => !simulOnlyTickets.has(t.ticket));
+    if (mainFlagged.length > 0) {
       report += `═══════════════════════════════════\n`;
-      report += `🚩 FLAGGED TRADES (${flagged.rows.length})\n`;
+      report += `🚩 FLAGGED TRADES (${flaggedTrades.length})\n`;
       report += `═══════════════════════════════════\n\n`;
-      flagged.rows.forEach((t: any, i: number) => {
-        const violations = t.violations || [];
-        const violationText = Array.isArray(violations) ? violations.map((v: any) => typeof v === 'string' ? v : v.detail || JSON.stringify(v)).join(', ') : String(violations);
-        report += `${i + 1}. #${t.ticket} | ${t.symbol} | ${t.trade_type} | ${t.volume} lot\n`;
+      let idx = 1;
+      for (const t of mainFlagged) {
+        const violations: string[] = Array.isArray(t.violations) ? t.violations : [];
+        // For trades that also have simul violations, replace those with a reference
+        const otherViolations = violations.filter(v => !isSimulViolation(v));
+        const hasSimul = violations.some(isSimulViolation);
+        const parts = [...otherViolations];
+        if (hasSimul) parts.push(`See simultaneous group below`);
+        report += `${idx++}. #${t.ticket} | ${t.symbol} | ${t.trade_type} | ${parseFloat(t.volume).toFixed(4)} lot\n`;
         report += `   P&L: ${currency}${parseFloat(t.profit).toFixed(2)}\n`;
-        report += `   ⚠️ ${violationText}\n\n`;
+        report += `   ⚠️ ${parts.join(', ')}\n\n`;
+      }
+    }
+
+    // ── Simultaneous violation groups ──────────────────────────────────────
+    if (finalGroups.length > 0) {
+      report += `═══════════════════════════════════\n`;
+      report += `⚡ SIMULTANEOUS TRADE VIOLATIONS\n`;
+      report += `═══════════════════════════════════\n\n`;
+
+      finalGroups.forEach((groupTickets, gi) => {
+        const groupTrades = groupTickets
+          .map(tk => tradeMap.get(tk) as any)
+          .filter(Boolean)
+          .sort((a: any, b: any) => new Date(a.open_time).getTime() - new Date(b.open_time).getTime());
+
+        // Determine what kind of violation(s) this group has
+        const maxSimulOpen = groupTrades.length;
+        const pairCounts = new Map<string, number>();
+        for (const t of groupTrades) {
+          pairCounts.set(t.symbol, (pairCounts.get(t.symbol) || 0) + 1);
+        }
+        const pairBreaches = [...pairCounts.entries()]
+          .filter(([, count]) => count > 1)
+          .map(([sym, count]) => `${count} ${sym}`)
+          .join(', ');
+
+        // Group header
+        const groupDate = new Date(groupTrades[0].open_time).toISOString().slice(0, 10);
+        report += `── GROUP ${String.fromCharCode(65 + gi)} — ${maxSimulOpen} trades open simultaneously`;
+        if (pairBreaches) report += ` | Same-pair: ${pairBreaches}`;
+        report += ` ──\n`;
+        report += `   ${groupDate}\n\n`;
+
+        for (const t of groupTrades) {
+          const violations: string[] = Array.isArray(t.violations) ? t.violations : [];
+          const otherViolations = violations.filter((v: string) => !isSimulViolation(v));
+          const noSl = otherViolations.some((v: string) => v.includes('No stop loss'));
+          const notes = noSl ? ` | No SL` : '';
+          report += `   #${t.ticket} | ${t.symbol} | ${t.trade_type} | ${parseFloat(t.volume).toFixed(4)} lot | P&L: ${currency}${parseFloat(t.profit).toFixed(2)}${notes}\n`;
+        }
+        report += `\n`;
       });
     }
 
     report += `═══════════════════════════════════\n`;
     report += `Generated: ${new Date().toISOString().replace('T', ' ').substring(0, 19)} UTC\n`;
 
-    return res.json({ report, user: u, flaggedTrades: flagged.rows });
+    return res.json({ report, user: u, flaggedTrades });
   } catch (error) {
     console.error('User evaluation error:', error);
     return res.status(500).json({ error: 'Internal server error' });
