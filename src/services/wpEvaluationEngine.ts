@@ -467,21 +467,32 @@ export class WpEvaluationEngine {
     let profitRemoved = 0;
 
     // === DEPOSIT DETECTION & ACTUAL STARTING BALANCE ===
-    // Get deals to detect deposits (balance operations)
+    // Rules:
+    //   - Pre-challenge deposits are free — user may deposit multiple times before start.
+    //     actualStartBalance = their balance at challenge start time.
+    //   - If user had balance before start AND any deposit arrives after start → DQ (recharging).
+    //   - If user had $0 before start → first post-start deposit = actualStartBalance.
+    //     Second post-start deposit → DQ.
+    //   - If actualStartBalance > startingBalance (+1% tolerance) → DQ (deposited above limit).
+    //
+    // Units: registration_balance and wp_deals.profit are raw VPS values.
+    // The startingBalance param is already ×100 for cent users — same units on both sides.
     let actualStartBalance = startingBalance;
     try {
       const regData = await db.query(
         `SELECT registration_balance, actual_starting_balance FROM trading_registrations WHERE id = $1`, [reg.id]
       );
       const savedActual = regData.rows[0]?.actual_starting_balance;
-      const regBalance = regData.rows[0]?.registration_balance;
+      const regBalance  = parseFloat(regData.rows[0]?.registration_balance ?? '0') || 0;
+      const currency    = reg.is_cent ? '¢' : '$';
 
       if (savedActual !== null && savedActual !== undefined) {
-        // Already determined
+        // Already determined in a previous cycle — reuse it
         actualStartBalance = parseFloat(savedActual);
       } else {
-        // Detect from deals — find balance deposits (not swap/commission/dividend)
-        const deposits = await db.query(
+        const csTime = challengeStart ? new Date(challengeStart).getTime() : 0;
+
+        const allDeposits = await db.query(
           `SELECT profit, time FROM wp_deals
            WHERE challenge_id = $1 AND registration_id = $2
              AND (deal_type ILIKE '%balance%' OR deal_type = '2')
@@ -490,45 +501,73 @@ export class WpEvaluationEngine {
           [challengeId, reg.id]
         );
 
-        if (deposits.rows.length > 0) {
-          // First deposit = their actual starting balance
-          const firstDeposit = parseFloat(deposits.rows[0].profit);
-          actualStartBalance = firstDeposit;
+        const preDeposits  = allDeposits.rows.filter(d => new Date(d.time).getTime() <  csTime);
+        const postDeposits = allDeposits.rows.filter(d => new Date(d.time).getTime() >= csTime);
+        const tolerance    = startingBalance * 0.01; // 1% tolerance, same as registration check
 
-          // Save it
+        if (regBalance > 0) {
+          // ── User had money before challenge started ──────────────────────
+          // actualStartBalance = registration snapshot + any pre-challenge deposits
+          // that landed in the pull window (between registration and challenge start).
+          // preDeposits come from the challenge_start-1h window so they don't
+          // overlap with registration_balance (which was snapshotted earlier).
+          const extraPre = preDeposits.reduce((sum, d) => sum + parseFloat(d.profit), 0);
+          actualStartBalance = regBalance + extraPre;
+
           await db.query(
             `UPDATE trading_registrations SET actual_starting_balance = $1 WHERE id = $2`,
             [actualStartBalance, reg.id]
           );
 
-          // Check for recharging (second deposit = DQ)
-          if (deposits.rows.length > 1) {
-            // Multiple deposits detected — DQ for recharging
-            const secondDeposit = deposits.rows[1];
+          // Did pre-challenge deposits push them above the allowed limit?
+          if (actualStartBalance > startingBalance + tolerance) {
             await db.query(
-              `UPDATE trading_registrations SET disqualified = true, disqualified_at = NOW(), disqualified_reason = 'Account recharged — additional deposit detected after challenge start' WHERE id = $1 AND disqualified = false`,
-              [reg.id]
-            );
-            await db.query(
-              `UPDATE wp_leaderboard SET is_disqualified = true, disqualify_reason = 'Recharging — additional deposit' WHERE registration_id = $1`,
-              [reg.id]
+              `UPDATE trading_registrations SET disqualified = true, disqualified_at = NOW(), disqualified_reason = $1 WHERE id = $2 AND disqualified = false`,
+              [`Starting balance ${currency}${actualStartBalance.toFixed(2)} exceeds allowed starting balance of ${currency}${startingBalance.toFixed(2)}`, reg.id]
             );
           }
-        } else if (regBalance !== null && regBalance !== undefined && parseFloat(regBalance) > 0) {
-          // No deals but had balance at registration
-          actualStartBalance = parseFloat(regBalance);
-          await db.query(
-            `UPDATE trading_registrations SET actual_starting_balance = $1 WHERE id = $2`,
-            [actualStartBalance, reg.id]
-          );
+
+          // Any deposit AFTER challenge start = recharging = DQ
+          if (postDeposits.length > 0) {
+            const d  = postDeposits[0];
+            const dt = new Date(d.time).toISOString().slice(0, 10);
+            await db.query(
+              `UPDATE trading_registrations SET disqualified = true, disqualified_at = NOW(), disqualified_reason = $1 WHERE id = $2 AND disqualified = false`,
+              [`Account recharged — deposit of ${currency}${parseFloat(d.profit).toFixed(2)} detected after challenge start (${dt})`, reg.id]
+            );
+          }
+
         } else {
-          // Use VPS balance as starting point
-          const vpsData = await db.query(`SELECT last_known_balance FROM trading_registrations WHERE id = $1`, [reg.id]);
-          const vps = vpsData.rows[0]?.last_known_balance;
-          if (vps !== null && vps !== undefined && parseFloat(vps) > 0) {
-            actualStartBalance = parseFloat(vps);
+          // ── User had $0 before challenge — waiting for first deposit ─────
+          if (postDeposits.length === 0) {
+            // Hasn't deposited yet — profit stays $0, keep pulling
+            actualStartBalance = 0;
           } else {
-            actualStartBalance = 0; // They truly have nothing
+            const firstAmount = parseFloat(postDeposits[0].profit);
+            actualStartBalance = firstAmount;
+
+            // First deposit above allowed limit?
+            if (actualStartBalance > startingBalance + tolerance) {
+              await db.query(
+                `UPDATE trading_registrations SET disqualified = true, disqualified_at = NOW(), disqualified_reason = $1 WHERE id = $2 AND disqualified = false`,
+                [`Starting balance ${currency}${actualStartBalance.toFixed(2)} exceeds allowed starting balance of ${currency}${startingBalance.toFixed(2)}`, reg.id]
+              );
+            }
+
+            await db.query(
+              `UPDATE trading_registrations SET actual_starting_balance = $1 WHERE id = $2`,
+              [actualStartBalance, reg.id]
+            );
+
+            // Second deposit after start = DQ (recharging)
+            if (postDeposits.length > 1) {
+              const d  = postDeposits[1];
+              const dt = new Date(d.time).toISOString().slice(0, 10);
+              await db.query(
+                `UPDATE trading_registrations SET disqualified = true, disqualified_at = NOW(), disqualified_reason = $1 WHERE id = $2 AND disqualified = false`,
+                [`Account recharged — second deposit of ${currency}${parseFloat(d.profit).toFixed(2)} detected after challenge start (${dt})`, reg.id]
+              );
+            }
           }
         }
       }
