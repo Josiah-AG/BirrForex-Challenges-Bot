@@ -196,22 +196,29 @@ export default function DemoDashboard() {
   // Ranking uses normalized_balance (cent ÷ 100) internally so cent/standard compare fairly
   const leaderboardTotal = 312;
   const leaderboard: LeaderboardEntry[] = [
+    // recentTrades for each user must have a mix of wins AND losses so that:
+    //   Win Rate = wins / total  (not 100%)
+    //   Avg RR   = avgWin / avgLoss  (not "—")
     {
       rank: 1, nickname: "GoldPipKing", balance: 2250.00, trades: 18, qualifiedTrades: 16, flaggedTrades: 2,
       qualifiedProfit: 1250.00, grossProfit: 1400.00, profitRemoved: 150.00,
       accountType: "real", isCent: true,
+      // 3W 1L → 75% win rate, avgWin≈85, avgLoss≈42, RR≈2.02
       recentTrades: [
-        { symbol: "XAUUSDc", type: "Buy",  volume: 0.01, profit: 95.00,  date: "Jun 4, 14:22 → 16:48", violations: [] },
-        { symbol: "EURUSDc", type: "Sell", volume: 0.01, profit: 72.00,  date: "Jun 4, 09:10 → 11:30", violations: [] },
-        { symbol: "XAUUSDc", type: "Sell", volume: 0.01, profit: 88.00,  date: "Jun 3, 15:00 → 17:20", violations: [] },
+        { symbol: "XAUUSDc", type: "Buy",  volume: 0.01, profit:  95.00, date: "Jun 4, 14:22 → 16:48", violations: [] },
+        { symbol: "EURUSDc", type: "Sell", volume: 0.01, profit:  72.00, date: "Jun 4, 09:10 → 11:30", violations: [] },
+        { symbol: "XAUUSDc", type: "Sell", volume: 0.01, profit: -42.00, date: "Jun 3, 17:00 → 18:30", violations: [] },
+        { symbol: "XAUUSDc", type: "Sell", volume: 0.01, profit:  88.00, date: "Jun 3, 15:00 → 17:20", violations: [] },
       ],
     },
     {
       rank: 2, nickname: "MK_Kaizen", balance: 2180.00, trades: 22, qualifiedTrades: 19, flaggedTrades: 3,
       qualifiedProfit: 1180.00, grossProfit: 1320.00, profitRemoved: 140.00,
       accountType: "real", isCent: true,
+      // 2W 1L → 67% win rate, avgWin≈110, avgLoss≈48, RR≈2.29
       recentTrades: [
         { symbol: "XAUUSDc", type: "Buy",  volume: 0.01, profit: 110.00, date: "Jun 4, 11:05 → 13:30", violations: [] },
+        { symbol: "EURUSDc", type: "Buy",  volume: 0.01, profit: -48.00, date: "Jun 4, 07:00 → 08:40", violations: [] },
         { symbol: "GBPUSDc", type: "Sell", volume: 0.05, profit: 140.00, date: "Jun 3, 16:30 → 18:10", flagged: true, violations: ["Lot size 0.05 exceeds max 0.02 lots"] },
       ],
     },
@@ -219,17 +226,21 @@ export default function DemoDashboard() {
       rank: 3, nickname: "Bella_FX", balance: 2090.00, trades: 14, qualifiedTrades: 12, flaggedTrades: 2,
       qualifiedProfit: 1090.00, grossProfit: 1200.00, profitRemoved: 110.00,
       accountType: "real", isCent: true,
+      // 2W 1L → 67% win rate, avgWin≈81.5, avgLoss≈38, RR≈2.14
       recentTrades: [
-        { symbol: "XAUUSDc", type: "Sell", volume: 0.01, profit: 88.00,  date: "Jun 4, 08:30 → 10:15", violations: [] },
-        { symbol: "XAUUSDc", type: "Buy",  volume: 0.01, profit: 75.00,  date: "Jun 3, 12:00 → 13:45", violations: [] },
+        { symbol: "XAUUSDc", type: "Sell", volume: 0.01, profit:  88.00, date: "Jun 4, 08:30 → 10:15", violations: [] },
+        { symbol: "EURUSDc", type: "Buy",  volume: 0.01, profit: -38.00, date: "Jun 3, 15:20 → 16:50", violations: [] },
+        { symbol: "XAUUSDc", type: "Buy",  volume: 0.01, profit:  75.00, date: "Jun 3, 12:00 → 13:45", violations: [] },
       ],
     },
     {
       rank: 4, nickname: "SoberBoy", balance: 1890.00, trades: 20, qualifiedTrades: 15, flaggedTrades: 5,
       qualifiedProfit: 890.00, grossProfit: 1140.00, profitRemoved: 250.00,
       accountType: "real", isCent: true,
+      // 2W 1L → 67% win rate, avgWin≈145, avgLoss≈55, RR≈2.64
       recentTrades: [
-        { symbol: "EURUSDc", type: "Sell", volume: 0.01, profit: 90.00,  date: "Jun 4, 09:15 → 11:30", violations: [] },
+        { symbol: "EURUSDc", type: "Sell", volume: 0.01, profit:  90.00, date: "Jun 4, 09:15 → 11:30", violations: [] },
+        { symbol: "XAUUSDc", type: "Sell", volume: 0.01, profit: -55.00, date: "Jun 3, 18:00 → 19:20", violations: [] },
         { symbol: "XAUUSDc", type: "Buy",  volume: 0.01, profit: 200.00, date: "Jun 3, 15:10 → 17:45", flagged: true, violations: ["SL violated. Price exceeded the maximum allowed risk (¢500, SL should be @ 4484.95000) on the M15 candle formed at 15:45 EAT. Trade should have been closed at that point"] },
       ],
     },
@@ -237,21 +248,35 @@ export default function DemoDashboard() {
       rank: 5, nickname: "FireMan", balance: 1780.00, trades: 16, qualifiedTrades: 14, flaggedTrades: 2,
       qualifiedProfit: 780.00, grossProfit: 890.00, profitRemoved: 110.00,
       accountType: "real", isCent: true,
+      // 2W 1L → 67% win rate, avgWin≈73.5, avgLoss≈35, RR≈2.10
       recentTrades: [
-        { symbol: "XAUUSDc", type: "Buy",  volume: 0.01, profit: 82.00,  date: "Jun 3, 09:00 → 11:20", violations: [] },
+        { symbol: "XAUUSDc", type: "Buy",  volume: 0.01, profit:  82.00, date: "Jun 3, 09:00 → 11:20", violations: [] },
+        { symbol: "EURUSDc", type: "Sell", volume: 0.01, profit: -35.00, date: "Jun 3, 07:15 → 08:40", violations: [] },
+        { symbol: "XAUUSDc", type: "Sell", volume: 0.01, profit:  65.00, date: "Jun 2, 14:30 → 16:00", violations: [] },
       ],
     },
     {
       rank: 6, nickname: "CR7_Kete", balance: 1620.00, trades: 12, qualifiedTrades: 11, flaggedTrades: 1,
       qualifiedProfit: 620.00, grossProfit: 680.00, profitRemoved: 60.00,
       accountType: "real", isCent: true,
-      recentTrades: [],
+      // 2W 1L → 67% win rate, avgWin≈77, avgLoss≈40, RR≈1.93
+      recentTrades: [
+        { symbol: "XAUUSDc", type: "Buy",  volume: 0.01, profit:  85.00, date: "Jun 4, 10:00 → 11:45", violations: [] },
+        { symbol: "GBPUSDc", type: "Sell", volume: 0.01, profit: -40.00, date: "Jun 3, 13:00 → 14:30", violations: [] },
+        { symbol: "EURUSDc", type: "Sell", volume: 0.01, profit:  69.00, date: "Jun 3, 08:20 → 09:55", violations: [] },
+      ],
     },
     {
       rank: 7, nickname: "AlphaFX", balance: 1490.00, trades: 24, qualifiedTrades: 18, flaggedTrades: 6,
       qualifiedProfit: 490.00, grossProfit: 760.00, profitRemoved: 270.00,
       accountType: "real", isCent: true,
-      recentTrades: [],
+      // 2W 2L → 50% win rate, avgWin≈78, avgLoss≈62, RR≈1.26
+      recentTrades: [
+        { symbol: "XAUUSDc", type: "Sell", volume: 0.01, profit:  92.00, date: "Jun 4, 11:30 → 13:00", violations: [] },
+        { symbol: "EURUSDc", type: "Buy",  volume: 0.01, profit: -68.00, date: "Jun 4, 08:00 → 09:30", violations: [] },
+        { symbol: "XAUUSDc", type: "Buy",  volume: 0.01, profit: -56.00, date: "Jun 3, 16:00 → 17:45", violations: [] },
+        { symbol: "GBPUSDc", type: "Sell", volume: 0.01, profit:  64.00, date: "Jun 3, 10:00 → 12:15", violations: [] },
+      ],
     },
     // ── YOU ─────────────────────────────────────────────────────────────────
     {
@@ -259,8 +284,9 @@ export default function DemoDashboard() {
       qualifiedTrades: myStats.qualifiedTrades, flaggedTrades: myStats.flaggedTrades,
       qualifiedProfit: myStats.qualifiedProfit, grossProfit: myStats.grossProfit, profitRemoved: myStats.profitRemoved,
       accountType: "real", isCent: true, isMe: true,
+      // 2W 1L → 67% win rate (88+140 wins, 55 loss), avgWin≈114, avgLoss≈55, RR≈2.07
       recentTrades: [
-        { symbol: "XAUUSDc", type: "Buy",  volume: 0.01, profit: 88.00,  date: "Jun 4, 14:22 → 16:48", violations: [] },
+        { symbol: "XAUUSDc", type: "Buy",  volume: 0.01, profit:  88.00, date: "Jun 4, 14:22 → 16:48", violations: [] },
         { symbol: "EURUSDc", type: "Sell", volume: 0.01, profit: 140.00, date: "Jun 4, 11:05 → 13:30", flagged: true, violations: ["No stop loss set on entry"] },
         { symbol: "XAUUSDc", type: "Sell", volume: 0.01, profit: -55.00, date: "Jun 3, 12:00 → 13:45", violations: [] },
       ],
@@ -270,71 +296,114 @@ export default function DemoDashboard() {
       rank: 9, nickname: "NightOwl", balance: 1180.00, trades: 30, qualifiedTrades: 22, flaggedTrades: 8,
       qualifiedProfit: 180.00, grossProfit: 540.00, profitRemoved: 360.00,
       accountType: "real", isCent: true,
-      recentTrades: [],
+      // 2W 2L → 50% win rate, avgWin≈65, avgLoss≈58, RR≈1.12
+      recentTrades: [
+        { symbol: "XAUUSDc", type: "Sell", volume: 0.01, profit:  72.00, date: "Jun 4, 12:00 → 13:30", violations: [] },
+        { symbol: "EURUSDc", type: "Buy",  volume: 0.01, profit: -62.00, date: "Jun 4, 09:00 → 10:40", violations: [] },
+        { symbol: "XAUUSDc", type: "Buy",  volume: 0.01, profit:  58.00, date: "Jun 3, 14:00 → 15:30", violations: [] },
+        { symbol: "GBPUSDc", type: "Sell", volume: 0.01, profit: -54.00, date: "Jun 3, 10:00 → 11:20", violations: [] },
+      ],
     },
     // ── Real STANDARD account ($) — ranks alongside cent users ──────────────
     {
       rank: 10, nickname: "SwingKing", balance: 11.20, trades: 15, qualifiedTrades: 13, flaggedTrades: 2,
       qualifiedProfit: 1.20, grossProfit: 2.80, profitRemoved: 1.60,
-      accountType: "real", isCent: false,   // ← standard $, not cent
+      accountType: "real", isCent: false,
+      // 2W 1L → 67% win rate, avgWin≈1.4, avgLoss≈0.72, RR≈1.94
       recentTrades: [
-        { symbol: "EURUSDm", type: "Buy",  volume: 0.01, profit: 1.40,  date: "Jun 4, 10:00 → 12:15", violations: [] },
-        { symbol: "XAUUSDm", type: "Sell", volume: 0.01, profit: 2.20,  date: "Jun 3, 14:00 → 16:30", flagged: true, violations: ["No stop loss set on entry"] },
+        { symbol: "EURUSDm", type: "Buy",  volume: 0.01, profit:  1.40, date: "Jun 4, 10:00 → 12:15", violations: [] },
+        { symbol: "GBPUSDm", type: "Sell", volume: 0.01, profit: -0.72, date: "Jun 4, 07:30 → 08:50", violations: [] },
+        { symbol: "XAUUSDm", type: "Sell", volume: 0.01, profit:  2.20, date: "Jun 3, 14:00 → 16:30", flagged: true, violations: ["No stop loss set on entry"] },
       ],
     },
     {
       rank: 11, nickname: "TrendRider", balance: 10.80, trades: 11, qualifiedTrades: 10, flaggedTrades: 1,
       qualifiedProfit: 0.80, grossProfit: 1.50, profitRemoved: 0.70,
-      accountType: "real", isCent: false,   // ← standard $
+      accountType: "real", isCent: false,
+      // 2W 1L → 67% win rate, avgWin≈0.85, avgLoss≈0.55, RR≈1.55
       recentTrades: [
-        { symbol: "GBPUSDm", type: "Sell", volume: 0.01, profit: 0.80,  date: "Jun 4, 08:00 → 09:30", violations: [] },
+        { symbol: "GBPUSDm", type: "Sell", volume: 0.01, profit:  0.80, date: "Jun 4, 08:00 → 09:30", violations: [] },
+        { symbol: "EURUSDm", type: "Buy",  volume: 0.01, profit: -0.55, date: "Jun 3, 15:00 → 16:20", violations: [] },
+        { symbol: "XAUUSDm", type: "Buy",  volume: 0.01, profit:  0.90, date: "Jun 3, 10:00 → 11:30", violations: [] },
       ],
     },
     {
       rank: 12, nickname: "PipSniper", balance: 1050.00, trades: 11, qualifiedTrades: 9, flaggedTrades: 2,
       qualifiedProfit: 50.00, grossProfit: 150.00, profitRemoved: 100.00,
       accountType: "real", isCent: true,
-      recentTrades: [],
+      // 2W 1L → 67% win rate, avgWin≈65, avgLoss≈48, RR≈1.35
+      recentTrades: [
+        { symbol: "XAUUSDc", type: "Buy",  volume: 0.01, profit:  72.00, date: "Jun 4, 09:30 → 11:00", violations: [] },
+        { symbol: "EURUSDc", type: "Sell", volume: 0.01, profit: -48.00, date: "Jun 3, 14:00 → 15:30", violations: [] },
+        { symbol: "XAUUSDc", type: "Sell", volume: 0.01, profit:  58.00, date: "Jun 3, 08:00 → 09:40", violations: [] },
+      ],
     },
     {
       rank: 13, nickname: "FXWarrior", balance: 980.00, trades: 18, qualifiedTrades: 14, flaggedTrades: 4,
       qualifiedProfit: -20.00, grossProfit: 200.00, profitRemoved: 220.00,
       accountType: "real", isCent: true,
-      recentTrades: [],
+      // 1W 2L → 33% win rate, avgWin≈55, avgLoss≈65, RR≈0.85
+      recentTrades: [
+        { symbol: "XAUUSDc", type: "Sell", volume: 0.01, profit: -72.00, date: "Jun 4, 10:00 → 11:30", violations: [] },
+        { symbol: "EURUSDc", type: "Buy",  volume: 0.01, profit:  55.00, date: "Jun 4, 07:00 → 08:30", violations: [] },
+        { symbol: "XAUUSDc", type: "Buy",  volume: 0.01, profit: -58.00, date: "Jun 3, 15:00 → 16:30", violations: [] },
+      ],
     },
     // ── Another standard account ─────────────────────────────────────────────
     {
       rank: 14, nickname: "MarketPro", balance: 9.20, trades: 8, qualifiedTrades: 7, flaggedTrades: 1,
       qualifiedProfit: -0.80, grossProfit: 0.50, profitRemoved: 1.30,
-      accountType: "real", isCent: false,   // ← standard $
-      recentTrades: [],
+      accountType: "real", isCent: false,
+      // 1W 2L → 33% win rate, avgWin≈0.90, avgLoss≈0.70, RR≈1.29
+      recentTrades: [
+        { symbol: "EURUSDm", type: "Sell", volume: 0.01, profit: -0.80, date: "Jun 4, 09:00 → 10:15", violations: [] },
+        { symbol: "GBPUSDm", type: "Buy",  volume: 0.01, profit:  0.90, date: "Jun 3, 13:00 → 14:20", violations: [] },
+        { symbol: "XAUUSDm", type: "Sell", volume: 0.01, profit: -0.60, date: "Jun 3, 08:00 → 09:30", violations: [] },
+      ],
     },
     {
       rank: 15, nickname: "ChartWiz", balance: 920.00, trades: 9, qualifiedTrades: 8, flaggedTrades: 1,
       qualifiedProfit: -80.00, grossProfit: 0.00, profitRemoved: 80.00,
       accountType: "real", isCent: true,
-      recentTrades: [],
+      // 1W 2L → 33% win rate, avgWin≈60, avgLoss≈70, RR≈0.86
+      recentTrades: [
+        { symbol: "XAUUSDc", type: "Buy",  volume: 0.01, profit: -75.00, date: "Jun 4, 11:00 → 12:30", violations: [] },
+        { symbol: "EURUSDc", type: "Sell", volume: 0.01, profit:  60.00, date: "Jun 3, 14:00 → 15:20", violations: [] },
+        { symbol: "XAUUSDc", type: "Sell", volume: 0.01, profit: -65.00, date: "Jun 3, 09:00 → 10:30", violations: [] },
+      ],
     },
     {
       rank: 16, nickname: "PipHunter", balance: 845.00, trades: 14, qualifiedTrades: 10, flaggedTrades: 4,
       qualifiedProfit: -155.00, grossProfit: 50.00, profitRemoved: 205.00,
       accountType: "real", isCent: true,
-      recentTrades: [],
+      // 1W 2L → 33% win rate, avgWin≈70, avgLoss≈80, RR≈0.88
+      recentTrades: [
+        { symbol: "XAUUSDc", type: "Sell", volume: 0.01, profit: -88.00, date: "Jun 4, 09:00 → 10:30", violations: [] },
+        { symbol: "EURUSDc", type: "Buy",  volume: 0.01, profit:  70.00, date: "Jun 3, 13:00 → 14:30", violations: [] },
+        { symbol: "XAUUSDc", type: "Buy",  volume: 0.01, profit: -72.00, date: "Jun 3, 08:00 → 09:20", violations: [] },
+      ],
     },
     {
       rank: 17, nickname: "ForexEagle", balance: 820.00, trades: 7, qualifiedTrades: 6, flaggedTrades: 1,
       qualifiedProfit: -180.00, grossProfit: -80.00, profitRemoved: 100.00,
       accountType: "real", isCent: true,
-      recentTrades: [],
+      // 1W 2L → 33% win rate, avgWin≈52, avgLoss≈78, RR≈0.67
+      recentTrades: [
+        { symbol: "XAUUSDc", type: "Buy",  volume: 0.01, profit: -85.00, date: "Jun 4, 10:00 → 11:20", violations: [] },
+        { symbol: "EURUSDc", type: "Sell", volume: 0.01, profit:  52.00, date: "Jun 3, 14:00 → 15:30", violations: [] },
+        { symbol: "XAUUSDc", type: "Sell", volume: 0.01, profit: -71.00, date: "Jun 3, 09:00 → 10:10", violations: [] },
+      ],
     },
     // ── Blown account ────────────────────────────────────────────────────────
     {
       rank: 18, nickname: "ScalpGod", balance: 0, trades: 28, qualifiedTrades: 18, flaggedTrades: 10,
       qualifiedProfit: -1000.00, grossProfit: -1000.00, profitRemoved: 0,
       accountType: "real", isCent: true, isBlown: true,
+      // 1W 2L → 33% win rate, avgWin≈95, avgLoss≈385, RR≈0.25
       recentTrades: [
         { symbol: "XAUUSDc", type: "Buy",  volume: 0.02, profit: -320.00, date: "Jun 3, 07:30 → 09:00", violations: [] },
-        { symbol: "EURUSDc", type: "Buy",  volume: 0.01, profit: -450.00, date: "Jun 2, 14:00 → 15:45", violations: [] },
+        { symbol: "XAUUSDc", type: "Sell", volume: 0.01, profit:  95.00,  date: "Jun 2, 14:00 → 15:30", violations: [] },
+        { symbol: "EURUSDc", type: "Buy",  volume: 0.01, profit: -450.00, date: "Jun 2, 09:00 → 11:00", violations: [] },
       ],
     },
     // ── Disqualified ─────────────────────────────────────────────────────────
@@ -343,14 +412,19 @@ export default function DemoDashboard() {
       qualifiedProfit: 950.00, grossProfit: 950.00, profitRemoved: 0,
       accountType: "real", isCent: true, isDisqualified: true,
       disqualifyReason: "Account recharged — deposit of ¢500.00 detected after challenge start (2026-06-02)",
-      recentTrades: [],
+      recentTrades: [], // DQ — stats hidden, no trades shown
     },
     // ── Blown standard account ───────────────────────────────────────────────
     {
       rank: 20, nickname: "ZeroRisk", balance: 0, trades: 12, qualifiedTrades: 8, flaggedTrades: 4,
       qualifiedProfit: -10.00, grossProfit: -10.00, profitRemoved: 0,
-      accountType: "real", isCent: false, isBlown: true,  // ← blown standard user
-      recentTrades: [],
+      accountType: "real", isCent: false, isBlown: true,
+      // 1W 2L → 33% win rate, avgWin≈0.80, avgLoss≈0.90, RR≈0.89
+      recentTrades: [
+        { symbol: "EURUSDm", type: "Sell", volume: 0.01, profit: -0.95, date: "Jun 4, 10:00 → 11:20", violations: [] },
+        { symbol: "GBPUSDm", type: "Buy",  volume: 0.01, profit:  0.80, date: "Jun 3, 14:00 → 15:30", violations: [] },
+        { symbol: "XAUUSDm", type: "Sell", volume: 0.01, profit: -0.85, date: "Jun 3, 09:00 → 10:10", violations: [] },
+      ],
     },
   ];
 
