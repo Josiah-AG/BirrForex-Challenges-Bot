@@ -1942,7 +1942,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/user-evaluation`, adminIp
     // A trade is "simultaneous-only" if its only violations are the simultaneous ones.
     // Those go exclusively in the groups section. Trades with other violations too
     // appear in the main list (with "See simultaneous group below") AND in the groups.
-    const SIMUL_PATTERNS = [/Exceeded max \d+ simultaneous open trades/, /Exceeded max \d+ simultaneous .+ trades/];
+    const SIMUL_PATTERNS = [/Exceeded max \d+ simultaneous open trades/, /Exceeded max \d+ simultaneous \S+ trades/];
     const isSimulViolation = (v: string) => SIMUL_PATTERNS.some(p => p.test(v));
 
     // Find simultaneous violator tickets

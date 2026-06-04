@@ -598,16 +598,35 @@ export class WpEvaluationEngine {
     });
     events.sort((a, b) => a.time - b.time || (a.action === 'close' ? -1 : 1));
 
-    const maxOpenViolators = new Set<number>();
+    // maxOpenViolators: ticket → [{ticket, symbol}] of co-offending trades (excluding self)
+    const maxOpenViolators = new Map<number, { ticket: number; symbol: string }[]>();
     if (rules.max_open_trades) {
+      // symbol lookup for building co-offender labels
+      const symbolOf = new Map<number, string>(allTrades.map(t => [t.ticket, t.symbol]));
       const openSet = new Set<number>();
       for (const ev of events) {
         if (ev.action === 'open') openSet.add(ev.ticket); else openSet.delete(ev.ticket);
-        if (openSet.size > rules.max_open_trades) openSet.forEach(t => maxOpenViolators.add(t));
+        if (openSet.size > rules.max_open_trades) {
+          // Record every trade currently open, storing their co-offenders (all others in set)
+          openSet.forEach(tk => {
+            const coOffenders = [...openSet]
+              .filter(other => other !== tk)
+              .map(other => ({ ticket: other, symbol: symbolOf.get(other) || '' }));
+            if (!maxOpenViolators.has(tk)) {
+              maxOpenViolators.set(tk, coOffenders);
+            } else {
+              // Merge — add any new co-offenders not already recorded
+              const existing = maxOpenViolators.get(tk)!;
+              const existingTickets = new Set(existing.map(c => c.ticket));
+              coOffenders.forEach(c => { if (!existingTickets.has(c.ticket)) existing.push(c); });
+            }
+          });
+        }
       }
     }
 
-    const pairViolators = new Set<number>();
+    // pairViolators: ticket → ticket[] of co-offending same-pair trades (excluding self)
+    const pairViolators = new Map<number, number[]>();
     if (rules.pair_limit) {
       const bySymbol = new Map<string, TradeRow[]>();
       allTrades.forEach(t => { if (!bySymbol.has(t.symbol)) bySymbol.set(t.symbol, []); bySymbol.get(t.symbol)!.push(t); });
@@ -621,7 +640,18 @@ export class WpEvaluationEngine {
         const symOpen = new Set<number>();
         for (const ev of symEvents) {
           if (ev.action === 'open') symOpen.add(ev.ticket); else symOpen.delete(ev.ticket);
-          if (symOpen.size > rules.pair_limit!) symOpen.forEach(t => pairViolators.add(t));
+          if (symOpen.size > rules.pair_limit!) {
+            symOpen.forEach(tk => {
+              const coOffenders = [...symOpen].filter(other => other !== tk);
+              if (!pairViolators.has(tk)) {
+                pairViolators.set(tk, coOffenders);
+              } else {
+                const existing = pairViolators.get(tk)!;
+                const existingSet = new Set(existing);
+                coOffenders.forEach(c => { if (!existingSet.has(c)) existing.push(c); });
+              }
+            });
+          }
         }
       });
     }
@@ -678,14 +708,18 @@ export class WpEvaluationEngine {
         violations.push(`Lot size ${trade.volume} exceeds max ${rules.max_lot_size} lots`);
       }
 
-      // Max open trades
+      // Max open trades — include co-offending ticket IDs with their symbols
       if (maxOpenViolators.has(trade.ticket)) {
-        violations.push(`Exceeded max ${rules.max_open_trades} simultaneous open trades`);
+        const coOffenders = maxOpenViolators.get(trade.ticket)!;
+        const coStr = coOffenders.map(c => `#${c.ticket} [${c.symbol}]`).join(', ');
+        violations.push(`Exceeded max ${rules.max_open_trades} simultaneous open trades (also open: ${coStr})`);
       }
 
-      // Pair limit
+      // Pair limit — same symbol so no need to repeat currency
       if (pairViolators.has(trade.ticket)) {
-        violations.push(`Exceeded max ${rules.pair_limit} simultaneous ${trade.symbol} trades`);
+        const coOffenders = pairViolators.get(trade.ticket)!;
+        const coStr = coOffenders.map(tk => `#${tk}`).join(', ');
+        violations.push(`Exceeded max ${rules.pair_limit} simultaneous ${trade.symbol} trades (also open: ${coStr})`);
       }
 
       // Stop loss checks
