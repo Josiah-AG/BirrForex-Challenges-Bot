@@ -108,70 +108,140 @@ interface TradeRow {
 type CandleResult = { time: string; low: number; high: number; open: number; close: number }[];
 
 /**
- * Manages one logged-in terminal per account subtype for candle fetches.
+ * Manages candle terminal routing per account subtype.
  *
- * Why: OHLC price data is identical for all users of the same subtype on the
- * same broker. We only need ONE account logged in per subtype — not one per
- * participant — to make the right symbol suffix available (e.g. XAUUSDc).
- *
- * standard      → base account covers this (XAUUSDm etc.) — no extra login needed.
- * standard_cent → one cent account on a dedicated terminal.
- * pro/zero etc. → add entries to config.candleAccounts.
+ * Design:
+ *  - standard → no terminal_id; base account always has XAUUSDm etc.
+ *  - non-standard (cent, pro, zero…) → one representative participant per subtype
+ *    is logged into whichever healthy terminal is available at that moment.
+ *  - On fetch failure: rotate to the next healthy terminal, re-login, retry.
+ *  - No terminal IDs are fixed in config — any healthy terminal can serve any subtype.
+ *  - After the cycle: all used terminals restored to base account.
  */
 class CandleTerminalManager {
-  // terminalId → subtype(s) it currently serves
-  private activeTerminals = new Map<number, string[]>();
-  // subtype → terminalId currently serving it
-  private subtypeTerminal  = new Map<string, number>();
+  // subtype → credentials pulled from DB at setup
+  private subtypeCreds = new Map<string, { account: string; password: string; server: string }>();
+  // subtype → terminal currently logged-in with subtype creds
+  private subtypeTerminal = new Map<string, number>();
+  // all terminals considered healthy at setup time (IDs only)
+  private healthyTerminalIds: number[] = [];
+  // terminals we've already used for candle logins (to restore later)
+  private usedTerminals = new Set<number>();
 
   /**
-   * Login each configured candle account to its designated terminal.
-   * Called once before the evaluation cycle begins.
+   * Load credentials from DB for each non-standard subtype.
+   * Log the first healthy terminal in for each subtype.
+   * healthyTerminalIds comes from the scheduler's live terminal health state.
    */
-  async setup(): Promise<void> {
-    this.activeTerminals.clear();
+  async setup(challengeId: number, healthyTerminalIds: number[]): Promise<void> {
+    this.subtypeCreds.clear();
     this.subtypeTerminal.clear();
+    this.usedTerminals.clear();
+    this.healthyTerminalIds = [...healthyTerminalIds];
 
-    for (const entry of config.candleAccounts) {
-      if (!entry.account || !entry.password || !entry.server) continue;
-      try {
-        const res = await axios.post(
-          `${config.vpsApiUrl}/verify`,
-          { account: entry.account, server: entry.server, password: entry.password, api_key: config.vpsApiKey },
-          { timeout: 20000 }
-        );
-        if (res.data?.success) {
-          const tid = res.data.terminal_id || entry.terminalId;
-          this.activeTerminals.set(tid, entry.subtypes);
-          entry.subtypes.forEach(s => this.subtypeTerminal.set(s, tid));
-          console.log(`✅ Candle terminal T${tid} ready for subtypes: ${entry.subtypes.join(', ')}`);
-        } else {
-          console.warn(`⚠️ Candle terminal setup failed for subtypes ${entry.subtypes.join(',')}: ${res.data?.message}`);
-        }
-      } catch (e) {
-        console.warn(`⚠️ Candle terminal setup error for subtypes ${entry.subtypes.join(',')}: ${(e as Error).message}`);
+    const subtypeResult = await db.query(
+      `SELECT DISTINCT account_subtype
+       FROM trading_registrations
+       WHERE challenge_id = $1
+         AND disqualified = false
+         AND investor_password IS NOT NULL
+         AND connection_verified = true
+         AND account_subtype IS NOT NULL
+         AND account_subtype != 'standard'`,
+      [challengeId]
+    );
+
+    const subtypes: string[] = subtypeResult.rows.map((r: any) => r.account_subtype);
+    if (subtypes.length === 0) {
+      console.log('ℹ️ Candle setup: all participants are standard — base account covers all symbols');
+      return;
+    }
+
+    for (const subtype of subtypes) {
+      const rep = await db.query(
+        `SELECT account_number, investor_password, server
+         FROM trading_registrations
+         WHERE challenge_id = $1
+           AND account_subtype = $2
+           AND disqualified = false
+           AND investor_password IS NOT NULL
+           AND connection_verified = true
+         ORDER BY RANDOM() LIMIT 1`,
+        [challengeId, subtype]
+      );
+      if (rep.rows.length === 0) continue;
+
+      const { account_number, investor_password, server } = rep.rows[0];
+      this.subtypeCreds.set(subtype, { account: account_number, password: investor_password, server });
+
+      // Login to the first available healthy terminal
+      const tid = await this.loginOnNextHealthy(subtype, new Set());
+      if (tid !== null) {
+        console.log(`✅ Candle setup: subtype "${subtype}" logged in on T${tid} (account ${account_number})`);
+      } else {
+        console.warn(`⚠️ Candle setup: no healthy terminal available for subtype "${subtype}" — will retry at fetch time`);
       }
     }
   }
 
   /**
-   * Restore all candle terminals back to the base account.
-   * Called once after the evaluation cycle finishes.
+   * Try to login this subtype's account on the next healthy terminal
+   * that hasn't been tried yet (per this rotation attempt).
+   * Returns the terminal ID on success, null if all tried.
    */
+  async loginOnNextHealthy(subtype: string, triedInThisRotation: Set<number>): Promise<number | null> {
+    const creds = this.subtypeCreds.get(subtype);
+    if (!creds) return null;
+
+    for (const tid of this.healthyTerminalIds) {
+      if (triedInThisRotation.has(tid)) continue;
+      triedInThisRotation.add(tid);
+      try {
+        const res = await axios.post(
+          `${config.vpsApiUrl}/verify`,
+          { account: creds.account, server: creds.server, password: creds.password, api_key: config.vpsApiKey, terminal_id: tid },
+          { timeout: 20000 }
+        );
+        if (res.data?.success) {
+          this.subtypeTerminal.set(subtype, tid);
+          this.usedTerminals.add(tid);
+          return tid;
+        }
+      } catch {
+        // terminal unreachable — try next
+      }
+    }
+    return null;
+  }
+
+  /** Current terminal for a subtype, or undefined for standard. */
+  terminalFor(accountSubtype: string | null): number | undefined {
+    if (!accountSubtype || accountSubtype === 'standard') return undefined;
+    return this.subtypeTerminal.get(accountSubtype);
+  }
+
+  /** Whether we have credentials loaded for this subtype. */
+  hasCredsFor(accountSubtype: string): boolean {
+    return this.subtypeCreds.has(accountSubtype);
+  }
+
+  /**
+   * Called when a candle fetch fails on `failedTid`.
+   * Rotates to the next healthy terminal: logs in the subtype account there
+   * and returns the new terminal ID, or null if none are left.
+   */
+  async rotateTerminal(subtype: string, triedInThisRotation: Set<number>): Promise<number | null> {
+    return this.loginOnNextHealthy(subtype, triedInThisRotation);
+  }
+
+  /** Restore all terminals used for candle logins back to the base account. */
   async restore(): Promise<void> {
-    if (this.activeTerminals.size === 0) return;
-    const terminals = [...this.activeTerminals.keys()];
-    for (const tid of terminals) {
+    if (this.usedTerminals.size === 0) return;
+    for (const tid of this.usedTerminals) {
       try {
         await axios.post(
           `${config.vpsApiUrl}/verify`,
-          {
-            account:  config.vpsBaseAccount,
-            server:   config.vpsBaseServer,
-            password: config.vpsBasePassword,
-            api_key:  config.vpsApiKey,
-            terminal_id: tid,
-          },
+          { account: config.vpsBaseAccount, server: config.vpsBaseServer, password: config.vpsBasePassword, api_key: config.vpsApiKey, terminal_id: tid },
           { timeout: 20000 }
         );
         console.log(`✅ Candle terminal T${tid} restored to base account`);
@@ -179,17 +249,8 @@ class CandleTerminalManager {
         console.warn(`⚠️ Could not restore candle terminal T${tid}: ${(e as Error).message}`);
       }
     }
-    this.activeTerminals.clear();
+    this.usedTerminals.clear();
     this.subtypeTerminal.clear();
-  }
-
-  /**
-   * Get the terminal ID to use for a given account subtype.
-   * Returns undefined for standard (base account handles it — no terminal_id needed).
-   */
-  terminalFor(accountSubtype: string | null): number | undefined {
-    if (!accountSubtype || accountSubtype === 'standard') return undefined; // base account
-    return this.subtypeTerminal.get(accountSubtype);
   }
 }
 
@@ -200,13 +261,13 @@ export const candleTerminalManager = new CandleTerminalManager();
 /**
  * Fetch OHLC candles from VPS for SL validation.
  *
- * Routes to the correct terminal based on account subtype:
- *  - standard / unknown → no terminal_id (router picks any; base account has XAUUSDm)
- *  - standard_cent → dedicated cent candle terminal (XAUUSDc available)
- *  - others → dedicated terminal if configured
+ * For standard subtype: sends without terminal_id — router picks any healthy terminal,
+ * base account always has XAUUSDm etc.
  *
- * Retry: tries up to 3 different healthy terminals before giving up.
- * On persistent failure: returns null (logged as sl_check_failed by caller).
+ * For non-standard subtypes (cent, pro, zero…): routes to whatever terminal the
+ * CandleTerminalManager currently has logged in for that subtype. On failure, rotates
+ * to the next healthy terminal (re-login + retry) until all healthy terminals are
+ * exhausted. Returns null only when everything has been tried.
  */
 async function fetchCandles(
   symbol: string,
@@ -215,54 +276,50 @@ async function fetchCandles(
   timeframe: string = 'M1',
   accountSubtype: string | null = null
 ): Promise<CandleResult | null> {
-  const preferredTerminalId = candleTerminalManager.terminalFor(accountSubtype);
-  // Try preferred terminal first, then without terminal_id (any), then one more retry
-  const terminalIds: (number | undefined)[] = preferredTerminalId
-    ? [preferredTerminalId, undefined, preferredTerminalId]  // preferred → any → preferred again
-    : [undefined, undefined];                                 // standard: just try twice
 
-  for (let attempt = 0; attempt < terminalIds.length; attempt++) {
-    const tid = terminalIds[attempt];
-    try {
-      const body: Record<string, unknown> = {
-        symbol,
-        timeframe,
-        from_time: fromTime.toISOString(),
-        to_time:   toTime.toISOString(),
-        api_key:   config.vpsApiKey,
-      };
-      if (tid !== undefined) body.terminal_id = tid;
-
-      const response = await axios.post(
-        `${config.vpsApiUrl}/api/v1/candles`,
-        body,
-        { headers: { 'Content-Type': 'application/json' }, timeout: 15000 }
-      );
-
-      if (response.data?.success && response.data?.candles?.length > 0) {
-        return response.data.candles;
-      }
-
-      // Symbol not available on this terminal — re-login candle account and retry
-      if (preferredTerminalId && tid === undefined && attempt === 1) {
-        // Re-login the candle account to refresh symbol availability
-        const entry = config.candleAccounts.find(e =>
-          e.subtypes.some(s => candleTerminalManager.terminalFor(s) === preferredTerminalId)
+  // ── Standard subtype: no specific terminal needed ──────────────────────────
+  if (!accountSubtype || accountSubtype === 'standard' || !candleTerminalManager.hasCredsFor(accountSubtype)) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const res = await axios.post(
+          `${config.vpsApiUrl}/api/v1/candles`,
+          { symbol, timeframe, from_time: fromTime.toISOString(), to_time: toTime.toISOString(), api_key: config.vpsApiKey },
+          { headers: { 'Content-Type': 'application/json' }, timeout: 15000 }
         );
-        if (entry?.account) {
-          await axios.post(
-            `${config.vpsApiUrl}/verify`,
-            { account: entry.account, server: entry.server, password: entry.password, api_key: config.vpsApiKey, terminal_id: preferredTerminalId },
-            { timeout: 20000 }
-          ).catch(() => {});
-        }
-      }
-    } catch {
-      // Network/timeout — continue to next attempt
+        if (res.data?.success && res.data?.candles?.length > 0) return res.data.candles;
+      } catch { /* network/timeout — retry */ }
     }
+    return null;
   }
 
-  return null; // All attempts failed — caller logs sl_check_failed
+  // ── Non-standard subtype: dynamic terminal with rotation ───────────────────
+  const triedInThisRotation = new Set<number>();
+
+  // Seed with the terminal already logged-in from setup (if any)
+  let currentTid = candleTerminalManager.terminalFor(accountSubtype);
+  if (currentTid !== undefined) triedInThisRotation.add(currentTid);
+
+  // If setup didn't manage to login anywhere, try to find one now
+  if (currentTid === undefined) {
+    currentTid = (await candleTerminalManager.rotateTerminal(accountSubtype, triedInThisRotation)) ?? undefined;
+  }
+
+  while (currentTid !== undefined) {
+    try {
+      const res = await axios.post(
+        `${config.vpsApiUrl}/api/v1/candles`,
+        { symbol, timeframe, from_time: fromTime.toISOString(), to_time: toTime.toISOString(), api_key: config.vpsApiKey, terminal_id: currentTid },
+        { headers: { 'Content-Type': 'application/json' }, timeout: 15000 }
+      );
+      if (res.data?.success && res.data?.candles?.length > 0) return res.data.candles;
+    } catch { /* terminal unreachable or timeout */ }
+
+    // This terminal failed — rotate to the next healthy one
+    const nextTid = await candleTerminalManager.rotateTerminal(accountSubtype, triedInThisRotation);
+    currentTid = nextTid ?? undefined;
+  }
+
+  return null; // All healthy terminals exhausted — caller logs sl_check_failed
 }
 
 /**

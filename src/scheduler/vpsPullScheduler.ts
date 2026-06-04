@@ -293,7 +293,7 @@ export class VpsPullScheduler {
       }
 
       // === PRE-CYCLE: Login candle accounts to their designated terminals ===
-      await candleTerminalManager.setup();
+      await candleTerminalManager.setup(challengeToPull.id, healthyTerminals.map(t => t.id));
 
       // Launch terminal workers (they pull from shared queue)
       const allResults = await this.runSharedQueueWorkers(healthyTerminals, challengeToPull, batchId);
@@ -470,7 +470,7 @@ export class VpsPullScheduler {
         return;
       }
 
-      await candleTerminalManager.setup();
+      await candleTerminalManager.setup(challengeToPull.id, healthyTerminals.map(t => t.id));
       const allResults = await this.runSharedQueueWorkers(healthyTerminals, challengeToPull, batchId);
       await candleTerminalManager.restore();
 

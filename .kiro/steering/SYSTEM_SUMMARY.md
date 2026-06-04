@@ -475,3 +475,36 @@ Convert ×100 ONLY when: `user.is_cent = true` AND challenge is NOT "Real + cent
 3. **Admin panel CSV export format** — Minor formatting updates.
 4. **VPS restart** — New code needs VPS restart to activate candles endpoint and account_subtype detection.
 5. **Bulk update legacy registrations** — Old registrations without `account_subtype` need backfill via shield verify.
+
+---
+
+## SESSION LOG — June 4, 2026
+
+### Changes Made This Session:
+
+**1. Fake SL Detection — Dynamic Candle Terminal Routing (wpEvaluationEngine.ts)**
+
+Previous problem: `fetchCandles()` hardcoded `terminal_id: 1`. Cent account symbols (XAUUSDc etc.) were not available on the base account terminal, so cent user SL checks always failed silently with benefit of doubt.
+
+Previous partial fix (May 28): added `CandleTerminalManager` with env-var-configured candle accounts pinned to fixed terminals (T9, T10). Still too rigid.
+
+**This session — full rewrite of CandleTerminalManager:**
+- **No fixed terminal IDs anywhere.** Any healthy terminal can serve any subtype.
+- **No env vars for candle credentials.** Credentials are sourced from the DB at runtime — one random registered participant per non-standard subtype is selected each cycle.
+- `setup(challengeId, healthyTerminalIds)`: queries `trading_registrations` for all distinct non-standard subtypes → picks one random connected participant per subtype → logs that account into the first available healthy terminal → stores `subtype → terminalId` mapping.
+- `fetchCandles()` — dynamic retry loop:
+  - **Standard subtype:** sends without `terminal_id` (base account covers XAUUSDm etc.), retries once on failure.
+  - **Non-standard subtypes:** routes to currently mapped terminal → on failure, calls `rotateTerminal()` → logs the subtype account into the next healthy terminal not yet tried → retries → continues until success or all healthy terminals exhausted.
+- `restore()`: restores all terminals used for candle logins back to the base account after the cycle.
+- Removed `candleTerminalPool` from `config.ts` (no longer needed).
+- Removed `candleAccounts` env-var array from `config.ts` (no longer needed).
+- `vpsPullScheduler.ts`: both `setup()` call sites (scheduled cycle + admin full pull) now pass `healthyTerminals.map(t => t.id)`.
+
+**Result:** Cent and other non-standard subtype fake SL checks now work correctly. If a terminal goes down mid-cycle, the system automatically rotates to another healthy terminal for the candle fetch and re-logins there. All terminals restored to base account after cycle.
+
+### What's Left:
+
+1. **Discord Bot (Python) rewrite** — `challenge_bot.py` full rewrite per REGISTRATION_FLOW_SPEC.
+2. **Admin panel SL check failure UI** — `wp_pull_errors` data exists; UI panel not built yet.
+3. **Bulk update legacy registrations** — Old registrations without `account_subtype` need backfill.
+4. **VPS restart** — Pull and restart needed to activate changes.
