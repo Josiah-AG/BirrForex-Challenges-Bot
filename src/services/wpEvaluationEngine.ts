@@ -1185,19 +1185,22 @@ export class WpEvaluationEngine {
     const challengeType = challengeResult.rows[0]?.type || 'demo';
 
     // Determine display mode:
-    // - "cent_only": Real + cent-only → admin entered in cent terms, display in ¢
-    // - "dual": Flexible (real or hybrid) where cent users may exist → show both $ and ¢
-    // - "standard": Demo only or no cent possibility → display in $
+    //
+    // isRealCentOnly: challenge type = real AND only_cent_account = true
+    //   → Admin entered values in ¢. All real users are cent. Display in ¢ only.
+    //
+    // showDual: challenge type = hybrid AND only_cent_account = true
+    //   → Real category is cent-only, demo is standard. Show both $ (demo) and ¢ (real).
+    //   → Admin enters in standard terms; engine ×100 for cent users.
+    //
+    // standard (everything else): display in $ only.
+    //   Covers: demo-only, real with no cent restriction, hybrid with no cent restriction.
     const isRealCentOnly = challengeType === 'real' && isCent;
-    const isFlexibleWithCent = !isRealCentOnly && (challengeType === 'real' || challengeType === 'hybrid');
-    // Show dual format when: hybrid (always has potential for cent in real category) OR real+flexible
-    const showDual = isFlexibleWithCent && (isCent || challengeType === 'hybrid' || challengeType === 'real');
+    const showDual = challengeType === 'hybrid' && isCent;
 
     if (cfg.max_lot_size) {
       if (showDual) {
-        rules.push(`📊 Maximum lot size: ${cfg.max_lot_size} lots (Standard) / ${cfg.max_lot_size * 100} lots (Cent)`);
-      } else if (isRealCentOnly) {
-        rules.push(`📊 Maximum lot size: ${cfg.max_lot_size} lots`);
+        rules.push(`📊 Maximum lot size: ${cfg.max_lot_size} lots (Standard/Demo) / ${cfg.max_lot_size * 100} lots (Cent/Real)`);
       } else {
         rules.push(`📊 Maximum lot size: ${cfg.max_lot_size} lots`);
       }
@@ -1205,7 +1208,7 @@ export class WpEvaluationEngine {
     if (cfg.max_open_trades) rules.push(`📈 Maximum ${cfg.max_open_trades} trades open at the same time`);
     if (cfg.pair_limit) rules.push(`🔄 Maximum ${cfg.pair_limit} trades on the same pair simultaneously`);
     if (cfg.stop_loss_required) {
-      let t = '🛡️ Stop loss required on all trades';
+      let t = '🛡️ Stop loss required on all trades — must be placed at entry';
       if (cfg.max_risk_dollars) {
         if (showDual) {
           t += ` (max risk: $${cfg.max_risk_dollars} Standard / ${cfg.max_risk_dollars * 100}¢ Cent)`;
