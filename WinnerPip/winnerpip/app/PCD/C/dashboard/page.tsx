@@ -16,7 +16,7 @@ interface LeaderboardEntry {
   rank: number; nickname: string; balance: number; trades: number;
   qualifiedTrades: number; flaggedTrades: number;
   qualifiedProfit: number; grossProfit: number; profitRemoved: number;
-  accountType: string; isCent: boolean;
+  accountType: string; accountSubtype?: string; isCent: boolean;
   isMe?: boolean; isDisqualified?: boolean; disqualifyReason?: string; isBlown?: boolean;
   recentTrades: { symbol: string; type: string; profit: number; volume: number; date: string; flagged?: boolean; violations?: string[] }[];
 }
@@ -204,7 +204,7 @@ export default function DemoDashboard() {
     {
       rank: 1, nickname: "GoldPipKing", balance: 2250.00, trades: 18, qualifiedTrades: 16, flaggedTrades: 2,
       qualifiedProfit: 1250.00, grossProfit: 1400.00, profitRemoved: 150.00,
-      accountType: "real", isCent: true,
+      accountType: "real", accountSubtype: "standard_cent", isCent: true,
       // 3W 1L → 75% win rate, avgWin≈85, avgLoss≈42, RR≈2.02
       recentTrades: [
         { symbol: "XAUUSDc", type: "Buy",  volume: 0.01, profit:  95.00, date: "Jun 4, 14:22 → 16:48", violations: [] },
@@ -310,7 +310,7 @@ export default function DemoDashboard() {
     {
       rank: 10, nickname: "SwingKing", balance: 11.20, trades: 15, qualifiedTrades: 13, flaggedTrades: 2,
       qualifiedProfit: 1.20, grossProfit: 2.80, profitRemoved: 1.60,
-      accountType: "real", isCent: false,
+      accountType: "real", accountSubtype: "standard", isCent: false,
       // 2W 1L → 67% win rate, avgWin≈1.4, avgLoss≈0.72, RR≈1.94
       recentTrades: [
         { symbol: "EURUSDm", type: "Buy",  volume: 0.01, profit:  1.40, date: "Jun 4, 10:00 → 12:15", violations: [] },
@@ -321,7 +321,7 @@ export default function DemoDashboard() {
     {
       rank: 11, nickname: "TrendRider", balance: 10.80, trades: 11, qualifiedTrades: 10, flaggedTrades: 1,
       qualifiedProfit: 0.80, grossProfit: 1.50, profitRemoved: 0.70,
-      accountType: "real", isCent: false,
+      accountType: "real", accountSubtype: "standard", isCent: false,
       // 2W 1L → 67% win rate, avgWin≈0.85, avgLoss≈0.55, RR≈1.55
       recentTrades: [
         { symbol: "GBPUSDm", type: "Sell", volume: 0.01, profit:  0.80, date: "Jun 4, 08:00 → 09:30", violations: [] },
@@ -355,7 +355,7 @@ export default function DemoDashboard() {
     {
       rank: 14, nickname: "MarketPro", balance: 9.20, trades: 8, qualifiedTrades: 7, flaggedTrades: 1,
       qualifiedProfit: -0.80, grossProfit: 0.50, profitRemoved: 1.30,
-      accountType: "real", isCent: false,
+      accountType: "real", accountSubtype: "standard", isCent: false,
       // 1W 2L → 33% win rate, avgWin≈0.90, avgLoss≈0.70, RR≈1.29
       recentTrades: [
         { symbol: "EURUSDm", type: "Sell", volume: 0.01, profit: -0.80, date: "Jun 4, 09:00 → 10:15", violations: [] },
@@ -420,7 +420,7 @@ export default function DemoDashboard() {
     {
       rank: 20, nickname: "ZeroRisk", balance: 0, trades: 12, qualifiedTrades: 8, flaggedTrades: 4,
       qualifiedProfit: -10.00, grossProfit: -10.00, profitRemoved: 0,
-      accountType: "real", isCent: false, isBlown: true,
+      accountType: "real", accountSubtype: "standard", isCent: false, isBlown: true,
       // 1W 2L → 33% win rate, avgWin≈0.80, avgLoss≈0.90, RR≈0.89
       recentTrades: [
         { symbol: "EURUSDm", type: "Sell", volume: 0.01, profit: -0.95, date: "Jun 4, 10:00 → 11:20", violations: [] },
@@ -588,7 +588,7 @@ export default function DemoDashboard() {
           </div>
           <div className="divide-y divide-white/5">
             {leaderboard.map((entry) => (
-              <LeaderboardRow key={entry.rank} entry={entry} formatBalance={formatBalance} onClick={() => { setShowLeaderboardModal(true); setSelectedUser(entry); }} />
+              <LeaderboardRow key={entry.rank} entry={entry} formatBalance={formatBalance} formatSubtype={formatSubtype} onClick={() => { setShowLeaderboardModal(true); setSelectedUser(entry); }} />
             ))}
           </div>
           <div className="p-3 border-t border-white/5 text-center">
@@ -686,7 +686,7 @@ export default function DemoDashboard() {
             {!selectedUser ? (
               <div className="divide-y divide-white/5">
                 {leaderboard.map((entry) => (
-                  <LeaderboardRow key={entry.rank} entry={entry} formatBalance={formatBalance} onClick={() => setSelectedUser(entry)} />
+                  <LeaderboardRow key={entry.rank} entry={entry} formatBalance={formatBalance} formatSubtype={formatSubtype} onClick={() => setSelectedUser(entry)} />
                 ))}
                 <div className="p-3 border-t border-white/5 text-center">
                   <button className="px-4 py-2 rounded-lg bg-white/5 border border-white/10 text-gray-400 text-xs font-semibold">
@@ -747,7 +747,7 @@ export default function DemoDashboard() {
                     <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Net P&L</p><p className={`text-sm font-bold ${selectedUser.qualifiedProfit >= 0 ? "text-profit" : "text-loss"}`}>{formatBalance(selectedUser.qualifiedProfit, selectedUser.isCent)}</p></div>
                     <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Total P&L</p><p className="text-sm font-bold text-white">{formatBalance(selectedUser.grossProfit, selectedUser.isCent)}</p></div>
                     <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">P&L Removed</p><p className="text-sm font-bold text-loss">{formatBalance(selectedUser.profitRemoved, selectedUser.isCent)}</p></div>
-                    <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Account Type</p><p className="text-sm font-bold text-white capitalize">{selectedUser.accountType}</p></div>
+                    <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Account Type</p><p className="text-sm font-bold text-white">{formatSubtype(selectedUser.accountSubtype, selectedUser.accountType)}</p></div>
                   </div>
 
                   {/* Trade list — matches production row format */}
@@ -849,7 +849,7 @@ export default function DemoDashboard() {
   );
 }
 
-function LeaderboardRow({ entry, formatBalance, onClick }: { entry: LeaderboardEntry; formatBalance: (n: number, c?: boolean) => string; onClick: () => void }) {
+function LeaderboardRow({ entry, formatBalance, formatSubtype, onClick }: { entry: LeaderboardEntry; formatBalance: (n: number, c?: boolean) => string; formatSubtype: (s: string | undefined, t: string) => string; onClick: () => void }) {
   return (
     <button onClick={onClick} className={`w-full flex items-center gap-4 px-4 py-3 text-left hover:bg-white/5 transition-colors ${entry.isMe ? "bg-royal/10 border-l-2 border-royal" : ""} ${entry.isDisqualified ? "opacity-60" : ""}`}>
       <div className={`flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center text-sm font-bold ${entry.isDisqualified ? "bg-loss/20 text-loss" : entry.rank === 1 ? "bg-gold/20 text-gold" : entry.rank === 2 ? "bg-gray-400/20 text-gray-300" : entry.rank === 3 ? "bg-orange-500/20 text-orange-400" : "bg-white/5 text-gray-500"}`}>{entry.rank}</div>
@@ -860,7 +860,7 @@ function LeaderboardRow({ entry, formatBalance, onClick }: { entry: LeaderboardE
           {entry.isDisqualified && <span className="px-1.5 py-0.5 bg-loss/20 text-loss text-[10px] rounded font-bold">DQ</span>}
           {entry.isBlown && !entry.isDisqualified && <span className="px-1.5 py-0.5 bg-gray-500/20 text-gray-400 text-[10px] rounded font-bold">💀</span>}
         </div>
-        <p className="text-[10px] text-gray-500">{entry.trades} trades • {entry.qualifiedTrades} qualified • {entry.accountType}</p>
+        <p className="text-[10px] text-gray-500">{entry.trades} trades • {entry.qualifiedTrades} qualified • {formatSubtype(entry.accountSubtype, entry.accountType)}</p>
       </div>
       <p className="text-sm font-bold text-white">
         {entry.isDisqualified ? <span className="text-loss">DQ</span> : formatBalance(entry.balance, entry.isCent)}
