@@ -335,6 +335,24 @@ router.post('/verify-connection', async (req: Request, res: Response) => {
 
         // Detect cent account by currency: USC = US Cent
         isCentAccount = currency.toUpperCase() === 'USC' || currency.toUpperCase() === 'USCENT';
+        const subtype = (vpsResult.account_subtype || '').toLowerCase();
+        const isProRawZero = ['pro', 'raw_spread', 'zero'].includes(subtype);
+
+        // Reject Pro/Raw/Zero subtypes — only Standard and Standard Cent allowed
+        if (accountType === 'demo' && subtype && subtype !== 'standard' && subtype !== 'unknown') {
+          return res.json({
+            verified: true, balance, equity: vpsResult.equity, server: matchedServer, currency,
+            rejected: true, rejectionReason: 'account_subtype_not_allowed',
+            message: `Your demo account is a ${subtype} account. Demo category only accepts Standard accounts.\n\nCreate a Standard demo account and try again.`,
+          });
+        }
+        if (accountType === 'real' && !isCentAccount && isProRawZero) {
+          return res.json({
+            verified: true, balance, equity: vpsResult.equity, server: matchedServer, currency,
+            rejected: true, rejectionReason: 'account_subtype_not_allowed',
+            message: `Your account is a ${subtype === 'pro' ? 'Pro' : subtype === 'zero' ? 'Zero' : 'Raw Spread'} account. This challenge only accepts Standard or Standard Cent accounts.\n\nCreate a Standard or Standard Cent account and try again.`,
+          });
+        }
 
         if (challenge_id) {
           const challengeData = await db.query(
@@ -473,6 +491,24 @@ router.post('/challenges/:id/verify/:registrationId', async (req: Request, res: 
 
         // Detect cent by currency (USC = US Cent)
         let isCent = vpsCurrency === 'USC' || vpsCurrency === 'USCENT';
+        const regSubtype = (vpsResult.account_subtype || '').toLowerCase();
+        const regIsProRawZero = ['pro', 'raw_spread', 'zero'].includes(regSubtype);
+
+        // Reject Pro/Raw/Zero subtypes
+        if (registration.account_type === 'demo' && regSubtype && regSubtype !== 'standard' && regSubtype !== 'unknown') {
+          return res.json({
+            success: true, verified: false,
+            rejected: true, rejectionReason: 'account_subtype_not_allowed',
+            message: `Demo category only accepts Standard accounts. Your account is a ${regSubtype} account.`,
+          });
+        }
+        if (registration.account_type === 'real' && !isCent && regIsProRawZero) {
+          return res.json({
+            success: true, verified: false,
+            rejected: true, rejectionReason: 'account_subtype_not_allowed',
+            message: `Only Standard or Standard Cent accounts are accepted. Your account is a ${regSubtype === 'pro' ? 'Pro' : regSubtype === 'zero' ? 'Zero' : 'Raw Spread'} account.`,
+          });
+        }
 
         // Cent-only challenge: reject if not cent
         if (onlyCent && registration.account_type === 'real' && !isCent) {

@@ -1083,7 +1083,7 @@ export class TradingRegistrationHandler {
         session.data.registration_balance = vpsBalance;
         await ctx.reply(
           `✅ <b>MT5 connection verified!</b>\n\n` +
-          `⚠️ Your account balance is <b>$0.00</b>.\n\n` +
+          `⚠️ Your account balance is <b>${isCentAccount ? '¢0.00' : '$0.00'}</b>.\n\n` +
           `Please deposit before the challenge starts.`,
           { parse_mode: 'HTML' }
         );
