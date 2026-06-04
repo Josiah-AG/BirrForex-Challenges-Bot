@@ -3055,14 +3055,18 @@ export class TradingAdminHandler {
     if (!this.checkAdmin(ctx)) return;
 
     const challenges = await tradingChallengeService.getAllChallenges();
-    const active = challenges.filter(c => !['draft', 'completed', 'deleted'].includes(c.status));
+    // Only Telegram challenges — Discord challenges always use WinnerPip
+    const active = challenges.filter(c =>
+      !['draft', 'completed', 'deleted'].includes(c.status) &&
+      (c as any).source !== 'discord'
+    );
 
     if (active.length === 0) {
-      await ctx.reply('❌ No active trading challenges found.');
+      await ctx.reply('❌ No active Telegram challenges found. (Discord challenges always use WinnerPip and cannot be changed.)');
       return;
     }
 
-    let text = '<b>📊 EVALUATION TYPE</b>\n\nSelect a challenge to change its evaluation mode:\n\n';
+    let text = '<b>📊 EVALUATION TYPE</b>\n\nSelect a challenge to toggle its evaluation mode:\n\n';
     const buttons: any[][] = [];
 
     for (const c of active) {
