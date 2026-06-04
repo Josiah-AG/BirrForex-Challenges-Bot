@@ -39,6 +39,8 @@ export default function AdminDashboard() {
     only_cent_account: false,
   });
   const [rulesSaved, setRulesSaved] = useState(false);
+  const [rulesLocked, setRulesLocked] = useState(false);
+  const [rulesLoading, setRulesLoading] = useState(false);
   const [overviewData, setOverviewData] = useState<any>(null);
   const [verifyPopup, setVerifyPopup] = useState<any>(null);
 
@@ -99,6 +101,12 @@ export default function AdminDashboard() {
     fetchChallenges();
   }, [isAdmin]);
 
+  // Reset rules state whenever the selected challenge changes
+  useEffect(() => {
+    setRulesSaved(false);
+    setRulesLocked(false);
+  }, [selectedChallengeId]);
+
   // Fetch overview data when challenge changes
   useEffect(() => {
     if (!isAdmin || !selectedChallengeId) return;
@@ -111,18 +119,45 @@ export default function AdminDashboard() {
           const data = await res.json();
           setOverviewData(data);
         }
-        // Also fetch rules to determine if cent challenge
-        const rulesRes = await fetch(`${apiUrl}/api/challenges/${selectedChallengeId}/rules`);
-        if (rulesRes.ok) {
-          const rulesData = await rulesRes.json();
-          if (rulesData.isCent !== undefined) {
-            setRulesConfig(prev => ({ ...prev, only_cent_account: rulesData.isCent }));
-          }
-        }
       } catch {}
     };
     fetchOverview();
   }, [isAdmin, selectedChallengeId]);
+
+  // Fetch actual saved rules when Rules tab is opened or challenge changes
+  useEffect(() => {
+    if (!isAdmin || activeSection !== "rules" || !selectedChallengeId) return;
+    const fetchRules = async () => {
+      setRulesLoading(true);
+      try {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
+        const secretPath = process.env.NEXT_PUBLIC_ADMIN_PATH || "";
+        const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${selectedChallengeId}/rules`);
+        if (res.ok) {
+          const data = await res.json();
+          setRulesLocked(data.locked || false);
+          if (data.rules) {
+            setRulesConfig({
+              max_lot_size: data.rules.max_lot_size ?? 0.02,
+              max_open_trades: data.rules.max_open_trades ?? 3,
+              pair_limit: data.rules.pair_limit ?? 2,
+              stop_loss_required: data.rules.stop_loss_required ?? true,
+              max_risk_dollars: data.rules.max_risk_dollars ?? 5,
+              daily_loss_cap: data.rules.daily_loss_cap ?? 10,
+              max_hold_hours: data.rules.max_hold_hours ?? 24,
+              weekend_trading: data.rules.weekend_trading ?? false,
+              min_active_days: data.rules.min_active_days ?? 7,
+              only_cent_account: data.rules.only_cent_account ?? false,
+            });
+          }
+          // If locked, also reset saved state so button reflects current status
+          if (data.locked) setRulesSaved(false);
+        }
+      } catch {}
+      setRulesLoading(false);
+    };
+    fetchRules();
+  }, [isAdmin, activeSection, selectedChallengeId]);
 
   // Fetch participants when tab is active or page changes
   useEffect(() => {
@@ -828,100 +863,109 @@ export default function AdminDashboard() {
       {activeSection === "rules" && (
         <div className="container mx-auto px-4 max-w-7xl relative">
           <div className="glass rounded-2xl border border-white/10 p-5">
-            <h3 className="text-sm font-semibold text-white mb-2 flex items-center gap-2"><FileText size={16} className="text-royal" /> Challenge Rules Configuration</h3>
-            <p className="text-xs text-gray-500 mb-6">Set the rules for this challenge. Users will see these on their dashboard. Leave fields empty for unlimited.</p>
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-sm font-semibold text-white flex items-center gap-2"><FileText size={16} className="text-royal" /> Challenge Rules Configuration</h3>
+              {rulesLocked && <span className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/5 border border-white/10 text-xs text-gray-400"><Shield size={12} /> Locked — challenge is {challenge.status}</span>}
+            </div>
+            <p className="text-xs text-gray-500 mb-6">
+              {rulesLocked ? "Rules are read-only once a challenge is active. Switch to review status to see them." : "Set the rules for this challenge. Users will see these on their dashboard. Leave fields empty for unlimited."}
+            </p>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-              {/* Max Lot Size */}
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-300">Max Lot Size</label>
-                <Input type="number" step="0.01" placeholder="e.g., 0.02 (empty = unlimited)" value={rulesConfig.max_lot_size || ""} onChange={(e) => setRulesConfig({ ...rulesConfig, max_lot_size: e.target.value ? parseFloat(e.target.value) : 0 })} />
-                <p className="text-[10px] text-gray-500">Trades exceeding this lot size will have profits removed</p>
-              </div>
-
-              {/* Max Open Trades */}
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-300">Max Open Trades</label>
-                <Input type="number" placeholder="e.g., 3 (empty = unlimited)" value={rulesConfig.max_open_trades || ""} onChange={(e) => setRulesConfig({ ...rulesConfig, max_open_trades: e.target.value ? parseInt(e.target.value) : 0 })} />
-                <p className="text-[10px] text-gray-500">Maximum trades open at the same time</p>
-              </div>
-
-              {/* Pair Limit */}
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-300">Pair Limit (Simultaneous)</label>
-                <Input type="number" placeholder="e.g., 2 (empty = unlimited)" value={rulesConfig.pair_limit || ""} onChange={(e) => setRulesConfig({ ...rulesConfig, pair_limit: e.target.value ? parseInt(e.target.value) : 0 })} />
-                <p className="text-[10px] text-gray-500">Max same-pair trades open at the same time</p>
-              </div>
-
-              {/* Max Risk Dollars */}
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-300">Max Risk per Trade ($)</label>
-                <Input type="number" step="0.5" placeholder="e.g., 5 (empty = no limit)" value={rulesConfig.max_risk_dollars || ""} onChange={(e) => setRulesConfig({ ...rulesConfig, max_risk_dollars: e.target.value ? parseFloat(e.target.value) : 0 })} />
-                <p className="text-[10px] text-gray-500">Maximum SL distance in dollars</p>
-              </div>
-
-              {/* Daily Loss Cap */}
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-300">Daily Loss Cap ($)</label>
-                <Input type="number" step="1" placeholder="e.g., 10 (empty = no cap)" value={rulesConfig.daily_loss_cap || ""} onChange={(e) => setRulesConfig({ ...rulesConfig, daily_loss_cap: e.target.value ? parseFloat(e.target.value) : 0 })} />
-                <p className="text-[10px] text-gray-500">Max drawdown from day&apos;s opening balance. Profits after breach are removed.</p>
-              </div>
-
-              {/* Trading Duration */}
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-300">Max Trade Duration (hours)</label>
-                <Input type="number" placeholder="e.g., 24 (empty = unlimited)" value={rulesConfig.max_hold_hours || ""} onChange={(e) => setRulesConfig({ ...rulesConfig, max_hold_hours: e.target.value ? parseInt(e.target.value) : 0 })} />
-                <p className="text-[10px] text-gray-500">Trades held longer will have profits removed</p>
-              </div>
-
-              {/* Active Trading Days */}
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-300">Min Active Trading Days</label>
-                <Input type="number" placeholder="e.g., 7" value={rulesConfig.min_active_days || ""} onChange={(e) => setRulesConfig({ ...rulesConfig, min_active_days: e.target.value ? parseInt(e.target.value) : 0 })} />
-                <p className="text-[10px] text-gray-500">Minimum days user must trade to qualify for prizes</p>
-              </div>
-
-              {/* Toggles */}
-              <div className="space-y-4">
-                <div className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10">
-                  <div><p className="text-sm text-white font-medium">Stop Loss Required</p><p className="text-[10px] text-gray-500">All trades must have SL</p></div>
-                  <button onClick={() => setRulesConfig({ ...rulesConfig, stop_loss_required: !rulesConfig.stop_loss_required })} className={`w-12 h-6 rounded-full transition-all ${rulesConfig.stop_loss_required ? "bg-profit" : "bg-white/20"}`}>
-                    <div className={`w-5 h-5 bg-white rounded-full transition-transform ${rulesConfig.stop_loss_required ? "translate-x-6" : "translate-x-0.5"}`}></div>
-                  </button>
+            {rulesLoading ? (
+              <div className="flex items-center justify-center py-12"><Loader2 className="w-6 h-6 text-royal animate-spin" /></div>
+            ) : (
+            <div className={rulesLocked ? "opacity-60 pointer-events-none select-none" : ""}>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                {/* Max Lot Size */}
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-gray-300">Max Lot Size</label>
+                  <Input type="number" step="0.01" placeholder="e.g., 0.02 (empty = unlimited)" value={rulesConfig.max_lot_size || ""} onChange={(e) => setRulesConfig({ ...rulesConfig, max_lot_size: e.target.value ? parseFloat(e.target.value) : 0 })} disabled={rulesLocked} />
+                  <p className="text-[10px] text-gray-500">Trades exceeding this lot size will have profits removed</p>
                 </div>
-                <div className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10">
-                  <div><p className="text-sm text-white font-medium">Weekend Trading</p><p className="text-[10px] text-gray-500">Allow trading on weekends</p></div>
-                  <button onClick={() => setRulesConfig({ ...rulesConfig, weekend_trading: !rulesConfig.weekend_trading })} className={`w-12 h-6 rounded-full transition-all ${rulesConfig.weekend_trading ? "bg-profit" : "bg-white/20"}`}>
-                    <div className={`w-5 h-5 bg-white rounded-full transition-transform ${rulesConfig.weekend_trading ? "translate-x-6" : "translate-x-0.5"}`}></div>
-                  </button>
+
+                {/* Max Open Trades */}
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-gray-300">Max Open Trades</label>
+                  <Input type="number" placeholder="e.g., 3 (empty = unlimited)" value={rulesConfig.max_open_trades || ""} onChange={(e) => setRulesConfig({ ...rulesConfig, max_open_trades: e.target.value ? parseInt(e.target.value) : 0 })} disabled={rulesLocked} />
+                  <p className="text-[10px] text-gray-500">Maximum trades open at the same time</p>
                 </div>
-                <div className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10">
-                  <div><p className="text-sm text-white font-medium">Only Cent Account</p><p className="text-[10px] text-gray-500">Real category requires cent accounts only</p></div>
-                  <button onClick={() => setRulesConfig({ ...rulesConfig, only_cent_account: !(rulesConfig as any).only_cent_account })} className={`w-12 h-6 rounded-full transition-all ${(rulesConfig as any).only_cent_account ? "bg-profit" : "bg-white/20"}`}>
-                    <div className={`w-5 h-5 bg-white rounded-full transition-transform ${(rulesConfig as any).only_cent_account ? "translate-x-6" : "translate-x-0.5"}`}></div>
-                  </button>
+
+                {/* Pair Limit */}
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-gray-300">Pair Limit (Simultaneous)</label>
+                  <Input type="number" placeholder="e.g., 2 (empty = unlimited)" value={rulesConfig.pair_limit || ""} onChange={(e) => setRulesConfig({ ...rulesConfig, pair_limit: e.target.value ? parseInt(e.target.value) : 0 })} disabled={rulesLocked} />
+                  <p className="text-[10px] text-gray-500">Max same-pair trades open at the same time</p>
                 </div>
+
+                {/* Max Risk Dollars */}
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-gray-300">Max Risk per Trade ($)</label>
+                  <Input type="number" step="0.5" placeholder="e.g., 5 (empty = no limit)" value={rulesConfig.max_risk_dollars || ""} onChange={(e) => setRulesConfig({ ...rulesConfig, max_risk_dollars: e.target.value ? parseFloat(e.target.value) : 0 })} disabled={rulesLocked} />
+                  <p className="text-[10px] text-gray-500">Maximum SL distance in dollars</p>
+                </div>
+
+                {/* Daily Loss Cap */}
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-gray-300">Daily Loss Cap ($)</label>
+                  <Input type="number" step="1" placeholder="e.g., 10 (empty = no cap)" value={rulesConfig.daily_loss_cap || ""} onChange={(e) => setRulesConfig({ ...rulesConfig, daily_loss_cap: e.target.value ? parseFloat(e.target.value) : 0 })} disabled={rulesLocked} />
+                  <p className="text-[10px] text-gray-500">Max drawdown from day&apos;s opening balance. Profits after breach are removed.</p>
+                </div>
+
+                {/* Trading Duration */}
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-gray-300">Max Trade Duration (hours)</label>
+                  <Input type="number" placeholder="e.g., 24 (empty = unlimited)" value={rulesConfig.max_hold_hours || ""} onChange={(e) => setRulesConfig({ ...rulesConfig, max_hold_hours: e.target.value ? parseInt(e.target.value) : 0 })} disabled={rulesLocked} />
+                  <p className="text-[10px] text-gray-500">Trades held longer will have profits removed</p>
+                </div>
+
+                {/* Active Trading Days */}
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-gray-300">Min Active Trading Days</label>
+                  <Input type="number" placeholder="e.g., 7" value={rulesConfig.min_active_days || ""} onChange={(e) => setRulesConfig({ ...rulesConfig, min_active_days: e.target.value ? parseInt(e.target.value) : 0 })} disabled={rulesLocked} />
+                  <p className="text-[10px] text-gray-500">Minimum days user must trade to qualify for prizes</p>
+                </div>
+
+                {/* Toggles */}
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10">
+                    <div><p className="text-sm text-white font-medium">Stop Loss Required</p><p className="text-[10px] text-gray-500">All trades must have SL</p></div>
+                    <button onClick={() => !rulesLocked && setRulesConfig({ ...rulesConfig, stop_loss_required: !rulesConfig.stop_loss_required })} className={`w-12 h-6 rounded-full transition-all ${rulesConfig.stop_loss_required ? "bg-profit" : "bg-white/20"}`}>
+                      <div className={`w-5 h-5 bg-white rounded-full transition-transform ${rulesConfig.stop_loss_required ? "translate-x-6" : "translate-x-0.5"}`}></div>
+                    </button>
+                  </div>
+                  <div className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10">
+                    <div><p className="text-sm text-white font-medium">Weekend Trading</p><p className="text-[10px] text-gray-500">Allow trading on weekends</p></div>
+                    <button onClick={() => !rulesLocked && setRulesConfig({ ...rulesConfig, weekend_trading: !rulesConfig.weekend_trading })} className={`w-12 h-6 rounded-full transition-all ${rulesConfig.weekend_trading ? "bg-profit" : "bg-white/20"}`}>
+                      <div className={`w-5 h-5 bg-white rounded-full transition-transform ${rulesConfig.weekend_trading ? "translate-x-6" : "translate-x-0.5"}`}></div>
+                    </button>
+                  </div>
+                  <div className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10">
+                    <div><p className="text-sm text-white font-medium">Only Cent Account</p><p className="text-[10px] text-gray-500">Real category requires cent accounts only</p></div>
+                    <button onClick={() => !rulesLocked && setRulesConfig({ ...rulesConfig, only_cent_account: !(rulesConfig as any).only_cent_account })} className={`w-12 h-6 rounded-full transition-all ${(rulesConfig as any).only_cent_account ? "bg-profit" : "bg-white/20"}`}>
+                      <div className={`w-5 h-5 bg-white rounded-full transition-transform ${(rulesConfig as any).only_cent_account ? "translate-x-6" : "translate-x-0.5"}`}></div>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Fixed rules info */}
+              <div className="mt-6 p-4 bg-royal/10 border border-royal/20 rounded-xl">
+                <p className="text-xs text-gray-300 font-semibold mb-2">Always enforced (shown to users):</p>
+                <ul className="text-xs text-gray-400 space-y-1 list-disc list-inside">
+                  <li>No recharging (additional deposits) during the challenge</li>
+                  <li>Unlimited trades per day — as long as all rules are followed</li>
+                  <li>No leverage limit</li>
+                  <li>Trades against rules have profits disqualified (losses still count)</li>
+                </ul>
               </div>
             </div>
-
-            {/* Fixed rules info */}
-            <div className="mt-6 p-4 bg-royal/10 border border-royal/20 rounded-xl">
-              <p className="text-xs text-gray-300 font-semibold mb-2">Always enforced (shown to users):</p>
-              <ul className="text-xs text-gray-400 space-y-1 list-disc list-inside">
-                <li>No recharging (additional deposits) during the challenge</li>
-                <li>Unlimited trades per day — as long as all rules are followed</li>
-                <li>No leverage limit</li>
-                <li>Trades against rules have profits disqualified (losses still count)</li>
-              </ul>
-            </div>
+            )}
 
             {/* Save */}
-            <div className="mt-6 flex justify-end items-center gap-3">
-              {challenge.status !== "draft" && challenge.status !== "registration_open" && (
-                <p className="text-xs text-gray-500">🔒 Rules locked — challenge is {challenge.status}</p>
-              )}
+            <div className="mt-6 flex justify-end">
               <button
                 onClick={async () => {
+                  if (rulesLocked) return;
                   try {
                     const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
                     const secretPath = process.env.NEXT_PUBLIC_ADMIN_PATH || "";
@@ -933,9 +977,13 @@ export default function AdminDashboard() {
                     else { const d = await res.json(); alert(d.error || "Failed to save rules"); }
                   } catch { alert("Connection error"); }
                 }}
-                disabled={rulesSaved}
-                className={`px-8 py-3 rounded-xl font-semibold text-sm transition-all ${rulesSaved ? "bg-profit/20 text-profit border border-profit/30 cursor-not-allowed" : "bg-gradient-brand hover:opacity-90 text-white shadow-lg shadow-royal/20"}`}>
-                {rulesSaved ? "✓ Rules Saved — Locked" : "Save Rules"}
+                disabled={rulesLocked || rulesSaved || rulesLoading}
+                className={`px-8 py-3 rounded-xl font-semibold text-sm transition-all ${
+                  rulesLocked ? "bg-white/5 text-gray-500 border border-white/10 cursor-not-allowed" :
+                  rulesSaved ? "bg-profit/20 text-profit border border-profit/30 cursor-not-allowed" :
+                  "bg-gradient-brand hover:opacity-90 text-white shadow-lg shadow-royal/20"
+                }`}>
+                {rulesLocked ? "🔒 Rules Locked" : rulesSaved ? "✓ Saved" : "Save Rules"}
               </button>
             </div>
           </div>
