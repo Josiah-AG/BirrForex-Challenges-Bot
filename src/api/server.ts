@@ -520,7 +520,7 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
 
     // Get challenge info
     const reg = await db.query(
-      `SELECT r.id, r.nickname, r.account_number, r.account_type, r.mt5_server, r.challenge_id, r.pull_status,
+      `SELECT r.id, r.nickname, r.account_number, r.account_type, r.account_subtype, r.mt5_server, r.challenge_id, r.pull_status,
               r.actual_starting_balance, r.registration_balance, r.disqualified, r.disqualified_reason, r.is_cent,
               r.last_pull_at,
               c.title, c.status, c.start_date, c.end_date, c.starting_balance, c.target_balance, c.leaderboard_updated_at,
@@ -558,6 +558,7 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
         nickname: registration.nickname,
         accountNumber: registration.account_number,
         accountType: registration.account_type,
+        accountSubtype: registration.account_subtype || null,
         server: registration.mt5_server,
         pullStatus: registration.pull_status || null,
         disqualified: registration.disqualified || false,

@@ -32,7 +32,7 @@ interface ChallengeInfo {
   winnersCount: number;
 }
 interface MyStats {
-  nickname: string; accountNumber: string; accountType: string; server: string;
+  nickname: string; accountNumber: string; accountType: string; accountSubtype: string | null; server: string;
   rank: number | null; currentBalance: number; adjustedBalance: number;
   qualifiedProfit: number; grossProfit: number; profitRemoved: number;
   totalTrades: number; qualifiedTrades: number; flaggedTrades: number;
@@ -127,6 +127,7 @@ export default function ChallengeDashboard() {
         nickname: data.me.nickname,
         accountNumber: data.me.accountNumber,
         accountType: data.me.accountType,
+        accountSubtype: data.me.accountSubtype || null,
         server: data.me.server,
         rank: data.me.rank,
         currentBalance: data.me.currentBalance,
@@ -269,6 +270,21 @@ export default function ChallengeDashboard() {
     return `$${amount.toFixed(2)}`;
   };
 
+  // Format account subtype for display
+  // account_subtype values: standard | standard_cent | pro | raw_spread | zero | unknown | null
+  const formatSubtype = (subtype: string | null | undefined, accountType: string): string => {
+    const map: Record<string, string> = {
+      standard:       'Standard',
+      standard_cent:  'Standard Cent',
+      pro:            'Pro',
+      raw_spread:     'Raw Spread',
+      zero:           'Zero',
+    };
+    if (subtype && map[subtype]) return map[subtype];
+    // Fallback: capitalise accountType (demo / real)
+    return accountType.charAt(0).toUpperCase() + accountType.slice(1);
+  };
+
   // Format date helper (shows in EAT)
   const formatDate = (dateStr: string) => {
     const d = new Date(dateStr);
@@ -369,7 +385,7 @@ export default function ChallengeDashboard() {
                 <Image src="/winnerpip-icon.png" alt="WinnerPip" width={32} height={32} className="rounded-lg" />
                 <div className="hidden sm:block">
                   <p className="text-sm font-bold text-white leading-tight">{challenge?.title || "Challenge Dashboard"}</p>
-                  <p className="text-xs text-gray-500">{myStats?.nickname || ""}{myStats?.accountNumber ? ` • #${myStats.accountNumber}` : ""}</p>
+                  <p className="text-xs text-gray-500">{myStats?.nickname || ""}{myStats?.accountNumber ? ` • #${myStats.accountNumber}` : ""}{myStats?.accountSubtype ? ` • ${formatSubtype(myStats.accountSubtype, myStats.accountType || '')}` : ""}</p>
                 </div>
               </div>
             </div>
@@ -463,7 +479,7 @@ export default function ChallengeDashboard() {
                   </div>
                   <div className="bg-white/5 rounded-lg p-3">
                     <p className="text-[10px] text-gray-500 uppercase mb-1">Type</p>
-                    <p className="text-sm font-semibold text-white capitalize">{myStats.accountType}</p>
+                    <p className="text-sm font-semibold text-white">{formatSubtype(myStats.accountSubtype, myStats.accountType)}</p>
                   </div>
                   <div className="bg-white/5 rounded-lg p-3">
                     <p className="text-[10px] text-gray-500 uppercase mb-1">Server</p>
@@ -801,6 +817,7 @@ export default function ChallengeDashboard() {
                         {entry.isBlown && !entry.isDisqualified && <span className="px-1.5 py-0.5 bg-gray-500/20 text-gray-400 text-[10px] rounded font-bold">💀</span>}
                       </div>
                       <p className="text-[10px] text-gray-500">{entry.totalTrades} trades • {entry.qualifiedTrades} qualified • {entry.accountType}</p>
+
                     </div>
                     <p className="text-sm font-bold text-white">
                       {entry.isDisqualified ? <span className="text-loss">DQ</span> : formatBalance(entry.adjustedBalance, entry.accountType, entry.isCent)}
@@ -964,7 +981,7 @@ export default function ChallengeDashboard() {
                     <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Net P&L</p><p className={`text-sm font-bold ${selectedUser.qualifiedProfit >= 0 ? "text-profit" : "text-loss"}`}>{formatBalance(selectedUser.qualifiedProfit, selectedUser.accountType, selectedUser.isCent)}</p></div>
                     <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Total P&L</p><p className="text-sm font-bold text-white">{formatBalance(selectedUser.grossProfit, selectedUser.accountType, selectedUser.isCent)}</p></div>
                     <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">P&L Removed</p><p className="text-sm font-bold text-loss">{formatBalance(selectedUser.profitRemoved, selectedUser.accountType, selectedUser.isCent)}</p></div>
-                    <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Account Type</p><p className="text-sm font-bold text-white capitalize">{selectedUser.accountType}</p></div>
+                    <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Account Type</p><p className="text-sm font-bold text-white">{selectedUser.accountType === 'demo' ? 'Demo' : selectedUser.accountType === 'real' ? 'Real' : selectedUser.accountType}</p></div>
                   </div>
                   {/* Recent Trades */}
                   {selectedUserTrades.length > 0 && (

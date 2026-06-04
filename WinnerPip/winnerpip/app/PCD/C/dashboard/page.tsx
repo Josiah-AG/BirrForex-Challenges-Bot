@@ -66,6 +66,8 @@ export default function DemoDashboard() {
     qualifiedTrades: 3,
     flaggedTrades: 9,
     activeDays: 4,
+    accountType: "real",
+    accountSubtype: "standard_cent", // from trading_registrations.account_subtype
     lastUpdated: "08:00 EAT",
     nextUpdate: "12:00 EAT",
   };
@@ -434,6 +436,18 @@ export default function DemoDashboard() {
     return `$${amount.toFixed(2)}`;
   };
 
+  const formatSubtype = (subtype: string | null | undefined, accountType: string): string => {
+    const map: Record<string, string> = {
+      standard:      'Standard',
+      standard_cent: 'Standard Cent',
+      pro:           'Pro',
+      raw_spread:    'Raw Spread',
+      zero:          'Zero',
+    };
+    if (subtype && map[subtype]) return map[subtype];
+    return accountType.charAt(0).toUpperCase() + accountType.slice(1);
+  };
+
   // Win Rate & Avg RR — computed from trades (same as production)
   const winningTrades = recentTrades.filter(t => t.profit > 0);
   const losingTrades  = recentTrades.filter(t => t.profit < 0);
@@ -464,7 +478,7 @@ export default function DemoDashboard() {
                 <Image src="/winnerpip-icon.png" alt="WinnerPip" width={32} height={32} className="rounded-lg" />
                 <div className="hidden sm:block">
                   <p className="text-sm font-bold text-white leading-tight">{challenge.title}</p>
-                  <p className="text-xs text-gray-500">{myStats.nickname} • #87654321</p>
+                  <p className="text-xs text-gray-500">{myStats.nickname} • #161585721 • {formatSubtype(myStats.accountSubtype, myStats.accountType)}</p>
                 </div>
               </div>
             </div>
