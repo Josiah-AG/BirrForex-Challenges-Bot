@@ -293,8 +293,24 @@ export default function DemoDashboard() {
     },
   ];
 
+  // ── Helpers (identical to production) ──────────────────────────────────
+  const formatBalance = (amount: number, isCentAcct?: boolean) => {
+    if (isCentAcct) return `${amount.toFixed(2)}¢`;
+    return `$${amount.toFixed(2)}`;
+  };
+
+  // Win Rate & Avg RR — computed from trades (same as production)
+  const winningTrades = recentTrades.filter(t => t.profit > 0);
+  const losingTrades  = recentTrades.filter(t => t.profit < 0);
+  const winRate = recentTrades.length > 0 ? Math.round((winningTrades.length / recentTrades.length) * 100) : 0;
+  const avgWin  = winningTrades.length > 0 ? winningTrades.reduce((s, t) => s + t.profit, 0) / winningTrades.length : 0;
+  const avgLoss = losingTrades.length  > 0 ? Math.abs(losingTrades.reduce((s, t) => s + t.profit, 0) / losingTrades.length) : 0;
+  const avgRR   = avgLoss > 0 ? avgWin / avgLoss : 0;
+
   const violations = recentTrades.filter(t => !t.isQualified);
-  const progressPercent = Math.min(100, ((myStats.adjustedBalance - challenge.startingBalance) / (challenge.targetBalance - challenge.startingBalance)) * 100);
+  const isBlownAccount = myStats.totalTrades > 0 && myStats.currentBalance <= 0;
+  const showProgressBar = myStats.totalTrades > 0 && !isBlownAccount;
+  const progressPercent = ((myStats.adjustedBalance - challenge.startingBalance) / (challenge.targetBalance - challenge.startingBalance)) * 100;
 
   return (
     <div className="min-h-screen bg-[#0a0e1a]">
@@ -333,13 +349,13 @@ export default function DemoDashboard() {
           </button>
           <div className="glass rounded-2xl p-4 md:p-5 border border-white/10">
             <div className="flex items-center gap-2 mb-2"><TrendingUp size={16} className="text-profit" /><p className="text-[10px] text-gray-400 uppercase tracking-wider font-medium">Profit</p></div>
-            <p className={`text-3xl md:text-4xl font-bold ${myStats.qualifiedProfit >= 0 ? "text-profit" : "text-loss"}`}>{currency}{myStats.qualifiedProfit.toFixed(2)}</p>
-            <p className="text-xs text-gray-500 mt-1">Gross: {currency}{myStats.grossProfit.toFixed(2)}</p>
+            <p className={`text-3xl md:text-4xl font-bold ${myStats.qualifiedProfit >= 0 ? "text-profit" : "text-loss"}`}>{formatBalance(myStats.qualifiedProfit, isCent)}</p>
+            <p className="text-xs text-gray-500 mt-1">Total P&L: {formatBalance(myStats.grossProfit, isCent)}</p>
           </div>
           <div className="glass rounded-2xl p-4 md:p-5 border border-white/10">
             <div className="flex items-center gap-2 mb-2"><Target size={16} className="text-royal" /><p className="text-[10px] text-gray-400 uppercase tracking-wider font-medium">Balance</p></div>
-            <p className="text-3xl md:text-4xl font-bold text-white">{currency}{myStats.adjustedBalance.toFixed(2)}</p>
-            <p className="text-xs text-gray-500 mt-1">Target: {currency}{challenge.targetBalance}</p>
+            <p className="text-3xl md:text-4xl font-bold text-white">{formatBalance(myStats.adjustedBalance, isCent)}</p>
+            <p className="text-xs text-gray-500 mt-1">Gross: {formatBalance(myStats.currentBalance, isCent)}</p>
           </div>
           <div className="glass rounded-2xl p-4 md:p-5 border border-white/10">
             <div className="flex items-center gap-2 mb-2"><Clock size={16} className="text-gold" /><p className="text-[10px] text-gray-400 uppercase tracking-wider font-medium">Time Left</p></div>
@@ -348,12 +364,18 @@ export default function DemoDashboard() {
           </div>
         </div>
 
-        {/* PROGRESS BAR */}
-        <div className="glass rounded-2xl p-4 md:p-5 border border-white/10 mb-6">
-          <div className="flex items-center justify-between mb-3"><p className="text-sm font-medium text-gray-300">Progress to Target</p><p className="text-sm font-bold text-white">{progressPercent.toFixed(0)}%</p></div>
-          <div className="w-full h-3 bg-white/10 rounded-full overflow-hidden"><div className="h-full rounded-full bg-gradient-to-r from-royal to-profit transition-all duration-500" style={{ width: `${progressPercent}%` }} /></div>
-          <div className="flex justify-between mt-2 text-xs text-gray-500"><span>${challenge.startingBalance}</span><span>${challenge.targetBalance}</span></div>
-        </div>
+        {/* PROGRESS BAR — only when user has trades and is not blown */}
+        {showProgressBar ? (
+          <div className="glass rounded-2xl p-4 md:p-5 border border-white/10 mb-6">
+            <div className="flex items-center justify-between mb-3"><p className="text-sm font-medium text-gray-300">Progress to Target</p><p className={`text-sm font-bold ${progressPercent >= 0 ? "text-white" : "text-loss"}`}>{progressPercent.toFixed(0)}%</p></div>
+            <div className="w-full h-3 bg-white/10 rounded-full overflow-hidden"><div className={`h-full rounded-full transition-all duration-500 ${progressPercent >= 0 ? "bg-gradient-to-r from-royal to-profit" : "bg-loss"}`} style={{ width: `${Math.min(100, Math.max(0, progressPercent))}%` }} /></div>
+            <div className="flex justify-between mt-2 text-xs text-gray-500"><span>{formatBalance(challenge.startingBalance, isCent)}</span><span>{formatBalance(challenge.targetBalance, isCent)}</span></div>
+          </div>
+        ) : (
+          <div className="glass rounded-2xl p-4 border border-white/10 mb-6 text-center">
+            <p className="text-xs text-gray-500">Deposit and start trading to track progress</p>
+          </div>
+        )}
 
         {/* MINI STATS */}
         <div className="grid grid-cols-3 md:grid-cols-6 gap-3 mb-6">
@@ -364,8 +386,8 @@ export default function DemoDashboard() {
             <div className="flex items-center justify-center gap-1 mb-1 text-loss"><AlertTriangle size={14} /><p className="text-[9px] uppercase tracking-wider font-medium">Flagged</p></div>
             <p className="text-lg font-bold text-loss">{myStats.flaggedTrades}</p>
           </button>
-          <MiniStat label="Gross" value={`${currency}${myStats.grossProfit.toFixed(2)}`} icon={<ChevronUp size={14} />} color="text-profit" />
-          <MiniStat label="Net" value={`${currency}${myStats.qualifiedProfit.toFixed(2)}`} icon={<ChevronDown size={14} />} color={myStats.qualifiedProfit >= 0 ? "text-profit" : "text-loss"} />
+          <MiniStat label="Win Rate" value={`${winRate}%`} icon={<ChevronUp size={14} />} color={winRate >= 50 ? "text-profit" : "text-loss"} />
+          <MiniStat label="Avg RR" value={avgRR > 0 ? avgRR.toFixed(2) : "—"} icon={<ChevronDown size={14} />} color="text-royal" />
         </div>
 
         {/* TAB NAVIGATION */}
@@ -397,14 +419,14 @@ export default function DemoDashboard() {
                   <td className="py-3 px-4 text-xs text-gray-400">{t.date}</td>
                   <td className="py-3 px-4 text-sm text-white font-semibold">{t.symbol}</td>
                   <td className="py-3 px-4"><span className={`px-2 py-1 rounded-md text-[10px] font-semibold ${t.type === "Buy" ? "bg-profit/10 text-profit" : "bg-loss/10 text-loss"}`}>{t.type}</span></td>
-                  <td className={`py-3 px-4 text-right text-sm font-bold ${t.profit >= 0 ? "text-profit" : "text-loss"}`}>{t.profit >= 0 ? "+" : ""}{currency}{Math.abs(t.profit).toFixed(2)}</td>
+                  <td className={`py-3 px-4 text-right text-sm font-bold ${t.profit >= 0 ? "text-profit" : "text-loss"}`}>{t.profit >= 0 ? "+" : ""}{formatBalance(t.profit, isCent)}</td>
                   <td className="py-3 px-4 text-center text-xs text-gray-400">{t.volume} lot</td>
                   <td className="py-3 px-4 text-center">{t.isQualified ? <span className="text-profit">✓</span> : <span className="text-loss">🚩</span>}</td>
                 </tr>
               ))}</tbody>
             </table>
           </div>
-          <div className="p-3 border-t border-white/5 text-center"><p className="text-xs text-gray-600">Data from: 04:00 – 08:00 EAT • Next update: {myStats.nextUpdate}</p></div>
+          <div className="p-3 border-t border-white/5 text-center"><p className="text-xs text-gray-600">Last updated: 2h ago • Next update: 12:00 EAT</p></div>
         </div>
         )}
 
@@ -426,9 +448,11 @@ export default function DemoDashboard() {
                     {entry.isDisqualified && <span className="px-1.5 py-0.5 bg-loss/20 text-loss text-[10px] rounded font-bold">DQ</span>}
                     {entry.isBlown && <span className="text-sm">💀</span>}
                   </div>
-                  <p className="text-[10px] text-gray-500">{entry.trades} trades • {entry.qualifiedTrades} qualified • {entry.flaggedTrades} flagged</p>
+                  <p className="text-[10px] text-gray-500">{entry.trades} trades • {entry.qualifiedTrades} qualified • {entry.accountType}</p>
                 </div>
-                <p className={`text-sm font-bold ${entry.isBlown ? "text-loss" : entry.isDisqualified ? "text-gray-500 line-through" : "text-white"}`}>{entry.isCent ? "¢" : "$"}{entry.balance.toFixed(2)}</p>
+                <p className={`text-sm font-bold ${entry.isBlown ? "text-loss" : entry.isDisqualified ? "text-loss" : "text-white"}`}>
+                  {entry.isDisqualified ? <span className="text-loss">DQ</span> : formatBalance(entry.balance, entry.isCent)}
+                </p>
               </button>
             ))}
           </div>
@@ -456,14 +480,10 @@ export default function DemoDashboard() {
                       <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${t.type === "Buy" ? "bg-profit/10 text-profit" : "bg-loss/10 text-loss"}`}>{t.type}</span>
                       <span className="text-xs text-gray-500">{t.date}</span>
                     </div>
-                    <div className="space-y-1 mb-2">
-                      {t.violations.map((v, vi) => (
-                        <div key={vi} className="bg-loss/10 border border-loss/20 rounded-lg p-2"><p className="text-sm text-white">{v}</p></div>
-                      ))}
-                    </div>
+                    {t.violations.length > 0 && <div className="bg-loss/10 border border-loss/20 rounded-lg p-2 mb-2"><p className="text-sm text-white">{t.violations[0]}</p></div>}
                     <div className="flex gap-4 text-xs text-gray-400">
                       <span>Lots: {t.volume}</span>
-                      <span>Profit removed: <span className="text-loss font-semibold">{currency}{t.profit > 0 ? t.profit.toFixed(2) : "0.00"}</span></span>
+                      <span>Profit removed: <span className="text-loss font-semibold">{formatBalance(t.profit > 0 ? t.profit : 0, isCent)}</span></span>
                     </div>
                   </div>
                 </div>
@@ -498,19 +518,15 @@ export default function DemoDashboard() {
                 <DRow label="Commission" value={`${currency}${selectedTrade.commission.toFixed(2)}`} />
                 <DRow label="Swap" value={`${currency}${selectedTrade.swap.toFixed(2)}`} />
                 <DRow label="Duration" value={selectedTrade.duration} />
-                <DRow label="Net P&L" value={`${selectedTrade.profit >= 0 ? "+" : ""}${currency}${Math.abs(selectedTrade.profit).toFixed(2)}`} color={selectedTrade.profit >= 0 ? "text-profit" : "text-loss"} />
+                <DRow label="Net P&L" value={`${selectedTrade.profit >= 0 ? "+" : ""}${formatBalance(selectedTrade.profit, isCent)}`} color={selectedTrade.profit >= 0 ? "text-profit" : "text-loss"} />
               </div>
               <div className={`p-4 rounded-xl border ${selectedTrade.isQualified ? "bg-profit/10 border-profit/20" : "bg-loss/10 border-loss/20"}`}>
                 {selectedTrade.isQualified ? (
                   <p className="text-sm text-profit font-semibold flex items-center gap-2"><Shield size={16} />Qualified — counts toward your balance</p>
                 ) : (
                   <div>
-                    <p className="text-sm text-loss font-semibold flex items-center gap-2 mb-3"><AlertTriangle size={16} />Flagged — profit removed</p>
-                    <div className="space-y-2">
-                      {selectedTrade.violations.map((v, i) => (
-                        <p key={i} className="text-sm text-white bg-loss/10 border border-loss/20 rounded-lg p-2">{v}</p>
-                      ))}
-                    </div>
+                    <p className="text-sm text-loss font-semibold flex items-center gap-2 mb-2"><AlertTriangle size={16} />Flagged — profit removed</p>
+                    {selectedTrade.violations.length > 0 && <p className="text-sm text-white">{selectedTrade.violations.join(", ")}</p>}
                   </div>
                 )}
               </div>
@@ -539,9 +555,11 @@ export default function DemoDashboard() {
                         {entry.isDisqualified && <span className="px-1.5 py-0.5 bg-loss/20 text-loss text-[10px] rounded font-bold">DQ</span>}
                         {entry.isBlown && <span className="text-sm">💀</span>}
                       </div>
-                      <p className="text-[10px] text-gray-500">{entry.trades} trades • {entry.qualifiedTrades} qualified • {entry.flaggedTrades} flagged</p>
+                      <p className="text-[10px] text-gray-500">{entry.trades} trades • {entry.qualifiedTrades} qualified • {entry.accountType}</p>
                     </div>
-                    <p className={`text-sm font-bold ${entry.isBlown ? "text-loss" : entry.isDisqualified ? "text-gray-500 line-through" : "text-white"}`}>{entry.isCent ? "¢" : "$"}{entry.balance.toFixed(2)}</p>
+                    <p className={`text-sm font-bold ${entry.isDisqualified ? "text-loss" : "text-white"}`}>
+                      {entry.isDisqualified ? <span>DQ</span> : formatBalance(entry.balance, entry.isCent)}
+                    </p>
                   </button>
                 ))}
               </div>
@@ -553,7 +571,9 @@ export default function DemoDashboard() {
                   <div>
                     <p className="text-xl font-bold text-white">{selectedUser.nickname}</p>
                     <div className="flex items-center gap-2 mt-1">
-                      <p className="text-sm text-gray-400">Balance: <span className={`font-semibold ${selectedUser.isBlown ? "text-loss" : "text-white"}`}>{selectedUser.isCent ? "¢" : "$"}{selectedUser.balance.toFixed(2)}</span></p>
+                      <p className="text-sm text-gray-400">
+                      {selectedUser.isDisqualified ? <span className="text-loss font-semibold">Disqualified</span> : <>Balance: <span className="text-white font-semibold">{formatBalance(selectedUser.balance, selectedUser.isCent)}</span></>}
+                    </p>
                       {selectedUser.isDisqualified && <span className="px-1.5 py-0.5 bg-loss/20 text-loss text-[10px] rounded font-bold">DISQUALIFIED</span>}
                       {selectedUser.isBlown && <span className="text-sm">💀 Blown</span>}
                     </div>
@@ -565,32 +585,43 @@ export default function DemoDashboard() {
                     <p className="text-xs text-gray-300">{selectedUser.disqualifyReason}</p>
                   </div>
                 )}
-                <div className="grid grid-cols-2 gap-3 mb-4">
-                  <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500 mb-1">Trades</p><p className="text-lg font-bold text-white">{selectedUser.trades}</p><p className="text-[9px] text-gray-600">{selectedUser.qualifiedTrades} qualified · {selectedUser.flaggedTrades} flagged</p></div>
-                  <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500 mb-1">Qualified Profit</p><p className={`text-lg font-bold ${selectedUser.qualifiedProfit >= 0 ? "text-profit" : "text-loss"}`}>{selectedUser.isCent ? "¢" : "$"}{selectedUser.qualifiedProfit.toFixed(2)}</p><p className="text-[9px] text-gray-600">Gross: {selectedUser.isCent ? "¢" : "$"}{selectedUser.grossProfit.toFixed(2)}</p></div>
+                <div className="grid grid-cols-3 gap-3 mb-4">
+                  <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500 mb-1">Trades</p><p className="text-lg font-bold text-white">{selectedUser.trades}</p></div>
+                  <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500 mb-1">Qualified</p><p className="text-lg font-bold text-white">{selectedUser.qualifiedTrades}</p></div>
+                  <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500 mb-1">Flagged</p><p className="text-lg font-bold text-loss">{selectedUser.flaggedTrades}</p></div>
                 </div>
-                <div className="bg-white/5 rounded-xl p-3 mb-4 flex justify-between items-center">
-                  <p className="text-xs text-gray-400">Profit removed from flags</p>
-                  <p className="text-sm font-bold text-loss">-{selectedUser.isCent ? "¢" : "$"}{selectedUser.profitRemoved.toFixed(2)}</p>
+                <div className="grid grid-cols-2 gap-3 mb-4">
+                  <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Net P&L</p><p className={`text-sm font-bold ${selectedUser.qualifiedProfit >= 0 ? "text-profit" : "text-loss"}`}>{formatBalance(selectedUser.qualifiedProfit, selectedUser.isCent)}</p></div>
+                  <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Total P&L</p><p className="text-sm font-bold text-white">{formatBalance(selectedUser.grossProfit, selectedUser.isCent)}</p></div>
+                  <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">P&L Removed</p><p className="text-sm font-bold text-loss">{formatBalance(selectedUser.profitRemoved, selectedUser.isCent)}</p></div>
+                  <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Account Type</p><p className="text-sm font-bold text-white capitalize">{selectedUser.accountType}</p></div>
                 </div>
                 {selectedUser.recentTrades.length > 0 ? (
-                  <div><p className="text-sm font-semibold text-gray-300 mb-3">Recent Trades</p><div className="space-y-2">{selectedUser.recentTrades.map((t, i) => (
-                    <div key={i} className={`rounded-xl border ${t.flagged ? "bg-loss/5 border-loss/20" : "bg-white/5 border-white/10"}`}>
-                      <div className="flex items-center justify-between p-3">
-                        <div className="flex items-center gap-3">
-                          <span className={`px-2 py-1 rounded text-[10px] font-bold ${t.type === "Buy" ? "bg-profit/10 text-profit" : "bg-loss/10 text-loss"}`}>{t.type}</span>
-                          <div><p className="text-sm text-white font-semibold">{t.symbol}</p><p className="text-[10px] text-gray-500">{t.date}</p></div>
+                  <div className="mt-4">
+                    <p className="text-xs font-semibold text-gray-400 mb-2">Recent Trades</p>
+                    <div className="space-y-2">
+                      {selectedUser.recentTrades.map((t, i) => (
+                        <div key={i} className={`py-2 px-3 rounded-lg ${t.flagged ? "bg-loss/10 border border-loss/20" : "bg-white/5"}`}>
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${t.type === "Buy" ? "bg-profit/20 text-profit" : "bg-loss/20 text-loss"}`}>{t.type}</span>
+                              <div>
+                                <p className="text-xs text-white font-medium">{t.symbol}</p>
+                                <p className="text-[10px] text-gray-500">{t.date}</p>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <p className={`text-xs font-bold ${t.profit >= 0 ? "text-profit" : "text-loss"}`}>{formatBalance(t.profit, selectedUser.isCent)}</p>
+                              {t.flagged && <span className="text-loss text-[10px]">🚩</span>}
+                            </div>
+                          </div>
+                          {t.flagged && t.violations && t.violations.length > 0 && (
+                            <p className="text-[10px] text-loss mt-1 pl-7">⚠️ {t.violations[0]}</p>
+                          )}
                         </div>
-                        <div className="flex items-center gap-2">
-                          <p className={`text-sm font-bold ${t.profit >= 0 ? "text-profit" : "text-loss"}`}>{t.profit >= 0 ? "+" : ""}{selectedUser.isCent ? "¢" : "$"}{Math.abs(t.profit).toFixed(2)}</p>
-                          {t.flagged && <span className="text-loss text-sm">🚩</span>}
-                        </div>
-                      </div>
-                      {t.flagged && t.violations && t.violations.map((v, vi) => (
-                        <p key={vi} className="text-[11px] text-loss px-3 pb-2 border-t border-loss/10 pt-2">⚠️ {v}</p>
                       ))}
                     </div>
-                  ))}</div></div>
+                  </div>
                 ) : (<p className="text-sm text-gray-500 text-center py-4">No recent trades to show</p>)}
               </div>
             )}
@@ -617,12 +648,8 @@ export default function DemoDashboard() {
                     </div>
                     <span className="text-xs text-gray-500">{t.date}</span>
                   </div>
-                  <div className="space-y-1 mb-2">
-                    {t.violations.map((v, vi) => (
-                      <div key={vi} className="bg-loss/10 border border-loss/20 rounded-lg p-2"><p className="text-sm text-white">{v}</p></div>
-                    ))}
-                  </div>
-                  <div className="flex gap-4 text-xs text-gray-400"><span>Lots: {t.volume}</span><span>Profit removed: <span className="text-loss font-semibold">{currency}{t.profit > 0 ? t.profit.toFixed(2) : "0.00"}</span></span></div>
+                  {t.violations.length > 0 && <div className="bg-loss/10 border border-loss/20 rounded-lg p-2 mb-2"><p className="text-sm text-white">{t.violations[0]}</p></div>}
+                  <div className="flex gap-4 text-xs text-gray-400"><span>Lots: {t.volume}</span><span>Profit removed: <span className="text-loss font-semibold">{formatBalance(t.profit > 0 ? t.profit : 0, isCent)}</span></span></div>
                 </div>
               ))}
             </div>
