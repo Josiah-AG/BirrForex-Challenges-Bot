@@ -6,13 +6,19 @@ import { TrendingUp, Trophy, AlertTriangle, Target, Activity, ArrowLeft, FileTex
 
 // ==================== TYPES ====================
 interface Trade {
-  ticket: number; date: string; symbol: string; type: string; volume: number;
+  ticket: number; date: string; openTime: string; closeTime: string;
+  symbol: string; type: string; volume: number;
   openPrice: number; closePrice: number; stopLoss: number; takeProfit: number;
-  profit: number; rr: number; duration: string; isQualified: boolean; violations: string[];
+  profit: number; commission: number; swap: number;
+  duration: string; isQualified: boolean; violations: string[];
 }
 interface LeaderboardEntry {
-  rank: number; nickname: string; balance: number; trades: number; winRate: number; avgRR: number; isMe?: boolean;
-  recentTrades: { symbol: string; type: string; profit: number; rr: number; date: string; flagged?: boolean }[];
+  rank: number; nickname: string; balance: number; trades: number;
+  qualifiedTrades: number; flaggedTrades: number;
+  qualifiedProfit: number; grossProfit: number; profitRemoved: number;
+  accountType: string; isCent: boolean;
+  isMe?: boolean; isDisqualified?: boolean; disqualifyReason?: string; isBlown?: boolean;
+  recentTrades: { symbol: string; type: string; profit: number; date: string; flagged?: boolean; violations?: string[] }[];
 }
 
 export default function DemoDashboard() {
@@ -34,41 +40,261 @@ export default function DemoDashboard() {
     return () => { document.body.style.overflow = ""; };
   }, [anyModalOpen]);
 
-  // ==================== PLACEHOLDER DATA ====================
-  const challenge = { id: "15", title: "Challenge 15 — Hybrid (Demo & Real)", status: "active", daysLeft: 7, startingBalance: 30, targetBalance: 60 };
-  const myStats = { nickname: "TradeNinja", rank: 12, totalParticipants: 2847, currentBalance: 48.75, qualifiedProfit: 15.50, grossProfit: 22.30, totalTrades: 28, flaggedTrades: 3, winRate: 64, avgRR: 1.8, bestTrade: 4.20, worstTrade: -2.10, lastUpdated: "2 hours ago" };
+  // ==================== DEMO DATA ====================
+  // This demo uses a Cent account challenge (USC currency).
+  // All balances and profits are in cents (¢). The isCent flag drives ¢ vs $ display.
+  // Trades cover every possible flag type produced by the evaluation engine.
 
+  const challenge = {
+    id: "1", title: "BFX Challenge 1 — Hybrid (Demo & Real)",
+    status: "active", daysLeft: 4,
+    startingBalance: 1000, targetBalance: 2000, isCent: true,
+  };
+
+  // Current user is a cent real-account participant
+  const isCent = challenge.isCent;
+  const currency = isCent ? "¢" : "$";
+
+  const myStats = {
+    nickname: "TradeNinja", rank: 8, totalParticipants: 312,
+    currentBalance: 1503.00,   // actualStartBalance(1000) + grossProfit(503)
+    adjustedBalance: 1213.00,  // actualStartBalance(1000) + qualifiedProfit(213)
+    qualifiedProfit: 213.00,   // gross minus removed
+    grossProfit: 503.00,       // raw sum of all closed trade P&L
+    profitRemoved: 290.00,     // profits stripped from flagged trades
+    totalTrades: 12,
+    qualifiedTrades: 3,
+    flaggedTrades: 9,
+    activeDays: 4,
+    lastUpdated: "08:00 EAT",
+    nextUpdate: "12:00 EAT",
+  };
+
+  // 12 trades — every flag type represented at least once
   const recentTrades: Trade[] = [
-    { ticket: 100001, date: "May 14, 14:30", symbol: "EURUSD", type: "Buy", volume: 0.02, openPrice: 1.08450, closePrice: 1.08670, stopLoss: 1.08250, takeProfit: 1.08850, profit: 4.20, rr: 1.1, duration: "2h 15m", isQualified: true, violations: [] },
-    { ticket: 100002, date: "May 14, 10:15", symbol: "GBPUSD", type: "Sell", volume: 0.05, openPrice: 1.26800, closePrice: 1.26550, stopLoss: 1.27050, takeProfit: 1.26300, profit: 12.50, rr: 2.0, duration: "4h 30m", isQualified: false, violations: ["Lot size exceeded (0.05 > 0.02 max)"] },
-    { ticket: 100003, date: "May 13, 16:45", symbol: "USDJPY", type: "Buy", volume: 0.02, openPrice: 155.200, closePrice: 155.050, stopLoss: 154.900, takeProfit: 155.500, profit: -2.10, rr: 0, duration: "5h 10m", isQualified: true, violations: [] },
-    { ticket: 100004, date: "May 13, 11:20", symbol: "EURUSD", type: "Sell", volume: 0.02, openPrice: 1.08900, closePrice: 1.08750, stopLoss: 1.09100, takeProfit: 1.08500, profit: 3.00, rr: 0.75, duration: "3h 45m", isQualified: true, violations: [] },
-    { ticket: 100005, date: "May 12, 09:30", symbol: "GBPJPY", type: "Buy", volume: 0.02, openPrice: 195.400, closePrice: 195.600, stopLoss: 195.100, takeProfit: 196.000, profit: 2.80, rr: 0.67, duration: "6h 20m", isQualified: true, violations: [] },
-    { ticket: 100006, date: "May 12, 08:00", symbol: "XAUUSD", type: "Buy", volume: 0.02, openPrice: 2350.50, closePrice: 2352.80, stopLoss: 2348.00, takeProfit: 2356.00, profit: 2.30, rr: 0.92, duration: "1h 50m", isQualified: true, violations: [] },
-    { ticket: 100007, date: "May 11, 15:10", symbol: "EURUSD", type: "Buy", volume: 0.02, openPrice: 1.08200, closePrice: 1.08350, stopLoss: 1.08000, takeProfit: 1.08600, profit: 3.00, rr: 0.75, duration: "26h 40m", isQualified: false, violations: ["Position held > 24 hours"] },
-    { ticket: 100008, date: "May 11, 10:00", symbol: "USDJPY", type: "Sell", volume: 0.02, openPrice: 155.800, closePrice: 155.650, stopLoss: 156.100, takeProfit: 155.200, profit: 2.10, rr: 0.5, duration: "2h 30m", isQualified: true, violations: [] },
+    // ── QUALIFIED ───────────────────────────────────────────────────────────
+    {
+      ticket: 2847650, date: "Jun 4, 14:22", openTime: "Jun 4, 14:22 EAT", closeTime: "Jun 4, 16:48 EAT",
+      symbol: "XAUUSDc", type: "Buy", volume: 0.01,
+      openPrice: 4512.500, closePrice: 4521.300, stopLoss: 4505.000, takeProfit: 4530.000,
+      profit: 88.00, commission: 0, swap: 0,
+      duration: "2h 26m", isQualified: true, violations: [],
+    },
+    {
+      ticket: 2847662, date: "May 30, 10:15", openTime: "May 30, 10:15 EAT", closeTime: "May 30, 12:40 EAT",
+      symbol: "EURUSDc", type: "Sell", volume: 0.01,
+      openPrice: 1.16500, closePrice: 1.16320, stopLoss: 1.16700, takeProfit: 1.16100,
+      profit: 180.00, commission: 0, swap: 0,
+      duration: "2h 25m", isQualified: true, violations: [],
+    },
+    {
+      ticket: 2847654, date: "Jun 3, 12:00", openTime: "Jun 3, 12:00 EAT", closeTime: "Jun 3, 13:45 EAT",
+      symbol: "XAUUSDc", type: "Sell", volume: 0.01,
+      openPrice: 4502.000, closePrice: 4507.500, stopLoss: 4510.000, takeProfit: 4485.000,
+      profit: -55.00, commission: 0, swap: 0,
+      duration: "1h 45m", isQualified: true, violations: [],
+    },
+
+    // ── FLAG: No stop loss set on entry ────────────────────────────────────
+    {
+      ticket: 2847651, date: "Jun 4, 11:05", openTime: "Jun 4, 11:05 EAT", closeTime: "Jun 4, 13:30 EAT",
+      symbol: "EURUSDc", type: "Sell", volume: 0.01,
+      openPrice: 1.16420, closePrice: 1.16280, stopLoss: 0, takeProfit: 1.16100,
+      profit: 140.00, commission: 0, swap: 0,
+      duration: "2h 25m", isQualified: false,
+      violations: ["No stop loss set on entry"],
+    },
+
+    // ── FLAG: SL risk too wide (Layer A) ────────────────────────────────────
+    {
+      ticket: 2847652, date: "Jun 4, 08:30", openTime: "Jun 4, 08:30 EAT", closeTime: "Jun 4, 10:15 EAT",
+      symbol: "XAUUSDc", type: "Sell", volume: 0.01,
+      openPrice: 4508.000, closePrice: 4498.000, stopLoss: 4520.000, takeProfit: 4480.000,
+      profit: 100.00, commission: 0, swap: 0,
+      duration: "1h 45m", isQualified: false,
+      violations: ["SL risk ¢620.00 exceeds max ¢500"],
+    },
+
+    // ── FLAG: Fake SL — candle breach (Layer B, winning trade) ──────────────
+    {
+      ticket: 2847653, date: "Jun 3, 15:10", openTime: "Jun 3, 15:10 EAT", closeTime: "Jun 3, 17:45 EAT",
+      symbol: "XAUUSDc", type: "Buy", volume: 0.01,
+      openPrice: 4490.000, closePrice: 4510.000, stopLoss: 4485.000, takeProfit: 4515.000,
+      profit: 200.00, commission: 0, swap: 0,
+      duration: "2h 35m", isQualified: false,
+      violations: ["SL violated. Price exceeded the maximum allowed risk (¢500, SL should be @ 4484.95000) on the M15 candle formed at 15:45 EAT. Trade should have been closed at that point"],
+    },
+
+    // ── FLAG: Simultaneous trades + same-pair limit (two violations) ─────────
+    {
+      ticket: 2847655, date: "Jun 3, 09:15", openTime: "Jun 3, 09:15 EAT", closeTime: "Jun 3, 11:30 EAT",
+      symbol: "XAUUSDc", type: "Buy", volume: 0.01,
+      openPrice: 4495.000, closePrice: 4505.000, stopLoss: 4488.000, takeProfit: 4512.000,
+      profit: 100.00, commission: 0, swap: 0,
+      duration: "2h 15m", isQualified: false,
+      violations: [
+        "Exceeded max 3 simultaneous open trades (also open: #2847656 [EURUSDc], #2847657 [XAUUSDc])",
+        "Exceeded max 2 simultaneous XAUUSDc trades (also open: #2847657)",
+      ],
+    },
+    {
+      ticket: 2847657, date: "Jun 3, 09:20", openTime: "Jun 3, 09:20 EAT", closeTime: "Jun 3, 10:50 EAT",
+      symbol: "XAUUSDc", type: "Sell", volume: 0.01,
+      openPrice: 4496.000, closePrice: 4488.000, stopLoss: 4504.000, takeProfit: 4475.000,
+      profit: 80.00, commission: 0, swap: 0,
+      duration: "1h 30m", isQualified: false,
+      violations: [
+        "Exceeded max 3 simultaneous open trades (also open: #2847655 [XAUUSDc], #2847656 [EURUSDc])",
+        "Exceeded max 2 simultaneous XAUUSDc trades (also open: #2847655)",
+      ],
+    },
+
+    // ── FLAG: Lot size exceeded ─────────────────────────────────────────────
+    {
+      ticket: 2847658, date: "Jun 2, 16:30", openTime: "Jun 2, 16:30 EAT", closeTime: "Jun 2, 18:10 EAT",
+      symbol: "GBPUSDc", type: "Buy", volume: 0.05,
+      openPrice: 1.34280, closePrice: 1.34450, stopLoss: 1.34100, takeProfit: 1.34700,
+      profit: 170.00, commission: 0, swap: 0,
+      duration: "1h 40m", isQualified: false,
+      violations: ["Lot size 0.05 exceeds max 0.02 lots"],
+    },
+
+    // ── FLAG: Hold time exceeded ─────────────────────────────────────────────
+    {
+      ticket: 2847659, date: "Jun 2, 09:00", openTime: "Jun 2, 09:00 EAT", closeTime: "Jun 3, 13:18 EAT",
+      symbol: "EURUSDc", type: "Buy", volume: 0.01,
+      openPrice: 1.16100, closePrice: 1.16380, stopLoss: 1.15900, takeProfit: 1.16600,
+      profit: 280.00, commission: 0, swap: 12.00,
+      duration: "28h 18m", isQualified: false,
+      violations: ["Held 28.3h exceeds max 24h"],
+    },
+
+    // ── FLAG: Weekend trading ────────────────────────────────────────────────
+    {
+      ticket: 2847660, date: "May 31, 09:30", openTime: "May 31, 09:30 EAT", closeTime: "May 31, 11:45 EAT",
+      symbol: "XAUUSDc", type: "Sell", volume: 0.01,
+      openPrice: 4488.000, closePrice: 4478.000, stopLoss: 4495.000, takeProfit: 4465.000,
+      profit: 100.00, commission: 0, swap: 0,
+      duration: "2h 15m", isQualified: false,
+      violations: ["Weekend trading"],
+    },
+
+    // ── FLAG: Daily drawdown breach ──────────────────────────────────────────
+    {
+      ticket: 2847661, date: "May 30, 15:20", openTime: "May 30, 15:20 EAT", closeTime: "May 30, 17:05 EAT",
+      symbol: "XAUUSDc", type: "Buy", volume: 0.01,
+      openPrice: 4480.000, closePrice: 4492.000, stopLoss: 4474.000, takeProfit: 4500.000,
+      profit: 120.00, commission: 0, swap: 0,
+      duration: "1h 45m", isQualified: false,
+      violations: ["Profit after daily ¢250.00 drawdown breach"],
+    },
   ];
 
+  // Leaderboard — mix of active, blown, and DQ entries
   const leaderboard: LeaderboardEntry[] = [
-    { rank: 1, nickname: "GoldPipKing", balance: 58.50, trades: 34, winRate: 71, avgRR: 2.3, recentTrades: [{ symbol: "XAUUSD", type: "Buy", profit: 5.20, rr: 2.5, date: "May 14" }, { symbol: "EURUSD", type: "Sell", profit: 3.80, rr: 1.9, date: "May 14" }, { symbol: "GBPUSD", type: "Buy", profit: 4.10, rr: 2.1, date: "May 13", flagged: true }] },
-    { rank: 2, nickname: "ForexEagle", balance: 55.80, trades: 29, winRate: 69, avgRR: 2.1, recentTrades: [{ symbol: "EURUSD", type: "Buy", profit: 4.50, rr: 2.2, date: "May 14" }, { symbol: "USDJPY", type: "Sell", profit: 3.20, rr: 1.6, date: "May 13", flagged: true }] },
-    { rank: 3, nickname: "SilentTrader", balance: 53.40, trades: 31, winRate: 65, avgRR: 1.9, recentTrades: [{ symbol: "GBPJPY", type: "Sell", profit: 3.90, rr: 2.0, date: "May 14" }, { symbol: "EURUSD", type: "Buy", profit: 2.80, rr: 1.4, date: "May 13" }] },
-    { rank: 4, nickname: "PipMachine", balance: 51.90, trades: 27, winRate: 67, avgRR: 1.7, recentTrades: [{ symbol: "EURUSD", type: "Buy", profit: 3.10, rr: 1.5, date: "May 14" }] },
-    { rank: 5, nickname: "AlphaFX", balance: 50.10, trades: 25, winRate: 64, avgRR: 1.6, recentTrades: [{ symbol: "XAUUSD", type: "Sell", profit: 2.90, rr: 1.4, date: "May 13" }] },
-    { rank: 6, nickname: "NightOwl", balance: 49.50, trades: 30, winRate: 60, avgRR: 1.5, recentTrades: [] },
-    { rank: 7, nickname: "ScalpMaster", balance: 48.80, trades: 42, winRate: 62, avgRR: 1.2, recentTrades: [] },
-    { rank: 8, nickname: "TrendRider", balance: 47.60, trades: 22, winRate: 68, avgRR: 2.0, recentTrades: [] },
-    { rank: 9, nickname: "SwingKing", balance: 46.90, trades: 18, winRate: 72, avgRR: 2.4, recentTrades: [] },
-    { rank: 10, nickname: "PipSniper", balance: 46.20, trades: 26, winRate: 58, avgRR: 1.3, recentTrades: [] },
-    { rank: 11, nickname: "FXWarrior", balance: 45.80, trades: 24, winRate: 63, avgRR: 1.5, recentTrades: [] },
-    { rank: 12, nickname: "TradeNinja", balance: 45.50, trades: 28, winRate: 64, avgRR: 1.8, isMe: true, recentTrades: [{ symbol: "EURUSD", type: "Buy", profit: 4.20, rr: 1.1, date: "May 14" }, { symbol: "USDJPY", type: "Buy", profit: -2.10, rr: 0, date: "May 13" }] },
-    { rank: 13, nickname: "MarketPro", balance: 44.90, trades: 20, winRate: 60, avgRR: 1.4, recentTrades: [] },
-    { rank: 14, nickname: "ChartWiz", balance: 44.20, trades: 23, winRate: 57, avgRR: 1.2, recentTrades: [] },
-    { rank: 15, nickname: "PipHunter", balance: 43.80, trades: 19, winRate: 63, avgRR: 1.6, recentTrades: [] },
+    {
+      rank: 1, nickname: "GoldPipKing", balance: 1842.50, trades: 18, qualifiedTrades: 16, flaggedTrades: 2,
+      qualifiedProfit: 842.50, grossProfit: 990.00, profitRemoved: 147.50,
+      accountType: "real", isCent: true, isMe: false,
+      recentTrades: [
+        { symbol: "XAUUSDc", type: "Buy", profit: 95.00, date: "Jun 4", violations: [] },
+        { symbol: "EURUSDc", type: "Sell", profit: 72.00, date: "Jun 4", violations: [] },
+        { symbol: "XAUUSDc", type: "Sell", profit: 88.00, date: "Jun 3", violations: [] },
+      ],
+    },
+    {
+      rank: 2, nickname: "MK_Kaizen", balance: 1780.30, trades: 22, qualifiedTrades: 19, flaggedTrades: 3,
+      qualifiedProfit: 780.30, grossProfit: 920.00, profitRemoved: 139.70,
+      accountType: "real", isCent: true,
+      recentTrades: [
+        { symbol: "XAUUSDc", type: "Buy", profit: 110.00, date: "Jun 4", violations: [] },
+        { symbol: "EURUSDc", type: "Buy", profit: 65.00, date: "Jun 4", violations: [] },
+        { symbol: "GBPUSDc", type: "Sell", profit: 140.00, date: "Jun 3", flagged: true, violations: ["Lot size 0.05 exceeds max 0.02 lots"] },
+      ],
+    },
+    {
+      rank: 3, nickname: "Bella_FX", balance: 1715.00, trades: 14, qualifiedTrades: 12, flaggedTrades: 2,
+      qualifiedProfit: 715.00, grossProfit: 830.00, profitRemoved: 115.00,
+      accountType: "real", isCent: true,
+      recentTrades: [
+        { symbol: "XAUUSDc", type: "Sell", profit: 88.00, date: "Jun 4", violations: [] },
+        { symbol: "XAUUSDc", type: "Buy", profit: 75.00, date: "Jun 3", violations: [] },
+      ],
+    },
+    {
+      rank: 4, nickname: "SoberBoy", balance: 1643.20, trades: 20, qualifiedTrades: 15, flaggedTrades: 5,
+      qualifiedProfit: 643.20, grossProfit: 895.00, profitRemoved: 251.80,
+      accountType: "real", isCent: true,
+      recentTrades: [
+        { symbol: "EURUSDc", type: "Sell", profit: 90.00, date: "Jun 4", violations: [] },
+        { symbol: "XAUUSDc", type: "Sell", profit: 200.00, date: "Jun 3", flagged: true, violations: ["SL violated. Price exceeded the maximum allowed risk (¢500, SL should be @ 4484.95000) on the M15 candle formed at 09:30 EAT. Trade should have been closed at that point"] },
+      ],
+    },
+    {
+      rank: 5, nickname: "FireMan", balance: 1598.00, trades: 16, qualifiedTrades: 14, flaggedTrades: 2,
+      qualifiedProfit: 598.00, grossProfit: 710.00, profitRemoved: 112.00,
+      accountType: "real", isCent: true,
+      recentTrades: [
+        { symbol: "XAUUSDc", type: "Buy", profit: 82.00, date: "Jun 3", violations: [] },
+      ],
+    },
+    {
+      rank: 6, nickname: "CR7_Kete", balance: 1520.00, trades: 12, qualifiedTrades: 11, flaggedTrades: 1,
+      qualifiedProfit: 520.00, grossProfit: 580.00, profitRemoved: 60.00,
+      accountType: "real", isCent: true,
+      recentTrades: [],
+    },
+    {
+      rank: 7, nickname: "AlphaFX", balance: 1478.00, trades: 24, qualifiedTrades: 18, flaggedTrades: 6,
+      qualifiedProfit: 478.00, grossProfit: 750.00, profitRemoved: 272.00,
+      accountType: "real", isCent: true,
+      recentTrades: [],
+    },
+    {
+      rank: 8, nickname: "TradeNinja", balance: myStats.currentBalance, trades: myStats.totalTrades,
+      qualifiedTrades: myStats.qualifiedTrades, flaggedTrades: myStats.flaggedTrades,
+      qualifiedProfit: myStats.qualifiedProfit, grossProfit: myStats.grossProfit, profitRemoved: myStats.profitRemoved,
+      accountType: "real", isCent: true, isMe: true,
+      recentTrades: [
+        { symbol: "XAUUSDc", type: "Buy", profit: 88.00, date: "Jun 4", violations: [] },
+        { symbol: "EURUSDc", type: "Sell", profit: 140.00, date: "Jun 4", flagged: true, violations: ["No stop loss set on entry"] },
+        { symbol: "XAUUSDc", type: "Sell", profit: -55.00, date: "Jun 3", violations: [] },
+      ],
+    },
+    {
+      rank: 9, nickname: "NightOwl", balance: 1320.00, trades: 30, qualifiedTrades: 22, flaggedTrades: 8,
+      qualifiedProfit: 320.00, grossProfit: 680.00, profitRemoved: 360.00,
+      accountType: "real", isCent: true,
+      recentTrades: [],
+    },
+    {
+      rank: 10, nickname: "PipSniper", balance: 1210.00, trades: 11, qualifiedTrades: 9, flaggedTrades: 2,
+      qualifiedProfit: 210.00, grossProfit: 310.00, profitRemoved: 100.00,
+      accountType: "real", isCent: true,
+      recentTrades: [],
+    },
+    // ── Blown account (balance hit 0 during challenge) ──────────────────────
+    {
+      rank: 11, nickname: "ScalpGod", balance: 0, trades: 28, qualifiedTrades: 18, flaggedTrades: 10,
+      qualifiedProfit: -1000.00, grossProfit: -1000.00, profitRemoved: 0,
+      accountType: "real", isCent: true, isBlown: true,
+      recentTrades: [
+        { symbol: "XAUUSDc", type: "Buy", profit: -320.00, date: "Jun 3", violations: [] },
+        { symbol: "EURUSDc", type: "Buy", profit: -450.00, date: "Jun 2", violations: [] },
+      ],
+    },
+    // ── Disqualified (deposited after challenge start) ──────────────────────
+    {
+      rank: 12, nickname: "Heron_FX", balance: 1950.00, trades: 9, qualifiedTrades: 9, flaggedTrades: 0,
+      qualifiedProfit: 950.00, grossProfit: 950.00, profitRemoved: 0,
+      accountType: "real", isCent: true, isDisqualified: true,
+      disqualifyReason: "Account recharged — deposit of ¢500.00 detected after challenge start (2026-06-02)",
+      recentTrades: [],
+    },
   ];
 
   const violations = recentTrades.filter(t => !t.isQualified);
-  const progressPercent = Math.min(100, ((myStats.currentBalance - challenge.startingBalance) / (challenge.targetBalance - challenge.startingBalance)) * 100);
+  const progressPercent = Math.min(100, ((myStats.adjustedBalance - challenge.startingBalance) / (challenge.targetBalance - challenge.startingBalance)) * 100);
 
   return (
     <div className="min-h-screen bg-[#0a0e1a]">
@@ -107,13 +333,13 @@ export default function DemoDashboard() {
           </button>
           <div className="glass rounded-2xl p-4 md:p-5 border border-white/10">
             <div className="flex items-center gap-2 mb-2"><TrendingUp size={16} className="text-profit" /><p className="text-[10px] text-gray-400 uppercase tracking-wider font-medium">Profit</p></div>
-            <p className={`text-3xl md:text-4xl font-bold ${myStats.qualifiedProfit >= 0 ? "text-profit" : "text-loss"}`}>${myStats.qualifiedProfit.toFixed(2)}</p>
-            <p className="text-xs text-gray-500 mt-1">Gross: ${myStats.grossProfit.toFixed(2)}</p>
+            <p className={`text-3xl md:text-4xl font-bold ${myStats.qualifiedProfit >= 0 ? "text-profit" : "text-loss"}`}>{currency}{myStats.qualifiedProfit.toFixed(2)}</p>
+            <p className="text-xs text-gray-500 mt-1">Gross: {currency}{myStats.grossProfit.toFixed(2)}</p>
           </div>
           <div className="glass rounded-2xl p-4 md:p-5 border border-white/10">
             <div className="flex items-center gap-2 mb-2"><Target size={16} className="text-royal" /><p className="text-[10px] text-gray-400 uppercase tracking-wider font-medium">Balance</p></div>
-            <p className="text-3xl md:text-4xl font-bold text-white">${myStats.currentBalance}</p>
-            <p className="text-xs text-gray-500 mt-1">Target: ${challenge.targetBalance}</p>
+            <p className="text-3xl md:text-4xl font-bold text-white">{currency}{myStats.adjustedBalance.toFixed(2)}</p>
+            <p className="text-xs text-gray-500 mt-1">Target: {currency}{challenge.targetBalance}</p>
           </div>
           <div className="glass rounded-2xl p-4 md:p-5 border border-white/10">
             <div className="flex items-center gap-2 mb-2"><Clock size={16} className="text-gold" /><p className="text-[10px] text-gray-400 uppercase tracking-wider font-medium">Time Left</p></div>
@@ -132,14 +358,14 @@ export default function DemoDashboard() {
         {/* MINI STATS */}
         <div className="grid grid-cols-3 md:grid-cols-6 gap-3 mb-6">
           <MiniStat label="Trades" value={myStats.totalTrades.toString()} icon={<Activity size={14} />} />
-          <MiniStat label="Win Rate" value={`${myStats.winRate}%`} icon={<Award size={14} />} />
-          <MiniStat label="Avg RR" value={myStats.avgRR.toFixed(1)} icon={<Target size={14} />} color="text-royal" />
+          <MiniStat label="Qualified" value={myStats.qualifiedTrades.toString()} icon={<Award size={14} />} color="text-profit" />
+          <MiniStat label="Removed" value={`${currency}${myStats.profitRemoved.toFixed(2)}`} icon={<Target size={14} />} color="text-royal" />
           <button onClick={() => setShowViolationsModal(true)} className="glass rounded-xl p-3 border border-white/10 text-center hover:border-loss/30 transition-all">
             <div className="flex items-center justify-center gap-1 mb-1 text-loss"><AlertTriangle size={14} /><p className="text-[9px] uppercase tracking-wider font-medium">Flagged</p></div>
             <p className="text-lg font-bold text-loss">{myStats.flaggedTrades}</p>
           </button>
-          <MiniStat label="Best" value={`$${myStats.bestTrade}`} icon={<ChevronUp size={14} />} color="text-profit" />
-          <MiniStat label="Worst" value={`$${myStats.worstTrade}`} icon={<ChevronDown size={14} />} color="text-loss" />
+          <MiniStat label="Gross" value={`${currency}${myStats.grossProfit.toFixed(2)}`} icon={<ChevronUp size={14} />} color="text-profit" />
+          <MiniStat label="Net" value={`${currency}${myStats.qualifiedProfit.toFixed(2)}`} icon={<ChevronDown size={14} />} color={myStats.qualifiedProfit >= 0 ? "text-profit" : "text-loss"} />
         </div>
 
         {/* TAB NAVIGATION */}
@@ -163,7 +389,7 @@ export default function DemoDashboard() {
                 <th className="text-left py-3 px-4 text-[10px] text-gray-400 font-medium uppercase">Symbol</th>
                 <th className="text-left py-3 px-4 text-[10px] text-gray-400 font-medium uppercase">Type</th>
                 <th className="text-right py-3 px-4 text-[10px] text-gray-400 font-medium uppercase">Profit</th>
-                <th className="text-center py-3 px-4 text-[10px] text-gray-400 font-medium uppercase">RR</th>
+                <th className="text-center py-3 px-4 text-[10px] text-gray-400 font-medium uppercase">Volume</th>
                 <th className="text-center py-3 px-4 text-[10px] text-gray-400 font-medium uppercase">Status</th>
               </tr></thead>
               <tbody>{recentTrades.map((t) => (
@@ -171,14 +397,14 @@ export default function DemoDashboard() {
                   <td className="py-3 px-4 text-xs text-gray-400">{t.date}</td>
                   <td className="py-3 px-4 text-sm text-white font-semibold">{t.symbol}</td>
                   <td className="py-3 px-4"><span className={`px-2 py-1 rounded-md text-[10px] font-semibold ${t.type === "Buy" ? "bg-profit/10 text-profit" : "bg-loss/10 text-loss"}`}>{t.type}</span></td>
-                  <td className={`py-3 px-4 text-right text-sm font-bold ${t.profit >= 0 ? "text-profit" : "text-loss"}`}>{t.profit >= 0 ? "+" : ""}${t.profit.toFixed(2)}</td>
-                  <td className="py-3 px-4 text-center text-xs text-gray-400">{t.rr > 0 ? `${t.rr.toFixed(1)}R` : "—"}</td>
+                  <td className={`py-3 px-4 text-right text-sm font-bold ${t.profit >= 0 ? "text-profit" : "text-loss"}`}>{t.profit >= 0 ? "+" : ""}{currency}{Math.abs(t.profit).toFixed(2)}</td>
+                  <td className="py-3 px-4 text-center text-xs text-gray-400">{t.volume} lot</td>
                   <td className="py-3 px-4 text-center">{t.isQualified ? <span className="text-profit">✓</span> : <span className="text-loss">🚩</span>}</td>
                 </tr>
               ))}</tbody>
             </table>
           </div>
-          <div className="p-3 border-t border-white/5 text-center"><p className="text-xs text-gray-600">Last updated: {myStats.lastUpdated}</p></div>
+          <div className="p-3 border-t border-white/5 text-center"><p className="text-xs text-gray-600">Data from: 04:00 – 08:00 EAT • Next update: {myStats.nextUpdate}</p></div>
         </div>
         )}
 
@@ -191,13 +417,18 @@ export default function DemoDashboard() {
           </div>
           <div className="divide-y divide-white/5">
             {leaderboard.map((entry) => (
-              <button key={entry.rank} onClick={() => { setShowLeaderboardModal(true); setSelectedUser(entry); }} className={`w-full flex items-center gap-4 px-4 py-3 text-left hover:bg-white/5 transition-colors ${entry.isMe ? "bg-royal/10 border-l-2 border-royal" : ""}`}>
+              <button key={entry.rank} onClick={() => { setShowLeaderboardModal(true); setSelectedUser(entry); }} className={`w-full flex items-center gap-4 px-4 py-3 text-left hover:bg-white/5 transition-colors ${entry.isMe ? "bg-royal/10 border-l-2 border-royal" : ""} ${entry.isDisqualified ? "opacity-60" : ""}`}>
                 <div className={`flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center text-sm font-bold ${entry.rank === 1 ? "bg-gold/20 text-gold" : entry.rank === 2 ? "bg-gray-400/20 text-gray-300" : entry.rank === 3 ? "bg-orange-500/20 text-orange-400" : "bg-white/5 text-gray-500"}`}>{entry.rank}</div>
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2"><p className={`text-sm font-semibold truncate ${entry.isMe ? "text-royal" : "text-white"}`}>{entry.nickname}</p>{entry.isMe && <span className="px-1.5 py-0.5 bg-royal/20 text-royal text-[10px] rounded font-bold">YOU</span>}</div>
-                  <p className="text-[10px] text-gray-500">{entry.trades} trades • {entry.winRate}% win • {entry.avgRR.toFixed(1)}R</p>
+                  <div className="flex items-center gap-2">
+                    <p className={`text-sm font-semibold truncate ${entry.isMe ? "text-royal" : entry.isDisqualified ? "text-gray-500" : "text-white"}`}>{entry.nickname}</p>
+                    {entry.isMe && <span className="px-1.5 py-0.5 bg-royal/20 text-royal text-[10px] rounded font-bold">YOU</span>}
+                    {entry.isDisqualified && <span className="px-1.5 py-0.5 bg-loss/20 text-loss text-[10px] rounded font-bold">DQ</span>}
+                    {entry.isBlown && <span className="text-sm">💀</span>}
+                  </div>
+                  <p className="text-[10px] text-gray-500">{entry.trades} trades • {entry.qualifiedTrades} qualified • {entry.flaggedTrades} flagged</p>
                 </div>
-                <p className="text-sm font-bold text-white">${entry.balance.toFixed(2)}</p>
+                <p className={`text-sm font-bold ${entry.isBlown ? "text-loss" : entry.isDisqualified ? "text-gray-500 line-through" : "text-white"}`}>{entry.isCent ? "¢" : "$"}{entry.balance.toFixed(2)}</p>
               </button>
             ))}
           </div>
@@ -225,11 +456,14 @@ export default function DemoDashboard() {
                       <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${t.type === "Buy" ? "bg-profit/10 text-profit" : "bg-loss/10 text-loss"}`}>{t.type}</span>
                       <span className="text-xs text-gray-500">{t.date}</span>
                     </div>
-                    <div className="bg-loss/10 border border-loss/20 rounded-lg p-2 mb-2"><p className="text-sm text-white">{t.violations[0]}</p></div>
+                    <div className="space-y-1 mb-2">
+                      {t.violations.map((v, vi) => (
+                        <div key={vi} className="bg-loss/10 border border-loss/20 rounded-lg p-2"><p className="text-sm text-white">{v}</p></div>
+                      ))}
+                    </div>
                     <div className="flex gap-4 text-xs text-gray-400">
                       <span>Lots: {t.volume}</span>
-                      <span>Profit removed: <span className="text-loss font-semibold">${t.profit.toFixed(2)}</span></span>
-                      <span>RR: {t.rr > 0 ? `${t.rr.toFixed(1)}R` : "—"}</span>
+                      <span>Profit removed: <span className="text-loss font-semibold">{currency}{t.profit > 0 ? t.profit.toFixed(2) : "0.00"}</span></span>
                     </div>
                   </div>
                 </div>
@@ -254,21 +488,30 @@ export default function DemoDashboard() {
             <div className="p-5 space-y-4">
               <div className="grid grid-cols-2 gap-3">
                 <DRow label="Ticket" value={`#${selectedTrade.ticket}`} />
-                <DRow label="Date" value={selectedTrade.date} />
                 <DRow label="Volume" value={`${selectedTrade.volume} lots`} />
+                <DRow label="Opened" value={selectedTrade.openTime} />
+                <DRow label="Closed" value={selectedTrade.closeTime} />
+                <DRow label="Entry" value={selectedTrade.openPrice.toFixed(5)} />
+                <DRow label="Exit" value={selectedTrade.closePrice.toFixed(5)} />
+                <DRow label="Stop Loss" value={selectedTrade.stopLoss ? selectedTrade.stopLoss.toFixed(5) : "None"} color={selectedTrade.stopLoss ? "text-loss" : "text-gray-500"} />
+                <DRow label="Take Profit" value={selectedTrade.takeProfit ? selectedTrade.takeProfit.toFixed(5) : "None"} color="text-profit" />
+                <DRow label="Commission" value={`${currency}${selectedTrade.commission.toFixed(2)}`} />
+                <DRow label="Swap" value={`${currency}${selectedTrade.swap.toFixed(2)}`} />
                 <DRow label="Duration" value={selectedTrade.duration} />
-                <DRow label="Entry" value={selectedTrade.openPrice.toString()} />
-                <DRow label="Exit" value={selectedTrade.closePrice.toString()} />
-                <DRow label="Stop Loss" value={selectedTrade.stopLoss.toString()} color="text-loss" />
-                <DRow label="Take Profit" value={selectedTrade.takeProfit.toString()} color="text-profit" />
-                <DRow label="Risk:Reward" value={selectedTrade.rr > 0 ? `${selectedTrade.rr.toFixed(1)}R` : "Hit SL"} color="text-royal" />
-                <DRow label="Profit/Loss" value={`${selectedTrade.profit >= 0 ? "+" : ""}$${selectedTrade.profit.toFixed(2)}`} color={selectedTrade.profit >= 0 ? "text-profit" : "text-loss"} />
+                <DRow label="Net P&L" value={`${selectedTrade.profit >= 0 ? "+" : ""}${currency}${Math.abs(selectedTrade.profit).toFixed(2)}`} color={selectedTrade.profit >= 0 ? "text-profit" : "text-loss"} />
               </div>
               <div className={`p-4 rounded-xl border ${selectedTrade.isQualified ? "bg-profit/10 border-profit/20" : "bg-loss/10 border-loss/20"}`}>
                 {selectedTrade.isQualified ? (
                   <p className="text-sm text-profit font-semibold flex items-center gap-2"><Shield size={16} />Qualified — counts toward your balance</p>
                 ) : (
-                  <div><p className="text-sm text-loss font-semibold flex items-center gap-2 mb-2"><AlertTriangle size={16} />Flagged — profit removed</p><p className="text-sm text-white">{selectedTrade.violations[0]}</p></div>
+                  <div>
+                    <p className="text-sm text-loss font-semibold flex items-center gap-2 mb-3"><AlertTriangle size={16} />Flagged — profit removed</p>
+                    <div className="space-y-2">
+                      {selectedTrade.violations.map((v, i) => (
+                        <p key={i} className="text-sm text-white bg-loss/10 border border-loss/20 rounded-lg p-2">{v}</p>
+                      ))}
+                    </div>
+                  </div>
                 )}
               </div>
             </div>
@@ -287,13 +530,18 @@ export default function DemoDashboard() {
             {!selectedUser ? (
               <div className="divide-y divide-white/5">
                 {leaderboard.map((entry) => (
-                  <button key={entry.rank} onClick={() => setSelectedUser(entry)} className={`w-full flex items-center gap-4 px-4 py-3 text-left hover:bg-white/5 transition-colors ${entry.isMe ? "bg-royal/10 border-l-2 border-royal" : ""}`}>
+                  <button key={entry.rank} onClick={() => setSelectedUser(entry)} className={`w-full flex items-center gap-4 px-4 py-3 text-left hover:bg-white/5 transition-colors ${entry.isMe ? "bg-royal/10 border-l-2 border-royal" : ""} ${entry.isDisqualified ? "opacity-60" : ""}`}>
                     <div className={`flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center text-sm font-bold ${entry.rank === 1 ? "bg-gold/20 text-gold" : entry.rank === 2 ? "bg-gray-400/20 text-gray-300" : entry.rank === 3 ? "bg-orange-500/20 text-orange-400" : "bg-white/5 text-gray-500"}`}>{entry.rank}</div>
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2"><p className={`text-sm font-semibold truncate ${entry.isMe ? "text-royal" : "text-white"}`}>{entry.nickname}</p>{entry.isMe && <span className="px-1.5 py-0.5 bg-royal/20 text-royal text-[10px] rounded font-bold">YOU</span>}</div>
-                      <p className="text-[10px] text-gray-500">{entry.trades} trades • {entry.winRate}% win • {entry.avgRR.toFixed(1)}R avg</p>
+                      <div className="flex items-center gap-2">
+                        <p className={`text-sm font-semibold truncate ${entry.isMe ? "text-royal" : entry.isDisqualified ? "text-gray-500" : "text-white"}`}>{entry.nickname}</p>
+                        {entry.isMe && <span className="px-1.5 py-0.5 bg-royal/20 text-royal text-[10px] rounded font-bold">YOU</span>}
+                        {entry.isDisqualified && <span className="px-1.5 py-0.5 bg-loss/20 text-loss text-[10px] rounded font-bold">DQ</span>}
+                        {entry.isBlown && <span className="text-sm">💀</span>}
+                      </div>
+                      <p className="text-[10px] text-gray-500">{entry.trades} trades • {entry.qualifiedTrades} qualified • {entry.flaggedTrades} flagged</p>
                     </div>
-                    <p className="text-sm font-bold text-white">${entry.balance.toFixed(2)}</p>
+                    <p className={`text-sm font-bold ${entry.isBlown ? "text-loss" : entry.isDisqualified ? "text-gray-500 line-through" : "text-white"}`}>{entry.isCent ? "¢" : "$"}{entry.balance.toFixed(2)}</p>
                   </button>
                 ))}
               </div>
@@ -304,25 +552,43 @@ export default function DemoDashboard() {
                   <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-lg font-bold ${selectedUser.rank <= 3 ? "bg-gold/20 text-gold" : "bg-white/10 text-gray-400"}`}>#{selectedUser.rank}</div>
                   <div>
                     <p className="text-xl font-bold text-white">{selectedUser.nickname}</p>
-                    <p className="text-sm text-gray-400">Balance: <span className="text-white font-semibold">${selectedUser.balance.toFixed(2)}</span></p>
+                    <div className="flex items-center gap-2 mt-1">
+                      <p className="text-sm text-gray-400">Balance: <span className={`font-semibold ${selectedUser.isBlown ? "text-loss" : "text-white"}`}>{selectedUser.isCent ? "¢" : "$"}{selectedUser.balance.toFixed(2)}</span></p>
+                      {selectedUser.isDisqualified && <span className="px-1.5 py-0.5 bg-loss/20 text-loss text-[10px] rounded font-bold">DISQUALIFIED</span>}
+                      {selectedUser.isBlown && <span className="text-sm">💀 Blown</span>}
+                    </div>
                   </div>
                 </div>
-                <div className="grid grid-cols-3 gap-3 mb-6">
-                  <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500 mb-1">Trades</p><p className="text-lg font-bold text-white">{selectedUser.trades}</p></div>
-                  <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500 mb-1">Win Rate</p><p className="text-lg font-bold text-white">{selectedUser.winRate}%</p></div>
-                  <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500 mb-1">Avg RR</p><p className="text-lg font-bold text-royal">{selectedUser.avgRR.toFixed(1)}R</p></div>
+                {selectedUser.isDisqualified && (
+                  <div className="bg-loss/10 border border-loss/20 rounded-xl p-3 mb-4">
+                    <p className="text-xs text-loss font-semibold mb-1">Disqualification Reason</p>
+                    <p className="text-xs text-gray-300">{selectedUser.disqualifyReason}</p>
+                  </div>
+                )}
+                <div className="grid grid-cols-2 gap-3 mb-4">
+                  <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500 mb-1">Trades</p><p className="text-lg font-bold text-white">{selectedUser.trades}</p><p className="text-[9px] text-gray-600">{selectedUser.qualifiedTrades} qualified · {selectedUser.flaggedTrades} flagged</p></div>
+                  <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500 mb-1">Qualified Profit</p><p className={`text-lg font-bold ${selectedUser.qualifiedProfit >= 0 ? "text-profit" : "text-loss"}`}>{selectedUser.isCent ? "¢" : "$"}{selectedUser.qualifiedProfit.toFixed(2)}</p><p className="text-[9px] text-gray-600">Gross: {selectedUser.isCent ? "¢" : "$"}{selectedUser.grossProfit.toFixed(2)}</p></div>
+                </div>
+                <div className="bg-white/5 rounded-xl p-3 mb-4 flex justify-between items-center">
+                  <p className="text-xs text-gray-400">Profit removed from flags</p>
+                  <p className="text-sm font-bold text-loss">-{selectedUser.isCent ? "¢" : "$"}{selectedUser.profitRemoved.toFixed(2)}</p>
                 </div>
                 {selectedUser.recentTrades.length > 0 ? (
                   <div><p className="text-sm font-semibold text-gray-300 mb-3">Recent Trades</p><div className="space-y-2">{selectedUser.recentTrades.map((t, i) => (
-                    <div key={i} className={`flex items-center justify-between p-3 rounded-xl border ${t.flagged ? "bg-loss/5 border-loss/20" : "bg-white/5 border-white/10"}`}>
-                      <div className="flex items-center gap-3">
-                        <span className={`px-2 py-1 rounded text-[10px] font-bold ${t.type === "Buy" ? "bg-profit/10 text-profit" : "bg-loss/10 text-loss"}`}>{t.type}</span>
-                        <div><p className="text-sm text-white font-semibold">{t.symbol}</p><p className="text-[10px] text-gray-500">{t.date}</p></div>
+                    <div key={i} className={`rounded-xl border ${t.flagged ? "bg-loss/5 border-loss/20" : "bg-white/5 border-white/10"}`}>
+                      <div className="flex items-center justify-between p-3">
+                        <div className="flex items-center gap-3">
+                          <span className={`px-2 py-1 rounded text-[10px] font-bold ${t.type === "Buy" ? "bg-profit/10 text-profit" : "bg-loss/10 text-loss"}`}>{t.type}</span>
+                          <div><p className="text-sm text-white font-semibold">{t.symbol}</p><p className="text-[10px] text-gray-500">{t.date}</p></div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <p className={`text-sm font-bold ${t.profit >= 0 ? "text-profit" : "text-loss"}`}>{t.profit >= 0 ? "+" : ""}{selectedUser.isCent ? "¢" : "$"}{Math.abs(t.profit).toFixed(2)}</p>
+                          {t.flagged && <span className="text-loss text-sm">🚩</span>}
+                        </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <div className="text-right"><p className={`text-sm font-bold ${t.profit >= 0 ? "text-profit" : "text-loss"}`}>${t.profit.toFixed(2)}</p><p className="text-[10px] text-gray-500">{t.rr > 0 ? `${t.rr.toFixed(1)}R` : "—"}</p></div>
-                        {t.flagged && <span className="text-loss text-sm">🚩</span>}
-                      </div>
+                      {t.flagged && t.violations && t.violations.map((v, vi) => (
+                        <p key={vi} className="text-[11px] text-loss px-3 pb-2 border-t border-loss/10 pt-2">⚠️ {v}</p>
+                      ))}
                     </div>
                   ))}</div></div>
                 ) : (<p className="text-sm text-gray-500 text-center py-4">No recent trades to show</p>)}
@@ -351,8 +617,12 @@ export default function DemoDashboard() {
                     </div>
                     <span className="text-xs text-gray-500">{t.date}</span>
                   </div>
-                  <div className="bg-loss/10 border border-loss/20 rounded-lg p-2 mb-2"><p className="text-sm text-white">{t.violations[0]}</p></div>
-                  <div className="flex gap-4 text-xs text-gray-400"><span>Lots: {t.volume}</span><span>Profit removed: <span className="text-loss font-semibold">${t.profit.toFixed(2)}</span></span><span>RR: {t.rr > 0 ? `${t.rr.toFixed(1)}R` : "—"}</span></div>
+                  <div className="space-y-1 mb-2">
+                    {t.violations.map((v, vi) => (
+                      <div key={vi} className="bg-loss/10 border border-loss/20 rounded-lg p-2"><p className="text-sm text-white">{v}</p></div>
+                    ))}
+                  </div>
+                  <div className="flex gap-4 text-xs text-gray-400"><span>Lots: {t.volume}</span><span>Profit removed: <span className="text-loss font-semibold">{currency}{t.profit > 0 ? t.profit.toFixed(2) : "0.00"}</span></span></div>
                 </div>
               ))}
             </div>
