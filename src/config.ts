@@ -48,6 +48,29 @@ export const config = {
   // VPS API (for MT5 connection verification)
   vpsApiUrl: process.env.VPS_API_URL || '',
   vpsApiKey: process.env.VPS_API_KEY || '',
+
+  // VPS Base Account (standard demo — covers standard/m-suffix symbols)
+  vpsBaseAccount: process.env.VPS_BASE_ACCOUNT || '435924397',
+  vpsBasePassword: process.env.VPS_BASE_PASSWORD || 'Abc@1234',
+  vpsBaseServer:   process.env.VPS_BASE_SERVER   || 'Exness-MT5Trial9',
+
+  // Candle accounts — one representative per account subtype.
+  // Candle data (OHLC) is the same for all users of the same subtype.
+  // Only one login per subtype needed — not one per participant.
+  //
+  // standard      → base account covers it (XAUUSDm etc.)
+  // standard_cent → set CANDLE_ACCOUNT_CENT / _PASSWORD / _SERVER / _TERMINAL
+  // Add more as needed (pro, zero, raw_spread)
+  candleAccounts: [
+    {
+      subtypes:   (process.env.CANDLE_SUBTYPES_CENT   || 'standard_cent').split(','),
+      account:    process.env.CANDLE_ACCOUNT_CENT      || '',
+      password:   process.env.CANDLE_PASSWORD_CENT     || '',
+      server:     process.env.CANDLE_SERVER_CENT       || '',
+      terminalId: parseInt(process.env.CANDLE_TERMINAL_CENT || '9'),
+    },
+    // Add more entries here for pro/zero/raw_spread if those subtypes appear in challenges
+  ] as Array<{ subtypes: string[]; account: string; password: string; server: string; terminalId: number }>,
   
   // Schedule
   morningPostTime: process.env.MORNING_POST_TIME || '10:00',

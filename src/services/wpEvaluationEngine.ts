@@ -103,35 +103,166 @@ interface TradeRow {
   swap: number;
 }
 
+// ==================== CANDLE TERMINAL MANAGER ====================
+
+type CandleResult = { time: string; low: number; high: number; open: number; close: number }[];
+
+/**
+ * Manages one logged-in terminal per account subtype for candle fetches.
+ *
+ * Why: OHLC price data is identical for all users of the same subtype on the
+ * same broker. We only need ONE account logged in per subtype — not one per
+ * participant — to make the right symbol suffix available (e.g. XAUUSDc).
+ *
+ * standard      → base account covers this (XAUUSDm etc.) — no extra login needed.
+ * standard_cent → one cent account on a dedicated terminal.
+ * pro/zero etc. → add entries to config.candleAccounts.
+ */
+class CandleTerminalManager {
+  // terminalId → subtype(s) it currently serves
+  private activeTerminals = new Map<number, string[]>();
+  // subtype → terminalId currently serving it
+  private subtypeTerminal  = new Map<string, number>();
+
+  /**
+   * Login each configured candle account to its designated terminal.
+   * Called once before the evaluation cycle begins.
+   */
+  async setup(): Promise<void> {
+    this.activeTerminals.clear();
+    this.subtypeTerminal.clear();
+
+    for (const entry of config.candleAccounts) {
+      if (!entry.account || !entry.password || !entry.server) continue;
+      try {
+        const res = await axios.post(
+          `${config.vpsApiUrl}/verify`,
+          { account: entry.account, server: entry.server, password: entry.password, api_key: config.vpsApiKey },
+          { timeout: 20000 }
+        );
+        if (res.data?.success) {
+          const tid = res.data.terminal_id || entry.terminalId;
+          this.activeTerminals.set(tid, entry.subtypes);
+          entry.subtypes.forEach(s => this.subtypeTerminal.set(s, tid));
+          console.log(`✅ Candle terminal T${tid} ready for subtypes: ${entry.subtypes.join(', ')}`);
+        } else {
+          console.warn(`⚠️ Candle terminal setup failed for subtypes ${entry.subtypes.join(',')}: ${res.data?.message}`);
+        }
+      } catch (e) {
+        console.warn(`⚠️ Candle terminal setup error for subtypes ${entry.subtypes.join(',')}: ${(e as Error).message}`);
+      }
+    }
+  }
+
+  /**
+   * Restore all candle terminals back to the base account.
+   * Called once after the evaluation cycle finishes.
+   */
+  async restore(): Promise<void> {
+    if (this.activeTerminals.size === 0) return;
+    const terminals = [...this.activeTerminals.keys()];
+    for (const tid of terminals) {
+      try {
+        await axios.post(
+          `${config.vpsApiUrl}/verify`,
+          {
+            account:  config.vpsBaseAccount,
+            server:   config.vpsBaseServer,
+            password: config.vpsBasePassword,
+            api_key:  config.vpsApiKey,
+            terminal_id: tid,
+          },
+          { timeout: 20000 }
+        );
+        console.log(`✅ Candle terminal T${tid} restored to base account`);
+      } catch (e) {
+        console.warn(`⚠️ Could not restore candle terminal T${tid}: ${(e as Error).message}`);
+      }
+    }
+    this.activeTerminals.clear();
+    this.subtypeTerminal.clear();
+  }
+
+  /**
+   * Get the terminal ID to use for a given account subtype.
+   * Returns undefined for standard (base account handles it — no terminal_id needed).
+   */
+  terminalFor(accountSubtype: string | null): number | undefined {
+    if (!accountSubtype || accountSubtype === 'standard') return undefined; // base account
+    return this.subtypeTerminal.get(accountSubtype);
+  }
+}
+
+export const candleTerminalManager = new CandleTerminalManager();
+
 // ==================== VPS CANDLE SERVICE ====================
 
 /**
- * Fetch M1 candles from VPS API for SL validation
+ * Fetch OHLC candles from VPS for SL validation.
+ *
+ * Routes to the correct terminal based on account subtype:
+ *  - standard / unknown → no terminal_id (router picks any; base account has XAUUSDm)
+ *  - standard_cent → dedicated cent candle terminal (XAUUSDc available)
+ *  - others → dedicated terminal if configured
+ *
+ * Retry: tries up to 3 different healthy terminals before giving up.
+ * On persistent failure: returns null (logged as sl_check_failed by caller).
  */
-async function fetchCandles(symbol: string, fromTime: Date, toTime: Date, timeframe: string = 'M1'): Promise<{ time: string; low: number; high: number; open: number; close: number }[] | null> {
-  try {
-    const response = await axios.post(
-      `${config.vpsApiUrl}/api/v1/candles`,
-      {
+async function fetchCandles(
+  symbol: string,
+  fromTime: Date,
+  toTime: Date,
+  timeframe: string = 'M1',
+  accountSubtype: string | null = null
+): Promise<CandleResult | null> {
+  const preferredTerminalId = candleTerminalManager.terminalFor(accountSubtype);
+  // Try preferred terminal first, then without terminal_id (any), then one more retry
+  const terminalIds: (number | undefined)[] = preferredTerminalId
+    ? [preferredTerminalId, undefined, preferredTerminalId]  // preferred → any → preferred again
+    : [undefined, undefined];                                 // standard: just try twice
+
+  for (let attempt = 0; attempt < terminalIds.length; attempt++) {
+    const tid = terminalIds[attempt];
+    try {
+      const body: Record<string, unknown> = {
         symbol,
         timeframe,
         from_time: fromTime.toISOString(),
-        to_time: toTime.toISOString(),
-        api_key: config.vpsApiKey,
-        terminal_id: 1,
-      },
-      {
-        headers: { 'Content-Type': 'application/json' },
-        timeout: 15000,
+        to_time:   toTime.toISOString(),
+        api_key:   config.vpsApiKey,
+      };
+      if (tid !== undefined) body.terminal_id = tid;
+
+      const response = await axios.post(
+        `${config.vpsApiUrl}/api/v1/candles`,
+        body,
+        { headers: { 'Content-Type': 'application/json' }, timeout: 15000 }
+      );
+
+      if (response.data?.success && response.data?.candles?.length > 0) {
+        return response.data.candles;
       }
-    );
-    if (response.data?.success && response.data?.candles) {
-      return response.data.candles;
+
+      // Symbol not available on this terminal — re-login candle account and retry
+      if (preferredTerminalId && tid === undefined && attempt === 1) {
+        // Re-login the candle account to refresh symbol availability
+        const entry = config.candleAccounts.find(e =>
+          e.subtypes.some(s => candleTerminalManager.terminalFor(s) === preferredTerminalId)
+        );
+        if (entry?.account) {
+          await axios.post(
+            `${config.vpsApiUrl}/verify`,
+            { account: entry.account, server: entry.server, password: entry.password, api_key: config.vpsApiKey, terminal_id: preferredTerminalId },
+            { timeout: 20000 }
+          ).catch(() => {});
+        }
+      }
+    } catch {
+      // Network/timeout — continue to next attempt
     }
-    return null;
-  } catch {
-    return null; // Graceful degradation — skip SL validation if candles unavailable
   }
+
+  return null; // All attempts failed — caller logs sl_check_failed
 }
 
 /**
@@ -213,7 +344,7 @@ function formatCandleTimeEAT(candleTimeISO: string, periodMs: number): string {
  * Uses ratio method for currency conversion — works for all instruments.
  * Returns violation message, null (valid), or 'FAILED' (candle fetch error).
  */
-async function validateSlWithCandles(trade: TradeRow, maxHoldHours: number | null = null, maxRiskDollars: number = 0): Promise<string | null | 'FAILED'> {
+async function validateSlWithCandles(trade: TradeRow, maxHoldHours: number | null = null, maxRiskDollars: number = 0, accountSubtype: string | null = null): Promise<string | null | 'FAILED'> {
   if (!trade.open_time || !trade.close_time) return null;
   if (!maxRiskDollars || maxRiskDollars <= 0) return null;
 
@@ -240,7 +371,7 @@ async function validateSlWithCandles(trade: TradeRow, maxHoldHours: number | nul
   const tf = selectTimeframe(holdMinutes, maxHoldHours);
   if (!tf) return null;
 
-  const candles = await fetchCandles(trade.symbol, new Date(trade.open_time), new Date(trade.close_time), tf.timeframe);
+  const candles = await fetchCandles(trade.symbol, new Date(trade.open_time), new Date(trade.close_time), tf.timeframe, accountSubtype);
   if (!candles || candles.length === 0) return 'FAILED';
 
   // Exclude first and last candle (entry/exit candles have partial data)
@@ -300,7 +431,7 @@ export class WpEvaluationEngine {
     const challengeType = challenge.rows[0]?.type;
 
     const registrations = await db.query(
-      `SELECT id, account_number, user_id, username, nickname, account_type, is_cent, source
+      `SELECT id, account_number, user_id, username, nickname, account_type, account_subtype, is_cent, source
        FROM trading_registrations WHERE challenge_id = $1 AND disqualified = false AND investor_password IS NOT NULL`,
       [challengeId]
     );
@@ -367,7 +498,7 @@ export class WpEvaluationEngine {
     const challengeType = challenge.rows[0]?.type;
 
     const regResult = await db.query(
-      `SELECT id, account_number, user_id, username, nickname, account_type, is_cent, source
+      `SELECT id, account_number, user_id, username, nickname, account_type, account_subtype, is_cent, source
        FROM trading_registrations WHERE id = $1 AND challenge_id = $2`,
       [registrationId, challengeId]
     );
@@ -750,7 +881,7 @@ export class WpEvaluationEngine {
           // Layer B: Fake SL candle check — only on winning trades
           // Detects SL removed or widened after entry
           if (rules.max_risk_dollars && tradeNet > 0) {
-            const slViolation = await validateSlWithCandles(trade, rules.max_hold_hours || null, rules.max_risk_dollars);
+            const slViolation = await validateSlWithCandles(trade, rules.max_hold_hours || null, rules.max_risk_dollars, reg.account_subtype || null);
             if (slViolation === 'FAILED') {
               slCheckFailures.push({ ticket: trade.ticket, symbol: trade.symbol });
               // Candle fetch failed — log but don't penalise (benefit of doubt)
@@ -807,9 +938,9 @@ export class WpEvaluationEngine {
     if (slCheckFailures.length > 0) {
       try {
         await db.query(
-          `INSERT INTO wp_pull_errors (registration_id, account_number, error_code, error_message)
-           VALUES ($1, $2, 'sl_check_failed', $3)`,
-          [reg.id, reg.account_number, JSON.stringify({ trades_unchecked: slCheckFailures.length, tickets: slCheckFailures.map(f => f.ticket) })]
+          `INSERT INTO wp_pull_errors (challenge_id, registration_id, account_number, error_code, error_message)
+           VALUES ($1, $2, $3, 'sl_check_failed', $4)`,
+          [challengeId, reg.id, reg.account_number, JSON.stringify({ trades_unchecked: slCheckFailures.length, tickets: slCheckFailures.map(f => f.ticket) })]
         );
       } catch (e) {
         console.log(`⚠️ Could not log SL check failure for ${reg.account_number}:`, (e as Error).message);

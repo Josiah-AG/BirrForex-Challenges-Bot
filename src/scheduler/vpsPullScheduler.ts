@@ -2,7 +2,7 @@ import cron from 'node-cron';
 import axios from 'axios';
 import { Bot } from '../bot/bot';
 import { tradingChallengeService, TradingChallenge } from '../services/tradingChallengeService';
-import { evaluationEngine } from '../services/wpEvaluationEngine';
+import { evaluationEngine, candleTerminalManager } from '../services/wpEvaluationEngine';
 import { leaderboardService } from '../services/leaderboardService';
 import { config } from '../config';
 import { db } from '../database/db';
@@ -292,6 +292,9 @@ export class VpsPullScheduler {
         return;
       }
 
+      // === PRE-CYCLE: Login candle accounts to their designated terminals ===
+      await candleTerminalManager.setup();
+
       // Launch terminal workers (they pull from shared queue)
       const allResults = await this.runSharedQueueWorkers(healthyTerminals, challengeToPull, batchId);
 
@@ -398,6 +401,12 @@ export class VpsPullScheduler {
         console.log(`📊 Terminal distribution: ${terminalStats}`);
       }
 
+      // === POST-CYCLE: Restore candle terminals back to base account ===
+      await candleTerminalManager.restore();
+
+      // === POST-CYCLE: Report unresolved candle check failures to admin ===
+      await this.reportCandleFailures(challengeToPull.id, duration);
+
       // Report to admin
       await this.maybeReportToAdmin(challengeToPull, successful, credentialFailures, otherFailures, duration);
 
@@ -461,13 +470,16 @@ export class VpsPullScheduler {
         return;
       }
 
+      await candleTerminalManager.setup();
       const allResults = await this.runSharedQueueWorkers(healthyTerminals, challengeToPull, batchId);
+      await candleTerminalManager.restore();
 
       const successful = allResults.filter(r => r.success);
       const failed = allResults.filter(r => !r.success);
       const newTrades = successful.reduce((sum, r) => sum + (r.tradesCount || 0), 0);
       await this.completePullBatch(batchId, successful.length, failed.length, newTrades, 'completed');
       await this.bulkUpdatePullStatus(allResults);
+      await this.reportCandleFailures(challengeToPull.id, 0);
 
       const duration = Math.round((Date.now() - startTime) / 1000);
       console.log(`✅ VPS Pull: Admin full pull done in ${duration}s — ${successful.length}✓ ${failed.length}✗ | ${newTrades} trades`);
@@ -1430,6 +1442,57 @@ export class VpsPullScheduler {
           `<i>Consider switching to Legacy evaluation via /evaluationtype</i>`,
           { parse_mode: 'HTML' });
       } catch (e) {}
+    }
+  }
+
+  /**
+   * After each pull cycle, check wp_pull_errors for sl_check_failed entries
+   * logged during this cycle and report them to the admin dashboard via Telegram.
+   * These are trades where the fake SL candle check could not be completed.
+   */
+  private async reportCandleFailures(challengeId: number, durationSec: number) {
+    try {
+      const result = await db.query(
+        `SELECT we.registration_id, we.account_number, we.error_message,
+                r.nickname, r.account_subtype
+         FROM wp_pull_errors we
+         JOIN trading_registrations r ON we.registration_id = r.id
+         WHERE we.challenge_id = $1
+           AND we.error_code = 'sl_check_failed'
+           AND we.created_at > NOW() - INTERVAL '2 hours'
+         ORDER BY we.created_at DESC`,
+        [challengeId]
+      );
+      if (result.rows.length === 0) return;
+
+      // Group by account
+      const byAccount = new Map<string, { nickname: string; subtype: string; count: number }>();
+      for (const row of result.rows) {
+        const key = row.account_number;
+        const parsed = (() => { try { return JSON.parse(row.error_message); } catch { return {}; } })();
+        const count = parsed.trades_unchecked || 1;
+        if (!byAccount.has(key)) {
+          byAccount.set(key, { nickname: row.nickname || key, subtype: row.account_subtype || 'unknown', count });
+        } else {
+          byAccount.get(key)!.count += count;
+        }
+      }
+
+      const lines = [...byAccount.values()]
+        .map(a => `• ${a.nickname} (${a.subtype}) — ${a.count} trade(s) unchecked`)
+        .join('\n');
+
+      await this.bot.bot.telegram.sendMessage(
+        config.adminUserId,
+        `⚠️ <b>Fake SL Check Incomplete</b>\n\n` +
+        `${byAccount.size} account(s) had candle fetch failures this cycle.\n` +
+        `These trades could not be verified for fake SL — benefit of doubt applied.\n\n` +
+        `${lines}\n\n` +
+        `<i>Check: VPS candle terminal may need re-login or symbol not available.</i>`,
+        { parse_mode: 'HTML' }
+      );
+    } catch (e) {
+      console.warn('⚠️ Could not report candle failures to admin:', (e as Error).message);
     }
   }
 
