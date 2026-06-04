@@ -1186,17 +1186,17 @@ export class WpEvaluationEngine {
 
     // Determine display mode:
     //
-    // isRealCentOnly: challenge type = real AND only_cent_account = true
-    //   → Admin entered values in ¢. All real users are cent. Display in ¢ only.
+    // isRealCentOnly: type = real AND only_cent_account = true
+    //   → Admin entered values in ¢. All participants are cent. Display in ¢ only.
     //
-    // showDual: challenge type = hybrid AND only_cent_account = true
-    //   → Real category is cent-only, demo is standard. Show both $ (demo) and ¢ (real).
-    //   → Admin enters in standard terms; engine ×100 for cent users.
+    // showDual: any real or hybrid challenge that is NOT cent-only real
+    //   → Cent accounts are accepted (whether mandatory or not), so both standard ($)
+    //     and cent (¢) users can coexist. Show both values.
+    //   → only_cent_account = false means cent is not mandatory, not that it's absent.
     //
-    // standard (everything else): display in $ only.
-    //   Covers: demo-only, real with no cent restriction, hybrid with no cent restriction.
+    // $ only: demo challenges (no real cent accounts possible).
     const isRealCentOnly = challengeType === 'real' && isCent;
-    const showDual = challengeType === 'hybrid' && isCent;
+    const showDual = challengeType !== 'demo' && !isRealCentOnly;
 
     if (cfg.max_lot_size) {
       if (showDual) {
