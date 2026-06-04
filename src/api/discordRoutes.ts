@@ -703,8 +703,6 @@ router.delete('/challenges/:id', async (req: Request, res: Response) => {
   }
 });
 
-export { router as discordRoutes };
-
 // ==================== VERIFY REAL ACCOUNT ALLOCATION ====================
 
 /**
@@ -821,3 +819,57 @@ router.post('/mark-lastchance-done/:id', async (req: Request, res: Response) => 
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
+
+/**
+ * POST /api/discord/admin/unregister
+ * Called by Discord bot admin /unregister command.
+ * Hard-deletes the registration and leaderboard entries.
+ * The Discord bot handles the DM to the user itself before calling this.
+ * Body: { challenge_id, username, reason }
+ */
+router.post('/admin/unregister', discordAuth, discordLimiter, async (req: Request, res: Response) => {
+  try {
+    const { challenge_id, username, reason } = req.body;
+    if (!challenge_id || !username || !reason) {
+      return res.status(400).json({ error: 'challenge_id, username, and reason are required' });
+    }
+
+    // Find the registration by username (case-insensitive)
+    const regResult = await db.query(
+      `SELECT id, username, email, account_number, user_id, nickname
+       FROM trading_registrations
+       WHERE challenge_id = $1 AND LOWER(username) = LOWER($2)`,
+      [parseInt(challenge_id), username.replace('@', '').trim()]
+    );
+
+    if (regResult.rows.length === 0) {
+      return res.status(404).json({ error: `No registration found for username "${username}" in this challenge` });
+    }
+
+    const reg = regResult.rows[0];
+
+    // Hard delete
+    await db.query(`DELETE FROM trading_registrations WHERE id = $1`, [reg.id]);
+    await db.query(`DELETE FROM wp_leaderboard WHERE registration_id = $1`, [reg.id]);
+    await db.query(`DELETE FROM wp_leaderboard_staging WHERE registration_id = $1`, [reg.id]);
+
+    console.log(`✅ Discord admin unregister: @${reg.username} (${reg.account_number}) removed from challenge ${challenge_id}. Reason: ${reason}`);
+
+    return res.json({
+      success: true,
+      user: {
+        username: reg.username,
+        nickname: reg.nickname,
+        accountNumber: reg.account_number,
+        email: reg.email,
+        userId: reg.user_id,
+      },
+    });
+  } catch (error) {
+    console.error('Discord admin unregister error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+export { router as discordRoutes };
+

@@ -806,7 +806,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/unverify`, adminIpCheck,
     }
 
     const reg = await db.query(
-      `SELECT r.user_id, r.source, r.username, r.nickname, r.account_number, r.source, c.title
+      `SELECT r.user_id, r.source, r.username, r.nickname, r.account_number, c.title, c.source as challenge_source
        FROM trading_registrations r
        JOIN trading_challenges c ON r.challenge_id = c.id
        WHERE r.id = $1 AND r.challenge_id = $2`,
@@ -818,20 +818,26 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/unverify`, adminIpCheck,
     }
 
     const user = reg.rows[0];
+    const isDiscordChallenge = user.challenge_source === 'discord';
 
-    // Soft-delete: mark as removed (not hard delete) so login can show the reason
-    await db.query(
-      `UPDATE trading_registrations SET status = 'removed', disqualified = true, disqualified_at = NOW(), disqualified_reason = $1 WHERE id = $2`,
-      [reason, registrationId]
-    );
+    if (isDiscordChallenge) {
+      // Discord challenge: soft-delete so WinnerPip login can show the removal reason
+      await db.query(
+        `UPDATE trading_registrations SET status = 'removed', disqualified = true, disqualified_at = NOW(), disqualified_reason = $1 WHERE id = $2`,
+        [reason, registrationId]
+      );
+    } else {
+      // Telegram challenge: hard delete — user is informed via Telegram DM
+      await db.query(`DELETE FROM trading_registrations WHERE id = $1`, [registrationId]);
+    }
 
-    // Remove from leaderboard
+    // Remove from leaderboard (both cases)
     await db.query(`DELETE FROM wp_leaderboard WHERE registration_id = $1`, [registrationId]);
+    await db.query(`DELETE FROM wp_leaderboard_staging WHERE registration_id = $1`, [registrationId]);
 
-    // DM the user
+    // DM the user — Telegram challenges only (Discord users can't be DM'd via Telegram bot)
     let dmSent = false;
-    const isDiscordUser = user.source === 'discord';
-    if (!isDiscordUser && user.user_id) {
+    if (!isDiscordChallenge && user.user_id) {
       try {
         const botModule = require('../bot/bot');
         const botInstance = botModule.bot || botModule.default;
@@ -839,9 +845,9 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/unverify`, adminIpCheck,
           await botInstance.bot.telegram.sendMessage(
             user.user_id,
             `⚠️ <b>Registration Removed</b>\n<b>${user.title}</b>\n\n` +
-            `Your registration (account ${user.account_number}) has been removed.\n\n` +
+            `Your registration (account ${user.account_number}) has been removed by the admin.\n\n` +
             `📛 <b>Reason:</b> ${reason}\n\n` +
-            `You can register again if you wish.`,
+            `You may register again if you wish.`,
             { parse_mode: 'HTML' }
           );
           dmSent = true;
@@ -851,7 +857,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/unverify`, adminIpCheck,
       }
     }
 
-    return res.json({ success: true, dmSent, user: user.nickname || user.username, isDiscord: isDiscordUser });
+    return res.json({ success: true, dmSent, user: user.nickname || user.username, isDiscord: isDiscordChallenge });
   } catch (error) {
     console.error('Admin unverify error:', error);
     return res.status(500).json({ error: 'Internal server error' });
@@ -937,7 +943,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
 
     // Participant counts
     const counts = await db.query(
-      `SELECT COUNT(*) as total, COUNT(CASE WHEN account_type='demo' THEN 1 END) as demo, COUNT(CASE WHEN account_type='real' THEN 1 END) as real, COUNT(CASE WHEN disqualified=true THEN 1 END) as disqualified FROM trading_registrations WHERE challenge_id=$1`, [challengeId]);
+      `SELECT COUNT(*) as total, COUNT(CASE WHEN account_type='demo' THEN 1 END) as demo, COUNT(CASE WHEN account_type='real' THEN 1 END) as real, COUNT(CASE WHEN disqualified=true THEN 1 END) as disqualified FROM trading_registrations WHERE challenge_id=$1 AND (status IS NULL OR status != 'removed')`, [challengeId]);
 
     // Trade stats — only count trades within challenge period
     const challengeDatesForStats = await db.query(`SELECT start_date, end_date FROM trading_challenges WHERE id = $1`, [challengeId]);

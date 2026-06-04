@@ -410,7 +410,7 @@ export class TradingAdminHandler {
       const challengeId = parseInt(data.replace('tc_unreg_select_', ''));
       tradingAdminSessions.set(telegramId, { step: 'tc_unregister_input', data: { challenge_id: challengeId } });
       await ctx.answerCbQuery();
-      await ctx.reply('Enter username or email to remove:');
+      await ctx.reply('Enter username, email, or account number to remove:');
       return true;
     }
 
@@ -614,9 +614,17 @@ export class TradingAdminHandler {
         break;
       }
 
-      // Unregister
+      // Unregister — step 1: get username/email/account
       case 'tc_unregister_input': {
-        await this.processUnregister(ctx, text);
+        session.data.unregister_target = text.trim();
+        session.step = 'tc_unregister_reason';
+        await ctx.reply('Enter the reason for removing this registration:');
+        break;
+      }
+
+      // Unregister — step 2: get reason then process
+      case 'tc_unregister_reason': {
+        await this.processUnregister(ctx, session.data.unregister_target, text.trim());
         break;
       }
 
@@ -1597,7 +1605,7 @@ export class TradingAdminHandler {
         step: 'tc_unregister_input',
         data: { challenge_id: challenges[0].id },
       });
-      await ctx.reply('Enter username or email to remove:');
+      await ctx.reply('Enter username, email, or MT5 account number to remove:');
     } else {
       const buttons = challenges.map(c => [
         Markup.button.callback(c.title, `tc_unreg_select_${c.id}`)
@@ -1606,45 +1614,61 @@ export class TradingAdminHandler {
     }
   }
 
-  private async processUnregister(ctx: Context, input: string) {
+  private async processUnregister(ctx: Context, input: string, reason: string) {
     const telegramId = ctx.from!.id;
     const session = tradingAdminSessions.get(telegramId);
     if (!session) return;
 
     const challengeId = session.data.challenge_id;
+    tradingAdminSessions.delete(telegramId);
+
     let reg = null;
 
     if (input.includes('@')) {
       if (input.includes('.')) {
-        // Email
         reg = await tradingChallengeService.deleteRegistrationByEmail(challengeId, input);
       } else {
-        // Username
         reg = await tradingChallengeService.deleteRegistrationByUsername(challengeId, input);
       }
+    } else if (/^\d{6,12}$/.test(input)) {
+      // Looks like an account number
+      reg = await tradingChallengeService.deleteRegistrationByAccount(challengeId, input);
     } else {
-      // Try as email first, then username
+      // Try email then username
       reg = await tradingChallengeService.deleteRegistrationByEmail(challengeId, input);
-      if (!reg) {
-        reg = await tradingChallengeService.deleteRegistrationByUsername(challengeId, input);
-      }
+      if (!reg) reg = await tradingChallengeService.deleteRegistrationByUsername(challengeId, input);
     }
 
-    tradingAdminSessions.delete(telegramId);
+    if (!reg) {
+      await ctx.reply('❌ Registration not found. Try their username, email, or MT5 account number.');
+      return;
+    }
 
-    if (reg) {
-      await ctx.reply(`✅ Registration removed:\n👤 @${reg.username}\n📧 ${reg.email}\n🏦 ${reg.account_number}`);
-      // Notify user
+    // Hard delete leaderboard entries
+    await db.query(`DELETE FROM wp_leaderboard WHERE registration_id = $1`, [reg.id]);
+    await db.query(`DELETE FROM wp_leaderboard_staging WHERE registration_id = $1`, [reg.id]);
+
+    await ctx.reply(
+      `✅ Registration removed:\n👤 @${reg.username}\n📧 ${reg.email || '—'}\n🏦 ${reg.account_number}\n📛 Reason: ${reason}`
+    );
+
+    // DM the user with the reason
+    if (reg.user_id) {
       try {
+        const challengeResult = await db.query(`SELECT title FROM trading_challenges WHERE id = $1`, [challengeId]);
+        const challengeTitle = challengeResult.rows[0]?.title || 'the trading challenge';
         await ctx.telegram.sendMessage(
           reg.user_id,
-          `⚠️ Your registration for the trading challenge has been removed by an administrator.\n\nIf you believe this is an error, please contact @birrFXadmin.`
+          `⚠️ <b>Registration Removed</b>\n<b>${challengeTitle}</b>\n\n` +
+          `Your registration (account ${reg.account_number}) has been removed by the admin.\n\n` +
+          `📛 <b>Reason:</b> ${reason}\n\n` +
+          `You may register again if you wish.`,
+          { parse_mode: 'HTML' }
         );
       } catch (e) {
-        // User may have blocked bot
+        // User may have blocked the bot
+        console.log(`Could not DM user ${reg.user_id} about removal:`, (e as Error).message);
       }
-    } else {
-      await ctx.reply('❌ Registration not found with that username or email.');
     }
   }
 

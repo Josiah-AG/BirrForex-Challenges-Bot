@@ -276,6 +276,14 @@ class TradingChallengeService {
     return result.rows[0] || null;
   }
 
+  async deleteRegistrationByAccount(challengeId: number, accountNumber: string): Promise<TradingRegistration | null> {
+    const result = await db.query(
+      'DELETE FROM trading_registrations WHERE challenge_id = $1 AND account_number = $2 RETURNING *',
+      [challengeId, accountNumber.trim()]
+    );
+    return result.rows[0] || null;
+  }
+
   // ==================== SUBMISSIONS ====================
 
   async createSubmission(data: {
