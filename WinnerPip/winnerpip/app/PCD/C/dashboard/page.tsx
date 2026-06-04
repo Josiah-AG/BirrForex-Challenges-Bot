@@ -18,7 +18,7 @@ interface LeaderboardEntry {
   qualifiedProfit: number; grossProfit: number; profitRemoved: number;
   accountType: string; isCent: boolean;
   isMe?: boolean; isDisqualified?: boolean; disqualifyReason?: string; isBlown?: boolean;
-  recentTrades: { symbol: string; type: string; profit: number; date: string; flagged?: boolean; violations?: string[] }[];
+  recentTrades: { symbol: string; type: string; profit: number; volume: number; date: string; flagged?: boolean; violations?: string[] }[];
 }
 
 export default function DemoDashboard() {
@@ -190,105 +190,166 @@ export default function DemoDashboard() {
     },
   ];
 
-  // Leaderboard — mix of active, blown, and DQ entries
+  // Leaderboard — 20 entries shown of 312 total (real category)
+  // Mix of: real cent accounts (¢) and real standard accounts ($)
+  // Note: Demo accounts don't exist as cent on Exness — demo category uses $ only
+  // Ranking uses normalized_balance (cent ÷ 100) internally so cent/standard compare fairly
+  const leaderboardTotal = 312;
   const leaderboard: LeaderboardEntry[] = [
     {
-      rank: 1, nickname: "GoldPipKing", balance: 1842.50, trades: 18, qualifiedTrades: 16, flaggedTrades: 2,
-      qualifiedProfit: 842.50, grossProfit: 990.00, profitRemoved: 147.50,
-      accountType: "real", isCent: true, isMe: false,
-      recentTrades: [
-        { symbol: "XAUUSDc", type: "Buy", profit: 95.00, date: "Jun 4", violations: [] },
-        { symbol: "EURUSDc", type: "Sell", profit: 72.00, date: "Jun 4", violations: [] },
-        { symbol: "XAUUSDc", type: "Sell", profit: 88.00, date: "Jun 3", violations: [] },
-      ],
-    },
-    {
-      rank: 2, nickname: "MK_Kaizen", balance: 1780.30, trades: 22, qualifiedTrades: 19, flaggedTrades: 3,
-      qualifiedProfit: 780.30, grossProfit: 920.00, profitRemoved: 139.70,
+      rank: 1, nickname: "GoldPipKing", balance: 2250.00, trades: 18, qualifiedTrades: 16, flaggedTrades: 2,
+      qualifiedProfit: 1250.00, grossProfit: 1400.00, profitRemoved: 150.00,
       accountType: "real", isCent: true,
       recentTrades: [
-        { symbol: "XAUUSDc", type: "Buy", profit: 110.00, date: "Jun 4", violations: [] },
-        { symbol: "EURUSDc", type: "Buy", profit: 65.00, date: "Jun 4", violations: [] },
-        { symbol: "GBPUSDc", type: "Sell", profit: 140.00, date: "Jun 3", flagged: true, violations: ["Lot size 0.05 exceeds max 0.02 lots"] },
+        { symbol: "XAUUSDc", type: "Buy",  volume: 0.01, profit: 95.00,  date: "Jun 4, 14:22 → 16:48", violations: [] },
+        { symbol: "EURUSDc", type: "Sell", volume: 0.01, profit: 72.00,  date: "Jun 4, 09:10 → 11:30", violations: [] },
+        { symbol: "XAUUSDc", type: "Sell", volume: 0.01, profit: 88.00,  date: "Jun 3, 15:00 → 17:20", violations: [] },
       ],
     },
     {
-      rank: 3, nickname: "Bella_FX", balance: 1715.00, trades: 14, qualifiedTrades: 12, flaggedTrades: 2,
-      qualifiedProfit: 715.00, grossProfit: 830.00, profitRemoved: 115.00,
+      rank: 2, nickname: "MK_Kaizen", balance: 2180.00, trades: 22, qualifiedTrades: 19, flaggedTrades: 3,
+      qualifiedProfit: 1180.00, grossProfit: 1320.00, profitRemoved: 140.00,
       accountType: "real", isCent: true,
       recentTrades: [
-        { symbol: "XAUUSDc", type: "Sell", profit: 88.00, date: "Jun 4", violations: [] },
-        { symbol: "XAUUSDc", type: "Buy", profit: 75.00, date: "Jun 3", violations: [] },
+        { symbol: "XAUUSDc", type: "Buy",  volume: 0.01, profit: 110.00, date: "Jun 4, 11:05 → 13:30", violations: [] },
+        { symbol: "GBPUSDc", type: "Sell", volume: 0.05, profit: 140.00, date: "Jun 3, 16:30 → 18:10", flagged: true, violations: ["Lot size 0.05 exceeds max 0.02 lots"] },
       ],
     },
     {
-      rank: 4, nickname: "SoberBoy", balance: 1643.20, trades: 20, qualifiedTrades: 15, flaggedTrades: 5,
-      qualifiedProfit: 643.20, grossProfit: 895.00, profitRemoved: 251.80,
+      rank: 3, nickname: "Bella_FX", balance: 2090.00, trades: 14, qualifiedTrades: 12, flaggedTrades: 2,
+      qualifiedProfit: 1090.00, grossProfit: 1200.00, profitRemoved: 110.00,
       accountType: "real", isCent: true,
       recentTrades: [
-        { symbol: "EURUSDc", type: "Sell", profit: 90.00, date: "Jun 4", violations: [] },
-        { symbol: "XAUUSDc", type: "Sell", profit: 200.00, date: "Jun 3", flagged: true, violations: ["SL violated. Price exceeded the maximum allowed risk (¢500, SL should be @ 4484.95000) on the M15 candle formed at 09:30 EAT. Trade should have been closed at that point"] },
+        { symbol: "XAUUSDc", type: "Sell", volume: 0.01, profit: 88.00,  date: "Jun 4, 08:30 → 10:15", violations: [] },
+        { symbol: "XAUUSDc", type: "Buy",  volume: 0.01, profit: 75.00,  date: "Jun 3, 12:00 → 13:45", violations: [] },
       ],
     },
     {
-      rank: 5, nickname: "FireMan", balance: 1598.00, trades: 16, qualifiedTrades: 14, flaggedTrades: 2,
-      qualifiedProfit: 598.00, grossProfit: 710.00, profitRemoved: 112.00,
+      rank: 4, nickname: "SoberBoy", balance: 1890.00, trades: 20, qualifiedTrades: 15, flaggedTrades: 5,
+      qualifiedProfit: 890.00, grossProfit: 1140.00, profitRemoved: 250.00,
       accountType: "real", isCent: true,
       recentTrades: [
-        { symbol: "XAUUSDc", type: "Buy", profit: 82.00, date: "Jun 3", violations: [] },
+        { symbol: "EURUSDc", type: "Sell", volume: 0.01, profit: 90.00,  date: "Jun 4, 09:15 → 11:30", violations: [] },
+        { symbol: "XAUUSDc", type: "Buy",  volume: 0.01, profit: 200.00, date: "Jun 3, 15:10 → 17:45", flagged: true, violations: ["SL violated. Price exceeded the maximum allowed risk (¢500, SL should be @ 4484.95000) on the M15 candle formed at 15:45 EAT. Trade should have been closed at that point"] },
       ],
     },
     {
-      rank: 6, nickname: "CR7_Kete", balance: 1520.00, trades: 12, qualifiedTrades: 11, flaggedTrades: 1,
-      qualifiedProfit: 520.00, grossProfit: 580.00, profitRemoved: 60.00,
+      rank: 5, nickname: "FireMan", balance: 1780.00, trades: 16, qualifiedTrades: 14, flaggedTrades: 2,
+      qualifiedProfit: 780.00, grossProfit: 890.00, profitRemoved: 110.00,
+      accountType: "real", isCent: true,
+      recentTrades: [
+        { symbol: "XAUUSDc", type: "Buy",  volume: 0.01, profit: 82.00,  date: "Jun 3, 09:00 → 11:20", violations: [] },
+      ],
+    },
+    {
+      rank: 6, nickname: "CR7_Kete", balance: 1620.00, trades: 12, qualifiedTrades: 11, flaggedTrades: 1,
+      qualifiedProfit: 620.00, grossProfit: 680.00, profitRemoved: 60.00,
       accountType: "real", isCent: true,
       recentTrades: [],
     },
     {
-      rank: 7, nickname: "AlphaFX", balance: 1478.00, trades: 24, qualifiedTrades: 18, flaggedTrades: 6,
-      qualifiedProfit: 478.00, grossProfit: 750.00, profitRemoved: 272.00,
+      rank: 7, nickname: "AlphaFX", balance: 1490.00, trades: 24, qualifiedTrades: 18, flaggedTrades: 6,
+      qualifiedProfit: 490.00, grossProfit: 760.00, profitRemoved: 270.00,
       accountType: "real", isCent: true,
       recentTrades: [],
     },
+    // ── YOU ─────────────────────────────────────────────────────────────────
     {
       rank: 8, nickname: "TradeNinja", balance: myStats.currentBalance, trades: myStats.totalTrades,
       qualifiedTrades: myStats.qualifiedTrades, flaggedTrades: myStats.flaggedTrades,
       qualifiedProfit: myStats.qualifiedProfit, grossProfit: myStats.grossProfit, profitRemoved: myStats.profitRemoved,
       accountType: "real", isCent: true, isMe: true,
       recentTrades: [
-        { symbol: "XAUUSDc", type: "Buy", profit: 88.00, date: "Jun 4", violations: [] },
-        { symbol: "EURUSDc", type: "Sell", profit: 140.00, date: "Jun 4", flagged: true, violations: ["No stop loss set on entry"] },
-        { symbol: "XAUUSDc", type: "Sell", profit: -55.00, date: "Jun 3", violations: [] },
+        { symbol: "XAUUSDc", type: "Buy",  volume: 0.01, profit: 88.00,  date: "Jun 4, 14:22 → 16:48", violations: [] },
+        { symbol: "EURUSDc", type: "Sell", volume: 0.01, profit: 140.00, date: "Jun 4, 11:05 → 13:30", flagged: true, violations: ["No stop loss set on entry"] },
+        { symbol: "XAUUSDc", type: "Sell", volume: 0.01, profit: -55.00, date: "Jun 3, 12:00 → 13:45", violations: [] },
+      ],
+    },
+    // ────────────────────────────────────────────────────────────────────────
+    {
+      rank: 9, nickname: "NightOwl", balance: 1180.00, trades: 30, qualifiedTrades: 22, flaggedTrades: 8,
+      qualifiedProfit: 180.00, grossProfit: 540.00, profitRemoved: 360.00,
+      accountType: "real", isCent: true,
+      recentTrades: [],
+    },
+    // ── Real STANDARD account ($) — ranks alongside cent users ──────────────
+    {
+      rank: 10, nickname: "SwingKing", balance: 11.20, trades: 15, qualifiedTrades: 13, flaggedTrades: 2,
+      qualifiedProfit: 1.20, grossProfit: 2.80, profitRemoved: 1.60,
+      accountType: "real", isCent: false,   // ← standard $, not cent
+      recentTrades: [
+        { symbol: "EURUSDm", type: "Buy",  volume: 0.01, profit: 1.40,  date: "Jun 4, 10:00 → 12:15", violations: [] },
+        { symbol: "XAUUSDm", type: "Sell", volume: 0.01, profit: 2.20,  date: "Jun 3, 14:00 → 16:30", flagged: true, violations: ["No stop loss set on entry"] },
       ],
     },
     {
-      rank: 9, nickname: "NightOwl", balance: 1320.00, trades: 30, qualifiedTrades: 22, flaggedTrades: 8,
-      qualifiedProfit: 320.00, grossProfit: 680.00, profitRemoved: 360.00,
+      rank: 11, nickname: "TrendRider", balance: 10.80, trades: 11, qualifiedTrades: 10, flaggedTrades: 1,
+      qualifiedProfit: 0.80, grossProfit: 1.50, profitRemoved: 0.70,
+      accountType: "real", isCent: false,   // ← standard $
+      recentTrades: [
+        { symbol: "GBPUSDm", type: "Sell", volume: 0.01, profit: 0.80,  date: "Jun 4, 08:00 → 09:30", violations: [] },
+      ],
+    },
+    {
+      rank: 12, nickname: "PipSniper", balance: 1050.00, trades: 11, qualifiedTrades: 9, flaggedTrades: 2,
+      qualifiedProfit: 50.00, grossProfit: 150.00, profitRemoved: 100.00,
       accountType: "real", isCent: true,
       recentTrades: [],
     },
     {
-      rank: 10, nickname: "PipSniper", balance: 1210.00, trades: 11, qualifiedTrades: 9, flaggedTrades: 2,
-      qualifiedProfit: 210.00, grossProfit: 310.00, profitRemoved: 100.00,
+      rank: 13, nickname: "FXWarrior", balance: 980.00, trades: 18, qualifiedTrades: 14, flaggedTrades: 4,
+      qualifiedProfit: -20.00, grossProfit: 200.00, profitRemoved: 220.00,
       accountType: "real", isCent: true,
       recentTrades: [],
     },
-    // ── Blown account (balance hit 0 during challenge) ──────────────────────
+    // ── Another standard account ─────────────────────────────────────────────
     {
-      rank: 11, nickname: "ScalpGod", balance: 0, trades: 28, qualifiedTrades: 18, flaggedTrades: 10,
+      rank: 14, nickname: "MarketPro", balance: 9.20, trades: 8, qualifiedTrades: 7, flaggedTrades: 1,
+      qualifiedProfit: -0.80, grossProfit: 0.50, profitRemoved: 1.30,
+      accountType: "real", isCent: false,   // ← standard $
+      recentTrades: [],
+    },
+    {
+      rank: 15, nickname: "ChartWiz", balance: 920.00, trades: 9, qualifiedTrades: 8, flaggedTrades: 1,
+      qualifiedProfit: -80.00, grossProfit: 0.00, profitRemoved: 80.00,
+      accountType: "real", isCent: true,
+      recentTrades: [],
+    },
+    {
+      rank: 16, nickname: "PipHunter", balance: 845.00, trades: 14, qualifiedTrades: 10, flaggedTrades: 4,
+      qualifiedProfit: -155.00, grossProfit: 50.00, profitRemoved: 205.00,
+      accountType: "real", isCent: true,
+      recentTrades: [],
+    },
+    {
+      rank: 17, nickname: "ForexEagle", balance: 820.00, trades: 7, qualifiedTrades: 6, flaggedTrades: 1,
+      qualifiedProfit: -180.00, grossProfit: -80.00, profitRemoved: 100.00,
+      accountType: "real", isCent: true,
+      recentTrades: [],
+    },
+    // ── Blown account ────────────────────────────────────────────────────────
+    {
+      rank: 18, nickname: "ScalpGod", balance: 0, trades: 28, qualifiedTrades: 18, flaggedTrades: 10,
       qualifiedProfit: -1000.00, grossProfit: -1000.00, profitRemoved: 0,
       accountType: "real", isCent: true, isBlown: true,
       recentTrades: [
-        { symbol: "XAUUSDc", type: "Buy", profit: -320.00, date: "Jun 3", violations: [] },
-        { symbol: "EURUSDc", type: "Buy", profit: -450.00, date: "Jun 2", violations: [] },
+        { symbol: "XAUUSDc", type: "Buy",  volume: 0.02, profit: -320.00, date: "Jun 3, 07:30 → 09:00", violations: [] },
+        { symbol: "EURUSDc", type: "Buy",  volume: 0.01, profit: -450.00, date: "Jun 2, 14:00 → 15:45", violations: [] },
       ],
     },
-    // ── Disqualified (deposited after challenge start) ──────────────────────
+    // ── Disqualified ─────────────────────────────────────────────────────────
     {
-      rank: 12, nickname: "Heron_FX", balance: 1950.00, trades: 9, qualifiedTrades: 9, flaggedTrades: 0,
+      rank: 19, nickname: "Heron_FX", balance: 1950.00, trades: 9, qualifiedTrades: 9, flaggedTrades: 0,
       qualifiedProfit: 950.00, grossProfit: 950.00, profitRemoved: 0,
       accountType: "real", isCent: true, isDisqualified: true,
       disqualifyReason: "Account recharged — deposit of ¢500.00 detected after challenge start (2026-06-02)",
+      recentTrades: [],
+    },
+    // ── Blown standard account ───────────────────────────────────────────────
+    {
+      rank: 20, nickname: "ZeroRisk", balance: 0, trades: 12, qualifiedTrades: 8, flaggedTrades: 4,
+      qualifiedProfit: -10.00, grossProfit: -10.00, profitRemoved: 0,
+      accountType: "real", isCent: false, isBlown: true,  // ← blown standard user
       recentTrades: [],
     },
   ];
@@ -435,26 +496,17 @@ export default function DemoDashboard() {
         <div className="glass rounded-2xl border border-white/10 overflow-hidden">
           <div className="p-4 border-b border-white/5 flex items-center justify-between">
             <div className="flex items-center gap-2"><Trophy size={16} className="text-gold" /><p className="text-sm font-semibold text-white">Leaderboard</p></div>
-            <p className="text-xs text-gray-500">Ranked by balance • Tap for details</p>
+            <p className="text-xs text-gray-500">Next update: 12:00 EAT</p>
           </div>
           <div className="divide-y divide-white/5">
             {leaderboard.map((entry) => (
-              <button key={entry.rank} onClick={() => { setShowLeaderboardModal(true); setSelectedUser(entry); }} className={`w-full flex items-center gap-4 px-4 py-3 text-left hover:bg-white/5 transition-colors ${entry.isMe ? "bg-royal/10 border-l-2 border-royal" : ""} ${entry.isDisqualified ? "opacity-60" : ""}`}>
-                <div className={`flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center text-sm font-bold ${entry.rank === 1 ? "bg-gold/20 text-gold" : entry.rank === 2 ? "bg-gray-400/20 text-gray-300" : entry.rank === 3 ? "bg-orange-500/20 text-orange-400" : "bg-white/5 text-gray-500"}`}>{entry.rank}</div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <p className={`text-sm font-semibold truncate ${entry.isMe ? "text-royal" : entry.isDisqualified ? "text-gray-500" : "text-white"}`}>{entry.nickname}</p>
-                    {entry.isMe && <span className="px-1.5 py-0.5 bg-royal/20 text-royal text-[10px] rounded font-bold">YOU</span>}
-                    {entry.isDisqualified && <span className="px-1.5 py-0.5 bg-loss/20 text-loss text-[10px] rounded font-bold">DQ</span>}
-                    {entry.isBlown && <span className="text-sm">💀</span>}
-                  </div>
-                  <p className="text-[10px] text-gray-500">{entry.trades} trades • {entry.qualifiedTrades} qualified • {entry.accountType}</p>
-                </div>
-                <p className={`text-sm font-bold ${entry.isBlown ? "text-loss" : entry.isDisqualified ? "text-loss" : "text-white"}`}>
-                  {entry.isDisqualified ? <span className="text-loss">DQ</span> : formatBalance(entry.balance, entry.isCent)}
-                </p>
-              </button>
+              <LeaderboardRow key={entry.rank} entry={entry} formatBalance={formatBalance} onClick={() => { setShowLeaderboardModal(true); setSelectedUser(entry); }} />
             ))}
+          </div>
+          <div className="p-3 border-t border-white/5 text-center">
+            <button className="px-4 py-2 rounded-lg bg-white/5 border border-white/10 text-gray-400 text-xs font-semibold hover:bg-white/10 hover:text-white transition-all">
+              Load More ({leaderboard.length} of {leaderboardTotal})
+            </button>
           </div>
         </div>
         )}
@@ -546,83 +598,101 @@ export default function DemoDashboard() {
             {!selectedUser ? (
               <div className="divide-y divide-white/5">
                 {leaderboard.map((entry) => (
-                  <button key={entry.rank} onClick={() => setSelectedUser(entry)} className={`w-full flex items-center gap-4 px-4 py-3 text-left hover:bg-white/5 transition-colors ${entry.isMe ? "bg-royal/10 border-l-2 border-royal" : ""} ${entry.isDisqualified ? "opacity-60" : ""}`}>
-                    <div className={`flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center text-sm font-bold ${entry.rank === 1 ? "bg-gold/20 text-gold" : entry.rank === 2 ? "bg-gray-400/20 text-gray-300" : entry.rank === 3 ? "bg-orange-500/20 text-orange-400" : "bg-white/5 text-gray-500"}`}>{entry.rank}</div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <p className={`text-sm font-semibold truncate ${entry.isMe ? "text-royal" : entry.isDisqualified ? "text-gray-500" : "text-white"}`}>{entry.nickname}</p>
-                        {entry.isMe && <span className="px-1.5 py-0.5 bg-royal/20 text-royal text-[10px] rounded font-bold">YOU</span>}
-                        {entry.isDisqualified && <span className="px-1.5 py-0.5 bg-loss/20 text-loss text-[10px] rounded font-bold">DQ</span>}
-                        {entry.isBlown && <span className="text-sm">💀</span>}
-                      </div>
-                      <p className="text-[10px] text-gray-500">{entry.trades} trades • {entry.qualifiedTrades} qualified • {entry.accountType}</p>
-                    </div>
-                    <p className={`text-sm font-bold ${entry.isDisqualified ? "text-loss" : "text-white"}`}>
-                      {entry.isDisqualified ? <span>DQ</span> : formatBalance(entry.balance, entry.isCent)}
-                    </p>
-                  </button>
+                  <LeaderboardRow key={entry.rank} entry={entry} formatBalance={formatBalance} onClick={() => setSelectedUser(entry)} />
                 ))}
+                <div className="p-3 border-t border-white/5 text-center">
+                  <button className="px-4 py-2 rounded-lg bg-white/5 border border-white/10 text-gray-400 text-xs font-semibold">
+                    Load More ({leaderboard.length} of {leaderboardTotal})
+                  </button>
+                </div>
               </div>
             ) : (
+              // ── User detail — matches production exactly ──────────────────
               <div className="p-5">
                 <button onClick={() => setSelectedUser(null)} className="text-gray-400 hover:text-white mb-4 flex items-center gap-1 text-sm"><ArrowLeft size={14} /> Back to leaderboard</button>
                 <div className="flex items-center gap-4 mb-6">
-                  <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-lg font-bold ${selectedUser.rank <= 3 ? "bg-gold/20 text-gold" : "bg-white/10 text-gray-400"}`}>#{selectedUser.rank}</div>
+                  <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-lg font-bold ${selectedUser.isDisqualified ? "bg-loss/20 text-loss" : selectedUser.rank <= 3 ? "bg-gold/20 text-gold" : "bg-white/10 text-gray-400"}`}>#{selectedUser.rank}</div>
                   <div>
                     <p className="text-xl font-bold text-white">{selectedUser.nickname}</p>
-                    <div className="flex items-center gap-2 mt-1">
-                      <p className="text-sm text-gray-400">
-                      {selectedUser.isDisqualified ? <span className="text-loss font-semibold">Disqualified</span> : <>Balance: <span className="text-white font-semibold">{formatBalance(selectedUser.balance, selectedUser.isCent)}</span></>}
+                    <p className="text-sm text-gray-400">
+                      {selectedUser.isDisqualified
+                        ? <span className="text-loss font-semibold">Disqualified</span>
+                        : <>Balance: <span className="text-white font-semibold">{formatBalance(selectedUser.balance, selectedUser.isCent)}</span></>
+                      }
                     </p>
-                      {selectedUser.isDisqualified && <span className="px-1.5 py-0.5 bg-loss/20 text-loss text-[10px] rounded font-bold">DISQUALIFIED</span>}
-                      {selectedUser.isBlown && <span className="text-sm">💀 Blown</span>}
-                    </div>
                   </div>
                 </div>
-                {selectedUser.isDisqualified && (
-                  <div className="bg-loss/10 border border-loss/20 rounded-xl p-3 mb-4">
-                    <p className="text-xs text-loss font-semibold mb-1">Disqualification Reason</p>
-                    <p className="text-xs text-gray-300">{selectedUser.disqualifyReason}</p>
+
+                {/* DQ reason — only shown when DQ'd */}
+                {selectedUser.isDisqualified && selectedUser.disqualifyReason && (
+                  <div className="p-4 rounded-xl bg-loss/10 border border-loss/20 mb-4">
+                    <p className="text-xs text-gray-400 mb-1">Disqualification Reason:</p>
+                    <p className="text-sm text-white">{selectedUser.disqualifyReason}</p>
                   </div>
                 )}
-                <div className="grid grid-cols-3 gap-3 mb-4">
-                  <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500 mb-1">Trades</p><p className="text-lg font-bold text-white">{selectedUser.trades}</p></div>
-                  <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500 mb-1">Qualified</p><p className="text-lg font-bold text-white">{selectedUser.qualifiedTrades}</p></div>
-                  <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500 mb-1">Flagged</p><p className="text-lg font-bold text-loss">{selectedUser.flaggedTrades}</p></div>
-                </div>
-                <div className="grid grid-cols-2 gap-3 mb-4">
-                  <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Net P&L</p><p className={`text-sm font-bold ${selectedUser.qualifiedProfit >= 0 ? "text-profit" : "text-loss"}`}>{formatBalance(selectedUser.qualifiedProfit, selectedUser.isCent)}</p></div>
-                  <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Total P&L</p><p className="text-sm font-bold text-white">{formatBalance(selectedUser.grossProfit, selectedUser.isCent)}</p></div>
-                  <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">P&L Removed</p><p className="text-sm font-bold text-loss">{formatBalance(selectedUser.profitRemoved, selectedUser.isCent)}</p></div>
-                  <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Account Type</p><p className="text-sm font-bold text-white capitalize">{selectedUser.accountType}</p></div>
-                </div>
-                {selectedUser.recentTrades.length > 0 ? (
-                  <div className="mt-4">
-                    <p className="text-xs font-semibold text-gray-400 mb-2">Recent Trades</p>
-                    <div className="space-y-2">
-                      {selectedUser.recentTrades.map((t, i) => (
-                        <div key={i} className={`py-2 px-3 rounded-lg ${t.flagged ? "bg-loss/10 border border-loss/20" : "bg-white/5"}`}>
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                              <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${t.type === "Buy" ? "bg-profit/20 text-profit" : "bg-loss/20 text-loss"}`}>{t.type}</span>
-                              <div>
-                                <p className="text-xs text-white font-medium">{t.symbol}</p>
-                                <p className="text-[10px] text-gray-500">{t.date}</p>
+
+                {/* Stats — hidden for DQ users (matches production) */}
+                {!selectedUser.isDisqualified && (<>
+                  <div className="grid grid-cols-3 gap-3 mb-4">
+                    <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500 mb-1">Trades</p><p className="text-lg font-bold text-white">{selectedUser.trades}</p></div>
+                    <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500 mb-1">Qualified</p><p className="text-lg font-bold text-white">{selectedUser.qualifiedTrades}</p></div>
+                    <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500 mb-1">Flagged</p><p className="text-lg font-bold text-loss">{selectedUser.flaggedTrades}</p></div>
+                  </div>
+
+                  {/* Win Rate + Avg RR — computed from trades (matches production) */}
+                  {selectedUser.recentTrades.length > 0 && (() => {
+                    const wins   = selectedUser.recentTrades.filter(t => t.profit > 0);
+                    const losses = selectedUser.recentTrades.filter(t => t.profit < 0);
+                    const wr  = Math.round((wins.length / selectedUser.recentTrades.length) * 100);
+                    const aw  = wins.length   > 0 ? wins.reduce((s, t) => s + t.profit, 0)   / wins.length   : 0;
+                    const al  = losses.length > 0 ? Math.abs(losses.reduce((s, t) => s + t.profit, 0) / losses.length) : 0;
+                    const rr  = al > 0 ? aw / al : 0;
+                    return (
+                      <div className="grid grid-cols-2 gap-3 mb-4">
+                        <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500 mb-1">Win Rate</p><p className={`text-lg font-bold ${wr >= 50 ? "text-profit" : "text-loss"}`}>{wr}%</p></div>
+                        <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500 mb-1">Avg RR</p><p className="text-lg font-bold text-royal">{rr > 0 ? rr.toFixed(2) : "—"}</p></div>
+                      </div>
+                    );
+                  })()}
+
+                  <div className="grid grid-cols-2 gap-3 mb-4">
+                    <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Net P&L</p><p className={`text-sm font-bold ${selectedUser.qualifiedProfit >= 0 ? "text-profit" : "text-loss"}`}>{formatBalance(selectedUser.qualifiedProfit, selectedUser.isCent)}</p></div>
+                    <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Total P&L</p><p className="text-sm font-bold text-white">{formatBalance(selectedUser.grossProfit, selectedUser.isCent)}</p></div>
+                    <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">P&L Removed</p><p className="text-sm font-bold text-loss">{formatBalance(selectedUser.profitRemoved, selectedUser.isCent)}</p></div>
+                    <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Account Type</p><p className="text-sm font-bold text-white capitalize">{selectedUser.accountType}</p></div>
+                  </div>
+
+                  {/* Trade list — matches production row format */}
+                  {selectedUser.recentTrades.length > 0 ? (
+                    <div>
+                      <p className="text-xs font-semibold text-gray-400 mb-2">Trades ({selectedUser.recentTrades.length})</p>
+                      <div className="space-y-2 max-h-[300px] overflow-y-auto">
+                        {selectedUser.recentTrades.map((t, i) => (
+                          <div key={i} className={`py-2 px-3 rounded-lg ${t.flagged ? "bg-loss/10 border border-loss/20" : "bg-white/5"}`}>
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${t.type === "Buy" ? "bg-profit/20 text-profit" : "bg-loss/20 text-loss"}`}>{t.type}</span>
+                                <div>
+                                  <p className="text-xs text-white font-medium">{t.symbol}</p>
+                                  <p className="text-[10px] text-gray-500">{t.date}</p>
+                                </div>
+                              </div>
+                              <div className="text-right">
+                                <p className={`text-xs font-bold ${t.profit >= 0 ? "text-profit" : "text-loss"}`}>{formatBalance(t.profit, selectedUser.isCent)}</p>
+                                <p className="text-[10px] text-gray-500">{t.volume} lot {t.flagged && <span className="text-loss">🚩</span>}</p>
                               </div>
                             </div>
-                            <div className="text-right">
-                              <p className={`text-xs font-bold ${t.profit >= 0 ? "text-profit" : "text-loss"}`}>{formatBalance(t.profit, selectedUser.isCent)}</p>
-                              {t.flagged && <span className="text-loss text-[10px]">🚩</span>}
-                            </div>
+                            {t.flagged && t.violations && t.violations.length > 0 && (
+                              <p className="text-[10px] text-loss mt-1 pl-7">⚠️ {t.violations[0]}</p>
+                            )}
                           </div>
-                          {t.flagged && t.violations && t.violations.length > 0 && (
-                            <p className="text-[10px] text-loss mt-1 pl-7">⚠️ {t.violations[0]}</p>
-                          )}
-                        </div>
-                      ))}
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                ) : (<p className="text-sm text-gray-500 text-center py-4">No recent trades to show</p>)}
+                  ) : (
+                    <p className="text-sm text-gray-500 text-center py-4">No recent trades to show</p>
+                  )}
+                </>)}
               </div>
             )}
           </div>
@@ -691,6 +761,25 @@ export default function DemoDashboard() {
   );
 }
 
+function LeaderboardRow({ entry, formatBalance, onClick }: { entry: LeaderboardEntry; formatBalance: (n: number, c?: boolean) => string; onClick: () => void }) {
+  return (
+    <button onClick={onClick} className={`w-full flex items-center gap-4 px-4 py-3 text-left hover:bg-white/5 transition-colors ${entry.isMe ? "bg-royal/10 border-l-2 border-royal" : ""} ${entry.isDisqualified ? "opacity-60" : ""}`}>
+      <div className={`flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center text-sm font-bold ${entry.isDisqualified ? "bg-loss/20 text-loss" : entry.rank === 1 ? "bg-gold/20 text-gold" : entry.rank === 2 ? "bg-gray-400/20 text-gray-300" : entry.rank === 3 ? "bg-orange-500/20 text-orange-400" : "bg-white/5 text-gray-500"}`}>{entry.rank}</div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <p className={`text-sm font-semibold truncate ${entry.isMe ? "text-royal" : entry.isDisqualified ? "text-gray-500" : "text-white"}`}>{entry.nickname}</p>
+          {entry.isMe && <span className="px-1.5 py-0.5 bg-royal/20 text-royal text-[10px] rounded font-bold">YOU</span>}
+          {entry.isDisqualified && <span className="px-1.5 py-0.5 bg-loss/20 text-loss text-[10px] rounded font-bold">DQ</span>}
+          {entry.isBlown && !entry.isDisqualified && <span className="px-1.5 py-0.5 bg-gray-500/20 text-gray-400 text-[10px] rounded font-bold">💀</span>}
+        </div>
+        <p className="text-[10px] text-gray-500">{entry.trades} trades • {entry.qualifiedTrades} qualified • {entry.accountType}</p>
+      </div>
+      <p className="text-sm font-bold text-white">
+        {entry.isDisqualified ? <span className="text-loss">DQ</span> : formatBalance(entry.balance, entry.isCent)}
+      </p>
+    </button>
+  );
+}
 function MiniStat({ label, value, icon, color }: { label: string; value: string; icon: React.ReactNode; color?: string }) {
   return (<div className="glass rounded-xl p-3 border border-white/10 text-center"><div className={`flex items-center justify-center gap-1 mb-1 ${color || "text-gray-400"}`}>{icon}<p className="text-[9px] uppercase tracking-wider font-medium">{label}</p></div><p className={`text-lg font-bold ${color || "text-white"}`}>{value}</p></div>);
 }
