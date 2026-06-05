@@ -1139,8 +1139,10 @@ export class VpsPullScheduler {
       [challengeId]
     );
 
-    // Filter out late depositors
-    const accounts = result.rows.filter((r: any) => !lateExcludeIds.includes(r.id));
+    // Filter out late depositors (skip this filter on admin forceAll — pull everyone)
+    const accounts = forceAll
+      ? result.rows
+      : result.rows.filter((r: any) => !lateExcludeIds.includes(r.id));
 
     return accounts.map((r: any) => ({
       registrationId: r.id,
