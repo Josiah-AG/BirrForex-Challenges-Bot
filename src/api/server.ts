@@ -381,11 +381,11 @@ app.get('/api/challenges/:id/leaderboard', async (req, res) => {
 
       const regResult = await db.query(
         `SELECT nickname, account_type, is_cent,
-                COALESCE(actual_starting_balance, registration_balance, last_known_balance) as reg_balance,
+                COALESCE(last_known_balance, actual_starting_balance, registration_balance) as reg_balance,
                 registered_at,
                 ROW_NUMBER() OVER (
                   PARTITION BY account_type
-                  ORDER BY COALESCE(actual_starting_balance, registration_balance, last_known_balance) DESC NULLS LAST, registered_at ASC
+                  ORDER BY COALESCE(last_known_balance, actual_starting_balance, registration_balance) DESC NULLS LAST, registered_at ASC
                 ) as rank
          FROM trading_registrations
          WHERE challenge_id = $1

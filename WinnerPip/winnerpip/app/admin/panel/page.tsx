@@ -482,7 +482,7 @@ export default function AdminDashboard() {
           </div>
 
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 mb-6">
-            <StatCard icon={<Target size={16} />} label="Total Balance" value={`${od?.balance?.isCentOnly ? '' : '$'}${overview.avgBalance}${od?.balance?.isCentOnly ? '¢' : ''}`} sub={`Real: ${od?.balance?.isCentOnly ? '' : '$'}${overview.medianBalance}${od?.balance?.isCentOnly ? '¢' : ''} | Demo: $${(od?.balance?.demo?.toFixed(2) || "0.00")}`} color="text-profit" />
+            <StatCard icon={<Target size={16} />} label="Total Balance" value={`$${overview.avgBalance}`} sub={`Real: $${overview.medianBalance} | Demo: $${(od?.balance?.demo?.toFixed(2) || "0.00")}`} color="text-profit" />
             <StatCard icon={<Zap size={16} />} label="Pulls Today" value={overview.pullsToday.toString()} sub={`Next: ${overview.nextPullTime}`} color="text-royal" />
             <StatCard icon={<Shield size={16} />} label="Pull Success" value={overview.pullsSuccess.toString()} sub={`Failed: ${overview.pullsFailed} | PW Changed: ${overview.passwordChanged}`} color="text-profit" />
             <StatCard icon={<Clock size={16} />} label="Last Pull" value={overview.lastPullTime} sub={`${overview.pullsSuccess} ok · ${overview.pullsFailed} failed`} color="text-gray-300" />
