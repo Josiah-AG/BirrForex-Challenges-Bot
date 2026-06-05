@@ -452,8 +452,8 @@ export class VpsPullScheduler {
       const challengeToPull = challengeResult.rows[0];
       console.log(`📊 VPS Pull: Admin full pull for "${challengeToPull.title}" (status: ${challengeToPull.status})`);
 
-      // Build shared queue
-      const accounts = await this.getAccountsToPull(challengeId);
+      // Build shared queue — forceAll=true bypasses zero_balance_at filter (admin override)
+      const accounts = await this.getAccountsToPull(challengeId, true);
       if (accounts.length === 0) {
         console.log('📊 VPS Pull: No accounts to pull');
         this.isRunning = false;
@@ -1048,7 +1048,7 @@ export class VpsPullScheduler {
 
   // ==================== DATA HELPERS ====================
 
-  private async getAccountsToPull(challengeId: number): Promise<AccountToPull[]> {
+  private async getAccountsToPull(challengeId: number, forceAll = false): Promise<AccountToPull[]> {
     // First, clear zero_balance_at for accounts that have 0 trades (haven't started, not blown)
     await db.query(
       `UPDATE wp_leaderboard SET zero_balance_at = NULL WHERE challenge_id = $1 AND total_trades = 0 AND zero_balance_at IS NOT NULL`,
@@ -1118,6 +1118,10 @@ export class VpsPullScheduler {
       }
     } catch {}
 
+    const zeroBalanceFilter = forceAll
+      ? '' // Admin full pull — include all accounts regardless of balance/blown state
+      : 'AND (l.zero_balance_at IS NULL OR l.total_trades = 0 OR l.id IS NULL OR r.actual_starting_balance IS NULL)';
+
     const result = await db.query(
       `SELECT r.id, r.account_number, r.mt5_server, r.investor_password, r.user_id, r.username, r.nickname, r.last_pull_at
        FROM trading_registrations r
@@ -1126,7 +1130,7 @@ export class VpsPullScheduler {
          AND r.disqualified = false
          AND r.investor_password IS NOT NULL
          AND r.connection_verified = true
-         AND (l.zero_balance_at IS NULL OR l.total_trades = 0 OR l.id IS NULL OR r.actual_starting_balance IS NULL)
+         ${zeroBalanceFilter}
        ORDER BY r.id`,
       [challengeId]
     );
