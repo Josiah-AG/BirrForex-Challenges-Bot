@@ -1536,7 +1536,7 @@ export class TradingRegistrationHandler {
       // Save investor password, cent flag, account_subtype, and registration balance
       if (session.data.investor_password) {
         await db.query('UPDATE trading_registrations SET investor_password = $1, connection_verified = true, connection_verified_at = NOW(), is_cent = $3, account_subtype = $4, registration_balance = $5, last_known_balance = $5 WHERE id = $2',
-          [session.data.investor_password, reg.id, session.data.is_cent || false, session.data.account_subtype || 'standard', session.data.registration_balance || null]);
+          [session.data.investor_password, reg.id, session.data.is_cent || false, session.data.account_subtype || 'standard', session.data.registration_balance ?? null]);
       }
 
       // Remove from failed attempts if they were there
