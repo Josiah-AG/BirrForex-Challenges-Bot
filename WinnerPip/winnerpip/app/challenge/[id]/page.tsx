@@ -476,78 +476,7 @@ export default function ChallengeDashboard() {
           </div>
         )}
 
-        {/* ==================== NOT STARTED STATE ==================== */}
-        {!loading && !error && isLoggedIn && isNotStarted && myStats && challenge && (
-          <div className="space-y-4">
-            {/* Not-started banner */}
-            <div className="glass rounded-2xl border border-gold/30 bg-gold/5 px-5 py-3 flex items-center gap-3">
-              <Clock size={16} className="text-gold flex-shrink-0" />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-gold">Challenge hasn&apos;t started yet</p>
-                <p className="text-xs text-gray-400">Starts {new Date(new Date(challenge.startDate).getTime() + 3*60*60*1000).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })} EAT</p>
-              </div>
-              <button onClick={() => setShowRules(true)} className="flex-shrink-0 px-3 py-1.5 rounded-lg bg-gold/20 border border-gold/30 text-gold text-xs font-semibold hover:bg-gold/30 transition-all">📋 Rules</button>
-            </div>
-
-            {/* Registration card */}
-            <div className="glass rounded-2xl border border-white/10 p-5">
-              <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Your Registration</h3>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <div className="bg-white/5 rounded-xl p-3">
-                  <p className="text-[10px] text-gray-500 uppercase mb-1">Nickname</p>
-                  <p className="text-sm font-bold text-white">{myStats.nickname}</p>
-                </div>
-                <div className="bg-white/5 rounded-xl p-3">
-                  <p className="text-[10px] text-gray-500 uppercase mb-1">Account</p>
-                  <p className="text-sm font-bold text-white">#{myStats.accountNumber}</p>
-                </div>
-                <div className="bg-white/5 rounded-xl p-3">
-                  <p className="text-[10px] text-gray-500 uppercase mb-1">Type</p>
-                  <p className="text-sm font-bold text-white">{formatSubtype(myStats.accountSubtype, myStats.accountType)}</p>
-                </div>
-                <div className="bg-white/5 rounded-xl p-3">
-                  <p className="text-[10px] text-gray-500 uppercase mb-1">Reg. Balance</p>
-                  <p className="text-sm font-bold text-white">{formatBalance(myStats.currentBalance, myStats.accountType, myStats.isCent)}</p>
-                </div>
-              </div>
-            </div>
-
-            {/* Pre-start leaderboard */}
-            <div className="glass rounded-2xl border border-white/10 overflow-hidden">
-              <div className="p-4 border-b border-white/5 flex items-center justify-between">
-                <h3 className="text-sm font-semibold text-white flex items-center gap-2"><Trophy size={16} className="text-gold" /> Registration Standings</h3>
-                <p className="text-[10px] text-gray-500">Ranked by registration balance · Tiebreak: earliest registration</p>
-              </div>
-              <div className="divide-y divide-white/5">
-                {leaderboard.length === 0 ? (
-                  <div className="p-8 text-center"><p className="text-gray-500 text-sm">No registrations yet</p></div>
-                ) : leaderboard.map((entry) => {
-                  const isMe = entry.nickname === myStats.nickname;
-                  return (
-                    <div key={entry.nickname} className={`flex items-center gap-4 px-4 py-3 ${isMe ? "bg-royal/10 border-l-2 border-royal" : ""}`}>
-                      <div className={`flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center text-sm font-bold ${entry.rank === 1 ? "bg-gold/20 text-gold" : entry.rank === 2 ? "bg-gray-400/20 text-gray-300" : entry.rank === 3 ? "bg-orange-500/20 text-orange-400" : "bg-white/5 text-gray-500"}`}>{entry.rank}</div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <p className={`text-sm font-semibold truncate ${isMe ? "text-royal" : "text-white"}`}>{entry.nickname}</p>
-                          {isMe && <span className="px-1.5 py-0.5 bg-royal/20 text-royal text-[10px] rounded font-bold">YOU</span>}
-                        </div>
-                        <p className="text-[10px] text-gray-500">{entry.accountType}</p>
-                      </div>
-                      <p className="text-sm font-bold text-white">{formatBalance(entry.currentBalance, entry.accountType, entry.isCent)}</p>
-                    </div>
-                  );
-                })}
-              </div>
-              {leaderboardHasMore && (
-                <div className="p-3 border-t border-white/5 text-center">
-                  <button onClick={() => fetchLeaderboard(true)} disabled={leaderboardLoadingMore} className="px-4 py-2 rounded-lg bg-white/5 border border-white/10 text-gray-400 text-xs font-semibold hover:bg-white/10 transition-all disabled:opacity-50">
-                    {leaderboardLoadingMore ? "Loading..." : `Load More (${leaderboard.length} of ${leaderboardTotal})`}
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
+        {/* NOT STARTED — reuses active dashboard layout, balance = registration balance, no trades */}
 
         {/* ==================== COMPLETED STATE — now shows full dashboard with popup ==================== */}
         {!loading && !error && isLoggedIn && isCompleted && myStats && challenge && (<>
@@ -726,7 +655,19 @@ export default function ChallengeDashboard() {
         </>)}
 
         {/* ==================== ACTIVE DASHBOARD ==================== */}
-        {!loading && !error && isLoggedIn && isActive && myStats && challenge && (<>
+        {!loading && !error && isLoggedIn && (isActive || isNotStarted) && myStats && challenge && (<>
+
+          {/* NOT STARTED BANNER */}
+          {isNotStarted && (
+            <div className="glass rounded-2xl border border-gold/30 bg-gold/5 px-5 py-3 flex items-center gap-3 mb-2">
+              <Clock size={16} className="text-gold flex-shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-gold">Challenge hasn&apos;t started yet</p>
+                <p className="text-xs text-gray-400">Starts {new Date(challenge.startDate).toLocaleString("en-US", { timeZone: "Africa/Nairobi", weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })} EAT</p>
+              </div>
+              <button onClick={() => setShowRules(true)} className="flex-shrink-0 px-3 py-1.5 rounded-lg bg-gold/20 border border-gold/30 text-gold text-xs font-semibold hover:bg-gold/30 transition-all">📋 Rules</button>
+            </div>
+          )}
 
           {/* PASSWORD UPDATE BANNER */}
           {myStats.pullStatus === "password_changed" && (
@@ -1164,7 +1105,7 @@ export default function ChallengeDashboard() {
                 <p className="text-sm text-gray-300">
                   <span className="text-white font-semibold">{challenge.title}</span> starts on{" "}
                   <span className="text-gold font-semibold">
-                    {new Date(new Date(challenge.startDate).getTime() + 3*60*60*1000).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })} EAT
+                    {new Date(challenge.startDate).toLocaleString("en-US", { timeZone: "Africa/Nairobi", weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })} EAT
                   </span>
                 </p>
                 <p className="text-xs text-gray-500 mt-1">Registered as <span className="text-white">{myStats.nickname}</span> · {formatSubtype(myStats.accountSubtype, myStats.accountType)}</p>
