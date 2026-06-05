@@ -27,7 +27,7 @@ import { Markup } from 'telegraf';
 const MAX_TERMINALS = 10;
 const MAX_RETRIES_PER_ACCOUNT = 3;
 const RETRY_DELAY_MS = 3000;
-const ACCOUNT_TIMEOUT_MS = 30000;
+const ACCOUNT_TIMEOUT_MS = 15000;
 const BATCH_DELAY_MS = 1500;
 const PASSWORD_WARNING_HOURS = 48;
 const TERMINAL_HEALTH_RECHECK_MS = 10 * 60 * 1000;
@@ -117,6 +117,7 @@ export class VpsPullScheduler {
   private bot: Bot;
   private isRunning = false;
   private cancelRequested = false;
+  private abortController: AbortController | null = null;
   private baseUrl: string;
   private apiKey: string;
   private terminals: TerminalState[] = [];
@@ -125,8 +126,9 @@ export class VpsPullScheduler {
   cancelPull() {
     if (!this.isRunning) return false;
     this.cancelRequested = true;
-    this.sharedQueue.load([]); // drain the queue so workers finish after current account
-    console.log('🛑 VPS Pull: Cancel requested — draining queue');
+    this.sharedQueue.load([]); // drain queue so no new accounts are picked up
+    this.abortController?.abort(); // abort any in-flight axios requests immediately
+    console.log('🛑 VPS Pull: Cancel requested — aborting in-flight requests');
     return true;
   }
 
@@ -243,6 +245,7 @@ export class VpsPullScheduler {
     }
     this.isRunning = true;
     this.cancelRequested = false;
+    this.abortController = new AbortController();
     const startTime = Date.now();
 
     try {
@@ -446,6 +449,7 @@ export class VpsPullScheduler {
     } finally {
       this.isRunning = false;
       this.cancelRequested = false;
+      this.abortController = null;
     }
   }
 
@@ -460,6 +464,7 @@ export class VpsPullScheduler {
     }
     this.isRunning = true;
     this.cancelRequested = false;
+    this.abortController = new AbortController();
     const startTime = Date.now();
 
     try {
@@ -527,6 +532,7 @@ export class VpsPullScheduler {
     } finally {
       this.isRunning = false;
       this.cancelRequested = false;
+      this.abortController = null;
     }
   }
 
@@ -541,12 +547,24 @@ export class VpsPullScheduler {
   ): Promise<PullResult[]> {
     const allResults: PullResult[] = [];
     const resultsMutex = { results: allResults }; // Reference for workers
+    const batchStart = Date.now();
+    const WATCHDOG_NO_PROGRESS_MS = 5 * 60 * 1000; // 5 min with 0 processed = auto-cancel
+
+    // Watchdog: if no account finishes within 5 minutes, abort the entire batch
+    const watchdog = setInterval(() => {
+      if (resultsMutex.results.length === 0 && Date.now() - batchStart > WATCHDOG_NO_PROGRESS_MS) {
+        console.error('🚨 VPS Pull Watchdog: No progress in 5 minutes — auto-cancelling stuck batch');
+        this.cancelRequested = true;
+        this.abortController?.abort();
+      }
+    }, 30000); // check every 30s
 
     const workerPromises = healthyTerminals.map(terminal =>
       this.terminalWorker(terminal, challenge, batchId, resultsMutex)
     );
 
     await Promise.all(workerPromises);
+    clearInterval(watchdog);
     return resultsMutex.results;
   }
 
@@ -572,7 +590,7 @@ export class VpsPullScheduler {
         break;
       }
 
-      const result = await this.pullSingleAccount(account, terminal.id, challenge);
+      const result = await this.pullSingleAccount(account, terminal.id, challenge, this.abortController?.signal);
       terminal.totalProcessed++;
 
       if (result.success) {
@@ -655,7 +673,7 @@ export class VpsPullScheduler {
           const terminal = healthyTerminals[t % healthyTerminals.length];
           terminalsAttempted.push(terminal.id);
 
-          const result = await this.pullSingleAccount(account, terminal.id, challenge);
+          const result = await this.pullSingleAccount(account, terminal.id, challenge, this.abortController?.signal);
           if (result.success) {
             result.terminalsAttempted = terminalsAttempted;
             finalResults.push(result);
@@ -718,7 +736,7 @@ export class VpsPullScheduler {
   /**
    * Pull a single account with retry logic
    */
-  private async pullSingleAccount(account: AccountToPull, terminalId: number, challenge?: any): Promise<PullResult> {
+  private async pullSingleAccount(account: AccountToPull, terminalId: number, challenge?: any, abortSignal?: AbortSignal): Promise<PullResult> {
     let credentialFailCount = 0;
 
     for (let attempt = 1; attempt <= MAX_RETRIES_PER_ACCOUNT; attempt++) {
@@ -760,6 +778,7 @@ export class VpsPullScheduler {
           {
             headers: { 'Content-Type': 'application/json' },
             timeout: ACCOUNT_TIMEOUT_MS,
+            signal: abortSignal,
           }
         );
 
@@ -821,6 +840,20 @@ export class VpsPullScheduler {
           terminalId,
         };
       } catch (error: any) {
+        // Abort signal fired (admin cancelled) — exit immediately, no retry
+        if (error.name === 'CanceledError' || error.code === 'ERR_CANCELED' || abortSignal?.aborted) {
+          return {
+            registrationId: account.registrationId,
+            accountNumber: account.accountNumber,
+            userId: account.userId,
+            username: account.username,
+            success: false,
+            errorCode: 'cancelled',
+            errorMessage: 'Pull cancelled by admin',
+            terminalId,
+          };
+        }
+
         if (error.response?.status === 401 || error.response?.status === 422) {
           credentialFailCount++;
           if (credentialFailCount < CREDENTIAL_CONFIRM_ATTEMPTS) {
