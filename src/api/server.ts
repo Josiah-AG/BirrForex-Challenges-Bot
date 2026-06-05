@@ -353,29 +353,21 @@ app.get('/api/challenges/:id/leaderboard', async (req, res) => {
     const status = challengeStatus.rows[0]?.status;
     const dataFrom = challengeStatus.rows[0]?.leaderboard_updated_at || null;
 
-    // PRE-START: rank by registration_balance DESC, registered_at ASC
-    if (status === 'registration_open' || status === 'draft') {
-      const limit = Math.min(parseInt(req.query.limit as string) || 50, 100);
-      const offset = parseInt(req.query.offset as string) || 0;
-      const params: any[] = [challengeId];
-      let catFilter = '';
-      if (category === 'demo' || category === 'real') {
-        catFilter = ' AND account_type = $2';
-        params.push(category);
-      }
-      // Get challenge only_cent_account flag for isCent fallback
+    const limit = Math.min(parseInt(req.query.limit as string) || 50, 100);
+    const offset = parseInt(req.query.offset as string) || 0;
+
+    // Helper: build a pre-start response from trading_registrations (last_known_balance)
+    const buildPreStartResponse = async () => {
       const centCheck = await db.query(
-        `SELECT COALESCE((SELECT (parameters->>'only_cent_account')::boolean FROM wp_challenge_rules WHERE challenge_id = $1 AND rule_code = 'config'), false) as only_cent, starting_balance FROM trading_challenges WHERE id = $1`,
+        `SELECT COALESCE((SELECT (parameters->>'only_cent_account')::boolean FROM wp_challenge_rules WHERE challenge_id = $1 AND rule_code = 'config'), false) as only_cent FROM trading_challenges WHERE id = $1`,
         [challengeId]
       );
       const challengeOnlyCent = centCheck.rows[0]?.only_cent || false;
-      const challengeStartBal = parseFloat(centCheck.rows[0]?.starting_balance || 0);
 
-      // Build params for registration query (challengeId=$1, startBal=$2, optional category=$3)
-      const regParams: any[] = [challengeId, challengeStartBal];
-      let catFilter2 = '';
+      const regParams: any[] = [challengeId];
+      let catFilter = '';
       if (category === 'demo' || category === 'real') {
-        catFilter2 = ' AND account_type = $3';
+        catFilter = ' AND account_type = $2';
         regParams.push(category);
       }
 
@@ -390,26 +382,26 @@ app.get('/api/challenges/:id/leaderboard', async (req, res) => {
          FROM trading_registrations
          WHERE challenge_id = $1
            AND (status IS NULL OR status != 'removed')
-           ${catFilter2}
+           ${catFilter}
          ORDER BY account_type, rank
          LIMIT ${limit} OFFSET ${offset}`,
         regParams
       );
       const countResult = await db.query(
         `SELECT COUNT(*) as total FROM trading_registrations WHERE challenge_id = $1 AND (status IS NULL OR status != 'removed')${catFilter}`,
-        params
+        regParams
       );
-      return res.json({
+      return {
         dataFrom: null,
         preStart: true,
         total: parseInt(countResult.rows[0].total),
         hasMore: offset + limit < parseInt(countResult.rows[0].total),
-        leaderboard: regResult.rows.map((r: any, i: number) => ({
+        leaderboard: regResult.rows.map((r: any) => ({
           nickname: r.nickname,
           accountType: r.account_type,
           rank: parseInt(r.rank),
-          currentBalance: parseFloat(r.reg_balance),
-          adjustedBalance: parseFloat(r.reg_balance),
+          currentBalance: parseFloat(r.reg_balance) || 0,
+          adjustedBalance: parseFloat(r.reg_balance) || 0,
           qualifiedProfit: 0,
           grossProfit: 0,
           profitRemoved: 0,
@@ -422,7 +414,12 @@ app.get('/api/challenges/:id/leaderboard', async (req, res) => {
           isCent: r.is_cent || (challengeOnlyCent && r.account_type !== 'demo') || false,
           registeredAt: r.registered_at,
         })),
-      });
+      };
+    };
+
+    // PRE-START: challenge hasn't begun yet — always use registration-based ranking
+    if (status === 'registration_open' || status === 'draft') {
+      return res.json(await buildPreStartResponse());
     }
 
     // Get leaderboard data freshness
@@ -445,13 +442,14 @@ app.get('/api/challenges/:id/leaderboard', async (req, res) => {
     }
 
     query += ` ORDER BY l.rank ASC NULLS LAST, l.qualified_profit DESC`;
-
-    // Pagination: offset/limit from query params
-    const limit = Math.min(parseInt(req.query.limit as string) || 50, 100);
-    const offset = parseInt(req.query.offset as string) || 0;
     query += ` LIMIT ${limit} OFFSET ${offset}`;
 
     const result = await db.query(query, params);
+
+    // No pull data yet — fall back to registration-based pre-start ranking
+    if (result.rows.length === 0 && offset === 0) {
+      return res.json(await buildPreStartResponse());
+    }
 
     // Get total count for pagination
     let countQuery = `SELECT COUNT(*) as total FROM wp_leaderboard l JOIN trading_registrations r ON l.registration_id = r.id AND (r.status IS NULL OR r.status != 'removed') WHERE l.challenge_id = $1`;
