@@ -1680,7 +1680,8 @@ function ChallengeSettingsPanel({ challengeId, challenges, onRefresh }: { challe
         const blob = new Blob([csv], { type: "text/csv" });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
-        a.href = url; a.download = `challenge_${challengeId}_${type}.csv`; a.click();
+        const slug = (editForm.title || `challenge_${challengeId}`).replace(/\s+/g, '_');
+        a.href = url; a.download = `${slug}_${type}.csv`; a.click();
         setMsg(`✅ ${type === 'leaderboard' ? 'Leaderboard' : 'Registrations'} exported`);
       }
     } catch { setMsg("❌ Export failed"); }
@@ -1737,18 +1738,18 @@ function ChallengeSettingsPanel({ challengeId, challenges, onRefresh }: { challe
             <button onClick={() => handleStatusChange("reviewing")} className="p-2 sm:p-2.5 rounded-lg bg-royal/10 border border-royal/30 text-royal text-[10px] sm:text-xs font-semibold hover:bg-royal/20 transition-all">End → Review</button>
             <button onClick={() => handleStatusChange("completed")} className="p-2 sm:p-2.5 rounded-lg bg-white/5 border border-white/10 text-gray-300 text-[10px] sm:text-xs font-semibold hover:bg-white/10 transition-all">Completed</button>
             <button onClick={handleAnnounce} className="p-2 sm:p-2.5 rounded-lg bg-royal/10 border border-royal/30 text-royal text-[10px] sm:text-xs font-semibold hover:bg-royal/20 transition-all">📢 Announce</button>
-            <button onClick={() => handleExport('registrations')} className="p-2 sm:p-2.5 rounded-lg bg-white/5 border border-white/10 text-gray-300 text-[10px] sm:text-xs font-semibold hover:bg-white/10 transition-all">📥 Registrations</button>
-            <button onClick={() => handleExport('leaderboard')} className="p-2 sm:p-2.5 rounded-lg bg-white/5 border border-white/10 text-gray-300 text-[10px] sm:text-xs font-semibold hover:bg-white/10 transition-all">📊 Leaderboard</button>
-            <button onClick={async () => { try { const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/export-evaluation`); if (res.ok) { const data = await res.json(); const csv = convertToCSV(data.evaluation); const blob = new Blob([csv], { type: "text/csv" }); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `challenge_${challengeId}_evaluation.csv`; a.click(); setMsg("✅ Evaluation exported"); } } catch { setMsg("❌ Export failed"); } }} className="p-2 sm:p-2.5 rounded-lg bg-profit/10 border border-profit/30 text-profit text-[10px] sm:text-xs font-semibold hover:bg-profit/20 transition-all">📋 Evaluation</button>
           </div>
         </div>
 
-        {/* Social Media Exports */}
+        {/* Exports */}
         <div className="border-t border-white/10 pt-5">
-          <p className="text-xs text-gray-400 font-semibold mb-3 uppercase tracking-wider">Social Media Exports</p>
+          <p className="text-xs text-gray-400 font-semibold mb-3 uppercase tracking-wider">Exports</p>
           <div className="grid grid-cols-2 gap-2">
-            <button onClick={async () => { try { const r = await fetch(`${apiUrl}/api/challenges/${challengeId}/rules`); const d = await r.json(); downloadRulesHTML(editForm, d.rules || [], d.isCent || false); } catch { downloadRulesHTML(editForm, [], false); } }} className="p-2.5 rounded-lg bg-royal/10 border border-royal/30 text-royal text-xs font-semibold hover:bg-royal/20 transition-all">📋 Download Rules</button>
-            <button onClick={async () => { try { const r = await fetch(`${apiUrl}/api/challenges/${challengeId}/leaderboard?limit=10`); const d = await r.json(); downloadLeaderboardHTML(editForm, d.leaderboard || []); } catch { downloadLeaderboardHTML(editForm, []); } }} className="p-2.5 rounded-lg bg-gold/10 border border-gold/30 text-gold text-xs font-semibold hover:bg-gold/20 transition-all">🏆 Export Leaderboard</button>
+            <button onClick={() => handleExport('registrations')} className="p-2.5 rounded-lg bg-white/5 border border-white/10 text-gray-300 text-xs font-semibold hover:bg-white/10 transition-all">📥 Registrations</button>
+            <button onClick={() => handleExport('leaderboard')} className="p-2.5 rounded-lg bg-white/5 border border-white/10 text-gray-300 text-xs font-semibold hover:bg-white/10 transition-all">📊 Leaderboard CSV</button>
+            <button onClick={async () => { try { const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/export-evaluation`); if (res.ok) { const data = await res.json(); const csv = convertToCSV(data.evaluation); const blob = new Blob([csv], { type: "text/csv" }); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `${(editForm.title || `challenge_${challengeId}`).replace(/\s+/g, '_')}_evaluation.csv`; a.click(); setMsg("✅ Evaluation exported"); } } catch { setMsg("❌ Export failed"); } }} className="p-2.5 rounded-lg bg-profit/10 border border-profit/30 text-profit text-xs font-semibold hover:bg-profit/20 transition-all">📋 Evaluation CSV</button>
+            <button onClick={async () => { try { const r = await fetch(`${apiUrl}/api/challenges/${challengeId}/rules`); const d = await r.json(); downloadRulesHTML(editForm, d.rules || [], d.isCent || false); } catch { downloadRulesHTML(editForm, [], false); } }} className="p-2.5 rounded-lg bg-royal/10 border border-royal/30 text-royal text-xs font-semibold hover:bg-royal/20 transition-all">📋 Rules Image</button>
+            <button onClick={async () => { try { const r = await fetch(`${apiUrl}/api/challenges/${challengeId}/leaderboard?limit=10`); const d = await r.json(); downloadLeaderboardHTML(editForm, d.leaderboard || []); } catch { downloadLeaderboardHTML(editForm, []); } }} className="p-2.5 rounded-lg bg-gold/10 border border-gold/30 text-gold text-xs font-semibold hover:bg-gold/20 transition-all">🏆 Leaderboard Image</button>
           </div>
         </div>
 
