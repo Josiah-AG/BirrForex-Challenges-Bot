@@ -40,6 +40,7 @@ export default function AdminDashboard() {
   });
   const [rulesSaved, setRulesSaved] = useState(false);
   const [rulesLocked, setRulesLocked] = useState(false);
+  const [savedRulesSnapshot, setSavedRulesSnapshot] = useState<any>(null);
   const [rulesLoading, setRulesLoading] = useState(false);
   const [overviewData, setOverviewData] = useState<any>(null);
   const [verifyPopup, setVerifyPopup] = useState<any>(null);
@@ -137,7 +138,7 @@ export default function AdminDashboard() {
           const data = await res.json();
           setRulesLocked(data.locked || false);
           if (data.rules) {
-            setRulesConfig({
+            const loaded = {
               max_lot_size: data.rules.max_lot_size ?? 0.02,
               max_open_trades: data.rules.max_open_trades ?? 3,
               pair_limit: data.rules.pair_limit ?? 2,
@@ -148,7 +149,9 @@ export default function AdminDashboard() {
               weekend_trading: data.rules.weekend_trading ?? false,
               min_active_days: data.rules.min_active_days ?? 7,
               only_cent_account: data.rules.only_cent_account ?? false,
-            });
+            };
+            setRulesConfig(loaded);
+            setSavedRulesSnapshot(loaded);
           }
           // If locked, also reset saved state so button reflects current status
           if (data.locked) setRulesSaved(false);
@@ -972,30 +975,44 @@ export default function AdminDashboard() {
             )}
 
             {/* Save */}
-            <div className="mt-6 flex justify-end">
-              <button
-                onClick={async () => {
-                  if (rulesLocked) return;
-                  try {
-                    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
-                    const secretPath = process.env.NEXT_PUBLIC_ADMIN_PATH || "";
-                    const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${selectedChallengeId}/rules`, {
-                      method: "PUT", headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify(rulesConfig),
-                    });
-                    if (res.ok) { setRulesSaved(true); }
-                    else { const d = await res.json(); alert(d.error || "Failed to save rules"); }
-                  } catch { alert("Connection error"); }
-                }}
-                disabled={rulesLocked || rulesSaved || rulesLoading}
-                className={`px-8 py-3 rounded-xl font-semibold text-sm transition-all ${
-                  rulesLocked ? "bg-white/5 text-gray-500 border border-white/10 cursor-not-allowed" :
-                  rulesSaved ? "bg-profit/20 text-profit border border-profit/30 cursor-not-allowed" :
-                  "bg-gradient-brand hover:opacity-90 text-white shadow-lg shadow-royal/20"
-                }`}>
-                {rulesLocked ? "🔒 Rules Locked" : rulesSaved ? "✓ Saved" : "Save Rules"}
-              </button>
-            </div>
+            {(() => {
+              const rulesChanged = savedRulesSnapshot !== null && JSON.stringify(rulesConfig) !== JSON.stringify(savedRulesSnapshot);
+              const justSaved = rulesSaved && !rulesChanged;
+              return (
+                <div className="mt-6 flex justify-end">
+                  <button
+                    onClick={async () => {
+                      if (rulesLocked || !rulesChanged) return;
+                      try {
+                        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
+                        const secretPath = process.env.NEXT_PUBLIC_ADMIN_PATH || "";
+                        const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${selectedChallengeId}/rules`, {
+                          method: "PUT", headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify(rulesConfig),
+                        });
+                        if (res.ok) {
+                          setRulesSaved(true);
+                          setSavedRulesSnapshot({ ...rulesConfig });
+                        } else {
+                          const d = await res.json(); alert(d.error || "Failed to save rules");
+                        }
+                      } catch { alert("Connection error"); }
+                    }}
+                    disabled={rulesLocked || !rulesChanged || rulesLoading}
+                    className={`px-8 py-3 rounded-xl font-semibold text-sm transition-all ${
+                      rulesLocked
+                        ? "bg-white/5 text-gray-500 border border-white/10 cursor-not-allowed"
+                        : justSaved
+                          ? "bg-profit/20 text-profit border border-profit/30 cursor-not-allowed opacity-60"
+                          : rulesChanged
+                            ? "bg-gradient-brand hover:opacity-90 text-white shadow-lg shadow-royal/20"
+                            : "bg-white/5 text-gray-500 border border-white/10 cursor-not-allowed opacity-50"
+                    }`}>
+                    {rulesLocked ? "🔒 Rules Locked" : justSaved ? "✓ Rules Saved" : rulesChanged ? "Save Rules" : "No Changes"}
+                  </button>
+                </div>
+              );
+            })()}
           </div>
         </div>
       )}
