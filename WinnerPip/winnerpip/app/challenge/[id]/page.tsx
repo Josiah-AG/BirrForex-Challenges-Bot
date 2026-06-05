@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useParams } from "next/navigation";
@@ -68,6 +68,9 @@ export default function ChallengeDashboard() {
   const [recentTrades, setRecentTrades] = useState<Trade[]>([]);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [leaderboardLoading, setLeaderboardLoading] = useState(false);
+  const [leaderboardPreStart, setLeaderboardPreStart] = useState(false);
+  const leaderboardLengthRef = useRef(0);
+  const myStatsRef = useRef<MyStats | null>(null);
   const [challengeRules, setChallengeRules] = useState<string[]>([]);
 
   // Fetch trades when a user is selected in leaderboard modal
@@ -125,7 +128,7 @@ export default function ChallengeDashboard() {
       const data = await res.json();
 
       setChallenge(data.challenge);
-      setMyStats({
+      const statsObj = {
         nickname: data.me.nickname,
         accountNumber: data.me.accountNumber,
         accountType: data.me.accountType,
@@ -147,7 +150,9 @@ export default function ChallengeDashboard() {
         disqualifiedReason: data.me.disqualifiedReason || null,
         isCent: data.me.isCent || false,
         lastPullAt: data.me.lastPullAt || null,
-      });
+      };
+      myStatsRef.current = statsObj;
+      setMyStats(statsObj);
       setRecentTrades(data.recentTrades || []);
       setError("");
     } catch {
@@ -170,20 +175,27 @@ export default function ChallengeDashboard() {
     if (loadMore) setLeaderboardLoadingMore(true);
     else setLeaderboardLoading(true);
     try {
-      const offset = loadMore ? leaderboard.length : 0;
-      const category = myStats?.accountType || 'all';
+      const offset = loadMore ? leaderboardLengthRef.current : 0;
+      const category = myStatsRef.current?.accountType || 'all';
       const res = await fetch(`${API_URL}/api/challenges/${params.id}/leaderboard?limit=50&offset=${offset}&category=${category}`);
       if (res.ok) {
         const data = await res.json();
+        const stats = myStatsRef.current;
         const entries: LeaderboardEntry[] = (data.leaderboard || []).map((entry: LeaderboardEntry) => ({
           ...entry,
-          isMe: myStats ? entry.nickname === myStats.nickname : false,
+          isMe: stats ? entry.nickname === stats.nickname : false,
         }));
         if (loadMore) {
-          setLeaderboard(prev => [...prev, ...entries]);
+          setLeaderboard(prev => {
+            const next = [...prev, ...entries];
+            leaderboardLengthRef.current = next.length;
+            return next;
+          });
         } else {
+          leaderboardLengthRef.current = entries.length;
           setLeaderboard(entries);
         }
+        setLeaderboardPreStart(data.preStart || false);
         setLeaderboardHasMore(data.hasMore || false);
         setLeaderboardTotal(data.total || entries.length);
       }
@@ -192,7 +204,7 @@ export default function ChallengeDashboard() {
     }
     setLeaderboardLoading(false);
     setLeaderboardLoadingMore(false);
-  }, [params.id, myStats, leaderboard.length]);
+  }, [params.id]);
 
   useEffect(() => {
     if (isLoggedIn && challenge) fetchLeaderboard();
@@ -820,8 +832,8 @@ export default function ChallengeDashboard() {
             {activeTab === "leaderboard" && (
             <div className="glass rounded-2xl border border-white/10 overflow-hidden">
               <div className="p-4 border-b border-white/5 flex items-center justify-between">
-                <div className="flex items-center gap-2"><Trophy size={16} className="text-gold" /><p className="text-sm font-semibold text-white">Leaderboard</p></div>
-                <p className="text-xs text-gray-500">Next update: {getNextPullTime()}</p>
+                <div className="flex items-center gap-2"><Trophy size={16} className="text-gold" /><p className="text-sm font-semibold text-white">{leaderboardPreStart ? "Pre-start Ranking" : "Leaderboard"}</p></div>
+                {leaderboardPreStart ? <span className="text-[10px] text-gold/70 font-semibold uppercase tracking-wider">Based on account balance</span> : <p className="text-xs text-gray-500">Next update: {getNextPullTime()}</p>}
               </div>
               {leaderboardLoading ? (
                 <div className="p-8 text-center"><Loader2 className="w-6 h-6 text-royal animate-spin mx-auto" /></div>
@@ -833,8 +845,8 @@ export default function ChallengeDashboard() {
               ) : (
               <div className="divide-y divide-white/5">
                 {leaderboard.map((entry) => (
-                  <button key={entry.rank || entry.nickname} onClick={() => { setShowLeaderboardModal(true); setSelectedUser(entry); }} className={`w-full flex items-center gap-4 px-4 py-3 text-left hover:bg-white/5 transition-colors ${entry.isMe ? "bg-royal/10 border-l-2 border-royal" : (challenge && entry.adjustedBalance >= challenge.targetBalance && !entry.isDisqualified) ? "bg-profit/5 border-l-2 border-profit/30" : ""} ${entry.isDisqualified ? "opacity-60" : ""}`}>
-                    <div className={`flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center text-sm font-bold ${entry.isDisqualified ? "bg-loss/20 text-loss" : (challenge && entry.rank <= (challenge.winnersCount || 3) && entry.adjustedBalance >= challenge.targetBalance) ? "bg-gold/20 text-gold" : "bg-white/5 text-gray-500"}`}>{entry.rank || "—"}</div>
+                  <button key={entry.rank || entry.nickname} onClick={() => { setShowLeaderboardModal(true); setSelectedUser(entry); }} className={`w-full flex items-center gap-4 px-4 py-3 text-left hover:bg-white/5 transition-colors ${entry.isMe ? "bg-royal/10 border-l-2 border-royal" : (!leaderboardPreStart && challenge && entry.adjustedBalance >= challenge.targetBalance && !entry.isDisqualified) ? "bg-profit/5 border-l-2 border-profit/30" : ""} ${entry.isDisqualified ? "opacity-60" : ""}`}>
+                    <div className={`flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center text-sm font-bold ${entry.isDisqualified ? "bg-loss/20 text-loss" : "bg-white/5 text-gray-500"}`}>{entry.rank || "—"}</div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         <p className={`text-sm font-semibold truncate ${entry.isMe ? "text-royal" : entry.isDisqualified ? "text-gray-500" : "text-white"}`}>{entry.nickname}</p>
@@ -842,7 +854,7 @@ export default function ChallengeDashboard() {
                         {entry.isDisqualified && <span className="px-1.5 py-0.5 bg-loss/20 text-loss text-[10px] rounded font-bold">DQ</span>}
                         {entry.isBlown && !entry.isDisqualified && <span className="px-1.5 py-0.5 bg-gray-500/20 text-gray-400 text-[10px] rounded font-bold">💀</span>}
                       </div>
-                      <p className="text-[10px] text-gray-500">{entry.totalTrades} trades • {entry.qualifiedTrades} qualified • {entry.accountType}</p>
+                      <p className="text-[10px] text-gray-500">{leaderboardPreStart ? entry.accountType : `${entry.totalTrades} trades • ${entry.qualifiedTrades} qualified • ${entry.accountType}`}</p>
 
                     </div>
                     <p className="text-sm font-bold text-white">

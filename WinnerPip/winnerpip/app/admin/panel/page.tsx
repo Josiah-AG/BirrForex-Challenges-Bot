@@ -286,6 +286,7 @@ export default function AdminDashboard() {
   const [pullHistory, setPullHistory] = useState<any[]>([]);
   const [terminalStatus, setTerminalStatus] = useState<any[]>([]);
   const [leaderboard, setLeaderboard] = useState<any[]>([]);
+  const [leaderboardPreStart, setLeaderboardPreStart] = useState(false);
   const [leaderboardCategory, setLeaderboardCategory] = useState<"all" | "demo" | "real">("all");
   const [flaggedParticipants, setFlaggedParticipants] = useState<any[]>([]);
   const [screeningData, setScreeningData] = useState<any>(null);
@@ -307,6 +308,7 @@ export default function AdminDashboard() {
         if (res.ok) {
           const data = await res.json();
           setLeaderboard(data.leaderboard || []);
+          setLeaderboardPreStart(data.preStart || false);
         }
       } catch {}
     };
@@ -508,11 +510,14 @@ export default function AdminDashboard() {
         {activeSection === "leaderboard" && (
           <div className="glass rounded-2xl border border-white/10 overflow-hidden">
             <div className="p-4 border-b border-white/5 flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-white flex items-center gap-2"><Trophy size={16} className="text-gold" /> Leaderboard</h3>
-              <div className="flex gap-1">
-                {(["all", "real", "demo"] as const).map(cat => (
-                  <button key={cat} onClick={() => setLeaderboardCategory(cat)} className={`px-3 py-1 rounded-lg text-[10px] font-semibold transition-all capitalize ${leaderboardCategory === cat ? "bg-royal/20 text-royal border border-royal/30" : "text-gray-500 hover:text-white"}`}>{cat}</button>
-                ))}
+              <h3 className="text-sm font-semibold text-white flex items-center gap-2"><Trophy size={16} className="text-gold" /> {leaderboardPreStart ? "Pre-start Ranking" : "Leaderboard"}</h3>
+              <div className="flex items-center gap-2">
+                {leaderboardPreStart && <span className="text-[10px] text-gold/70 font-semibold uppercase tracking-wider">Ranked by account balance</span>}
+                <div className="flex gap-1">
+                  {(["all", "real", "demo"] as const).map(cat => (
+                    <button key={cat} onClick={() => setLeaderboardCategory(cat)} className={`px-3 py-1 rounded-lg text-[10px] font-semibold transition-all capitalize ${leaderboardCategory === cat ? "bg-royal/20 text-royal border border-royal/30" : "text-gray-500 hover:text-white"}`}>{cat}</button>
+                  ))}
+                </div>
               </div>
             </div>
             <div className="overflow-x-auto">
@@ -522,21 +527,21 @@ export default function AdminDashboard() {
                   <th className="text-left py-3 px-4 text-[10px] text-gray-400 uppercase">Nickname</th>
                   <th className="text-left py-3 px-4 text-[10px] text-gray-400 uppercase">Type</th>
                   <th className="text-right py-3 px-4 text-[10px] text-gray-400 uppercase">Balance</th>
-                  <th className="text-center py-3 px-4 text-[10px] text-gray-400 uppercase">Trades</th>
+                  {!leaderboardPreStart && <><th className="text-center py-3 px-4 text-[10px] text-gray-400 uppercase">Trades</th>
                   <th className="text-center py-3 px-4 text-[10px] text-gray-400 uppercase">Win%</th>
                   <th className="text-center py-3 px-4 text-[10px] text-gray-400 uppercase">Profit</th>
-                  <th className="text-center py-3 px-4 text-[10px] text-gray-400 uppercase">Violations</th>
+                  <th className="text-center py-3 px-4 text-[10px] text-gray-400 uppercase">Violations</th></>}
                 </tr></thead>
-                <tbody>{leaderboard.length === 0 ? <tr><td colSpan={8} className="py-8 text-center text-gray-500">No leaderboard data yet — will populate after VPS pulls and evaluation</td></tr> : leaderboard.map((e: any) => (
+                <tbody>{leaderboard.length === 0 ? <tr><td colSpan={leaderboardPreStart ? 4 : 8} className="py-8 text-center text-gray-500">No leaderboard data yet — will populate after VPS pulls and evaluation</td></tr> : leaderboard.map((e: any) => (
                   <tr key={e.rank || e.nickname} className={`border-b border-white/5 hover:bg-white/5 cursor-pointer ${e.isDisqualified ? "opacity-50" : ""}`} onClick={() => setSelectedParticipant(e)}>
                     <td className="py-3 px-4"><span className={`text-sm font-bold ${e.isDisqualified ? "text-loss" : e.rank <= 3 ? "text-gold" : "text-gray-400"}`}>{e.rank || "—"}</span></td>
                     <td className="py-3 px-4 text-sm text-white font-semibold">{e.nickname}{e.isDisqualified ? <span className="ml-2 text-[10px] text-loss">DQ</span> : ""}</td>
                     <td className="py-3 px-4"><span className={`px-2 py-1 rounded text-[10px] font-semibold ${e.accountType === "real" ? "bg-gold/10 text-gold" : "bg-royal/10 text-royal"}`}>{e.accountType}</span></td>
                     <td className="py-3 px-4 text-right text-sm font-bold text-white">{e.isDisqualified ? "DQ" : e.isCent ? `${Number(e.adjustedBalance).toFixed(2)}¢` : `$${Number(e.adjustedBalance).toFixed(2)}`}</td>
-                    <td className="py-3 px-4 text-center text-sm text-gray-400">{e.totalTrades}</td>
+                    {!leaderboardPreStart && <><td className="py-3 px-4 text-center text-sm text-gray-400">{e.totalTrades}</td>
                     <td className="py-3 px-4 text-center text-sm text-gray-400">{e.totalTrades > 0 ? `${Math.round((e.qualifiedTrades / e.totalTrades) * 100)}%` : "—"}</td>
                     <td className="py-3 px-4 text-center text-sm text-royal">{e.totalTrades > 0 ? (e.isCent ? `${Number(e.qualifiedProfit).toFixed(2)}¢` : `$${Number(e.qualifiedProfit).toFixed(2)}`) : "—"}</td>
-                    <td className="py-3 px-4 text-center">{e.flaggedTrades > 0 ? <span className="text-loss font-bold">{e.flaggedTrades}</span> : <span className="text-profit">✓</span>}</td>
+                    <td className="py-3 px-4 text-center">{e.flaggedTrades > 0 ? <span className="text-loss font-bold">{e.flaggedTrades}</span> : <span className="text-profit">✓</span>}</td></>}
                   </tr>
                 ))}</tbody>
               </table>
