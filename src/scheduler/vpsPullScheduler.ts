@@ -1125,6 +1125,7 @@ export class VpsPullScheduler {
     // balance/blown state or DQ status. Evaluation engine preserves DQ flags — it writes
     // to staging which is then flushed without clearing the disqualified column.
     const disqualifiedFilter = forceAll ? '' : 'AND r.disqualified = false';
+    const connectionFilter = forceAll ? '' : 'AND r.connection_verified = true';
     const zeroBalanceFilter = forceAll
       ? ''
       : 'AND (l.zero_balance_at IS NULL OR l.total_trades = 0 OR l.id IS NULL OR r.actual_starting_balance IS NULL)';
@@ -1136,7 +1137,7 @@ export class VpsPullScheduler {
        WHERE r.challenge_id = $1
          ${disqualifiedFilter}
          AND r.investor_password IS NOT NULL
-         AND r.connection_verified = true
+         ${connectionFilter}
          ${zeroBalanceFilter}
        ORDER BY r.id`,
       [challengeId]
