@@ -345,12 +345,71 @@ app.get('/api/challenges/:id/leaderboard', async (req, res) => {
     const challengeId = parseInt(req.params.id);
     const category = req.query.category as string || 'all'; // 'demo', 'real', 'all'
 
-    // Get leaderboard data freshness
-    const freshness = await db.query(
-      `SELECT leaderboard_updated_at FROM trading_challenges WHERE id = $1`,
+    // Check challenge status — pre-start uses registration-based ranking
+    const challengeStatus = await db.query(
+      `SELECT status, leaderboard_updated_at FROM trading_challenges WHERE id = $1`,
       [challengeId]
     );
-    const dataFrom = freshness.rows[0]?.leaderboard_updated_at || null;
+    const status = challengeStatus.rows[0]?.status;
+    const dataFrom = challengeStatus.rows[0]?.leaderboard_updated_at || null;
+
+    // PRE-START: rank by registration_balance DESC, registered_at ASC
+    if (status === 'registration_open' || status === 'draft') {
+      const limit = Math.min(parseInt(req.query.limit as string) || 50, 100);
+      const offset = parseInt(req.query.offset as string) || 0;
+      const params: any[] = [challengeId];
+      let catFilter = '';
+      if (category === 'demo' || category === 'real') {
+        catFilter = ' AND account_type = $2';
+        params.push(category);
+      }
+      const regResult = await db.query(
+        `SELECT nickname, account_type, is_cent,
+                COALESCE(registration_balance, 0) as registration_balance,
+                registered_at,
+                ROW_NUMBER() OVER (
+                  PARTITION BY account_type
+                  ORDER BY COALESCE(registration_balance, 0) DESC, registered_at ASC
+                ) as rank
+         FROM trading_registrations
+         WHERE challenge_id = $1
+           AND (status IS NULL OR status != 'removed')
+           ${catFilter}
+         ORDER BY account_type, rank
+         LIMIT ${limit} OFFSET ${offset}`,
+        params
+      );
+      const countResult = await db.query(
+        `SELECT COUNT(*) as total FROM trading_registrations WHERE challenge_id = $1 AND (status IS NULL OR status != 'removed')${catFilter}`,
+        params
+      );
+      return res.json({
+        dataFrom: null,
+        preStart: true,
+        total: parseInt(countResult.rows[0].total),
+        hasMore: offset + limit < parseInt(countResult.rows[0].total),
+        leaderboard: regResult.rows.map((r: any, i: number) => ({
+          nickname: r.nickname,
+          accountType: r.account_type,
+          rank: parseInt(r.rank),
+          currentBalance: parseFloat(r.registration_balance),
+          adjustedBalance: parseFloat(r.registration_balance),
+          qualifiedProfit: 0,
+          grossProfit: 0,
+          profitRemoved: 0,
+          totalTrades: 0,
+          qualifiedTrades: 0,
+          flaggedTrades: 0,
+          isQualified: false,
+          isDisqualified: false,
+          isBlown: false,
+          isCent: r.is_cent || false,
+          registeredAt: r.registered_at,
+        })),
+      });
+    }
+
+    // Get leaderboard data freshness
 
     let query = `
       SELECT l.nickname, l.account_type, l.rank, l.current_balance, l.adjusted_balance,
