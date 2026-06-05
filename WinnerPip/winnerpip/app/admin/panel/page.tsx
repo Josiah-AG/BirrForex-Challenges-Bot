@@ -1236,34 +1236,54 @@ function HealthCheckPanel() {
               )}
             </div>
 
-            {/* Deep Terminal Check Results */}
-            {healthData.deepCheck && (
-              <div className="p-4 rounded-xl border border-white/10 bg-white/5">
-                <h4 className="text-sm font-bold text-white mb-4 flex items-center gap-2">
-                  <Activity size={16} className="text-gold" /> Terminal Login Test
-                  <span className={`ml-2 px-2 py-0.5 rounded text-[10px] font-bold ${healthData.deepCheck.failed?.length === 0 ? "bg-profit/20 text-profit" : "bg-loss/20 text-loss"}`}>
-                    {healthData.deepCheck.summary}
-                  </span>
-                </h4>
-                <div className="grid grid-cols-5 md:grid-cols-10 gap-2">
-                  {healthData.deepCheck.results?.map((t: any) => (
-                    <div key={t.terminal} className={`rounded-lg p-2 text-center border ${t.success ? "bg-profit/10 border-profit/30" : "bg-loss/10 border-loss/30"}`}>
-                      <p className="text-[10px] text-gray-500">T{t.terminal}</p>
-                      <p className={`text-sm font-bold ${t.success ? "text-profit" : "text-loss"}`}>{t.success ? "✓" : "✗"}</p>
-                    </div>
-                  ))}
-                </div>
-                {healthData.deepCheck.failed?.length > 0 && (
-                  <div className="mt-3 space-y-2">
-                    {healthData.deepCheck.failed.map((f: any) => (
-                      <div key={f.terminal} className="p-2 rounded-lg bg-loss/10 border border-loss/20">
-                        <p className="text-xs text-loss font-semibold">Terminal {f.terminal}: {f.error}</p>
-                      </div>
-                    ))}
+            {/* Terminal Login Test — always show all 10 */}
+            {(() => {
+              const results = healthData.deepCheck?.results || [];
+              const vpsOnline = healthData.vps?.reachable;
+              const passedCount = results.filter((t: any) => t.success).length;
+              const totalTested = results.length;
+              const summary = !vpsOnline
+                ? "VPS offline — cannot test"
+                : totalTested === 0
+                  ? "Not tested"
+                  : `${passedCount}/${totalTested} passed`;
+              const summaryColor = !vpsOnline || passedCount < totalTested ? "bg-loss/20 text-loss" : "bg-profit/20 text-profit";
+
+              return (
+                <div className="p-4 rounded-xl border border-white/10 bg-white/5">
+                  <h4 className="text-sm font-bold text-white mb-4 flex items-center gap-2">
+                    <Activity size={16} className="text-gold" /> Terminal Login Test
+                    <span className={`ml-2 px-2 py-0.5 rounded text-[10px] font-bold ${summaryColor}`}>{summary}</span>
+                  </h4>
+                  <div className="grid grid-cols-5 md:grid-cols-10 gap-2">
+                    {Array.from({ length: 10 }, (_, i) => {
+                      const id = i + 1;
+                      const result = results.find((t: any) => t.terminal === id);
+                      const passed = result?.success === true;
+                      const failed = result?.success === false || (!vpsOnline);
+                      const untested = !result && vpsOnline;
+                      return (
+                        <div key={id} className={`rounded-lg p-2 text-center border ${passed ? "bg-profit/10 border-profit/30" : failed ? "bg-loss/10 border-loss/30" : "bg-white/5 border-white/10"}`}>
+                          <p className="text-[10px] text-gray-500">T{id}</p>
+                          <p className={`text-sm font-bold ${passed ? "text-profit" : failed ? "text-loss" : "text-gray-500"}`}>
+                            {passed ? "✓" : failed ? "✗" : "—"}
+                          </p>
+                        </div>
+                      );
+                    })}
                   </div>
-                )}
-              </div>
-            )}
+                  {healthData.deepCheck?.failed?.length > 0 && (
+                    <div className="mt-3 space-y-2">
+                      {healthData.deepCheck.failed.map((f: any) => (
+                        <div key={f.terminal} className="p-2 rounded-lg bg-loss/10 border border-loss/20">
+                          <p className="text-xs text-loss font-semibold">T{f.terminal}: {f.error}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* Pull Stats (24h) */}
             {healthData.pullStats && (
