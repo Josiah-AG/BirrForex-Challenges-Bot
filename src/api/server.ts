@@ -381,11 +381,11 @@ app.get('/api/challenges/:id/leaderboard', async (req, res) => {
 
       const regResult = await db.query(
         `SELECT nickname, account_type, is_cent,
-                COALESCE(actual_starting_balance, registration_balance, last_known_balance, $2) as reg_balance,
+                COALESCE(actual_starting_balance, registration_balance, last_known_balance) as reg_balance,
                 registered_at,
                 ROW_NUMBER() OVER (
                   PARTITION BY account_type
-                  ORDER BY COALESCE(actual_starting_balance, registration_balance, last_known_balance, $2) DESC, registered_at ASC
+                  ORDER BY COALESCE(actual_starting_balance, registration_balance, last_known_balance) DESC NULLS LAST, registered_at ASC
                 ) as rank
          FROM trading_registrations
          WHERE challenge_id = $1
@@ -597,7 +597,7 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
     // Get challenge info
     const reg = await db.query(
       `SELECT r.id, r.nickname, r.account_number, r.account_type, r.account_subtype, r.mt5_server, r.challenge_id, r.pull_status,
-              r.actual_starting_balance, r.registration_balance, r.disqualified, r.disqualified_reason, r.is_cent,
+              r.actual_starting_balance, r.registration_balance, r.last_known_balance, r.disqualified, r.disqualified_reason, r.is_cent,
               r.last_pull_at,
               c.title, c.status, c.start_date, c.end_date, c.starting_balance, c.target_balance, c.leaderboard_updated_at,
               c.real_winners_count, c.demo_winners_count, c.type as challenge_type,
@@ -611,13 +611,14 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
     const registration = reg.rows[0];
     const leaderboard = lb.rows[0] || null;
 
-    // Determine the user's actual starting balance
-    const challengeStartingBalance = parseFloat(registration.starting_balance);
-    const actualStartingBalance = registration.actual_starting_balance
+    // Determine the user's actual starting balance — never fake with challenge starting_balance
+    const actualStartingBalance = registration.actual_starting_balance != null
       ? parseFloat(registration.actual_starting_balance)
-      : registration.registration_balance
+      : registration.registration_balance != null
         ? parseFloat(registration.registration_balance)
-        : challengeStartingBalance;
+        : registration.last_known_balance != null
+          ? parseFloat(registration.last_known_balance)
+          : null;
 
     return res.json({
       dataFrom: registration.leaderboard_updated_at || null,
@@ -627,7 +628,7 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
         status: registration.status,
         startDate: registration.start_date,
         endDate: registration.end_date,
-        startingBalance: actualStartingBalance,
+        startingBalance: actualStartingBalance ?? 0,
         targetBalance: parseFloat(registration.target_balance),
         winnersCount: parseInt(registration.real_winners_count || 0) + parseInt(registration.demo_winners_count || 0),
         realWinnersCount: parseInt(registration.real_winners_count || 0),
@@ -648,8 +649,8 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
         actualStartingBalance: actualStartingBalance,
         lastPullAt: registration.last_pull_at || null,
         rank: leaderboard?.rank || null,
-        currentBalance: leaderboard ? parseFloat(leaderboard.current_balance) : actualStartingBalance,
-        adjustedBalance: leaderboard ? parseFloat(leaderboard.adjusted_balance) : actualStartingBalance,
+        currentBalance: leaderboard ? parseFloat(leaderboard.current_balance) : (actualStartingBalance ?? 0),
+        adjustedBalance: leaderboard ? parseFloat(leaderboard.adjusted_balance) : (actualStartingBalance ?? 0),
         qualifiedProfit: leaderboard ? parseFloat(leaderboard.qualified_profit) : 0,
         grossProfit: leaderboard ? parseFloat(leaderboard.gross_profit) : 0,
         profitRemoved: leaderboard ? parseFloat(leaderboard.profit_removed) : 0,
