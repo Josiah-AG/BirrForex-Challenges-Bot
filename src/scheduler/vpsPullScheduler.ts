@@ -311,6 +311,15 @@ export class VpsPullScheduler {
       // Launch terminal workers (they pull from shared queue)
       const allResults = await this.runSharedQueueWorkers(healthyTerminals, challengeToPull, batchId);
 
+      // If admin cancelled — skip retry, leaderboard, and reporting; just clean up
+      if (this.cancelRequested) {
+        console.log('🛑 VPS Pull: Cancelled — skipping retry/leaderboard steps');
+        await candleTerminalManager.restore();
+        this.isRunning = false;
+        this.cancelRequested = false;
+        return;
+      }
+
       // === STEP 4: Retry within same cycle (non-credential failures) ===
       const nonCredentialFailures = allResults.filter(
         r => !r.success && r.errorCode !== 'invalid_credentials'
@@ -436,6 +445,7 @@ export class VpsPullScheduler {
       } catch (e) {}
     } finally {
       this.isRunning = false;
+      this.cancelRequested = false;
     }
   }
 
@@ -490,6 +500,15 @@ export class VpsPullScheduler {
 
       await candleTerminalManager.setup(challengeToPull.id, healthyTerminals.map(t => t.id));
       const allResults = await this.runSharedQueueWorkers(healthyTerminals, challengeToPull, batchId);
+
+      if (this.cancelRequested) {
+        console.log('🛑 VPS Pull: Admin pull cancelled');
+        await candleTerminalManager.restore();
+        this.isRunning = false;
+        this.cancelRequested = false;
+        return;
+      }
+
       await candleTerminalManager.restore();
 
       const successful = allResults.filter(r => r.success);
@@ -507,6 +526,7 @@ export class VpsPullScheduler {
       console.error('❌ VPS Pull: Admin full pull crashed:', error);
     } finally {
       this.isRunning = false;
+      this.cancelRequested = false;
     }
   }
 
