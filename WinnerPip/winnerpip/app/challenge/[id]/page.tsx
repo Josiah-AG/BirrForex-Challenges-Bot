@@ -259,7 +259,6 @@ export default function ChallengeDashboard() {
   const totalParticipants = leaderboardTotal || leaderboard.length;
   const isCentAccount = myStats?.accountType === 'real' && myStats.currentBalance > 500; // heuristic for cent
   const isBlownAccount = myStats && myStats.totalTrades > 0 && myStats.currentBalance <= 0;
-  const showProgressBar = myStats && myStats.totalTrades > 0 && !isBlownAccount && !myStats.disqualified;
 
   // Win Rate & Avg RR (computed from trades)
   const winningTrades = recentTrades.filter(t => t.profit > 0);
@@ -368,7 +367,10 @@ export default function ChallengeDashboard() {
       : Math.max(0, Math.ceil((new Date(challenge.endDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
     : 0;
   const daysLeftLabel = isNotStarted ? "Time to Start" : "Time Left";
-  const hasNoData = myStats && myStats.totalTrades === 0 && isActive;
+  // Show progress bar if has trades OR pre-start with a known balance
+  const showProgressBar = myStats && !isBlownAccount && !myStats.disqualified &&
+    (myStats.totalTrades > 0 || (isNotStarted && myStats.currentBalance > 0));
+  const hasNoData = myStats && myStats.totalTrades === 0 && isActive && !isNotStarted;
 
   // Show completed popup once per session when challenge ends
   useEffect(() => {
