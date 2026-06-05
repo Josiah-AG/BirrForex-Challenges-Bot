@@ -2455,7 +2455,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/retry-account`, adminIpC
 
     // Get account details
     const regResult = await db.query(
-      `SELECT id, account_number, mt5_server, investor_password, telegram_id, username, nickname
+      `SELECT id, account_number, mt5_server, investor_password, user_id, username, nickname
        FROM trading_registrations WHERE id = $1 AND challenge_id = $2`,
       [registrationId, challengeId]
     );
