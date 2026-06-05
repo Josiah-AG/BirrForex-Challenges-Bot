@@ -2165,7 +2165,21 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures }: { ch
         <div className="glass rounded-2xl border border-royal/20 p-5">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold text-white flex items-center gap-2"><Loader2 size={16} className="text-royal animate-spin" /> Pull In Progress</h3>
-            <span className="text-xs text-gray-400">{pullProgress.elapsedSeconds}s elapsed</span>
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-gray-400">{pullProgress.elapsedSeconds}s elapsed</span>
+              <button
+                onClick={async () => {
+                  try {
+                    await fetch(`${apiUrl}/api/admin/${secretPath}/cancel-pull`, { method: "POST" });
+                    setPullProgress((prev: any) => ({ ...prev, isRunning: false }));
+                    setPolling(false);
+                  } catch {}
+                }}
+                className="px-3 py-1 rounded-lg bg-loss/10 border border-loss/30 text-loss text-xs font-semibold hover:bg-loss/20 transition-all"
+              >
+                ✕ Stop Pull
+              </button>
+            </div>
           </div>
           <div className="w-full h-3 bg-white/10 rounded-full overflow-hidden mb-2">
             <div className="h-full rounded-full bg-gradient-to-r from-royal to-profit transition-all duration-1000" style={{ width: `${pullProgress.percent || 0}%` }} />

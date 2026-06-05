@@ -2480,6 +2480,27 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/pull-status`, adminIpCheck, async (req,
 });
 
 /**
+ * POST /api/admin/:secretPath/cancel-pull
+ * Cancel an in-progress pull cycle — drains the queue so workers stop after current account.
+ */
+app.post(`/api/admin/${ADMIN_SECRET_PATH}/cancel-pull`, adminIpCheck, async (req, res) => {
+  try {
+    const globalScheduler = (global as any).__vpsPullScheduler;
+    const cancelled = globalScheduler ? globalScheduler.cancelPull() : false;
+    if (cancelled) {
+      // Mark the running batch as cancelled in DB so pull-status stops showing it
+      await db.query(
+        `UPDATE wp_pull_batches SET status = 'cancelled', completed_at = NOW() WHERE status = 'running'`
+      );
+      return res.json({ success: true, message: 'Pull cancelled' });
+    }
+    return res.json({ success: false, message: 'No pull is running' });
+  } catch (error) {
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
  * POST /api/admin/:secretPath/challenge/:id/retry-sl-check
  * Re-run SL candle check for all sl_check_pending trades of a specific account.
  * Immediately updates evaluation + flushes leaderboard.

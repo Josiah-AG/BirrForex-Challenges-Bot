@@ -116,10 +116,19 @@ class SharedQueue {
 export class VpsPullScheduler {
   private bot: Bot;
   private isRunning = false;
+  private cancelRequested = false;
   private baseUrl: string;
   private apiKey: string;
   private terminals: TerminalState[] = [];
   private sharedQueue = new SharedQueue();
+
+  cancelPull() {
+    if (!this.isRunning) return false;
+    this.cancelRequested = true;
+    this.sharedQueue.load([]); // drain the queue so workers finish after current account
+    console.log('🛑 VPS Pull: Cancel requested — draining queue');
+    return true;
+  }
 
   constructor(bot: Bot) {
     this.bot = bot;
@@ -233,6 +242,7 @@ export class VpsPullScheduler {
       return;
     }
     this.isRunning = true;
+    this.cancelRequested = false;
     const startTime = Date.now();
 
     try {
@@ -439,6 +449,7 @@ export class VpsPullScheduler {
       return;
     }
     this.isRunning = true;
+    this.cancelRequested = false;
     const startTime = Date.now();
 
     try {
@@ -529,6 +540,8 @@ export class VpsPullScheduler {
     resultsMutex: { results: PullResult[] }
   ): Promise<void> {
     while (true) {
+      if (this.cancelRequested) break; // Admin cancelled
+
       const account = this.sharedQueue.next();
       if (!account) break; // Queue empty
 
