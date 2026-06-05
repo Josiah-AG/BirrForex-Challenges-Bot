@@ -2487,17 +2487,19 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/pull-status`, adminIpCheck, async (req,
 app.post(`/api/admin/${ADMIN_SECRET_PATH}/cancel-pull`, adminIpCheck, async (req, res) => {
   try {
     const globalScheduler = (global as any).__vpsPullScheduler;
-    const cancelled = globalScheduler ? globalScheduler.cancelPull() : false;
-    if (cancelled) {
-      // Mark the running batch as cancelled in DB so pull-status stops showing it
-      await db.query(
-        `UPDATE wp_pull_batches SET status = 'cancelled', completed_at = NOW() WHERE status = 'running'`
-      );
-      return res.json({ success: true, message: 'Pull cancelled' });
+    if (!globalScheduler) {
+      return res.json({ success: false, message: 'Scheduler not available' });
     }
-    return res.json({ success: false, message: 'No pull is running' });
+    // Abort in-flight requests and drain queue
+    globalScheduler.cancelPull();
+    // Mark the running batch as cancelled in DB so pull-status stops showing it
+    await db.query(
+      `UPDATE wp_pull_batches SET status = 'cancelled', completed_at = NOW() WHERE status = 'running'`
+    );
+    return res.json({ success: true, message: 'Pull cancelled' });
   } catch (error) {
-    return res.status(500).json({ error: 'Internal server error' });
+    console.error('Cancel pull error:', error);
+    return res.status(500).json({ error: 'Internal server error', detail: (error as Error).message });
   }
 });
 

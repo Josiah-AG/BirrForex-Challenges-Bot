@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
 import Image from "next/image";
 import Link from "next/link";
@@ -2057,25 +2057,30 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures }: { ch
   // Poll pull status for progress bar
   const [pullProgress, setPullProgress] = useState<any>(null);
   const [polling, setPolling] = useState(false);
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const stopPolling = () => {
+    if (pollIntervalRef.current) { clearInterval(pollIntervalRef.current); pollIntervalRef.current = null; }
+    setPolling(false);
+  };
 
   const startPolling = () => {
+    if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
     setPolling(true);
-    const interval = setInterval(async () => {
+    pollIntervalRef.current = setInterval(async () => {
       try {
         const res = await fetch(`${apiUrl}/api/admin/${secretPath}/pull-status`);
         if (res.ok) {
           const data = await res.json();
           setPullProgress(data);
           if (!data.isRunning) {
-            clearInterval(interval);
-            setPolling(false);
+            stopPolling();
             fetchFailed();
-            // Refresh pull history
             setTimeout(() => window.location.reload(), 1000);
           }
         }
       } catch {}
-    }, 3000); // Poll every 3 seconds
+    }, 3000);
     // Also do an immediate check
     fetch(`${apiUrl}/api/admin/${secretPath}/pull-status`).then(r => r.json()).then(d => setPullProgress(d)).catch(() => {});
   };
@@ -2170,10 +2175,12 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures }: { ch
               <button
                 onClick={async () => {
                   try {
-                    await fetch(`${apiUrl}/api/admin/${secretPath}/cancel-pull`, { method: "POST" });
+                    try {
+                      await fetch(`${apiUrl}/api/admin/${secretPath}/cancel-pull`, { method: "POST" });
+                    } catch {}
+                    // Always stop polling and hide bar regardless of API response
                     setPullProgress((prev: any) => ({ ...prev, isRunning: false }));
-                    setPolling(false);
-                  } catch {}
+                    stopPolling();
                 }}
                 className="px-3 py-1 rounded-lg bg-loss/10 border border-loss/30 text-loss text-xs font-semibold hover:bg-loss/20 transition-all"
               >
