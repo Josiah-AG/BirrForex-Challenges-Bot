@@ -1543,9 +1543,9 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/announce`, adminIpCheck,
     if (!challenge) return res.json({ success: true, message: 'Challenge announced' });
 
     if (challenge.source === 'discord') {
-      // Mark as pending for Discord bot to pick up and post with interactive Register button
+      // Always reset to pending so Discord bot re-posts (handles deleted announcements)
       await db.query(
-        `UPDATE trading_challenges SET discord_channel_message_id = 'pending_announce' WHERE id = $1 AND discord_channel_message_id IS NULL`,
+        `UPDATE trading_challenges SET discord_channel_message_id = 'pending_announce' WHERE id = $1`,
         [challengeId]
       ).catch(() => {});
       return res.json({ success: true, message: 'Registration opened. Discord bot will post the announcement with Register button shortly.' });
