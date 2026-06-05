@@ -255,7 +255,6 @@ export default function ChallengeDashboard() {
     const count = entry.accountType === 'demo' ? (challenge.demoWinnersCount || 0) : (challenge.realWinnersCount || 0);
     return count > 0 && entry.rank <= count;
   };
-  const daysLeft = challenge ? Math.max(0, Math.ceil((new Date(challenge.endDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24))) : 0;
   const progressPercent = challenge && myStats ? ((myStats.adjustedBalance - challenge.startingBalance) / (challenge.targetBalance - challenge.startingBalance)) * 100 : 0;
   const totalParticipants = leaderboardTotal || leaderboard.length;
   const isCentAccount = myStats?.accountType === 'real' && myStats.currentBalance > 500; // heuristic for cent
@@ -363,6 +362,12 @@ export default function ChallengeDashboard() {
   const isNotStarted = challenge && (challenge.status === "registration_open" || challenge.status === "draft");
   const isActive = challenge && challenge.status === "active";
   const isCompleted = challenge && (challenge.status === "completed" || challenge.status === "submission_open" || challenge.status === "reviewing");
+  const daysLeft = challenge
+    ? isNotStarted
+      ? Math.max(0, Math.ceil((new Date(challenge.startDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
+      : Math.max(0, Math.ceil((new Date(challenge.endDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
+    : 0;
+  const daysLeftLabel = isNotStarted ? "Time to Start" : "Time Left";
   const hasNoData = myStats && myStats.totalTrades === 0 && isActive;
 
   // Show completed popup once per session when challenge ends
@@ -718,7 +723,7 @@ export default function ChallengeDashboard() {
                 <p className="text-xs text-gray-500 mt-1">Gross: {formatBalance(myStats.currentBalance, myStats.accountType, myStats.isCent)}</p>
               </div>
               <div className="glass rounded-2xl p-4 md:p-5 border border-white/10">
-                <div className="flex items-center gap-2 mb-2"><Clock size={16} className="text-gold" /><p className="text-[10px] text-gray-400 uppercase tracking-wider font-medium">Time Left</p></div>
+                <div className="flex items-center gap-2 mb-2"><Clock size={16} className="text-gold" /><p className="text-[10px] text-gray-400 uppercase tracking-wider font-medium">{daysLeftLabel}</p></div>
                 <p className="text-3xl md:text-4xl font-bold text-gold">{daysLeft}</p>
                 <p className="text-xs text-gray-500 mt-1">days remaining</p>
               </div>
