@@ -155,6 +155,9 @@ export class VpsPullScheduler {
     // Terminal health recheck every 10 min
     cron.schedule('*/10 * * * *', () => this.recheckUnhealthyTerminals());
 
+    // Auto-start / auto-end challenges based on scheduled EAT times — runs every minute
+    cron.schedule('* * * * *', () => this.checkChallengeLifecycle());
+
     console.log('✅ VPS Pull Scheduler v2 started (shared queue, per-account eval, staging → live flush)');
 
     // Resume interrupted cycle on startup (after 5s delay for other services to init)
@@ -1564,6 +1567,90 @@ export class VpsPullScheduler {
       }
     } catch (e) {
       console.warn('⚠️ Auto-recheck SL error:', (e as Error).message);
+    }
+  }
+
+  /**
+   * Auto-start and auto-end challenges based on their scheduled EAT times.
+   * Runs every minute. Dates are stored in UTC in the DB — comparison is direct.
+   *
+   * Auto-start: registration_open → active when start_date is reached
+   * Auto-end:   active → reviewing when end_date is reached
+   */
+  private async checkChallengeLifecycle() {
+    try {
+      // Auto-start: challenges whose start_date has passed but are still registration_open
+      const toStart = await db.query(
+        `SELECT id, title, type, source, start_date, end_date, starting_balance, target_balance
+         FROM trading_challenges
+         WHERE status = 'registration_open'
+           AND start_date <= NOW()
+           AND (status != 'active')
+         ORDER BY start_date ASC`
+      );
+
+      for (const challenge of toStart.rows) {
+        try {
+          await db.query(
+            `UPDATE trading_challenges SET status = 'active', updated_at = NOW() WHERE id = $1 AND status = 'registration_open'`,
+            [challenge.id]
+          );
+          console.log(`🚀 Auto-started challenge ${challenge.id}: "${challenge.title}"`);
+
+          // Send admin notification
+          await this.bot.bot.telegram.sendMessage(
+            config.adminUserId,
+            `🚀 <b>Challenge Auto-Started</b>\n\n<b>${challenge.title}</b>\n\nStatus set to <b>Active</b>. VPS pulls will begin on the next scheduled cycle.\n\n<i>Triggered automatically at scheduled start time.</i>`,
+            { parse_mode: 'HTML' }
+          ).catch(() => {});
+
+          // Trigger an immediate pull cycle for this challenge
+          if (!this.isRunning) {
+            this.runPullCycleForChallenge(challenge.id).catch(e =>
+              console.error(`Auto-start pull error for challenge ${challenge.id}:`, e)
+            );
+          }
+        } catch (e) {
+          console.error(`Auto-start error for challenge ${challenge.id}:`, e);
+        }
+      }
+
+      // Auto-end: challenges whose end_date has passed but are still active
+      const toEnd = await db.query(
+        `SELECT id, title, type, source
+         FROM trading_challenges
+         WHERE status = 'active'
+           AND end_date <= NOW()
+         ORDER BY end_date ASC`
+      );
+
+      for (const challenge of toEnd.rows) {
+        try {
+          await db.query(
+            `UPDATE trading_challenges SET status = 'reviewing', updated_at = NOW() WHERE id = $1 AND status = 'active'`,
+            [challenge.id]
+          );
+          console.log(`🏁 Auto-ended challenge ${challenge.id}: "${challenge.title}"`);
+
+          // Send admin notification
+          await this.bot.bot.telegram.sendMessage(
+            config.adminUserId,
+            `🏁 <b>Challenge Auto-Ended</b>\n\n<b>${challenge.title}</b>\n\nStatus set to <b>Reviewing</b>. Running final pull now.\n\n<i>Triggered automatically at scheduled end time.</i>`,
+            { parse_mode: 'HTML' }
+          ).catch(() => {});
+
+          // Trigger final full pull
+          if (!this.isRunning) {
+            this.runPullCycleForChallenge(challenge.id).catch(e =>
+              console.error(`Auto-end pull error for challenge ${challenge.id}:`, e)
+            );
+          }
+        } catch (e) {
+          console.error(`Auto-end error for challenge ${challenge.id}:`, e);
+        }
+      }
+    } catch (e) {
+      // Non-fatal — lifecycle check will retry next minute
     }
   }
 

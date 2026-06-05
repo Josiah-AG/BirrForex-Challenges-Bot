@@ -1401,10 +1401,10 @@ function CreateChallengePanel({ onCreated }: { onCreated: (id: number) => void }
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...form,
-          // datetime-local is in browser local time (EAT) — new Date() converts to UTC automatically
-          start_date: form.start_date ? new Date(form.start_date).toISOString() : null,
-          end_date: form.end_date ? new Date(form.end_date).toISOString() : null,
-          registration_deadline: form.start_date ? new Date(form.start_date).toISOString() : null,
+          // Treat datetime-local value as EAT (UTC+3) explicitly — safe regardless of browser timezone
+          start_date: form.start_date ? new Date(form.start_date + ":00+03:00").toISOString() : null,
+          end_date: form.end_date ? new Date(form.end_date + ":00+03:00").toISOString() : null,
+          registration_deadline: form.start_date ? new Date(form.start_date + ":00+03:00").toISOString() : null,
           starting_balance: parseFloat(form.starting_balance),
           target_balance: parseFloat(form.target_balance),
           real_winners_count: parseInt(form.real_winners_count),
@@ -1595,22 +1595,18 @@ function ChallengeSettingsPanel({ challengeId, challenges, onRefresh }: { challe
   const [msg, setMsg] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
 
-  // Convert UTC ISO string from API → datetime-local string for input
-  // Browser's datetime-local input automatically displays in local timezone
+  // Convert UTC ISO string from API → datetime-local string displayed as EAT (UTC+3)
   function formatDateForInput(isoStr: string): string {
     if (!isoStr) return "";
-    const d = new Date(isoStr);
-    // Use local time components (browser is in EAT)
-    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}T${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+    const d = new Date(new Date(isoStr).getTime() + 3 * 60 * 60 * 1000); // shift to EAT
+    return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}T${String(d.getUTCHours()).padStart(2,'0')}:${String(d.getUTCMinutes()).padStart(2,'0')}`;
   }
 
   // Convert datetime-local string → UTC ISO string for API
-  // datetime-local value is in browser's local timezone (EAT)
+  // Explicitly treat as EAT (UTC+3) regardless of browser timezone
   function dateToUTC(eatStr: string): string | undefined {
     if (!eatStr) return undefined;
-    // Create a Date from the local datetime string — browser interprets as local time
-    const d = new Date(eatStr);
-    return d.toISOString();
+    return new Date(eatStr + ":00+03:00").toISOString();
   }
   const [editForm, setEditForm] = useState({
     title: challenge?.title || "",
