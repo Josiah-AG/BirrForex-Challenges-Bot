@@ -336,6 +336,7 @@ export class VpsPullScheduler {
       // Complete batch
       const newTrades = successful.reduce((sum, r) => sum + (r.tradesCount || 0), 0);
       await this.completePullBatch(batchId, successful.length, credentialFailures.length + otherFailures.length, newTrades, 'completed');
+      await this.savePullTerminalStats(batchId);
 
       // === STEP 6: Final sync → immediate leaderboard update ===
       if (isFinalSync && successful.length > 0) {
@@ -400,6 +401,9 @@ export class VpsPullScheduler {
       if (terminalStats) {
         console.log(`📊 Terminal distribution: ${terminalStats}`);
       }
+
+      // === POST-CYCLE: Auto-recheck any trades still pending from previous cycles ===
+      await this.autoRecheckPendingSlTrades(challengeToPull.id);
 
       // === POST-CYCLE: Restore candle terminals back to base account ===
       await candleTerminalManager.restore();
@@ -478,6 +482,7 @@ export class VpsPullScheduler {
       const failed = allResults.filter(r => !r.success);
       const newTrades = successful.reduce((sum, r) => sum + (r.tradesCount || 0), 0);
       await this.completePullBatch(batchId, successful.length, failed.length, newTrades, 'completed');
+      await this.savePullTerminalStats(batchId);
       await this.bulkUpdatePullStatus(allResults);
       await this.reportCandleFailures(challengeToPull.id, 0);
 
@@ -1360,6 +1365,37 @@ export class VpsPullScheduler {
 
   // ==================== DB RECORDS ====================
 
+  /**
+   * Save per-terminal stats for the just-completed batch to DB.
+   * Creates wp_terminal_stats table on first run if missing.
+   */
+  private async savePullTerminalStats(batchId: number): Promise<void> {
+    try {
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS wp_terminal_stats (
+          id SERIAL PRIMARY KEY,
+          pull_batch_id INTEGER NOT NULL REFERENCES wp_pull_batches(id) ON DELETE CASCADE,
+          terminal_id INTEGER NOT NULL,
+          total_processed INTEGER NOT NULL DEFAULT 0,
+          total_success INTEGER NOT NULL DEFAULT 0,
+          total_failed INTEGER NOT NULL DEFAULT 0,
+          is_healthy BOOLEAN NOT NULL DEFAULT true,
+          created_at TIMESTAMP DEFAULT NOW()
+        )
+      `);
+      for (const t of this.terminals) {
+        if (t.totalProcessed === 0 && t.isHealthy) continue; // skip idle healthy terminals — not useful
+        await db.query(
+          `INSERT INTO wp_terminal_stats (pull_batch_id, terminal_id, total_processed, total_success, total_failed, is_healthy)
+           VALUES ($1, $2, $3, $4, $5, $6)`,
+          [batchId, t.id, t.totalProcessed, t.totalSuccess, t.totalFailed, t.isHealthy]
+        );
+      }
+    } catch (e) {
+      console.warn('⚠️ Could not save terminal stats:', (e as Error).message);
+    }
+  }
+
   private async createPullBatch(challengeId: number, totalAccounts: number): Promise<number> {
     const result = await db.query(
       `INSERT INTO wp_pull_batches (challenge_id, total_accounts, status) VALUES ($1, $2, 'running') RETURNING id`,
@@ -1447,52 +1483,77 @@ export class VpsPullScheduler {
 
   /**
    * After each pull cycle, check wp_pull_errors for sl_check_failed entries
-   * logged during this cycle and report them to the admin dashboard via Telegram.
-   * These are trades where the fake SL candle check could not be completed.
+   * logged during this cycle and report them to the admin with per-account retry buttons.
    */
   private async reportCandleFailures(challengeId: number, durationSec: number) {
     try {
+      // Use sl_check_pending trades as the source of truth (DB-persisted)
       const result = await db.query(
-        `SELECT we.registration_id, we.account_number, we.error_message,
-                r.nickname, r.account_subtype
-         FROM wp_pull_errors we
-         JOIN trading_registrations r ON we.registration_id = r.id
-         WHERE we.challenge_id = $1
-           AND we.error_code = 'sl_check_failed'
-           AND we.created_at > NOW() - INTERVAL '2 hours'
-         ORDER BY we.created_at DESC`,
+        `SELECT DISTINCT r.id as registration_id, r.account_number, r.nickname, r.account_subtype,
+                COUNT(t.id) as pending_count
+         FROM trading_registrations r
+         JOIN wp_trades t ON t.registration_id = r.id AND t.challenge_id = $1 AND t.sl_check_pending = true
+         WHERE r.challenge_id = $1
+         GROUP BY r.id, r.account_number, r.nickname, r.account_subtype`,
         [challengeId]
       );
       if (result.rows.length === 0) return;
 
-      // Group by account
-      const byAccount = new Map<string, { nickname: string; subtype: string; count: number }>();
-      for (const row of result.rows) {
-        const key = row.account_number;
-        const parsed = (() => { try { return JSON.parse(row.error_message); } catch { return {}; } })();
-        const count = parsed.trades_unchecked || 1;
-        if (!byAccount.has(key)) {
-          byAccount.set(key, { nickname: row.nickname || key, subtype: row.account_subtype || 'unknown', count });
-        } else {
-          byAccount.get(key)!.count += count;
-        }
-      }
-
-      const lines = [...byAccount.values()]
-        .map(a => `• ${a.nickname} (${a.subtype}) — ${a.count} trade(s) unchecked`)
+      const lines = result.rows
+        .map((r: any) => `• ${r.nickname || r.account_number} (${r.account_subtype || 'standard'}) — ${r.pending_count} trade(s)`)
         .join('\n');
+
+      // Build inline keyboard — one retry button per account, callback data is self-contained
+      const { Markup } = require('telegraf');
+      const buttons = result.rows.map((r: any) =>
+        [Markup.button.callback(
+          `🔄 Retry: ${r.nickname || r.account_number}`,
+          `sl_retry_${challengeId}_${r.registration_id}`
+        )]
+      );
 
       await this.bot.bot.telegram.sendMessage(
         config.adminUserId,
         `⚠️ <b>Fake SL Check Incomplete</b>\n\n` +
-        `${byAccount.size} account(s) had candle fetch failures this cycle.\n` +
-        `These trades could not be verified for fake SL — benefit of doubt applied.\n\n` +
+        `${result.rows.length} account(s) had candle fetch failures.\n` +
+        `Benefit of doubt applied — trades not penalised yet.\n\n` +
         `${lines}\n\n` +
-        `<i>Check: VPS candle terminal may need re-login or symbol not available.</i>`,
-        { parse_mode: 'HTML' }
+        `<i>Click a button to retry the SL check for that account now.\n` +
+        `Unretried accounts will be auto-checked on the next pull cycle.</i>`,
+        { parse_mode: 'HTML', ...Markup.inlineKeyboard(buttons) }
       );
     } catch (e) {
       console.warn('⚠️ Could not report candle failures to admin:', (e as Error).message);
+    }
+  }
+
+  /**
+   * Auto-recheck sl_check_pending trades from previous cycles that still haven't been resolved.
+   * Runs at the end of each pull cycle, using already-setup candle terminals.
+   */
+  private async autoRecheckPendingSlTrades(challengeId: number) {
+    try {
+      const pendingAccounts = await evaluationEngine.getPendingSlAccounts(challengeId);
+      if (pendingAccounts.length === 0) return;
+
+      console.log(`🔍 Auto-rechecking SL for ${pendingAccounts.length} account(s) with pending trades...`);
+      let resolved = 0;
+
+      for (const registrationId of pendingAccounts) {
+        const result = await evaluationEngine.recheckSlPendingForAccount(challengeId, registrationId);
+        if (result.error) {
+          console.warn(`⚠️ SL recheck error for reg ${registrationId}: ${result.error}`);
+        } else if (result.checked > 0 || result.cleared > 0) {
+          console.log(`✅ SL recheck: ${result.nickname} — ${result.checked} checked, ${result.violations} violations, ${result.cleared} cleared`);
+          resolved++;
+        }
+      }
+
+      if (resolved > 0) {
+        console.log(`✅ Auto-recheck: resolved ${resolved}/${pendingAccounts.length} accounts`);
+      }
+    } catch (e) {
+      console.warn('⚠️ Auto-recheck SL error:', (e as Error).message);
     }
   }
 

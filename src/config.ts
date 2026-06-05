@@ -50,9 +50,9 @@ export const config = {
   vpsApiKey: process.env.VPS_API_KEY || '',
 
   // VPS Base Account (standard demo — covers standard/m-suffix symbols)
-  vpsBaseAccount: process.env.VPS_BASE_ACCOUNT || '435924397',
-  vpsBasePassword: process.env.VPS_BASE_PASSWORD || 'Abc@1234',
-  vpsBaseServer:   process.env.VPS_BASE_SERVER   || 'Exness-MT5Trial9',
+  vpsBaseAccount: process.env.VPS_BASE_ACCOUNT || '',
+  vpsBasePassword: process.env.VPS_BASE_PASSWORD || '',
+  vpsBaseServer:   process.env.VPS_BASE_SERVER   || '',
 
   // Schedule
   morningPostTime: process.env.MORNING_POST_TIME || '10:00',

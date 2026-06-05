@@ -461,7 +461,7 @@ app.get('/api/challenges/:id/user-trades', async (req, res) => {
 
     // Get trades with pagination
     const trades = await db.query(
-      `SELECT symbol, trade_type, volume, profit, commission, swap, close_time, open_time, is_qualified, violations
+      `SELECT symbol, trade_type, volume, profit, commission, swap, close_time, open_time, is_qualified, violations, sl_check_pending
        FROM wp_trades WHERE challenge_id = $1 AND registration_id = $2${dateFilter}
        ORDER BY close_time DESC LIMIT ${limit} OFFSET ${offset}`,
       baseParams
@@ -479,6 +479,7 @@ app.get('/api/challenges/:id/user-trades', async (req, res) => {
         openTime: t.open_time,
         isQualified: t.is_qualified,
         violations: t.violations || [],
+        slCheckPending: t.sl_check_pending || false,
       })),
     });
   } catch (error) {
@@ -506,7 +507,7 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
     const cDates = await db.query(`SELECT start_date, end_date FROM trading_challenges WHERE id = $1`, [cId]);
     const cStartDate = cDates.rows[0]?.start_date;
     let tradesQuery = `SELECT ticket, symbol, trade_type, volume, open_time, close_time,
-              open_price, close_price, profit, commission, swap, is_qualified, violations
+              open_price, close_price, profit, commission, swap, is_qualified, violations, sl_check_pending
        FROM wp_trades
        WHERE challenge_id = $1 AND registration_id = $2`;
     const tradesParams: any[] = [cId, registrationId];
@@ -592,6 +593,7 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
         swap: parseFloat(t.swap),
         isQualified: t.is_qualified,
         violations: t.violations || [],
+        slCheckPending: t.sl_check_pending || false,
       })),
     });
   } catch (error) {
@@ -621,7 +623,11 @@ function authMiddleware(req: any, res: any, next: any) {
 
 // ==================== TOKEN HELPERS ====================
 
-const TOKEN_SECRET = process.env.WINNERPIP_TOKEN_SECRET || process.env.BOT_TOKEN || 'change-this-secret-in-production';
+const TOKEN_SECRET = (() => {
+  const secret = process.env.WINNERPIP_TOKEN_SECRET;
+  if (!secret) throw new Error('WINNERPIP_TOKEN_SECRET env var is required');
+  return secret;
+})();
 const TOKEN_EXPIRY_HOURS = 72; // 3 days
 
 function generateToken(registrationId: number, telegramId: number): string {
@@ -1109,10 +1115,68 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/screening`, adminIpCheck,
 app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/pulls`, adminIpCheck, async (req, res) => {
   try {
     const challengeId = parseInt(req.params.id);
-    const result = await db.query(
-      `SELECT id, started_at, completed_at, total_accounts, successful, failed, new_trades_found, status, error_log FROM wp_pull_batches WHERE challenge_id=$1 ORDER BY started_at DESC LIMIT 50`, [challengeId]);
 
-    return res.json({ pulls: result.rows });
+    // Pull batch history
+    const batches = await db.query(
+      `SELECT id, started_at, completed_at, total_accounts, successful, failed, new_trades_found, status, error_log
+       FROM wp_pull_batches WHERE challenge_id=$1 ORDER BY started_at DESC LIMIT 50`,
+      [challengeId]
+    );
+
+    // Terminal stats for the most recent batch (if any)
+    let terminalStats: any[] = [];
+    if (batches.rows.length > 0) {
+      const latestBatchId = batches.rows[0].id;
+      const statsExist = await db.query(
+        `SELECT to_regclass('wp_terminal_stats') AS tbl`
+      );
+      if (statsExist.rows[0]?.tbl) {
+        const tsResult = await db.query(
+          `SELECT terminal_id, total_processed, total_success, total_failed, is_healthy
+           FROM wp_terminal_stats WHERE pull_batch_id = $1 ORDER BY terminal_id ASC`,
+          [latestBatchId]
+        );
+        terminalStats = tsResult.rows;
+      }
+    }
+
+    // SL check failures (last 7 days, grouped by account)
+    let slFailures: any[] = [];
+    const slResult = await db.query(
+      `SELECT we.registration_id, we.account_number, we.error_message, we.created_at,
+              r.nickname, r.username, r.account_subtype
+       FROM wp_pull_errors we
+       JOIN trading_registrations r ON we.registration_id = r.id
+       WHERE we.challenge_id = $1
+         AND we.error_code = 'sl_check_failed'
+         AND we.created_at > NOW() - INTERVAL '7 days'
+       ORDER BY we.created_at DESC`,
+      [challengeId]
+    );
+    // Group by account — count unchecked trades
+    const slByAccount = new Map<string, any>();
+    for (const row of slResult.rows) {
+      const key = String(row.registration_id);
+      const parsed = (() => { try { return JSON.parse(row.error_message); } catch { return {}; } })();
+      const unchecked = parsed.trades_unchecked || 1;
+      if (!slByAccount.has(key)) {
+        slByAccount.set(key, {
+          registration_id: row.registration_id,
+          account_number: row.account_number,
+          nickname: row.nickname || row.account_number,
+          username: row.username,
+          account_subtype: row.account_subtype,
+          trades_unchecked: unchecked,
+          last_seen: row.created_at,
+        });
+      } else {
+        slByAccount.get(key)!.trades_unchecked += unchecked;
+        slByAccount.get(key)!.last_seen = row.created_at;
+      }
+    }
+    slFailures = [...slByAccount.values()];
+
+    return res.json({ pulls: batches.rows, terminalStats, slFailures });
   } catch (error) {
     return res.status(500).json({ error: 'Internal server error' });
   }
@@ -2339,6 +2403,40 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/pull-status`, adminIpCheck, async (req,
 
     return res.json({ isRunning: false, lastBatch: null });
   } catch (error) {
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * POST /api/admin/:secretPath/challenge/:id/retry-sl-check
+ * Re-run SL candle check for all sl_check_pending trades of a specific account.
+ * Immediately updates evaluation + flushes leaderboard.
+ * Body: { registrationId }
+ */
+app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/retry-sl-check`, adminIpCheck, async (req, res) => {
+  try {
+    const challengeId = parseInt(req.params.id);
+    const { registrationId } = req.body;
+    if (!registrationId) return res.status(400).json({ error: 'registrationId required' });
+
+    const { evaluationEngine } = require('../services/wpEvaluationEngine');
+    const result = await evaluationEngine.recheckSlPendingForAccount(challengeId, registrationId);
+
+    if (result.error) {
+      return res.status(500).json({ success: false, error: result.error });
+    }
+    return res.json({
+      success: true,
+      checked: result.checked,
+      violations: result.violations,
+      cleared: result.cleared,
+      nickname: result.nickname,
+      message: result.checked === 0
+        ? `No pending SL trades found for ${result.nickname}`
+        : `${result.checked} trade(s) checked — ${result.violations} violation(s) found, ${result.cleared} cleared. Leaderboard updated.`,
+    });
+  } catch (error) {
+    console.error('Retry SL check error:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
 });

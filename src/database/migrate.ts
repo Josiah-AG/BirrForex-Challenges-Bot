@@ -263,6 +263,11 @@ async function migrate() {
     `).catch(() => {});
     console.log('✅ Staging table + pull cycle state migration OK');
 
+    // SL check pending flag on wp_trades (persistent, survives restarts)
+    await db.query(`ALTER TABLE wp_trades ADD COLUMN IF NOT EXISTS sl_check_pending BOOLEAN DEFAULT false;`).catch(() => {});
+    await db.query(`CREATE INDEX IF NOT EXISTS idx_wp_trades_sl_pending ON wp_trades(challenge_id, registration_id) WHERE sl_check_pending = true;`).catch(() => {});
+    console.log('✅ sl_check_pending migration OK');
+
     console.log('✅ Database migration completed successfully!');
     process.exit(0);
   } catch (error) {

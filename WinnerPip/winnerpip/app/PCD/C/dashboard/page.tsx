@@ -10,7 +10,7 @@ interface Trade {
   symbol: string; type: string; volume: number;
   openPrice: number; closePrice: number; stopLoss: number; takeProfit: number;
   profit: number; commission: number; swap: number;
-  duration: string; isQualified: boolean; violations: string[];
+  duration: string; isQualified: boolean; violations: string[]; slCheckPending?: boolean;
 }
 interface LeaderboardEntry {
   rank: number; nickname: string; balance: number; trades: number;
@@ -189,6 +189,29 @@ export default function DemoDashboard() {
       profit: 120.00, commission: 0, swap: 0,
       duration: "1h 45m", isQualified: false,
       violations: ["Profit after daily ¢250.00 drawdown breach"],
+    },
+
+    // ── SL CHECK PENDING (candle fetch failed — awaiting verification) ────────
+    {
+      ticket: 2847663, date: "Jun 4, 09:45", openTime: "Jun 4, 09:45 EAT", closeTime: "Jun 4, 11:30 EAT",
+      symbol: "XAUUSDc", type: "Buy", volume: 0.01,
+      openPrice: 4502.000, closePrice: 4518.000, stopLoss: 4497.000, takeProfit: 4525.000,
+      profit: 160.00, commission: 0, swap: 0,
+      duration: "1h 45m", isQualified: true, violations: [], slCheckPending: true,
+    },
+    {
+      ticket: 2847664, date: "Jun 3, 13:00", openTime: "Jun 3, 13:00 EAT", closeTime: "Jun 3, 14:55 EAT",
+      symbol: "EURUSDc", type: "Sell", volume: 0.01,
+      openPrice: 1.17250, closePrice: 1.17080, stopLoss: 1.17400, takeProfit: 1.16900,
+      profit: 170.00, commission: 0, swap: 0,
+      duration: "1h 55m", isQualified: true, violations: [], slCheckPending: true,
+    },
+    {
+      ticket: 2847665, date: "Jun 2, 15:30", openTime: "Jun 2, 15:30 EAT", closeTime: "Jun 2, 17:10 EAT",
+      symbol: "XAUUSDc", type: "Sell", volume: 0.01,
+      openPrice: 4478.000, closePrice: 4465.000, stopLoss: 4483.000, takeProfit: 4455.000,
+      profit: 130.00, commission: 0, swap: 0,
+      duration: "1h 40m", isQualified: true, violations: [], slCheckPending: true,
     },
   ];
 
@@ -564,13 +587,20 @@ export default function DemoDashboard() {
                 <th className="text-center py-3 px-4 text-[10px] text-gray-400 font-medium uppercase">Status</th>
               </tr></thead>
               <tbody>{recentTrades.map((t) => (
-                <tr key={t.ticket} onClick={() => setSelectedTrade(t)} className={`border-b border-white/5 hover:bg-white/5 cursor-pointer transition-colors ${!t.isQualified ? "bg-loss/5" : ""}`}>
+                <tr key={t.ticket} onClick={() => setSelectedTrade(t)} className={`border-b border-white/5 hover:bg-white/5 cursor-pointer transition-colors ${t.slCheckPending ? "bg-gold/5" : !t.isQualified ? "bg-loss/5" : ""}`}>
                   <td className="py-3 px-4 text-xs text-gray-400">{t.date}</td>
                   <td className="py-3 px-4 text-sm text-white font-semibold">{t.symbol}</td>
                   <td className="py-3 px-4"><span className={`px-2 py-1 rounded-md text-[10px] font-semibold ${t.type === "Buy" ? "bg-profit/10 text-profit" : "bg-loss/10 text-loss"}`}>{t.type}</span></td>
                   <td className={`py-3 px-4 text-right text-sm font-bold ${t.profit >= 0 ? "text-profit" : "text-loss"}`}>{t.profit >= 0 ? "+" : ""}{formatBalance(t.profit, isCent)}</td>
                   <td className="py-3 px-4 text-center text-xs text-gray-400">{t.volume} lot</td>
-                  <td className="py-3 px-4 text-center">{t.isQualified ? <span className="text-profit">✓</span> : <span className="text-loss">🚩</span>}</td>
+                  <td className="py-3 px-4 text-center">
+                    {t.slCheckPending
+                      ? <span title="SL check pending" className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-gold/20 border border-gold/40 text-gold text-[10px] font-bold cursor-help">?</span>
+                      : t.isQualified
+                        ? <span className="text-profit">✓</span>
+                        : <span className="text-loss">🚩</span>
+                    }
+                  </td>
                 </tr>
               ))}</tbody>
             </table>
@@ -660,8 +690,20 @@ export default function DemoDashboard() {
                 <DRow label="Duration" value={selectedTrade.duration} />
                 <DRow label="Net P&L" value={`${selectedTrade.profit >= 0 ? "+" : ""}${formatBalance(selectedTrade.profit, isCent)}`} color={selectedTrade.profit >= 0 ? "text-profit" : "text-loss"} />
               </div>
-              <div className={`p-4 rounded-xl border ${selectedTrade.isQualified ? "bg-profit/10 border-profit/20" : "bg-loss/10 border-loss/20"}`}>
-                {selectedTrade.isQualified ? (
+              <div className={`p-4 rounded-xl border ${selectedTrade.slCheckPending ? "bg-gold/10 border-gold/30" : selectedTrade.isQualified ? "bg-profit/10 border-profit/20" : "bg-loss/10 border-loss/20"}`}>
+                {selectedTrade.slCheckPending ? (
+                  <div>
+                    <p className="text-sm text-gold font-semibold flex items-center gap-2 mb-2">
+                      <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-gold/30 border border-gold/50 text-[10px] font-bold">?</span>
+                      SL Check Pending
+                    </p>
+                    <p className="text-xs text-gray-300">
+                      The stop loss candle check for this trade could not be completed due to a data fetch issue.
+                      This trade may be disqualified if it is found against the rules in the next check.
+                      Benefit of doubt is applied until then — this trade is currently treated as qualified.
+                    </p>
+                  </div>
+                ) : selectedTrade.isQualified ? (
                   <p className="text-sm text-profit font-semibold flex items-center gap-2"><Shield size={16} />Qualified — counts toward your balance</p>
                 ) : (
                   <div>

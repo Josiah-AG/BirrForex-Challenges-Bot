@@ -99,6 +99,36 @@ export class TradingAdminHandler {
   async handleCallback(ctx: Context, data: string): Promise<boolean> {
     const telegramId = ctx.from!.id;
 
+    // SL recheck retry button (persistent — all data in callback string)
+    if (data.startsWith('sl_retry_')) {
+      const parts = data.split('_');
+      const challengeId = parseInt(parts[2]);
+      const registrationId = parseInt(parts[3]);
+      await ctx.answerCbQuery('Running SL recheck...');
+      await ctx.reply(`⏳ <b>Running SL candle check...</b>\nFetching candles and evaluating trades for this account.`, { parse_mode: 'HTML' });
+      try {
+        const { evaluationEngine } = require('../services/wpEvaluationEngine');
+        const result = await evaluationEngine.recheckSlPendingForAccount(challengeId, registrationId);
+        if (result.error) {
+          await ctx.reply(`❌ <b>SL Recheck Failed</b>\n\n${result.error}`, { parse_mode: 'HTML' });
+        } else if (result.checked === 0) {
+          await ctx.reply(`ℹ️ <b>No pending SL trades found</b>\n\nAll trades for <b>${result.nickname}</b> are already resolved.`, { parse_mode: 'HTML' });
+        } else {
+          await ctx.reply(
+            `✅ <b>SL Recheck Complete — ${result.nickname}</b>\n\n` +
+            `🔍 Trades checked: <b>${result.checked}</b>\n` +
+            `🚩 New violations found: <b>${result.violations}</b>\n` +
+            `✓ Cleared (no violation): <b>${result.cleared}</b>\n\n` +
+            `Leaderboard and dashboard updated immediately.`,
+            { parse_mode: 'HTML' }
+          );
+        }
+      } catch (e) {
+        await ctx.reply(`❌ Error: ${(e as Error).message}`);
+      }
+      return true;
+    }
+
     // Evaluation type toggle
     if (data.startsWith('tc_evaltype_toggle_')) {
       const challengeId = parseInt(data.replace('tc_evaltype_toggle_', ''));

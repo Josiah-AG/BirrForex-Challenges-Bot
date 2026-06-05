@@ -339,6 +339,7 @@ export default function AdminDashboard() {
   }, [isAdmin, activeSection, selectedChallengeId]);
 
   // Fetch pull data when pulls tab is active
+  const [slFailures, setSlFailures] = useState<any[]>([]);
   useEffect(() => {
     if (!isAdmin || activeSection !== "pulls" || !selectedChallengeId) return;
     const fetchPulls = async () => {
@@ -362,10 +363,19 @@ export default function AdminDashboard() {
             };
           });
           setPullHistory(pulls);
-          // Generate terminal status (10 slots, all healthy by default since we can't get per-terminal from DB)
-          setTerminalStatus(Array.from({length: 10}, (_, i) => ({
-            id: i + 1, healthy: true, processed: 0, success: 0, failed: 0, avgTime: "—", lastError: null,
-          })));
+
+          // Terminal stats — use real DB data if available, otherwise default all-healthy
+          const dbStats: any[] = data.terminalStats || [];
+          const termStats = Array.from({length: 10}, (_, i) => {
+            const t = dbStats.find((s: any) => s.terminal_id === i + 1);
+            return t
+              ? { id: i + 1, healthy: t.is_healthy, processed: t.total_processed, success: t.total_success, failed: t.total_failed }
+              : { id: i + 1, healthy: true, processed: 0, success: 0, failed: 0 };
+          });
+          setTerminalStatus(termStats);
+
+          // SL failures
+          setSlFailures(data.slFailures || []);
         }
       } catch {}
     };
@@ -472,7 +482,7 @@ export default function AdminDashboard() {
             <StatCard icon={<Target size={16} />} label="Total Balance" value={`${od?.balance?.isCentOnly ? '' : '$'}${overview.avgBalance}${od?.balance?.isCentOnly ? '¢' : ''}`} sub={`Real: ${od?.balance?.isCentOnly ? '' : '$'}${overview.medianBalance}${od?.balance?.isCentOnly ? '¢' : ''} | Demo: $${(od?.balance?.demo?.toFixed(2) || "0.00")}`} color="text-profit" />
             <StatCard icon={<Zap size={16} />} label="Pulls Today" value={overview.pullsToday.toString()} sub={`Next: ${overview.nextPullTime}`} color="text-royal" />
             <StatCard icon={<Shield size={16} />} label="Pull Success" value={overview.pullsSuccess.toString()} sub={`Failed: ${overview.pullsFailed} | PW Changed: ${overview.passwordChanged}`} color="text-profit" />
-            <StatCard icon={<Clock size={16} />} label="Last Pull" value={overview.lastPullTime} sub="All terminals healthy" color="text-gray-300" />
+            <StatCard icon={<Clock size={16} />} label="Last Pull" value={overview.lastPullTime} sub={`${overview.pullsSuccess} ok · ${overview.pullsFailed} failed`} color="text-gray-300" />
           </div>
 
           {/* Top Violations Breakdown */}
@@ -578,7 +588,7 @@ export default function AdminDashboard() {
 
         {/* ==================== PULL HISTORY + TERMINALS ==================== */}
         {activeSection === "pulls" && (
-          <PullsTab challengeId={selectedChallengeId} pullHistory={pullHistory} terminalStatus={terminalStatus} />
+          <PullsTab challengeId={selectedChallengeId} pullHistory={pullHistory} terminalStatus={terminalStatus} slFailures={slFailures} />
         )}
 
         {/* ==================== PARTICIPANTS (Find User + Export) ==================== */}
@@ -1864,7 +1874,81 @@ function convertToCSV(data: any[]): string {
   return [headers.join(","), ...rows].join("\n");
 }
 
-function PullsTab({ challengeId, pullHistory, terminalStatus }: { challengeId: string; pullHistory: any[]; terminalStatus: any[] }) {
+function SlFailuresPanel({ challengeId, slFailures, apiUrl, secretPath }: { challengeId: string; slFailures: any[]; apiUrl: string; secretPath: string }) {
+  const [items, setItems] = useState<any[]>(slFailures);
+  const [retrying, setRetrying] = useState<string | null>(null);
+  const [results, setResults] = useState<Record<string, string>>({});
+
+  const handleRetry = async (regId: number, nickname: string) => {
+    setRetrying(String(regId));
+    try {
+      const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/retry-sl-check`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ registrationId: regId }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setResults(r => ({ ...r, [regId]: `✅ ${data.message}` }));
+        // Remove from list if no more pending trades
+        if (data.checked > 0 || data.cleared > 0) {
+          setItems(prev => prev.filter(f => f.registration_id !== regId));
+        }
+      } else {
+        setResults(r => ({ ...r, [regId]: `❌ ${data.error || "Failed"}` }));
+      }
+    } catch {
+      setResults(r => ({ ...r, [regId]: "❌ Connection error" }));
+    }
+    setRetrying(null);
+  };
+
+  return (
+    <div className="glass rounded-2xl border border-gold/20 p-5">
+      <h3 className="text-sm font-semibold text-gold mb-1 flex items-center gap-2">
+        ⚠️ Fake SL Check Incomplete ({items.length} account{items.length !== 1 ? "s" : ""})
+      </h3>
+      <p className="text-[11px] text-gray-400 mb-4">
+        These accounts had candle fetch failures during SL verification (last 7 days). Trades are not penalised yet — benefit of doubt applied. Retry to check now, or they will be auto-checked on the next pull cycle.
+      </p>
+      <div className="space-y-2 max-h-[300px] overflow-y-auto">
+        {items.map((f: any) => (
+          <div key={f.registration_id} className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10">
+            <div>
+              <p className="text-sm text-white font-semibold">
+                {f.nickname} <span className="text-gray-500 text-xs">@{f.username || "—"}</span>
+              </p>
+              <p className="text-[10px] text-gray-400">{f.account_number} · {f.account_subtype}</p>
+              {results[f.registration_id] && (
+                <p className={`text-[10px] mt-1 font-semibold ${results[f.registration_id].startsWith("✅") ? "text-profit" : "text-loss"}`}>
+                  {results[f.registration_id]}
+                </p>
+              )}
+            </div>
+            <div className="flex flex-col items-end gap-1">
+              <div className="text-right mb-1">
+                <p className="text-sm text-gold font-bold">{f.trades_unchecked}</p>
+                <p className="text-[10px] text-gray-500">trades unchecked</p>
+              </div>
+              <button
+                onClick={() => handleRetry(f.registration_id, f.nickname)}
+                disabled={retrying === String(f.registration_id)}
+                className="px-3 py-1.5 rounded-lg bg-gold/20 border border-gold/30 text-gold text-[10px] font-bold hover:bg-gold/30 transition-all disabled:opacity-50"
+              >
+                {retrying === String(f.registration_id) ? "Checking..." : "🔄 Retry SL Check"}
+              </button>
+            </div>
+          </div>
+        ))}
+        {items.length === 0 && (
+          <p className="text-[11px] text-profit text-center py-2">✅ All SL checks resolved!</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures }: { challengeId: string; pullHistory: any[]; terminalStatus: any[]; slFailures: any[] }) {
   const [failedAccounts, setFailedAccounts] = useState<any[]>([]);
   const [skippedAccounts, setSkippedAccounts] = useState<any[]>([]);
   const [loadingFailed, setLoadingFailed] = useState(false);
@@ -2108,6 +2192,47 @@ function PullsTab({ challengeId, pullHistory, terminalStatus }: { challengeId: s
             ))}
           </div>
         </div>
+      )}
+
+      {/* Terminal Status Grid */}
+      <div className="glass rounded-2xl border border-white/10 p-5">
+        <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
+          <Activity size={16} className="text-royal" /> Terminal Status (Last Cycle)
+        </h3>
+        <div className="grid grid-cols-5 gap-2">
+          {terminalStatus.map((t: any) => {
+            const hasData = t.processed > 0;
+            const failed = t.failed || 0;
+            const isUnhealthy = !t.healthy;
+            const color = isUnhealthy ? "border-loss/40 bg-loss/5" : hasData && failed > 0 ? "border-gold/30 bg-gold/5" : hasData ? "border-profit/30 bg-profit/5" : "border-white/10 bg-white/5";
+            const dot = isUnhealthy ? "bg-loss" : hasData && failed > 0 ? "bg-gold" : "bg-profit";
+            return (
+              <div key={t.id} className={`rounded-xl border p-3 ${color}`}>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs font-bold text-white">T{t.id}</span>
+                  <span className={`w-2 h-2 rounded-full ${dot}`} />
+                </div>
+                {hasData ? (
+                  <>
+                    <p className="text-[10px] text-profit">{t.success}✓</p>
+                    {failed > 0 && <p className="text-[10px] text-loss">{failed}✗</p>}
+                    <p className="text-[10px] text-gray-500">{t.processed} total</p>
+                  </>
+                ) : (
+                  <p className="text-[10px] text-gray-500">{isUnhealthy ? "Unhealthy" : "Idle"}</p>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        {terminalStatus.every((t: any) => t.processed === 0) && (
+          <p className="text-[11px] text-gray-500 mt-3">Per-terminal data will appear here after the next pull cycle completes.</p>
+        )}
+      </div>
+
+      {/* SL Check Failures Panel */}
+      {slFailures.length > 0 && (
+        <SlFailuresPanel challengeId={challengeId} slFailures={slFailures} apiUrl={apiUrl} secretPath={secretPath} />
       )}
 
       {/* Pull History Table */}

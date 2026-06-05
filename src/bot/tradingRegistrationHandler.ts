@@ -364,6 +364,12 @@ export class TradingRegistrationHandler {
       const session = userSessions.get(telegramId);
       if (!session) return true;
       const server = data.replace('tc_server_', '');
+      // Validate the server is in the known list to prevent crafted callbacks
+      const allKnownServers = [...MT5_SERVERS.demo, ...MT5_SERVERS.real];
+      if (!allKnownServers.includes(server)) {
+        await ctx.answerCbQuery('Invalid server selection.');
+        return true;
+      }
       session.data.mt5_server = server;
       await ctx.answerCbQuery();
       // Move to investor password step
@@ -391,6 +397,37 @@ export class TradingRegistrationHandler {
     }
 
     // Server confirmation (fuzzy match)
+    // Change-account server fuzzy confirm
+    if (data === 'tc_chg_srv_confirm_yes') {
+      const session = userSessions.get(telegramId);
+      if (!session) return true;
+      const newServer = session.data.pending_change_server;
+      delete session.data.pending_change_server;
+      await ctx.answerCbQuery();
+      if (session.data.account_type === 'real') {
+        session.data.mt5_server = newServer;
+        session.step = 'tc_verifying_change_real';
+        await ctx.reply('⏳ <b>Verifying your real account...</b>', { parse_mode: 'HTML' });
+        await this.verifyRealAccountChange(ctx, telegramId);
+      } else {
+        await tradingChallengeService.updateAccountNumber(session.data.registration_id, session.data.new_account_number, newServer);
+        await tradingChallengeService.updateDailyStat(session.data.challenge_id, 'account_changes');
+        userSessions.delete(telegramId);
+        await ctx.reply(`✅ Account number updated!\n\n🏦 <b>New Account:</b> ${session.data.new_account_number}\n🖥️ <b>Server:</b> ${newServer}`, { parse_mode: 'HTML' });
+      }
+      return true;
+    }
+    if (data === 'tc_chg_srv_confirm_no') {
+      const session = userSessions.get(telegramId);
+      if (!session) return true;
+      session.step = 'tc_change_acct_server';
+      delete session.data.pending_change_server;
+      await ctx.answerCbQuery();
+      const example = session.data.account_type === 'demo' ? 'Exness-MT5Trial9' : 'Exness-MT5Real21';
+      await ctx.reply(`Type your <b>MT5 server name</b> again:\nExample: <code>${example}</code>`, { parse_mode: 'HTML' });
+      return true;
+    }
+
     if (data === 'tc_server_confirm_yes') {
       const session = userSessions.get(telegramId);
       if (!session) return true;
@@ -491,8 +528,17 @@ export class TradingRegistrationHandler {
 
     // New real account
     if (data.startsWith('tc_new_real_acct_')) {
-      const session = userSessions.get(telegramId);
-      if (session) { session.step = 'tc_enter_account_number'; }
+      const challengeId = parseInt(data.replace('tc_new_real_acct_', ''));
+      let session = userSessions.get(telegramId);
+      if (!session) {
+        // Session was lost (restart) — rebuild minimal session so text input is handled
+        const challenge = await tradingChallengeService.getChallengeById(challengeId);
+        const accountType = challenge?.type === 'demo' ? 'demo' : 'real';
+        session = { step: 'tc_enter_account_number', data: { challenge_id: challengeId, account_type: accountType } };
+        userSessions.set(telegramId, session);
+      } else {
+        session.step = 'tc_enter_account_number';
+      }
       await ctx.answerCbQuery();
       await ctx.reply('Send your new <b>MT5 Real Account Number:</b>\n⚠️ <i>Must be an MT5 trading account.</i>', { parse_mode: 'HTML' });
       return true;
@@ -700,7 +746,9 @@ export class TradingRegistrationHandler {
 
       // === CHANGE ACCOUNT FLOW ===
       case 'tc_change_acct_number': {
-        session.data.new_account_number = text.trim();
+        const newAcct = text.trim();
+        if (!/^\d+$/.test(newAcct)) { await ctx.reply('❌ Account number must be numeric. Try again:'); return; }
+        session.data.new_account_number = newAcct;
         session.step = 'tc_change_acct_server';
         const example = session.data.account_type === 'demo' ? 'Exness-MT5Trial9' : 'Exness-MT5Real9';
         await ctx.reply(`Send your <b>MT5 Trading Server:</b>\nExample: <code>${example}</code>`, { parse_mode: 'HTML' });
@@ -708,7 +756,29 @@ export class TradingRegistrationHandler {
       }
 
       case 'tc_change_acct_server': {
-        const newServer = text.trim();
+        const input = text.trim();
+        const matched = fuzzyMatchServer(input, session.data.account_type);
+        if (!matched) {
+          await ctx.reply(
+            `❌ Could not match "<b>${input}</b>" to a known server.\n\nPlease select from the list or type the exact server name:\nExample: <code>${session.data.account_type === 'demo' ? 'Exness-MT5Trial9' : 'Exness-MT5Real21'}</code>`,
+            { parse_mode: 'HTML' }
+          );
+          return;
+        }
+        // Fuzzy match confirmation
+        if (matched.toLowerCase() !== input.toLowerCase()) {
+          session.data.pending_change_server = matched;
+          session.step = 'tc_change_acct_server_confirm';
+          await ctx.reply(
+            `Is your server <b>${matched}</b>?`,
+            { parse_mode: 'HTML', ...Markup.inlineKeyboard([
+              [Markup.button.callback('✅ Yes', 'tc_chg_srv_confirm_yes')],
+              [Markup.button.callback('❌ No, type again', 'tc_chg_srv_confirm_no')],
+            ]) }
+          );
+          return;
+        }
+        const newServer = matched;
         if (session.data.account_type === 'real') {
           session.data.mt5_server = newServer;
           session.step = 'tc_verifying_change_real';
@@ -1025,7 +1095,9 @@ export class TradingRegistrationHandler {
             `❌ <b>Balance Mismatch</b>\n\n` +
             `Your demo account balance is <b>${displayActual}</b> but the challenge requires exactly <b>${displayExpected}</b>.\n\n` +
             `Please set your balance to <b>${displayExpected}</b> and try again.`,
-            { parse_mode: 'HTML' }
+            { parse_mode: 'HTML', ...Markup.inlineKeyboard([
+              [Markup.button.callback('📝 Submit Another Account', `tc_new_real_acct_${session.data.challenge_id}`)],
+            ]) }
           );
           return;
         }
@@ -1325,26 +1397,100 @@ export class TradingRegistrationHandler {
   private async verifyRealAccountChange(ctx: Context, telegramId: number) {
     const session = userSessions.get(telegramId);
     if (!session) return;
-    const result = await exnessService.verifyRealAccount(session.data.new_account_number);
-    if (result.status === 'allocated_mt5') {
+
+    // Step 1: Exness allocation check
+    const allocResult = await exnessService.verifyRealAccount(session.data.new_account_number);
+    if (allocResult.status === 'allocated_not_mt5') {
+      session.step = 'tc_change_acct_number';
+      await ctx.reply('⚠️ <b>Not an MT5 account.</b> Create a new MT5 Real account.\n\nSend your new <b>MT5 Real Account Number:</b>', { parse_mode: 'HTML' });
+      return;
+    }
+    if (allocResult.status === 'not_allocated') {
+      session.step = 'tc_change_acct_number';
+      await ctx.reply('⚠️ <b>Account not yet under BirrForex.</b> Come back after 15 minutes.\n\nSend your new <b>MT5 Real Account Number:</b>', { parse_mode: 'HTML' });
+      return;
+    }
+    if (allocResult.status !== 'allocated_mt5' && allocResult.status !== 'api_error') {
+      await ctx.reply('⚠️ Could not verify account. Please try again later.');
+      userSessions.delete(telegramId);
+      return;
+    }
+
+    // Step 2: VPS verification — check subtype and balance
+    // Use existing investor password from DB if not collected in this flow
+    let investorPassword = session.data.investor_password || '';
+    if (!investorPassword && session.data.registration_id) {
+      const pwRow = await db.query('SELECT investor_password FROM trading_registrations WHERE id = $1', [session.data.registration_id]);
+      investorPassword = pwRow.rows[0]?.investor_password || '';
+    }
+    if (!investorPassword) {
+      // No password available — skip VPS check, just save allocation-verified account
       await tradingChallengeService.updateAccountNumber(session.data.registration_id, session.data.new_account_number, session.data.mt5_server);
+      await tradingChallengeService.updateDailyStat(session.data.challenge_id, 'account_changes');
+      userSessions.delete(telegramId);
+      await ctx.reply(`✅ Account number updated!\n\n🏦 <b>New Account:</b> ${session.data.new_account_number}\n🖥️ <b>Server:</b> ${session.data.mt5_server}\n\n⚠️ <i>Connection will be verified on the next pull cycle.</i>`, { parse_mode: 'HTML' });
+      return;
+    }
+    await ctx.reply('⏳ <b>Verifying MT5 connection...</b>', { parse_mode: 'HTML' });
+    const vpsResult = await vpsService.verifyConnection(session.data.new_account_number, session.data.mt5_server, investorPassword);
+
+    if (vpsResult.success) {
+      const subtype = vpsResult.account_subtype || 'unknown';
+      const currency = (vpsResult.currency || '').toUpperCase();
+      const isCent = currency === 'USC' || currency === 'USCENT';
+
+      // Load challenge rules to check cent requirement
+      const { evaluationEngine: wpEngine } = require('../services/wpEvaluationEngine');
+      const rules = await wpEngine.loadRules(session.data.challenge_id);
+      const onlyCent = rules?.only_cent_account || false;
+
+      // Reject non-standard account subtypes for real accounts
+      if (!isCent && (subtype === 'pro' || subtype === 'raw_spread' || subtype === 'zero')) {
+        session.step = 'tc_change_acct_number';
+        await ctx.reply(
+          `❌ <b>Account Type Not Allowed</b>\n\nYour account is a <b>${subtype === 'pro' ? 'Pro' : subtype === 'zero' ? 'Zero' : 'Raw Spread'}</b> account. Only Standard or Standard Cent accounts are accepted.\n\nSend your new <b>MT5 Real Account Number:</b>`,
+          { parse_mode: 'HTML' }
+        );
+        return;
+      }
+
+      // Reject non-cent account in cent-only challenge
+      if (onlyCent && !isCent) {
+        session.step = 'tc_change_acct_number';
+        await ctx.reply(
+          '❌ <b>Only Cent Accounts Allowed</b>\n\nThis challenge requires a Cent Account (USC currency). Send a cent account number:',
+          { parse_mode: 'HTML' }
+        );
+        return;
+      }
+
+      // All checks passed — save the new account
+      await tradingChallengeService.updateAccountNumber(session.data.registration_id, session.data.new_account_number, session.data.mt5_server);
+      // Also update is_cent and account_subtype in case they changed
+      await db.query(
+        'UPDATE trading_registrations SET is_cent = $1, account_subtype = $2 WHERE id = $3',
+        [isCent, subtype, session.data.registration_id]
+      );
       await tradingChallengeService.updateDailyStat(session.data.challenge_id, 'account_changes');
       userSessions.delete(telegramId);
       await ctx.reply(`✅ Account number updated!\n\n🏦 <b>New Account:</b> ${session.data.new_account_number}\n🖥️ <b>Server:</b> ${session.data.mt5_server}`, { parse_mode: 'HTML' });
       return;
     }
-    if (result.status === 'allocated_not_mt5') {
+
+    // VPS failed — tell user to re-enter credentials
+    if (vpsResult.status === 'invalid_credentials') {
       session.step = 'tc_change_acct_number';
-      await ctx.reply('⚠️ <b>Not an MT5 account.</b> Create a new MT5 Real account.\n\nSend your new <b>MT5 Real Account Number:</b>', { parse_mode: 'HTML' });
-      return;
+      await ctx.reply(
+        '❌ <b>Connection failed — Invalid credentials</b>\n\nCheck account number, server, and investor password.\n\nSend your new <b>MT5 Real Account Number:</b>',
+        { parse_mode: 'HTML' }
+      );
+    } else {
+      // API error — save without VPS check (graceful degradation, same as registration flow)
+      await tradingChallengeService.updateAccountNumber(session.data.registration_id, session.data.new_account_number, session.data.mt5_server);
+      await tradingChallengeService.updateDailyStat(session.data.challenge_id, 'account_changes');
+      userSessions.delete(telegramId);
+      await ctx.reply(`✅ Account number updated!\n\n🏦 <b>New Account:</b> ${session.data.new_account_number}\n🖥️ <b>Server:</b> ${session.data.mt5_server}\n\n⚠️ <i>Could not verify connection right now — we'll check on the next pull cycle.</i>`, { parse_mode: 'HTML' });
     }
-    if (result.status === 'not_allocated') {
-      session.step = 'tc_change_acct_number';
-      await ctx.reply('⚠️ <b>Account not yet under BirrForex.</b> Come back after 15 minutes.\n\nSend your new <b>MT5 Real Account Number:</b>', { parse_mode: 'HTML' });
-      return;
-    }
-    await ctx.reply('⚠️ Could not verify account. Please try again later.');
-    userSessions.delete(telegramId);
   }
 
   // ==================== ASK FOR NICKNAME (after all verifications pass) ====================

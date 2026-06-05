@@ -885,7 +885,7 @@ export class WpEvaluationEngine {
     }
 
     // Evaluate each trade
-    const slCheckFailures: { ticket: number; symbol: string }[] = [];
+    const slCheckFailures: { ticket: number; symbol: string; tradeId: number }[] = [];
     for (const trade of allTrades) {
       const violations: string[] = [];
       const tradeNet = parseFloat(String(trade.profit)) + parseFloat(String(trade.commission || 0)) + parseFloat(String(trade.swap || 0));
@@ -940,10 +940,17 @@ export class WpEvaluationEngine {
           if (rules.max_risk_dollars && tradeNet > 0) {
             const slViolation = await validateSlWithCandles(trade, rules.max_hold_hours || null, rules.max_risk_dollars, reg.account_subtype || null);
             if (slViolation === 'FAILED') {
-              slCheckFailures.push({ ticket: trade.ticket, symbol: trade.symbol });
+              slCheckFailures.push({ ticket: trade.ticket, symbol: trade.symbol, tradeId: trade.id });
+              // Mark this specific trade as pending in DB — persists across restarts
+              await db.query(`UPDATE wp_trades SET sl_check_pending = true WHERE id = $1`, [trade.id]).catch(() => {});
               // Candle fetch failed — log but don't penalise (benefit of doubt)
             } else if (slViolation) {
               violations.push(slViolation);
+              // Clear any previous pending flag since check succeeded (with violation)
+              await db.query(`UPDATE wp_trades SET sl_check_pending = false WHERE id = $1`, [trade.id]).catch(() => {});
+            } else {
+              // Check succeeded, no violation — clear pending flag
+              await db.query(`UPDATE wp_trades SET sl_check_pending = false WHERE id = $1`, [trade.id]).catch(() => {});
             }
           }
         }
@@ -982,8 +989,12 @@ export class WpEvaluationEngine {
         if (tradeNet > 0) profitRemoved += tradeNet;
       }
 
-      await db.query(`UPDATE wp_trades SET is_qualified = $1, violations = $2 WHERE id = $3`,
-        [isQualified, violations.length > 0 ? JSON.stringify(violations) : '[]', trade.id]);
+      // Only clear sl_check_pending here if it wasn't just set — pending flag is managed above
+      const hadSlFailure = slCheckFailures.some((f: any) => f.tradeId === trade.id);
+      await db.query(
+        `UPDATE wp_trades SET is_qualified = $1, violations = $2${hadSlFailure ? '' : ', sl_check_pending = false'} WHERE id = $3`,
+        [isQualified, violations.length > 0 ? JSON.stringify(violations) : '[]', trade.id]
+      );
     }
 
     // === DAILY DRAWDOWN NOTIFICATION ===
@@ -1244,6 +1255,148 @@ export class WpEvaluationEngine {
     rules.push('✅ No leverage limit');
     rules.push('⚖️ Trades against the rules will have profits disqualified (losses still count)');
     return { rules, isCent };
+  }
+
+  // ==================== SL RECHECK ====================
+
+  /**
+   * Re-run the SL candle check for all trades with sl_check_pending=true
+   * for a specific account. Updates trades, re-evaluates, flushes to live leaderboard.
+   * Returns a summary of what happened.
+   */
+  async recheckSlPendingForAccount(challengeId: number, registrationId: number): Promise<{
+    checked: number; violations: number; cleared: number; nickname: string; error?: string;
+  }> {
+    try {
+      const regResult = await db.query(
+        `SELECT r.*, c.start_date, c.end_date FROM trading_registrations r
+         JOIN trading_challenges c ON r.challenge_id = c.id
+         WHERE r.id = $1`,
+        [registrationId]
+      );
+      if (regResult.rows.length === 0) return { checked: 0, violations: 0, cleared: 0, nickname: '?', error: 'Registration not found' };
+      const reg = regResult.rows[0];
+
+      // Load rules
+      const rules = await this.loadRules(challengeId);
+      if (!rules || !rules.max_risk_dollars) {
+        return { checked: 0, violations: 0, cleared: 0, nickname: reg.nickname || reg.account_number, error: 'No rules configured' };
+      }
+
+      // Find all pending trades
+      const pendingResult = await db.query(
+        `SELECT id, ticket, symbol, trade_type, volume, open_price, close_price,
+                open_time, close_time, profit, commission, swap, violations, stop_loss
+         FROM wp_trades
+         WHERE challenge_id = $1 AND registration_id = $2 AND sl_check_pending = true`,
+        [challengeId, registrationId]
+      );
+
+      if (pendingResult.rows.length === 0) {
+        return { checked: 0, violations: 0, cleared: 0, nickname: reg.nickname || reg.account_number };
+      }
+
+      let checkedCount = 0;
+      let violationCount = 0;
+      let clearedCount = 0;
+
+      for (const trade of pendingResult.rows) {
+        const tradeNet = parseFloat(trade.profit) + parseFloat(trade.commission || 0) + parseFloat(trade.swap || 0);
+        if (tradeNet <= 0) {
+          // Non-winning trade — no candle check needed, just clear pending
+          await db.query(`UPDATE wp_trades SET sl_check_pending = false WHERE id = $1`, [trade.id]);
+          clearedCount++;
+          continue;
+        }
+
+        const slViolation = await validateSlWithCandles(trade, rules.max_hold_hours || null, rules.max_risk_dollars, reg.account_subtype || null);
+        checkedCount++;
+
+        if (slViolation === 'FAILED') {
+          // Still failing — leave pending, will retry next cycle
+          continue;
+        }
+
+        // Got a result — update trade
+        const existingViolations: string[] = (() => {
+          try { return JSON.parse(trade.violations || '[]'); } catch { return []; }
+        })();
+
+        if (slViolation) {
+          // New violation found
+          if (!existingViolations.includes(slViolation)) existingViolations.push(slViolation);
+          await db.query(
+            `UPDATE wp_trades SET is_qualified = false, violations = $1, sl_check_pending = false WHERE id = $2`,
+            [JSON.stringify(existingViolations), trade.id]
+          );
+          violationCount++;
+        } else {
+          // Passed — qualified status depends on other violations
+          const stillFlagged = existingViolations.length > 0;
+          await db.query(
+            `UPDATE wp_trades SET is_qualified = $1, sl_check_pending = false WHERE id = $2`,
+            [!stillFlagged, trade.id]
+          );
+          clearedCount++;
+        }
+      }
+
+      // Re-evaluate this account fully and flush staging → live immediately
+      await this.evaluateSingleAccount(challengeId, registrationId);
+      await this.flushSingleAccountToLive(challengeId, registrationId);
+
+      return {
+        checked: checkedCount,
+        violations: violationCount,
+        cleared: clearedCount,
+        nickname: reg.nickname || reg.account_number,
+      };
+    } catch (e) {
+      console.error('recheckSlPendingForAccount error:', e);
+      return { checked: 0, violations: 0, cleared: 0, nickname: '?', error: (e as Error).message };
+    }
+  }
+
+  /**
+   * Get all registration IDs for a challenge that still have sl_check_pending trades.
+   */
+  async getPendingSlAccounts(challengeId: number): Promise<number[]> {
+    const result = await db.query(
+      `SELECT DISTINCT registration_id FROM wp_trades
+       WHERE challenge_id = $1 AND sl_check_pending = true`,
+      [challengeId]
+    );
+    return result.rows.map((r: any) => r.registration_id);
+  }
+
+  /**
+   * Flush a single account's staging row directly to the live leaderboard
+   * without waiting for the next full cycle.
+   */
+  private async flushSingleAccountToLive(challengeId: number, registrationId: number) {
+    await db.query(
+      `INSERT INTO wp_leaderboard
+       (challenge_id, registration_id, account_number, user_id, username, nickname, account_type, is_cent,
+        starting_balance, current_balance, adjusted_balance, normalized_balance, qualified_profit, gross_profit,
+        profit_removed, total_trades, qualified_trades, flagged_trades, active_days, is_qualified,
+        last_trade_time, zero_balance_at, evaluated_at, rank)
+       SELECT challenge_id, registration_id, account_number, user_id, username, nickname, account_type, is_cent,
+              starting_balance, current_balance, adjusted_balance, normalized_balance, qualified_profit, gross_profit,
+              profit_removed, total_trades, qualified_trades, flagged_trades, active_days, is_qualified,
+              last_trade_time, zero_balance_at, NOW(),
+              (SELECT COALESCE(rank, 999) FROM wp_leaderboard WHERE challenge_id = $1 AND registration_id = $2)
+       FROM wp_leaderboard_staging
+       WHERE challenge_id = $1 AND registration_id = $2
+       ON CONFLICT (challenge_id, registration_id) DO UPDATE SET
+         current_balance=EXCLUDED.current_balance, adjusted_balance=EXCLUDED.adjusted_balance,
+         normalized_balance=EXCLUDED.normalized_balance, qualified_profit=EXCLUDED.qualified_profit,
+         gross_profit=EXCLUDED.gross_profit, profit_removed=EXCLUDED.profit_removed,
+         total_trades=EXCLUDED.total_trades, qualified_trades=EXCLUDED.qualified_trades,
+         flagged_trades=EXCLUDED.flagged_trades, active_days=EXCLUDED.active_days,
+         is_qualified=EXCLUDED.is_qualified, last_trade_time=EXCLUDED.last_trade_time,
+         zero_balance_at=EXCLUDED.zero_balance_at, evaluated_at=NOW()`,
+      [challengeId, registrationId]
+    );
   }
 }
 
