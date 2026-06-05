@@ -18,6 +18,7 @@ interface LeaderboardEntry {
   qualifiedProfit: number; grossProfit: number; profitRemoved: number;
   accountType: string; accountSubtype?: string; isCent: boolean;
   isMe?: boolean; isDisqualified?: boolean; disqualifyReason?: string; isBlown?: boolean;
+  isQualified?: boolean;
   recentTrades: { symbol: string; type: string; profit: number; volume: number; date: string; flagged?: boolean; violations?: string[] }[];
 }
 
@@ -49,6 +50,7 @@ export default function DemoDashboard() {
     id: "1", title: "BFX Challenge 1 — Hybrid (Demo & Real)",
     status: "active", daysLeft: 4,
     startingBalance: 1000, targetBalance: 2000, isCent: true,
+    realWinnersCount: 3, demoWinnersCount: 2,
   };
 
   // Current user is a cent real-account participant
@@ -227,7 +229,7 @@ export default function DemoDashboard() {
     {
       rank: 1, nickname: "GoldPipKing", balance: 2250.00, trades: 18, qualifiedTrades: 16, flaggedTrades: 2,
       qualifiedProfit: 1250.00, grossProfit: 1400.00, profitRemoved: 150.00,
-      accountType: "real", accountSubtype: "standard_cent", isCent: true,
+      accountType: "real", accountSubtype: "standard_cent", isCent: true, isQualified: true,
       // 3W 1L → 75% win rate, avgWin≈85, avgLoss≈42, RR≈2.02
       recentTrades: [
         { symbol: "XAUUSDc", type: "Buy",  volume: 0.01, profit:  95.00, date: "Jun 4, 14:22 → 16:48", violations: [] },
@@ -239,7 +241,7 @@ export default function DemoDashboard() {
     {
       rank: 2, nickname: "MK_Kaizen", balance: 2180.00, trades: 22, qualifiedTrades: 19, flaggedTrades: 3,
       qualifiedProfit: 1180.00, grossProfit: 1320.00, profitRemoved: 140.00,
-      accountType: "real", isCent: true,
+      accountType: "real", isCent: true, isQualified: true,
       // 2W 1L → 67% win rate, avgWin≈110, avgLoss≈48, RR≈2.29
       recentTrades: [
         { symbol: "XAUUSDc", type: "Buy",  volume: 0.01, profit: 110.00, date: "Jun 4, 11:05 → 13:30", violations: [] },
@@ -250,7 +252,7 @@ export default function DemoDashboard() {
     {
       rank: 3, nickname: "Bella_FX", balance: 2090.00, trades: 14, qualifiedTrades: 12, flaggedTrades: 2,
       qualifiedProfit: 1090.00, grossProfit: 1200.00, profitRemoved: 110.00,
-      accountType: "real", isCent: true,
+      accountType: "real", isCent: true, isQualified: true,
       // 2W 1L → 67% win rate, avgWin≈81.5, avgLoss≈38, RR≈2.14
       recentTrades: [
         { symbol: "XAUUSDc", type: "Sell", volume: 0.01, profit:  88.00, date: "Jun 4, 08:30 → 10:15", violations: [] },
@@ -618,7 +620,7 @@ export default function DemoDashboard() {
           </div>
           <div className="divide-y divide-white/5">
             {leaderboard.map((entry) => (
-              <LeaderboardRow key={entry.rank} entry={entry} formatBalance={formatBalance} formatSubtype={formatSubtype} onClick={() => { setShowLeaderboardModal(true); setSelectedUser(entry); }} />
+              <LeaderboardRow key={entry.rank} entry={entry} formatBalance={formatBalance} formatSubtype={formatSubtype} onClick={() => { setShowLeaderboardModal(true); setSelectedUser(entry); }} realWinnersCount={challenge.realWinnersCount} demoWinnersCount={challenge.demoWinnersCount} />
             ))}
           </div>
           <div className="p-3 border-t border-white/5 text-center">
@@ -728,7 +730,7 @@ export default function DemoDashboard() {
             {!selectedUser ? (
               <div className="divide-y divide-white/5">
                 {leaderboard.map((entry) => (
-                  <LeaderboardRow key={entry.rank} entry={entry} formatBalance={formatBalance} formatSubtype={formatSubtype} onClick={() => setSelectedUser(entry)} />
+                  <LeaderboardRow key={entry.rank} entry={entry} formatBalance={formatBalance} formatSubtype={formatSubtype} onClick={() => setSelectedUser(entry)} realWinnersCount={challenge.realWinnersCount} demoWinnersCount={challenge.demoWinnersCount} />
                 ))}
                 <div className="p-3 border-t border-white/5 text-center">
                   <button className="px-4 py-2 rounded-lg bg-white/5 border border-white/10 text-gray-400 text-xs font-semibold">
@@ -741,7 +743,7 @@ export default function DemoDashboard() {
               <div className="p-5">
                 <button onClick={() => setSelectedUser(null)} className="text-gray-400 hover:text-white mb-4 flex items-center gap-1 text-sm"><ArrowLeft size={14} /> Back to leaderboard</button>
                 <div className="flex items-center gap-4 mb-6">
-                  <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-lg font-bold ${selectedUser.isDisqualified ? "bg-loss/20 text-loss" : selectedUser.rank <= 3 ? "bg-gold/20 text-gold" : "bg-white/10 text-gray-400"}`}>#{selectedUser.rank}</div>
+                  {(() => { const wc = selectedUser.accountType === 'demo' ? challenge.demoWinnersCount : challenge.realWinnersCount; const win = !selectedUser.isDisqualified && selectedUser.isQualified && wc > 0 && selectedUser.rank <= wc; return <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-lg font-bold ${selectedUser.isDisqualified ? "bg-loss/20 text-loss" : win ? "bg-profit/20 text-profit" : "bg-white/10 text-gray-400"}`}>{win ? "🏆" : `#${selectedUser.rank}`}</div>; })()}
                   <div>
                     <p className="text-xl font-bold text-white">{selectedUser.nickname}</p>
                     <p className="text-sm text-gray-400">
@@ -891,20 +893,25 @@ export default function DemoDashboard() {
   );
 }
 
-function LeaderboardRow({ entry, formatBalance, formatSubtype, onClick }: { entry: LeaderboardEntry; formatBalance: (n: number, c?: boolean) => string; formatSubtype: (s: string | undefined, t: string) => string; onClick: () => void }) {
+function LeaderboardRow({ entry, formatBalance, formatSubtype, onClick, realWinnersCount, demoWinnersCount }: { entry: LeaderboardEntry; formatBalance: (n: number, c?: boolean) => string; formatSubtype: (s: string | undefined, t: string) => string; onClick: () => void; realWinnersCount?: number; demoWinnersCount?: number }) {
+  const winnersCount = entry.accountType === 'demo' ? (demoWinnersCount || 0) : (realWinnersCount || 0);
+  const winner = !entry.isDisqualified && entry.isQualified && winnersCount > 0 && entry.rank <= winnersCount;
   return (
-    <button onClick={onClick} className={`w-full flex items-center gap-4 px-4 py-3 text-left hover:bg-white/5 transition-colors ${entry.isMe ? "bg-royal/10 border-l-2 border-royal" : ""} ${entry.isDisqualified ? "opacity-60" : ""}`}>
-      <div className={`flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center text-sm font-bold ${entry.isDisqualified ? "bg-loss/20 text-loss" : entry.rank === 1 ? "bg-gold/20 text-gold" : entry.rank === 2 ? "bg-gray-400/20 text-gray-300" : entry.rank === 3 ? "bg-orange-500/20 text-orange-400" : "bg-white/5 text-gray-500"}`}>{entry.rank}</div>
+    <button onClick={onClick} className={`w-full flex items-center gap-4 px-4 py-3 text-left transition-colors ${winner ? "bg-profit/10 border-l-2 border-profit hover:bg-profit/15" : entry.isMe ? "bg-royal/10 border-l-2 border-royal hover:bg-royal/15" : "hover:bg-white/5"} ${entry.isDisqualified ? "opacity-60" : ""}`}>
+      <div className={`flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center text-sm font-bold ${entry.isDisqualified ? "bg-loss/20 text-loss" : winner ? "bg-profit/20 text-profit" : "bg-white/5 text-gray-500"}`}>
+        {winner ? "🏆" : entry.rank}
+      </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
-          <p className={`text-sm font-semibold truncate ${entry.isMe ? "text-royal" : entry.isDisqualified ? "text-gray-500" : "text-white"}`}>{entry.nickname}</p>
-          {entry.isMe && <span className="px-1.5 py-0.5 bg-royal/20 text-royal text-[10px] rounded font-bold">YOU</span>}
+          <p className={`text-sm font-semibold truncate ${winner ? "text-profit" : entry.isMe ? "text-royal" : entry.isDisqualified ? "text-gray-500" : "text-white"}`}>{entry.nickname}</p>
+          {winner && <span className="px-1.5 py-0.5 bg-profit/20 text-profit text-[10px] rounded font-bold">#{entry.rank}</span>}
+          {entry.isMe && !winner && <span className="px-1.5 py-0.5 bg-royal/20 text-royal text-[10px] rounded font-bold">YOU</span>}
           {entry.isDisqualified && <span className="px-1.5 py-0.5 bg-loss/20 text-loss text-[10px] rounded font-bold">DQ</span>}
           {entry.isBlown && !entry.isDisqualified && <span className="px-1.5 py-0.5 bg-gray-500/20 text-gray-400 text-[10px] rounded font-bold">💀</span>}
         </div>
         <p className="text-[10px] text-gray-500">{entry.trades} trades • {entry.qualifiedTrades} qualified • {formatSubtype(entry.accountSubtype, entry.accountType)}</p>
       </div>
-      <p className="text-sm font-bold text-white">
+      <p className={`text-sm font-bold ${winner ? "text-profit" : "text-white"}`}>
         {entry.isDisqualified ? <span className="text-loss">DQ</span> : formatBalance(entry.balance, entry.isCent)}
       </p>
     </button>

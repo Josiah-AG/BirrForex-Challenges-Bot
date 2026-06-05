@@ -554,6 +554,8 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
         startingBalance: actualStartingBalance,
         targetBalance: parseFloat(registration.target_balance),
         winnersCount: parseInt(registration.real_winners_count || 0) + parseInt(registration.demo_winners_count || 0),
+        realWinnersCount: parseInt(registration.real_winners_count || 0),
+        demoWinnersCount: parseInt(registration.demo_winners_count || 0),
       },
       me: {
         nickname: registration.nickname,

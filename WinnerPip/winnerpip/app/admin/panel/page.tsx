@@ -1749,7 +1749,7 @@ function ChallengeSettingsPanel({ challengeId, challenges, onRefresh }: { challe
             <button onClick={() => handleExport('leaderboard')} className="p-2.5 rounded-lg bg-white/5 border border-white/10 text-gray-300 text-xs font-semibold hover:bg-white/10 transition-all">📊 Leaderboard CSV</button>
             <button onClick={async () => { try { const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/export-evaluation`); if (res.ok) { const data = await res.json(); const csv = convertToCSV(data.evaluation); const blob = new Blob([csv], { type: "text/csv" }); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `${(editForm.title || `challenge_${challengeId}`).replace(/\s+/g, '_')}_evaluation.csv`; a.click(); setMsg("✅ Evaluation exported"); } } catch { setMsg("❌ Export failed"); } }} className="p-2.5 rounded-lg bg-profit/10 border border-profit/30 text-profit text-xs font-semibold hover:bg-profit/20 transition-all">📋 Evaluation CSV</button>
             <button onClick={async () => { try { const r = await fetch(`${apiUrl}/api/challenges/${challengeId}/rules`); const d = await r.json(); downloadRulesHTML(editForm, d.rules || [], d.isCent || false); } catch { downloadRulesHTML(editForm, [], false); } }} className="p-2.5 rounded-lg bg-royal/10 border border-royal/30 text-royal text-xs font-semibold hover:bg-royal/20 transition-all">📋 Rules Image</button>
-            <button onClick={async () => { try { const r = await fetch(`${apiUrl}/api/challenges/${challengeId}/leaderboard?limit=10`); const d = await r.json(); downloadLeaderboardHTML(editForm, d.leaderboard || []); } catch { downloadLeaderboardHTML(editForm, []); } }} className="p-2.5 rounded-lg bg-gold/10 border border-gold/30 text-gold text-xs font-semibold hover:bg-gold/20 transition-all">🏆 Leaderboard Image</button>
+            <button onClick={async () => { try { const r = await fetch(`${apiUrl}/api/challenges/${challengeId}/leaderboard?limit=10`); const d = await r.json(); downloadLeaderboardHTML({ ...editForm, real_winners_count: challenge?.realWinnersCount ?? 3, demo_winners_count: challenge?.demoWinnersCount ?? 3 }, d.leaderboard || []); } catch { downloadLeaderboardHTML(editForm, []); } }} className="p-2.5 rounded-lg bg-gold/10 border border-gold/30 text-gold text-xs font-semibold hover:bg-gold/20 transition-all">🏆 Leaderboard Image</button>
           </div>
         </div>
 
@@ -1827,13 +1827,28 @@ function downloadRulesHTML(challenge: any, rulesList: string[], isCent: boolean)
 
 function downloadLeaderboardHTML(challenge: any, lb: any[]) {
   const top10 = lb.slice(0, 10);
-  const medals = ['🥇', '🥈', '🥉'];
+  const realWinners = parseInt(challenge.real_winners_count || challenge.realWinnersCount || 3);
+  const demoWinners = parseInt(challenge.demo_winners_count || challenge.demoWinnersCount || 3);
 
-  const rowsHTML = top10.map((e, i) => {
-    const medal = i < 3 ? medals[i] : `${i + 1}`;
-    const rankClass = i === 0 ? 'gold' : i === 1 ? 'silver' : i === 2 ? 'bronze' : '';
-    const bal = e.isDisqualified ? 'DQ' : `$${Number(e.adjustedBalance).toFixed(2)}`;
-    return `<div class="lb-row ${rankClass}"><div class="lb-rank">${medal}</div><div class="lb-name">${e.nickname || '—'}</div><div class="lb-type">${e.accountType}</div><div class="lb-balance">${bal}</div><div class="lb-trades">${e.totalTrades} trades</div></div>`;
+  const isWinnerEntry = (e: any) => {
+    if (e.isDisqualified || !e.isQualified) return false;
+    const count = e.accountType === 'demo' ? demoWinners : realWinners;
+    return count > 0 && e.rank <= count;
+  };
+
+  const isCent = top10.some((e: any) => e.isCent);
+  const formatBal = (e: any) => {
+    if (e.isDisqualified) return 'DQ';
+    const val = Number(e.adjustedBalance || 0);
+    return e.isCent ? `${val.toFixed(0)}¢` : `$${val.toFixed(2)}`;
+  };
+
+  const rowsHTML = top10.map((e) => {
+    const winner = isWinnerEntry(e);
+    const rowClass = winner ? 'winner' : '';
+    const rankLabel = winner ? '🏆' : `${e.rank}`;
+    const bal = formatBal(e);
+    return `<div class="lb-row ${rowClass}"><div class="lb-rank">${rankLabel}</div><div class="lb-name">${e.nickname || '—'}</div><div class="lb-type">${e.accountType}</div><div class="lb-balance">${bal}</div><div class="lb-trades">${e.totalTrades} trades</div></div>`;
   }).join('');
 
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${challenge.title} - Leaderboard</title><style>
@@ -1849,11 +1864,11 @@ function downloadLeaderboardHTML(challenge: any, lb: any[]) {
 .lb-container{flex:1;display:flex;flex-direction:column;gap:12px;max-width:900px;margin:0 auto;width:100%}
 .page.landscape .lb-container{max-width:1400px}
 .lb-row{display:flex;align-items:center;gap:20px;padding:20px 28px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:16px;transition:all 0.2s}
-.lb-row.gold{background:rgba(245,180,0,0.08);border-color:rgba(245,180,0,0.3)}
-.lb-row.silver{background:rgba(192,192,192,0.06);border-color:rgba(192,192,192,0.2)}
-.lb-row.bronze{background:rgba(205,127,50,0.06);border-color:rgba(205,127,50,0.2)}
+.lb-row.winner{background:rgba(22,199,132,0.08);border-color:rgba(22,199,132,0.35)}
 .lb-rank{font-size:28px;width:50px;text-align:center;font-weight:700;color:#64748b}
-.lb-row.gold .lb-rank{color:#F5B400}.lb-row.silver .lb-rank{color:#C0C0C0}.lb-row.bronze .lb-rank{color:#CD7F32}
+.lb-row.winner .lb-rank{color:#16C784;font-size:32px}
+.lb-row.winner .lb-name{color:#16C784}
+.lb-row.winner .lb-balance{color:#16C784}
 .lb-name{flex:1;font-size:20px;font-weight:700;color:#fff}
 .lb-type{font-size:12px;padding:4px 12px;border-radius:8px;background:rgba(31,111,235,0.15);color:#1F6FEB;font-weight:600;text-transform:uppercase}
 .lb-balance{font-size:22px;font-weight:700;color:#16C784;min-width:120px;text-align:right}

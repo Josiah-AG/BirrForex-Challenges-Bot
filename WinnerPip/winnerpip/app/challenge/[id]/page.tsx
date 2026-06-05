@@ -29,7 +29,7 @@ interface ChallengeInfo {
   id: number; title: string; status: string;
   startDate: string; endDate: string;
   startingBalance: number; targetBalance: number;
-  winnersCount: number;
+  winnersCount: number; realWinnersCount: number; demoWinnersCount: number;
 }
 interface MyStats {
   nickname: string; accountNumber: string; accountType: string; accountSubtype: string | null; server: string;
@@ -247,6 +247,13 @@ export default function ChallengeDashboard() {
 
   // Computed values
   const violations = recentTrades.filter(t => !t.isQualified);
+
+  // True winner: qualified (hit target) AND within the prize positions for their category
+  const isWinner = (entry: LeaderboardEntry) => {
+    if (!challenge || entry.isDisqualified || !entry.isQualified) return false;
+    const count = entry.accountType === 'demo' ? (challenge.demoWinnersCount || 0) : (challenge.realWinnersCount || 0);
+    return count > 0 && entry.rank <= count;
+  };
   const daysLeft = challenge ? Math.max(0, Math.ceil((new Date(challenge.endDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24))) : 0;
   const progressPercent = challenge && myStats ? ((myStats.adjustedBalance - challenge.startingBalance) / (challenge.targetBalance - challenge.startingBalance)) * 100 : 0;
   const totalParticipants = leaderboardTotal || leaderboard.length;
@@ -601,17 +608,20 @@ export default function ChallengeDashboard() {
               ) : (
               <div className="divide-y divide-white/5">
                 {leaderboard.map((entry) => (
-                  <button key={entry.rank || entry.nickname} onClick={() => { setShowLeaderboardModal(true); setSelectedUser(entry); }} className={`w-full flex items-center gap-4 px-4 py-3 text-left hover:bg-white/5 transition-colors ${entry.isMe ? "bg-royal/10 border-l-2 border-royal" : (challenge && entry.adjustedBalance >= challenge.targetBalance && !entry.isDisqualified) ? "bg-profit/5 border-l-2 border-profit/30" : ""} ${entry.isDisqualified ? "opacity-60" : ""}`}>
-                    <div className={`flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center text-sm font-bold ${entry.isDisqualified ? "bg-loss/20 text-loss" : (challenge && entry.rank <= (challenge.winnersCount || 3) && entry.adjustedBalance >= challenge.targetBalance) ? "bg-gold/20 text-gold" : "bg-white/5 text-gray-500"}`}>{entry.rank || "—"}</div>
+                  <button key={entry.rank || entry.nickname} onClick={() => { setShowLeaderboardModal(true); setSelectedUser(entry); }} className={`w-full flex items-center gap-4 px-4 py-3 text-left transition-colors ${isWinner(entry) ? "bg-profit/10 border-l-2 border-profit hover:bg-profit/15" : entry.isMe ? "bg-royal/10 border-l-2 border-royal hover:bg-royal/15" : "hover:bg-white/5"} ${entry.isDisqualified ? "opacity-60" : ""}`}>
+                    <div className={`flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center text-sm font-bold ${entry.isDisqualified ? "bg-loss/20 text-loss" : isWinner(entry) ? "bg-profit/20 text-profit" : "bg-white/5 text-gray-500"}`}>
+                      {isWinner(entry) ? "🏆" : (entry.rank || "—")}
+                    </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        <p className={`text-sm font-semibold truncate ${entry.isMe ? "text-royal" : entry.isDisqualified ? "text-gray-500" : "text-white"}`}>{entry.nickname}</p>
-                        {entry.isMe && <span className="px-1.5 py-0.5 bg-royal/20 text-royal text-[10px] rounded font-bold">YOU</span>}
+                        <p className={`text-sm font-semibold truncate ${isWinner(entry) ? "text-profit" : entry.isMe ? "text-royal" : entry.isDisqualified ? "text-gray-500" : "text-white"}`}>{entry.nickname}</p>
+                        {isWinner(entry) && <span className="px-1.5 py-0.5 bg-profit/20 text-profit text-[10px] rounded font-bold">#{entry.rank}</span>}
+                        {entry.isMe && !isWinner(entry) && <span className="px-1.5 py-0.5 bg-royal/20 text-royal text-[10px] rounded font-bold">YOU</span>}
                         {entry.isDisqualified && <span className="px-1.5 py-0.5 bg-loss/20 text-loss text-[10px] rounded font-bold">DQ</span>}
                       </div>
                       <p className="text-[10px] text-gray-500">{entry.totalTrades} trades • {entry.qualifiedTrades} qualified</p>
                     </div>
-                    <p className="text-sm font-bold text-white">
+                    <p className={`text-sm font-bold ${isWinner(entry) ? "text-profit" : "text-white"}`}>
                       {entry.isDisqualified ? <span className="text-loss">DQ</span> : formatBalance(entry.adjustedBalance, entry.accountType, entry.isCent)}
                     </p>
                   </button>
@@ -953,7 +963,9 @@ export default function ChallengeDashboard() {
               <div className="divide-y divide-white/5">
                 {leaderboard.map((entry) => (
                   <button key={entry.rank || entry.nickname} onClick={() => setSelectedUser(entry)} className={`w-full flex items-center gap-4 px-4 py-3 text-left hover:bg-white/5 transition-colors ${entry.isMe ? "bg-royal/10 border-l-2 border-royal" : ""}`}>
-                    <div className={`flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center text-sm font-bold ${(challenge && entry.rank <= (challenge.winnersCount || 3) && entry.adjustedBalance >= challenge.targetBalance) ? "bg-gold/20 text-gold" : "bg-white/5 text-gray-500"}`}>{entry.rank || "—"}</div>
+                    <div className={`flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center text-sm font-bold ${entry.isDisqualified ? "bg-loss/20 text-loss" : isWinner(entry) ? "bg-profit/20 text-profit" : "bg-white/5 text-gray-500"}`}>
+                      {isWinner(entry) ? "🏆" : (entry.rank || "—")}
+                    </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2"><p className={`text-sm font-semibold truncate ${entry.isMe ? "text-royal" : "text-white"}`}>{entry.nickname}</p>{entry.isMe && <span className="px-1.5 py-0.5 bg-royal/20 text-royal text-[10px] rounded font-bold">YOU</span>}</div>
                       <p className="text-[10px] text-gray-500">{entry.totalTrades} trades • {entry.qualifiedTrades} qualified</p>
@@ -966,7 +978,9 @@ export default function ChallengeDashboard() {
               <div className="p-5">
                 <button onClick={() => setSelectedUser(null)} className="text-gray-400 hover:text-white mb-4 flex items-center gap-1 text-sm"><ArrowLeft size={14} /> Back to leaderboard</button>
                 <div className="flex items-center gap-4 mb-6">
-                  <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-lg font-bold ${selectedUser.isDisqualified ? "bg-loss/20 text-loss" : selectedUser.rank <= 3 ? "bg-gold/20 text-gold" : "bg-white/10 text-gray-400"}`}>#{selectedUser.rank || "—"}</div>
+                  <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-lg font-bold ${selectedUser.isDisqualified ? "bg-loss/20 text-loss" : isWinner(selectedUser) ? "bg-profit/20 text-profit" : "bg-white/10 text-gray-400"}`}>
+                    {isWinner(selectedUser) ? "🏆" : `#${selectedUser.rank || "—"}`}
+                  </div>
                   <div>
                     <p className="text-xl font-bold text-white">{selectedUser.nickname}</p>
                     <p className="text-sm text-gray-400">
