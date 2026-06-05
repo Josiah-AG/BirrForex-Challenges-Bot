@@ -1226,48 +1226,40 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/vps-health`, adminIpCheck, async (req, 
       };
     }
 
-    // Deep terminal check: verify base account on each terminal (1-10)
-    // Base account: 435924397 / Abc@1234 / Exness-MT5Trial9
+    // Deep terminal check: verify base account on each terminal (1-10) sequentially
+    // Sequential (not Promise.all) to avoid hammering the VPS with 10 concurrent logins
     let terminalResults: any[] = [];
     if (vpsStatus.reachable && req.query.deep === 'true') {
-      const BASE_ACCOUNT = '435924397';
-      const BASE_SERVER = 'Exness-MT5Trial9';
-      const BASE_PASSWORD = 'Abc@1234';
+      const BASE_ACCOUNT = config.vpsBaseAccount || '435924397';
+      const BASE_SERVER = config.vpsBaseServer || 'Exness-MT5Trial9';
+      const BASE_PASSWORD = config.vpsBasePassword || 'Abc@1234';
 
-      const terminalChecks = [];
       for (let tid = 1; tid <= 10; tid++) {
-        terminalChecks.push(
-          (async (terminalId: number) => {
-            try {
-              const verifyRes = await axios.post(`${vpsUrl}/verify`, {
-                account: BASE_ACCOUNT,
-                server: BASE_SERVER,
-                password: BASE_PASSWORD,
-                api_key: config.vpsApiKey,
-                terminal_id: terminalId,
-              }, { timeout: 20000 });
+        try {
+          const verifyRes = await axios.post(`${vpsUrl}/verify`, {
+            account: BASE_ACCOUNT,
+            server: BASE_SERVER,
+            password: BASE_PASSWORD,
+            api_key: config.vpsApiKey,
+            terminal_id: tid,
+          }, { timeout: 20000 });
 
-              const data = verifyRes.data;
-              return {
-                terminal: terminalId,
-                success: data.success || false,
-                balance: data.balance,
-                currency: data.currency,
-                error: data.success ? null : (data.message || 'Unknown error'),
-                terminalUsed: data.terminal_used,
-              };
-            } catch (err: any) {
-              return {
-                terminal: terminalId,
-                success: false,
-                error: err.code === 'ECONNABORTED' ? 'Timeout (20s)' : (err.message || 'Connection failed'),
-              };
-            }
-          })(tid)
-        );
+          const data = verifyRes.data;
+          terminalResults.push({
+            terminal: tid,
+            success: data.success || false,
+            balance: data.balance,
+            currency: data.currency,
+            error: data.success ? null : (data.message || 'Unknown error'),
+          });
+        } catch (err: any) {
+          terminalResults.push({
+            terminal: tid,
+            success: false,
+            error: err.code === 'ECONNABORTED' ? 'Timeout (20s)' : (err.message || 'Connection failed'),
+          });
+        }
       }
-
-      terminalResults = await Promise.all(terminalChecks);
     }
 
     const successCount = terminalResults.filter(t => t.success).length;
