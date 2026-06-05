@@ -417,8 +417,9 @@ app.get('/api/challenges/:id/leaderboard', async (req, res) => {
       };
     };
 
-    // PRE-START: challenge hasn't begun yet — always use registration-based ranking
-    if (status === 'registration_open' || status === 'draft') {
+    // PRE-START: challenge not yet active — always use last_known_balance ranking
+    // regardless of whether wp_leaderboard has rows (e.g. from an accidental admin pull)
+    if (status !== 'active' && status !== 'reviewing' && status !== 'completed') {
       return res.json(await buildPreStartResponse());
     }
 
