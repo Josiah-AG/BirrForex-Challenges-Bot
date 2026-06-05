@@ -197,6 +197,10 @@ router.post('/challenges/:id/register', async (req: Request, res: Response) => {
       mt5_server,
       investor_password,
       account_type,
+      is_cent,
+      account_subtype,
+      registration_balance,
+      connection_verified,
     } = req.body;
 
     // Validation
@@ -258,17 +262,26 @@ router.post('/challenges/:id/register', async (req: Request, res: Response) => {
     }
 
     // Insert registration — user_id holds the Discord user ID, source='discord'
+    const regBalance = registration_balance ?? null;
     const regResult = await db.query(
-      `INSERT INTO trading_registrations 
+      `INSERT INTO trading_registrations
        (challenge_id, user_id, username, nickname, account_type, email,
-        account_number, mt5_server, investor_password, source, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'discord', 'registered')
+        account_number, mt5_server, investor_password, source, status,
+        is_cent, account_subtype, registration_balance, last_known_balance,
+        connection_verified, connection_verified_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'discord', 'registered',
+               $10, $11, $12, $12,
+               $13, CASE WHEN $13 THEN NOW() ELSE NULL END)
        RETURNING *`,
       [
         challengeId, discord_user_id,
         username || '', nickname || username || '',
         account_type, email || '',
         account_number, mt5_server, investor_password,
+        is_cent || false,
+        account_subtype || (is_cent ? 'standard_cent' : 'standard'),
+        regBalance,
+        connection_verified || false,
       ]
     );
 

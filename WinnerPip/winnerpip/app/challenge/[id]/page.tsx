@@ -30,6 +30,7 @@ interface ChallengeInfo {
   startDate: string; endDate: string;
   startingBalance: number; targetBalance: number;
   winnersCount: number; realWinnersCount: number; demoWinnersCount: number;
+  onlyCentAccount?: boolean;
 }
 interface MyStats {
   nickname: string; accountNumber: string; accountType: string; accountSubtype: string | null; server: string;
@@ -258,6 +259,8 @@ export default function ChallengeDashboard() {
   const progressPercent = challenge && myStats ? ((myStats.adjustedBalance - challenge.startingBalance) / (challenge.targetBalance - challenge.startingBalance)) * 100 : 0;
   const totalParticipants = leaderboardTotal || leaderboard.length;
   const isCentAccount = myStats?.accountType === 'real' && myStats.currentBalance > 500; // heuristic for cent
+  // isCent: trust registration flag, fallback to challenge onlyCentAccount for real accounts
+  const effectiveIsCent = myStats ? (myStats.isCent || (challenge?.onlyCentAccount && myStats.accountType === 'real') || false) : false;
   const isBlownAccount = myStats && myStats.totalTrades > 0 && myStats.currentBalance <= 0;
 
   // Win Rate & Avg RR (computed from trades)
@@ -499,13 +502,13 @@ export default function ChallengeDashboard() {
               </button>
               <div className="glass rounded-2xl p-4 md:p-5 border border-white/10">
                 <div className="flex items-center gap-2 mb-2"><TrendingUp size={16} className="text-profit" /><p className="text-[10px] text-gray-400 uppercase tracking-wider font-medium">Final Profit</p></div>
-                <p className={`text-3xl md:text-4xl font-bold ${myStats.qualifiedProfit >= 0 ? "text-profit" : "text-loss"}`}>{formatBalance(myStats.qualifiedProfit, myStats.accountType, myStats.isCent)}</p>
-                <p className="text-xs text-gray-500 mt-1">Total P&L: {formatBalance(myStats.grossProfit, myStats.accountType, myStats.isCent)}</p>
+                <p className={`text-3xl md:text-4xl font-bold ${myStats.qualifiedProfit >= 0 ? "text-profit" : "text-loss"}`}>{formatBalance(myStats.qualifiedProfit, myStats.accountType, effectiveIsCent)}</p>
+                <p className="text-xs text-gray-500 mt-1">Total P&L: {formatBalance(myStats.grossProfit, myStats.accountType, effectiveIsCent)}</p>
               </div>
               <div className="glass rounded-2xl p-4 md:p-5 border border-white/10">
                 <div className="flex items-center gap-2 mb-2"><Target size={16} className="text-royal" /><p className="text-[10px] text-gray-400 uppercase tracking-wider font-medium">Final Balance</p></div>
-                <p className="text-3xl md:text-4xl font-bold text-white">{formatBalance(myStats.adjustedBalance, myStats.accountType, myStats.isCent)}</p>
-                <p className="text-xs text-gray-500 mt-1">Gross: {formatBalance(myStats.currentBalance, myStats.accountType, myStats.isCent)}</p>
+                <p className="text-3xl md:text-4xl font-bold text-white">{formatBalance(myStats.adjustedBalance, myStats.accountType, effectiveIsCent)}</p>
+                <p className="text-xs text-gray-500 mt-1">Gross: {formatBalance(myStats.currentBalance, myStats.accountType, effectiveIsCent)}</p>
               </div>
               <div className="glass rounded-2xl p-4 md:p-5 border border-white/10">
                 <div className="flex items-center gap-2 mb-2"><Activity size={16} className="text-gray-400" /><p className="text-[10px] text-gray-400 uppercase tracking-wider font-medium">Total Trades</p></div>
@@ -517,7 +520,7 @@ export default function ChallengeDashboard() {
             <div className="grid grid-cols-3 md:grid-cols-6 gap-3 mb-6">
               <MiniStat label="Trades" value={myStats.totalTrades.toString()} icon={<Activity size={14} />} />
               <MiniStat label="Qualified" value={myStats.qualifiedTrades.toString()} icon={<Award size={14} />} />
-              <MiniStat label="Removed" value={`${formatBalance(myStats.profitRemoved, myStats.accountType, myStats.isCent)}`} icon={<Target size={14} />} color="text-royal" />
+              <MiniStat label="Removed" value={`${formatBalance(myStats.profitRemoved, myStats.accountType, effectiveIsCent)}`} icon={<Target size={14} />} color="text-royal" />
               <button onClick={() => setShowViolationsModal(true)} className="glass rounded-xl p-3 border border-white/10 text-center hover:border-loss/30 transition-all">
                 <div className="flex items-center justify-center gap-1 mb-1 text-loss"><AlertTriangle size={14} /><p className="text-[9px] uppercase tracking-wider font-medium">Flagged</p></div>
                 <p className="text-lg font-bold text-loss">{myStats.flaggedTrades}</p>
@@ -716,13 +719,13 @@ export default function ChallengeDashboard() {
               </button>
               <div className="glass rounded-2xl p-4 md:p-5 border border-white/10">
                 <div className="flex items-center gap-2 mb-2"><TrendingUp size={16} className="text-profit" /><p className="text-[10px] text-gray-400 uppercase tracking-wider font-medium">Profit</p></div>
-                <p className={`text-3xl md:text-4xl font-bold ${myStats.qualifiedProfit >= 0 ? "text-profit" : "text-loss"}`}>{formatBalance(myStats.qualifiedProfit, myStats.accountType, myStats.isCent)}</p>
-                <p className="text-xs text-gray-500 mt-1">Total P&L: {formatBalance(myStats.grossProfit, myStats.accountType, myStats.isCent)}</p>
+                <p className={`text-3xl md:text-4xl font-bold ${myStats.qualifiedProfit >= 0 ? "text-profit" : "text-loss"}`}>{formatBalance(myStats.qualifiedProfit, myStats.accountType, effectiveIsCent)}</p>
+                <p className="text-xs text-gray-500 mt-1">Total P&L: {formatBalance(myStats.grossProfit, myStats.accountType, effectiveIsCent)}</p>
               </div>
               <div className="glass rounded-2xl p-4 md:p-5 border border-white/10">
                 <div className="flex items-center gap-2 mb-2"><Target size={16} className="text-royal" /><p className="text-[10px] text-gray-400 uppercase tracking-wider font-medium">Balance</p></div>
-                <p className="text-3xl md:text-4xl font-bold text-white">{formatBalance(myStats.adjustedBalance, myStats.accountType, myStats.isCent)}</p>
-                <p className="text-xs text-gray-500 mt-1">Gross: {formatBalance(myStats.currentBalance, myStats.accountType, myStats.isCent)}</p>
+                <p className="text-3xl md:text-4xl font-bold text-white">{formatBalance(myStats.adjustedBalance, myStats.accountType, effectiveIsCent)}</p>
+                <p className="text-xs text-gray-500 mt-1">Gross: {formatBalance(myStats.currentBalance, myStats.accountType, effectiveIsCent)}</p>
               </div>
               <div className="glass rounded-2xl p-4 md:p-5 border border-white/10">
                 <div className="flex items-center gap-2 mb-2"><Clock size={16} className="text-gold" /><p className="text-[10px] text-gray-400 uppercase tracking-wider font-medium">{daysLeftLabel}</p></div>
@@ -736,7 +739,7 @@ export default function ChallengeDashboard() {
               <div className="glass rounded-2xl p-4 md:p-5 border border-white/10 mb-6">
                 <div className="flex items-center justify-between mb-3"><p className="text-sm font-medium text-gray-300">Progress to Target</p><p className={`text-sm font-bold ${progressPercent >= 0 ? "text-white" : "text-loss"}`}>{progressPercent.toFixed(0)}%</p></div>
                 <div className="w-full h-3 bg-white/10 rounded-full overflow-hidden"><div className={`h-full rounded-full transition-all duration-500 ${progressPercent >= 0 ? "bg-gradient-to-r from-royal to-profit" : "bg-loss"}`} style={{ width: `${Math.min(100, Math.max(0, progressPercent))}%` }} /></div>
-                <div className="flex justify-between mt-2 text-xs text-gray-500"><span>{formatBalance(challenge.startingBalance, myStats.accountType, myStats.isCent)}</span><span>{formatBalance(challenge.targetBalance, myStats.accountType, myStats.isCent)}</span></div>
+                <div className="flex justify-between mt-2 text-xs text-gray-500"><span>{formatBalance(challenge.startingBalance, myStats.accountType, effectiveIsCent)}</span><span>{formatBalance(challenge.targetBalance, myStats.accountType, effectiveIsCent)}</span></div>
               </div>
             ) : !isBlownAccount && !myStats.disqualified && (
               <div className="glass rounded-2xl p-4 border border-white/10 mb-6 text-center">
@@ -748,7 +751,7 @@ export default function ChallengeDashboard() {
             <div className="grid grid-cols-3 md:grid-cols-6 gap-3 mb-6">
               <MiniStat label="Trades" value={myStats.totalTrades.toString()} icon={<Activity size={14} />} />
               <MiniStat label="Qualified" value={myStats.qualifiedTrades.toString()} icon={<Award size={14} />} />
-              <MiniStat label="Removed" value={`${formatBalance(myStats.profitRemoved, myStats.accountType, myStats.isCent)}`} icon={<Target size={14} />} color="text-royal" />
+              <MiniStat label="Removed" value={`${formatBalance(myStats.profitRemoved, myStats.accountType, effectiveIsCent)}`} icon={<Target size={14} />} color="text-royal" />
               <button onClick={() => setShowViolationsModal(true)} className="glass rounded-xl p-3 border border-white/10 text-center hover:border-loss/30 transition-all">
                 <div className="flex items-center justify-center gap-1 mb-1 text-loss"><AlertTriangle size={14} /><p className="text-[9px] uppercase tracking-wider font-medium">Flagged</p></div>
                 <p className="text-lg font-bold text-loss">{myStats.flaggedTrades}</p>
@@ -1141,11 +1144,11 @@ export default function ChallengeDashboard() {
                 </div>
                 <div className="bg-white/5 rounded-xl p-3 text-center">
                   <p className="text-[10px] text-gray-500 uppercase mb-1">Adjusted Balance</p>
-                  <p className="text-2xl font-bold text-white">{formatBalance(myStats.adjustedBalance, myStats.accountType, myStats.isCent)}</p>
+                  <p className="text-2xl font-bold text-white">{formatBalance(myStats.adjustedBalance, myStats.accountType, effectiveIsCent)}</p>
                 </div>
                 <div className="bg-white/5 rounded-xl p-3 text-center">
                   <p className="text-[10px] text-gray-500 uppercase mb-1">Net Qualified Profit</p>
-                  <p className={`text-2xl font-bold ${myStats.qualifiedProfit >= 0 ? "text-profit" : "text-loss"}`}>{formatBalance(myStats.qualifiedProfit, myStats.accountType, myStats.isCent)}</p>
+                  <p className={`text-2xl font-bold ${myStats.qualifiedProfit >= 0 ? "text-profit" : "text-loss"}`}>{formatBalance(myStats.qualifiedProfit, myStats.accountType, effectiveIsCent)}</p>
                 </div>
                 <div className="bg-white/5 rounded-xl p-3 text-center">
                   <p className="text-[10px] text-gray-500 uppercase mb-1">Total Trades</p>
@@ -1159,11 +1162,11 @@ export default function ChallengeDashboard() {
                 </div>
                 <div className="bg-white/5 rounded-xl p-3 text-center">
                   <p className="text-[10px] text-gray-500 uppercase mb-1">Best Trade</p>
-                  <p className="text-lg font-bold text-profit">{recentTrades.length > 0 ? `+${formatBalance(Math.max(...recentTrades.map(t => t.profit)), myStats.accountType, myStats.isCent)}` : "—"}</p>
+                  <p className="text-lg font-bold text-profit">{recentTrades.length > 0 ? `+${formatBalance(Math.max(...recentTrades.map(t => t.profit)), myStats.accountType, effectiveIsCent)}` : "—"}</p>
                 </div>
                 <div className="bg-white/5 rounded-xl p-3 text-center">
                   <p className="text-[10px] text-gray-500 uppercase mb-1">Worst Trade</p>
-                  <p className="text-lg font-bold text-loss">{recentTrades.length > 0 ? formatBalance(Math.min(...recentTrades.map(t => t.profit)), myStats.accountType, myStats.isCent) : "—"}</p>
+                  <p className="text-lg font-bold text-loss">{recentTrades.length > 0 ? formatBalance(Math.min(...recentTrades.map(t => t.profit)), myStats.accountType, effectiveIsCent) : "—"}</p>
                 </div>
               </div>
               <button onClick={() => setShowCompletedPopup(false)} className="w-full flex items-center justify-center gap-2 p-4 rounded-xl bg-gradient-brand hover:opacity-90 text-white font-semibold transition-all shadow-lg shadow-royal/20">

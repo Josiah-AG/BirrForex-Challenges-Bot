@@ -363,21 +363,37 @@ app.get('/api/challenges/:id/leaderboard', async (req, res) => {
         catFilter = ' AND account_type = $2';
         params.push(category);
       }
+      // Get challenge only_cent_account flag for isCent fallback
+      const centCheck = await db.query(
+        `SELECT COALESCE((SELECT (parameters->>'only_cent_account')::boolean FROM wp_challenge_rules WHERE challenge_id = $1 AND rule_code = 'config'), false) as only_cent, starting_balance FROM trading_challenges WHERE id = $1`,
+        [challengeId]
+      );
+      const challengeOnlyCent = centCheck.rows[0]?.only_cent || false;
+      const challengeStartBal = parseFloat(centCheck.rows[0]?.starting_balance || 0);
+
+      // Build params for registration query (challengeId=$1, startBal=$2, optional category=$3)
+      const regParams: any[] = [challengeId, challengeStartBal];
+      let catFilter2 = '';
+      if (category === 'demo' || category === 'real') {
+        catFilter2 = ' AND account_type = $3';
+        regParams.push(category);
+      }
+
       const regResult = await db.query(
         `SELECT nickname, account_type, is_cent,
-                COALESCE(registration_balance, last_known_balance, 0) as reg_balance,
+                COALESCE(actual_starting_balance, registration_balance, last_known_balance, $2) as reg_balance,
                 registered_at,
                 ROW_NUMBER() OVER (
                   PARTITION BY account_type
-                  ORDER BY COALESCE(registration_balance, last_known_balance, 0) DESC, registered_at ASC
+                  ORDER BY COALESCE(actual_starting_balance, registration_balance, last_known_balance, $2) DESC, registered_at ASC
                 ) as rank
          FROM trading_registrations
          WHERE challenge_id = $1
            AND (status IS NULL OR status != 'removed')
-           ${catFilter}
+           ${catFilter2}
          ORDER BY account_type, rank
          LIMIT ${limit} OFFSET ${offset}`,
-        params
+        regParams
       );
       const countResult = await db.query(
         `SELECT COUNT(*) as total FROM trading_registrations WHERE challenge_id = $1 AND (status IS NULL OR status != 'removed')${catFilter}`,
@@ -403,7 +419,7 @@ app.get('/api/challenges/:id/leaderboard', async (req, res) => {
           isQualified: false,
           isDisqualified: false,
           isBlown: false,
-          isCent: r.is_cent || false,
+          isCent: r.is_cent || (challengeOnlyCent && r.account_type !== 'demo') || false,
           registeredAt: r.registered_at,
         })),
       });
@@ -584,7 +600,8 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
               r.actual_starting_balance, r.registration_balance, r.disqualified, r.disqualified_reason, r.is_cent,
               r.last_pull_at,
               c.title, c.status, c.start_date, c.end_date, c.starting_balance, c.target_balance, c.leaderboard_updated_at,
-              c.real_winners_count, c.demo_winners_count
+              c.real_winners_count, c.demo_winners_count, c.type as challenge_type,
+              COALESCE((SELECT (parameters->>'only_cent_account')::boolean FROM wp_challenge_rules WHERE challenge_id = c.id AND rule_code = 'config'), false) as only_cent_account
        FROM trading_registrations r
        JOIN trading_challenges c ON r.challenge_id = c.id
        WHERE r.id = $1`,
@@ -615,6 +632,7 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
         winnersCount: parseInt(registration.real_winners_count || 0) + parseInt(registration.demo_winners_count || 0),
         realWinnersCount: parseInt(registration.real_winners_count || 0),
         demoWinnersCount: parseInt(registration.demo_winners_count || 0),
+        onlyCentAccount: registration.only_cent_account || false,
       },
       me: {
         nickname: registration.nickname,
@@ -625,7 +643,8 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
         pullStatus: registration.pull_status || null,
         disqualified: registration.disqualified || false,
         disqualifiedReason: registration.disqualified_reason || null,
-        isCent: registration.is_cent || false,
+        // Derive isCent: trust registration flag, but also fallback to challenge only_cent_account
+        isCent: registration.is_cent || (registration.only_cent_account && registration.challenge_type !== 'demo') || false,
         actualStartingBalance: actualStartingBalance,
         lastPullAt: registration.last_pull_at || null,
         rank: leaderboard?.rank || null,

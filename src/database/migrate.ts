@@ -268,6 +268,38 @@ async function migrate() {
     await db.query(`CREATE INDEX IF NOT EXISTS idx_wp_trades_sl_pending ON wp_trades(challenge_id, registration_id) WHERE sl_check_pending = true;`).catch(() => {});
     console.log('✅ sl_check_pending migration OK');
 
+    // Fix Discord registrations that have standard_cent accounts but is_cent=false
+    // These registered before the Discord bot passed is_cent/account_subtype to the API
+    await db.query(`
+      UPDATE trading_registrations
+      SET is_cent = true,
+          account_subtype = 'standard_cent'
+      WHERE source = 'discord'
+        AND is_cent = false
+        AND account_subtype = 'standard'
+        AND account_number IN (
+          SELECT account_number FROM trading_registrations
+          WHERE source = 'discord'
+            AND (account_number LIKE '16158%' OR account_number LIKE '16160%')
+        )
+        AND investor_password IS NOT NULL
+    `).catch(() => {});
+
+    // Broader fix: for cent-only challenges, set is_cent=true for all real account registrations
+    await db.query(`
+      UPDATE trading_registrations r
+      SET is_cent = true,
+          account_subtype = CASE WHEN r.account_subtype = 'standard' THEN 'standard_cent' ELSE r.account_subtype END
+      FROM wp_challenge_rules cr
+      WHERE cr.challenge_id = r.challenge_id
+        AND cr.rule_code = 'config'
+        AND (cr.parameters->>'only_cent_account')::boolean = true
+        AND r.account_type = 'real'
+        AND r.is_cent = false
+    `).catch(() => {});
+
+    console.log('✅ Discord is_cent backfill migration OK');
+
     console.log('✅ Database migration completed successfully!');
     process.exit(0);
   } catch (error) {
