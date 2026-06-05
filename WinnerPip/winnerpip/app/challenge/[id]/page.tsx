@@ -726,7 +726,7 @@ export default function ChallengeDashboard() {
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 mb-6">
               <button onClick={() => setShowLeaderboardModal(true)} className="glass rounded-2xl p-4 md:p-5 border border-white/10 text-left hover:border-gold/30 transition-all">
                 <div className="flex items-center gap-2 mb-2"><Trophy size={16} className="text-gold" /><p className="text-[10px] text-gray-400 uppercase tracking-wider font-medium">Rank</p></div>
-                <p className="text-3xl md:text-4xl font-bold gradient-text">{myStats.rank ? `#${myStats.rank}` : "—"}</p>
+                <p className="text-3xl md:text-4xl font-bold gradient-text">{!isNotStarted && myStats.rank ? `#${myStats.rank}` : "—"}</p>
                 <p className="text-xs text-gray-500 mt-1">of {totalParticipants || "—"}</p>
               </button>
               <div className="glass rounded-2xl p-4 md:p-5 border border-white/10">
