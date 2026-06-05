@@ -1118,8 +1118,12 @@ export class VpsPullScheduler {
       }
     } catch {}
 
+    // forceAll = admin override: pull every account that has credentials, regardless of
+    // balance/blown state or DQ status. Evaluation engine preserves DQ flags — it writes
+    // to staging which is then flushed without clearing the disqualified column.
+    const disqualifiedFilter = forceAll ? '' : 'AND r.disqualified = false';
     const zeroBalanceFilter = forceAll
-      ? '' // Admin full pull — include all accounts regardless of balance/blown state
+      ? ''
       : 'AND (l.zero_balance_at IS NULL OR l.total_trades = 0 OR l.id IS NULL OR r.actual_starting_balance IS NULL)';
 
     const result = await db.query(
@@ -1127,7 +1131,7 @@ export class VpsPullScheduler {
        FROM trading_registrations r
        LEFT JOIN wp_leaderboard l ON r.id = l.registration_id
        WHERE r.challenge_id = $1
-         AND r.disqualified = false
+         ${disqualifiedFilter}
          AND r.investor_password IS NOT NULL
          AND r.connection_verified = true
          ${zeroBalanceFilter}

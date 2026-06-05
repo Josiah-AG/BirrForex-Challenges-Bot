@@ -2257,13 +2257,14 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/failed-accounts`, adminIp
 
 /**
  * POST /api/admin/:secretPath/challenge/:id/force-pull
- * Trigger a manual pull cycle
+ * Trigger a manual pull cycle for a specific challenge (forceAll — bypasses blown/DQ filters)
  */
 app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/force-pull`, adminIpCheck, async (req, res) => {
   try {
+    const challengeId = parseInt(req.params.id as string);
     const globalScheduler = (global as any).__vpsPullScheduler;
     if (globalScheduler) {
-      globalScheduler.runPullCycle().catch((e: any) => console.error('Force pull error:', e));
+      globalScheduler.runPullCycleForChallenge(challengeId).catch((e: any) => console.error('Force pull error:', e));
       return res.json({ success: true, message: 'Pull cycle started. Watch the progress bar.' });
     }
     return res.json({ success: false, message: 'Pull scheduler not initialized yet — try again in a moment' });
@@ -2274,14 +2275,14 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/force-pull`, adminIpChec
 
 /**
  * POST /api/admin/:secretPath/challenge/:id/force-pull-rank
- * Trigger a manual pull cycle AND update rankings after completion
+ * Pull + evaluate + flush + rank for a specific challenge (forceAll)
  */
 app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/force-pull-rank`, adminIpCheck, async (req, res) => {
   try {
     const challengeId = parseInt(req.params.id as string);
     const globalScheduler = (global as any).__vpsPullScheduler;
     if (globalScheduler) {
-      globalScheduler.runPullCycle().then(async () => {
+      globalScheduler.runPullCycleForChallenge(challengeId).then(async () => {
         try {
           const { leaderboardService } = require('../services/leaderboardService');
           await leaderboardService.flushStagingToLive(challengeId);
