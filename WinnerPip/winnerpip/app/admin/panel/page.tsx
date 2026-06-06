@@ -2178,6 +2178,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures }: { ch
                     setPullProgress((prev: any) => ({ ...prev, isRunning: false }));
                     if (pollIntervalRef.current) { clearInterval(pollIntervalRef.current); pollIntervalRef.current = null; }
                     setPolling(false);
+                  } catch (_e) {}
                 }}
                 className="px-3 py-1 rounded-lg bg-loss/10 border border-loss/30 text-loss text-xs font-semibold hover:bg-loss/20 transition-all"
               >
