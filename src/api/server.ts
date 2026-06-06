@@ -3004,6 +3004,70 @@ app.put(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/rules`, adminIpCheck, asy
   }
 });
 
+// ==================== VPS WORKER CALLBACK ====================
+
+/**
+ * GET /api/vps/next-account
+ * Called by VPS workers when their home account fails (password changed, deleted).
+ * Returns a random non-disqualified verified account of the same subtype.
+ * Auth: x-vps-api-key header (reuses VPS_API_KEY).
+ */
+app.get('/api/vps/next-account', async (req, res) => {
+  try {
+    const vpsKey = req.headers['x-vps-api-key'] as string;
+    if (!vpsKey || vpsKey !== process.env.VPS_API_KEY) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const subtype     = (req.query.subtype     as string || '').trim();
+    const challengeId = (req.query.challenge_id as string || '').trim();
+    const exclude     = (req.query.exclude      as string || '').trim();
+
+    if (!subtype || !challengeId) {
+      return res.status(400).json({ found: false, error: 'Missing subtype or challenge_id' });
+    }
+
+    const excludeList = exclude
+      ? exclude.split(',').map((s: string) => s.trim()).filter(Boolean)
+      : [];
+
+    const params: any[] = [challengeId, subtype];
+    let excludeClause = '';
+    if (excludeList.length > 0) {
+      excludeClause = ` AND account_number != ALL($3::text[])`;
+      params.push(excludeList);
+    }
+
+    const result = await db.query(
+      `SELECT account_number, investor_password, mt5_server
+       FROM trading_registrations
+       WHERE challenge_id = $1
+         AND account_subtype = $2
+         AND disqualified = false
+         AND connection_verified = true
+         AND investor_password IS NOT NULL
+         ${excludeClause}
+       ORDER BY RANDOM() LIMIT 1`,
+      params
+    );
+
+    if (result.rows.length === 0) {
+      return res.json({ found: false });
+    }
+
+    const r = result.rows[0];
+    return res.json({
+      found:    true,
+      account:  r.account_number,
+      server:   r.mt5_server,
+      password: r.investor_password,
+    });
+  } catch (error) {
+    console.error('VPS next-account error:', error);
+    return res.status(500).json({ found: false, error: 'Internal server error' });
+  }
+});
+
 // ==================== START SERVER ====================
 
 export function startApiServer() {
