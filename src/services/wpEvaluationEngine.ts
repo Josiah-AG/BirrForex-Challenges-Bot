@@ -89,6 +89,7 @@ interface TradeRow {
   registration_id: number;
   account_number: string;
   ticket: number;
+  position_id: number | null; // set for partial closes; null for legacy rows
   symbol: string;
   trade_type: string;
   volume: number;
@@ -777,69 +778,129 @@ export class WpEvaluationEngine {
     // Use actual starting balance for this person's evaluation
     const effectiveStartBalance = actualStartBalance;
 
-    // Pre-compute simultaneous trade violations
-    type TimeEvent = { time: number; ticket: number; symbol: string; action: 'open' | 'close' };
-    const events: TimeEvent[] = [];
+    // ── Partial-close deduplication ─────────────────────────────────────────
+    // A position closed in N parts creates N wp_trades rows, all sharing the same
+    // open_time and position_id. For concurrent-trade checks we must count a
+    // position only once, regardless of how many partial-close rows it has.
+    //
+    // Strategy: for each unique position_id, collapse all its partial-close rows
+    // into one "logical trade" that spans open_time → last close_time.
+    // The check uses logical trades; violations are then propagated back to every
+    // partial-close ticket of the offending position.
+    //
+    // position_id is stored on each wp_trades row (ticket of the opening deal).
+    // Fall back to the trade ticket itself when position_id is not stored.
+
+    // Map: positionId → all trade tickets that belong to it
+    const positionToTickets = new Map<number, number[]>();
+    // Map: ticket → positionId (for reverse lookup)
+    const ticketToPosition = new Map<number, number>();
+
     allTrades.forEach(t => {
-      events.push({ time: new Date(t.open_time).getTime(), ticket: t.ticket, symbol: t.symbol, action: 'open' });
-      events.push({ time: new Date(t.close_time).getTime(), ticket: t.ticket, symbol: t.symbol, action: 'close' });
+      // position_id column may not exist on older rows — fall back to ticket
+      const posId: number = (t as any).position_id ?? t.ticket;
+      ticketToPosition.set(t.ticket, posId);
+      if (!positionToTickets.has(posId)) positionToTickets.set(posId, []);
+      positionToTickets.get(posId)!.push(t.ticket);
+    });
+
+    // Build one "logical trade" per position: earliest open_time, latest close_time
+    interface LogicalTrade { posId: number; openMs: number; closeMs: number; symbol: string; maxVolume: number; tickets: number[] }
+    const logicalTrades: LogicalTrade[] = [];
+    for (const [posId, tickets] of positionToTickets) {
+      const parts = allTrades.filter(t => tickets.includes(t.ticket));
+      const openMs  = Math.min(...parts.map(t => new Date(t.open_time).getTime()));
+      const closeMs = Math.max(...parts.map(t => new Date(t.close_time).getTime()));
+      // Max volume = largest single partial (for lot-size check on positions)
+      const maxVolume = Math.max(...parts.map(t => parseFloat(String(t.volume))));
+      logicalTrades.push({ posId, openMs, closeMs, symbol: parts[0].symbol, maxVolume, tickets });
+    }
+
+    // Pre-compute simultaneous trade violations (on logical trades, not partial rows)
+    type TimeEvent = { time: number; posId: number; symbol: string; action: 'open' | 'close' };
+    const events: TimeEvent[] = [];
+    logicalTrades.forEach(lt => {
+      events.push({ time: lt.openMs,  posId: lt.posId, symbol: lt.symbol, action: 'open' });
+      events.push({ time: lt.closeMs, posId: lt.posId, symbol: lt.symbol, action: 'close' });
     });
     events.sort((a, b) => a.time - b.time || (a.action === 'close' ? -1 : 1));
 
-    // maxOpenViolators: ticket → [{ticket, symbol}] of co-offending trades (excluding self)
-    const maxOpenViolators = new Map<number, { ticket: number; symbol: string }[]>();
+    // positionViolators: posId → [co-offending posIds]
+    const positionViolators = new Map<number, number[]>();
     if (rules.max_open_trades) {
-      // symbol lookup for building co-offender labels
-      const symbolOf = new Map<number, string>(allTrades.map(t => [t.ticket, t.symbol]));
+      const symbolOf = new Map<number, string>(logicalTrades.map(lt => [lt.posId, lt.symbol]));
       const openSet = new Set<number>();
       for (const ev of events) {
-        if (ev.action === 'open') openSet.add(ev.ticket); else openSet.delete(ev.ticket);
+        if (ev.action === 'open') openSet.add(ev.posId); else openSet.delete(ev.posId);
         if (openSet.size > rules.max_open_trades) {
-          // Record every trade currently open, storing their co-offenders (all others in set)
-          openSet.forEach(tk => {
-            const coOffenders = [...openSet]
-              .filter(other => other !== tk)
-              .map(other => ({ ticket: other, symbol: symbolOf.get(other) || '' }));
-            if (!maxOpenViolators.has(tk)) {
-              maxOpenViolators.set(tk, coOffenders);
+          openSet.forEach(pid => {
+            const coOffenders = [...openSet].filter(o => o !== pid);
+            if (!positionViolators.has(pid)) {
+              positionViolators.set(pid, coOffenders);
             } else {
-              // Merge — add any new co-offenders not already recorded
-              const existing = maxOpenViolators.get(tk)!;
-              const existingTickets = new Set(existing.map(c => c.ticket));
-              coOffenders.forEach(c => { if (!existingTickets.has(c.ticket)) existing.push(c); });
+              const existing = positionViolators.get(pid)!;
+              const existingSet = new Set(existing);
+              coOffenders.forEach(c => { if (!existingSet.has(c)) existing.push(c); });
             }
           });
         }
       }
     }
 
-    // pairViolators: ticket → ticket[] of co-offending same-pair trades (excluding self)
+    // Propagate position violations back to individual partial-close tickets
+    const maxOpenViolators = new Map<number, { ticket: number; symbol: string }[]>();
+    for (const [posId, coOffenderPosIds] of positionViolators) {
+      const myTickets = positionToTickets.get(posId) || [];
+      // co-offenders: pick first ticket of each co-offending position
+      const coOffenders = coOffenderPosIds.map(coPosId => {
+        const coTickets = positionToTickets.get(coPosId) || [];
+        return { ticket: coTickets[0] ?? coPosId, symbol: logicalTrades.find(lt => lt.posId === coPosId)?.symbol || '' };
+      });
+      myTickets.forEach(tk => maxOpenViolators.set(tk, coOffenders));
+    }
+
+    // pairViolators: ticket → ticket[] of co-offending same-pair trades
+    // Same dedup: count by logical position, not partial rows
     const pairViolators = new Map<number, number[]>();
     if (rules.pair_limit) {
-      const bySymbol = new Map<string, TradeRow[]>();
-      allTrades.forEach(t => { if (!bySymbol.has(t.symbol)) bySymbol.set(t.symbol, []); bySymbol.get(t.symbol)!.push(t); });
-      bySymbol.forEach((symTrades) => {
+      const bySymbol = new Map<string, LogicalTrade[]>();
+      logicalTrades.forEach(lt => {
+        if (!bySymbol.has(lt.symbol)) bySymbol.set(lt.symbol, []);
+        bySymbol.get(lt.symbol)!.push(lt);
+      });
+
+      bySymbol.forEach(symLogical => {
         const symEvents: TimeEvent[] = [];
-        symTrades.forEach(t => {
-          symEvents.push({ time: new Date(t.open_time).getTime(), ticket: t.ticket, symbol: t.symbol, action: 'open' });
-          symEvents.push({ time: new Date(t.close_time).getTime(), ticket: t.ticket, symbol: t.symbol, action: 'close' });
+        symLogical.forEach(lt => {
+          symEvents.push({ time: lt.openMs,  posId: lt.posId, symbol: lt.symbol, action: 'open' });
+          symEvents.push({ time: lt.closeMs, posId: lt.posId, symbol: lt.symbol, action: 'close' });
         });
         symEvents.sort((a, b) => a.time - b.time || (a.action === 'close' ? -1 : 1));
         const symOpen = new Set<number>();
+        const symPosViolators = new Map<number, number[]>();
         for (const ev of symEvents) {
-          if (ev.action === 'open') symOpen.add(ev.ticket); else symOpen.delete(ev.ticket);
+          if (ev.action === 'open') symOpen.add(ev.posId); else symOpen.delete(ev.posId);
           if (symOpen.size > rules.pair_limit!) {
-            symOpen.forEach(tk => {
-              const coOffenders = [...symOpen].filter(other => other !== tk);
-              if (!pairViolators.has(tk)) {
-                pairViolators.set(tk, coOffenders);
+            symOpen.forEach(pid => {
+              const coOffenders = [...symOpen].filter(o => o !== pid);
+              if (!symPosViolators.has(pid)) {
+                symPosViolators.set(pid, coOffenders);
               } else {
-                const existing = pairViolators.get(tk)!;
+                const existing = symPosViolators.get(pid)!;
                 const existingSet = new Set(existing);
                 coOffenders.forEach(c => { if (!existingSet.has(c)) existing.push(c); });
               }
             });
           }
+        }
+        // Propagate back to tickets
+        for (const [posId, coOffenderPosIds] of symPosViolators) {
+          const myTickets = positionToTickets.get(posId) || [];
+          const coTickets = coOffenderPosIds.flatMap(coPosId => positionToTickets.get(coPosId) || [coPosId]);
+          myTickets.forEach(tk => {
+            if (!pairViolators.has(tk)) pairViolators.set(tk, coTickets);
+            else { const ex = pairViolators.get(tk)!; const exSet = new Set(ex); coTickets.forEach(c => { if (!exSet.has(c)) ex.push(c); }); }
+          });
         }
       });
     }
@@ -891,9 +952,16 @@ export class WpEvaluationEngine {
       const tradeNet = parseFloat(String(trade.profit)) + parseFloat(String(trade.commission || 0)) + parseFloat(String(trade.swap || 0));
       grossProfit += tradeNet;
 
-      // Max lot size
-      if (rules.max_lot_size && parseFloat(String(trade.volume)) > rules.max_lot_size) {
-        violations.push(`Lot size ${trade.volume} exceeds max ${rules.max_lot_size} lots`);
+      // Max lot size — check the full position volume (sum of all partials),
+      // not just the partial close volume, to catch positions that opened large
+      // and were closed in smaller pieces.
+      if (rules.max_lot_size) {
+        const posId = ticketToPosition.get(trade.ticket) ?? trade.ticket;
+        const lt = logicalTrades.find(l => l.posId === posId);
+        const positionVolume = lt ? lt.maxVolume : parseFloat(String(trade.volume));
+        if (positionVolume > rules.max_lot_size) {
+          violations.push(`Lot size ${positionVolume} exceeds max ${rules.max_lot_size} lots`);
+        }
       }
 
       // Max open trades — include co-offending ticket IDs with their symbols

@@ -682,6 +682,8 @@ def candles(req: CandlesRequest):
     with _lock:
         result = do_candles(req.symbol, req.timeframe, req.from_time, req.to_time)
 
+    # Reset idle timer so candle requests during evaluation don't trigger premature base-account restore
+    _schedule_idle_restore()
     return result
 
 

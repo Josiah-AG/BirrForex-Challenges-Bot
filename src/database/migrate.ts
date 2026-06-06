@@ -268,6 +268,12 @@ async function migrate() {
     await db.query(`CREATE INDEX IF NOT EXISTS idx_wp_trades_sl_pending ON wp_trades(challenge_id, registration_id) WHERE sl_check_pending = true;`).catch(() => {});
     console.log('✅ sl_check_pending migration OK');
 
+    // position_id on wp_trades — links partial-close rows back to the same MT5 position
+    // so the evaluation engine can count a partially-closed position as one concurrent trade.
+    await db.query(`ALTER TABLE wp_trades ADD COLUMN IF NOT EXISTS position_id BIGINT;`).catch(() => {});
+    await db.query(`CREATE INDEX IF NOT EXISTS idx_wp_trades_position_id ON wp_trades(challenge_id, position_id);`).catch(() => {});
+    console.log('✅ position_id migration OK');
+
     // Fix Discord registrations that have standard_cent accounts but is_cent=false
     // These registered before the Discord bot passed is_cent/account_subtype to the API
     await db.query(`

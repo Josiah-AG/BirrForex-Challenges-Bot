@@ -1255,11 +1255,12 @@ export class VpsPullScheduler {
       try {
         await db.query(
           `INSERT INTO wp_trades
-           (challenge_id, registration_id, account_number, ticket, symbol, trade_type, volume,
+           (challenge_id, registration_id, account_number, ticket, position_id, symbol, trade_type, volume,
             open_time, close_time, open_price, close_price, stop_loss, take_profit,
             profit, commission, swap, comment, synced_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, NOW())
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, NOW())
            ON CONFLICT (challenge_id, account_number, ticket) DO UPDATE SET
+             position_id = EXCLUDED.position_id,
              symbol = EXCLUDED.symbol,
              trade_type = EXCLUDED.trade_type,
              volume = EXCLUDED.volume,
@@ -1276,6 +1277,7 @@ export class VpsPullScheduler {
              synced_at = NOW()`,
           [
             challengeId, account.registrationId, account.accountNumber, trade.ticket,
+            trade.position_id || trade.ticket,
             trade.symbol || null, trade.type || null, trade.volume || 0,
             trade.open_time || null, trade.close_time || null,
             trade.open_price || 0, trade.close_price || 0,
