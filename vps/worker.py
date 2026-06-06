@@ -52,7 +52,7 @@ MAX_FAILURES_BEFORE_HEAL = 3  # After 3 consecutive failures, self-heal
 
 # Idle restore timer
 _idle_timer = None
-IDLE_TIMEOUT = 30  # seconds before restoring base account
+IDLE_TIMEOUT = 300  # seconds before restoring base account (long enough to cover a full pull+eval cycle)
 
 app = FastAPI(title=f"VPS Worker {TERMINAL_ID}", version="6.3.0")
 

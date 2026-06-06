@@ -782,6 +782,46 @@ router.post('/verify-real-account', async (req: Request, res: Response) => {
   }
 });
 
+// ==================== CHECK REGISTRATION STATUS ====================
+
+/**
+ * GET /api/discord/challenges/:id/check-registration/:userId
+ * Check if a Discord user is already registered for a challenge.
+ */
+router.get('/challenges/:id/check-registration/:userId', async (req: Request, res: Response) => {
+  try {
+    const challengeId = parseInt(param(req, 'id'));
+    const userId = param(req, 'userId');
+
+    const result = await db.query(
+      `SELECT id, nickname, account_number, account_type, status
+       FROM trading_registrations
+       WHERE challenge_id = $1 AND user_id = $2
+         AND (status IS NULL OR status != 'removed')
+       LIMIT 1`,
+      [challengeId, userId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.json({ registered: false });
+    }
+
+    const r = result.rows[0];
+    return res.json({
+      registered: true,
+      registration: {
+        id: r.id,
+        nickname: r.nickname,
+        accountNumber: r.account_number,
+        accountType: r.account_type,
+      },
+    });
+  } catch (error) {
+    console.error('Discord check-registration error:', error);
+    return res.status(500).json({ error: 'Internal server error', registered: false });
+  }
+});
+
 // ==================== PENDING ANNOUNCEMENTS (for Discord bot polling) ====================
 
 /**

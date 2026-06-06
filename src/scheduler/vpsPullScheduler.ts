@@ -466,40 +466,40 @@ export class VpsPullScheduler {
     this.cancelRequested = false;
     this.abortController = new AbortController();
     const startTime = Date.now();
+    let batchId: number | null = null;
+    let accounts: AccountToPull[] = [];
 
     try {
-      // Load challenge directly by ID (no status check)
+      // Load challenge directly by ID — no status check (force pulls work at any status)
       const challengeResult = await db.query(
         `SELECT id, title, type, status, start_date, end_date, starting_balance, target_balance, evaluation_type, winners_posted_at FROM trading_challenges WHERE id = $1`,
         [challengeId]
       );
       if (challengeResult.rows.length === 0) {
         console.log(`⚠️ VPS Pull: Challenge ${challengeId} not found`);
-        this.isRunning = false;
         return;
       }
       const challengeToPull = challengeResult.rows[0];
       console.log(`📊 VPS Pull: Admin full pull for "${challengeToPull.title}" (status: ${challengeToPull.status})`);
 
-      // Build shared queue — forceAll=true bypasses zero_balance_at filter (admin override)
-      const accounts = await this.getAccountsToPull(challengeId, true);
+      // Build shared queue — forceAll=true bypasses all filters (admin override)
+      accounts = await this.getAccountsToPull(challengeId, true);
       if (accounts.length === 0) {
         console.log('📊 VPS Pull: No accounts to pull');
-        this.isRunning = false;
         return;
       }
 
       console.log(`📊 VPS Pull: ${accounts.length} accounts, ${this.getHealthyTerminalCount()} healthy terminals`);
       this.terminals.forEach(t => { t.totalProcessed = 0; t.totalSuccess = 0; t.totalFailed = 0; });
 
-      const batchId = await this.createPullBatch(challengeId, accounts.length);
+      batchId = await this.createPullBatch(challengeId, accounts.length);
       this.sharedQueue.load(accounts.map(a => ({ ...a, isPriority: false })));
 
       const healthyTerminals = this.terminals.filter(t => t.isHealthy);
       if (healthyTerminals.length === 0) {
         console.error('❌ VPS Pull: ALL terminals unhealthy');
         await this.completePullBatch(batchId, 0, accounts.length, 0, 'all_terminals_unhealthy');
-        this.isRunning = false;
+        batchId = null;
         return;
       }
 
@@ -509,8 +509,8 @@ export class VpsPullScheduler {
       if (this.cancelRequested) {
         console.log('🛑 VPS Pull: Admin pull cancelled');
         await candleTerminalManager.restore();
-        this.isRunning = false;
-        this.cancelRequested = false;
+        await this.completePullBatch(batchId, 0, accounts.length, 0, 'cancelled').catch(() => {});
+        batchId = null;
         return;
       }
 
@@ -520,7 +520,9 @@ export class VpsPullScheduler {
       const failed = allResults.filter(r => !r.success);
       const newTrades = successful.reduce((sum, r) => sum + (r.tradesCount || 0), 0);
       await this.completePullBatch(batchId, successful.length, failed.length, newTrades, 'completed');
-      await this.savePullTerminalStats(batchId);
+      const completedBatchId = batchId;
+      batchId = null;
+      await this.savePullTerminalStats(completedBatchId);
       await this.bulkUpdatePullStatus(allResults);
       await this.reportCandleFailures(challengeToPull.id, 0);
 
@@ -529,6 +531,10 @@ export class VpsPullScheduler {
 
     } catch (error) {
       console.error('❌ VPS Pull: Admin full pull crashed:', error);
+      // Always mark batch as failed so pull-status stops showing it as running
+      if (batchId !== null) {
+        await this.completePullBatch(batchId, 0, accounts.length, 0, 'failed').catch(() => {});
+      }
     } finally {
       this.isRunning = false;
       this.cancelRequested = false;
@@ -614,6 +620,8 @@ export class VpsPullScheduler {
         }
       } else {
         if (result.errorCode === 'invalid_credentials') {
+          // Update last_pull_at so pull-status progress bar advances for this account
+          await db.query(`UPDATE trading_registrations SET last_pull_at = NOW() WHERE id = $1`, [account.registrationId]).catch(() => {});
           resultsMutex.results.push(result);
           terminal.totalFailed++;
         } else {
@@ -627,6 +635,8 @@ export class VpsPullScheduler {
             this.sharedQueue.requeue(account);
             break;
           }
+          // Update last_pull_at so pull-status progress bar advances even on failure
+          await db.query(`UPDATE trading_registrations SET last_pull_at = NOW() WHERE id = $1`, [account.registrationId]).catch(() => {});
           resultsMutex.results.push(result);
           terminal.totalFailed++;
         }
@@ -1125,8 +1135,9 @@ export class VpsPullScheduler {
     ).catch(() => {});
 
     // Check if we should exclude late depositors (0 balance, 0 trades, not enough days left)
+    // Skip entirely for force pulls — admin override pulls everything without triggering auto-DQ side effects
     let lateExcludeIds: number[] = [];
-    try {
+    if (!forceAll) try {
       const challengeInfo = await db.query(
         `SELECT end_date FROM trading_challenges WHERE id = $1`, [challengeId]);
       const rulesInfo = await db.query(

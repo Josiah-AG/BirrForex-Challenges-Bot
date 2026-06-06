@@ -826,7 +826,8 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/participants`, adminIpChe
       `SELECT r.id, r.user_id, r.source, r.username, r.nickname, r.account_type,
               r.email, r.account_number, r.mt5_server, r.status, r.partner_status,
               r.disqualified, r.disqualified_reason, r.registered_at, r.source,
-              r.connection_verified, r.pull_status, r.last_pull_at,
+              r.connection_verified, r.pull_status, r.last_pull_at, r.is_cent,
+              r.registration_balance, r.last_known_balance,
               l.rank, l.current_balance, l.adjusted_balance, l.qualified_profit, l.total_trades, l.flagged_trades,
               c.source as challenge_source
        FROM trading_registrations r
@@ -859,7 +860,15 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/participants`, adminIpChe
         pullStatus: r.pull_status,
         lastPullAt: r.last_pull_at,
         rank: r.rank,
-        balance: r.current_balance != null ? parseFloat(r.current_balance) : null,
+        isCent: r.is_cent || false,
+        // Use leaderboard balance if available; fall back to last_known_balance / registration_balance
+        balance: r.current_balance != null
+          ? parseFloat(r.current_balance)
+          : r.last_known_balance != null
+            ? parseFloat(r.last_known_balance)
+            : r.registration_balance != null
+              ? parseFloat(r.registration_balance)
+              : null,
         adjustedBalance: r.adjusted_balance != null ? parseFloat(r.adjusted_balance) : null,
         qualifiedProfit: r.qualified_profit != null ? parseFloat(r.qualified_profit) : null,
         totalTrades: r.total_trades || 0,
@@ -1415,7 +1424,8 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/finduser`, adminIpCheck, 
     const result = await db.query(
       `SELECT r.id, r.nickname, r.username, r.email, r.user_id, r.account_number,
               r.account_type, r.mt5_server, r.registered_at, r.last_pull_at, r.pull_status,
-              r.partner_status, r.disqualified, r.disqualified_reason,
+              r.partner_status, r.disqualified, r.disqualified_reason, r.is_cent,
+              r.registration_balance, r.last_known_balance,
               l.rank, l.current_balance, l.adjusted_balance, l.qualified_profit, l.gross_profit,
               l.profit_removed, l.total_trades, l.qualified_trades, l.flagged_trades, l.active_days,
               l.is_qualified, l.last_trade_time, l.last_updated as lb_updated
@@ -1455,7 +1465,14 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/finduser`, adminIpCheck, 
         server: r.mt5_server,
         registeredAt: r.registered_at,
         rank: r.rank || null,
-        balance: r.current_balance != null ? parseFloat(r.current_balance) : null,
+        isCent: r.is_cent || false,
+        balance: r.current_balance != null
+          ? parseFloat(r.current_balance)
+          : r.last_known_balance != null
+            ? parseFloat(r.last_known_balance)
+            : r.registration_balance != null
+              ? parseFloat(r.registration_balance)
+              : null,
         qualifiedProfit: r.qualified_profit != null ? parseFloat(r.qualified_profit) : 0,
         grossProfit: r.gross_profit != null ? parseFloat(r.gross_profit) : 0,
         profitRemoved: r.profit_removed != null ? parseFloat(r.profit_removed) : 0,

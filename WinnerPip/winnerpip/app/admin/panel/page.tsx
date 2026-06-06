@@ -626,9 +626,9 @@ export default function AdminDashboard() {
                   <button onClick={() => { setFoundUser(null); setSearchPerformed(false); setSearchQuery(""); }} className="p-2 hover:bg-white/10 rounded-lg"><X size={18} className="text-gray-400" /></button>
                 </div>
                 <div className="p-5 grid grid-cols-2 md:grid-cols-4 gap-3">
-                  <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500">Balance</p><p className="text-lg font-bold text-white">${foundUser.balance != null ? Number(foundUser.balance).toFixed(2) : "N/A"}</p></div>
-                  <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500">Qualified Profit</p><p className="text-lg font-bold text-profit">${foundUser.qualifiedProfit != null ? Number(foundUser.qualifiedProfit).toFixed(2) : "0.00"}</p></div>
-                  <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500">Profit Removed</p><p className="text-lg font-bold text-loss">${foundUser.profitRemoved != null ? Number(foundUser.profitRemoved).toFixed(2) : "0.00"}</p></div>
+                  <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500">Balance</p><p className="text-lg font-bold text-white">{cur(foundUser.balance, foundUser.isCent)}</p></div>
+                  <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500">Qualified Profit</p><p className="text-lg font-bold text-profit">{cur(foundUser.qualifiedProfit, foundUser.isCent)}</p></div>
+                  <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500">Profit Removed</p><p className="text-lg font-bold text-loss">{cur(foundUser.profitRemoved, foundUser.isCent)}</p></div>
                   <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500">Win Rate</p><p className="text-lg font-bold text-white">{foundUser.winRate || "N/A"}</p></div>
                   <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500">Trades</p><p className="text-lg font-bold text-white">{foundUser.totalTrades || 0}</p></div>
                   <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500">Avg RR</p><p className="text-lg font-bold text-royal">{foundUser.avgRR ? Number(foundUser.avgRR).toFixed(1) + "R" : "N/A"}</p></div>
@@ -644,7 +644,7 @@ export default function AdminDashboard() {
                   <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500">Partner</p><p className="text-sm font-semibold text-profit">{foundUser.partnerStatus}</p></div>
                 </div>
                 {foundUser.violations && foundUser.violations.length > 0 && (<div className="px-5 pb-3"><p className="text-xs font-semibold text-loss mb-2">Violations ({foundUser.violations.length})</p><div className="space-y-1">{foundUser.violations.map((v: string, i: number) => (<div key={i} className="flex items-center gap-2 p-2 bg-loss/5 rounded-lg border border-loss/10"><AlertTriangle size={12} className="text-loss flex-shrink-0" /><p className="text-xs text-gray-300">{v}</p></div>))}</div></div>)}
-                <div className="px-5 pb-3"><p className="text-xs font-semibold text-gray-300 mb-2">Recent Trades</p>{foundUser.recentTrades && foundUser.recentTrades.length > 0 ? <div className="space-y-2">{foundUser.recentTrades.map((t: any, i: number) => (<div key={i} className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10"><div className="flex items-center gap-3"><span className={`px-2 py-1 rounded text-[10px] font-bold ${t.type === "Buy" ? "bg-profit/10 text-profit" : "bg-loss/10 text-loss"}`}>{t.type}</span><div><p className="text-sm text-white font-semibold">{t.symbol}</p><p className="text-[10px] text-gray-500">{t.volume} lots</p></div></div><div className="text-right"><p className={`text-sm font-bold ${t.profit >= 0 ? "text-profit" : "text-loss"}`}>${Number(t.profit).toFixed(2)}</p></div></div>))}</div> : <p className="text-sm text-gray-500">No trades yet</p>}</div>
+                <div className="px-5 pb-3"><p className="text-xs font-semibold text-gray-300 mb-2">Recent Trades</p>{foundUser.recentTrades && foundUser.recentTrades.length > 0 ? <div className="space-y-2">{foundUser.recentTrades.map((t: any, i: number) => (<div key={i} className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10"><div className="flex items-center gap-3"><span className={`px-2 py-1 rounded text-[10px] font-bold ${t.type === "Buy" ? "bg-profit/10 text-profit" : "bg-loss/10 text-loss"}`}>{t.type}</span><div><p className="text-sm text-white font-semibold">{t.symbol}</p><p className="text-[10px] text-gray-500">{t.volume} lots</p></div></div><div className="text-right"><p className={`text-sm font-bold ${t.profit >= 0 ? "text-profit" : "text-loss"}`}>{cur(t.profit, foundUser.isCent)}</p></div></div>))}</div> : <p className="text-sm text-gray-500">No trades yet</p>}</div>
                 <div className="p-5 border-t border-white/10 space-y-2">
                   <button onClick={() => { const data = foundUser; const toEAT = (d:string) => { if(!d) return "—"; const dt = new Date(new Date(d).getTime()+3*60*60*1000); return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth()+1).padStart(2,"0")}-${String(dt.getUTCDate()).padStart(2,"0")} ${String(dt.getUTCHours()).padStart(2,"0")}:${String(dt.getUTCMinutes()).padStart(2,"0")} EAT`; }; const rows = [["Field","Value"],["Nickname",data.nickname],["Username",data.username],["Email",data.email],["Account",data.accountNumber],["Type",data.accountType],["Server",data.server],["Balance",data.balance != null ? data.balance : "N/A"],["Qualified Profit",data.qualifiedProfit],["Gross Profit",data.grossProfit],["Profit Removed",data.profitRemoved],["Trades",data.totalTrades],["Flagged",data.flaggedTrades],["Active Days",data.activeDays],["Rank",data.rank || "N/A"],["Registered (EAT)",toEAT(data.registeredAt)],["Last Pull (EAT)",toEAT(data.lastPull)],["Partner",data.partnerStatus]]; const csv=rows.map((r:any)=>r.join(",")).join("\n"); const blob=new Blob([csv],{type:"text/csv"}); const url=URL.createObjectURL(blob); const a=document.createElement("a"); a.href=url; a.download=`${data.nickname}_${data.accountNumber}_summary.csv`; a.click(); }} className="w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-royal/20 border border-royal/30 hover:bg-royal/30 text-royal font-semibold transition-all text-sm"><FileText size={16} />Export User Summary (CSV)</button>
                   <button onClick={async () => { const data = foundUser; if(!data.id){ alert("No user data"); return; } try { const _api = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com"; const _path = process.env.NEXT_PUBLIC_ADMIN_PATH || ""; const res = await fetch(`${_api}/api/admin/${_path}/challenge/${selectedChallengeId}/user-evaluation?registration_id=${data.id}`); if (!res.ok) { alert("Failed to fetch evaluation"); return; } const result = await res.json(); const blob = new Blob([result.report], {type:"text/plain"}); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `${data.nickname || data.accountNumber}_evaluation_report.txt`; a.click(); } catch { alert("Export failed"); } }} className="w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-profit/20 border border-profit/30 hover:bg-profit/30 text-profit font-semibold transition-all text-sm"><FileText size={16} />Export Evaluation Report</button>
@@ -706,8 +706,8 @@ export default function AdminDashboard() {
                           <td className="py-2 px-3 text-xs text-gray-400 max-w-[120px] truncate">{p.email || "—"}</td>
                           <td className="py-2 px-3 text-xs text-gray-300">{p.accountNumber}</td>
                           <td className="py-2 px-3"><span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${p.accountType === "real" ? "bg-gold/10 text-gold" : "bg-royal/10 text-royal"}`}>{p.accountType}</span></td>
-                          <td className="py-2 px-3 text-right"><span className="text-sm text-white font-medium">{p.balance != null ? `$${Number(p.balance).toFixed(2)}` : "—"}</span>{p.adjustedBalance != null && <p className="text-[9px] text-gray-400">Adj: ${Number(p.adjustedBalance).toFixed(2)}</p>}{p.lastPullAt && <p className="text-[9px] text-gray-500">{(() => { const d = new Date(new Date(p.lastPullAt).getTime() + 3*60*60*1000); return `${String(d.getUTCHours()).padStart(2,"0")}:${String(d.getUTCMinutes()).padStart(2,"0")} EAT`; })()}</p>}</td>
-                          <td className={`py-2 px-3 text-right text-sm font-medium ${(p.qualifiedProfit ?? 0) >= 0 ? "text-profit" : "text-loss"}`}>{p.qualifiedProfit != null ? `$${Number(p.qualifiedProfit).toFixed(2)}` : "—"}</td>
+                          <td className="py-2 px-3 text-right"><span className="text-sm text-white font-medium">{cur(p.balance, p.isCent)}</span>{p.adjustedBalance != null && <p className="text-[9px] text-gray-400">Adj: {cur(p.adjustedBalance, p.isCent)}</p>}{p.lastPullAt && <p className="text-[9px] text-gray-500">{(() => { const d = new Date(new Date(p.lastPullAt).getTime() + 3*60*60*1000); return `${String(d.getUTCHours()).padStart(2,"0")}:${String(d.getUTCMinutes()).padStart(2,"0")} EAT`; })()}</p>}</td>
+                          <td className={`py-2 px-3 text-right text-sm font-medium ${(p.qualifiedProfit ?? 0) >= 0 ? "text-profit" : "text-loss"}`}>{p.qualifiedProfit != null ? cur(p.qualifiedProfit, p.isCent) : "—"}</td>
                           <td className="py-2 px-3 text-center text-xs text-gray-400">{p.totalTrades}</td>
                           <td className="py-2 px-3 text-center" onClick={(e) => e.stopPropagation()}>
                             <div className="flex items-center justify-center gap-1">
@@ -2009,6 +2009,9 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures }: { ch
   const [actionMsg, setActionMsg] = useState("");
   const [retrying, setRetrying] = useState<string | null>(null);
   const [showFilter, setShowFilter] = useState<"failed" | "skipped" | "all">("failed");
+  const [pullProgress, setPullProgress] = useState<any>(null);
+  const [polling, setPolling] = useState(false);
+  const pollIntervalRef = useRef<number | null>(null);
 
   const formatEAT = (dateStr: string) => {
     const d = new Date(new Date(dateStr).getTime() + 3 * 60 * 60 * 1000);
@@ -2023,7 +2026,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures }: { ch
     try {
       const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/failed-accounts`);
       if (res.ok) { const data = await res.json(); setFailedAccounts(data.failed || []); setSkippedAccounts(data.skipped || []); }
-    } catch {}
+    } catch (_e) {}
     setLoadingFailed(false);
   };
 
@@ -2033,7 +2036,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures }: { ch
       const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/force-pull`, { method: "POST" });
       if (res.ok) { const data = await res.json(); setActionMsg(`✅ ${data.message}`); startPolling(); }
       else setActionMsg("❌ Failed to trigger pull");
-    } catch { setActionMsg("❌ Connection error"); }
+    } catch (_e) { setActionMsg("❌ Connection error"); }
   };
 
   const handleForcePullRank = async () => {
@@ -2042,7 +2045,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures }: { ch
       const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/force-pull-rank`, { method: "POST" });
       if (res.ok) { const data = await res.json(); setActionMsg(`✅ ${data.message}`); startPolling(); }
       else setActionMsg("❌ Failed to trigger pull");
-    } catch { setActionMsg("❌ Connection error"); }
+    } catch (_e) { setActionMsg("❌ Connection error"); }
   };
 
   const handleFullPull = async () => {
@@ -2051,53 +2054,46 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures }: { ch
       const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/full-pull`, { method: "POST" });
       if (res.ok) { const data = await res.json(); setActionMsg(`✅ ${data.message}`); startPolling(); }
       else setActionMsg("❌ Failed to trigger full pull");
-    } catch { setActionMsg("❌ Connection error"); }
+    } catch (_e) { setActionMsg("❌ Connection error"); }
   };
 
-  // Poll pull status for progress bar
-  const [pullProgress, setPullProgress] = useState<any>(null);
-  const [polling, setPolling] = useState(false);
-  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  const stopPolling = () => {
-    if (pollIntervalRef.current) { clearInterval(pollIntervalRef.current); pollIntervalRef.current = null; }
+  const stopPoll = () => {
+    if (pollIntervalRef.current !== null) {
+      window.clearInterval(pollIntervalRef.current);
+      pollIntervalRef.current = null;
+    }
     setPolling(false);
   };
 
   const startPolling = () => {
-    if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+    stopPoll();
     setPolling(true);
-    pollIntervalRef.current = setInterval(async () => {
+    pollIntervalRef.current = window.setInterval(async () => {
       try {
-        const res = await fetch(`${apiUrl}/api/admin/${secretPath}/pull-status`);
-        if (res.ok) {
-          const data = await res.json();
-          setPullProgress(data);
-          if (!data.isRunning) {
-            stopPolling();
-            fetchFailed();
-            setTimeout(() => window.location.reload(), 1000);
-          }
+        const r = await fetch(`${apiUrl}/api/admin/${secretPath}/pull-status`);
+        const d = await r.json();
+        setPullProgress(d);
+        if (!d.isRunning) {
+          stopPoll();
+          fetchFailed();
+          setTimeout(() => window.location.reload(), 1000);
         }
-      } catch {}
+      } catch (_e) {}
     }, 3000);
-    // Also do an immediate check
-    fetch(`${apiUrl}/api/admin/${secretPath}/pull-status`).then(r => r.json()).then(d => setPullProgress(d)).catch(() => {});
   };
 
   // Check if a pull is already running on mount
   useEffect(() => {
-    const checkRunning = async () => {
+    async function check() {
       try {
-        const res = await fetch(`${apiUrl}/api/admin/${secretPath}/pull-status`);
-        if (res.ok) {
-          const data = await res.json();
-          setPullProgress(data);
-          if (data.isRunning) startPolling();
-        }
-      } catch {}
-    };
-    checkRunning();
+        const r = await fetch(`${apiUrl}/api/admin/${secretPath}/pull-status`);
+        const d = await r.json();
+        setPullProgress(d);
+        if (d.isRunning) { startPolling(); }
+      } catch (_e) {}
+    }
+    check();
+    return () => { stopPoll(); };
   }, []);
 
   const handleRetryAccount = async (regId: number) => {
@@ -2114,7 +2110,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures }: { ch
       }
       // Refresh failed list
       setTimeout(() => fetchFailed(), 1000);
-    } catch { setActionMsg("❌ Connection error"); }
+    } catch (_e) { setActionMsg("❌ Connection error"); }
     setRetrying(null);
   };
 
@@ -2124,7 +2120,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures }: { ch
       const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/retry-all-failed`, { method: "POST" });
       if (res.ok) { const data = await res.json(); setActionMsg(`✅ ${data.count} accounts queued for retry`); fetchFailed(); }
       else setActionMsg("❌ Failed");
-    } catch { setActionMsg("❌ Connection error"); }
+    } catch (_e) { setActionMsg("❌ Connection error"); }
     setRetrying(null);
   };
 
@@ -2142,7 +2138,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures }: { ch
       } else {
         setActionMsg(`❌ ${data.message || "Update failed"}`);
       }
-    } catch { setActionMsg("❌ Connection error"); }
+    } catch (_e) { setActionMsg("❌ Connection error"); }
     setRetrying(null);
   };
 
@@ -2177,10 +2173,11 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures }: { ch
                   try {
                     try {
                       await fetch(`${apiUrl}/api/admin/${secretPath}/cancel-pull`, { method: "POST" });
-                    } catch {}
+                    } catch (_e) {}
                     // Always stop polling and hide bar regardless of API response
                     setPullProgress((prev: any) => ({ ...prev, isRunning: false }));
-                    stopPolling();
+                    if (pollIntervalRef.current) { clearInterval(pollIntervalRef.current); pollIntervalRef.current = null; }
+                    setPolling(false);
                 }}
                 className="px-3 py-1 rounded-lg bg-loss/10 border border-loss/30 text-loss text-xs font-semibold hover:bg-loss/20 transition-all"
               >
