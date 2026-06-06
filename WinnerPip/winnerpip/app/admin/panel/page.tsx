@@ -275,8 +275,8 @@ export default function AdminDashboard() {
     pullsSuccess: od?.pulls?.success || 0,
     pullsFailed: od?.pulls?.failed || 0,
     passwordChanged: od?.pulls?.passwordChanged || 0,
-    avgBalance: od?.balance?.total?.toFixed(2) || "0.00",
-    medianBalance: od?.balance?.real?.toFixed(2) || "0.00",
+    realBalance: od?.balance?.real?.toFixed(2) || "0.00",
+    demoBalance: od?.balance?.demo?.toFixed(2) || "0.00",
     aboveTarget: od?.qualified || 0,
     qualifiedCount: od?.qualified || 0,
     lastPullTime: od?.pulls?.lastPullAt ? (() => { const d = new Date(new Date(od.pulls.lastPullAt).getTime() + 3*60*60*1000); return `${String(d.getUTCHours()).padStart(2,"0")}:${String(d.getUTCMinutes()).padStart(2,"0")} EAT`; })() : "—",
@@ -484,7 +484,7 @@ export default function AdminDashboard() {
           </div>
 
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 mb-6">
-            <StatCard icon={<Target size={16} />} label="Total Balance" value={`$${overview.avgBalance}`} sub={`Real: $${overview.medianBalance} | Demo: $${(od?.balance?.demo?.toFixed(2) || "0.00")}`} color="text-profit" />
+            <StatCard icon={<Target size={16} />} label="Total Balance" value={`$${overview.realBalance}`} sub={`Real: $${overview.realBalance} | Demo: $${overview.demoBalance}`} color="text-profit" />
             <StatCard icon={<Zap size={16} />} label="Pulls Today" value={overview.pullsToday.toString()} sub={`Next: ${overview.nextPullTime}`} color="text-royal" />
             <StatCard icon={<Shield size={16} />} label="Pull Success" value={overview.pullsSuccess.toString()} sub={`Failed: ${overview.pullsFailed} | PW Changed: ${overview.passwordChanged}`} color="text-profit" />
             <StatCard icon={<Clock size={16} />} label="Last Pull" value={overview.lastPullTime} sub={`${overview.pullsSuccess} ok · ${overview.pullsFailed} failed`} color="text-gray-300" />

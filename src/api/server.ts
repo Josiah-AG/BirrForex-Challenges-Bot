@@ -1070,48 +1070,45 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
     const aboveTarget = await db.query(
       `SELECT COUNT(*) as cnt FROM wp_leaderboard WHERE challenge_id=$1 AND is_qualified=true`, [challengeId]);
 
-    // Balance stats — total balance (normalized to $) split by category.
-    // Always JOIN trading_registrations for is_cent — it is the source of truth,
-    // never rely on wp_leaderboard.is_cent which can be stale.
+    // Balance stats — gross account balance across ALL participants in USD.
+    //
+    // Uses a unified source per participant:
+    //   - If the participant has a leaderboard entry: use current_balance (gross balance
+    //     = actualStartBalance + sum of ALL trade profits before any rule deductions)
+    //   - Otherwise: use last_known_balance from registration (balance at last VPS verify/pull)
+    //
+    // This ensures ALL participants are counted regardless of leaderboard state.
+    // is_cent always read from trading_registrations (source of truth).
+    // Cent balances divided by 100 → always displays in USD.
     const balanceStats = await db.query(
       `SELECT
-        COUNT(*) as row_count,
-        COALESCE(SUM(CASE WHEN r.is_cent THEN l.current_balance/100 ELSE l.current_balance END), 0) as total_balance,
-        COALESCE(SUM(CASE WHEN l.account_type='real' THEN (CASE WHEN r.is_cent THEN l.current_balance/100 ELSE l.current_balance END) ELSE 0 END), 0) as real_balance,
-        COALESCE(SUM(CASE WHEN l.account_type='demo' THEN l.current_balance ELSE 0 END), 0) as demo_balance
-       FROM wp_leaderboard l
-       JOIN trading_registrations r ON l.registration_id = r.id
-       WHERE l.challenge_id=$1 AND l.is_disqualified=false`, [challengeId]);
-
-    // If no leaderboard data yet, sum starting balances from registrations
-    const rulesCheck = await db.query(`SELECT parameters FROM wp_challenge_rules WHERE challenge_id = $1 AND rule_code = 'config'`, [challengeId]);
-    const challengeIsCentOnly = rulesCheck.rows[0]?.parameters?.only_cent_account || false;
-
-    // For cent-only challenges: all real users are cent, divide by 100
-    // For mixed challenges: only users with is_cent=true get divided
-    const centCondition = challengeIsCentOnly
-      ? `(account_type = 'real')`  // All real users are cent in cent-only challenges
-      : `(is_cent = true)`;        // Only flagged users in mixed challenges
-
-    const startingBalanceSum = await db.query(
-      `SELECT
+        COUNT(*) as participant_count,
         COALESCE(SUM(
-          CASE WHEN ${centCondition}
-            THEN COALESCE(last_known_balance, registration_balance) / 100
-            ELSE COALESCE(last_known_balance, registration_balance)
+          CASE WHEN r.is_cent
+            THEN COALESCE(l.current_balance, r.last_known_balance, r.registration_balance, 0) / 100
+            ELSE COALESCE(l.current_balance, r.last_known_balance, r.registration_balance, 0)
           END
-        ), 0) as total_starting,
+        ), 0) as total_balance,
         COALESCE(SUM(
-          CASE WHEN account_type = 'real' THEN
-            CASE WHEN ${centCondition}
-              THEN COALESCE(last_known_balance, registration_balance) / 100
-              ELSE COALESCE(last_known_balance, registration_balance)
+          CASE WHEN r.account_type = 'real' THEN
+            CASE WHEN r.is_cent
+              THEN COALESCE(l.current_balance, r.last_known_balance, r.registration_balance, 0) / 100
+              ELSE COALESCE(l.current_balance, r.last_known_balance, r.registration_balance, 0)
             END
           ELSE 0 END
-        ), 0) as real_starting,
-        COALESCE(SUM(CASE WHEN account_type='demo' THEN COALESCE(last_known_balance, registration_balance) ELSE 0 END), 0) as demo_starting,
-        COUNT(*) as total_count
-       FROM trading_registrations WHERE challenge_id=$1 AND disqualified=false AND investor_password IS NOT NULL`, [challengeId]);
+        ), 0) as real_balance,
+        COALESCE(SUM(
+          CASE WHEN r.account_type = 'demo'
+            THEN COALESCE(l.current_balance, r.last_known_balance, r.registration_balance, 0)
+            ELSE 0 END
+        ), 0) as demo_balance
+       FROM trading_registrations r
+       LEFT JOIN wp_leaderboard l ON l.registration_id = r.id AND l.is_disqualified = false
+       WHERE r.challenge_id = $1
+         AND r.disqualified = false
+         AND r.investor_password IS NOT NULL`,
+      [challengeId]
+    );
 
     // Latest screening
     const latestScreening = await db.query(
@@ -1121,26 +1118,10 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
     const t = tradeStats.rows[0];
     const p = pullStats.rows[0];
     const b = balanceStats.rows[0];
-    const s = startingBalanceSum.rows[0];
 
-    // Use leaderboard totals if available (check row count, not balance sum — balances can be 0)
-    const hasLeaderboardData = parseInt(b.row_count) > 0;
-    let totalBalance = hasLeaderboardData ? parseFloat(b.total_balance) : parseFloat(s.total_starting);
-    let realBalance = hasLeaderboardData ? parseFloat(b.real_balance) : parseFloat(s.real_starting);
-    let demoBalance = hasLeaderboardData ? parseFloat(b.demo_balance) : parseFloat(s.demo_starting);
-
-    // If no leaderboard and no saved balances yet: estimate from challenge starting_balance
-    // For cent-only challenges starting_balance is in ¢ — still divide by 100 for USD display
-    if (!hasLeaderboardData && totalBalance === 0 && parseInt(s.total_count) > 0) {
-      const challengeData = await db.query(`SELECT starting_balance FROM trading_challenges WHERE id = $1`, [challengeId]);
-      const challengeStartBal = parseFloat(challengeData.rows[0]?.starting_balance || 0);
-      if (challengeStartBal > 0) {
-        const divisor = challengeIsCentOnly ? 100 : 1;
-        totalBalance = (challengeStartBal / divisor) * parseInt(s.total_count);
-        realBalance = (challengeStartBal / divisor) * parseInt(c.real);
-        demoBalance = challengeStartBal * parseInt(c.demo); // demo is always $
-      }
-    }
+    const totalBalance = parseFloat(b.total_balance);
+    const realBalance  = parseFloat(b.real_balance);
+    const demoBalance  = parseFloat(b.demo_balance);
 
     // Last pull time
     const lastPull = await db.query(
@@ -1150,7 +1131,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
       participants: { total: parseInt(c.total), demo: parseInt(c.demo), real: parseInt(c.real), disqualified: parseInt(c.disqualified) },
       trades: { total: parseInt(t.total_trades), totalVolume: parseFloat(t.total_volume), violations: parseInt(t.violations) },
       pulls: { today: parseInt(p.pulls_today), success: parseInt(p.total_success), failed: parseInt(p.total_failed), newTrades: parseInt(p.new_trades), passwordChanged: parseInt(pwChanged.rows[0].cnt), lastPullAt: lastPull.rows[0]?.completed_at || null },
-      balance: { total: totalBalance, real: realBalance, demo: demoBalance, isCentOnly: challengeIsCentOnly },
+      balance: { total: totalBalance, real: realBalance, demo: demoBalance },
       qualified: parseInt(aboveTarget.rows[0].cnt),
       latestScreening: latestScreening.rows[0] || null,
     });
