@@ -1070,13 +1070,18 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
     const aboveTarget = await db.query(
       `SELECT COUNT(*) as cnt FROM wp_leaderboard WHERE challenge_id=$1 AND is_qualified=true`, [challengeId]);
 
-    // Balance stats — total balance (normalized to $) split by category
+    // Balance stats — total balance (normalized to $) split by category.
+    // Always JOIN trading_registrations for is_cent — it is the source of truth,
+    // never rely on wp_leaderboard.is_cent which can be stale.
     const balanceStats = await db.query(
       `SELECT
-        COALESCE(SUM(CASE WHEN is_cent THEN current_balance/100 ELSE current_balance END), 0) as total_balance,
-        COALESCE(SUM(CASE WHEN account_type='real' THEN (CASE WHEN is_cent THEN current_balance/100 ELSE current_balance END) ELSE 0 END), 0) as real_balance,
-        COALESCE(SUM(CASE WHEN account_type='demo' THEN current_balance ELSE 0 END), 0) as demo_balance
-       FROM wp_leaderboard WHERE challenge_id=$1 AND is_disqualified=false`, [challengeId]);
+        COUNT(*) as row_count,
+        COALESCE(SUM(CASE WHEN r.is_cent THEN l.current_balance/100 ELSE l.current_balance END), 0) as total_balance,
+        COALESCE(SUM(CASE WHEN l.account_type='real' THEN (CASE WHEN r.is_cent THEN l.current_balance/100 ELSE l.current_balance END) ELSE 0 END), 0) as real_balance,
+        COALESCE(SUM(CASE WHEN l.account_type='demo' THEN l.current_balance ELSE 0 END), 0) as demo_balance
+       FROM wp_leaderboard l
+       JOIN trading_registrations r ON l.registration_id = r.id
+       WHERE l.challenge_id=$1 AND l.is_disqualified=false`, [challengeId]);
 
     // If no leaderboard data yet, sum starting balances from registrations
     const rulesCheck = await db.query(`SELECT parameters FROM wp_challenge_rules WHERE challenge_id = $1 AND rule_code = 'config'`, [challengeId]);
@@ -1118,20 +1123,22 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
     const b = balanceStats.rows[0];
     const s = startingBalanceSum.rows[0];
 
-    // Use leaderboard totals if available, otherwise starting balances from registrations
-    const hasLeaderboardData = parseFloat(b.total_balance) > 0;
+    // Use leaderboard totals if available (check row count, not balance sum — balances can be 0)
+    const hasLeaderboardData = parseInt(b.row_count) > 0;
     let totalBalance = hasLeaderboardData ? parseFloat(b.total_balance) : parseFloat(s.total_starting);
     let realBalance = hasLeaderboardData ? parseFloat(b.real_balance) : parseFloat(s.real_starting);
     let demoBalance = hasLeaderboardData ? parseFloat(b.demo_balance) : parseFloat(s.demo_starting);
 
-    // If still 0 but we have verified participants (legacy users without saved balance), estimate from challenge starting_balance
+    // If no leaderboard and no saved balances yet: estimate from challenge starting_balance
+    // For cent-only challenges starting_balance is in ¢ — still divide by 100 for USD display
     if (!hasLeaderboardData && totalBalance === 0 && parseInt(s.total_count) > 0) {
       const challengeData = await db.query(`SELECT starting_balance FROM trading_challenges WHERE id = $1`, [challengeId]);
       const challengeStartBal = parseFloat(challengeData.rows[0]?.starting_balance || 0);
       if (challengeStartBal > 0) {
-        totalBalance = challengeStartBal * parseInt(s.total_count);
-        realBalance = challengeStartBal * parseInt(c.real);
-        demoBalance = challengeStartBal * parseInt(c.demo);
+        const divisor = challengeIsCentOnly ? 100 : 1;
+        totalBalance = (challengeStartBal / divisor) * parseInt(s.total_count);
+        realBalance = (challengeStartBal / divisor) * parseInt(c.real);
+        demoBalance = challengeStartBal * parseInt(c.demo); // demo is always $
       }
     }
 
