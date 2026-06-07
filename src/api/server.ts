@@ -627,7 +627,8 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
         status: registration.status,
         startDate: registration.start_date,
         endDate: registration.end_date,
-        startingBalance: actualStartingBalance ?? 0,
+        startingBalance: parseFloat(registration.starting_balance),  // challenge-wide official starting balance
+        myStartingBalance: actualStartingBalance ?? parseFloat(registration.starting_balance), // user's personal starting balance
         targetBalance: parseFloat(registration.target_balance),
         winnersCount: parseInt(registration.real_winners_count || 0) + parseInt(registration.demo_winners_count || 0),
         realWinnersCount: parseInt(registration.real_winners_count || 0),

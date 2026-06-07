@@ -28,7 +28,7 @@ interface LeaderboardEntry {
 interface ChallengeInfo {
   id: number; title: string; status: string;
   startDate: string; endDate: string;
-  startingBalance: number; targetBalance: number;
+  startingBalance: number; myStartingBalance?: number; targetBalance: number;
   winnersCount: number; realWinnersCount: number; demoWinnersCount: number;
   onlyCentAccount?: boolean;
 }
@@ -764,7 +764,7 @@ export default function ChallengeDashboard() {
                   )}
                 </div>
                 <div className="flex justify-between mt-2 text-xs">
-                  <span className="text-gray-500">{formatBalance(challenge.startingBalance, myStats.accountType, effectiveIsCent)}</span>
+                  <span className="text-gray-500">{formatBalance(challenge.myStartingBalance ?? challenge.startingBalance, myStats.accountType, effectiveIsCent)}</span>
                   {progressPercent < 0 && <span className="text-loss text-[10px]">▼ below start</span>}
                   <span className="text-gray-500">{formatBalance(challenge.targetBalance, myStats.accountType, effectiveIsCent)}</span>
                 </div>
