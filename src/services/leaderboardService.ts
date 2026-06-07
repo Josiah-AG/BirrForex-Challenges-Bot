@@ -98,12 +98,20 @@ export class LeaderboardService {
     await db.query(
       `INSERT INTO wp_leaderboard
        (challenge_id, registration_id, account_number, user_id, username, nickname, account_type,
-        starting_balance, current_balance, adjusted_balance, qualified_profit, gross_profit, profit_removed,
+        is_cent,
+        starting_balance, current_balance, adjusted_balance, normalized_balance,
+        qualified_profit, gross_profit, profit_removed,
         total_trades, qualified_trades, flagged_trades, active_days, is_qualified, last_updated)
        SELECT r.challenge_id, r.id, r.account_number, r.user_id, r.username, r.nickname, r.account_type,
+              r.is_cent,
               COALESCE(r.actual_starting_balance, r.registration_balance, c.starting_balance),
               COALESCE(r.last_known_balance, r.registration_balance, 0),
               COALESCE(r.actual_starting_balance, r.registration_balance, c.starting_balance),
+              -- normalized_balance: USD-equivalent for cross-type ranking (cent balances ÷100)
+              CASE WHEN r.is_cent
+                THEN COALESCE(r.actual_starting_balance, r.registration_balance, c.starting_balance) / 100.0
+                ELSE COALESCE(r.actual_starting_balance, r.registration_balance, c.starting_balance)
+              END,
               0, 0, 0, 0, 0, 0, 0, false, NOW()
        FROM trading_registrations r
        JOIN trading_challenges c ON r.challenge_id = c.id
@@ -111,6 +119,22 @@ export class LeaderboardService {
          AND r.investor_password IS NOT NULL
          AND r.connection_verified = true
          AND NOT EXISTS (SELECT 1 FROM wp_leaderboard l WHERE l.registration_id = r.id)`,
+      [challengeId]
+    );
+
+    // Backfill is_cent and normalized_balance for any existing entries that are missing them
+    // (created before this fix or by old code paths that didn't set these fields)
+    await db.query(
+      `UPDATE wp_leaderboard l
+       SET is_cent = r.is_cent,
+           normalized_balance = CASE WHEN r.is_cent
+             THEN COALESCE(l.adjusted_balance, 0) / 100.0
+             ELSE COALESCE(l.adjusted_balance, 0)
+           END
+       FROM trading_registrations r
+       WHERE l.registration_id = r.id
+         AND l.challenge_id = $1
+         AND (l.is_cent IS NULL OR l.normalized_balance IS NULL)`,
       [challengeId]
     );
   }

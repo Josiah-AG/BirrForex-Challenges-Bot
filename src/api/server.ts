@@ -430,7 +430,7 @@ app.get('/api/challenges/:id/leaderboard', async (req, res) => {
              l.qualified_profit, l.gross_profit, l.profit_removed, l.total_trades,
              l.qualified_trades, l.flagged_trades, l.is_qualified, l.is_disqualified,
              l.disqualify_reason, l.last_trade_time, l.last_updated, l.zero_balance_at,
-             l.is_cent, l.normalized_balance
+             COALESCE(l.is_cent, r.is_cent, false) as is_cent, l.normalized_balance
       FROM wp_leaderboard l
       JOIN trading_registrations r ON l.registration_id = r.id AND (r.status IS NULL OR r.status != 'removed')
       WHERE l.challenge_id = $1
