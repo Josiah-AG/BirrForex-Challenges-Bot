@@ -304,6 +304,7 @@ export default function AdminDashboard() {
     const fetchLeaderboard = async () => {
       try {
         const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
+        const secretPath = process.env.NEXT_PUBLIC_ADMIN_PATH || "";
         const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${selectedChallengeId}/admin-leaderboard?category=${leaderboardCategory}`);
         if (res.ok) {
           const data = await res.json();
