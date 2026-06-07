@@ -2269,6 +2269,91 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/export-registrations`, ad
 });
 
 /**
+ * GET /api/admin/:secretPath/challenge/:id/admin-leaderboard
+ * Admin leaderboard — all participants, no limit, includes unevaluated accounts
+ * falling back to registration balance so the admin always sees everyone.
+ */
+app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/admin-leaderboard`, adminIpCheck, async (req, res) => {
+  try {
+    const challengeId = parseInt(req.params.id);
+    const category    = (req.query.category as string) || 'all';
+
+    const challengeRow = await db.query(
+      `SELECT status, leaderboard_updated_at FROM trading_challenges WHERE id = $1`, [challengeId]
+    );
+    const status   = challengeRow.rows[0]?.status;
+    const dataFrom = challengeRow.rows[0]?.leaderboard_updated_at || null;
+
+    const catFilter  = (category === 'demo' || category === 'real') ? ` AND r.account_type = '${category}'` : '';
+    const centCheck  = await db.query(
+      `SELECT COALESCE((SELECT (parameters->>'only_cent_account')::boolean FROM wp_challenge_rules WHERE challenge_id = $1 AND rule_code = 'config'), false) as only_cent FROM trading_challenges WHERE id = $1`,
+      [challengeId]
+    );
+    const challengeOnlyCent = centCheck.rows[0]?.only_cent || false;
+
+    // All participants LEFT JOIN leaderboard — unevaluated accounts still appear
+    const result = await db.query(
+      `SELECT r.id as registration_id, r.nickname, r.account_type, r.is_cent,
+              r.registration_balance, r.last_known_balance, r.actual_starting_balance,
+              r.disqualified, r.disqualified_reason,
+              l.rank, l.current_balance, l.adjusted_balance, l.qualified_profit,
+              l.gross_profit, l.profit_removed, l.total_trades, l.qualified_trades,
+              l.flagged_trades, l.is_qualified, l.is_disqualified, l.disqualify_reason,
+              l.last_trade_time, l.last_updated, l.zero_balance_at
+       FROM trading_registrations r
+       LEFT JOIN wp_leaderboard l ON l.registration_id = r.id
+       WHERE r.challenge_id = $1
+         AND (r.status IS NULL OR r.status != 'removed')
+         ${catFilter}
+       ORDER BY
+         CASE WHEN l.is_disqualified = true OR r.disqualified = true THEN 1 ELSE 0 END,
+         l.rank ASC NULLS LAST,
+         COALESCE(l.adjusted_balance, r.last_known_balance, r.registration_balance) DESC NULLS LAST`,
+      [challengeId]
+    );
+
+    const isPreStart = status !== 'active' && status !== 'reviewing' && status !== 'completed';
+
+    return res.json({
+      dataFrom,
+      preStart: isPreStart,
+      total: result.rows.length,
+      leaderboard: result.rows.map((r: any) => {
+        const hasLeaderboard = r.rank != null;
+        const isCent = r.is_cent || (challengeOnlyCent && r.account_type !== 'demo') || false;
+        const fallbackBalance = r.last_known_balance != null
+          ? parseFloat(r.last_known_balance)
+          : r.registration_balance != null ? parseFloat(r.registration_balance) : 0;
+        return {
+          nickname: r.nickname,
+          accountType: r.account_type,
+          rank: r.rank || null,
+          currentBalance: hasLeaderboard ? parseFloat(r.current_balance) : fallbackBalance,
+          adjustedBalance: hasLeaderboard ? parseFloat(r.adjusted_balance) : fallbackBalance,
+          qualifiedProfit: hasLeaderboard ? parseFloat(r.qualified_profit) : 0,
+          grossProfit: hasLeaderboard ? parseFloat(r.gross_profit) : 0,
+          profitRemoved: hasLeaderboard ? parseFloat(r.profit_removed) : 0,
+          totalTrades: r.total_trades || 0,
+          qualifiedTrades: r.qualified_trades || 0,
+          flaggedTrades: r.flagged_trades || 0,
+          isQualified: r.is_qualified || false,
+          isDisqualified: r.is_disqualified || r.disqualified || false,
+          disqualifyReason: r.disqualify_reason || r.disqualified_reason || null,
+          isBlown: (r.total_trades > 0) && parseFloat(r.current_balance) <= 0,
+          isCent,
+          lastTradeTime: r.last_trade_time,
+          lastUpdated: r.last_updated,
+          notYetEvaluated: !hasLeaderboard,
+        };
+      }),
+    });
+  } catch (error) {
+    console.error('Admin leaderboard error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
  * GET /api/admin/:secretPath/challenge/:id/export-leaderboard
  * Full leaderboard export — latest pull data with all client details
  */

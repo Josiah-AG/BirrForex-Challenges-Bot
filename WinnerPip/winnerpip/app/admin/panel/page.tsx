@@ -304,7 +304,7 @@ export default function AdminDashboard() {
     const fetchLeaderboard = async () => {
       try {
         const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
-        const res = await fetch(`${apiUrl}/api/challenges/${selectedChallengeId}/leaderboard?category=${leaderboardCategory}`);
+        const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${selectedChallengeId}/admin-leaderboard?category=${leaderboardCategory}`);
         if (res.ok) {
           const data = await res.json();
           setLeaderboard(data.leaderboard || []);
@@ -535,7 +535,7 @@ export default function AdminDashboard() {
                 </tr></thead>
                 <tbody>{leaderboard.length === 0 ? <tr><td colSpan={leaderboardPreStart ? 4 : 8} className="py-8 text-center text-gray-500">No leaderboard data yet — will populate after VPS pulls and evaluation</td></tr> : leaderboard.map((e: any) => (
                   <tr key={e.rank || e.nickname} className={`border-b border-white/5 hover:bg-white/5 cursor-pointer ${e.isDisqualified ? "opacity-50" : ""}`} onClick={() => setSelectedParticipant(e)}>
-                    <td className="py-3 px-4"><span className={`text-sm font-bold ${e.isDisqualified ? "text-loss" : e.rank <= 3 ? "text-gold" : "text-gray-400"}`}>{e.rank || "—"}</span></td>
+                    <td className="py-3 px-4"><span className={`text-sm font-bold ${e.isDisqualified ? "text-loss" : e.rank && e.rank <= 3 ? "text-gold" : "text-gray-400"}`}>{e.rank || (e.notYetEvaluated ? <span className="text-[10px] text-gray-600">—</span> : "—")}</span></td>
                     <td className="py-3 px-4 text-sm text-white font-semibold">{e.nickname}{e.isDisqualified ? <span className="ml-2 text-[10px] text-loss">DQ</span> : ""}</td>
                     <td className="py-3 px-4"><span className={`px-2 py-1 rounded text-[10px] font-semibold ${e.accountType === "real" ? "bg-gold/10 text-gold" : "bg-royal/10 text-royal"}`}>{e.accountType}</span></td>
                     <td className="py-3 px-4 text-right text-sm font-bold text-white">{e.isDisqualified ? "DQ" : e.isCent ? `${Number(e.adjustedBalance).toFixed(2)}¢` : `$${Number(e.adjustedBalance).toFixed(2)}`}</td>
