@@ -32,11 +32,11 @@ class Database {
       
       return result;
     } catch (error) {
-      // Don't log full error details in production
       if (process.env.NODE_ENV !== 'production') {
         console.error('Database query error:', error);
       } else {
-        console.error('Database query failed');
+        // Log error message (not the query text) so we can diagnose in Railway logs
+        console.error('Database query failed:', (error as any)?.message || String(error));
       }
       throw error;
     }

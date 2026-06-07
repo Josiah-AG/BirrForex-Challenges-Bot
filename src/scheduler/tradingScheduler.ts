@@ -95,7 +95,7 @@ export class TradingScheduler {
         if (challenge.status === 'draft' || challenge.status === 'completed') continue;
 
         await this.checkCountdowns(challenge, dateStr, timeStr, eatTime);
-        await this.checkPreStartSnapshot(challenge, dateStr, timeStr);
+        await this.checkPreStartSnapshot(challenge);
         await this.checkChallengeStart(challenge, dateStr, timeStr);
         await this.checkDailyPosts(challenge, dateStr, timeStr, dayOfWeek);
         await this.checkChallengeEnd(challenge, dateStr, timeStr);
@@ -202,57 +202,50 @@ export class TradingScheduler {
 
   // ==================== CHALLENGE START ====================
 
-  // ==================== PRE-START SNAPSHOT (T-2h) ====================
+  // ==================== PRE-START SNAPSHOT (T-2h, with catch-up) ====================
 
-  private preStartSnapshotDone: Set<number> = new Set();
+  private preStartSnapshotRunning = false;
 
-  private async checkPreStartSnapshot(challenge: TradingChallenge, dateStr: string, timeStr: string) {
+  private async checkPreStartSnapshot(challenge: TradingChallenge) {
     if (challenge.status !== 'registration_open') return;
-    if (this.preStartSnapshotDone.has(challenge.id)) return;
+    if (this.preStartSnapshotRunning) return;
 
-    const start = this.toEATStrings(challenge.start_date);
-    const startMinutes = parseInt(start.timeStr.split(':')[0]) * 60 + parseInt(start.timeStr.split(':')[1]);
-    const nowMinutes   = parseInt(timeStr.split(':')[0]) * 60 + parseInt(timeStr.split(':')[1]);
+    // Fire when now >= challenge start - 2 hours (catch-up: runs even if the exact window was missed)
+    const nowMs   = Date.now();
+    const startMs = new Date(challenge.start_date).getTime();
+    if (nowMs < startMs - 2 * 60 * 60 * 1000) return; // Still too early
 
-    // Fire in the 5-minute window starting exactly 2 hours before challenge start
-    if (dateStr !== start.dateStr) return;
-    const diff = nowMinutes - (startMinutes - 120);
-    if (diff < 0 || diff > 4) return;
-
-    this.preStartSnapshotDone.add(challenge.id);
-    console.log(`📸 Pre-start snapshot starting for challenge ${challenge.id} "${challenge.title}" (T-2h)`);
-
-    const startingBalance = Number(challenge.starting_balance || 30);
-
-    const regs = await db.query(
-      `SELECT id, account_number, mt5_server, investor_password, is_cent, actual_starting_balance
+    // Check how many accounts still need the snapshot (actual_starting_balance IS NULL)
+    const pending = await db.query(
+      `SELECT id, account_number, mt5_server, investor_password, is_cent
        FROM trading_registrations
        WHERE challenge_id = $1
          AND disqualified = false
-         AND investor_password IS NOT NULL`,
+         AND investor_password IS NOT NULL
+         AND actual_starting_balance IS NULL`,
       [challenge.id]
     );
 
+    if (pending.rows.length === 0) return; // All accounts already snapshotted — nothing to do
+
+    this.preStartSnapshotRunning = true;
+    const minutesUntilStart = Math.round((startMs - nowMs) / 60000);
+    console.log(`📸 Pre-start snapshot: ${pending.rows.length} accounts pending for challenge ${challenge.id} "${challenge.title}" (${minutesUntilStart > 0 ? `T-${minutesUntilStart}min` : 'PAST start time'})`);
+
+    const startingBalance = Number(challenge.starting_balance || 30);
     let verified = 0, dqd = 0, failed = 0;
 
-    for (const reg of regs.rows) {
-      // Skip if snapshot already captured from a previous attempt
-      if (reg.actual_starting_balance !== null && reg.actual_starting_balance !== undefined) {
-        verified++;
-        continue;
-      }
-
+    for (const reg of pending.rows) {
       try {
         const result = await vpsService.verifyConnection(reg.account_number, reg.mt5_server, reg.investor_password);
         if (!result.success || result.balance === undefined || result.balance === null) {
-          // VPS failed — leave actual_starting_balance null so evaluation engine handles it
           failed++;
-          console.warn(`⚠️ Pre-start snapshot: VPS failed for reg ${reg.id} (${reg.account_number})`);
+          console.warn(`⚠️ Pre-start snapshot: VPS failed for reg ${reg.id} (${reg.account_number}) — will retry next minute`);
           continue;
         }
 
-        const balance = result.balance as number;
-        const limit   = reg.is_cent ? startingBalance * 100 : startingBalance;
+        const balance   = result.balance as number;
+        const limit     = reg.is_cent ? startingBalance * 100 : startingBalance;
         const tolerance = limit * 0.01;
 
         await db.query(
@@ -265,13 +258,9 @@ export class TradingScheduler {
           const currency = reg.is_cent ? '¢' : '$';
           await db.query(
             `UPDATE trading_registrations
-             SET disqualified = true, disqualified_at = NOW(),
-                 disqualified_reason = $1
+             SET disqualified = true, disqualified_at = NOW(), disqualified_reason = $1
              WHERE id = $2 AND disqualified = false`,
-            [
-              `Starting balance ${currency}${balance.toFixed(2)} exceeds allowed starting balance of ${currency}${limit.toFixed(2)}`,
-              reg.id,
-            ]
+            [`Starting balance ${currency}${balance.toFixed(2)} exceeds allowed starting balance of ${currency}${limit.toFixed(2)}`, reg.id]
           );
           dqd++;
           console.log(`🚫 Pre-start DQ: reg ${reg.id} (${reg.account_number}) balance ${balance} > limit ${limit}`);
@@ -282,7 +271,8 @@ export class TradingScheduler {
       }
     }
 
-    console.log(`✅ Pre-start snapshot done for challenge ${challenge.id}: ${verified} verified, ${dqd} DQ'd, ${failed} failed`);
+    console.log(`✅ Pre-start snapshot done: ${verified} verified, ${dqd} DQ'd, ${failed} failed (${pending.rows.length - failed} total processed)`);
+    this.preStartSnapshotRunning = false;
   }
 
   private challengeStartPosted: Set<number> = new Set();
