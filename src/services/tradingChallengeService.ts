@@ -257,31 +257,38 @@ class TradingChallengeService {
   async deleteRegistration(registrationId: number): Promise<void> {
     await db.query('DELETE FROM wp_leaderboard WHERE registration_id = $1', [registrationId]);
     await db.query('DELETE FROM wp_leaderboard_staging WHERE registration_id = $1', [registrationId]);
+    await db.query('DELETE FROM wp_trades WHERE registration_id = $1', [registrationId]);
     await db.query('DELETE FROM trading_registrations WHERE id = $1', [registrationId]);
   }
 
   async deleteRegistrationByUsername(challengeId: number, username: string): Promise<TradingRegistration | null> {
     const result = await db.query(
-      'DELETE FROM trading_registrations WHERE challenge_id = $1 AND LOWER(username) = LOWER($2) RETURNING *',
+      'SELECT * FROM trading_registrations WHERE challenge_id = $1 AND LOWER(username) = LOWER($2)',
       [challengeId, username.replace('@', '')]
     );
-    return result.rows[0] || null;
+    const reg = result.rows[0] || null;
+    if (reg) await this.deleteRegistration(reg.id);
+    return reg;
   }
 
   async deleteRegistrationByEmail(challengeId: number, email: string): Promise<TradingRegistration | null> {
     const result = await db.query(
-      'DELETE FROM trading_registrations WHERE challenge_id = $1 AND LOWER(email) = LOWER($2) RETURNING *',
+      'SELECT * FROM trading_registrations WHERE challenge_id = $1 AND LOWER(email) = LOWER($2)',
       [challengeId, email]
     );
-    return result.rows[0] || null;
+    const reg = result.rows[0] || null;
+    if (reg) await this.deleteRegistration(reg.id);
+    return reg;
   }
 
   async deleteRegistrationByAccount(challengeId: number, accountNumber: string): Promise<TradingRegistration | null> {
     const result = await db.query(
-      'DELETE FROM trading_registrations WHERE challenge_id = $1 AND account_number = $2 RETURNING *',
+      'SELECT * FROM trading_registrations WHERE challenge_id = $1 AND account_number = $2',
       [challengeId, accountNumber.trim()]
     );
-    return result.rows[0] || null;
+    const reg = result.rows[0] || null;
+    if (reg) await this.deleteRegistration(reg.id);
+    return reg;
   }
 
   // ==================== SUBMISSIONS ====================

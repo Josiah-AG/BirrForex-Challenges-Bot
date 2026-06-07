@@ -711,7 +711,7 @@ export default function AdminDashboard() {
                           <td className="py-2 px-3 text-center text-xs text-gray-400">{p.totalTrades}</td>
                           <td className="py-2 px-3 text-center" onClick={(e) => e.stopPropagation()}>
                             <div className="flex items-center justify-center gap-1">
-                              <VerifyButton challengeId={selectedChallengeId} registrationId={p.id} onResult={(data: any) => setVerifyPopup(data)} />
+                              <VerifyButton challengeId={selectedChallengeId} registrationId={p.id} onResult={(data: any) => setVerifyPopup({ ...data, isCent: p.isCent, accountSubtype: p.accountSubtype })} />
                               <button onClick={() => setActionModal({ type: 'unverify', participant: p })} title="Remove Registration" className="p-1.5 rounded-lg hover:bg-orange-500/20 text-gray-400 hover:text-orange-400 transition-all"><UserMinus size={14} /></button>
                               {!p.disqualified && <button onClick={() => setActionModal({ type: 'disqualify', participant: p })} title="Disqualify" className="p-1.5 rounded-lg hover:bg-loss/20 text-gray-400 hover:text-loss transition-all"><Ban size={14} /></button>}
                             </div>
@@ -1090,8 +1090,9 @@ export default function AdminDashboard() {
               <div className="space-y-2">
                 {(verifyPopup.balance != null) ? (
                   <>
-                    <div className="flex justify-between p-3 bg-white/5 rounded-lg"><span className="text-xs text-gray-400">Balance</span><span className="text-sm text-white font-bold">{cur(verifyPopup.balance, selectedParticipant?.isCent)}</span></div>
-                    {verifyPopup.equity != null && <div className="flex justify-between p-3 bg-white/5 rounded-lg"><span className="text-xs text-gray-400">Equity</span><span className="text-sm text-white font-bold">{cur(verifyPopup.equity, selectedParticipant?.isCent)}</span></div>}
+                    <div className="flex justify-between p-3 bg-white/5 rounded-lg"><span className="text-xs text-gray-400">Balance</span><span className="text-sm text-white font-bold">{cur(verifyPopup.balance, verifyPopup.isCent)}</span></div>
+                    {verifyPopup.equity != null && <div className="flex justify-between p-3 bg-white/5 rounded-lg"><span className="text-xs text-gray-400">Equity</span><span className="text-sm text-white font-bold">{cur(verifyPopup.equity, verifyPopup.isCent)}</span></div>}
+                    {verifyPopup.accountSubtype && <div className="flex justify-between p-3 bg-white/5 rounded-lg"><span className="text-xs text-gray-400">Account Type</span><span className="text-sm text-white font-bold capitalize">{verifyPopup.accountSubtype.replace(/_/g, ' ')}</span></div>}
                   </>
                 ) : (
                   <div className="p-3 bg-white/5 rounded-lg text-center">

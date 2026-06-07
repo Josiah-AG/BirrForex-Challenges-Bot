@@ -826,7 +826,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/participants`, adminIpChe
       `SELECT r.id, r.user_id, r.source, r.username, r.nickname, r.account_type,
               r.email, r.account_number, r.mt5_server, r.status, r.partner_status,
               r.disqualified, r.disqualified_reason, r.registered_at, r.source,
-              r.connection_verified, r.pull_status, r.last_pull_at, r.is_cent,
+              r.connection_verified, r.pull_status, r.last_pull_at, r.is_cent, r.account_subtype,
               r.registration_balance, r.last_known_balance,
               l.rank, l.current_balance, l.adjusted_balance, l.qualified_profit, l.total_trades, l.flagged_trades,
               c.source as challenge_source
@@ -861,6 +861,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/participants`, adminIpChe
         lastPullAt: r.last_pull_at,
         rank: r.rank,
         isCent: r.is_cent || false,
+        accountSubtype: r.account_subtype || null,
         // Use leaderboard balance if available; fall back to last_known_balance / registration_balance
         balance: r.current_balance != null
           ? parseFloat(r.current_balance)
@@ -1085,25 +1086,24 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
         COUNT(*) as participant_count,
         COALESCE(SUM(
           CASE WHEN r.is_cent
-            THEN COALESCE(l.current_balance, r.last_known_balance, r.registration_balance, 0) / 100
-            ELSE COALESCE(l.current_balance, r.last_known_balance, r.registration_balance, 0)
+            THEN COALESCE(r.last_known_balance, r.registration_balance, 0) / 100
+            ELSE COALESCE(r.last_known_balance, r.registration_balance, 0)
           END
         ), 0) as total_balance,
         COALESCE(SUM(
           CASE WHEN r.account_type = 'real' THEN
             CASE WHEN r.is_cent
-              THEN COALESCE(l.current_balance, r.last_known_balance, r.registration_balance, 0) / 100
-              ELSE COALESCE(l.current_balance, r.last_known_balance, r.registration_balance, 0)
+              THEN COALESCE(r.last_known_balance, r.registration_balance, 0) / 100
+              ELSE COALESCE(r.last_known_balance, r.registration_balance, 0)
             END
           ELSE 0 END
         ), 0) as real_balance,
         COALESCE(SUM(
           CASE WHEN r.account_type = 'demo'
-            THEN COALESCE(l.current_balance, r.last_known_balance, r.registration_balance, 0)
+            THEN COALESCE(r.last_known_balance, r.registration_balance, 0)
             ELSE 0 END
         ), 0) as demo_balance
        FROM trading_registrations r
-       LEFT JOIN wp_leaderboard l ON l.registration_id = r.id AND l.is_disqualified = false
        WHERE r.challenge_id = $1
          AND r.disqualified = false
          AND r.investor_password IS NOT NULL`,

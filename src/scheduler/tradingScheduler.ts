@@ -2,6 +2,7 @@ import cron from 'node-cron';
 import { Bot } from '../bot/bot';
 import { tradingChallengeService, TradingChallenge } from '../services/tradingChallengeService';
 import { exnessService } from '../services/exnessService';
+import { vpsService } from '../services/vpsService';
 import { config } from '../config';
 import { db } from '../database/db';
 import { Markup } from 'telegraf';
@@ -94,6 +95,7 @@ export class TradingScheduler {
         if (challenge.status === 'draft' || challenge.status === 'completed') continue;
 
         await this.checkCountdowns(challenge, dateStr, timeStr, eatTime);
+        await this.checkPreStartSnapshot(challenge, dateStr, timeStr);
         await this.checkChallengeStart(challenge, dateStr, timeStr);
         await this.checkDailyPosts(challenge, dateStr, timeStr, dayOfWeek);
         await this.checkChallengeEnd(challenge, dateStr, timeStr);
@@ -199,6 +201,89 @@ export class TradingScheduler {
   }
 
   // ==================== CHALLENGE START ====================
+
+  // ==================== PRE-START SNAPSHOT (T-2h) ====================
+
+  private preStartSnapshotDone: Set<number> = new Set();
+
+  private async checkPreStartSnapshot(challenge: TradingChallenge, dateStr: string, timeStr: string) {
+    if (challenge.status !== 'registration_open') return;
+    if (this.preStartSnapshotDone.has(challenge.id)) return;
+
+    const start = this.toEATStrings(challenge.start_date);
+    const startMinutes = parseInt(start.timeStr.split(':')[0]) * 60 + parseInt(start.timeStr.split(':')[1]);
+    const nowMinutes   = parseInt(timeStr.split(':')[0]) * 60 + parseInt(timeStr.split(':')[1]);
+
+    // Fire in the 5-minute window starting exactly 2 hours before challenge start
+    if (dateStr !== start.dateStr) return;
+    const diff = nowMinutes - (startMinutes - 120);
+    if (diff < 0 || diff > 4) return;
+
+    this.preStartSnapshotDone.add(challenge.id);
+    console.log(`📸 Pre-start snapshot starting for challenge ${challenge.id} "${challenge.title}" (T-2h)`);
+
+    const startingBalance = Number(challenge.starting_balance || 30);
+
+    const regs = await db.query(
+      `SELECT id, account_number, mt5_server, investor_password, is_cent, actual_starting_balance
+       FROM trading_registrations
+       WHERE challenge_id = $1
+         AND disqualified = false
+         AND investor_password IS NOT NULL`,
+      [challenge.id]
+    );
+
+    let verified = 0, dqd = 0, failed = 0;
+
+    for (const reg of regs.rows) {
+      // Skip if snapshot already captured from a previous attempt
+      if (reg.actual_starting_balance !== null && reg.actual_starting_balance !== undefined) {
+        verified++;
+        continue;
+      }
+
+      try {
+        const result = await vpsService.verifyConnection(reg.account_number, reg.mt5_server, reg.investor_password);
+        if (!result.success || result.balance === undefined || result.balance === null) {
+          // VPS failed — leave actual_starting_balance null so evaluation engine handles it
+          failed++;
+          console.warn(`⚠️ Pre-start snapshot: VPS failed for reg ${reg.id} (${reg.account_number})`);
+          continue;
+        }
+
+        const balance = result.balance as number;
+        const limit   = reg.is_cent ? startingBalance * 100 : startingBalance;
+        const tolerance = limit * 0.01;
+
+        await db.query(
+          `UPDATE trading_registrations SET actual_starting_balance = $1, last_known_balance = $1 WHERE id = $2`,
+          [balance, reg.id]
+        );
+        verified++;
+
+        if (balance > limit + tolerance) {
+          const currency = reg.is_cent ? '¢' : '$';
+          await db.query(
+            `UPDATE trading_registrations
+             SET disqualified = true, disqualified_at = NOW(),
+                 disqualified_reason = $1
+             WHERE id = $2 AND disqualified = false`,
+            [
+              `Starting balance ${currency}${balance.toFixed(2)} exceeds allowed starting balance of ${currency}${limit.toFixed(2)}`,
+              reg.id,
+            ]
+          );
+          dqd++;
+          console.log(`🚫 Pre-start DQ: reg ${reg.id} (${reg.account_number}) balance ${balance} > limit ${limit}`);
+        }
+      } catch (err) {
+        failed++;
+        console.error(`Pre-start snapshot error for reg ${reg.id}:`, err);
+      }
+    }
+
+    console.log(`✅ Pre-start snapshot done for challenge ${challenge.id}: ${verified} verified, ${dqd} DQ'd, ${failed} failed`);
+  }
 
   private challengeStartPosted: Set<number> = new Set();
 
