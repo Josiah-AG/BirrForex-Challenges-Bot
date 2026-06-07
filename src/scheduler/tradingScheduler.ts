@@ -226,7 +226,37 @@ export class TradingScheduler {
       [challenge.id]
     );
 
-    if (pending.rows.length === 0) return; // All accounts already snapshotted — nothing to do
+    if (pending.rows.length === 0) {
+      // All accounts already snapshotted — ensure a batch record exists for Pulls tab visibility
+      const existing = await db.query(
+        `SELECT id FROM wp_pull_batches WHERE challenge_id = $1 AND error_log = 'pre_start_check' LIMIT 1`,
+        [challenge.id]
+      );
+      if (existing.rows.length === 0) {
+        // First time we've confirmed it's done but no batch record was created (e.g. ran before batch
+        // recording was deployed) — create a retroactive completed entry
+        const done = await db.query(
+          `SELECT COUNT(*) as cnt FROM trading_registrations
+           WHERE challenge_id = $1 AND actual_starting_balance IS NOT NULL AND disqualified = false`,
+          [challenge.id]
+        );
+        const dqd = await db.query(
+          `SELECT COUNT(*) as cnt FROM trading_registrations
+           WHERE challenge_id = $1 AND disqualified = true
+             AND disqualified_reason ILIKE '%Starting balance%exceeds%'`,
+          [challenge.id]
+        );
+        const total = parseInt(done.rows[0].cnt) + parseInt(dqd.rows[0].cnt);
+        await db.query(
+          `INSERT INTO wp_pull_batches
+             (challenge_id, total_accounts, successful, failed, new_trades_found, status, error_log, completed_at)
+           VALUES ($1, $2, $3, $4, 0, 'completed', 'pre_start_check', NOW())`,
+          [challenge.id, total, parseInt(done.rows[0].cnt), parseInt(dqd.rows[0].cnt)]
+        ).catch(() => {});
+        console.log(`📸 Pre-start snapshot: retroactive batch record created for challenge ${challenge.id} (${total} accounts, ${dqd.rows[0].cnt} DQ'd)`);
+      }
+      return;
+    }
 
     this.preStartSnapshotRunning = true;
     const minutesUntilStart = Math.round((startMs - nowMs) / 60000);
