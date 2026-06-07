@@ -1224,7 +1224,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/pulls`, adminIpCheck, asy
               r.nickname, r.username, r.account_subtype
        FROM wp_pull_errors we
        JOIN trading_registrations r ON we.registration_id = r.id
-       WHERE we.challenge_id = $1
+       WHERE r.challenge_id = $1
          AND we.error_code = 'sl_check_failed'
          AND we.created_at > NOW() - INTERVAL '7 days'
        ORDER BY we.created_at DESC`,
