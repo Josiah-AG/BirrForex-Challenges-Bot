@@ -384,7 +384,7 @@ export default function ChallengeDashboard() {
   const daysLeftLabel = isNotStarted ? "Time to Start" : "Time Left";
   // Show progress bar if has trades OR pre-start with a known balance
   const showProgressBar = myStats && !isBlownAccount && !myStats.disqualified &&
-    (myStats.totalTrades > 0 || (isNotStarted && myStats.currentBalance > 0));
+    (myStats.totalTrades > 0 || myStats.currentBalance > 0);
   const hasNoData = myStats && myStats.totalTrades === 0 && isActive && !isNotStarted;
 
   // Show completed popup once per session when challenge ends
