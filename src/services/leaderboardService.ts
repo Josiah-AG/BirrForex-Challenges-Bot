@@ -29,15 +29,20 @@ export class LeaderboardService {
     for (const accountType of ['demo', 'real']) {
       let offset = 0;
 
-      // Tier 1: Has balance > 0 (whether traded or not) — by adjusted_balance DESC, total_trades DESC
+      // Tier 1: Has balance > 0 (whether traded or not)
+      // Sort: 1) balance DESC  2) trades DESC  3) last trade earliest  4) registered earliest (stable tiebreaker)
       await db.query(
         `UPDATE wp_leaderboard SET rank = sub.rn FROM (
-          SELECT id, ROW_NUMBER() OVER (
-            ORDER BY COALESCE(normalized_balance, adjusted_balance) DESC, total_trades DESC, last_trade_time ASC NULLS LAST
+          SELECT l.id, ROW_NUMBER() OVER (
+            ORDER BY COALESCE(l.normalized_balance, l.adjusted_balance) DESC,
+                     l.total_trades DESC,
+                     l.last_trade_time ASC NULLS LAST,
+                     r.registered_at ASC
           ) as rn
-          FROM wp_leaderboard
-          WHERE challenge_id=$1 AND account_type=$2 AND is_disqualified=false
-            AND (current_balance > 0 OR current_balance IS NULL)
+          FROM wp_leaderboard l
+          JOIN trading_registrations r ON r.id = l.registration_id
+          WHERE l.challenge_id=$1 AND l.account_type=$2 AND l.is_disqualified=false
+            AND (l.current_balance > 0 OR l.current_balance IS NULL)
         ) sub WHERE wp_leaderboard.id = sub.id`,
         [challengeId, accountType]
       );
