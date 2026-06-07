@@ -347,6 +347,15 @@ export class TradingScheduler {
         await tradingChallengeService.updateChallengeStatus(challenge.id, 'active');
         console.log(`✅ Trading challenge ${challenge.id} "${challenge.title}" is now ACTIVE (${dateStr} ${timeStr} EAT)`);
 
+        // Fire the first pull immediately at challenge start (don't wait for the next 4-hour window)
+        const puller = (global as any).__vpsPullScheduler;
+        if (puller) {
+          console.log(`⚡ Triggering first pull cycle for challenge ${challenge.id} at start`);
+          puller.runPullCycleForChallenge(challenge.id).catch((e: any) =>
+            console.error(`First pull error for challenge ${challenge.id}:`, e)
+          );
+        }
+
         // Only post to Telegram channels for Telegram-source challenges
         if ((challenge as any).source !== 'discord') {
           await this.postChallengeStartAnnouncement(challenge);
