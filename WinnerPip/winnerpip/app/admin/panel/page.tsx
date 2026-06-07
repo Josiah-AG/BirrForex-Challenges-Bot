@@ -365,6 +365,7 @@ export default function AdminDashboard() {
               newTrades: p.new_trades_found || 0,
               duration: duration ? `${duration}s` : "...",
               status: p.status,
+              isPreStart: p.error_log === 'pre_start_check',
             };
           });
           setPullHistory(pulls);
@@ -2327,10 +2328,13 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures }: { ch
               </tr></thead>
               <tbody>{pullHistory.map((p, i) => (
                 <tr key={i} className="border-b border-white/5 hover:bg-white/5">
-                  <td className="py-3 px-4 text-sm text-white font-semibold">{p.time}</td>
+                  <td className="py-3 px-4 text-sm text-white font-semibold">
+                    <span>{p.time}</span>
+                    {p.isPreStart && <span className="ml-2 px-1.5 py-0.5 rounded text-[9px] font-bold bg-royal/20 text-royal border border-royal/30">📸 Pre-start</span>}
+                  </td>
                   <td className="py-3 px-4 text-center text-sm text-profit">{p.success}</td>
                   <td className="py-3 px-4 text-center text-sm text-loss">{p.failed}</td>
-                  <td className="py-3 px-4 text-center text-sm text-gray-300">{p.newTrades}</td>
+                  <td className="py-3 px-4 text-center text-sm text-gray-300">{p.isPreStart ? "—" : p.newTrades}</td>
                   <td className="py-3 px-4 text-right text-sm text-gray-400">{p.duration}</td>
                 </tr>
               ))}</tbody>

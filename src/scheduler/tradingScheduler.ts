@@ -232,6 +232,19 @@ export class TradingScheduler {
     const minutesUntilStart = Math.round((startMs - nowMs) / 60000);
     console.log(`📸 Pre-start snapshot: ${pending.rows.length} accounts pending for challenge ${challenge.id} "${challenge.title}" (${minutesUntilStart > 0 ? `T-${minutesUntilStart}min` : 'PAST start time'})`);
 
+    // Create a pull batch entry so the check is visible in the admin Pulls tab
+    let batchId: number | null = null;
+    try {
+      const batchRes = await db.query(
+        `INSERT INTO wp_pull_batches (challenge_id, total_accounts, status, error_log)
+         VALUES ($1, $2, 'running', 'pre_start_check') RETURNING id`,
+        [challenge.id, pending.rows.length]
+      );
+      batchId = batchRes.rows[0].id;
+    } catch (e) {
+      console.error('Pre-start snapshot: failed to create batch record:', e);
+    }
+
     const startingBalance = Number(challenge.starting_balance || 30);
     let verified = 0, dqd = 0, failed = 0;
 
@@ -271,7 +284,16 @@ export class TradingScheduler {
       }
     }
 
-    console.log(`✅ Pre-start snapshot done: ${verified} verified, ${dqd} DQ'd, ${failed} failed (${pending.rows.length - failed} total processed)`);
+    // Complete the batch record
+    if (batchId !== null) {
+      await db.query(
+        `UPDATE wp_pull_batches SET completed_at = NOW(), successful = $1, failed = $2, new_trades_found = 0, status = 'completed' WHERE id = $3`,
+        [verified, failed, batchId]
+      ).catch(() => {});
+    }
+
+    const dqdNote = dqd > 0 ? `, ${dqd} DQ'd` : '';
+    console.log(`✅ Pre-start snapshot done: ${verified} verified${dqdNote}, ${failed} failed`);
     this.preStartSnapshotRunning = false;
   }
 
