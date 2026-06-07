@@ -749,9 +749,25 @@ export default function ChallengeDashboard() {
             {/* PROGRESS BAR — only show when user has trades and is active */}
             {showProgressBar ? (
               <div className="glass rounded-2xl p-4 md:p-5 border border-white/10 mb-6">
-                <div className="flex items-center justify-between mb-3"><p className="text-sm font-medium text-gray-300">Progress to Target</p><p className={`text-sm font-bold ${progressPercent >= 0 ? "text-white" : "text-loss"}`}>{progressPercent.toFixed(0)}%</p></div>
-                <div className="w-full h-3 bg-white/10 rounded-full overflow-hidden"><div className={`h-full rounded-full transition-all duration-500 ${progressPercent >= 0 ? "bg-gradient-to-r from-royal to-profit" : "bg-loss"}`} style={{ width: `${Math.min(100, Math.max(0, progressPercent))}%` }} /></div>
-                <div className="flex justify-between mt-2 text-xs text-gray-500"><span>{formatBalance(challenge.startingBalance, myStats.accountType, effectiveIsCent)}</span><span>{formatBalance(challenge.targetBalance, myStats.accountType, effectiveIsCent)}</span></div>
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-sm font-medium text-gray-300">Progress to Target</p>
+                  <p className={`text-sm font-bold ${progressPercent > 0 ? "text-white" : progressPercent < 0 ? "text-loss" : "text-gray-400"}`}>
+                    {progressPercent === 0 ? "0%" : `${progressPercent > 0 ? "+" : ""}${progressPercent.toFixed(1)}%`}
+                  </p>
+                </div>
+                <div className="relative w-full h-3 bg-white/10 rounded-full overflow-hidden">
+                  {progressPercent >= 0 ? (
+                    <div className="h-full rounded-full transition-all duration-500 bg-gradient-to-r from-royal to-profit" style={{ width: `${Math.min(100, progressPercent)}%` }} />
+                  ) : (
+                    /* Negative: red bar from left, width proportional to loss vs required gain */
+                    <div className="h-full rounded-full transition-all duration-500 bg-loss" style={{ width: `${Math.min(50, Math.abs(progressPercent))}%` }} />
+                  )}
+                </div>
+                <div className="flex justify-between mt-2 text-xs">
+                  <span className="text-gray-500">{formatBalance(challenge.startingBalance, myStats.accountType, effectiveIsCent)}</span>
+                  {progressPercent < 0 && <span className="text-loss text-[10px]">▼ below start</span>}
+                  <span className="text-gray-500">{formatBalance(challenge.targetBalance, myStats.accountType, effectiveIsCent)}</span>
+                </div>
               </div>
             ) : !isBlownAccount && !myStats.disqualified && (
               <div className="glass rounded-2xl p-4 border border-white/10 mb-6 text-center">
