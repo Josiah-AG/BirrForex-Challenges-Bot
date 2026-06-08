@@ -109,133 +109,17 @@ interface TradeRow {
 type CandleResult = { time: string; low: number; high: number; open: number; close: number }[];
 
 /**
- * Manages proportional home account assignment across VPS terminals.
- *
- * Design (v7.0):
- *  - Reads the challenge's participant subtype distribution from DB
- *  - Assigns terminals proportionally (e.g. 80% standard → 8 terminals idle on standard accounts)
- *  - Calls router POST /configure once — router forwards /set-home-account to each worker
- *  - Workers self-restore to their home account after each pull (idle timer 30s)
- *  - Workers self-correct before candle fetches (log into home if not already there)
- *  - On home account failure: workers call TG Bot API /api/vps/next-account for a replacement
- *  - No manual restore needed — workers handle it themselves
+ * Stub — dynamic home account assignment removed (v8.0).
+ * All terminals always idle on the hardcoded standard base account.
+ * setup() and restore() are no-ops kept for call-site compatibility.
  */
 class CandleTerminalManager {
-  private configured = false;
-
-  async setup(challengeId: number, healthyTerminalIds: number[]): Promise<void> {
-    this.configured = false;
-    if (healthyTerminalIds.length === 0) return;
-
-    // Query subtype distribution
-    const subtypeResult = await db.query(
-      `SELECT account_subtype, COUNT(*) as cnt
-       FROM trading_registrations
-       WHERE challenge_id = $1
-         AND disqualified = false
-         AND connection_verified = true
-         AND investor_password IS NOT NULL
-         AND account_subtype IS NOT NULL
-       GROUP BY account_subtype
-       ORDER BY COUNT(*) DESC`,
-      [challengeId]
-    );
-
-    if (subtypeResult.rows.length === 0) {
-      console.log('ℹ️ Candle setup: no valid registrations — all terminals keep standard home');
-      return;
-    }
-
-    const total = subtypeResult.rows.reduce((s: number, r: any) => s + parseInt(r.cnt), 0);
-    const numTerminals = healthyTerminalIds.length;
-
-    // Calculate proportional allocation (minimum 1 per subtype)
-    type Slot = { subtype: string; count: number; account?: any };
-    const allocation: Slot[] = subtypeResult.rows.map((r: any) => ({
-      subtype: r.account_subtype,
-      count: Math.max(1, Math.round((parseInt(r.cnt) / total) * numTerminals)),
-    }));
-
-    // Normalise to exactly numTerminals
-    let allocated = allocation.reduce((s, a) => s + a.count, 0);
-    while (allocated > numTerminals) {
-      allocation.reduce((a, b) => a.count >= b.count ? a : b).count--;
-      allocated--;
-    }
-    while (allocated < numTerminals) {
-      allocation[0].count++;  // give extra to the largest subtype
-      allocated++;
-    }
-
-    // Pick one random account per subtype
-    for (const slot of allocation) {
-      const rep = await db.query(
-        `SELECT account_number, investor_password, mt5_server
-         FROM trading_registrations
-         WHERE challenge_id = $1
-           AND account_subtype = $2
-           AND disqualified = false
-           AND connection_verified = true
-           AND investor_password IS NOT NULL
-         ORDER BY RANDOM() LIMIT 1`,
-        [challengeId, slot.subtype]
-      );
-      if (rep.rows.length > 0) slot.account = rep.rows[0];
-    }
-
-    // Build terminal → assignment map
-    const terminals: Record<string, any> = {};
-    let termIdx = 0;
-    for (const slot of allocation) {
-      if (!slot.account) continue;
-      for (let i = 0; i < slot.count && termIdx < healthyTerminalIds.length; i++, termIdx++) {
-        const tid = healthyTerminalIds[termIdx];
-        terminals[String(tid)] = {
-          subtype:  slot.subtype,
-          account:  slot.account.account_number,
-          server:   slot.account.mt5_server,
-          password: slot.account.investor_password,
-        };
-      }
-    }
-
-    // Any leftover terminals (shouldn't happen, but safety net)
-    while (termIdx < healthyTerminalIds.length) {
-      const tid = healthyTerminalIds[termIdx++];
-      terminals[String(tid)] = {
-        subtype:  'standard',
-        account:  config.vpsBaseAccount,
-        server:   config.vpsBaseServer,
-        password: config.vpsBasePassword,
-      };
-    }
-
-    // Push to router in one call
-    try {
-      await axios.post(
-        `${config.vpsApiUrl}/configure`,
-        {
-          api_key:        config.vpsApiKey,
-          terminals,
-          tg_bot_url:     config.tgBotPublicUrl,
-          tg_bot_api_key: config.vpsApiKey,
-          challenge_id:   String(challengeId),
-        },
-        { timeout: 30000 }
-      );
-      const summary = Object.entries(terminals)
-        .map(([tid, a]) => `T${tid}:${(a as any).subtype}`)
-        .join(' ');
-      console.log(`✅ Candle terminal assignment: ${summary}`);
-      this.configured = true;
-    } catch (e) {
-      console.warn(`⚠️ Could not configure candle terminals: ${(e as Error).message}`);
-    }
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  async setup(_challengeId: number, _healthyTerminalIds: number[]): Promise<void> {
+    // No-op: terminals stay on base account, no /configure call needed
   }
-
-  /** Workers self-restore — nothing to do here. Kept for interface compatibility. */
   async restore(): Promise<void> {
-    this.configured = false;
+    // No-op
   }
 }
 
@@ -244,33 +128,50 @@ export const candleTerminalManager = new CandleTerminalManager();
 // ==================== VPS CANDLE SERVICE ====================
 
 /**
+ * Remap a symbol from any account-type suffix to the standard base-account suffix ('m').
+ *
+ * All candle fetches go through the hardcoded standard base account (Exness-MT5Trial9).
+ * That account uses the 'm' suffix for all instruments (XAUUSDm, EURUSDm, etc.).
+ * User trades may carry a different suffix (e.g. 'c' for cent accounts).
+ * Strip the trailing lowercase suffix and append 'm' so the worker can find the symbol.
+ *
+ * Examples:
+ *   XAUUSDc  → XAUUSDm
+ *   EURUSDc  → EURUSDm
+ *   XAUUSDm  → XAUUSDm  (already correct, no change)
+ *   XAUUSD   → XAUUSDm  (no suffix → add 'm')
+ */
+function remapSymbolToBaseAccount(symbol: string): string {
+  // Strip a single trailing lowercase letter (the account-type suffix), then add 'm'
+  return symbol.replace(/[a-z]$/, '') + 'm';
+}
+
+/**
  * Fetch OHLC candles from VPS for SL validation.
  *
- * Sends required_subtype to the router. The router routes to terminals whose
- * home account matches that subtype. If the terminal just finished a pull and
- * hasn't restored yet, the worker self-corrects the login before fetching.
- * The router retries all same-subtype terminals before returning failure.
+ * v8.0: All terminals idle on the hardcoded standard base account.
+ * Symbol is remapped to the standard 'm' suffix before the request.
+ * required_subtype is always 'standard' so the router picks any healthy terminal.
  */
 async function fetchCandles(
   symbol: string,
   fromTime: Date,
   toTime: Date,
   timeframe: string = 'M1',
-  accountSubtype: string | null = null
 ): Promise<CandleResult | null> {
-  const requiredSubtype = accountSubtype || 'standard';
+  const baseSymbol = remapSymbolToBaseAccount(symbol);
 
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const res = await axios.post(
         `${config.vpsApiUrl}/api/v1/candles`,
         {
-          symbol,
+          symbol:           baseSymbol,
           timeframe,
           from_time:        fromTime.toISOString(),
           to_time:          toTime.toISOString(),
           api_key:          config.vpsApiKey,
-          required_subtype: requiredSubtype,
+          required_subtype: 'standard',
         },
         { headers: { 'Content-Type': 'application/json' }, timeout: 35000 }
       );
@@ -359,7 +260,7 @@ function formatCandleTimeEAT(candleTimeISO: string, periodMs: number): string {
  * Uses ratio method for currency conversion — works for all instruments.
  * Returns violation message, null (valid), or 'FAILED' (candle fetch error).
  */
-async function validateSlWithCandles(trade: TradeRow, maxHoldHours: number | null = null, maxRiskDollars: number = 0, accountSubtype: string | null = null): Promise<string | null | 'FAILED'> {
+async function validateSlWithCandles(trade: TradeRow, maxHoldHours: number | null = null, maxRiskDollars: number = 0): Promise<string | null | 'FAILED'> {
   if (!trade.open_time || !trade.close_time) return null;
   if (!maxRiskDollars || maxRiskDollars <= 0) return null;
 
@@ -386,7 +287,7 @@ async function validateSlWithCandles(trade: TradeRow, maxHoldHours: number | nul
   const tf = selectTimeframe(holdMinutes, maxHoldHours);
   if (!tf) return null;
 
-  const candles = await fetchCandles(trade.symbol, new Date(trade.open_time), new Date(trade.close_time), tf.timeframe, accountSubtype);
+  const candles = await fetchCandles(trade.symbol, new Date(trade.open_time), new Date(trade.close_time), tf.timeframe);
   if (!candles || candles.length === 0) return 'FAILED';
 
   // Exclude first and last candle (entry/exit candles have partial data)
@@ -963,7 +864,7 @@ export class WpEvaluationEngine {
           // Layer B: Fake SL candle check — only on winning trades
           // Detects SL removed or widened after entry
           if (rules.max_risk_dollars && tradeNet > 0) {
-            const slViolation = await validateSlWithCandles(trade, rules.max_hold_hours || null, rules.max_risk_dollars, reg.account_subtype || null);
+            const slViolation = await validateSlWithCandles(trade, rules.max_hold_hours || null, rules.max_risk_dollars);
             if (slViolation === 'FAILED') {
               slCheckFailures.push({ ticket: trade.ticket, symbol: trade.symbol, tradeId: trade.id });
               // Mark this specific trade as pending in DB — persists across restarts
@@ -1334,7 +1235,7 @@ export class WpEvaluationEngine {
           continue;
         }
 
-        const slViolation = await validateSlWithCandles(trade, rules.max_hold_hours || null, rules.max_risk_dollars, reg.account_subtype || null);
+        const slViolation = await validateSlWithCandles(trade, rules.max_hold_hours || null, rules.max_risk_dollars);
         checkedCount++;
 
         if (slViolation === 'FAILED') {

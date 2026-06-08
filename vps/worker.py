@@ -1,16 +1,14 @@
 """
-WinnerPip VPS Worker v7.0 — Smart Idle Accounts + Self-Healing
+WinnerPip VPS Worker v8.0 — Fixed Base Account
 Each instance owns ONE MT5 terminal exclusively.
 Run with: py -3.12 worker.py <terminal_id> <port>
 Example:  py -3.12 worker.py 1 8001
 
-New in v7.0:
-- Home account is dynamic — set via /set-home-account (proportional to challenge subtype mix)
-- Idle restore uses home account (which may be cent, standard, etc.) not a fixed global base
-- On home account failure: calls TG Bot API for a replacement of the same subtype
-- do_candles() self-corrects: if not on home account (just finished a pull), logs in first
-- Candle request includes required_subtype — self-correction only fires when needed
-- IDLE_TIMEOUT back to 30s — fast restore, always correct subtype
+New in v8.0:
+- Home account is fixed — always the hardcoded standard base account (no /set-home-account)
+- Removes dynamic subtype self-correct in do_candles() — base account is always standard
+- Symbol remapping (XAUUSDc → XAUUSDm etc.) is handled by the Node.js API before the request
+- Eliminates terminal login failures caused by dynamic home account switching
 """
 
 import MetaTrader5 as mt5
@@ -560,15 +558,9 @@ def do_candles(symbol: str, timeframe: str, from_time: str, to_time: str, requir
     except:
         return {"success": False, "message": "Invalid date format"}
 
-    # Self-correct: if a non-standard subtype is needed and we're not on home account,
-    # log into home first (terminal just finished a pull and hasn't restored yet)
-    if required_subtype and required_subtype not in ("standard", "unknown", ""):
-        if _current_account_str != str(_home_account["account"]):
-            home = _home_account
-            print(f"  [W{TERMINAL_ID}] Candle self-correct: logging into {home['subtype']} home ({home['account']})")
-            if not login_user(int(home["account"]), home["password"], home["server"]):
-                return {"success": False, "message": f"Could not login to {required_subtype} home account"}
-    elif not _ipc_connected:
+    # All terminals idle on the hardcoded standard base account.
+    # No subtype self-correct needed — just ensure MT5 is initialised.
+    if not _ipc_connected:
         if not mt5.initialize(TERMINAL_PATH):
             return {"success": False, "message": "MT5 not initialized"}
 
