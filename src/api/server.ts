@@ -1281,7 +1281,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/vps-health`, adminIpCheck, async (req, 
     try {
       const healthRes = await axios.get(`${vpsUrl}/health`, {
         headers: { 'X-API-Key': config.vpsApiKey },
-        timeout: 10000,
+        timeout: 15000,
       });
       vpsStatus = {
         reachable: true,
@@ -1318,7 +1318,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/vps-health`, adminIpCheck, async (req, 
             password: BASE_PASSWORD,
             api_key: config.vpsApiKey,
             terminal_id: tid,
-          }, { timeout: 20000 });
+          }, { timeout: 35000 });
 
           const data = verifyRes.data;
           terminalResults.push({
@@ -2682,7 +2682,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/retry-account`, adminIpC
           terminal_id: terminalId,
           from_date: fromDate,
           orders_from_date: ordersFromDate,
-        }, { timeout: 30000 });
+        }, { timeout: 45000 });
 
         if (response.data?.success) {
           // Save trades
@@ -2785,7 +2785,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/update-password`, adminI
         const axios = require('axios');
         const verifyRes = await axios.post(`${vpsUrl}/verify`, {
           account: reg.account_number, server: reg.mt5_server, password: newPassword, api_key: vpsKey,
-        }, { timeout: 15000 });
+        }, { timeout: 25000 });
 
         if (verifyRes.data?.success) {
           // Update password and reset status
@@ -2849,7 +2849,7 @@ app.post('/api/me/update-password', authMiddleware, async (req: any, res) => {
         const axios = require('axios');
         const verifyRes = await axios.post(`${vpsUrl}/verify`, {
           account: reg.account_number, server: reg.mt5_server, password: newPassword, api_key: vpsKey,
-        }, { timeout: 15000 });
+        }, { timeout: 25000 });
 
         if (verifyRes.data?.success) {
           await db.query(
@@ -2914,7 +2914,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/verify-account`, adminIp
         const verifyRes = await axios.post(`${vpsUrl}/verify`, {
           account: reg.account_number, server: reg.mt5_server, password: reg.investor_password, api_key: vpsKey,
           terminal_id: attempt, // Try different terminals
-        }, { timeout: 15000 });
+        }, { timeout: 25000 });
 
         if (verifyRes.data?.success) {
           await db.query(
@@ -2932,7 +2932,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/verify-account`, adminIp
               const pullRes = await axios.post(`${vpsUrl}/pull`, {
                 account: reg.account_number, server: reg.mt5_server, password: reg.investor_password,
                 api_key: vpsKey, terminal_id: attempt,
-              }, { timeout: 20000 });
+              }, { timeout: 35000 });
               if (pullRes.data?.success) {
                 balance = pullRes.data.balance !== undefined ? pullRes.data.balance : balance;
                 equity = pullRes.data.equity !== undefined ? pullRes.data.equity : equity;

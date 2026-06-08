@@ -27,7 +27,7 @@ import { Markup } from 'telegraf';
 const MAX_TERMINALS = 10;
 const MAX_RETRIES_PER_ACCOUNT = 3;
 const RETRY_DELAY_MS = 3000;
-const ACCOUNT_TIMEOUT_MS = 15000;
+const ACCOUNT_TIMEOUT_MS = 30000;
 const BATCH_DELAY_MS = 1500;
 const PASSWORD_WARNING_HOURS = 48;
 const TERMINAL_HEALTH_RECHECK_MS = 10 * 60 * 1000;
@@ -1114,7 +1114,7 @@ export class VpsPullScheduler {
 
   private async checkTerminalHealth(_terminalId: number): Promise<boolean> {
     try {
-      const response = await axios.get(`${this.baseUrl}/health`, { timeout: 10000 });
+      const response = await axios.get(`${this.baseUrl}/health`, { timeout: 15000 });
       return response.status === 200 && response.data?.status === 'ok';
     } catch {
       return false;

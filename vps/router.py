@@ -22,7 +22,7 @@ app = FastAPI(title="WinnerPip VPS Router", version="7.0.0")
 
 NUM_WORKERS      = 10
 WORKER_BASE_PORT = 8001
-WORKER_TIMEOUT   = 90.0
+WORKER_TIMEOUT   = 120.0
 RETRY_DELAY      = 2.0
 MAX_RETRIES_SAME_TERMINAL  = 2
 MAX_DIFFERENT_TERMINALS    = 3
@@ -171,7 +171,7 @@ async def configure(req: ConfigureRequest):
 
     # Forward set-home-account to each worker
     results = {}
-    async with httpx.AsyncClient(timeout=20.0) as client:
+    async with httpx.AsyncClient(timeout=35.0) as client:
         for tid_str, info in req.terminals.items():
             tid = int(tid_str)
             if not (1 <= tid <= NUM_WORKERS):
@@ -365,7 +365,7 @@ async def get_candles(req: CandlesRequest):
 
         for retry in range(MAX_RETRIES_SAME_TERMINAL + 1):
             try:
-                async with httpx.AsyncClient(timeout=35.0) as client:
+                async with httpx.AsyncClient(timeout=60.0) as client:
                     resp = await client.post(
                         f"{worker_url(wid)}/candles",
                         json={

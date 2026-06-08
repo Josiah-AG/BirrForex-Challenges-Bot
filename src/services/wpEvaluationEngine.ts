@@ -173,7 +173,7 @@ async function fetchCandles(
           api_key:          config.vpsApiKey,
           required_subtype: 'standard',
         },
-        { headers: { 'Content-Type': 'application/json' }, timeout: 35000 }
+        { headers: { 'Content-Type': 'application/json' }, timeout: 60000 }
       );
       if (res.data?.success && res.data?.candles?.length > 0) return res.data.candles;
     } catch { /* network/timeout — retry once */ }
