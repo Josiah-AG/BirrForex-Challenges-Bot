@@ -35,6 +35,8 @@ const TERMINAL_FAILURE_THRESHOLD = 5;
 const CREDENTIAL_CONFIRM_ATTEMPTS = 2;
 const CYCLE_RETRY_PASSES = 2;
 const CYCLE_RETRY_WAIT_MS = 30000; // 30s between retry passes
+const HEALTHY_RETRY_PASSES = 5;    // extra passes on healthy-only terminals after main retry
+const HEALTHY_RETRY_WAIT_MS = 15000; // 15s between healthy-only retry passes
 
 interface PullResult {
   registrationId: number;
@@ -340,6 +342,22 @@ export class VpsPullScheduler {
         }
       }
 
+      // === STEP 4b: Healthy-only retry — up to 5 extra passes on recovered terminals ===
+      const stillFailingAfterRetry = allResults.filter(
+        r => !r.success && r.errorCode !== 'invalid_credentials'
+      );
+      if (stillFailingAfterRetry.length > 0) {
+        console.log(`🔁 VPS Pull: ${stillFailingAfterRetry.length} still failing — starting healthy-only retry loop`);
+        const healthyRetryResults = await this.retryOnHealthyTerminals(
+          stillFailingAfterRetry, accounts, challengeToPull, batchId
+        );
+        for (const rr of healthyRetryResults) {
+          const idx = allResults.findIndex(r => r.registrationId === rr.registrationId);
+          if (idx >= 0) allResults[idx] = rr;
+          else allResults.push(rr);
+        }
+      }
+
       // === STEP 5: Categorize final results ===
       const successful = allResults.filter(r => r.success);
       const credentialFailures = allResults.filter(r => !r.success && r.errorCode === 'invalid_credentials');
@@ -515,6 +533,20 @@ export class VpsPullScheduler {
       }
 
       await candleTerminalManager.restore();
+
+      // Healthy-only retry — up to 5 extra passes on recovered terminals
+      const adminStillFailing = allResults.filter(r => !r.success && r.errorCode !== 'invalid_credentials');
+      if (adminStillFailing.length > 0) {
+        console.log(`🔁 VPS Admin Pull: ${adminStillFailing.length} still failing — starting healthy-only retry loop`);
+        const healthyRetryResults = await this.retryOnHealthyTerminals(
+          adminStillFailing, accounts, challengeToPull, batchId!
+        );
+        for (const rr of healthyRetryResults) {
+          const idx = allResults.findIndex(r => r.registrationId === rr.registrationId);
+          if (idx >= 0) allResults[idx] = rr;
+          else allResults.push(rr);
+        }
+      }
 
       const successful = allResults.filter(r => r.success);
       const failed = allResults.filter(r => !r.success);
@@ -738,6 +770,92 @@ export class VpsPullScheduler {
           `⚠️ <b>${toRetry.length} accounts still failing after ${CYCLE_RETRY_PASSES} retry passes</b>\n\n${failList}${toRetry.length > 10 ? `\n<i>+${toRetry.length - 10} more</i>` : ''}`,
           { parse_mode: 'HTML' });
       } catch (e) {}
+    }
+
+    return finalResults;
+  }
+
+  /**
+   * Healthy-only retry loop — runs AFTER retryCycleFailures.
+   * Takes whatever is still failing and runs up to HEALTHY_RETRY_PASSES additional
+   * passes using ONLY healthy terminals (shared queue, parallel).
+   * Before each pass, unhealthy terminals are rechecked so recovered ones re-join.
+   * Credential failures are never retried here.
+   *
+   * Example: 20 fail → pass1 → 10 fail → pass2 → 5 fail → ... → up to 5 passes.
+   */
+  private async retryOnHealthyTerminals(
+    failures: PullResult[],
+    allAccounts: AccountToPull[],
+    challenge: TradingChallenge,
+    batchId: number
+  ): Promise<PullResult[]> {
+    // Only non-credential failures enter this loop
+    let toRetry = failures
+      .filter(f => !f.success && f.errorCode !== 'invalid_credentials')
+      .map(f => allAccounts.find(a => a.registrationId === f.registrationId))
+      .filter(Boolean) as AccountToPull[];
+
+    if (toRetry.length === 0) return [];
+
+    const finalResults: PullResult[] = [];
+
+    for (let pass = 1; pass <= HEALTHY_RETRY_PASSES; pass++) {
+      if (toRetry.length === 0) break;
+      if (this.cancelRequested) break;
+
+      // Short wait between passes — gives unhealthy terminals time to recover
+      await this.delay(HEALTHY_RETRY_WAIT_MS);
+
+      // Recheck unhealthy terminals — a terminal that recovered gets included
+      await this.recheckUnhealthyTerminals();
+
+      const healthyTerminals = this.terminals.filter(t => t.isHealthy);
+      if (healthyTerminals.length === 0) {
+        console.log(`⚠️ VPS Healthy-Retry pass ${pass}: no healthy terminals — stopping`);
+        break;
+      }
+
+      console.log(`🔁 VPS Healthy-Retry pass ${pass}/${HEALTHY_RETRY_PASSES} — ${toRetry.length} accounts, ${healthyTerminals.length} healthy terminals`);
+
+      // Load only the failing accounts into the shared queue
+      this.sharedQueue.load(toRetry.map(a => ({ ...a, isPriority: true })));
+
+      // Run all healthy terminals in parallel (same shared queue pattern)
+      const passResults = await this.runSharedQueueWorkers(healthyTerminals, challenge, batchId);
+
+      // Separate successes from still-failing
+      const stillFailing: AccountToPull[] = [];
+      for (const account of toRetry) {
+        const result = passResults.find(r => r.registrationId === account.registrationId);
+        if (result) {
+          finalResults.push(result);
+          if (!result.success && result.errorCode !== 'invalid_credentials') {
+            stillFailing.push(account);
+          }
+        } else {
+          // Not processed this pass (queue may have been aborted) — keep for next pass
+          stillFailing.push(account);
+        }
+      }
+
+      const passSucceeded = toRetry.length - stillFailing.length;
+      console.log(`🔁 VPS Healthy-Retry pass ${pass}: ${passSucceeded} recovered, ${stillFailing.length} still failing`);
+
+      toRetry = stillFailing;
+    }
+
+    // Any accounts still failing after all passes — mark as exhausted
+    for (const account of toRetry) {
+      finalResults.push({
+        registrationId: account.registrationId,
+        accountNumber: account.accountNumber,
+        userId: account.userId,
+        username: account.username,
+        success: false,
+        errorCode: 'retry_exhausted',
+        errorMessage: `Failed after ${CYCLE_RETRY_PASSES} standard + ${HEALTHY_RETRY_PASSES} healthy-only retry passes`,
+      });
     }
 
     return finalResults;
