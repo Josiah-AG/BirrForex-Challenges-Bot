@@ -134,6 +134,23 @@ export class VpsPullScheduler {
     return true;
   }
 
+  /** Wait until isRunning is false, polling every 500ms. Returns true if idle within timeout. */
+  private waitForIdle(timeoutMs: number): Promise<boolean> {
+    return new Promise(resolve => {
+      if (!this.isRunning) return resolve(true);
+      const deadline = Date.now() + timeoutMs;
+      const check = setInterval(() => {
+        if (!this.isRunning) {
+          clearInterval(check);
+          resolve(true);
+        } else if (Date.now() >= deadline) {
+          clearInterval(check);
+          resolve(false);
+        }
+      }, 500);
+    });
+  }
+
   constructor(bot: Bot) {
     this.bot = bot;
     this.baseUrl = config.vpsApiUrl;
@@ -477,8 +494,17 @@ export class VpsPullScheduler {
    */
   async runPullCycleForChallenge(challengeId: number) {
     if (this.isRunning) {
-      console.log('⚠️ VPS Pull: Already running, skipping');
-      return;
+      console.log('🛑 VPS Pull: Admin force pull — cancelling running cycle...');
+      this.cancelPull();
+      // Wait up to 60s for the running cycle to release the lock
+      const waited = await this.waitForIdle(60000);
+      if (!waited) {
+        console.error('❌ VPS Pull: Running cycle did not release within 60s — forcing lock reset');
+        this.isRunning = false;
+        this.cancelRequested = false;
+        this.abortController = null;
+      }
+      console.log('✅ VPS Pull: Previous cycle cleared — starting admin force pull');
     }
     this.isRunning = true;
     this.cancelRequested = false;
