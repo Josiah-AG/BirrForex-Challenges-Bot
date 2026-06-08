@@ -960,5 +960,39 @@ router.post('/admin/unregister', discordAuth, discordLimiter, async (req: Reques
   }
 });
 
+// ==================== DISCORD DM QUEUE ====================
+
+/**
+ * GET /api/discord/pending-dms
+ * Returns unsent DM notifications for the Discord bot to deliver.
+ */
+router.get('/pending-dms', discordAuth, async (req: Request, res: Response) => {
+  try {
+    const result = await db.query(
+      `SELECT id, discord_user_id, notification_type, message_title, message_body, challenge_id, registration_id
+       FROM discord_dm_queue WHERE sent = false ORDER BY created_at ASC LIMIT 50`
+    );
+    return res.json({ notifications: result.rows });
+  } catch (error) {
+    console.error('Discord pending-dms error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * POST /api/discord/mark-dm-sent/:id
+ * Marks a DM notification as sent.
+ */
+router.post('/mark-dm-sent/:id', discordAuth, async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(String(req.params.id));
+    await db.query(`UPDATE discord_dm_queue SET sent = true, sent_at = NOW() WHERE id = $1`, [id]);
+    return res.json({ success: true });
+  } catch (error) {
+    console.error('Discord mark-dm-sent error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 export { router as discordRoutes };
 

@@ -209,12 +209,17 @@ export class LeaderboardService {
         r.username,
         r.nickname,
         r.email,
+        r.source,
         r.pull_status,
         r.pull_error,
         r.last_pull_at,
         e.error_code,
         e.error_message,
-        e.created_at as error_time
+        e.created_at as error_time,
+        -- DM notification status (for Discord password_changed accounts)
+        dm.sent as dm_sent,
+        dm.sent_at as dm_sent_at,
+        dm.created_at as dm_queued_at
        FROM trading_registrations r
        LEFT JOIN LATERAL (
          SELECT error_code, error_message, created_at
@@ -223,11 +228,20 @@ export class LeaderboardService {
          ORDER BY created_at DESC
          LIMIT 1
        ) e ON true
+       LEFT JOIN LATERAL (
+         SELECT sent, sent_at, created_at
+         FROM discord_dm_queue
+         WHERE registration_id = r.id AND notification_type = 'password_changed'
+         ORDER BY created_at DESC
+         LIMIT 1
+       ) dm ON true
        WHERE r.challenge_id = $1
          AND r.disqualified = false
-         AND r.pull_status NOT IN ('success', 'password_changed', 'ready', 'never_pulled', 'pending_verify')
+         AND r.pull_status NOT IN ('success', 'ready', 'never_pulled', 'pending_verify')
          AND r.pull_status IS NOT NULL
-       ORDER BY r.last_pull_at DESC`,
+       ORDER BY
+         CASE r.pull_status WHEN 'password_changed' THEN 0 ELSE 1 END,
+         r.last_pull_at DESC`,
       [challengeId]
     );
     return result.rows;

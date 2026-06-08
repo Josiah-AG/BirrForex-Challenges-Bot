@@ -306,6 +306,24 @@ async function migrate() {
 
     console.log('✅ Discord is_cent backfill migration OK');
 
+    // Discord DM queue for password-changed notifications
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS discord_dm_queue (
+        id SERIAL PRIMARY KEY,
+        discord_user_id TEXT NOT NULL,
+        registration_id INTEGER REFERENCES trading_registrations(id) ON DELETE CASCADE,
+        challenge_id INTEGER,
+        notification_type VARCHAR(50) NOT NULL DEFAULT 'password_changed',
+        message_title TEXT,
+        message_body TEXT NOT NULL,
+        sent BOOLEAN DEFAULT false,
+        sent_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+    `).catch(() => {});
+    await db.query(`CREATE INDEX IF NOT EXISTS idx_discord_dm_queue_unsent ON discord_dm_queue(sent) WHERE sent = false;`).catch(() => {});
+    console.log('✅ Discord DM queue migration OK');
+
     console.log('✅ Database migration completed successfully!');
     process.exit(0);
   } catch (error) {

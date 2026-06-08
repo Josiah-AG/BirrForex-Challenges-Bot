@@ -1369,23 +1369,24 @@ export class VpsPullScheduler {
       }
     }
 
-    // Notify via Discord (for discord users)
+    // Notify via Discord DM queue (for discord users)
     if (source === 'discord') {
       try {
-        const discordBotWebhook = process.env.DISCORD_CREDENTIAL_WEBHOOK;
-        if (discordBotWebhook) {
-          const axios = require('axios');
-          await axios.post(discordBotWebhook, {
-            content: null,
-            embeds: [{
-              title: '⚠️ Account Access Issue',
-              description: `We could not access your MT5 account **${failure.accountNumber}** for **${challenge.title}**.\n\nYour investor password appears to have been changed.\n\n🔑 Please update your password by visiting:\nhttps://winnerpip.com/challenge/${challenge.id}\n\nSign in → you'll see a banner to update your password.\n\n⏰ **You have 24 hours** or your registration will be disqualified.`,
-              color: 0xFF4444,
-            }],
-          }, { timeout: 10000 });
-        }
+        await db.query(
+          `INSERT INTO discord_dm_queue
+             (discord_user_id, registration_id, challenge_id, notification_type, message_title, message_body)
+           VALUES ($1, $2, $3, 'password_changed', $4, $5)`,
+          [
+            String(failure.userId),
+            failure.registrationId,
+            challenge.id,
+            '⚠️ Account Access Issue — Action Required',
+            `We could not access your MT5 account **${failure.accountNumber}** for **${challenge.title}**.\n\nYour **investor password** appears to have been changed.\n\n🔑 Please update it on WinnerPip:\nhttps://winnerpip.com/challenge/${challenge.id}\n\nSign in → you will see a banner to update your password.\n\n⏰ **You have 24 hours to fix this or your registration will be disqualified.**\n\nIf you did not change your password, contact an admin immediately.`,
+          ]
+        );
+        console.log(`📬 Discord DM queued for user ${failure.userId} (password_changed)`);
       } catch (e) {
-        console.error(`Could not notify Discord user ${failure.userId}:`, e);
+        console.error(`Could not queue Discord DM for user ${failure.userId}:`, e);
       }
     }
   }

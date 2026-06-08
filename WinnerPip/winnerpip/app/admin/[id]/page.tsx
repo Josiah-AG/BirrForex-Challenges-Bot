@@ -33,6 +33,8 @@ export default function AdminDashboard() {
   const [rulesSaved, setRulesSaved] = useState(false);
   const [rulesLocked, setRulesLocked] = useState(false);
   const [overviewData, setOverviewData] = useState<any>(null);
+  const [failedAccounts, setFailedAccounts] = useState<any[]>([]);
+  const [failedLoading, setFailedLoading] = useState(false);
 
   // Lock scroll on modal
   useEffect(() => {
@@ -74,6 +76,22 @@ export default function AdminDashboard() {
   };
 
   useState(() => { if (typeof window !== "undefined" && localStorage.getItem("wp_admin_path")) setIsAdmin(true); });
+
+  useEffect(() => {
+    if (activeSection !== "pulls" || !isAdmin) return;
+    const path = localStorage.getItem("wp_admin_path");
+    const key = localStorage.getItem("wp_admin_key");
+    if (!path || !key) return;
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
+    setFailedLoading(true);
+    fetch(`${apiUrl}/api/admin/${path}/challenge/${params.id}/failed-accounts`, {
+      headers: { "X-Admin-Key": key },
+    })
+      .then(r => r.json())
+      .then(data => setFailedAccounts(Array.isArray(data) ? data : []))
+      .catch(() => setFailedAccounts([]))
+      .finally(() => setFailedLoading(false));
+  }, [activeSection, isAdmin, params.id]);
 
   const handleSearch = () => {
     setSearchPerformed(true);
@@ -373,26 +391,72 @@ export default function AdminDashboard() {
               </div>
             </div>
 
-            {/* Recent Pull Errors */}
-            <div className="glass rounded-2xl border border-loss/20 p-5">
-              <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2"><AlertTriangle size={16} className="text-loss" /> Recent Pull Errors</h3>
-              <div className="space-y-2">
-                {recentPullErrors.map((e, i) => (
-                  <div key={i} className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <p className="text-sm text-white font-semibold">{e.nickname}</p>
-                        <span className="text-[10px] text-gray-500">#{e.account}</span>
-                      </div>
-                      <p className="text-xs text-loss">{e.error}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-[10px] text-gray-400">T{e.terminal}</p>
-                      <p className="text-[10px] text-gray-500">{e.time}</p>
-                    </div>
-                  </div>
-                ))}
+            {/* Failed Accounts */}
+            <div className="glass rounded-2xl border border-loss/20 overflow-hidden">
+              <div className="p-4 border-b border-white/5 flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-white flex items-center gap-2"><AlertTriangle size={16} className="text-loss" /> Failed Accounts</h3>
+                {failedAccounts.length > 0 && (
+                  <span className="text-[10px] bg-loss/20 text-loss px-2 py-0.5 rounded-full font-semibold">{failedAccounts.length} accounts</span>
+                )}
               </div>
+              {failedLoading ? (
+                <div className="p-6 flex items-center justify-center gap-2 text-gray-400 text-sm"><Loader2 size={14} className="animate-spin" /> Loading...</div>
+              ) : failedAccounts.length === 0 ? (
+                <div className="p-6 text-center text-gray-500 text-sm">No failed accounts — all pulls succeeded.</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[700px]">
+                    <thead><tr className="border-b border-white/5">
+                      <th className="text-left py-3 px-4 text-[10px] text-gray-400 uppercase">User</th>
+                      <th className="text-left py-3 px-4 text-[10px] text-gray-400 uppercase">Account</th>
+                      <th className="text-left py-3 px-4 text-[10px] text-gray-400 uppercase">Status</th>
+                      <th className="text-left py-3 px-4 text-[10px] text-gray-400 uppercase">Error</th>
+                      <th className="text-left py-3 px-4 text-[10px] text-gray-400 uppercase">DM</th>
+                      <th className="text-right py-3 px-4 text-[10px] text-gray-400 uppercase">Last Pull</th>
+                    </tr></thead>
+                    <tbody>
+                      {failedAccounts.map((a: any) => {
+                        const isPasswordChanged = a.pull_status === "password_changed";
+                        const dmSent = a.dm_sent === true;
+                        const isDiscord = a.source === "discord";
+                        return (
+                          <tr key={a.registration_id} className={`border-b border-white/5 hover:bg-white/5 ${isPasswordChanged ? "bg-gold/5" : ""}`}>
+                            <td className="py-3 px-4">
+                              <p className="text-sm text-white font-semibold">{a.nickname || a.username || "—"}</p>
+                              <p className="text-[10px] text-gray-500">{a.email || (isDiscord ? "Discord" : "Telegram")}</p>
+                            </td>
+                            <td className="py-3 px-4">
+                              <p className="text-sm text-gray-200 font-mono">{a.account_number}</p>
+                            </td>
+                            <td className="py-3 px-4">
+                              {isPasswordChanged ? (
+                                <span className="text-[11px] bg-gold/20 text-gold px-2 py-0.5 rounded-full font-semibold">PW Changed</span>
+                              ) : (
+                                <span className="text-[11px] bg-loss/20 text-loss px-2 py-0.5 rounded-full font-semibold">{a.pull_status}</span>
+                              )}
+                            </td>
+                            <td className="py-3 px-4 max-w-[220px]">
+                              <p className="text-[11px] text-loss truncate">{a.pull_error || a.error_message || "—"}</p>
+                            </td>
+                            <td className="py-3 px-4">
+                              {isDiscord && isPasswordChanged ? (
+                                dmSent
+                                  ? <span className="text-[11px] bg-profit/20 text-profit px-2 py-0.5 rounded-full font-semibold">DM Sent</span>
+                                  : <span className="text-[11px] bg-yellow-500/20 text-yellow-400 px-2 py-0.5 rounded-full font-semibold">DM Pending</span>
+                              ) : (
+                                <span className="text-[10px] text-gray-600">—</span>
+                              )}
+                            </td>
+                            <td className="py-3 px-4 text-right">
+                              <p className="text-[10px] text-gray-400">{a.last_pull_at ? new Date(a.last_pull_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "—"}</p>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
 
             {/* Pull Performance Summary */}
