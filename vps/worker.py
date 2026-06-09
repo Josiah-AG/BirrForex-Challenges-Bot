@@ -240,7 +240,8 @@ def _get_replacement_account(subtype: str, exclude_account: str) -> Optional[dic
 
 
 def _do_idle_restore():
-    global _ipc_connected, _home_account, _current_account_str
+    """Always restore to the hardcoded standard base account. No dynamic subtype logic."""
+    global _ipc_connected
 
     if time.time() - _last_request_time < IDLE_TIMEOUT - 1:
         return
@@ -250,42 +251,10 @@ def _do_idle_restore():
         return
 
     try:
-        home = _home_account
-        excluded = set()
-
-        while True:
-            # Try current home account
-            if login_user(int(home["account"]), home["password"], home["server"]):
-                if _home_account["account"] != home["account"]:
-                    _home_account = home  # persist the new home
-                print(f"  [W{TERMINAL_ID}] Idle restore: {home['subtype']} ({home['account']}) ✓")
-                return
-
-            print(f"  [W{TERMINAL_ID}] Idle restore: home account {home['account']} failed")
-            excluded.add(str(home["account"]))
-
-            # Ask TG Bot for a replacement of the same subtype
-            replacement = _get_replacement_account(
-                home["subtype"],
-                ",".join(excluded)
-            )
-
-            if replacement:
-                home = {
-                    "account": replacement["account"],
-                    "password": replacement["password"],
-                    "server":   replacement["server"],
-                    "subtype":  home["subtype"],
-                }
-                print(f"  [W{TERMINAL_ID}] Trying replacement account {home['account']} ({home['subtype']})")
-                continue
-
-            # No more accounts of this subtype — fall back to standard base
-            print(f"  [W{TERMINAL_ID}] Idle restore: no more {home['subtype']} accounts — falling back to standard base")
-            if login_user(FALLBACK_ACCOUNT, FALLBACK_PASSWORD, FALLBACK_SERVER):
-                print(f"  [W{TERMINAL_ID}] Idle restore: standard fallback ✓")
-            return
-
+        if login_user(FALLBACK_ACCOUNT, FALLBACK_PASSWORD, FALLBACK_SERVER):
+            print(f"  [W{TERMINAL_ID}] Idle restore: base account ({FALLBACK_ACCOUNT}) ✓")
+        else:
+            print(f"  [W{TERMINAL_ID}] Idle restore: base account login failed — {mt5.last_error()}")
     finally:
         _lock.release()
 
@@ -307,17 +276,17 @@ def init_terminal() -> bool:
 
     _ipc_connected = True
 
-    home = _home_account
-    if not mt5.login(home["account"], password=home["password"], server=home["server"]):
-        print(f"  [W{TERMINAL_ID}] Home login failed: {mt5.last_error()}")
+    # Always login to hardcoded standard base account on startup
+    if not mt5.login(FALLBACK_ACCOUNT, password=FALLBACK_PASSWORD, server=FALLBACK_SERVER):
+        print(f"  [W{TERMINAL_ID}] Base account login failed: {mt5.last_error()}")
         mt5.shutdown()
         _ipc_connected = False
         return False
 
-    _current_account_str = str(home["account"])
+    _current_account_str = str(FALLBACK_ACCOUNT)
     info = mt5.account_info()
     if info:
-        print(f"  [W{TERMINAL_ID}] Connected — account: {info.login} ({home['subtype']}) balance: {info.balance}")
+        print(f"  [W{TERMINAL_ID}] Connected — base account: {info.login} balance: {info.balance}")
     return True
 
 
@@ -641,17 +610,11 @@ def health():
 
 @app.post("/set-home-account")
 def set_home_account(req: SetHomeAccountRequest):
-    """Called by TG Bot at start of each pull cycle to assign proportional home account."""
-    global _home_account, _tg_bot_callback
+    """No-op in v8.0 — home account is always the hardcoded standard base account.
+    Endpoint kept so router calls don't error, but the account is never changed."""
+    global _tg_bot_callback
     if req.api_key != API_KEY:
         raise HTTPException(status_code=401, detail="Invalid API key")
-
-    _home_account = {
-        "account":  req.account,
-        "password": req.password,
-        "server":   req.server,
-        "subtype":  req.subtype,
-    }
 
     if req.tg_bot_url:
         _tg_bot_callback = {
@@ -700,11 +663,11 @@ def candles(req: CandlesRequest):
 
 if __name__ == "__main__":
     print(f"=" * 50)
-    print(f"  VPS Worker {TERMINAL_ID} (v7.0 — Smart Idle Accounts)")
+    print(f"  VPS Worker {TERMINAL_ID} (v8.0 — Fixed Base Account)")
     print(f"  Terminal: {TERMINAL_PATH}")
     print(f"  Port:     {PORT}")
-    print(f"  Home:     {_home_account['account']} @ {_home_account['server']} ({_home_account['subtype']})")
-    print(f"  Idle:     {IDLE_TIMEOUT}s")
+    print(f"  Base:     {FALLBACK_ACCOUNT} @ {FALLBACK_SERVER} (standard)")
+    print(f"  Idle:     {IDLE_TIMEOUT}s — always restores to base account")
     print(f"  Heal after: {MAX_FAILURES_BEFORE_HEAL} consecutive failures")
     print(f"=" * 50)
 
