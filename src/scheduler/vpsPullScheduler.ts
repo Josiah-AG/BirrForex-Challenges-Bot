@@ -678,8 +678,8 @@ export class VpsPullScheduler {
         }
       } else {
         if (result.errorCode === 'invalid_credentials') {
-          // Update last_pull_at so pull-status progress bar advances for this account
-          await db.query(`UPDATE trading_registrations SET last_pull_at = NOW() WHERE id = $1`, [account.registrationId]).catch(() => {});
+          // Do NOT update last_pull_at — preserve the last successful pull timestamp
+          // so the next cycle's incremental window covers from the last real pull
           resultsMutex.results.push(result);
           terminal.totalFailed++;
         } else {
@@ -693,8 +693,8 @@ export class VpsPullScheduler {
             this.sharedQueue.requeue(account);
             break;
           }
-          // Update last_pull_at so pull-status progress bar advances even on failure
-          await db.query(`UPDATE trading_registrations SET last_pull_at = NOW() WHERE id = $1`, [account.registrationId]).catch(() => {});
+          // Do NOT update last_pull_at — preserve the last successful pull timestamp
+          // so the next cycle's incremental window covers from the last real pull
           resultsMutex.results.push(result);
           terminal.totalFailed++;
         }
@@ -1482,7 +1482,7 @@ export class VpsPullScheduler {
     if (reg.rows[0]?.pull_status === 'password_changed') return;
 
     await db.query(
-      `UPDATE trading_registrations SET pull_status = 'password_changed', pull_error = $1, last_pull_at = NOW() WHERE id = $2`,
+      `UPDATE trading_registrations SET pull_status = 'password_changed', pull_error = $1 WHERE id = $2`,
       [`Detected at ${new Date().toISOString()}`, failure.registrationId]
     );
 
