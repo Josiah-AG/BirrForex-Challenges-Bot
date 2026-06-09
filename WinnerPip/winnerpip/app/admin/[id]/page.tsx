@@ -35,6 +35,10 @@ export default function AdminDashboard() {
   const [overviewData, setOverviewData] = useState<any>(null);
   const [failedAccounts, setFailedAccounts] = useState<any[]>([]);
   const [failedLoading, setFailedLoading] = useState(false);
+  const [realLeaderboard, setRealLeaderboard] = useState<any[]>([]);
+  const [lbLoading, setLbLoading] = useState(false);
+  const [participantTrades, setParticipantTrades] = useState<any[]>([]);
+  const [tradesLoading, setTradesLoading] = useState(false);
 
   // Lock scroll on modal
   useEffect(() => {
@@ -76,6 +80,40 @@ export default function AdminDashboard() {
   };
 
   useState(() => { if (typeof window !== "undefined" && localStorage.getItem("wp_admin_path")) setIsAdmin(true); });
+
+  useEffect(() => {
+    if (activeSection !== "leaderboard" || !isAdmin) return;
+    const path = localStorage.getItem("wp_admin_path");
+    const key = localStorage.getItem("wp_admin_key");
+    if (!path || !key) return;
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
+    setLbLoading(true);
+    fetch(`${apiUrl}/api/admin/${path}/challenge/${params.id}/admin-leaderboard`, {
+      headers: { "X-Admin-Key": key },
+    })
+      .then(r => r.json())
+      .then(data => setRealLeaderboard(data.leaderboard || []))
+      .catch(() => setRealLeaderboard([]))
+      .finally(() => setLbLoading(false));
+  }, [activeSection, isAdmin, params.id]);
+
+  const openParticipant = (entry: any) => {
+    setSelectedParticipant(entry);
+    setParticipantTrades([]);
+    if (!entry.registrationId) return;
+    const path = localStorage.getItem("wp_admin_path");
+    const key = localStorage.getItem("wp_admin_key");
+    if (!path || !key) return;
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
+    setTradesLoading(true);
+    fetch(`${apiUrl}/api/admin/${path}/challenge/${params.id}/user-trades-mt5?registration_id=${entry.registrationId}`, {
+      headers: { "X-Admin-Key": key },
+    })
+      .then(r => r.json())
+      .then(data => setParticipantTrades(data.positions || []))
+      .catch(() => setParticipantTrades([]))
+      .finally(() => setTradesLoading(false));
+  };
 
   useEffect(() => {
     if (activeSection !== "pulls" || !isAdmin) return;
@@ -283,9 +321,12 @@ export default function AdminDashboard() {
         {activeSection === "leaderboard" && (
           <div className="glass rounded-2xl border border-white/10 overflow-hidden">
             <div className="p-4 border-b border-white/5 flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-white flex items-center gap-2"><Trophy size={16} className="text-gold" /> Full Leaderboard (Top 10)</h3>
-              <span className="text-xs text-gray-500">Ranked by balance</span>
+              <h3 className="text-sm font-semibold text-white flex items-center gap-2"><Trophy size={16} className="text-gold" /> Full Leaderboard</h3>
+              <span className="text-xs text-gray-500">{realLeaderboard.length} participants — click row for trades</span>
             </div>
+            {lbLoading ? (
+              <div className="p-8 flex items-center justify-center gap-2 text-gray-400 text-sm"><Loader2 size={14} className="animate-spin" /> Loading...</div>
+            ) : (
             <div className="overflow-x-auto">
               <table className="w-full min-w-[700px]">
                 <thead><tr className="border-b border-white/5">
@@ -294,24 +335,23 @@ export default function AdminDashboard() {
                   <th className="text-left py-3 px-4 text-[10px] text-gray-400 uppercase">Type</th>
                   <th className="text-right py-3 px-4 text-[10px] text-gray-400 uppercase">Balance</th>
                   <th className="text-center py-3 px-4 text-[10px] text-gray-400 uppercase">Trades</th>
-                  <th className="text-center py-3 px-4 text-[10px] text-gray-400 uppercase">Win%</th>
-                  <th className="text-center py-3 px-4 text-[10px] text-gray-400 uppercase">Avg RR</th>
+                  <th className="text-center py-3 px-4 text-[10px] text-gray-400 uppercase">Profit</th>
                   <th className="text-center py-3 px-4 text-[10px] text-gray-400 uppercase">Violations</th>
                 </tr></thead>
-                <tbody>{leaderboard.map(e => (
-                  <tr key={e.rank} className="border-b border-white/5 hover:bg-white/5 cursor-pointer" onClick={() => setSelectedParticipant(e)}>
-                    <td className="py-3 px-4"><span className={`text-sm font-bold ${e.rank <= 3 ? "text-gold" : "text-gray-400"}`}>{e.rank}</span></td>
-                    <td className="py-3 px-4 text-sm text-white font-semibold">{e.nickname}</td>
+                <tbody>{realLeaderboard.map((e: any, i: number) => (
+                  <tr key={i} className="border-b border-white/5 hover:bg-white/5 cursor-pointer" onClick={() => openParticipant(e)}>
+                    <td className="py-3 px-4"><span className={`text-sm font-bold ${e.rank && e.rank <= 3 ? "text-gold" : "text-gray-400"}`}>{e.rank || "—"}</span></td>
+                    <td className="py-3 px-4 text-sm text-white font-semibold">{e.nickname || "—"}{e.isDisqualified && <span className="ml-2 text-[10px] text-loss">DQ</span>}</td>
                     <td className="py-3 px-4"><span className={`px-2 py-1 rounded text-[10px] font-semibold ${e.accountType === "real" ? "bg-gold/10 text-gold" : "bg-royal/10 text-royal"}`}>{e.accountType}</span></td>
-                    <td className="py-3 px-4 text-right text-sm font-bold text-white">${e.balance.toFixed(2)}</td>
-                    <td className="py-3 px-4 text-center text-sm text-gray-400">{e.trades}</td>
-                    <td className="py-3 px-4 text-center text-sm text-gray-400">{e.winRate}%</td>
-                    <td className="py-3 px-4 text-center text-sm text-royal">{e.avgRR.toFixed(1)}R</td>
-                    <td className="py-3 px-4 text-center">{e.violations > 0 ? <span className="text-loss font-bold">{e.violations}</span> : <span className="text-profit">✓</span>}</td>
+                    <td className="py-3 px-4 text-right text-sm font-bold text-white">{e.isCent ? `${(e.adjustedBalance||0).toFixed(2)}¢` : `$${(e.adjustedBalance||0).toFixed(2)}`}</td>
+                    <td className="py-3 px-4 text-center text-sm text-gray-400">{e.totalTrades || 0}</td>
+                    <td className="py-3 px-4 text-center text-sm"><span className={(e.qualifiedProfit||0) >= 0 ? "text-profit" : "text-loss"}>{e.isCent ? `${(e.qualifiedProfit||0).toFixed(2)}¢` : `$${(e.qualifiedProfit||0).toFixed(2)}`}</span></td>
+                    <td className="py-3 px-4 text-center">{(e.flaggedTrades||0) > 0 ? <span className="text-loss font-bold">{e.flaggedTrades}</span> : <span className="text-profit">✓</span>}</td>
                   </tr>
                 ))}</tbody>
               </table>
             </div>
+            )}
           </div>
         )}
 
@@ -737,21 +777,61 @@ export default function AdminDashboard() {
       {/* ==================== PARTICIPANT DETAIL MODAL ==================== */}
       {selectedParticipant && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-hidden" onClick={() => setSelectedParticipant(null)}>
-          <div className="glass rounded-2xl max-w-md w-full max-h-[85vh] overflow-y-auto border border-white/10" onClick={(e) => e.stopPropagation()}>
+          <div className="glass rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto border border-white/10" onClick={(e) => e.stopPropagation()}>
             <div className="sticky top-0 glass p-4 border-b border-white/10 flex items-center justify-between z-10 rounded-t-2xl">
-              <h3 className="text-lg font-bold text-white">{selectedParticipant.nickname}</h3>
+              <div>
+                <h3 className="text-lg font-bold text-white">{selectedParticipant.nickname}</h3>
+                <p className="text-[10px] text-gray-500">Rank #{selectedParticipant.rank || "—"} · {selectedParticipant.accountType}</p>
+              </div>
               <button onClick={() => setSelectedParticipant(null)} className="p-2 hover:bg-white/10 rounded-lg"><X size={18} className="text-gray-400" /></button>
             </div>
             <div className="p-5 space-y-4">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Rank</p><p className="text-2xl font-bold gradient-text">#{selectedParticipant.rank}</p></div>
-                <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Balance</p><p className="text-2xl font-bold text-white">${selectedParticipant.balance.toFixed(2)}</p></div>
-                <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Win Rate</p><p className="text-lg font-bold text-white">{selectedParticipant.winRate}%</p></div>
-                <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Avg RR</p><p className="text-lg font-bold text-royal">{selectedParticipant.avgRR.toFixed(1)}R</p></div>
-                <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Trades</p><p className="text-lg font-bold text-white">{selectedParticipant.trades}</p></div>
-                <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Violations</p><p className={`text-lg font-bold ${selectedParticipant.violations > 0 ? "text-loss" : "text-profit"}`}>{selectedParticipant.violations}</p></div>
+              {/* Stats grid */}
+              <div className="grid grid-cols-3 gap-2">
+                <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Balance</p><p className="text-base font-bold text-white">{selectedParticipant.isCent ? `${(selectedParticipant.adjustedBalance||0).toFixed(2)}¢` : `$${(selectedParticipant.adjustedBalance||0).toFixed(2)}`}</p></div>
+                <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Profit</p><p className={`text-base font-bold ${(selectedParticipant.qualifiedProfit||0) >= 0 ? "text-profit" : "text-loss"}`}>{selectedParticipant.isCent ? `${(selectedParticipant.qualifiedProfit||0).toFixed(2)}¢` : `$${(selectedParticipant.qualifiedProfit||0).toFixed(2)}`}</p></div>
+                <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Trades</p><p className="text-base font-bold text-white">{selectedParticipant.totalTrades || 0}</p></div>
+                <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Qualified</p><p className="text-base font-bold text-profit">{selectedParticipant.qualifiedTrades || 0}</p></div>
+                <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Flagged</p><p className={`text-base font-bold ${(selectedParticipant.flaggedTrades||0) > 0 ? "text-loss" : "text-profit"}`}>{selectedParticipant.flaggedTrades || 0}</p></div>
+                <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Active Days</p><p className="text-base font-bold text-white">{selectedParticipant.activeDays ?? "—"}</p></div>
               </div>
-              <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Account Type</p><span className={`px-3 py-1 rounded text-xs font-semibold ${selectedParticipant.accountType === "real" ? "bg-gold/10 text-gold" : "bg-royal/10 text-royal"}`}>{selectedParticipant.accountType}</span></div>
+
+              {/* Recent trades */}
+              <div>
+                <p className="text-xs font-semibold text-gray-400 mb-2 flex items-center gap-2"><Activity size={12} /> Recent Trades</p>
+                {tradesLoading ? (
+                  <div className="flex items-center gap-2 text-gray-500 text-xs py-3"><Loader2 size={12} className="animate-spin" /> Loading trades...</div>
+                ) : participantTrades.length === 0 ? (
+                  <p className="text-xs text-gray-600 py-3">No trades recorded yet.</p>
+                ) : (
+                  <div className="space-y-1 max-h-64 overflow-y-auto">
+                    {participantTrades.slice().reverse().slice(0, 20).map((t: any, i: number) => {
+                      const profit = parseFloat(t.Profit ?? t.profit ?? 0);
+                      const isCent = selectedParticipant.isCent;
+                      const sym = t.Symbol ?? t.symbol ?? "—";
+                      const tradeType = (t.Type ?? t.trade_type ?? "").toLowerCase();
+                      const closeTime = t["Close Time"] ?? t.close_time;
+                      const volume = t.Volume ?? t.volume;
+                      const closeDate = closeTime ? new Date(closeTime).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "—";
+                      const isFlagged = t.is_qualified === false;
+                      return (
+                        <div key={i} className={`flex items-center justify-between px-3 py-2 rounded-lg text-xs ${isFlagged ? "bg-loss/10 border border-loss/20" : "bg-white/5"}`}>
+                          <div className="flex items-center gap-2">
+                            <span className={`font-semibold w-7 ${tradeType === "buy" ? "text-profit" : "text-loss"}`}>{tradeType === "buy" ? "B" : "S"}</span>
+                            <span className="text-white font-semibold">{sym}</span>
+                            <span className="text-gray-500">{volume} lot</span>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <span className="text-gray-500">{closeDate}</span>
+                            <span className={`font-bold w-16 text-right ${profit >= 0 ? "text-profit" : "text-loss"}`}>{isCent ? `${profit.toFixed(2)}¢` : `$${profit.toFixed(2)}`}</span>
+                            {isFlagged && <span className="text-[9px] text-loss bg-loss/10 px-1 rounded">FLAG</span>}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>

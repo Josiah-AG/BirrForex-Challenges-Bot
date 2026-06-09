@@ -1379,7 +1379,9 @@ export class VpsPullScheduler {
       username: r.username,
       nickname: r.nickname,
       isPriority: false,
-      lastPullAt: r.last_pull_at ? new Date(r.last_pull_at).toISOString() : null,
+      // forceAll=true (admin full pull): set lastPullAt=null so pullSingleAccount
+      // always does a full pull from challenge start, not a 5h incremental window
+      lastPullAt: forceAll ? null : (r.last_pull_at ? new Date(r.last_pull_at).toISOString() : null),
     }));
   }
 
