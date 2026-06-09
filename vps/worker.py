@@ -36,9 +36,9 @@ PORT = int(sys.argv[2])
 TERMINAL_PATH = f"C:\\MetaTrader\\Terminal {TERMINAL_ID}\\terminal64.exe"
 
 # Fallback base account (standard demo) — used only when entire subtype pool is exhausted
-FALLBACK_ACCOUNT = int(os.environ.get("VPS_BASE_ACCOUNT", "435924397"))
-FALLBACK_PASSWORD = os.environ.get("VPS_BASE_PASSWORD", "Abc@1234")
-FALLBACK_SERVER   = os.environ.get("VPS_BASE_SERVER",   "Exness-MT5Trial9")
+BASE_ACCOUNT  = int(os.environ.get("VPS_BASE_ACCOUNT", "435924397"))
+BASE_PASSWORD = os.environ.get("VPS_BASE_PASSWORD", "Abc@1234")
+BASE_SERVER   = os.environ.get("VPS_BASE_SERVER",   "Exness-MT5Trial9")
 
 # API key
 API_KEY = os.environ.get("VPS_API_KEY", "")
@@ -56,25 +56,8 @@ MAX_FAILURES_BEFORE_HEAL = 3
 _idle_timer = None
 IDLE_TIMEOUT = 30  # seconds — fast restore, home account is always correct subtype
 
-# ── Home account (dynamic, set by /set-home-account) ──────────────────────────
-# Workers start on the fallback standard base. As soon as the first pull cycle
-# starts, the TG Bot calls /set-home-account to assign a proportional home.
-_home_account = {
-    "account": FALLBACK_ACCOUNT,
-    "password": FALLBACK_PASSWORD,
-    "server":   FALLBACK_SERVER,
-    "subtype":  "standard",
-}
-
 # Current logged-in account (updated on every successful login)
-_current_account_str = str(FALLBACK_ACCOUNT)
-
-# TG Bot callback — for self-healing account rotation
-_tg_bot_callback = {
-    "url":          "",
-    "api_key":      "",
-    "challenge_id": "",
-}
+_current_account_str = str(BASE_ACCOUNT)
 
 app = FastAPI(title=f"VPS Worker {TERMINAL_ID}", version="7.0.0")
 
@@ -120,13 +103,12 @@ def relaunch_terminal() -> bool:
     print(f"  [W{TERMINAL_ID}] Waiting 20s for terminal to connect...")
     time.sleep(20)
 
-    home = _home_account
     for attempt in range(5):
         if mt5.initialize(TERMINAL_PATH):
-            if mt5.login(home["account"], password=home["password"], server=home["server"]):
+            if mt5.login(BASE_ACCOUNT, password=BASE_PASSWORD, server=BASE_SERVER):
                 _ipc_connected = True
                 global _current_account_str
-                _current_account_str = str(home["account"])
+                _current_account_str = str(BASE_ACCOUNT)
                 print(f"  [W{TERMINAL_ID}] Terminal relaunched and connected ✓")
                 return True
             mt5.shutdown()
@@ -217,28 +199,6 @@ def _schedule_idle_restore():
     _idle_timer.start()
 
 
-def _get_replacement_account(subtype: str, exclude_account: str) -> Optional[dict]:
-    """Call TG Bot API to get a replacement home account for the given subtype."""
-    cb = _tg_bot_callback
-    if not cb["url"] or not cb["api_key"]:
-        return None
-    try:
-        params = urllib.parse.urlencode({
-            "subtype":      subtype,
-            "challenge_id": cb["challenge_id"],
-            "exclude":      exclude_account,
-        })
-        url = f"{cb['url']}/api/vps/next-account?{params}"
-        req = urllib.request.Request(url, headers={"x-vps-api-key": cb["api_key"]})
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read())
-            if data.get("found"):
-                return data
-    except Exception as e:
-        print(f"  [W{TERMINAL_ID}] Account rotation API error: {e}")
-    return None
-
-
 def _do_idle_restore():
     """Always restore to the hardcoded standard base account. No dynamic subtype logic."""
     global _ipc_connected
@@ -251,10 +211,10 @@ def _do_idle_restore():
         return
 
     try:
-        if login_user(FALLBACK_ACCOUNT, FALLBACK_PASSWORD, FALLBACK_SERVER):
-            print(f"  [W{TERMINAL_ID}] Idle restore: base account ({FALLBACK_ACCOUNT}) ✓")
+        if login_user(BASE_ACCOUNT, BASE_PASSWORD, BASE_SERVER):
+            print(f"  [W{TERMINAL_ID}] Idle restore: home account ({BASE_ACCOUNT}) ✓")
         else:
-            print(f"  [W{TERMINAL_ID}] Idle restore: base account login failed — {mt5.last_error()}")
+            print(f"  [W{TERMINAL_ID}] Idle restore: home account login failed — {mt5.last_error()}")
     finally:
         _lock.release()
 
@@ -276,17 +236,17 @@ def init_terminal() -> bool:
 
     _ipc_connected = True
 
-    # Always login to hardcoded standard base account on startup
-    if not mt5.login(FALLBACK_ACCOUNT, password=FALLBACK_PASSWORD, server=FALLBACK_SERVER):
-        print(f"  [W{TERMINAL_ID}] Base account login failed: {mt5.last_error()}")
+    # Login to home (base) account on startup
+    if not mt5.login(BASE_ACCOUNT, password=BASE_PASSWORD, server=BASE_SERVER):
+        print(f"  [W{TERMINAL_ID}] Home account login failed: {mt5.last_error()}")
         mt5.shutdown()
         _ipc_connected = False
         return False
 
-    _current_account_str = str(FALLBACK_ACCOUNT)
+    _current_account_str = str(BASE_ACCOUNT)
     info = mt5.account_info()
     if info:
-        print(f"  [W{TERMINAL_ID}] Connected — base account: {info.login} balance: {info.balance}")
+        print(f"  [W{TERMINAL_ID}] Connected — home account: {info.login} balance: {info.balance}")
     return True
 
 
@@ -509,7 +469,7 @@ def do_pull(account: int, server: str, password: str, from_date: str = None, ord
 
 
 def do_candles(symbol: str, timeframe: str, from_time: str, to_time: str, required_subtype: str = None) -> dict:
-    global _current_account_str, _home_account
+    global _current_account_str
 
     tf_map = {
         "M1":  mt5.TIMEFRAME_M1,
@@ -581,17 +541,6 @@ class CandlesRequest(BaseModel):
     required_subtype:  Optional[str] = None
 
 
-class SetHomeAccountRequest(BaseModel):
-    account:        str
-    server:         str
-    password:       str
-    subtype:        str
-    api_key:        str
-    tg_bot_url:     Optional[str] = None
-    tg_bot_api_key: Optional[str] = None
-    challenge_id:   Optional[str] = None
-
-
 # ==================== ENDPOINTS ====================
 
 @app.get("/health")
@@ -602,29 +551,9 @@ def health():
         "port":                 PORT,
         "ipc_connected":        _ipc_connected,
         "consecutive_failures": _consecutive_failures,
-        "home_subtype":         _home_account["subtype"],
-        "home_account":         str(_home_account["account"]),
+        "home_account":         str(BASE_ACCOUNT),
         "current_account":      _current_account_str,
     }
-
-
-@app.post("/set-home-account")
-def set_home_account(req: SetHomeAccountRequest):
-    """No-op in v8.0 — home account is always the hardcoded standard base account.
-    Endpoint kept so router calls don't error, but the account is never changed."""
-    global _tg_bot_callback
-    if req.api_key != API_KEY:
-        raise HTTPException(status_code=401, detail="Invalid API key")
-
-    if req.tg_bot_url:
-        _tg_bot_callback = {
-            "url":          req.tg_bot_url.rstrip("/"),
-            "api_key":      req.tg_bot_api_key or "",
-            "challenge_id": req.challenge_id or "",
-        }
-
-    print(f"  [W{TERMINAL_ID}] Home account set: {req.account} ({req.subtype})")
-    return {"success": True, "terminal_id": TERMINAL_ID, "subtype": req.subtype, "account": req.account}
 
 
 @app.post("/verify")
@@ -666,8 +595,8 @@ if __name__ == "__main__":
     print(f"  VPS Worker {TERMINAL_ID} (v8.0 — Fixed Base Account)")
     print(f"  Terminal: {TERMINAL_PATH}")
     print(f"  Port:     {PORT}")
-    print(f"  Base:     {FALLBACK_ACCOUNT} @ {FALLBACK_SERVER} (standard)")
-    print(f"  Idle:     {IDLE_TIMEOUT}s — always restores to base account")
+    print(f"  Home:     {BASE_ACCOUNT} @ {BASE_SERVER} (standard)")
+    print(f"  Idle:     {IDLE_TIMEOUT}s — always restores to home account")
     print(f"  Heal after: {MAX_FAILURES_BEFORE_HEAL} consecutive failures")
     print(f"=" * 50)
 
