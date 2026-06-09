@@ -252,7 +252,10 @@ def init_terminal() -> bool:
 
 def do_verify(account: int, server: str, password: str) -> dict:
     if not login_user(account, password, server):
-        return {"success": False, "message": f"Login failed: {mt5.last_error()}"}
+        err = mt5.last_error()
+        # Restore to base account immediately so terminal doesn't stay stuck
+        login_user(BASE_ACCOUNT, BASE_PASSWORD, BASE_SERVER)
+        return {"success": False, "message": f"Login failed: {err}"}
 
     account_info = mt5.account_info()
     if not account_info:
@@ -292,7 +295,11 @@ def do_verify(account: int, server: str, password: str) -> dict:
 
 def do_pull(account: int, server: str, password: str, from_date: str = None, orders_from_date: str = None) -> dict:
     if not login_user(account, password, server):
-        return {"success": False, "message": f"Login failed: {mt5.last_error()}"}
+        err = mt5.last_error()
+        # Immediately restore to base account so the terminal doesn't stay stuck
+        # on an MT5 authorization-failed popup or bad state
+        login_user(BASE_ACCOUNT, BASE_PASSWORD, BASE_SERVER)
+        return {"success": False, "message": f"Login failed: {err}"}
 
     account_info = mt5.account_info()
     balance = account_info.balance if account_info else 0

@@ -1360,6 +1360,7 @@ export class VpsPullScheduler {
          AND r.investor_password IS NOT NULL
          ${connectionFilter}
          ${zeroBalanceFilter}
+         AND (r.pull_status IS NULL OR r.pull_status != 'password_changed')
        ORDER BY r.id`,
       [challengeId]
     );
