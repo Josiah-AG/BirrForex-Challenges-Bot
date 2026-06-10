@@ -66,20 +66,27 @@ app = FastAPI(title=f"VPS Worker {TERMINAL_ID}", version="7.0.0")
 
 def close_login_dialog():
     """
-    Close any MT5 'Login' popup dialog using the Windows API.
-    When mt5.login() fails with bad credentials MT5 sometimes renders
-    a blocking Login dialog — this dismisses it so the terminal is free.
+    Close ALL MT5 'Login' popup dialogs using the Windows API.
+    Loops until FindWindowW returns nothing so multiple simultaneous
+    dialogs (from different terminals) are all dismissed.
     Uses ctypes (stdlib, no extra installs).
     """
     try:
         import ctypes
         user32 = ctypes.windll.user32
-        # FindWindowW(class, title) — MT5 login popup title is "Login"
-        hwnd = user32.FindWindowW(None, "Login")
-        if hwnd:
-            user32.PostMessageW(hwnd, 0x0010, 0, 0)  # WM_CLOSE
-            time.sleep(0.5)
-            print(f"  [W{TERMINAL_ID}] Closed stuck Login dialog")
+        WM_CLOSE = 0x0010
+        closed = 0
+        # Loop — FindWindowW only returns one handle at a time,
+        # so we keep going until no more "Login" windows exist.
+        for _ in range(15):
+            hwnd = user32.FindWindowW(None, "Login")
+            if not hwnd:
+                break
+            user32.PostMessageW(hwnd, WM_CLOSE, 0, 0)
+            time.sleep(0.3)
+            closed += 1
+        if closed:
+            print(f"  [W{TERMINAL_ID}] Closed {closed} Login dialog(s)")
     except Exception as e:
         print(f"  [W{TERMINAL_ID}] close_login_dialog error: {e}")
 
