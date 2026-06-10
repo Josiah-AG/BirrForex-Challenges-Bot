@@ -7,18 +7,27 @@ echo.
 
 cd /d C:\BirrForex
 
-REM Step 1: Launch all 10 MT5 terminals (they auto-login to saved base account)
+REM Step 1: Write base account config for all terminals, then launch with /config
+REM         This ensures every terminal starts on the base account regardless of
+REM         any corrupted saved state from previous credential failures.
 echo [1/3] Launching MT5 terminals...
-start "" "C:\MetaTrader\Terminal 1\terminal64.exe"
-start "" "C:\MetaTrader\Terminal 2\terminal64.exe"
-start "" "C:\MetaTrader\Terminal 3\terminal64.exe"
-start "" "C:\MetaTrader\Terminal 4\terminal64.exe"
-start "" "C:\MetaTrader\Terminal 5\terminal64.exe"
-start "" "C:\MetaTrader\Terminal 6\terminal64.exe"
-start "" "C:\MetaTrader\Terminal 7\terminal64.exe"
-start "" "C:\MetaTrader\Terminal 8\terminal64.exe"
-start "" "C:\MetaTrader\Terminal 9\terminal64.exe"
-start "" "C:\MetaTrader\Terminal 10\terminal64.exe"
+for /L %%i in (1,1,10) do (
+    echo [Common]> "C:\MetaTrader\Terminal %%i\base_login.ini"
+    echo Login=435924397>> "C:\MetaTrader\Terminal %%i\base_login.ini"
+    echo Password=Abc@1234>> "C:\MetaTrader\Terminal %%i\base_login.ini"
+    echo Server=Exness-MT5Trial9>> "C:\MetaTrader\Terminal %%i\base_login.ini"
+    echo KeepPrivate=1>> "C:\MetaTrader\Terminal %%i\base_login.ini"
+)
+start "" "C:\MetaTrader\Terminal 1\terminal64.exe"  /config:"C:\MetaTrader\Terminal 1\base_login.ini"
+start "" "C:\MetaTrader\Terminal 2\terminal64.exe"  /config:"C:\MetaTrader\Terminal 2\base_login.ini"
+start "" "C:\MetaTrader\Terminal 3\terminal64.exe"  /config:"C:\MetaTrader\Terminal 3\base_login.ini"
+start "" "C:\MetaTrader\Terminal 4\terminal64.exe"  /config:"C:\MetaTrader\Terminal 4\base_login.ini"
+start "" "C:\MetaTrader\Terminal 5\terminal64.exe"  /config:"C:\MetaTrader\Terminal 5\base_login.ini"
+start "" "C:\MetaTrader\Terminal 6\terminal64.exe"  /config:"C:\MetaTrader\Terminal 6\base_login.ini"
+start "" "C:\MetaTrader\Terminal 7\terminal64.exe"  /config:"C:\MetaTrader\Terminal 7\base_login.ini"
+start "" "C:\MetaTrader\Terminal 8\terminal64.exe"  /config:"C:\MetaTrader\Terminal 8\base_login.ini"
+start "" "C:\MetaTrader\Terminal 9\terminal64.exe"  /config:"C:\MetaTrader\Terminal 9\base_login.ini"
+start "" "C:\MetaTrader\Terminal 10\terminal64.exe" /config:"C:\MetaTrader\Terminal 10\base_login.ini"
 echo     All 10 terminals launched.
 echo     Waiting 30 seconds for broker connection...
 timeout /t 30 /nobreak >nul
