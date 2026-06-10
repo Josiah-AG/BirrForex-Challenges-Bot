@@ -584,6 +584,14 @@ export class VpsPullScheduler {
       await this.bulkUpdatePullStatus(allResults);
       await this.reportCandleFailures(challengeToPull.id, 0);
 
+      // === FORCE PULL ONLY: Flush staging to live + update rankings immediately ===
+      // Regular scheduled cycles flush at the START of the next cycle.
+      // Force pull flushes right now so the admin sees correct stats instantly.
+      await leaderboardService.flushStagingToLive(challengeToPull.id);
+      await leaderboardService.ensureAllParticipantsHaveEntries(challengeToPull.id);
+      await leaderboardService.updateRankings(challengeToPull.id);
+      console.log(`📊 VPS Pull: Staging flushed to live — leaderboard updated`);
+
       const duration = Math.round((Date.now() - startTime) / 1000);
       console.log(`✅ VPS Pull: Admin full pull done in ${duration}s — ${successful.length}✓ ${failed.length}✗ | ${newTrades} trades`);
 
