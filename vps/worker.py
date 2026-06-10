@@ -382,10 +382,72 @@ def init_terminal() -> bool:
     return force_login_base_account("startup")
 
 
+def _async_stage2_recovery(reason: str):
+    """
+    Run Stage 2 recovery (kill + /config restart) in a background thread.
+    The 35s broker wait happens WITHOUT holding the main lock so pull
+    requests during recovery fail fast (IPC dead = instant error) rather
+    than blocking for 45s and timing out the pull cycle.
+    """
+    tag = f"  [W{TERMINAL_ID}]"
+    print(f"{tag} [async recovery] Starting — {reason}")
+
+    # Write config and kill terminal (no lock needed — subprocess only)
+    config_path = _write_base_config()
+    if not config_path:
+        return
+
+    # Shutdown IPC briefly under the lock, then release immediately
+    acquired = _lock.acquire(timeout=5)
+    if acquired:
+        try:
+            global _ipc_connected
+            try:
+                mt5.shutdown()
+            except:
+                pass
+            _ipc_connected = False
+        finally:
+            _lock.release()
+
+    kill_terminal()
+
+    # Relaunch and wait — NO lock held during the 35s broker connection wait
+    try:
+        subprocess.Popen(
+            [TERMINAL_PATH, f"/config:{config_path}"],
+            creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+        )
+        print(f"{tag} [async recovery] Terminal relaunched — waiting 35s for broker...")
+        time.sleep(35)
+    except Exception as e:
+        print(f"{tag} [async recovery] Relaunch error: {e}")
+        return
+
+    # Reconnect under the lock
+    acquired = _lock.acquire(timeout=30)
+    if acquired:
+        try:
+            for attempt in range(5):
+                print(f"{tag} [async recovery] connect attempt {attempt+1}/5")
+                if _try_initialize_and_login():
+                    print(f"{tag} [async recovery] ✓ recovered")
+                    return
+                time.sleep(3 + attempt)
+            print(f"{tag} [async recovery] ✗ all attempts failed")
+        finally:
+            _lock.release()
+
+
 def do_verify(account: int, server: str, password: str) -> dict:
     if not login_user(account, password, server):
         err = mt5.last_error()
-        force_login_base_account("credential failure in verify", skip_stage1=True)
+        # Fire recovery in background — don't block the response for 35s
+        threading.Thread(
+            target=_async_stage2_recovery,
+            args=("credential failure in verify",),
+            daemon=True
+        ).start()
         return {"success": False, "message": f"Login failed: {err}"}
 
     account_info = mt5.account_info()
@@ -427,7 +489,12 @@ def do_verify(account: int, server: str, password: str) -> dict:
 def do_pull(account: int, server: str, password: str, from_date: str = None, orders_from_date: str = None) -> dict:
     if not login_user(account, password, server):
         err = mt5.last_error()
-        force_login_base_account("credential failure in pull", skip_stage1=True)
+        # Fire recovery in background — don't block the pull response for 35s
+        threading.Thread(
+            target=_async_stage2_recovery,
+            args=("credential failure in pull",),
+            daemon=True
+        ).start()
         return {"success": False, "message": f"Login failed: {err}"}
 
     # MT5 needs time to sync deal history from the broker after switching accounts.

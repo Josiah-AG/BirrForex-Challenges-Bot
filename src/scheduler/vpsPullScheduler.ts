@@ -359,6 +359,41 @@ export class VpsPullScheduler {
         }
       }
 
+      // === STEP 4a: Credential failure confirmation on a DIFFERENT terminal ===
+      // Try each credential failure once on a different healthy terminal.
+      // If it still fails with credentials → confirmed bad password, stop forever.
+      // If it succeeds → was a terminal issue not a credential issue, treat as success.
+      // This prevents false positives from terminal state issues.
+      const credentialFailuresToConfirm = allResults.filter(
+        r => !r.success && r.errorCode === 'invalid_credentials'
+      );
+      if (credentialFailuresToConfirm.length > 0) {
+        console.log(`🔑 VPS Pull: Confirming ${credentialFailuresToConfirm.length} credential failure(s) on different terminals`);
+        const healthyTerminals = this.terminals.filter(t => t.isHealthy);
+        for (const failure of credentialFailuresToConfirm) {
+          // Pick a different terminal from the one that failed
+          const differentTerminal = healthyTerminals.find(t => t.id !== failure.terminalId);
+          if (!differentTerminal) continue;
+          const account = accounts.find(a => a.registrationId === failure.registrationId);
+          if (!account) continue;
+          console.log(`🔑 VPS Pull: Confirming ${failure.accountNumber} on T${differentTerminal.id} (failed on T${failure.terminalId})`);
+          const confirmResult = await this.pullSingleAccount(account, differentTerminal.id, challengeToPull);
+          if (confirmResult.success) {
+            // Succeeded on different terminal — was a terminal issue, not credentials
+            console.log(`✅ VPS Pull: ${failure.accountNumber} succeeded on T${differentTerminal.id} — was terminal issue, not credentials`);
+            const idx = allResults.findIndex(r => r.registrationId === failure.registrationId);
+            if (idx >= 0) allResults[idx] = { ...confirmResult, terminalId: differentTerminal.id };
+          } else if (confirmResult.errorCode === 'invalid_credentials') {
+            // Confirmed credential failure — log and leave as invalid_credentials
+            console.log(`🔑 VPS Pull: ${failure.accountNumber} confirmed bad credentials on T${differentTerminal.id}`);
+          } else {
+            // Different error on second try — network/terminal issue, not credentials
+            // Keep original credential failure result (safer than changing to unknown error)
+            console.log(`⚠️ VPS Pull: ${failure.accountNumber} got different error on confirmation: ${confirmResult.errorCode}`);
+          }
+        }
+      }
+
       // === STEP 4b: Healthy-only retry — up to 5 extra passes on recovered terminals ===
       const stillFailingAfterRetry = allResults.filter(
         r => !r.success && r.errorCode !== 'invalid_credentials'
