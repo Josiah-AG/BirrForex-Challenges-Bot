@@ -113,8 +113,8 @@ def _kill_and_restart_terminal() -> bool:
             [TERMINAL_PATH, f"/config:{config_path}"],
             creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
         )
-        print(f"{tag}    terminal relaunched with /config — waiting 25s for broker...")
-        time.sleep(25)
+        print(f"{tag}    terminal relaunched with /config — waiting 35s for broker...")
+        time.sleep(35)
         return True
     except Exception as e:
         print(f"{tag}    relaunch error: {e}")
@@ -207,18 +207,22 @@ def kill_terminal():
         mt5.shutdown()
     except:
         pass
+    # Use EXACT path match — NOT a LIKE pattern.
+    # Pattern like '%Terminal 1%' would also match Terminal 10, 11, etc.
+    wmic_path = TERMINAL_PATH.replace("\\", "\\\\")
     try:
         subprocess.run(
             ["wmic", "process", "where",
-             f"ExecutablePath like '%Terminal {TERMINAL_ID}%'",
+             f"ExecutablePath='{wmic_path}'",
              "call", "terminate"],
             capture_output=True, text=True, timeout=10
         )
-        print(f"  [W{TERMINAL_ID}] Killed terminal process")
+        print(f"  [W{TERMINAL_ID}] Killed terminal process ({TERMINAL_PATH})")
     except Exception as e:
         try:
             subprocess.run(
-                ["taskkill", "/F", "/FI", f"WINDOWTITLE eq *Terminal {TERMINAL_ID}*"],
+                ["taskkill", "/F", "/IM", "terminal64.exe", "/FI",
+                 f"WINDOWTITLE eq Terminal {TERMINAL_ID}"],
                 capture_output=True, text=True, timeout=5
             )
         except:
@@ -238,8 +242,8 @@ def relaunch_terminal() -> bool:
         print(f"  [W{TERMINAL_ID}] Relaunch failed: {e}")
         return False
 
-    print(f"  [W{TERMINAL_ID}] Waiting 20s for terminal to connect...")
-    time.sleep(20)
+    print(f"  [W{TERMINAL_ID}] Waiting 35s for terminal to connect...")
+    time.sleep(35)
 
     for attempt in range(5):
         if mt5.initialize(TERMINAL_PATH, timeout=15000):
@@ -750,7 +754,7 @@ if __name__ == "__main__":
                 [TERMINAL_PATH],
                 creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
             )
-            print(f"  [W{TERMINAL_ID}] Terminal relaunched — waiting 25s for broker connection...")
+            print(f"  [W{TERMINAL_ID}] Terminal relaunched — waiting 35s for broker connection...")
             time.sleep(25)
         except Exception as e:
             print(f"  [W{TERMINAL_ID}] Relaunch error: {e}")
