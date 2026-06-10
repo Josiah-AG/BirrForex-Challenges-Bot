@@ -542,7 +542,7 @@ export default function AdminDashboard() {
                   <th className="text-left py-3 px-4 text-[10px] text-gray-400 uppercase">#</th>
                   <th className="text-left py-3 px-4 text-[10px] text-gray-400 uppercase">Nickname</th>
                   <th className="text-left py-3 px-4 text-[10px] text-gray-400 uppercase">Type</th>
-                  <th className="text-right py-3 px-4 text-[10px] text-gray-400 uppercase">Balance</th>
+                  <th className="text-right py-3 px-4 text-[10px] text-gray-400 uppercase">Balance / Gross</th>
                   {!leaderboardPreStart && <><th className="text-center py-3 px-4 text-[10px] text-gray-400 uppercase">Trades</th>
                   <th className="text-center py-3 px-4 text-[10px] text-gray-400 uppercase">Win%</th>
                   <th className="text-center py-3 px-4 text-[10px] text-gray-400 uppercase">Profit</th>
@@ -553,7 +553,10 @@ export default function AdminDashboard() {
                     <td className="py-3 px-4"><span className={`text-sm font-bold ${e.isDisqualified ? "text-loss" : e.rank && e.rank <= 3 ? "text-gold" : "text-gray-400"}`}>{e.rank || (e.notYetEvaluated ? <span className="text-[10px] text-gray-600">—</span> : "—")}</span></td>
                     <td className="py-3 px-4 text-sm text-white font-semibold">{e.nickname}{e.isDisqualified ? <span className="ml-2 text-[10px] text-loss">DQ</span> : ""}</td>
                     <td className="py-3 px-4"><span className={`px-2 py-1 rounded text-[10px] font-semibold ${e.accountType === "real" ? "bg-gold/10 text-gold" : "bg-royal/10 text-royal"}`}>{e.accountType}</span></td>
-                    <td className="py-3 px-4 text-right text-sm font-bold text-white">{e.isDisqualified ? "DQ" : e.isCent ? `${Number(e.adjustedBalance).toFixed(2)}¢` : `$${Number(e.adjustedBalance).toFixed(2)}`}</td>
+                    <td className="py-3 px-4 text-right">
+                      <p className={`text-sm font-bold ${e.isDisqualified ? "text-loss" : "text-white"}`}>{e.isDisqualified ? "DQ" : e.isCent ? `${Number(e.adjustedBalance).toFixed(2)}¢` : `$${Number(e.adjustedBalance).toFixed(2)}`}</p>
+                      {!e.isDisqualified && <p className="text-[10px] text-gray-500 mt-0.5">{e.isCent ? `${Number(e.currentBalance).toFixed(2)}¢` : `$${Number(e.currentBalance).toFixed(2)}`}</p>}
+                    </td>
                     {!leaderboardPreStart && <><td className="py-3 px-4 text-center text-sm text-gray-400">{e.totalTrades}</td>
                     <td className="py-3 px-4 text-center text-sm text-gray-400">{e.totalTrades > 0 ? `${Math.round((e.qualifiedTrades / e.totalTrades) * 100)}%` : "—"}</td>
                     <td className="py-3 px-4 text-center text-sm text-royal">{e.totalTrades > 0 ? (e.isCent ? `${Number(e.qualifiedProfit).toFixed(2)}¢` : `$${Number(e.qualifiedProfit).toFixed(2)}`) : "—"}</td>
