@@ -301,6 +301,10 @@ def do_pull(account: int, server: str, password: str, from_date: str = None, ord
         login_user(BASE_ACCOUNT, BASE_PASSWORD, BASE_SERVER)
         return {"success": False, "message": f"Login failed: {err}"}
 
+    # MT5 needs time to sync deal history from the broker after switching accounts.
+    # Without this wait, history_deals_get() returns 0 deals on the first call.
+    time.sleep(2)
+
     account_info = mt5.account_info()
     balance = account_info.balance if account_info else 0
     equity  = account_info.equity  if account_info else 0
