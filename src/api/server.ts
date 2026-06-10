@@ -2326,6 +2326,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/admin-leaderboard`, admin
           ? parseFloat(r.last_known_balance)
           : r.registration_balance != null ? parseFloat(r.registration_balance) : 0;
         return {
+          registrationId: r.registration_id,
           nickname: r.nickname,
           accountType: r.account_type,
           rank: r.rank || null,
@@ -2379,6 +2380,67 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/export-leaderboard`, admi
     );
     return res.json({ leaderboard: result.rows });
   } catch (error) {
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * GET /api/admin/:secretPath/challenge/:id/export-user-trades?registration_id=X
+ * Full MT5 trade history for one participant including Fake SL detail columns
+ */
+app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/export-user-trades`, adminIpCheck, async (req, res) => {
+  try {
+    const challengeId    = parseInt(req.params.id);
+    const registrationId = parseInt(req.query.registration_id as string);
+    if (!registrationId) return res.status(400).json({ error: 'registration_id required' });
+
+    const [challengeRes, regRes, tradesRes] = await Promise.all([
+      db.query(`SELECT title, start_date, end_date FROM trading_challenges WHERE id = $1`, [challengeId]),
+      db.query(`SELECT nickname, account_number, mt5_server, account_type, is_cent FROM trading_registrations WHERE id = $1`, [registrationId]),
+      db.query(
+        `SELECT ticket, position_id, symbol, trade_type, volume, open_time, close_time,
+                open_price, close_price, stop_loss, take_profit, profit, commission, swap,
+                is_qualified, violations, sl_check_pending,
+                sl_allowed_price, sl_max_adverse_price, sl_check_result
+         FROM wp_trades
+         WHERE registration_id = $1 AND challenge_id = $2
+         ORDER BY close_time ASC`,
+        [registrationId, challengeId]
+      ),
+    ]);
+
+    const challenge = challengeRes.rows[0];
+    const reg       = regRes.rows[0];
+    if (!reg) return res.status(404).json({ error: 'Registration not found' });
+
+    return res.json({
+      challenge: { title: challenge?.title, startDate: challenge?.start_date, endDate: challenge?.end_date },
+      user: { nickname: reg.nickname, accountNumber: reg.account_number, server: reg.mt5_server, accountType: reg.account_type, isCent: reg.is_cent },
+      trades: tradesRes.rows.map((t: any) => ({
+        ticket:           t.ticket,
+        positionId:       t.position_id,
+        symbol:           t.symbol,
+        type:             t.trade_type,
+        volume:           t.volume,
+        openTime:         t.open_time,
+        closeTime:        t.close_time,
+        openPrice:        t.open_price,
+        closePrice:       t.close_price,
+        stopLoss:         t.stop_loss,
+        takeProfit:       t.take_profit,
+        profit:           t.profit,
+        commission:       t.commission,
+        swap:             t.swap,
+        isQualified:      t.is_qualified,
+        violations:       t.violations || [],
+        slCheckPending:   t.sl_check_pending,
+        slAllowedPrice:   t.sl_allowed_price,
+        slMaxAdversePrice:t.sl_max_adverse_price,
+        slCheckResult:    t.sl_check_result,
+      })),
+    });
+  } catch (error) {
+    console.error('Export user trades error:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
 });

@@ -1119,6 +1119,31 @@ export default function AdminDashboard() {
                   </div>
                 </div>
               )}
+              {/* Export MT5 Trade History */}
+              {selectedParticipant.registrationId && (
+                <button
+                  onClick={async () => {
+                    try {
+                      const apiUrl  = process.env.NEXT_PUBLIC_API_URL  || "https://api.winnerpip.com";
+                      const secPath = process.env.NEXT_PUBLIC_ADMIN_PATH || "";
+                      const res = await fetch(`${apiUrl}/api/admin/${secPath}/challenge/${selectedChallengeId}/export-user-trades?registration_id=${selectedParticipant.registrationId}`);
+                      if (!res.ok) { alert("Export failed"); return; }
+                      const data = await res.json();
+                      const html = generateTradesHTML(data);
+                      const blob = new Blob([html], { type: "text/html" });
+                      const url  = URL.createObjectURL(blob);
+                      const a    = document.createElement("a");
+                      a.href     = url;
+                      a.download = `${data.user?.nickname || "trades"}_MT5_history.html`;
+                      a.click();
+                      URL.revokeObjectURL(url);
+                    } catch { alert("Export failed"); }
+                  }}
+                  className="mt-3 w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 text-gray-300 font-semibold transition-all text-sm"
+                >
+                  <FileText size={14} /> Export MT5 Trade History
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -2427,4 +2452,96 @@ function VerifyButton({ challengeId, registrationId, onResult }: { challengeId: 
       {checking ? <Loader2 size={14} className="animate-spin text-royal" /> : <Shield size={14} />}
     </button>
   );
+}
+
+// ==================== MT5 TRADE HISTORY HTML EXPORT ====================
+function generateTradesHTML(data: any): string {
+  const { challenge, user, trades } = data;
+  const cur = (v: any) => user?.isCent ? `${Number(v || 0).toFixed(2)}¢` : `$${Number(v || 0).toFixed(2)}`;
+  const fmtEAT = (iso: string) => {
+    if (!iso) return "—";
+    const d = new Date(new Date(iso).getTime() + 3 * 60 * 60 * 1000);
+    return d.toISOString().replace("T", " ").substring(0, 16) + " EAT";
+  };
+  const duration = (open: string, close: string) => {
+    if (!open || !close) return "—";
+    const m = Math.round((new Date(close).getTime() - new Date(open).getTime()) / 60000);
+    if (m < 60) return `${m}m`;
+    const h = Math.floor(m / 60), rm = m % 60;
+    return rm > 0 ? `${h}h ${rm}m` : `${h}h`;
+  };
+  const slResultBadge = (r: string | null) => {
+    if (!r) return `<span style="color:#6b7280">—</span>`;
+    if (r === 'passed')    return `<span style="color:#22c55e;font-weight:700">✓ Passed</span>`;
+    if (r === 'fake_sl')   return `<span style="color:#ef4444;font-weight:700">⚠ Fake SL</span>`;
+    if (r === 'no_candles')return `<span style="color:#f59e0b;font-weight:700">? No Data</span>`;
+    return `<span style="color:#6b7280">Skipped</span>`;
+  };
+  const rows = (trades || []).map((t: any, i: number) => {
+    const flagged = !t.isQualified;
+    const bg = flagged ? "#2a0a0a" : (i % 2 === 0 ? "#111827" : "#0f172a");
+    const profitColor = t.profit >= 0 ? "#22c55e" : "#ef4444";
+    const viols = (t.violations || []).map((v: any) => typeof v === 'string' ? v : v?.detail || 'Rule violation').join('<br>');
+    return `<tr style="background:${bg};border-bottom:1px solid #1f2937">
+      <td style="padding:8px 10px;color:#9ca3af;font-size:11px">${i + 1}</td>
+      <td style="padding:8px 10px;color:#d1d5db;font-size:11px">${t.ticket}</td>
+      <td style="padding:8px 10px;color:#f9fafb;font-weight:600;font-size:12px">${t.symbol}</td>
+      <td style="padding:8px 10px;font-weight:700;font-size:11px;color:${t.type?.toLowerCase() === 'buy' ? '#22c55e' : '#ef4444'}">${t.type?.toUpperCase()}</td>
+      <td style="padding:8px 10px;color:#d1d5db;font-size:11px;white-space:nowrap">${fmtEAT(t.openTime)}</td>
+      <td style="padding:8px 10px;color:#d1d5db;font-size:11px;white-space:nowrap">${fmtEAT(t.closeTime)}</td>
+      <td style="padding:8px 10px;color:#9ca3af;font-size:11px;text-align:center">${duration(t.openTime, t.closeTime)}</td>
+      <td style="padding:8px 10px;color:#d1d5db;font-size:11px;text-align:right">${Number(t.volume).toFixed(2)}</td>
+      <td style="padding:8px 10px;color:#d1d5db;font-size:11px;text-align:right">${Number(t.openPrice).toFixed(5)}</td>
+      <td style="padding:8px 10px;color:#d1d5db;font-size:11px;text-align:right">${Number(t.closePrice).toFixed(5)}</td>
+      <td style="padding:8px 10px;color:#9ca3af;font-size:11px;text-align:right">${t.stopLoss ? Number(t.stopLoss).toFixed(5) : "—"}</td>
+      <td style="padding:8px 10px;color:#9ca3af;font-size:11px;text-align:right">${t.slAllowedPrice ? Number(t.slAllowedPrice).toFixed(5) : "—"}</td>
+      <td style="padding:8px 10px;font-size:11px;text-align:right;color:${t.type?.toLowerCase() === 'buy' ? '#ef4444' : '#22c55e'}">${t.slMaxAdversePrice ? Number(t.slMaxAdversePrice).toFixed(5) : "—"}</td>
+      <td style="padding:8px 10px;font-size:11px;text-align:center">${slResultBadge(t.slCheckResult)}</td>
+      <td style="padding:8px 10px;font-weight:700;font-size:12px;text-align:right;color:${profitColor}">${cur(t.profit)}</td>
+      <td style="padding:8px 10px;font-size:10px;text-align:right;color:#6b7280">${cur(t.commission)} / ${cur(t.swap)}</td>
+      <td style="padding:8px 10px;font-size:11px;text-align:center">${flagged ? `<span style="color:#ef4444;font-weight:700">🚩 Flagged</span>` : `<span style="color:#22c55e">✓</span>`}</td>
+      <td style="padding:8px 10px;font-size:10px;color:#ef4444;max-width:220px">${viols}</td>
+    </tr>`;
+  }).join("");
+
+  return `<!DOCTYPE html><html><head><meta charset="utf-8">
+<title>${user?.nickname || "User"} — MT5 Trade History</title>
+<style>
+  body{margin:0;padding:24px;background:#0a0f1e;font-family:'Segoe UI',Arial,sans-serif;color:#f9fafb}
+  h1{font-size:22px;font-weight:800;color:#f9fafb;margin:0 0 4px}
+  .sub{font-size:13px;color:#9ca3af;margin-bottom:20px}
+  .badge{display:inline-block;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:700;margin-right:8px}
+  .real{background:#78350f22;color:#fbbf24;border:1px solid #92400e44}
+  .demo{background:#1e3a5f22;color:#60a5fa;border:1px solid #1e40af44}
+  table{width:100%;border-collapse:collapse;font-size:12px}
+  thead tr{background:#1f2937;border-bottom:2px solid #374151}
+  th{padding:10px 10px;text-align:left;font-size:10px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap}
+  .note{margin-top:16px;padding:12px 16px;background:#1f2937;border-radius:8px;font-size:11px;color:#9ca3af}
+  .note b{color:#f9fafb}
+</style>
+</head><body>
+<h1>${user?.nickname || "User"} — MT5 Trade History</h1>
+<div class="sub">
+  <span class="badge ${user?.accountType}">${user?.accountType}</span>
+  Account: ${user?.accountNumber} &nbsp;|&nbsp; Server: ${user?.server}
+  &nbsp;|&nbsp; Challenge: ${challenge?.title || "—"}
+  &nbsp;|&nbsp; Period: ${challenge?.startDate ? new Date(challenge.startDate).toLocaleDateString() : "—"} → ${challenge?.endDate ? new Date(challenge.endDate).toLocaleDateString() : "—"}
+  &nbsp;|&nbsp; Exported: ${new Date().toLocaleString()}
+</div>
+<table>
+<thead><tr>
+  <th>#</th><th>Ticket</th><th>Symbol</th><th>Type</th>
+  <th>Open (EAT)</th><th>Close (EAT)</th><th>Duration</th><th>Lots</th>
+  <th>Open Price</th><th>Close Price</th>
+  <th>SL Set</th><th>Allowed SL</th><th>Max Adverse</th><th>SL Check</th>
+  <th>Profit</th><th>Comm / Swap</th><th>Qualified</th><th>Violations</th>
+</tr></thead>
+<tbody>${rows}</tbody>
+</table>
+<div class="note">
+  <b>Allowed SL</b> — the furthest price the SL is allowed to be at (based on max risk rule). &nbsp;
+  <b>Max Adverse</b> — the most extreme price the market reached during the trade (min low for Buy, max high for Sell). &nbsp;
+  <b>SL Check: ⚠ Fake SL</b> — market moved past the Allowed SL but the trade stayed open (SL was removed or widened).
+</div>
+</body></html>`;
 }

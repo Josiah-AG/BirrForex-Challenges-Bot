@@ -260,9 +260,18 @@ function formatCandleTimeEAT(candleTimeISO: string, periodMs: number): string {
  * Uses ratio method for currency conversion — works for all instruments.
  * Returns violation message, null (valid), or 'FAILED' (candle fetch error).
  */
-async function validateSlWithCandles(trade: TradeRow, maxHoldHours: number | null = null, maxRiskDollars: number = 0): Promise<string | null | 'FAILED'> {
-  if (!trade.open_time || !trade.close_time) return null;
-  if (!maxRiskDollars || maxRiskDollars <= 0) return null;
+interface SlCheckOutcome {
+  violation: string | null | 'FAILED';
+  slAllowedPrice: number | null;
+  slMaxAdversePrice: number | null;
+  slCheckResult: 'passed' | 'fake_sl' | 'no_candles' | 'skipped';
+}
+
+const SL_SKIPPED: SlCheckOutcome = { violation: null, slAllowedPrice: null, slMaxAdversePrice: null, slCheckResult: 'skipped' };
+
+async function validateSlWithCandles(trade: TradeRow, maxHoldHours: number | null = null, maxRiskDollars: number = 0): Promise<SlCheckOutcome> {
+  if (!trade.open_time || !trade.close_time) return SL_SKIPPED;
+  if (!maxRiskDollars || maxRiskDollars <= 0) return SL_SKIPPED;
 
   const openPrice  = parseFloat(String(trade.open_price));
   const closePrice = parseFloat(String(trade.close_price));
@@ -270,25 +279,27 @@ async function validateSlWithCandles(trade: TradeRow, maxHoldHours: number | nul
   const tradeNet   = parseFloat(String(trade.profit)) + parseFloat(String(trade.commission || 0)) + parseFloat(String(trade.swap || 0));
   const isBuy      = trade.trade_type?.toLowerCase() === 'buy';
 
-  if (!openPrice || !volume) return null;
+  if (!openPrice || !volume) return SL_SKIPPED;
 
   // 10% tolerance — internal threshold only, message shows raw maxRiskDollars
   const effectiveMaxRisk = maxRiskDollars * 1.10;
 
   // Ratio method for correct non-USD conversion; fallback to pip-based
   const maxSlPrice = calculateMaxSlPrice(trade.symbol, volume, openPrice, effectiveMaxRisk, isBuy, closePrice, tradeNet);
-  if (maxSlPrice <= 0) return null;
+  if (maxSlPrice <= 0) return SL_SKIPPED;
 
   const openMs  = new Date(trade.open_time).getTime();
   const closeMs = new Date(trade.close_time).getTime();
-  if (openMs <= 946684800000 || closeMs <= openMs) return null;
+  if (openMs <= 946684800000 || closeMs <= openMs) return { ...SL_SKIPPED, slAllowedPrice: maxSlPrice };
 
   const holdMinutes = (closeMs - openMs) / (60 * 1000);
   const tf = selectTimeframe(holdMinutes, maxHoldHours);
-  if (!tf) return null;
+  if (!tf) return { ...SL_SKIPPED, slAllowedPrice: maxSlPrice };
 
   const candles = await fetchCandles(trade.symbol, new Date(trade.open_time), new Date(trade.close_time), tf.timeframe);
-  if (!candles || candles.length === 0) return 'FAILED';
+  if (!candles || candles.length === 0) {
+    return { violation: 'FAILED', slAllowedPrice: maxSlPrice, slMaxAdversePrice: null, slCheckResult: 'no_candles' };
+  }
 
   // Exclude first and last candle (entry/exit candles have partial data)
   const safeCandles = candles.filter(candle => {
@@ -297,7 +308,12 @@ async function validateSlWithCandles(trade: TradeRow, maxHoldHours: number | nul
     return candleTime > openMs && candleEnd <= closeMs;
   });
 
-  if (safeCandles.length === 0) return null;
+  if (safeCandles.length === 0) return { ...SL_SKIPPED, slAllowedPrice: maxSlPrice };
+
+  // Most adverse price reached during trade (min low for Buy, max high for Sell)
+  const slMaxAdversePrice = isBuy
+    ? Math.min(...safeCandles.map(c => c.low))
+    : Math.max(...safeCandles.map(c => c.high));
 
   // Message shows admin-set max (not tolerance-adjusted)
   const riskLabel = trade.symbol.endsWith('c') ? `¢${maxRiskDollars}` : `$${maxRiskDollars}`;
@@ -306,17 +322,23 @@ async function validateSlWithCandles(trade: TradeRow, maxHoldHours: number | nul
     if (isBuy) {
       if (candle.low <= maxSlPrice) {
         const eatTime = formatCandleTimeEAT(candle.time, tf.periodMs);
-        return `SL violated. Price exceeded the maximum allowed risk (${riskLabel}, SL should be @ ${maxSlPrice.toFixed(5)}) on the ${tf.timeframe} candle formed at ${eatTime}. Trade should have been closed at that point`;
+        return {
+          violation: `SL violated. Price exceeded the maximum allowed risk (${riskLabel}, SL should be @ ${maxSlPrice.toFixed(5)}) on the ${tf.timeframe} candle formed at ${eatTime}. Trade should have been closed at that point`,
+          slAllowedPrice: maxSlPrice, slMaxAdversePrice, slCheckResult: 'fake_sl',
+        };
       }
     } else {
       if (candle.high >= maxSlPrice) {
         const eatTime = formatCandleTimeEAT(candle.time, tf.periodMs);
-        return `SL violated. Price exceeded the maximum allowed risk (${riskLabel}, SL should be @ ${maxSlPrice.toFixed(5)}) on the ${tf.timeframe} candle formed at ${eatTime}. Trade should have been closed at that point`;
+        return {
+          violation: `SL violated. Price exceeded the maximum allowed risk (${riskLabel}, SL should be @ ${maxSlPrice.toFixed(5)}) on the ${tf.timeframe} candle formed at ${eatTime}. Trade should have been closed at that point`,
+          slAllowedPrice: maxSlPrice, slMaxAdversePrice, slCheckResult: 'fake_sl',
+        };
       }
     }
   }
 
-  return null;
+  return { violation: null, slAllowedPrice: maxSlPrice, slMaxAdversePrice, slCheckResult: 'passed' };
 }
 
 // ==================== ENGINE ====================
@@ -863,6 +885,7 @@ export class WpEvaluationEngine {
         if (!hasSl) {
           // No SL at entry — immediate flag, no further SL checks
           violations.push(`No stop loss set on entry`);
+          await db.query(`UPDATE wp_trades SET sl_check_result = 'skipped' WHERE id = $1`, [trade.id]).catch(() => {});
         } else {
           // SL was set at entry — check if it was valid and not removed/widened later
 
@@ -882,20 +905,27 @@ export class WpEvaluationEngine {
           // Layer B: Fake SL candle check — only on winning trades
           // Detects SL removed or widened after entry
           if (rules.max_risk_dollars && tradeNet > 0) {
-            const slViolation = await validateSlWithCandles(trade, rules.max_hold_hours || null, rules.max_risk_dollars);
-            if (slViolation === 'FAILED') {
+            const slOutcome = await validateSlWithCandles(trade, rules.max_hold_hours || null, rules.max_risk_dollars);
+            // Save SL detail fields to DB
+            await db.query(
+              `UPDATE wp_trades SET sl_allowed_price = $1, sl_max_adverse_price = $2, sl_check_result = $3 WHERE id = $4`,
+              [slOutcome.slAllowedPrice, slOutcome.slMaxAdversePrice, slOutcome.slCheckResult, trade.id]
+            ).catch(() => {});
+            if (slOutcome.violation === 'FAILED') {
               slCheckFailures.push({ ticket: trade.ticket, symbol: trade.symbol, tradeId: trade.id });
-              // Mark this specific trade as pending in DB — persists across restarts
               await db.query(`UPDATE wp_trades SET sl_check_pending = true WHERE id = $1`, [trade.id]).catch(() => {});
-              // Candle fetch failed — log but don't penalise (benefit of doubt)
-            } else if (slViolation) {
-              violations.push(slViolation);
-              // Clear any previous pending flag since check succeeded (with violation)
+            } else if (slOutcome.violation) {
+              violations.push(slOutcome.violation);
               await db.query(`UPDATE wp_trades SET sl_check_pending = false WHERE id = $1`, [trade.id]).catch(() => {});
             } else {
-              // Check succeeded, no violation — clear pending flag
               await db.query(`UPDATE wp_trades SET sl_check_pending = false WHERE id = $1`, [trade.id]).catch(() => {});
             }
+          } else {
+            // Losing trade or no max_risk rule — SL candle check skipped
+            await db.query(
+              `UPDATE wp_trades SET sl_check_result = 'skipped' WHERE id = $1`,
+              [trade.id]
+            ).catch(() => {});
           }
         }
       }
