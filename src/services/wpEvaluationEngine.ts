@@ -160,23 +160,35 @@ async function fetchCandles(
   timeframe: string = 'M1',
 ): Promise<CandleResult | null> {
   const baseSymbol = remapSymbolToBaseAccount(symbol);
+  const MAX_ATTEMPTS = 4;
 
-  for (let attempt = 0; attempt < 2; attempt++) {
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     try {
+      // On attempts 3+ expand the window by 30 min each side so MT5 can find
+      // history near session boundaries or when the chart isn't loaded yet.
+      const bufferMs = attempt >= 2 ? 30 * 60 * 1000 : 0;
+      const from = new Date(fromTime.getTime() - bufferMs);
+      const to   = new Date(toTime.getTime()   + bufferMs);
+
       const res = await axios.post(
         `${config.vpsApiUrl}/api/v1/candles`,
         {
           symbol:           baseSymbol,
           timeframe,
-          from_time:        fromTime.toISOString(),
-          to_time:          toTime.toISOString(),
+          from_time:        from.toISOString(),
+          to_time:          to.toISOString(),
           api_key:          config.vpsApiKey,
           required_subtype: 'standard',
         },
         { headers: { 'Content-Type': 'application/json' }, timeout: 60000 }
       );
       if (res.data?.success && res.data?.candles?.length > 0) return res.data.candles;
-    } catch { /* network/timeout — retry once */ }
+    } catch { /* network / timeout — retry */ }
+
+    if (attempt < MAX_ATTEMPTS - 1) {
+      // Exponential-ish back-off: 1 s, 2 s, 3 s
+      await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+    }
   }
   return null;
 }
@@ -293,10 +305,29 @@ async function validateSlWithCandles(trade: TradeRow, maxHoldHours: number | nul
   if (openMs <= 946684800000 || closeMs <= openMs) return { ...SL_SKIPPED, slAllowedPrice: maxSlPrice };
 
   const holdMinutes = (closeMs - openMs) / (60 * 1000);
-  const tf = selectTimeframe(holdMinutes, maxHoldHours);
+  let tf = selectTimeframe(holdMinutes, maxHoldHours);
   if (!tf) return { ...SL_SKIPPED, slAllowedPrice: maxSlPrice };
 
-  const candles = await fetchCandles(trade.symbol, new Date(trade.open_time), new Date(trade.close_time), tf.timeframe);
+  let candles = await fetchCandles(trade.symbol, new Date(trade.open_time), new Date(trade.close_time), tf.timeframe);
+
+  // Timeframe fallback: if selected timeframe returns nothing, step down to finer
+  // timeframes (M5 → M1) before giving up. MT5 is more likely to have finer data
+  // cached, and smaller candles always cover any hold duration.
+  if (!candles || candles.length === 0) {
+    const fallbacks = [
+      { timeframe: 'M5',  periodMs: 5  * 60 * 1000 },
+      { timeframe: 'M1',  periodMs: 1  * 60 * 1000 },
+    ].filter(f => f.timeframe !== tf!.timeframe);
+
+    for (const fallback of fallbacks) {
+      candles = await fetchCandles(trade.symbol, new Date(trade.open_time), new Date(trade.close_time), fallback.timeframe);
+      if (candles && candles.length > 0) {
+        tf = fallback; // switch to the timeframe we actually got data for
+        break;
+      }
+    }
+  }
+
   if (!candles || candles.length === 0) {
     return { violation: 'FAILED', slAllowedPrice: maxSlPrice, slMaxAdversePrice: null, slCheckResult: 'no_candles' };
   }
