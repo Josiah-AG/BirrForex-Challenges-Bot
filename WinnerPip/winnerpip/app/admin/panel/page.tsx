@@ -14,6 +14,7 @@ export default function AdminDashboard() {
   const [loginLoading, setLoginLoading] = useState(false);
   const [activeSection, setActiveSection] = useState<"overview" | "leaderboard" | "violations" | "pulls" | "screening" | "participants" | "rules" | "health" | "create" | "settings">("overview");
   const [selectedParticipant, setSelectedParticipant] = useState<any>(null);
+  const [selectedParticipantTrades, setSelectedParticipantTrades] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [foundUser, setFoundUser] = useState<any>(null);
   const [searchPerformed, setSearchPerformed] = useState(false);
@@ -51,6 +52,19 @@ export default function AdminDashboard() {
     else document.body.style.overflow = "";
     return () => { document.body.style.overflow = ""; };
   }, [selectedParticipant]);
+
+  // Fetch trades for selected participant
+  useEffect(() => {
+    if (!selectedParticipant || !selectedParticipant.nickname || selectedParticipant.totalTrades === 0) {
+      setSelectedParticipantTrades([]);
+      return;
+    }
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
+    fetch(`${apiUrl}/api/challenges/${selectedChallengeId}/user-trades?nickname=${encodeURIComponent(selectedParticipant.nickname)}`)
+      .then(r => r.ok ? r.json() : { trades: [] })
+      .then(d => setSelectedParticipantTrades(d.trades || []))
+      .catch(() => setSelectedParticipantTrades([]));
+  }, [selectedParticipant, selectedChallengeId]);
 
   const handleAdminLogin = async () => {
     setLoginError(""); setLoginLoading(true);
@@ -1072,6 +1086,36 @@ export default function AdminDashboard() {
                 </div>
               )}
               <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Account Type</p><span className={`px-3 py-1 rounded text-xs font-semibold ${selectedParticipant.accountType === "real" ? "bg-gold/10 text-gold" : "bg-royal/10 text-royal"}`}>{selectedParticipant.accountType}</span></div>
+              {selectedParticipantTrades.length > 0 && (
+                <div className="mt-2">
+                  <p className="text-xs font-semibold text-gray-400 mb-2">Trades ({selectedParticipantTrades.length})</p>
+                  <div className="space-y-2 max-h-[300px] overflow-y-auto">
+                    {selectedParticipantTrades.map((t: any, i: number) => (
+                      <div key={i} className={`py-2 px-3 rounded-lg ${!t.isQualified ? 'bg-loss/10 border border-loss/20' : 'bg-white/5'}`}>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${t.type?.toLowerCase() === 'buy' ? 'bg-profit/20 text-profit' : 'bg-loss/20 text-loss'}`}>{t.type}</span>
+                            <div>
+                              <p className="text-xs text-white font-medium">{t.symbol}</p>
+                              <p className="text-[10px] text-gray-500">
+                                {t.openTime ? new Date(t.openTime).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''}{' '}
+                                {t.openTime ? new Date(new Date(t.openTime).getTime() + 3*60*60*1000).toISOString().substring(11,16) : ''} → {t.closeTime ? new Date(new Date(t.closeTime).getTime() + 3*60*60*1000).toISOString().substring(11,16) : ''}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <p className={`text-xs font-bold ${t.profit >= 0 ? 'text-profit' : 'text-loss'}`}>{selectedParticipant.isCent ? `${t.profit.toFixed(2)}¢` : `$${t.profit.toFixed(2)}`}</p>
+                            <p className="text-[10px] text-gray-500">{t.volume} lot {!t.isQualified && <span className="text-loss">🚩</span>}</p>
+                          </div>
+                        </div>
+                        {!t.isQualified && t.violations && t.violations.length > 0 && (
+                          <p className="text-[10px] text-loss mt-1 pl-7">⚠️ {typeof t.violations[0] === 'string' ? t.violations[0] : t.violations[0]?.detail || 'Rule violation'}</p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
