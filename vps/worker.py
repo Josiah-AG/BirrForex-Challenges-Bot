@@ -158,38 +158,36 @@ def _try_initialize_and_login() -> bool:
     return True
 
 
-def force_login_base_account(reason: str = "") -> bool:
+def force_login_base_account(reason: str = "", skip_stage1: bool = False) -> bool:
     """
     Two-stage recovery:
 
-    Stage 1 — fast path (2 attempts):
-        shutdown → initialize(timeout=15s) → login
-        Works when the terminal is healthy and just needs a re-login.
+    Stage 1 — patient wait (12 × 5s = 60s):
+        Used at startup — terminal may still be connecting to broker.
+        Skipped for credential failures: the Login dialog blocks IPC so
+        Stage 1 retries are wasted. Go straight to Stage 2.
 
-    Stage 2 — hard recovery (if Stage 1 gets IPC timeout -10005):
-        The terminal's IPC pipe server is dead (caused by a Login dialog
-        that was force-closed, leaving MT5 in a broken state).
-        Fix: kill the process, write base account credentials to an INI
-        config file, relaunch with /config flag so MT5 auto-logs in on
-        startup — no dialog, no manual input. Then retry initialize.
+    Stage 2 — hard recovery (kill + /config restart):
+        Kill the process, relaunch with base_login.ini so MT5 auto-logs
+        in on startup. No dialog, no manual input.
     """
     tag = f"  [W{TERMINAL_ID}]"
     print(f"{tag} ── force_login_base_account ── reason: {reason}")
 
-    # ── Stage 1: patient wait — up to 12 attempts × 5s = 60s total ──────
-    # The terminal may still be connecting to the broker after startup.
-    # Do NOT kill it early — give it up to 60s to become ready before
-    # escalating to hard recovery.
-    for attempt in range(12):
-        print(f"{tag}    stage 1 attempt {attempt+1}/12")
-        if _try_initialize_and_login():
-            return True
-        err = mt5.last_error()
-        print(f"{tag}    stage 1 failed — last_error: {err}")
-        time.sleep(5)
+    # ── Stage 1: patient wait (startup only) ─────────────────────────
+    if not skip_stage1:
+        for attempt in range(12):
+            print(f"{tag}    stage 1 attempt {attempt+1}/12")
+            if _try_initialize_and_login():
+                return True
+            err = mt5.last_error()
+            print(f"{tag}    stage 1 failed — last_error: {err}")
+            time.sleep(5)
+        print(f"{tag}    stage 1 exhausted — triggering hard recovery")
+    else:
+        print(f"{tag}    stage 1 skipped (credential failure) — going straight to hard recovery")
 
-    # ── Stage 2: hard recovery (IPC dead — kill + restart with config) ─
-    print(f"{tag}    stage 1 exhausted — IPC unresponsive, triggering hard recovery")
+    # ── Stage 2: hard recovery (kill + restart with config) ──────────
     if _kill_and_restart_terminal():
         print(f"{tag}    retrying after restart ...")
         for attempt in range(5):
@@ -387,7 +385,7 @@ def init_terminal() -> bool:
 def do_verify(account: int, server: str, password: str) -> dict:
     if not login_user(account, password, server):
         err = mt5.last_error()
-        force_login_base_account("credential failure in verify")
+        force_login_base_account("credential failure in verify", skip_stage1=True)
         return {"success": False, "message": f"Login failed: {err}"}
 
     account_info = mt5.account_info()
@@ -429,7 +427,7 @@ def do_verify(account: int, server: str, password: str) -> dict:
 def do_pull(account: int, server: str, password: str, from_date: str = None, orders_from_date: str = None) -> dict:
     if not login_user(account, password, server):
         err = mt5.last_error()
-        force_login_base_account("credential failure in pull")
+        force_login_base_account("credential failure in pull", skip_stage1=True)
         return {"success": False, "message": f"Login failed: {err}"}
 
     # MT5 needs time to sync deal history from the broker after switching accounts.
