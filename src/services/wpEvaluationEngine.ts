@@ -496,7 +496,7 @@ export class WpEvaluationEngine {
         else if (currentBalance < startingBalance) actualStartBalance = currentBalance; // They haven't deposited yet
       } catch {}
 
-      // === AUTO-DQ: 0 trades and can't meet min_active_days ===
+      // === 0-TRADES ACTIVE-DAYS DQ / UNDO ===
       if (rules.min_active_days) {
         const challengeEndResult = await db.query(`SELECT end_date FROM trading_challenges WHERE id = $1`, [challengeId]);
         const challengeEnd = challengeEndResult.rows[0]?.end_date;
@@ -504,7 +504,25 @@ export class WpEvaluationEngine {
           const now = new Date();
           const end = new Date(challengeEnd);
           const remainingDays = Math.max(0, Math.ceil((end.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
-          if (remainingDays < rules.min_active_days) {
+          if (remainingDays >= rules.min_active_days) {
+            // Still enough days left — undo any incorrect active-days DQ
+            const currentDq = await db.query(
+              `SELECT disqualified, disqualified_reason FROM trading_registrations WHERE id = $1`,
+              [reg.id]
+            );
+            const dqRow = currentDq.rows[0];
+            if (dqRow?.disqualified && dqRow?.disqualified_reason?.toLowerCase().includes('active')) {
+              await db.query(
+                `UPDATE trading_registrations SET disqualified = false, disqualified_at = NULL, disqualified_reason = NULL WHERE id = $1`,
+                [reg.id]
+              );
+              await db.query(
+                `UPDATE wp_leaderboard SET is_disqualified = false, disqualify_reason = NULL WHERE registration_id = $1`,
+                [reg.id]
+              );
+              console.log(`✅ WP Evaluation: Cleared incorrect active-days DQ for reg ${reg.id} (0 trades, ${remainingDays} days left, need ${rules.min_active_days})`);
+            }
+          } else {
             // 0 active days + not enough remaining = impossible
             await db.query(
               `UPDATE trading_registrations SET disqualified = true, disqualified_at = NOW(), disqualified_reason = $1 WHERE id = $2 AND disqualified = false`,
@@ -948,30 +966,8 @@ export class WpEvaluationEngine {
     const tradeDays = new Set(allTrades.map(t => new Date(t.close_time).toISOString().split('T')[0]));
     const activeDays = tradeDays.size;
 
-    // === UNDO incorrect active-days DQ if user now meets the requirement ===
-    // Only clears DQs caused by active-days logic — manual DQs (recharge, deposit-over-limit) are untouched.
-    if (rules.min_active_days && activeDays >= rules.min_active_days) {
-      const currentDq = await db.query(
-        `SELECT disqualified, disqualified_reason FROM trading_registrations WHERE id = $1`,
-        [reg.id]
-      );
-      const dqRow = currentDq.rows[0];
-      if (dqRow?.disqualified && dqRow?.disqualified_reason?.toLowerCase().includes('active')) {
-        await db.query(
-          `UPDATE trading_registrations SET disqualified = false, disqualified_at = NULL, disqualified_reason = NULL WHERE id = $1`,
-          [reg.id]
-        );
-        await db.query(
-          `UPDATE wp_leaderboard SET is_disqualified = false, disqualify_reason = NULL WHERE registration_id = $1`,
-          [reg.id]
-        );
-        console.log(`✅ WP Evaluation: Cleared incorrect active-days DQ for registration ${reg.id} (${activeDays}/${rules.min_active_days} days)`);
-      }
-    }
-
-    // === AUTO-DQ: Cannot meet min_active_days ===
-    if (rules.min_active_days && activeDays < rules.min_active_days) {
-      // Calculate remaining trading days until challenge end
+    // === ACTIVE-DAYS DQ / UNDO — computed once, used for both directions ===
+    if (rules.min_active_days) {
       const challengeEndResult = await db.query(`SELECT end_date FROM trading_challenges WHERE id = $1`, [challengeId]);
       const challengeEnd = challengeEndResult.rows[0]?.end_date;
       if (challengeEnd) {
@@ -980,7 +976,26 @@ export class WpEvaluationEngine {
         const remainingDays = Math.max(0, Math.ceil((end.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
         const maxPossibleDays = activeDays + remainingDays;
 
-        if (maxPossibleDays < rules.min_active_days) {
+        if (maxPossibleDays >= rules.min_active_days) {
+          // User CAN still meet the requirement — undo any incorrect active-days DQ.
+          // Only clears DQs caused by active-days logic; manual DQs (recharge, over-limit) are untouched.
+          const currentDq = await db.query(
+            `SELECT disqualified, disqualified_reason FROM trading_registrations WHERE id = $1`,
+            [reg.id]
+          );
+          const dqRow = currentDq.rows[0];
+          if (dqRow?.disqualified && dqRow?.disqualified_reason?.toLowerCase().includes('active')) {
+            await db.query(
+              `UPDATE trading_registrations SET disqualified = false, disqualified_at = NULL, disqualified_reason = NULL WHERE id = $1`,
+              [reg.id]
+            );
+            await db.query(
+              `UPDATE wp_leaderboard SET is_disqualified = false, disqualify_reason = NULL WHERE registration_id = $1`,
+              [reg.id]
+            );
+            console.log(`✅ WP Evaluation: Cleared incorrect active-days DQ for reg ${reg.id} (${activeDays} days traded, ${remainingDays} days left, need ${rules.min_active_days})`);
+          }
+        } else {
           // Impossible to meet requirement — auto-DQ
           await db.query(
             `UPDATE trading_registrations SET disqualified = true, disqualified_at = NOW(), disqualified_reason = $1 WHERE id = $2 AND disqualified = false`,
