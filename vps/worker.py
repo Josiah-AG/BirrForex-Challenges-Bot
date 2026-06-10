@@ -72,35 +72,52 @@ def force_login_base_account(reason: str = "") -> bool:
     """
     global _ipc_connected, _current_account_str
     tag = f"  [W{TERMINAL_ID}]"
-    if reason:
-        print(f"{tag} Force login to base account ({reason})")
+    print(f"{tag} ── force_login_base_account ── reason: {reason}")
+    print(f"{tag}    terminal path : {TERMINAL_PATH}")
+    print(f"{tag}    base account  : {BASE_ACCOUNT}")
+    print(f"{tag}    base server   : {BASE_SERVER}")
+    print(f"{tag}    _ipc_connected: {_ipc_connected}")
+
+    print(f"{tag}    step 1: mt5.shutdown()")
     try:
         mt5.shutdown()
-    except:
-        pass
+        print(f"{tag}    mt5.shutdown() OK")
+    except Exception as e:
+        print(f"{tag}    mt5.shutdown() raised: {e}")
     _ipc_connected = False
 
     for attempt in range(5):
-        time.sleep(1 + attempt)  # 1s, 2s, 3s, 4s, 5s
+        delay = 1 + attempt
+        print(f"{tag}    attempt {attempt+1}/5 — waiting {delay}s ...")
+        time.sleep(delay)
         try:
-            if mt5.initialize(TERMINAL_PATH):
+            print(f"{tag}    step 2: mt5.initialize({TERMINAL_PATH})")
+            init_ok = mt5.initialize(TERMINAL_PATH)
+            print(f"{tag}    mt5.initialize → {'OK' if init_ok else f'FAILED: {mt5.last_error()}'}")
+            if init_ok:
                 _ipc_connected = True
-                if mt5.login(BASE_ACCOUNT, password=BASE_PASSWORD, server=BASE_SERVER):
+                print(f"{tag}    step 3: mt5.login({BASE_ACCOUNT}, server={BASE_SERVER})")
+                login_ok = mt5.login(BASE_ACCOUNT, password=BASE_PASSWORD, server=BASE_SERVER)
+                print(f"{tag}    mt5.login → {'OK' if login_ok else f'FAILED: {mt5.last_error()}'}")
+                if login_ok:
                     _current_account_str = str(BASE_ACCOUNT)
                     info = mt5.account_info()
-                    bal = f" balance: {info.balance}" if info else ""
-                    print(f"{tag} Base account login OK ✓{bal}")
+                    if info:
+                        print(f"{tag}    account_info: login={info.login} balance={info.balance} server={info.server} currency={info.currency}")
+                    else:
+                        print(f"{tag}    account_info: None (mt5.last_error={mt5.last_error()})")
+                    print(f"{tag} ✓ Base account login SUCCESS")
                     return True
                 else:
-                    print(f"{tag} mt5.login failed (attempt {attempt+1}): {mt5.last_error()}")
+                    print(f"{tag}    login failed — doing mt5.shutdown() before retry")
                     mt5.shutdown()
                     _ipc_connected = False
             else:
-                print(f"{tag} mt5.initialize failed (attempt {attempt+1}): {mt5.last_error()}")
+                print(f"{tag}    initialize failed — will retry")
         except Exception as e:
-            print(f"{tag} force_login attempt {attempt+1} error: {e}")
+            print(f"{tag}    attempt {attempt+1} exception: {e}")
 
-    print(f"{tag} Base account login FAILED after 5 attempts")
+    print(f"{tag} ✗ Base account login FAILED after 5 attempts")
     return False
 
 
@@ -203,30 +220,43 @@ def full_reconnect() -> bool:
 
 def login_user(account: int, password: str, server: str) -> bool:
     global _consecutive_failures, _current_account_str
+    tag = f"  [W{TERMINAL_ID}]"
+    print(f"{tag} login_user: account={account} server={server} _ipc_connected={_ipc_connected}")
 
     if _ipc_connected:
-        if mt5.login(account, password=password, server=server):
+        ok = mt5.login(account, password=password, server=server)
+        print(f"{tag} login_user: direct login → {'OK' if ok else f'FAILED: {mt5.last_error()}'}")
+        if ok:
             _consecutive_failures = 0
             _current_account_str = str(account)
             return True
 
+    print(f"{tag} login_user: trying full_reconnect()")
     if full_reconnect():
-        if mt5.login(account, password=password, server=server):
+        print(f"{tag} login_user: full_reconnect OK — retrying login")
+        ok = mt5.login(account, password=password, server=server)
+        print(f"{tag} login_user: post-reconnect login → {'OK' if ok else f'FAILED: {mt5.last_error()}'}")
+        if ok:
             _consecutive_failures = 0
             _current_account_str = str(account)
             return True
+    else:
+        print(f"{tag} login_user: full_reconnect FAILED: {mt5.last_error()}")
 
     _consecutive_failures += 1
     print(f"  [W{TERMINAL_ID}] Login failed (consecutive: {_consecutive_failures})")
-    # Background watcher handles dialog dismissal automatically
 
     if _consecutive_failures >= MAX_FAILURES_BEFORE_HEAL:
+        print(f"{tag} login_user: triggering self_heal()")
         if self_heal():
-            if mt5.login(account, password=password, server=server):
+            ok = mt5.login(account, password=password, server=server)
+            print(f"{tag} login_user: post-heal login → {'OK' if ok else f'FAILED: {mt5.last_error()}'}")
+            if ok:
                 _consecutive_failures = 0
                 _current_account_str = str(account)
                 return True
 
+    print(f"{tag} login_user: returning False")
     return False
 
 
