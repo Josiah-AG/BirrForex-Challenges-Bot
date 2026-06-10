@@ -98,23 +98,31 @@ def _force_restore_base_account():
 
 def _login_dialog_watcher():
     """
-    Background daemon thread — runs for the lifetime of the worker.
-    Every 300ms: checks for any MT5 'Login' popup, closes it, then
-    forces a full IPC reset and base account login so the terminal
-    is never left disconnected.
+    Background daemon thread — two jobs:
+
+    1. DIALOG CHECK (every 300ms): if an MT5 'Login' popup is visible,
+       close it and force a full IPC reset + base account login.
+
+    2. HEALTH CHECK (every 10s): acquire the lock (non-blocking, only
+       when terminal is idle) and verify the terminal is logged into the
+       base account. If it's disconnected or on a wrong account, restore.
+       This catches terminals that failed to connect at startup or were
+       left disconnected without a dialog.
     """
     try:
         import ctypes
         user32 = ctypes.windll.user32
         WM_CLOSE = 0x0010
+        health_check_counter = 0
+
         while True:
             try:
+                # ── Job 1: Dialog check ──────────────────────────────────
                 hwnd = user32.FindWindowW(None, "Login")
                 if hwnd:
                     user32.PostMessageW(hwnd, WM_CLOSE, 0, 0)
                     print(f"  [W{TERMINAL_ID}] [watcher] Closed Login dialog — forcing base account restore")
-                    time.sleep(0.8)  # let the dialog fully dismiss
-                    # Acquire lock so we don't collide with a pull in progress
+                    time.sleep(0.8)
                     acquired = _lock.acquire(timeout=15)
                     if acquired:
                         try:
@@ -122,9 +130,28 @@ def _login_dialog_watcher():
                         finally:
                             _lock.release()
                     else:
-                        print(f"  [W{TERMINAL_ID}] [watcher] Could not acquire lock — will retry next cycle")
-                else:
-                    time.sleep(0.3)
+                        print(f"  [W{TERMINAL_ID}] [watcher] Could not acquire lock — will retry")
+
+                # ── Job 2: Health check every ~10s ───────────────────────
+                health_check_counter += 1
+                if health_check_counter >= 33:   # 33 × 300ms ≈ 10s
+                    health_check_counter = 0
+                    # Only check when terminal is idle (lock immediately available)
+                    acquired = _lock.acquire(blocking=False)
+                    if acquired:
+                        try:
+                            info = mt5.account_info() if _ipc_connected else None
+                            is_disconnected = (info is None)
+                            is_wrong_account = (info is not None and str(info.login) != str(BASE_ACCOUNT))
+                            if is_disconnected or is_wrong_account:
+                                reason = "disconnected" if is_disconnected else f"on account {info.login} (expected base)"
+                                print(f"  [W{TERMINAL_ID}] [watcher] Health check: terminal {reason} — restoring")
+                                _force_restore_base_account()
+                        finally:
+                            _lock.release()
+
+                time.sleep(0.3)
+
             except Exception:
                 time.sleep(1)
     except Exception as e:
