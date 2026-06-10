@@ -176,15 +176,17 @@ def force_login_base_account(reason: str = "") -> bool:
     tag = f"  [W{TERMINAL_ID}]"
     print(f"{tag} ── force_login_base_account ── reason: {reason}")
 
-    # ── Stage 1: fast path ────────────────────────────────────────────
-    for attempt in range(2):
-        print(f"{tag}    stage 1 attempt {attempt+1}/2")
+    # ── Stage 1: patient wait — up to 12 attempts × 5s = 60s total ──────
+    # The terminal may still be connecting to the broker after startup.
+    # Do NOT kill it early — give it up to 60s to become ready before
+    # escalating to hard recovery.
+    for attempt in range(12):
+        print(f"{tag}    stage 1 attempt {attempt+1}/12")
         if _try_initialize_and_login():
             return True
         err = mt5.last_error()
         print(f"{tag}    stage 1 failed — last_error: {err}")
-        if attempt == 0:
-            time.sleep(2)
+        time.sleep(5)
 
     # ── Stage 2: hard recovery (IPC dead — kill + restart with config) ─
     print(f"{tag}    stage 1 exhausted — IPC unresponsive, triggering hard recovery")

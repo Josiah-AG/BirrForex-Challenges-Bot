@@ -19,18 +19,27 @@ for /L %%i in (1,1,10) do (
     echo KeepPrivate=1>> "C:\MetaTrader\Terminal %%i\base_login.ini"
 )
 start "" "C:\MetaTrader\Terminal 1\terminal64.exe"  /config:"C:\MetaTrader\Terminal 1\base_login.ini"
+timeout /t 3 /nobreak >nul
 start "" "C:\MetaTrader\Terminal 2\terminal64.exe"  /config:"C:\MetaTrader\Terminal 2\base_login.ini"
+timeout /t 3 /nobreak >nul
 start "" "C:\MetaTrader\Terminal 3\terminal64.exe"  /config:"C:\MetaTrader\Terminal 3\base_login.ini"
+timeout /t 3 /nobreak >nul
 start "" "C:\MetaTrader\Terminal 4\terminal64.exe"  /config:"C:\MetaTrader\Terminal 4\base_login.ini"
+timeout /t 3 /nobreak >nul
 start "" "C:\MetaTrader\Terminal 5\terminal64.exe"  /config:"C:\MetaTrader\Terminal 5\base_login.ini"
+timeout /t 3 /nobreak >nul
 start "" "C:\MetaTrader\Terminal 6\terminal64.exe"  /config:"C:\MetaTrader\Terminal 6\base_login.ini"
+timeout /t 3 /nobreak >nul
 start "" "C:\MetaTrader\Terminal 7\terminal64.exe"  /config:"C:\MetaTrader\Terminal 7\base_login.ini"
+timeout /t 3 /nobreak >nul
 start "" "C:\MetaTrader\Terminal 8\terminal64.exe"  /config:"C:\MetaTrader\Terminal 8\base_login.ini"
+timeout /t 3 /nobreak >nul
 start "" "C:\MetaTrader\Terminal 9\terminal64.exe"  /config:"C:\MetaTrader\Terminal 9\base_login.ini"
+timeout /t 3 /nobreak >nul
 start "" "C:\MetaTrader\Terminal 10\terminal64.exe" /config:"C:\MetaTrader\Terminal 10\base_login.ini"
 echo     All 10 terminals launched.
-echo     Waiting 30 seconds for broker connection...
-timeout /t 30 /nobreak >nul
+echo     Waiting 45 seconds for broker connections...
+timeout /t 45 /nobreak >nul
 
 REM Step 2: Start workers (each owns one terminal, 2s apart)
 echo.
