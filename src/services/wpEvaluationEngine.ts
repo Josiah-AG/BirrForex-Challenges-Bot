@@ -1301,10 +1301,16 @@ export class WpEvaluationEngine {
           continue;
         }
 
-        const slViolation = await validateSlWithCandles(trade, rules.max_hold_hours || null, rules.max_risk_dollars);
+        const slOutcome = await validateSlWithCandles(trade, rules.max_hold_hours || null, rules.max_risk_dollars);
         checkedCount++;
 
-        if (slViolation === 'FAILED') {
+        // Save SL detail fields regardless of outcome
+        await db.query(
+          `UPDATE wp_trades SET sl_allowed_price = $1, sl_max_adverse_price = $2, sl_check_result = $3 WHERE id = $4`,
+          [slOutcome.slAllowedPrice, slOutcome.slMaxAdversePrice, slOutcome.slCheckResult, trade.id]
+        ).catch(() => {});
+
+        if (slOutcome.violation === 'FAILED') {
           // Still failing — leave pending, will retry next cycle
           continue;
         }
@@ -1314,9 +1320,9 @@ export class WpEvaluationEngine {
           try { return JSON.parse(trade.violations || '[]'); } catch { return []; }
         })();
 
-        if (slViolation) {
+        if (slOutcome.violation) {
           // New violation found
-          if (!existingViolations.includes(slViolation)) existingViolations.push(slViolation);
+          if (!existingViolations.includes(slOutcome.violation)) existingViolations.push(slOutcome.violation);
           await db.query(
             `UPDATE wp_trades SET is_qualified = false, violations = $1, sl_check_pending = false WHERE id = $2`,
             [JSON.stringify(existingViolations), trade.id]
