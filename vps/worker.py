@@ -64,12 +64,44 @@ app = FastAPI(title=f"VPS Worker {TERMINAL_ID}", version="7.0.0")
 
 # ==================== BACKGROUND LOGIN DIALOG WATCHER ====================
 
+def _force_restore_base_account():
+    """
+    Hard reset: shutdown IPC, reinitialize, login to base account.
+    Used by the watcher after a dialog is closed — the IPC state may
+    be broken so we cannot rely on a plain mt5.login() call.
+    """
+    global _ipc_connected, _current_account_str
+    try:
+        mt5.shutdown()
+    except:
+        pass
+    _ipc_connected = False
+    time.sleep(0.5)
+    for attempt in range(3):
+        try:
+            if mt5.initialize(TERMINAL_PATH):
+                _ipc_connected = True
+                if mt5.login(BASE_ACCOUNT, password=BASE_PASSWORD, server=BASE_SERVER):
+                    _current_account_str = str(BASE_ACCOUNT)
+                    print(f"  [W{TERMINAL_ID}] [watcher] Base account restored ✓")
+                    return True
+                else:
+                    print(f"  [W{TERMINAL_ID}] [watcher] mt5.login failed: {mt5.last_error()}")
+            else:
+                print(f"  [W{TERMINAL_ID}] [watcher] mt5.initialize failed: {mt5.last_error()}")
+        except Exception as e:
+            print(f"  [W{TERMINAL_ID}] [watcher] restore attempt {attempt+1} error: {e}")
+        time.sleep(2)
+    print(f"  [W{TERMINAL_ID}] [watcher] Base account restore FAILED after 3 attempts")
+    return False
+
+
 def _login_dialog_watcher():
     """
     Background daemon thread — runs for the lifetime of the worker.
     Every 300ms: checks for any MT5 'Login' popup, closes it, then
-    immediately restores the terminal to the base account so it is
-    never left disconnected.
+    forces a full IPC reset and base account login so the terminal
+    is never left disconnected.
     """
     try:
         import ctypes
@@ -80,17 +112,17 @@ def _login_dialog_watcher():
                 hwnd = user32.FindWindowW(None, "Login")
                 if hwnd:
                     user32.PostMessageW(hwnd, WM_CLOSE, 0, 0)
-                    print(f"  [W{TERMINAL_ID}] [watcher] Closed Login dialog — restoring base account")
-                    time.sleep(0.5)  # let the dialog fully close
-                    # Restore to base account — acquire lock so we don't
-                    # collide with an in-progress pull on this terminal
-                    acquired = _lock.acquire(timeout=10)
+                    print(f"  [W{TERMINAL_ID}] [watcher] Closed Login dialog — forcing base account restore")
+                    time.sleep(0.8)  # let the dialog fully dismiss
+                    # Acquire lock so we don't collide with a pull in progress
+                    acquired = _lock.acquire(timeout=15)
                     if acquired:
                         try:
-                            login_user(BASE_ACCOUNT, BASE_PASSWORD, BASE_SERVER)
-                            print(f"  [W{TERMINAL_ID}] [watcher] Restored to base account")
+                            _force_restore_base_account()
                         finally:
                             _lock.release()
+                    else:
+                        print(f"  [W{TERMINAL_ID}] [watcher] Could not acquire lock — will retry next cycle")
                 else:
                     time.sleep(0.3)
             except Exception:
