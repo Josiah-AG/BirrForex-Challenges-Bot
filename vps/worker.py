@@ -62,6 +62,28 @@ _current_account_str = str(BASE_ACCOUNT)
 app = FastAPI(title=f"VPS Worker {TERMINAL_ID}", version="7.0.0")
 
 
+# ==================== LOGIN DIALOG DISMISSAL ====================
+
+def close_login_dialog():
+    """
+    Close any MT5 'Login' popup dialog using the Windows API.
+    When mt5.login() fails with bad credentials MT5 sometimes renders
+    a blocking Login dialog — this dismisses it so the terminal is free.
+    Uses ctypes (stdlib, no extra installs).
+    """
+    try:
+        import ctypes
+        user32 = ctypes.windll.user32
+        # FindWindowW(class, title) — MT5 login popup title is "Login"
+        hwnd = user32.FindWindowW(None, "Login")
+        if hwnd:
+            user32.PostMessageW(hwnd, 0x0010, 0, 0)  # WM_CLOSE
+            time.sleep(0.5)
+            print(f"  [W{TERMINAL_ID}] Closed stuck Login dialog")
+    except Exception as e:
+        print(f"  [W{TERMINAL_ID}] close_login_dialog error: {e}")
+
+
 # ==================== SELF-HEALING ====================
 
 def kill_terminal():
@@ -176,6 +198,7 @@ def login_user(account: int, password: str, server: str) -> bool:
 
     _consecutive_failures += 1
     print(f"  [W{TERMINAL_ID}] Login failed (consecutive: {_consecutive_failures})")
+    close_login_dialog()  # dismiss any blocking popup before retrying or giving up
 
     if _consecutive_failures >= MAX_FAILURES_BEFORE_HEAL:
         if self_heal():
@@ -296,8 +319,9 @@ def do_verify(account: int, server: str, password: str) -> dict:
 def do_pull(account: int, server: str, password: str, from_date: str = None, orders_from_date: str = None) -> dict:
     if not login_user(account, password, server):
         err = mt5.last_error()
-        # Immediately restore to base account so the terminal doesn't stay stuck
-        # on an MT5 authorization-failed popup or bad state
+        # Dismiss any Login dialog popup that may be blocking the terminal,
+        # then restore to base account.
+        close_login_dialog()
         login_user(BASE_ACCOUNT, BASE_PASSWORD, BASE_SERVER)
         return {"success": False, "message": f"Login failed: {err}"}
 
