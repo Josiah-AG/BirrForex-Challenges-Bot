@@ -62,104 +62,46 @@ _current_account_str = str(BASE_ACCOUNT)
 app = FastAPI(title=f"VPS Worker {TERMINAL_ID}", version="7.0.0")
 
 
-# ==================== BACKGROUND LOGIN DIALOG WATCHER ====================
+# ==================== BASE ACCOUNT RESTORE ====================
 
-def _force_restore_base_account():
+def force_login_base_account(reason: str = "") -> bool:
     """
-    Hard reset: shutdown IPC, reinitialize, login to base account.
-    Used by the watcher after a dialog is closed — the IPC state may
-    be broken so we cannot rely on a plain mt5.login() call.
+    Full hard reset: shutdown IPC → reinitialize → login to base account.
+    Used at startup and after any credential failure.
+    Retries up to 5 times with increasing delays.
     """
     global _ipc_connected, _current_account_str
+    tag = f"  [W{TERMINAL_ID}]"
+    if reason:
+        print(f"{tag} Force login to base account ({reason})")
     try:
         mt5.shutdown()
     except:
         pass
     _ipc_connected = False
-    time.sleep(0.5)
-    for attempt in range(3):
+
+    for attempt in range(5):
+        time.sleep(1 + attempt)  # 1s, 2s, 3s, 4s, 5s
         try:
             if mt5.initialize(TERMINAL_PATH):
                 _ipc_connected = True
                 if mt5.login(BASE_ACCOUNT, password=BASE_PASSWORD, server=BASE_SERVER):
                     _current_account_str = str(BASE_ACCOUNT)
-                    print(f"  [W{TERMINAL_ID}] [watcher] Base account restored ✓")
+                    info = mt5.account_info()
+                    bal = f" balance: {info.balance}" if info else ""
+                    print(f"{tag} Base account login OK ✓{bal}")
                     return True
                 else:
-                    print(f"  [W{TERMINAL_ID}] [watcher] mt5.login failed: {mt5.last_error()}")
+                    print(f"{tag} mt5.login failed (attempt {attempt+1}): {mt5.last_error()}")
+                    mt5.shutdown()
+                    _ipc_connected = False
             else:
-                print(f"  [W{TERMINAL_ID}] [watcher] mt5.initialize failed: {mt5.last_error()}")
+                print(f"{tag} mt5.initialize failed (attempt {attempt+1}): {mt5.last_error()}")
         except Exception as e:
-            print(f"  [W{TERMINAL_ID}] [watcher] restore attempt {attempt+1} error: {e}")
-        time.sleep(2)
-    print(f"  [W{TERMINAL_ID}] [watcher] Base account restore FAILED after 3 attempts")
+            print(f"{tag} force_login attempt {attempt+1} error: {e}")
+
+    print(f"{tag} Base account login FAILED after 5 attempts")
     return False
-
-
-def _login_dialog_watcher():
-    """
-    Background daemon thread — two jobs:
-
-    1. DIALOG CHECK (every 300ms): if an MT5 'Login' popup is visible,
-       close it and force a full IPC reset + base account login.
-
-    2. HEALTH CHECK (every 10s): acquire the lock (non-blocking, only
-       when terminal is idle) and verify the terminal is logged into the
-       base account. If it's disconnected or on a wrong account, restore.
-       This catches terminals that failed to connect at startup or were
-       left disconnected without a dialog.
-    """
-    try:
-        import ctypes
-        user32 = ctypes.windll.user32
-        WM_CLOSE = 0x0010
-        health_check_counter = 0
-
-        while True:
-            try:
-                # ── Job 1: Dialog check ──────────────────────────────────
-                hwnd = user32.FindWindowW(None, "Login")
-                if hwnd:
-                    user32.PostMessageW(hwnd, WM_CLOSE, 0, 0)
-                    print(f"  [W{TERMINAL_ID}] [watcher] Closed Login dialog — forcing base account restore")
-                    time.sleep(0.8)
-                    acquired = _lock.acquire(timeout=15)
-                    if acquired:
-                        try:
-                            _force_restore_base_account()
-                        finally:
-                            _lock.release()
-                    else:
-                        print(f"  [W{TERMINAL_ID}] [watcher] Could not acquire lock — will retry")
-
-                # ── Job 2: Health check every ~10s ───────────────────────
-                health_check_counter += 1
-                if health_check_counter >= 33:   # 33 × 300ms ≈ 10s
-                    health_check_counter = 0
-                    # Only check when terminal is idle (lock immediately available)
-                    acquired = _lock.acquire(blocking=False)
-                    if acquired:
-                        try:
-                            info = mt5.account_info() if _ipc_connected else None
-                            is_disconnected = (info is None)
-                            is_wrong_account = (info is not None and str(info.login) != str(BASE_ACCOUNT))
-                            if is_disconnected or is_wrong_account:
-                                reason = "disconnected" if is_disconnected else f"on account {info.login} (expected base)"
-                                print(f"  [W{TERMINAL_ID}] [watcher] Health check: terminal {reason} — restoring")
-                                _force_restore_base_account()
-                        finally:
-                            _lock.release()
-
-                time.sleep(0.3)
-
-            except Exception:
-                time.sleep(1)
-    except Exception as e:
-        print(f"  [W{TERMINAL_ID}] Login dialog watcher crashed: {e}")
-
-# Start watcher immediately — daemon so it dies with the process
-_watcher_thread = threading.Thread(target=_login_dialog_watcher, daemon=True)
-_watcher_thread.start()
 
 
 # ==================== SELF-HEALING ====================
@@ -323,39 +265,14 @@ def _do_idle_restore():
 # ==================== MT5 OPERATIONS ====================
 
 def init_terminal() -> bool:
-    global _ipc_connected, _current_account_str
-    try:
-        mt5.shutdown()
-    except:
-        pass
-    _ipc_connected = False
-    time.sleep(0.5)
-
-    if not mt5.initialize(TERMINAL_PATH):
-        print(f"  [W{TERMINAL_ID}] Init failed: {mt5.last_error()}")
-        return False
-
-    _ipc_connected = True
-
-    # Login to home (base) account on startup
-    if not mt5.login(BASE_ACCOUNT, password=BASE_PASSWORD, server=BASE_SERVER):
-        print(f"  [W{TERMINAL_ID}] Home account login failed: {mt5.last_error()}")
-        mt5.shutdown()
-        _ipc_connected = False
-        return False
-
-    _current_account_str = str(BASE_ACCOUNT)
-    info = mt5.account_info()
-    if info:
-        print(f"  [W{TERMINAL_ID}] Connected — home account: {info.login} balance: {info.balance}")
-    return True
+    """Startup: force login to base account using full hard reset."""
+    return force_login_base_account("startup")
 
 
 def do_verify(account: int, server: str, password: str) -> dict:
     if not login_user(account, password, server):
         err = mt5.last_error()
-        # Restore to base account immediately so terminal doesn't stay stuck
-        login_user(BASE_ACCOUNT, BASE_PASSWORD, BASE_SERVER)
+        force_login_base_account("credential failure in verify")
         return {"success": False, "message": f"Login failed: {err}"}
 
     account_info = mt5.account_info()
@@ -397,9 +314,7 @@ def do_verify(account: int, server: str, password: str) -> dict:
 def do_pull(account: int, server: str, password: str, from_date: str = None, orders_from_date: str = None) -> dict:
     if not login_user(account, password, server):
         err = mt5.last_error()
-        # The background watcher thread will dismiss any Login dialog within 300ms.
-        # Just restore to base account immediately.
-        login_user(BASE_ACCOUNT, BASE_PASSWORD, BASE_SERVER)
+        force_login_base_account("credential failure in pull")
         return {"success": False, "message": f"Login failed: {err}"}
 
     # MT5 needs time to sync deal history from the broker after switching accounts.
