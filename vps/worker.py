@@ -67,10 +67,9 @@ app = FastAPI(title=f"VPS Worker {TERMINAL_ID}", version="7.0.0")
 def _login_dialog_watcher():
     """
     Background daemon thread — runs for the lifetime of the worker.
-    Checks every 300ms for any MT5 'Login' popup dialog and closes it
-    immediately using WM_CLOSE. This catches dialogs that appear after
-    mt5.login() returns (async MT5 UI behaviour) as well as dialogs
-    that appear outside of pull cycles.
+    Every 300ms: checks for any MT5 'Login' popup, closes it, then
+    immediately restores the terminal to the base account so it is
+    never left disconnected.
     """
     try:
         import ctypes
@@ -81,10 +80,19 @@ def _login_dialog_watcher():
                 hwnd = user32.FindWindowW(None, "Login")
                 if hwnd:
                     user32.PostMessageW(hwnd, WM_CLOSE, 0, 0)
-                    print(f"  [W{TERMINAL_ID}] [watcher] Closed Login dialog")
-                    time.sleep(0.3)   # brief pause then check again for more
+                    print(f"  [W{TERMINAL_ID}] [watcher] Closed Login dialog — restoring base account")
+                    time.sleep(0.5)  # let the dialog fully close
+                    # Restore to base account — acquire lock so we don't
+                    # collide with an in-progress pull on this terminal
+                    acquired = _lock.acquire(timeout=10)
+                    if acquired:
+                        try:
+                            login_user(BASE_ACCOUNT, BASE_PASSWORD, BASE_SERVER)
+                            print(f"  [W{TERMINAL_ID}] [watcher] Restored to base account")
+                        finally:
+                            _lock.release()
                 else:
-                    time.sleep(0.3)   # nothing found — check again shortly
+                    time.sleep(0.3)
             except Exception:
                 time.sleep(1)
     except Exception as e:
