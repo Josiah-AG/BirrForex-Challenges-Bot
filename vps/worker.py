@@ -78,6 +78,24 @@ def force_login_base_account(reason: str = "") -> bool:
     print(f"{tag}    base server   : {BASE_SERVER}")
     print(f"{tag}    _ipc_connected: {_ipc_connected}")
 
+    # Close any Login dialog BEFORE shutdown/initialize — a modal dialog
+    # blocks the terminal's IPC and causes mt5.initialize() to hang forever.
+    print(f"{tag}    step 0: closing any Login dialogs")
+    try:
+        import ctypes
+        user32 = ctypes.windll.user32
+        closed = 0
+        for _ in range(15):
+            hwnd = user32.FindWindowW(None, "Login")
+            if not hwnd:
+                break
+            user32.PostMessageW(hwnd, 0x0010, 0, 0)  # WM_CLOSE
+            time.sleep(0.3)
+            closed += 1
+        print(f"{tag}    Login dialogs closed: {closed}")
+    except Exception as e:
+        print(f"{tag}    dialog close error: {e}")
+
     print(f"{tag}    step 1: mt5.shutdown()")
     try:
         mt5.shutdown()
@@ -92,7 +110,7 @@ def force_login_base_account(reason: str = "") -> bool:
         time.sleep(delay)
         try:
             print(f"{tag}    step 2: mt5.initialize({TERMINAL_PATH})")
-            init_ok = mt5.initialize(TERMINAL_PATH)
+            init_ok = mt5.initialize(TERMINAL_PATH, timeout=15000)
             print(f"{tag}    mt5.initialize → {'OK' if init_ok else f'FAILED: {mt5.last_error()}'}")
             if init_ok:
                 _ipc_connected = True
@@ -163,7 +181,7 @@ def relaunch_terminal() -> bool:
     time.sleep(20)
 
     for attempt in range(5):
-        if mt5.initialize(TERMINAL_PATH):
+        if mt5.initialize(TERMINAL_PATH, timeout=15000):
             if mt5.login(BASE_ACCOUNT, password=BASE_PASSWORD, server=BASE_SERVER):
                 _ipc_connected = True
                 global _current_account_str
@@ -197,7 +215,7 @@ def ensure_ipc() -> bool:
     global _ipc_connected
     if _ipc_connected:
         return True
-    if not mt5.initialize(TERMINAL_PATH):
+    if not mt5.initialize(TERMINAL_PATH, timeout=15000):
         _ipc_connected = False
         return False
     _ipc_connected = True
@@ -212,7 +230,7 @@ def full_reconnect() -> bool:
         pass
     _ipc_connected = False
     time.sleep(0.3)
-    if not mt5.initialize(TERMINAL_PATH):
+    if not mt5.initialize(TERMINAL_PATH, timeout=15000):
         return False
     _ipc_connected = True
     return True
@@ -547,7 +565,7 @@ def do_candles(symbol: str, timeframe: str, from_time: str, to_time: str, requir
     # All terminals idle on the hardcoded standard base account.
     # No subtype self-correct needed — just ensure MT5 is initialised.
     if not _ipc_connected:
-        if not mt5.initialize(TERMINAL_PATH):
+        if not mt5.initialize(TERMINAL_PATH, timeout=15000):
             return {"success": False, "message": "MT5 not initialized"}
 
     rates = mt5.copy_rates_range(symbol, tf, date_from, date_to)
