@@ -64,78 +64,139 @@ app = FastAPI(title=f"VPS Worker {TERMINAL_ID}", version="7.0.0")
 
 # ==================== BASE ACCOUNT RESTORE ====================
 
-def force_login_base_account(reason: str = "") -> bool:
+def _write_base_config() -> str | None:
     """
-    Full hard reset: shutdown IPC → reinitialize → login to base account.
-    Used at startup and after any credential failure.
-    Retries up to 5 times with increasing delays.
+    Write base account credentials to an INI config file that MT5 reads at launch.
+    Returns the config file path, or None on failure.
+    MT5 /config flag: terminal64.exe /config:"path.ini" auto-logs in on startup.
+    """
+    config_path = f"C:\\MetaTrader\\Terminal {TERMINAL_ID}\\base_login.ini"
+    tag = f"  [W{TERMINAL_ID}]"
+    try:
+        os.makedirs(os.path.dirname(config_path), exist_ok=True)
+        content = (
+            f"[Common]\n"
+            f"Login={BASE_ACCOUNT}\n"
+            f"Password={BASE_PASSWORD}\n"
+            f"Server={BASE_SERVER}\n"
+            f"KeepPrivate=1\n"
+        )
+        with open(config_path, "w") as f:
+            f.write(content)
+        print(f"{tag}    config written: {config_path}")
+        return config_path
+    except Exception as e:
+        print(f"{tag}    config write failed: {e}")
+        return None
+
+
+def _kill_and_restart_terminal() -> bool:
+    """
+    Kill the terminal process and relaunch it with the base account config file.
+    The /config flag tells MT5 to auto-login on startup — no dialog, no manual input.
+    Waits 25s for the broker connection before returning.
+    """
+    tag = f"  [W{TERMINAL_ID}]"
+    print(f"{tag} ── terminal restart with base config ──")
+
+    config_path = _write_base_config()
+    if not config_path:
+        return False
+
+    # Kill the terminal (also calls mt5.shutdown internally)
+    kill_terminal()
+    time.sleep(3)
+
+    # Relaunch with /config flag — MT5 reads credentials and auto-logs in
+    try:
+        subprocess.Popen(
+            [TERMINAL_PATH, f"/config:{config_path}"],
+            creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+        )
+        print(f"{tag}    terminal relaunched with /config — waiting 25s for broker...")
+        time.sleep(25)
+        return True
+    except Exception as e:
+        print(f"{tag}    relaunch error: {e}")
+        return False
+
+
+def _try_initialize_and_login() -> bool:
+    """
+    Single attempt: mt5.shutdown → mt5.initialize → mt5.login to base account.
+    Returns True on success.
     """
     global _ipc_connected, _current_account_str
     tag = f"  [W{TERMINAL_ID}]"
-    print(f"{tag} ── force_login_base_account ── reason: {reason}")
-    print(f"{tag}    terminal path : {TERMINAL_PATH}")
-    print(f"{tag}    base account  : {BASE_ACCOUNT}")
-    print(f"{tag}    base server   : {BASE_SERVER}")
-    print(f"{tag}    _ipc_connected: {_ipc_connected}")
-
-    # Close any Login dialog BEFORE shutdown/initialize — a modal dialog
-    # blocks the terminal's IPC and causes mt5.initialize() to hang forever.
-    print(f"{tag}    step 0: closing any Login dialogs")
-    try:
-        import ctypes
-        user32 = ctypes.windll.user32
-        closed = 0
-        for _ in range(15):
-            hwnd = user32.FindWindowW(None, "Login")
-            if not hwnd:
-                break
-            user32.PostMessageW(hwnd, 0x0010, 0, 0)  # WM_CLOSE
-            time.sleep(0.3)
-            closed += 1
-        print(f"{tag}    Login dialogs closed: {closed}")
-    except Exception as e:
-        print(f"{tag}    dialog close error: {e}")
-
-    print(f"{tag}    step 1: mt5.shutdown()")
     try:
         mt5.shutdown()
-        print(f"{tag}    mt5.shutdown() OK")
-    except Exception as e:
-        print(f"{tag}    mt5.shutdown() raised: {e}")
+    except:
+        pass
     _ipc_connected = False
+    time.sleep(1)
 
-    for attempt in range(5):
-        delay = 1 + attempt
-        print(f"{tag}    attempt {attempt+1}/5 — waiting {delay}s ...")
-        time.sleep(delay)
-        try:
-            print(f"{tag}    step 2: mt5.initialize({TERMINAL_PATH})")
-            init_ok = mt5.initialize(TERMINAL_PATH, timeout=15000)
-            print(f"{tag}    mt5.initialize → {'OK' if init_ok else f'FAILED: {mt5.last_error()}'}")
-            if init_ok:
-                _ipc_connected = True
-                print(f"{tag}    step 3: mt5.login({BASE_ACCOUNT}, server={BASE_SERVER})")
-                login_ok = mt5.login(BASE_ACCOUNT, password=BASE_PASSWORD, server=BASE_SERVER)
-                print(f"{tag}    mt5.login → {'OK' if login_ok else f'FAILED: {mt5.last_error()}'}")
-                if login_ok:
-                    _current_account_str = str(BASE_ACCOUNT)
-                    info = mt5.account_info()
-                    if info:
-                        print(f"{tag}    account_info: login={info.login} balance={info.balance} server={info.server} currency={info.currency}")
-                    else:
-                        print(f"{tag}    account_info: None (mt5.last_error={mt5.last_error()})")
-                    print(f"{tag} ✓ Base account login SUCCESS")
-                    return True
-                else:
-                    print(f"{tag}    login failed — doing mt5.shutdown() before retry")
-                    mt5.shutdown()
-                    _ipc_connected = False
-            else:
-                print(f"{tag}    initialize failed — will retry")
-        except Exception as e:
-            print(f"{tag}    attempt {attempt+1} exception: {e}")
+    print(f"{tag}    mt5.initialize ...")
+    init_ok = mt5.initialize(TERMINAL_PATH, timeout=15000)
+    print(f"{tag}    mt5.initialize → {'OK' if init_ok else f'FAILED {mt5.last_error()}'}")
+    if not init_ok:
+        return False
 
-    print(f"{tag} ✗ Base account login FAILED after 5 attempts")
+    _ipc_connected = True
+    print(f"{tag}    mt5.login({BASE_ACCOUNT}) ...")
+    login_ok = mt5.login(BASE_ACCOUNT, password=BASE_PASSWORD, server=BASE_SERVER)
+    print(f"{tag}    mt5.login → {'OK' if login_ok else f'FAILED {mt5.last_error()}'}")
+    if not login_ok:
+        mt5.shutdown()
+        _ipc_connected = False
+        return False
+
+    _current_account_str = str(BASE_ACCOUNT)
+    info = mt5.account_info()
+    if info:
+        print(f"{tag}    account: {info.login} | balance: {info.balance} | server: {info.server}")
+    print(f"{tag} ✓ Base account login SUCCESS")
+    return True
+
+
+def force_login_base_account(reason: str = "") -> bool:
+    """
+    Two-stage recovery:
+
+    Stage 1 — fast path (2 attempts):
+        shutdown → initialize(timeout=15s) → login
+        Works when the terminal is healthy and just needs a re-login.
+
+    Stage 2 — hard recovery (if Stage 1 gets IPC timeout -10005):
+        The terminal's IPC pipe server is dead (caused by a Login dialog
+        that was force-closed, leaving MT5 in a broken state).
+        Fix: kill the process, write base account credentials to an INI
+        config file, relaunch with /config flag so MT5 auto-logs in on
+        startup — no dialog, no manual input. Then retry initialize.
+    """
+    tag = f"  [W{TERMINAL_ID}]"
+    print(f"{tag} ── force_login_base_account ── reason: {reason}")
+
+    # ── Stage 1: fast path ────────────────────────────────────────────
+    for attempt in range(2):
+        print(f"{tag}    stage 1 attempt {attempt+1}/2")
+        if _try_initialize_and_login():
+            return True
+        err = mt5.last_error()
+        print(f"{tag}    stage 1 failed — last_error: {err}")
+        if attempt == 0:
+            time.sleep(2)
+
+    # ── Stage 2: hard recovery (IPC dead — kill + restart with config) ─
+    print(f"{tag}    stage 1 exhausted — IPC unresponsive, triggering hard recovery")
+    if _kill_and_restart_terminal():
+        print(f"{tag}    retrying after restart ...")
+        for attempt in range(5):
+            print(f"{tag}    post-restart attempt {attempt+1}/5")
+            if _try_initialize_and_login():
+                return True
+            time.sleep(3 + attempt)
+
+    print(f"{tag} ✗ force_login_base_account FAILED — all recovery paths exhausted")
     return False
 
 
