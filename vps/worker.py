@@ -675,14 +675,27 @@ if __name__ == "__main__":
     print(f"  Heal after: {MAX_FAILURES_BEFORE_HEAL} consecutive failures")
     print(f"=" * 50)
 
-    for attempt in range(10):
+    # Startup loop: try to connect, if IPC keeps failing kill and relaunch the terminal
+    for attempt in range(5):
         if init_terminal():
             print(f"  [W{TERMINAL_ID}] Ready!")
             break
-        print(f"  [W{TERMINAL_ID}] Retry {attempt + 1}/10 in 5s...")
-        time.sleep(5)
+        print(f"  [W{TERMINAL_ID}] Init failed (attempt {attempt+1}/5) — terminal not responding")
+        print(f"  [W{TERMINAL_ID}] Killing and relaunching terminal {TERMINAL_ID}...")
+        kill_terminal()
+        time.sleep(3)
+        try:
+            subprocess.Popen(
+                [TERMINAL_PATH],
+                creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+            )
+            print(f"  [W{TERMINAL_ID}] Terminal relaunched — waiting 25s for broker connection...")
+            time.sleep(25)
+        except Exception as e:
+            print(f"  [W{TERMINAL_ID}] Relaunch error: {e}")
+            time.sleep(10)
     else:
-        print(f"  [W{TERMINAL_ID}] WARNING: Could not init. Will self-heal on first request.")
+        print(f"  [W{TERMINAL_ID}] WARNING: Could not init after 5 attempts. Starting anyway — self-heal on first request.")
 
     print(f"  [W{TERMINAL_ID}] Starting on port {PORT}...")
     uvicorn.run(app, host="127.0.0.1", port=PORT, log_level="warning")
