@@ -301,6 +301,29 @@ def full_reconnect() -> bool:
     return True
 
 
+def _is_credential_error() -> bool:
+    """True when MT5 last_error indicates bad credentials (authorization failure).
+    False for IPC / connection / timeout errors — those warrant terminal recovery.
+    """
+    err = mt5.last_error()
+    if not err:
+        return False
+    # mt5.last_error() returns (code, description) tuple
+    desc = ""
+    if isinstance(err, (tuple, list)) and len(err) > 1:
+        desc = str(err[1]).lower()
+    else:
+        desc = str(err).lower()
+    # Authorization failures: Exness typically returns "Authorization failed"
+    if 'authorization' in desc or 'invalid account' in desc:
+        return True
+    # IPC/connection issues are NOT credential errors
+    if 'no ipc' in desc or 'ipc connection' in desc or 'timeout' in desc or 'connection' in desc:
+        return False
+    # Unknown errors — don't trigger recovery speculatively; treat as non-credential
+    return False
+
+
 def login_user(account: int, password: str, server: str) -> bool:
     global _consecutive_failures, _current_account_str
     tag = f"  [W{TERMINAL_ID}]"
@@ -313,6 +336,10 @@ def login_user(account: int, password: str, server: str) -> bool:
             _consecutive_failures = 0
             _current_account_str = str(account)
             return True
+        # Bad credentials — don't count as a terminal failure, don't retry
+        if _is_credential_error():
+            print(f"{tag} login_user: credential error — not counting as terminal failure")
+            return False
 
     print(f"{tag} login_user: trying full_reconnect()")
     if full_reconnect():
@@ -323,6 +350,9 @@ def login_user(account: int, password: str, server: str) -> bool:
             _consecutive_failures = 0
             _current_account_str = str(account)
             return True
+        if _is_credential_error():
+            print(f"{tag} login_user: credential error after reconnect — not counting as terminal failure")
+            return False
     else:
         print(f"{tag} login_user: full_reconnect FAILED: {mt5.last_error()}")
 
@@ -442,13 +472,15 @@ def _async_stage2_recovery(reason: str):
 def do_verify(account: int, server: str, password: str) -> dict:
     if not login_user(account, password, server):
         err = mt5.last_error()
-        # Fire recovery in background — don't block the response for 35s
-        threading.Thread(
-            target=_async_stage2_recovery,
-            args=("credential failure in verify",),
-            daemon=True
-        ).start()
-        return {"success": False, "message": f"Login failed: {err}"}
+        is_cred = _is_credential_error()
+        if not is_cred:
+            # Terminal/IPC issue — restart in background
+            threading.Thread(
+                target=_async_stage2_recovery,
+                args=("ipc failure in verify",),
+                daemon=True
+            ).start()
+        return {"success": False, "error_type": "credential_failure" if is_cred else "ipc_failure", "message": f"Login failed: {err}"}
 
     account_info = mt5.account_info()
     if not account_info:
@@ -489,13 +521,15 @@ def do_verify(account: int, server: str, password: str) -> dict:
 def do_pull(account: int, server: str, password: str, from_date: str = None, orders_from_date: str = None) -> dict:
     if not login_user(account, password, server):
         err = mt5.last_error()
-        # Fire recovery in background — don't block the pull response for 35s
-        threading.Thread(
-            target=_async_stage2_recovery,
-            args=("credential failure in pull",),
-            daemon=True
-        ).start()
-        return {"success": False, "message": f"Login failed: {err}"}
+        is_cred = _is_credential_error()
+        if not is_cred:
+            # Terminal/IPC issue — restart in background
+            threading.Thread(
+                target=_async_stage2_recovery,
+                args=("ipc failure in pull",),
+                daemon=True
+            ).start()
+        return {"success": False, "error_type": "credential_failure" if is_cred else "ipc_failure", "message": f"Login failed: {err}"}
 
     # MT5 needs time to sync deal history from the broker after switching accounts.
     # Without this wait, history_deals_get() returns 0 deals on the first call.
