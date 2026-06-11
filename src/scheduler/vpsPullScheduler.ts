@@ -1,3 +1,4 @@
+// VPS Pull Scheduler v3.0 — credentialFailureCache + Step 4c confirmation
 import cron from 'node-cron';
 import axios from 'axios';
 import { Bot } from '../bot/bot';
