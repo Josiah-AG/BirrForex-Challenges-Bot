@@ -22,11 +22,23 @@ import threading
 import json
 import urllib.request
 import urllib.parse
+import builtins
 from datetime import datetime, timezone, timedelta
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import Optional
 import uvicorn
+
+# ── Timestamped logging ──────────────────────────────────────────────────────
+# Override built-in print so every log line automatically gets a UTC timestamp.
+# Format: [YYYY-MM-DD HH:MM:SS UTC] <message>
+_original_print = builtins.print
+
+def _ts_print(*args, **kwargs):
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    _original_print(f"[{ts}]", *args, **kwargs)
+
+builtins.print = _ts_print
 
 # Parse args
 if len(sys.argv) < 3:
@@ -956,7 +968,7 @@ def candles(req: CandlesRequest):
 
 if __name__ == "__main__":
     print(f"=" * 50)
-    print(f"  VPS Worker {TERMINAL_ID} (v8.0 — Fixed Base Account)")
+    print(f"  VPS Worker {TERMINAL_ID} (v9.0 — Credential-Safe Recovery + History Sync Fix)")
     print(f"  Terminal: {TERMINAL_PATH}")
     print(f"  Port:     {PORT}")
     print(f"  Home:     {BASE_ACCOUNT} @ {BASE_SERVER} (standard)")
