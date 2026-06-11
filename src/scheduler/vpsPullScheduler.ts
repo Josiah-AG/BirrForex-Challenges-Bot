@@ -125,6 +125,14 @@ export class VpsPullScheduler {
   private terminals: TerminalState[] = [];
   private sharedQueue = new SharedQueue();
 
+  /**
+   * Accounts confirmed as credential failures during the current cycle.
+   * Any account in this set returns invalid_credentials INSTANTLY — no HTTP
+   * request, no terminal contact — regardless of which retry pass calls it.
+   * Cleared at the start of every new pull cycle.
+   */
+  private credentialFailureCache = new Set<number>();
+
   cancelPull() {
     if (!this.isRunning) return false;
     this.cancelRequested = true;
@@ -308,8 +316,9 @@ export class VpsPullScheduler {
       const priorityCount = accountsWithPriority.filter(a => a.isPriority).length;
       console.log(`📊 VPS Pull: Starting — ${accounts.length} accounts (${priorityCount} priority), ${this.getHealthyTerminalCount()} healthy terminals`);
 
-      // Reset per-cycle terminal stats
+      // Reset per-cycle state
       this.terminals.forEach(t => { t.totalProcessed = 0; t.totalSuccess = 0; t.totalFailed = 0; });
+      this.credentialFailureCache.clear();
 
       // Create batch record
       const batchId = await this.createPullBatch(challengeToPull.id, accounts.length);
@@ -572,6 +581,7 @@ export class VpsPullScheduler {
 
       console.log(`📊 VPS Pull: ${accounts.length} accounts, ${this.getHealthyTerminalCount()} healthy terminals`);
       this.terminals.forEach(t => { t.totalProcessed = 0; t.totalSuccess = 0; t.totalFailed = 0; });
+      this.credentialFailureCache.clear();
 
       batchId = await this.createPullBatch(challengeId, accounts.length);
       this.sharedQueue.load(accounts.map(a => ({ ...a, isPriority: false })));
@@ -936,6 +946,22 @@ export class VpsPullScheduler {
    * Pull a single account with retry logic
    */
   private async pullSingleAccount(account: AccountToPull, terminalId: number, challenge?: any, abortSignal?: AbortSignal): Promise<PullResult> {
+    // Cache hit — this account's credentials are already confirmed bad this cycle.
+    // Return instantly with zero HTTP requests and zero terminal contact.
+    if (this.credentialFailureCache.has(account.registrationId)) {
+      console.log(`🔑 VPS Pull: ${account.accountNumber} skipped — credential failure cached (no terminal contact)`);
+      return {
+        registrationId: account.registrationId,
+        accountNumber: account.accountNumber,
+        userId: account.userId,
+        username: account.username,
+        success: false,
+        errorCode: 'invalid_credentials',
+        errorMessage: 'Credential failure confirmed earlier this cycle',
+        terminalId,
+      };
+    }
+
     let credentialFailCount = 0;
 
     for (let attempt = 1; attempt <= MAX_RETRIES_PER_ACCOUNT; attempt++) {
@@ -1011,6 +1037,8 @@ export class VpsPullScheduler {
             await this.delay(RETRY_DELAY_MS);
             continue;
           }
+          // Cache this account — any further calls this cycle return instantly
+          this.credentialFailureCache.add(account.registrationId);
           return {
             registrationId: account.registrationId,
             accountNumber: account.accountNumber,
@@ -1059,6 +1087,7 @@ export class VpsPullScheduler {
             await this.delay(RETRY_DELAY_MS);
             continue;
           }
+          this.credentialFailureCache.add(account.registrationId);
           return {
             registrationId: account.registrationId,
             accountNumber: account.accountNumber,
