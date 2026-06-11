@@ -32,7 +32,7 @@ const BATCH_DELAY_MS = 1500;
 const PASSWORD_WARNING_HOURS = 48;
 const TERMINAL_HEALTH_RECHECK_MS = 10 * 60 * 1000;
 const TERMINAL_FAILURE_THRESHOLD = 5;
-const CREDENTIAL_CONFIRM_ATTEMPTS = 2;
+const CREDENTIAL_CONFIRM_ATTEMPTS = 1; // Detect on first attempt, confirm on a DIFFERENT terminal (Step 4a)
 const CYCLE_RETRY_PASSES = 2;
 const CYCLE_RETRY_WAIT_MS = 30000; // 30s between retry passes
 const HEALTHY_RETRY_PASSES = 5;    // extra passes on healthy-only terminals after main retry
@@ -372,6 +372,43 @@ export class VpsPullScheduler {
           const idx = allResults.findIndex(r => r.registrationId === rr.registrationId);
           if (idx >= 0) allResults[idx] = rr;
           else allResults.push(rr);
+        }
+      }
+
+      // === STEP 4c: Confirm credential failures on ONE different healthy terminal ===
+      // Worker v9.0 guarantees -6 never kills a terminal (direct base login recovery),
+      // so sending bad credentials to a second terminal is now safe — it returns
+      // error_type:"credential_failure" and recovers itself without any restart.
+      //
+      // Logic:
+      //   success on T2      → was a T1 terminal issue, not credentials → treat as success
+      //   invalid_credentials on T2 → confirmed bad password → final label, notify user
+      //   other error on T2  → keep as invalid_credentials (safer assumption)
+      const toConfirm = allResults.filter(r => !r.success && r.errorCode === 'invalid_credentials');
+      if (toConfirm.length > 0) {
+        console.log(`🔑 VPS Pull: Confirming ${toConfirm.length} credential failure(s) on different terminals`);
+        const healthyNow = this.terminals.filter(t => t.isHealthy);
+        for (const failure of toConfirm) {
+          const confirmTerminal = healthyNow.find(t => t.id !== failure.terminalId);
+          if (!confirmTerminal) continue;
+          const account = accounts.find(a => a.registrationId === failure.registrationId);
+          if (!account) continue;
+          console.log(`🔑 Confirming ${failure.accountNumber} on T${confirmTerminal.id} (originally failed on T${failure.terminalId})`);
+          const confirmResult = await this.pullSingleAccount(account, confirmTerminal.id, challengeToPull, this.abortController?.signal);
+          const idx = allResults.findIndex(r => r.registrationId === failure.registrationId);
+          if (confirmResult.success) {
+            // Succeeded on T2 — T1 had a terminal issue, not credentials
+            console.log(`✅ ${failure.accountNumber} succeeded on T${confirmTerminal.id} — was terminal issue, treating as success`);
+            if (idx >= 0) allResults[idx] = { ...confirmResult, terminalId: confirmTerminal.id };
+            try { await evaluationEngine.evaluateSingleAccount(challengeToPull.id, account.registrationId); } catch (e) {}
+          } else if (confirmResult.errorCode === 'invalid_credentials') {
+            // Confirmed bad credentials on second terminal
+            console.log(`🔑 ${failure.accountNumber} confirmed bad credentials on T${confirmTerminal.id}`);
+            // Leave result as invalid_credentials (no change needed)
+          } else {
+            // Different error on T2 — network/terminal issue, keep as invalid_credentials
+            console.log(`⚠️ ${failure.accountNumber} got different error on T${confirmTerminal.id}: ${confirmResult.errorCode} — keeping as credential failure`);
+          }
         }
       }
 

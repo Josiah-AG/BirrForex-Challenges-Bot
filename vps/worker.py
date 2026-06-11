@@ -1,14 +1,16 @@
 """
-WinnerPip VPS Worker v8.0 — Fixed Base Account
+WinnerPip VPS Worker v9.0 — Credential-Safe Recovery + History Sync Fix
 Each instance owns ONE MT5 terminal exclusively.
 Run with: py -3.12 worker.py <terminal_id> <port>
 Example:  py -3.12 worker.py 1 8001
 
-New in v8.0:
-- Home account is fixed — always the hardcoded standard base account (no /set-home-account)
-- Removes dynamic subtype self-correct in do_candles() — base account is always standard
-- Symbol remapping (XAUUSDc → XAUUSDm etc.) is handled by the Node.js API before the request
-- Eliminates terminal login failures caused by dynamic home account switching
+New in v9.0:
+- -6 (Terminal: Authorization failed) detected as definitive credential error code
+- After -6: immediate direct base account login (no shutdown/restart) — zero downtime
+- Only falls back to shutdown → initialize → restart if direct base login fails
+- _recovery_in_progress flag prevents multiple simultaneous terminal kill cascades
+- History sync: terminal_info().connected pre-check, broker cache priming,
+  ping-based dynamic wait, stabilization loop rejects count=0 as "stable"
 """
 
 import MetaTrader5 as mt5
@@ -51,6 +53,15 @@ _ipc_connected = False
 _last_request_time = time.time()
 _consecutive_failures = 0
 MAX_FAILURES_BEFORE_HEAL = 3
+
+# Credential error codes — -6 is "Terminal: Authorization failed" from Exness/MT5.
+# This is a BROKER rejection (wrong account/password), never an IPC/terminal failure.
+# IPC errors are always -100xx (e.g. -10004 No IPC, -10005 IPC timeout).
+CREDENTIAL_ERROR_CODES = {-6}
+
+# Prevents multiple simultaneous _async_stage2_recovery threads from
+# killing the same terminal repeatedly (the cascade that caused 3-min restarts).
+_recovery_in_progress = False
 
 # Idle restore
 _idle_timer = None
@@ -301,18 +312,76 @@ def full_reconnect() -> bool:
     return True
 
 
-# Set by login_user() on each call — True if IPC was alive but login still failed
-# (structurally proves bad credentials, not a terminal problem).
-# False if IPC itself was broken (terminal needs recovery).
+# Set by login_user() — True if failure was a credential error (not a terminal problem).
 _last_login_was_credential_error: bool = False
+
+
+def _get_error_code() -> int:
+    """Return the numeric code from mt5.last_error(), or 0 if unavailable."""
+    err = mt5.last_error()
+    if err and isinstance(err, (tuple, list)) and len(err) > 0:
+        return err[0]
+    return 0
+
+
+def _restore_base_after_credential_error():
+    """
+    After a -6 credential error, restore the terminal to the base account.
+
+    Three-stage escalation (stops at first success):
+      Stage 1 — Direct login: IPC is still alive after -6 (we got a response),
+                so try mt5.login(BASE) immediately. Usually works, zero downtime.
+      Stage 2 — Shutdown + initialize + login: clears any dialog state blocking IPC.
+      Stage 3 — Async terminal restart: last resort only.
+    """
+    global _ipc_connected, _current_account_str, _consecutive_failures
+    tag = f"  [W{TERMINAL_ID}]"
+
+    # Stage 1 — direct base login (no shutdown, no restart)
+    ok = mt5.login(BASE_ACCOUNT, password=BASE_PASSWORD, server=BASE_SERVER)
+    if ok:
+        _consecutive_failures = 0
+        _current_account_str = str(BASE_ACCOUNT)
+        _ipc_connected = True
+        print(f"{tag} ✓ Base restored via direct login after credential error")
+        return
+
+    print(f"{tag} Direct base login failed ({mt5.last_error()}) — trying shutdown+initialize")
+
+    # Stage 2 — shutdown + initialize + login
+    try:
+        mt5.shutdown()
+    except:
+        pass
+    _ipc_connected = False
+    time.sleep(1)
+
+    if mt5.initialize(TERMINAL_PATH, timeout=15000):
+        _ipc_connected = True
+        ok = mt5.login(BASE_ACCOUNT, password=BASE_PASSWORD, server=BASE_SERVER)
+        if ok:
+            _consecutive_failures = 0
+            _current_account_str = str(BASE_ACCOUNT)
+            print(f"{tag} ✓ Base restored via shutdown+initialize after credential error")
+            return
+
+    print(f"{tag} Shutdown+initialize failed — triggering async terminal restart")
+
+    # Stage 3 — full async restart (last resort)
+    threading.Thread(
+        target=_async_stage2_recovery,
+        args=("base login failed after credential error",),
+        daemon=True
+    ).start()
 
 
 def login_user(account: int, password: str, server: str) -> bool:
     global _consecutive_failures, _current_account_str, _last_login_was_credential_error
-    _last_login_was_credential_error = False  # reset each call
+    _last_login_was_credential_error = False
     tag = f"  [W{TERMINAL_ID}]"
     print(f"{tag} login_user: account={account} server={server} _ipc_connected={_ipc_connected}")
 
+    # ── Direct login attempt (IPC already connected) ──────────────────────────
     if _ipc_connected:
         ok = mt5.login(account, password=password, server=server)
         print(f"{tag} login_user: direct login → {'OK' if ok else f'FAILED: {mt5.last_error()}'}")
@@ -320,8 +389,15 @@ def login_user(account: int, password: str, server: str) -> bool:
             _consecutive_failures = 0
             _current_account_str = str(account)
             return True
-        # IPC was connected — login failed. Verify IPC is still alive via full_reconnect.
 
+        if _get_error_code() in CREDENTIAL_ERROR_CODES:
+            # -6: broker rejected credentials — terminal is healthy, don't touch it
+            _last_login_was_credential_error = True
+            print(f"{tag} login_user: -6 credential error — restoring base account")
+            _restore_base_after_credential_error()
+            return False
+
+    # ── IPC reconnect then retry ──────────────────────────────────────────────
     print(f"{tag} login_user: trying full_reconnect()")
     if full_reconnect():
         print(f"{tag} login_user: full_reconnect OK — retrying login")
@@ -331,14 +407,27 @@ def login_user(account: int, password: str, server: str) -> bool:
             _consecutive_failures = 0
             _current_account_str = str(account)
             return True
-        # IPC is alive (reconnect succeeded) but login still failed — definitively credentials
+
+        # IPC is provably alive (reconnect succeeded) — login failure = credentials
         _last_login_was_credential_error = True
-        print(f"{tag} login_user: IPC alive but login failed — credential error (not counting as terminal failure)")
+        if _get_error_code() in CREDENTIAL_ERROR_CODES:
+            print(f"{tag} login_user: -6 after reconnect — restoring base account")
+            _restore_base_after_credential_error()
+        else:
+            print(f"{tag} login_user: IPC alive but login failed — treating as credential error")
         return False
     else:
+        err_code = _get_error_code()
         print(f"{tag} login_user: full_reconnect FAILED: {mt5.last_error()}")
 
-    # IPC broken — count as terminal failure and possibly self-heal
+        if err_code in CREDENTIAL_ERROR_CODES:
+            # -6 blocked even mt5.initialize() — credential dialog is blocking IPC.
+            # Still a credential error — don't count as terminal failure.
+            _last_login_was_credential_error = True
+            print(f"{tag} login_user: -6 blocked initialize — credential error, not terminal failure")
+            return False
+
+    # ── Real IPC failure — count and possibly heal ────────────────────────────
     _consecutive_failures += 1
     print(f"  [W{TERMINAL_ID}] Login failed (consecutive: {_consecutive_failures})")
 
@@ -401,9 +490,29 @@ def _async_stage2_recovery(reason: str):
     The 35s broker wait happens WITHOUT holding the main lock so pull
     requests during recovery fail fast (IPC dead = instant error) rather
     than blocking for 45s and timing out the pull cycle.
+
+    _recovery_in_progress flag prevents multiple simultaneous recovery threads
+    from killing the terminal repeatedly (the cascade that caused 3-min restarts).
     """
+    global _recovery_in_progress, _ipc_connected
     tag = f"  [W{TERMINAL_ID}]"
+
+    if _recovery_in_progress:
+        print(f"{tag} [async recovery] Already in progress — skipping ({reason})")
+        return
+
+    _recovery_in_progress = True
     print(f"{tag} [async recovery] Starting — {reason}")
+
+    try:
+        _async_stage2_recovery_impl()
+    finally:
+        _recovery_in_progress = False
+
+
+def _async_stage2_recovery_impl():
+    """Actual recovery logic — called only when _recovery_in_progress is False."""
+    tag = f"  [W{TERMINAL_ID}]"
 
     # Write config and kill terminal (no lock needed — subprocess only)
     config_path = _write_base_config()
@@ -512,9 +621,25 @@ def do_pull(account: int, server: str, password: str, from_date: str = None, ord
             ).start()
         return {"success": False, "error_type": "credential_failure" if _last_login_was_credential_error else "ipc_failure", "message": f"Login failed: {err}"}
 
-    # MT5 needs time to sync deal history from the broker after switching accounts.
-    # Without this wait, history_deals_get() returns 0 deals on the first call.
-    time.sleep(4)
+    # ── Pre-flight: verify terminal is connected to broker ───────────────────
+    term_info = mt5.terminal_info()
+    if not term_info or not term_info.connected:
+        return {"success": False, "error_type": "ipc_failure", "message": "Terminal not connected to broker"}
+
+    date_to = datetime.now(timezone.utc)
+
+    # ── Prime broker history cache ────────────────────────────────────────────
+    # Calling history_deals_total() with a wide range immediately after login
+    # sends the full history request to the broker, starting the stream earlier.
+    mt5.history_deals_total(datetime(2020, 1, 1, tzinfo=timezone.utc), date_to)
+
+    # ── Dynamic wait based on broker ping ────────────────────────────────────
+    # High ping = slow broker connection = need more time for history to stream.
+    # ping_last is in microseconds — convert to ms for readable calculation.
+    ping_ms = (term_info.ping_last / 1000.0) if (term_info.ping_last and term_info.ping_last > 0) else 500.0
+    wait_sec = max(3.0, min(10.0, ping_ms / 100.0))
+    print(f"  [W{TERMINAL_ID}] Broker ping: {ping_ms:.0f}ms — waiting {wait_sec:.1f}s for history sync")
+    time.sleep(wait_sec)
 
     account_info = mt5.account_info()
     balance = account_info.balance if account_info else 0
@@ -536,8 +661,6 @@ def do_pull(account: int, server: str, password: str, from_date: str = None, ord
     else:
         orders_date_from = date_from
 
-    date_to = datetime.now(timezone.utc)
-
     open_positions_sl = {}
     try:
         open_pos = mt5.positions_get()
@@ -548,21 +671,32 @@ def do_pull(account: int, server: str, password: str, from_date: str = None, ord
     except:
         pass
 
-    # Wait until deal history count is stable — require 3 consecutive identical reads
-    # before accepting (prevents accepting an incomplete sync that coincidentally
-    # returned the same count twice early).
+    # ── Stabilization loop — wait until deal history is fully streamed ────────
+    # Rules:
+    #   1. Never accept count=0 as "stable" — broker just hasn't started streaming
+    #   2. Require count>0 AND same value 3 consecutive reads before accepting
+    #   3. Max 20 iterations × 1s = 20s maximum wait
     prev_count = -1
     stable_streak = 0
     trades_raw = None
-    for _ in range(15):
+    for _ in range(20):
         trades_raw = mt5.history_deals_get(date_from, date_to)
         current_count = len(trades_raw) if trades_raw is not None else 0
+
+        if current_count == 0:
+            # Broker hasn't started streaming yet — reset and keep waiting
+            stable_streak = 0
+            prev_count = 0
+            time.sleep(1)
+            continue
+
         if current_count == prev_count:
             stable_streak += 1
-            if stable_streak >= 2:  # same count 3 times in a row
+            if stable_streak >= 2:  # same count 3 times in a row AND > 0 — done
                 break
         else:
-            stable_streak = 0
+            stable_streak = 0  # count still growing — keep waiting
+
         prev_count = current_count
         time.sleep(1)
 
