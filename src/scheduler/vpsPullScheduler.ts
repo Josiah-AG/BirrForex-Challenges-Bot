@@ -403,19 +403,24 @@ export class VpsPullScheduler {
           const account = accounts.find(a => a.registrationId === failure.registrationId);
           if (!account) continue;
           console.log(`🔑 Confirming ${failure.accountNumber} on T${confirmTerminal.id} (originally failed on T${failure.terminalId})`);
+
+          // Temporarily remove from cache so pullSingleAccount makes the real HTTP request.
+          // We re-add immediately after regardless of outcome — this is the ONE allowed
+          // confirmation attempt on a different terminal.
+          this.credentialFailureCache.delete(account.registrationId);
           const confirmResult = await this.pullSingleAccount(account, confirmTerminal.id, challengeToPull, this.abortController?.signal);
+          this.credentialFailureCache.add(account.registrationId); // re-lock after confirmation
+
           const idx = allResults.findIndex(r => r.registrationId === failure.registrationId);
           if (confirmResult.success) {
             // Succeeded on T2 — T1 had a terminal issue, not credentials
             console.log(`✅ ${failure.accountNumber} succeeded on T${confirmTerminal.id} — was terminal issue, treating as success`);
+            this.credentialFailureCache.delete(account.registrationId); // clear cache — account is fine
             if (idx >= 0) allResults[idx] = { ...confirmResult, terminalId: confirmTerminal.id };
             try { await evaluationEngine.evaluateSingleAccount(challengeToPull.id, account.registrationId); } catch (e) {}
           } else if (confirmResult.errorCode === 'invalid_credentials') {
-            // Confirmed bad credentials on second terminal
             console.log(`🔑 ${failure.accountNumber} confirmed bad credentials on T${confirmTerminal.id}`);
-            // Leave result as invalid_credentials (no change needed)
           } else {
-            // Different error on T2 — network/terminal issue, keep as invalid_credentials
             console.log(`⚠️ ${failure.accountNumber} got different error on T${confirmTerminal.id}: ${confirmResult.errorCode} — keeping as credential failure`);
           }
         }
