@@ -976,6 +976,12 @@ def verify(req: VerifyRequest):
     if req.api_key != API_KEY:
         raise HTTPException(status_code=401, detail="Invalid API key")
     account_number = int(req.account.replace("#", "").replace(" ", ""))
+    # Credential cache check BEFORE acquiring the lock — returns instantly
+    # without waiting for any ongoing operation (history sync can hold lock 20s+).
+    # Prevents scheduler from timing out and retrying.
+    if _is_credential_cached(account_number):
+        print(f"  [W{TERMINAL_ID}] /verify: account {account_number} in credential cache — instant reject")
+        return {"success": False, "error_type": "credential_failure", "message": f"Credential failure cached for account {account_number}"}
     with _lock:
         result = do_verify(account_number, req.server, req.password)
     _schedule_idle_restore()
@@ -987,6 +993,12 @@ def pull(req: PullRequest):
     if req.api_key != API_KEY:
         raise HTTPException(status_code=401, detail="Invalid API key")
     account_number = int(req.account.replace("#", "").replace(" ", ""))
+    # Credential cache check BEFORE acquiring the lock — returns instantly
+    # without waiting for any ongoing operation (history sync can hold lock 20s+).
+    # Prevents scheduler from timing out and retrying.
+    if _is_credential_cached(account_number):
+        print(f"  [W{TERMINAL_ID}] /pull: account {account_number} in credential cache — instant reject")
+        return {"success": False, "error_type": "credential_failure", "message": f"Credential failure cached for account {account_number}"}
     with _lock:
         result = do_pull(account_number, req.server, req.password, req.from_date, req.orders_from_date)
     _schedule_idle_restore()
