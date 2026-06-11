@@ -75,6 +75,31 @@ CREDENTIAL_ERROR_CODES = {-6}
 # killing the same terminal repeatedly (the cascade that caused 3-min restarts).
 _recovery_in_progress = False
 
+# Per-worker credential failure cache — maps account number → failure timestamp.
+# When the same account fails with -6, subsequent requests within CREDENTIAL_CACHE_TTL
+# are rejected instantly: no mt5.login() call, no terminal contact whatsoever.
+# TTL is 10 minutes — long enough to block all retry passes in one cycle,
+# short enough that a password update takes effect on the next cycle.
+_credential_cache: dict = {}
+CREDENTIAL_CACHE_TTL = 600  # seconds
+
+
+def _is_credential_cached(account: int) -> bool:
+    """True if this account had a confirmed -6 failure within the last TTL seconds."""
+    ts = _credential_cache.get(account)
+    if ts is None:
+        return False
+    if time.time() - ts > CREDENTIAL_CACHE_TTL:
+        del _credential_cache[account]
+        return False
+    return True
+
+
+def _cache_credential_failure(account: int):
+    """Record a confirmed -6 credential failure for this account."""
+    _credential_cache[account] = time.time()
+    print(f"  [W{TERMINAL_ID}] Credential cached for account {account} — will skip for {CREDENTIAL_CACHE_TTL}s")
+
 # Idle restore
 _idle_timer = None
 IDLE_TIMEOUT = 30  # seconds — fast restore, home account is always correct subtype
@@ -574,9 +599,16 @@ def _async_stage2_recovery_impl():
 
 
 def do_verify(account: int, server: str, password: str) -> dict:
+    # Cache hit — known bad credentials, skip login entirely
+    if _is_credential_cached(account):
+        print(f"  [W{TERMINAL_ID}] do_verify: account {account} in credential cache — skipping login")
+        return {"success": False, "error_type": "credential_failure", "message": f"Credential failure cached for account {account}"}
+
     if not login_user(account, password, server):
         err = mt5.last_error()
-        if not _last_login_was_credential_error:
+        if _last_login_was_credential_error:
+            _cache_credential_failure(account)
+        else:
             # Terminal/IPC issue — restart in background
             threading.Thread(
                 target=_async_stage2_recovery,
@@ -622,9 +654,16 @@ def do_verify(account: int, server: str, password: str) -> dict:
 
 
 def do_pull(account: int, server: str, password: str, from_date: str = None, orders_from_date: str = None) -> dict:
+    # Cache hit — known bad credentials, skip login entirely, no terminal contact
+    if _is_credential_cached(account):
+        print(f"  [W{TERMINAL_ID}] do_pull: account {account} in credential cache — skipping login")
+        return {"success": False, "error_type": "credential_failure", "message": f"Credential failure cached for account {account}"}
+
     if not login_user(account, password, server):
         err = mt5.last_error()
-        if not _last_login_was_credential_error:
+        if _last_login_was_credential_error:
+            _cache_credential_failure(account)
+        else:
             # Terminal/IPC issue — restart in background
             threading.Thread(
                 target=_async_stage2_recovery,
