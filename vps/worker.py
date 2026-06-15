@@ -688,7 +688,7 @@ def do_pull(account: int, server: str, password: str, from_date: str = None, ord
     # High ping = slow broker connection = need more time for history to stream.
     # ping_last is in microseconds — convert to ms for readable calculation.
     ping_ms = (term_info.ping_last / 1000.0) if (term_info.ping_last and term_info.ping_last > 0) else 500.0
-    wait_sec = max(3.0, min(10.0, ping_ms / 100.0))
+    wait_sec = max(6.0, min(20.0, ping_ms / 50.0))
     print(f"  [W{TERMINAL_ID}] Broker ping: {ping_ms:.0f}ms — waiting {wait_sec:.1f}s for history sync")
     time.sleep(wait_sec)
 
