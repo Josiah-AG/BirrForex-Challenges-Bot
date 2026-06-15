@@ -86,7 +86,12 @@ interface AccountToPull {
  * Used as the canonical key for credential failure caching and queue deduplication.
  */
 function normalizeAccountNumber(accountNumber: string): string {
-  return (accountNumber || '').replace(/\D/g, '');
+  // Strip prefix chars (#, spaces, commas), then parse as float to drop any decimal suffix
+  // ("161600553.0" → 161600553, "#161600553" → 161600553, "161 600 553" → 161600553)
+  const cleaned = (String(accountNumber || '')).replace(/[^0-9.]/g, '');
+  if (!cleaned) return '';
+  const n = Math.floor(parseFloat(cleaned));
+  return isNaN(n) ? cleaned.replace(/\D/g, '') : String(n);
 }
 
 class SharedQueue {
@@ -108,7 +113,18 @@ class SharedQueue {
     });
 
     if (deduped.length < accounts.length) {
-      console.log(`📊 VPS Pull Queue: deduplicated ${accounts.length - deduped.length} duplicate account entries (${accounts.length} → ${deduped.length} unique MT5 accounts)`);
+      // Show which raw accountNumber formats were deduplicated (to help debug normalization issues)
+      const seen2 = new Set<string>();
+      const dropped = accounts.filter(a => {
+        const k = normalizeAccountNumber(a.accountNumber);
+        if (!k || seen2.has(k)) return true;
+        seen2.add(k);
+        return false;
+      });
+      const droppedSample = dropped.slice(0, 5).map(a => `"${a.accountNumber}"→"${normalizeAccountNumber(a.accountNumber)}"`).join(', ');
+      console.log(`📊 VPS Pull Queue: deduplicated ${accounts.length - deduped.length} duplicate account entries (${accounts.length} → ${deduped.length} unique MT5 accounts). Dropped: ${droppedSample}`);
+    } else {
+      console.log(`📊 VPS Pull Queue: ${deduped.length} unique accounts loaded (no duplicates)`);
     }
 
     // Priority accounts (failed last cycle) go to front
