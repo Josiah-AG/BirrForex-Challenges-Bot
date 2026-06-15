@@ -128,11 +128,13 @@ export class VpsPullScheduler {
 
   /**
    * Accounts confirmed as credential failures during the current cycle.
+   * Keyed by MT5 accountNumber (string) — NOT registrationId — so that multiple
+   * DB registrations for the same MT5 account are all blocked by a single cache entry.
    * Any account in this set returns invalid_credentials INSTANTLY — no HTTP
    * request, no terminal contact — regardless of which retry pass calls it.
    * Cleared at the start of every new pull cycle.
    */
-  private credentialFailureCache = new Set<number>();
+  private credentialFailureCache = new Set<string>();
 
   cancelPull() {
     if (!this.isRunning) return false;
@@ -394,7 +396,17 @@ export class VpsPullScheduler {
       //   success on T2      → was a T1 terminal issue, not credentials → treat as success
       //   invalid_credentials on T2 → confirmed bad password → final label, notify user
       //   other error on T2  → keep as invalid_credentials (safer assumption)
-      const toConfirm = allResults.filter(r => !r.success && r.errorCode === 'invalid_credentials');
+      // Deduplicate by accountNumber — if the same MT5 account has multiple DB registrations,
+      // only confirm once (the first registrationId found). All others are already blocked by
+      // the accountNumber-keyed credentialFailureCache.
+      const toConfirmRaw = allResults.filter(r => !r.success && r.errorCode === 'invalid_credentials');
+      const seenAccountNumbers = new Set<string>();
+      const toConfirm = toConfirmRaw.filter(r => {
+        if (seenAccountNumbers.has(r.accountNumber)) return false;
+        seenAccountNumbers.add(r.accountNumber);
+        return true;
+      });
+
       if (toConfirm.length > 0) {
         console.log(`🔑 VPS Pull: Confirming ${toConfirm.length} credential failure(s) on different terminals`);
         const healthyNow = this.terminals.filter(t => t.isHealthy);
@@ -408,15 +420,15 @@ export class VpsPullScheduler {
           // Temporarily remove from cache so pullSingleAccount makes the real HTTP request.
           // We re-add immediately after regardless of outcome — this is the ONE allowed
           // confirmation attempt on a different terminal.
-          this.credentialFailureCache.delete(account.registrationId);
+          this.credentialFailureCache.delete(account.accountNumber);
           const confirmResult = await this.pullSingleAccount(account, confirmTerminal.id, challengeToPull, this.abortController?.signal);
-          this.credentialFailureCache.add(account.registrationId); // re-lock after confirmation
+          this.credentialFailureCache.add(account.accountNumber); // re-lock after confirmation
 
           const idx = allResults.findIndex(r => r.registrationId === failure.registrationId);
           if (confirmResult.success) {
             // Succeeded on T2 — T1 had a terminal issue, not credentials
             console.log(`✅ ${failure.accountNumber} succeeded on T${confirmTerminal.id} — was terminal issue, treating as success`);
-            this.credentialFailureCache.delete(account.registrationId); // clear cache — account is fine
+            this.credentialFailureCache.delete(account.accountNumber); // clear cache — account is fine
             if (idx >= 0) allResults[idx] = { ...confirmResult, terminalId: confirmTerminal.id };
             try { await evaluationEngine.evaluateSingleAccount(challengeToPull.id, account.registrationId); } catch (e) {}
           } else if (confirmResult.errorCode === 'invalid_credentials') {
@@ -953,8 +965,10 @@ export class VpsPullScheduler {
    */
   private async pullSingleAccount(account: AccountToPull, terminalId: number, challenge?: any, abortSignal?: AbortSignal): Promise<PullResult> {
     // Cache hit — this account's credentials are already confirmed bad this cycle.
+    // Keyed by accountNumber so multiple DB registrations for the same MT5 account
+    // are ALL blocked by a single cache entry.
     // Return instantly with zero HTTP requests and zero terminal contact.
-    if (this.credentialFailureCache.has(account.registrationId)) {
+    if (this.credentialFailureCache.has(account.accountNumber)) {
       console.log(`🔑 VPS Pull: ${account.accountNumber} skipped — credential failure cached (no terminal contact)`);
       return {
         registrationId: account.registrationId,
@@ -1043,8 +1057,8 @@ export class VpsPullScheduler {
             await this.delay(RETRY_DELAY_MS);
             continue;
           }
-          // Cache this account — any further calls this cycle return instantly
-          this.credentialFailureCache.add(account.registrationId);
+          // Cache by accountNumber — blocks all DB registrations for this MT5 account
+          this.credentialFailureCache.add(account.accountNumber);
           return {
             registrationId: account.registrationId,
             accountNumber: account.accountNumber,
@@ -1093,7 +1107,7 @@ export class VpsPullScheduler {
             await this.delay(RETRY_DELAY_MS);
             continue;
           }
-          this.credentialFailureCache.add(account.registrationId);
+          this.credentialFailureCache.add(account.accountNumber);
           return {
             registrationId: account.registrationId,
             accountNumber: account.accountNumber,
