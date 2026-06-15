@@ -364,6 +364,7 @@ export class VpsPullScheduler {
       // Reset per-cycle state
       this.terminals.forEach(t => { t.totalProcessed = 0; t.totalSuccess = 0; t.totalFailed = 0; });
       this.credentialFailureCache.clear();
+      await this.clearRouterCredentialCache();
 
       // Create batch record
       const batchId = await this.createPullBatch(challengeToPull.id, accounts.length);
@@ -643,6 +644,7 @@ export class VpsPullScheduler {
       console.log(`📊 VPS Pull: ${accounts.length} accounts, ${this.getHealthyTerminalCount()} healthy terminals`);
       this.terminals.forEach(t => { t.totalProcessed = 0; t.totalSuccess = 0; t.totalFailed = 0; });
       this.credentialFailureCache.clear();
+      await this.clearRouterCredentialCache();
 
       batchId = await this.createPullBatch(challengeId, accounts.length);
       this.sharedQueue.load(accounts.map(a => ({ ...a, isPriority: false })));
@@ -1391,6 +1393,20 @@ export class VpsPullScheduler {
         } catch (e) {}
         terminal.unhealthySince = new Date();
       }
+    }
+  }
+
+  /**
+   * Clears the router-level global credential failure cache.
+   * Called at the start of each pull cycle so accounts with recently-fixed
+   * credentials get a fresh attempt.
+   */
+  private async clearRouterCredentialCache(): Promise<void> {
+    try {
+      await axios.post(`${this.baseUrl}/clear-credential-cache`, { api_key: this.apiKey }, { timeout: 5000 });
+      console.log('🗑️ VPS Pull: Router global credential cache cleared');
+    } catch (e: any) {
+      console.warn('⚠️ VPS Pull: Failed to clear router credential cache (non-fatal):', e.message);
     }
   }
 

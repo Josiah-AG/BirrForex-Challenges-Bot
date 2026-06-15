@@ -36,19 +36,90 @@ worker_healthy = [True] * NUM_WORKERS
 # Updated by /configure when TG Bot assigns home accounts
 terminal_subtype_map = ["standard"] * NUM_WORKERS
 
+# ── Global credential attempt tracker ──────────────────────────────────────
+# Tracks per-account credential failure attempts across ALL terminals.
+#
+# Rules:
+#   Attempt 1 (first unique terminal fails) → allow a retry on a DIFFERENT terminal
+#   Attempt 2 (second unique terminal also fails) → permanently ban for this cycle
+#
+# Each entry: { "terminals": [t1, t2, ...], "banned": bool, "ts": float }
+# TTL: 10 minutes (safely expires before the next scheduled pull cycle)
+# ───────────────────────────────────────────────────────────────────────────
+import time as _time
+_global_credential_cache: dict = {}   # account_str → entry dict
+GLOBAL_CREDENTIAL_CACHE_TTL = 600     # 10 minutes
+
+
+def _get_credential_entry(account: str) -> dict | None:
+    entry = _global_credential_cache.get(account)
+    if entry is None:
+        return None
+    if _time.time() - entry["ts"] > GLOBAL_CREDENTIAL_CACHE_TTL:
+        del _global_credential_cache[account]
+        return None
+    return entry
+
+
+def _record_credential_failure(account: str, terminal: int) -> dict:
+    """Record a credential failure on the given terminal.
+    Returns the updated entry with 'banned' set if 2 unique terminals have failed."""
+    entry = _global_credential_cache.get(account)
+    now = _time.time()
+    if entry is None or _time.time() - entry["ts"] > GLOBAL_CREDENTIAL_CACHE_TTL:
+        entry = {"terminals": [], "banned": False, "ts": now}
+
+    if terminal not in entry["terminals"]:
+        entry["terminals"].append(terminal)
+
+    unique_count = len(entry["terminals"])
+    if unique_count >= 2:
+        entry["banned"] = True
+
+    entry["ts"] = now  # refresh TTL on every update
+    _global_credential_cache[account] = entry
+
+    if entry["banned"]:
+        print(f"[Router] 🚫 Account {account} BANNED — credential failure on {unique_count} terminals: {entry['terminals']}")
+    else:
+        print(f"[Router] ⚠️  Account {account} credential fail on T{terminal} (attempt {unique_count}/2) — 1 more terminal allowed")
+    return entry
+
+
+def _clear_credential_entry(account: str):
+    """Remove an account's credential tracking (e.g. pull succeeded — credentials were fine)."""
+    if account in _global_credential_cache:
+        del _global_credential_cache[account]
+        print(f"[Router] ✅ Account {account} credential tracking cleared — pull succeeded")
+# ───────────────────────────────────────────────────────────────────────────
+
 
 def worker_url(worker_id: int) -> str:
     return f"http://127.0.0.1:{WORKER_BASE_PORT + worker_id - 1}"
 
 
 def is_credential_error(message: str) -> bool:
+    """Detect any credential-rejection response from a VPS worker.
+
+    Matches:
+    - Real MT5 login failures:  "Login failed: (-6, 'Terminal: Authorization failed')"
+    - VPS worker instant-rejects from its per-process cache: "Credential failure cached for account X"
+    - Other broker rejection strings
+    """
     msg = message.lower()
-    return any(x in msg for x in ["login failed", "invalid account", "wrong password", "account not found"])
+    return any(x in msg for x in [
+        "login failed",
+        "invalid account",
+        "wrong password",
+        "account not found",
+        "credential failure",   # catches VPS instant-reject "Credential failure cached for account X"
+        "authorization failed", # catches MT5 error -6 "Terminal: Authorization failed"
+    ])
 
 
 def is_terminal_error(message: str) -> bool:
     msg = message.lower()
-    return any(x in msg for x in ["authorization failed", "init error", "init failed",
+    return any(x in msg for x in ["init error", "init failed",
                                    "reconnect failed", "ipc", "timeout", "not connected"])
 
 
@@ -122,6 +193,19 @@ class ConfigureRequest(BaseModel):
 
 
 # ==================== ENDPOINTS ====================
+
+@app.post("/clear-credential-cache")
+async def clear_credential_cache(req: dict):
+    """Called by the scheduler at the start of each new pull cycle to reset
+    the router-level global credential cache, allowing re-attempts for accounts
+    whose credentials may have been fixed since the last cycle."""
+    if req.get("api_key") != API_KEY:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+    count = len(_global_credential_cache)
+    _global_credential_cache.clear()
+    print(f"[Router] 🗑️ Global credential tracker cleared ({count} accounts) — new pull cycle starting")
+    return {"cleared": count}
+
 
 @app.get("/health")
 async def health():
@@ -252,9 +336,13 @@ async def verify(req: VerifyRequest):
                         worker_healthy[wid - 1] = True
                         data["terminal_used"] = wid
                         return data
-                    if is_credential_error(data.get("message", "")):
+                    is_cred = (
+                        is_credential_error(data.get("message", ""))
+                        or data.get("error_type") == "credential_failure"
+                    )
+                    if is_cred:
                         data["terminal_used"] = wid
-                        data["error_type"] = "credential"
+                        data["error_type"] = "credential_failure"
                         return data
                     last_error = data.get("message", "Worker error")
                     if is_terminal_error(last_error) and retry < MAX_RETRIES_SAME_TERMINAL:
@@ -277,6 +365,21 @@ async def verify(req: VerifyRequest):
 async def pull(req: PullRequest):
     if req.api_key != API_KEY:
         raise HTTPException(status_code=401, detail="Invalid API key")
+
+    # ── Global credential ban check ───────────────────────────────────────
+    # An account is banned once 2 different terminals have both returned
+    # credential failures. At that point we're certain — reject immediately.
+    entry = _get_credential_entry(req.account)
+    if entry and entry["banned"]:
+        terminals_tried = entry["terminals"]
+        print(f"[Router] 🚫 Account {req.account} globally banned — failed on terminals {terminals_tried}, skipping")
+        return {
+            "success":          False,
+            "message":          f"Credential failure confirmed on {len(terminals_tried)} terminals {terminals_tried} — account globally banned this cycle",
+            "error_type":       "credential_failure",
+            "terminals_tried":  len(terminals_tried),
+        }
+    # ─────────────────────────────────────────────────────────────────────
 
     tried_terminals = set()
     last_error = "All workers failed"
@@ -308,14 +411,29 @@ async def pull(req: PullRequest):
                         },
                     )
                     data = resp.json()
+
                     if data.get("success"):
                         worker_healthy[current_terminal - 1] = True
                         data["terminal_used"] = current_terminal
+                        # Clear any partial credential failure record — credentials are fine
+                        _clear_credential_entry(req.account)
                         return data
-                    if is_credential_error(data.get("message", "")):
+
+                    # ── Credential failure — record attempt and decide ─────────
+                    is_cred = (
+                        is_credential_error(data.get("message", ""))
+                        or data.get("error_type") == "credential_failure"
+                    )
+                    if is_cred:
+                        updated = _record_credential_failure(req.account, current_terminal)
                         data["terminal_used"] = current_terminal
-                        data["error_type"] = "credential"
+                        data["error_type"] = "credential_failure"
+                        data["credential_attempts"] = len(updated["terminals"])
+                        data["credential_terminals"] = updated["terminals"]
+                        data["credential_banned"] = updated["banned"]
                         return data
+                    # ─────────────────────────────────────────────────────────
+
                     last_error = data.get("message", "Worker error")
                     if is_terminal_error(last_error) and retry < MAX_RETRIES_SAME_TERMINAL:
                         await asyncio.sleep(RETRY_DELAY)
