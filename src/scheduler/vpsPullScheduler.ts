@@ -934,9 +934,14 @@ export class VpsPullScheduler {
     challenge: TradingChallenge,
     batchId: number
   ): Promise<PullResult[]> {
-    // Only non-credential failures enter this loop
+    // Only non-credential failures enter this loop.
+    // Double-guard: also exclude any account already in credentialFailureCache
+    // (an account could have timed out in the main pass, then been confirmed as a
+    // credential failure during retryCycleFailures — the cache check here ensures
+    // we never re-attempt it even if the errorCode on its allResults entry is stale).
     let toRetry = failures
       .filter(f => !f.success && f.errorCode !== 'invalid_credentials')
+      .filter(f => !this.credentialFailureCache.has(normalizeAccountNumber(f.accountNumber)))
       .map(f => allAccounts.find(a => a.registrationId === f.registrationId))
       .filter(Boolean) as AccountToPull[];
 

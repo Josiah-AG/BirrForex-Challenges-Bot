@@ -47,16 +47,33 @@ terminal_subtype_map = ["standard"] * NUM_WORKERS
 # TTL: 10 minutes (safely expires before the next scheduled pull cycle)
 # ───────────────────────────────────────────────────────────────────────────
 import time as _time
-_global_credential_cache: dict = {}   # account_str → entry dict
+import re as _re
+_global_credential_cache: dict = {}   # normalized_account_str → entry dict
 GLOBAL_CREDENTIAL_CACHE_TTL = 600     # 10 minutes
 
 
+def _normalize_account(account: str) -> str:
+    """Normalize MT5 account number to digits only.
+    Handles '#161600472', '161600472.0', '161 600 472' → '161600472'.
+    This ensures the same physical MT5 account is treated as a single key
+    regardless of how it was formatted in the database or request.
+    """
+    cleaned = _re.sub(r'[^0-9.]', '', str(account or ''))
+    if not cleaned:
+        return str(account or '')
+    try:
+        return str(int(float(cleaned)))
+    except (ValueError, OverflowError):
+        return _re.sub(r'\D', '', str(account or '')) or str(account or '')
+
+
 def _get_credential_entry(account: str) -> dict | None:
-    entry = _global_credential_cache.get(account)
+    key = _normalize_account(account)
+    entry = _global_credential_cache.get(key)
     if entry is None:
         return None
     if _time.time() - entry["ts"] > GLOBAL_CREDENTIAL_CACHE_TTL:
-        del _global_credential_cache[account]
+        del _global_credential_cache[key]
         return None
     return entry
 
@@ -64,7 +81,8 @@ def _get_credential_entry(account: str) -> dict | None:
 def _record_credential_failure(account: str, terminal: int) -> dict:
     """Record a credential failure on the given terminal.
     Returns the updated entry with 'banned' set if 2 unique terminals have failed."""
-    entry = _global_credential_cache.get(account)
+    key = _normalize_account(account)
+    entry = _global_credential_cache.get(key)
     now = _time.time()
     if entry is None or _time.time() - entry["ts"] > GLOBAL_CREDENTIAL_CACHE_TTL:
         entry = {"terminals": [], "banned": False, "ts": now}
@@ -77,20 +95,21 @@ def _record_credential_failure(account: str, terminal: int) -> dict:
         entry["banned"] = True
 
     entry["ts"] = now  # refresh TTL on every update
-    _global_credential_cache[account] = entry
+    _global_credential_cache[key] = entry
 
     if entry["banned"]:
-        print(f"[Router] 🚫 Account {account} BANNED — credential failure on {unique_count} terminals: {entry['terminals']}")
+        print(f"[Router] 🚫 Account {account} (key={key}) BANNED — credential failure on {unique_count} terminals: {entry['terminals']}")
     else:
-        print(f"[Router] ⚠️  Account {account} credential fail on T{terminal} (attempt {unique_count}/2) — 1 more terminal allowed")
+        print(f"[Router] ⚠️  Account {account} (key={key}) credential fail on T{terminal} (attempt {unique_count}/2) — 1 more terminal allowed")
     return entry
 
 
 def _clear_credential_entry(account: str):
     """Remove an account's credential tracking (e.g. pull succeeded — credentials were fine)."""
-    if account in _global_credential_cache:
-        del _global_credential_cache[account]
-        print(f"[Router] ✅ Account {account} credential tracking cleared — pull succeeded")
+    key = _normalize_account(account)
+    if key in _global_credential_cache:
+        del _global_credential_cache[key]
+        print(f"[Router] ✅ Account {account} (key={key}) credential tracking cleared — pull succeeded")
 # ───────────────────────────────────────────────────────────────────────────
 
 
