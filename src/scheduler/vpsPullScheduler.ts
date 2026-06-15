@@ -80,14 +80,40 @@ interface AccountToPull {
 /**
  * Shared queue — thread-safe (single-threaded JS, but clear semantics)
  */
+/**
+ * Normalize an MT5 account number to digits only.
+ * Handles "#161600472", "161 600 472", "161,600,472", "161600472" → "161600472"
+ * Used as the canonical key for credential failure caching and queue deduplication.
+ */
+function normalizeAccountNumber(accountNumber: string): string {
+  return (accountNumber || '').replace(/\D/g, '');
+}
+
 class SharedQueue {
   private queue: AccountToPull[] = [];
   private inProgress = new Set<number>();
 
   load(accounts: AccountToPull[]) {
+    // Deduplicate by normalized MT5 account number — if the same physical MT5
+    // account has multiple trading_registrations rows (re-registrations, duplicates,
+    // or inconsistent "#" prefix formatting), only keep the first entry per account.
+    // Pulling the same MT5 account twice gives identical data and wastes terminals.
+    const seenAccountNumbers = new Set<string>();
+    const deduped = accounts.filter(a => {
+      const key = normalizeAccountNumber(a.accountNumber);
+      if (!key) return true; // keep accounts with no parseable number (shouldn't happen)
+      if (seenAccountNumbers.has(key)) return false;
+      seenAccountNumbers.add(key);
+      return true;
+    });
+
+    if (deduped.length < accounts.length) {
+      console.log(`📊 VPS Pull Queue: deduplicated ${accounts.length - deduped.length} duplicate account entries (${accounts.length} → ${deduped.length} unique MT5 accounts)`);
+    }
+
     // Priority accounts (failed last cycle) go to front
-    const priority = accounts.filter(a => a.isPriority);
-    const normal = accounts.filter(a => !a.isPriority);
+    const priority = deduped.filter(a => a.isPriority);
+    const normal = deduped.filter(a => !a.isPriority);
     this.queue = [...priority, ...normal];
     this.inProgress.clear();
   }
@@ -402,8 +428,9 @@ export class VpsPullScheduler {
       const toConfirmRaw = allResults.filter(r => !r.success && r.errorCode === 'invalid_credentials');
       const seenAccountNumbers = new Set<string>();
       const toConfirm = toConfirmRaw.filter(r => {
-        if (seenAccountNumbers.has(r.accountNumber)) return false;
-        seenAccountNumbers.add(r.accountNumber);
+        const key = normalizeAccountNumber(r.accountNumber);
+        if (seenAccountNumbers.has(key)) return false;
+        seenAccountNumbers.add(key);
         return true;
       });
 
@@ -420,15 +447,15 @@ export class VpsPullScheduler {
           // Temporarily remove from cache so pullSingleAccount makes the real HTTP request.
           // We re-add immediately after regardless of outcome — this is the ONE allowed
           // confirmation attempt on a different terminal.
-          this.credentialFailureCache.delete(account.accountNumber);
+          this.credentialFailureCache.delete(normalizeAccountNumber(account.accountNumber));
           const confirmResult = await this.pullSingleAccount(account, confirmTerminal.id, challengeToPull, this.abortController?.signal);
-          this.credentialFailureCache.add(account.accountNumber); // re-lock after confirmation
+          this.credentialFailureCache.add(normalizeAccountNumber(account.accountNumber)); // re-lock after confirmation
 
           const idx = allResults.findIndex(r => r.registrationId === failure.registrationId);
           if (confirmResult.success) {
             // Succeeded on T2 — T1 had a terminal issue, not credentials
             console.log(`✅ ${failure.accountNumber} succeeded on T${confirmTerminal.id} — was terminal issue, treating as success`);
-            this.credentialFailureCache.delete(account.accountNumber); // clear cache — account is fine
+            this.credentialFailureCache.delete(normalizeAccountNumber(account.accountNumber)); // clear cache — account is fine
             if (idx >= 0) allResults[idx] = { ...confirmResult, terminalId: confirmTerminal.id };
             try { await evaluationEngine.evaluateSingleAccount(challengeToPull.id, account.registrationId); } catch (e) {}
           } else if (confirmResult.errorCode === 'invalid_credentials') {
@@ -965,10 +992,10 @@ export class VpsPullScheduler {
    */
   private async pullSingleAccount(account: AccountToPull, terminalId: number, challenge?: any, abortSignal?: AbortSignal): Promise<PullResult> {
     // Cache hit — this account's credentials are already confirmed bad this cycle.
-    // Keyed by accountNumber so multiple DB registrations for the same MT5 account
-    // are ALL blocked by a single cache entry.
+    // Keyed by NORMALIZED accountNumber (digits only) so "#161600472", "161 600 472",
+    // and "161600472" all resolve to the same key regardless of DB formatting.
     // Return instantly with zero HTTP requests and zero terminal contact.
-    if (this.credentialFailureCache.has(account.accountNumber)) {
+    if (this.credentialFailureCache.has(normalizeAccountNumber(account.accountNumber))) {
       console.log(`🔑 VPS Pull: ${account.accountNumber} skipped — credential failure cached (no terminal contact)`);
       return {
         registrationId: account.registrationId,
@@ -1057,8 +1084,9 @@ export class VpsPullScheduler {
             await this.delay(RETRY_DELAY_MS);
             continue;
           }
-          // Cache by accountNumber — blocks all DB registrations for this MT5 account
-          this.credentialFailureCache.add(account.accountNumber);
+          // Cache by normalized accountNumber — blocks all DB registrations for this MT5 account
+          // regardless of formatting differences (#, spaces, commas)
+          this.credentialFailureCache.add(normalizeAccountNumber(account.accountNumber));
           return {
             registrationId: account.registrationId,
             accountNumber: account.accountNumber,
@@ -1107,7 +1135,7 @@ export class VpsPullScheduler {
             await this.delay(RETRY_DELAY_MS);
             continue;
           }
-          this.credentialFailureCache.add(account.accountNumber);
+          this.credentialFailureCache.add(normalizeAccountNumber(account.accountNumber));
           return {
             registrationId: account.registrationId,
             accountNumber: account.accountNumber,
