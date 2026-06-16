@@ -1,4 +1,8 @@
-// VPS Pull Scheduler v3.0 — credentialFailureCache + Step 4c confirmation
+// VPS Pull Scheduler v4.0 — unified continuous shared-queue model.
+// Single queue, all terminals run continuously until it's empty. -6 credential
+// failures get a single same-cycle confirmation on a DIFFERENT terminal (front
+// of queue, excluded from the terminal that just failed it). Non-credential
+// failures get requeued up to MAX_ACCOUNT_ATTEMPTS times. No separate retry phases.
 import cron from 'node-cron';
 import axios from 'axios';
 import { Bot } from '../bot/bot';
@@ -33,11 +37,16 @@ const BATCH_DELAY_MS = 1500;
 const PASSWORD_WARNING_HOURS = 48;
 const TERMINAL_HEALTH_RECHECK_MS = 10 * 60 * 1000;
 const TERMINAL_FAILURE_THRESHOLD = 5;
-const CREDENTIAL_CONFIRM_ATTEMPTS = 1; // Detect on first attempt, confirm on a DIFFERENT terminal (Step 4a)
-const CYCLE_RETRY_PASSES = 2;
-const CYCLE_RETRY_WAIT_MS = 30000; // 30s between retry passes
-const HEALTHY_RETRY_PASSES = 5;    // extra passes on healthy-only terminals after main retry
-const HEALTHY_RETRY_WAIT_MS = 15000; // 15s between healthy-only retry passes
+// Unified continuous-queue retry model (replaces the old multi-phase retry system):
+//   - Credential failure (-6) on T1 → account is NOT labeled yet. It jumps to the FRONT
+//     of the queue, excluded from T1, and the next free terminal confirms it.
+//     -6 again on T2 → CONFIRMED invalid_credentials. Success on T2 → was a T1 issue.
+//   - Non-credential failure → requeued (back of queue), up to MAX_ACCOUNT_ATTEMPTS total
+//     attempts before being marked a final failure.
+//   - Pull is "done" only when the shared queue is completely empty — all terminals run
+//     continuously, no separate stop-the-world retry phases.
+const MAX_ACCOUNT_ATTEMPTS = 5;
+const CONFIRMATION_STARVATION_MS = 60000; // if no OTHER terminal frees up within 60s, allow same terminal as last resort
 
 interface PullResult {
   registrationId: number;
@@ -75,6 +84,9 @@ interface AccountToPull {
   nickname: string | null;
   isPriority: boolean; // Failed in last cycle
   lastPullAt: string | null; // null = never pulled before (first pull uses full range)
+  attempts?: number; // non-credential retry attempts so far this cycle (max MAX_ACCOUNT_ATTEMPTS)
+  excludedTerminalId?: number; // set after a -6 — this account must NOT go back to this terminal
+  excludedSince?: number; // Date.now() when excludedTerminalId was set (starvation guard)
 }
 
 /**
@@ -141,12 +153,23 @@ class SharedQueue {
   /** Terminal grabs next available account.
    *  Skips (defers) any account whose normalized MT5 number is already being
    *  processed by another concurrent terminal worker — avoids duplicate real
-   *  MT5 logins when two registrationIds share the same account credentials. */
-  next(): AccountToPull | null {
-    // Find first account whose MT5 number isn't already in-flight
+   *  MT5 logins when two registrationIds share the same account credentials.
+   *  Also skips any account excluded from THIS terminal (it just got a -6 here
+   *  and is waiting for a DIFFERENT terminal to confirm) — unless this is the
+   *  only healthy terminal left, or the account has been waiting too long
+   *  (CONFIRMATION_STARVATION_MS) for another terminal to free up. */
+  next(terminalId: number, healthyTerminalCount: number): AccountToPull | null {
     const idx = this.queue.findIndex(a => {
       const key = normalizeAccountNumber(a.accountNumber);
-      return !key || !this.inProgressAccounts.has(key);
+      if (key && this.inProgressAccounts.has(key)) return false;
+      if (a.excludedTerminalId !== undefined && a.excludedTerminalId === terminalId) {
+        if (healthyTerminalCount > 1) {
+          const waited = a.excludedSince ? Date.now() - a.excludedSince : 0;
+          if (waited < CONFIRMATION_STARVATION_MS) return false; // wait for a different terminal
+        }
+        // Only one healthy terminal, or waited too long — allow as last resort
+      }
+      return true;
     });
     if (idx === -1) return null;
     const [account] = this.queue.splice(idx, 1);
@@ -165,12 +188,38 @@ class SharedQueue {
     }
   }
 
-  /** Return account to queue (for retry) */
+  /** Return account to queue (terminal itself went unhealthy — not the account's fault,
+   *  does not consume a retry attempt). */
   requeue(account: AccountToPull) {
     this.inProgress.delete(account.registrationId);
     const key = normalizeAccountNumber(account.accountNumber);
     if (key) this.inProgressAccounts.delete(key);
     this.queue.push(account);
+  }
+
+  /** First -6 on a terminal — NOT yet a confirmed credential failure.
+   *  Jump to the FRONT of the queue (priority) but excluded from the terminal
+   *  that just failed it, so the next free terminal performs the confirmation. */
+  requeueForConfirmation(account: AccountToPull, failedTerminalId: number) {
+    this.inProgress.delete(account.registrationId);
+    const key = normalizeAccountNumber(account.accountNumber);
+    if (key) this.inProgressAccounts.delete(key);
+    account.excludedTerminalId = failedTerminalId;
+    account.excludedSince = Date.now();
+    this.queue.unshift(account);
+  }
+
+  /** Non-credential failure — requeue to the back of the queue.
+   *  Returns false (and does NOT requeue) once MAX_ACCOUNT_ATTEMPTS is reached —
+   *  caller should then record this as a final failure. */
+  requeueForRetry(account: AccountToPull): boolean {
+    this.inProgress.delete(account.registrationId);
+    const key = normalizeAccountNumber(account.accountNumber);
+    if (key) this.inProgressAccounts.delete(key);
+    account.attempts = (account.attempts ?? 0) + 1;
+    if (account.attempts >= MAX_ACCOUNT_ATTEMPTS) return false;
+    this.queue.push(account);
+    return true;
   }
 
   get remaining(): number { return this.queue.length; }
@@ -417,89 +466,18 @@ export class VpsPullScheduler {
         return;
       }
 
-      // === STEP 4: Retry within same cycle (non-credential failures) ===
-      const nonCredentialFailures = allResults.filter(
-        r => !r.success && r.errorCode !== 'invalid_credentials'
-      );
-
-      if (nonCredentialFailures.length > 0) {
-        const retryResults = await this.retryCycleFailures(
-          nonCredentialFailures, accounts, challengeToPull, batchId
-        );
-        // Merge retry results
-        for (const rr of retryResults) {
-          const idx = allResults.findIndex(r => r.registrationId === rr.registrationId);
-          if (idx >= 0) allResults[idx] = rr;
-          else allResults.push(rr);
-        }
-      }
-
-      // === STEP 4b: Healthy-only retry — up to 5 extra passes on recovered terminals ===
-      const stillFailingAfterRetry = allResults.filter(
-        r => !r.success && r.errorCode !== 'invalid_credentials'
-      );
-      if (stillFailingAfterRetry.length > 0) {
-        console.log(`🔁 VPS Pull: ${stillFailingAfterRetry.length} still failing — starting healthy-only retry loop`);
-        const healthyRetryResults = await this.retryOnHealthyTerminals(
-          stillFailingAfterRetry, accounts, challengeToPull, batchId
-        );
-        for (const rr of healthyRetryResults) {
-          const idx = allResults.findIndex(r => r.registrationId === rr.registrationId);
-          if (idx >= 0) allResults[idx] = rr;
-          else allResults.push(rr);
-        }
-      }
-
-      // === STEP 4c: Confirm credential failures on ONE different healthy terminal ===
-      // Worker v9.0 guarantees -6 never kills a terminal (direct base login recovery),
-      // so sending bad credentials to a second terminal is now safe — it returns
-      // error_type:"credential_failure" and recovers itself without any restart.
-      //
-      // Logic:
-      //   success on T2      → was a T1 terminal issue, not credentials → treat as success
-      //   invalid_credentials on T2 → confirmed bad password → final label, notify user
-      //   other error on T2  → keep as invalid_credentials (safer assumption)
-      // Deduplicate by accountNumber — if the same MT5 account has multiple DB registrations,
-      // only confirm once (the first registrationId found). All others are already blocked by
-      // the accountNumber-keyed credentialFailureCache.
-      const toConfirmRaw = allResults.filter(r => !r.success && r.errorCode === 'invalid_credentials');
-      const seenAccountNumbers = new Set<string>();
-      const toConfirm = toConfirmRaw.filter(r => {
-        const key = normalizeAccountNumber(r.accountNumber);
-        if (seenAccountNumbers.has(key)) return false;
-        seenAccountNumbers.add(key);
-        return true;
-      });
-
-      if (toConfirm.length > 0) {
-        console.log(`🔑 VPS Pull: Confirming ${toConfirm.length} credential failure(s) on different terminals`);
-        const healthyNow = this.terminals.filter(t => t.isHealthy);
-        for (const failure of toConfirm) {
-          const confirmTerminal = healthyNow.find(t => t.id !== failure.terminalId);
-          if (!confirmTerminal) continue;
-          const account = accounts.find(a => a.registrationId === failure.registrationId);
-          if (!account) continue;
-          console.log(`🔑 Confirming ${failure.accountNumber} on T${confirmTerminal.id} (originally failed on T${failure.terminalId})`);
-
-          // Temporarily remove from cache so pullSingleAccount makes the real HTTP request.
-          // We re-add immediately after regardless of outcome — this is the ONE allowed
-          // confirmation attempt on a different terminal.
-          this.credentialFailureCache.delete(normalizeAccountNumber(account.accountNumber));
-          const confirmResult = await this.pullSingleAccount(account, confirmTerminal.id, challengeToPull, this.abortController?.signal);
-          this.credentialFailureCache.add(normalizeAccountNumber(account.accountNumber)); // re-lock after confirmation
-
-          const idx = allResults.findIndex(r => r.registrationId === failure.registrationId);
-          if (confirmResult.success) {
-            // Succeeded on T2 — T1 had a terminal issue, not credentials
-            console.log(`✅ ${failure.accountNumber} succeeded on T${confirmTerminal.id} — was terminal issue, treating as success`);
-            this.credentialFailureCache.delete(normalizeAccountNumber(account.accountNumber)); // clear cache — account is fine
-            if (idx >= 0) allResults[idx] = { ...confirmResult, terminalId: confirmTerminal.id };
-            try { await evaluationEngine.evaluateSingleAccount(challengeToPull.id, account.registrationId); } catch (e) {}
-          } else if (confirmResult.errorCode === 'invalid_credentials') {
-            console.log(`🔑 ${failure.accountNumber} confirmed bad credentials on T${confirmTerminal.id}`);
-          } else {
-            console.log(`⚠️ ${failure.accountNumber} got different error on T${confirmTerminal.id}: ${confirmResult.errorCode} — keeping as credential failure`);
-          }
+      // === STEP 4: Retry + credential confirmation are now handled INSIDE the shared
+      // queue itself (see terminalWorker / SharedQueue.requeueForRetry /
+      // requeueForConfirmation). runSharedQueueWorkers() above only returns once the
+      // queue is completely empty — every account is either a final success, a
+      // CONFIRMED invalid_credentials, or a retry_exhausted failure after
+      // MAX_ACCOUNT_ATTEMPTS attempts. No separate retry phases needed here.
+      {
+        const stillUnresolved = allResults.filter(r => !r.success && r.errorCode === 'credential_suspect');
+        if (stillUnresolved.length > 0) {
+          // Should not normally happen — queue only empties once every account reaches
+          // a terminal state. Log loudly so it's visible if it ever does.
+          console.warn(`⚠️ VPS Pull: ${stillUnresolved.length} accounts ended in credential_suspect (unconfirmed) — investigate`);
         }
       }
 
@@ -690,18 +668,12 @@ export class VpsPullScheduler {
 
       await candleTerminalManager.restore();
 
-      // Healthy-only retry — up to 5 extra passes on recovered terminals
-      const adminStillFailing = allResults.filter(r => !r.success && r.errorCode !== 'invalid_credentials');
-      if (adminStillFailing.length > 0) {
-        console.log(`🔁 VPS Admin Pull: ${adminStillFailing.length} still failing — starting healthy-only retry loop`);
-        const healthyRetryResults = await this.retryOnHealthyTerminals(
-          adminStillFailing, accounts, challengeToPull, batchId!
-        );
-        for (const rr of healthyRetryResults) {
-          const idx = allResults.findIndex(r => r.registrationId === rr.registrationId);
-          if (idx >= 0) allResults[idx] = rr;
-          else allResults.push(rr);
-        }
+      // Retry + credential confirmation already happened INSIDE the shared queue
+      // (runSharedQueueWorkers only returns once the queue is fully empty — every
+      // account is success, confirmed invalid_credentials, or retry_exhausted).
+      const adminUnconfirmed = allResults.filter(r => !r.success && r.errorCode === 'credential_suspect');
+      if (adminUnconfirmed.length > 0) {
+        console.warn(`⚠️ VPS Admin Pull: ${adminUnconfirmed.length} accounts ended in credential_suspect (unconfirmed) — investigate`);
       }
 
       const successful = allResults.filter(r => r.success);
@@ -783,7 +755,21 @@ export class VpsPullScheduler {
   }
 
   /**
-   * Single terminal worker — keeps grabbing from shared queue until empty
+   * Single terminal worker — keeps grabbing from shared queue until it's truly empty.
+   *
+   * Unified continuous-queue model:
+   *   - credential_suspect (first -6) → requeueForConfirmation: front of queue, excluded
+   *     from THIS terminal, so a different terminal confirms it next. No final result yet.
+   *   - invalid_credentials (confirmed — either a 2nd -6 on a different terminal, or a
+   *     cache hit) → final result, notify user later in Step 5.
+   *   - other failures → requeueForRetry: back of queue, up to MAX_ACCOUNT_ATTEMPTS total
+   *     attempts before being recorded as a final failure.
+   *   - success → final result.
+   *
+   * The worker only stops when sharedQueue.next() returns null AND the queue is truly
+   * empty. If next() returns null but the queue still has items (all of them currently
+   * excluded from this terminal, awaiting a different terminal), it waits briefly and
+   * checks again — this terminal simply has no eligible work RIGHT NOW.
    */
   private async terminalWorker(
     terminal: TerminalState,
@@ -794,8 +780,15 @@ export class VpsPullScheduler {
     while (true) {
       if (this.cancelRequested) break; // Admin cancelled
 
-      const account = this.sharedQueue.next();
-      if (!account) break; // Queue empty
+      const account = this.sharedQueue.next(terminal.id, this.getHealthyTerminalCount());
+      if (!account) {
+        if (this.sharedQueue.isEmpty) break; // Truly done
+        // Queue has work, but none of it is eligible for this terminal right now
+        // (e.g. the only remaining items are excluded from this terminal, awaiting
+        // a different terminal to free up). Wait briefly and check again.
+        await this.delay(300);
+        continue;
+      }
 
       // Check terminal health
       if (!terminal.isHealthy) {
@@ -811,6 +804,7 @@ export class VpsPullScheduler {
         terminal.totalSuccess++;
         terminal.consecutiveFailures = 0;
         resultsMutex.results.push(result);
+        this.sharedQueue.done(account.registrationId, account.accountNumber);
 
         // Save VPS balance and mark pull time for progress tracking
         if (result.balance !== undefined) {
@@ -826,221 +820,50 @@ export class VpsPullScheduler {
           console.error(`⚠️ Eval error for ${account.accountNumber}:`, evalErr);
           // Non-fatal — evaluation saved partially
         }
+      } else if (result.errorCode === 'credential_suspect') {
+        // First -6 on this terminal — NOT a final result. Terminal stays healthy
+        // (this was a clean credential rejection, not a terminal fault).
+        // Route to a different terminal for confirmation.
+        console.log(`🔑 VPS Pull: ${account.accountNumber} got -6 on T${terminal.id} — routing to a different terminal for confirmation`);
+        this.sharedQueue.requeueForConfirmation(account, terminal.id);
+      } else if (result.errorCode === 'invalid_credentials') {
+        // Confirmed (2nd terminal also -6, or cache hit). Do NOT update last_pull_at —
+        // preserve the last successful pull timestamp so the next cycle's incremental
+        // window covers from the last real pull.
+        resultsMutex.results.push(result);
+        terminal.totalFailed++;
+        this.sharedQueue.done(account.registrationId, account.accountNumber);
       } else {
-        if (result.errorCode === 'invalid_credentials') {
-          // Do NOT update last_pull_at — preserve the last successful pull timestamp
-          // so the next cycle's incremental window covers from the last real pull
-          resultsMutex.results.push(result);
-          terminal.totalFailed++;
-        } else {
-          // Terminal/network error
-          terminal.consecutiveFailures++;
-          if (terminal.consecutiveFailures >= TERMINAL_FAILURE_THRESHOLD) {
-            terminal.isHealthy = false;
-            terminal.unhealthySince = new Date();
-            console.log(`⚠️ Terminal ${terminal.id} marked UNHEALTHY`);
-            // Put account back for another terminal
-            this.sharedQueue.requeue(account);
-            break;
-          }
-          // Do NOT update last_pull_at — preserve the last successful pull timestamp
-          // so the next cycle's incremental window covers from the last real pull
+        // Non-credential (terminal/network) error
+        terminal.consecutiveFailures++;
+        if (terminal.consecutiveFailures >= TERMINAL_FAILURE_THRESHOLD) {
+          terminal.isHealthy = false;
+          terminal.unhealthySince = new Date();
+          console.log(`⚠️ Terminal ${terminal.id} marked UNHEALTHY`);
+          // Terminal itself is the problem — plain requeue, doesn't consume an attempt
+          this.sharedQueue.requeue(account);
+          break;
+        }
+        this.sharedQueue.done(account.registrationId, account.accountNumber);
+        const requeued = this.sharedQueue.requeueForRetry(account);
+        if (!requeued) {
+          // Exhausted MAX_ACCOUNT_ATTEMPTS — final failure
+          result.errorCode = 'retry_exhausted';
+          result.errorMessage = `Failed after ${MAX_ACCOUNT_ATTEMPTS} attempts: ${result.errorMessage || ''}`;
           resultsMutex.results.push(result);
           terminal.totalFailed++;
         }
       }
 
-      this.sharedQueue.done(account.registrationId, account.accountNumber);
       await this.delay(BATCH_DELAY_MS);
     }
   }
 
-  /**
-   * Retry failed accounts within the same cycle.
-   * Up to CYCLE_RETRY_PASSES passes, 30s wait between passes.
-   * Uses router's smart retry (tries multiple terminals).
-   */
-  private async retryCycleFailures(
-    failures: PullResult[],
-    allAccounts: AccountToPull[],
-    challenge: TradingChallenge,
-    batchId: number
-  ): Promise<PullResult[]> {
-    let toRetry = failures.map(f =>
-      allAccounts.find(a => a.registrationId === f.registrationId)
-    ).filter(Boolean) as AccountToPull[];
-
-    const finalResults: PullResult[] = [];
-
-    for (let pass = 1; pass <= CYCLE_RETRY_PASSES; pass++) {
-      if (toRetry.length === 0) break;
-
-      console.log(`🔄 VPS Pull: Retry pass ${pass}/${CYCLE_RETRY_PASSES} — ${toRetry.length} accounts`);
-      await this.delay(CYCLE_RETRY_WAIT_MS);
-
-      const stillFailing: AccountToPull[] = [];
-      const healthyTerminals = this.terminals.filter(t => t.isHealthy);
-      if (healthyTerminals.length === 0) break;
-
-      // Try each account on up to 3 different terminals (smart retry)
-      for (const account of toRetry) {
-        let succeeded = false;
-        const terminalsAttempted: number[] = [];
-
-        for (let t = 0; t < Math.min(3, healthyTerminals.length); t++) {
-          const terminal = healthyTerminals[t % healthyTerminals.length];
-          terminalsAttempted.push(terminal.id);
-
-          const result = await this.pullSingleAccount(account, terminal.id, challenge, this.abortController?.signal);
-          if (result.success) {
-            result.terminalsAttempted = terminalsAttempted;
-            finalResults.push(result);
-            succeeded = true;
-
-            // Per-account evaluation on retry success
-            try {
-              await evaluationEngine.evaluateSingleAccount(challenge.id, account.registrationId);
-            } catch (e) {}
-            break;
-          }
-
-          if (result.errorCode === 'invalid_credentials') {
-            result.terminalsAttempted = terminalsAttempted;
-            finalResults.push(result);
-            succeeded = true; // Don't retry credentials
-            break;
-          }
-
-          await this.delay(RETRY_DELAY_MS);
-        }
-
-        if (!succeeded) {
-          stillFailing.push(account);
-        }
-        await this.delay(BATCH_DELAY_MS);
-      }
-
-      toRetry = stillFailing;
-    }
-
-    // Mark remaining as final failures
-    for (const account of toRetry) {
-      finalResults.push({
-        registrationId: account.registrationId,
-        accountNumber: account.accountNumber,
-        userId: account.userId,
-        username: account.username,
-        success: false,
-        errorCode: 'retry_exhausted',
-        errorMessage: `Failed after ${CYCLE_RETRY_PASSES} retry passes`,
-      });
-    }
-
-    // Report persistent failures to admin
-    if (toRetry.length > 0) {
-      try {
-        const failList = toRetry.slice(0, 10).map(a =>
-          `• ${a.accountNumber} (@${a.username || 'unknown'})`
-        ).join('\n');
-        await this.bot.bot.telegram.sendMessage(config.adminUserId,
-          `⚠️ <b>${toRetry.length} accounts still failing after ${CYCLE_RETRY_PASSES} retry passes</b>\n\n${failList}${toRetry.length > 10 ? `\n<i>+${toRetry.length - 10} more</i>` : ''}`,
-          { parse_mode: 'HTML' });
-      } catch (e) {}
-    }
-
-    return finalResults;
-  }
-
-  /**
-   * Healthy-only retry loop — runs AFTER retryCycleFailures.
-   * Takes whatever is still failing and runs up to HEALTHY_RETRY_PASSES additional
-   * passes using ONLY healthy terminals (shared queue, parallel).
-   * Before each pass, unhealthy terminals are rechecked so recovered ones re-join.
-   * Credential failures are never retried here.
-   *
-   * Example: 20 fail → pass1 → 10 fail → pass2 → 5 fail → ... → up to 5 passes.
-   */
-  private async retryOnHealthyTerminals(
-    failures: PullResult[],
-    allAccounts: AccountToPull[],
-    challenge: TradingChallenge,
-    batchId: number
-  ): Promise<PullResult[]> {
-    // Only non-credential failures enter this loop.
-    // Double-guard: also exclude any account already in credentialFailureCache
-    // (an account could have timed out in the main pass, then been confirmed as a
-    // credential failure during retryCycleFailures — the cache check here ensures
-    // we never re-attempt it even if the errorCode on its allResults entry is stale).
-    let toRetry = failures
-      .filter(f => !f.success && f.errorCode !== 'invalid_credentials')
-      .filter(f => !this.credentialFailureCache.has(normalizeAccountNumber(f.accountNumber)))
-      .map(f => allAccounts.find(a => a.registrationId === f.registrationId))
-      .filter(Boolean) as AccountToPull[];
-
-    if (toRetry.length === 0) return [];
-
-    const finalResults: PullResult[] = [];
-
-    for (let pass = 1; pass <= HEALTHY_RETRY_PASSES; pass++) {
-      if (toRetry.length === 0) break;
-      if (this.cancelRequested) break;
-
-      // Short wait between passes — gives unhealthy terminals time to recover
-      await this.delay(HEALTHY_RETRY_WAIT_MS);
-
-      // Recheck unhealthy terminals — a terminal that recovered gets included
-      await this.recheckUnhealthyTerminals();
-
-      const healthyTerminals = this.terminals.filter(t => t.isHealthy);
-      if (healthyTerminals.length === 0) {
-        console.log(`⚠️ VPS Healthy-Retry pass ${pass}: no healthy terminals — stopping`);
-        break;
-      }
-
-      console.log(`🔁 VPS Healthy-Retry pass ${pass}/${HEALTHY_RETRY_PASSES} — ${toRetry.length} accounts, ${healthyTerminals.length} healthy terminals`);
-
-      // Load only the failing accounts into the shared queue
-      this.sharedQueue.load(toRetry.map(a => ({ ...a, isPriority: true })));
-
-      // Run all healthy terminals in parallel (same shared queue pattern)
-      const passResults = await this.runSharedQueueWorkers(healthyTerminals, challenge, batchId);
-
-      // Separate successes from still-failing
-      const stillFailing: AccountToPull[] = [];
-      for (const account of toRetry) {
-        const result = passResults.find(r => r.registrationId === account.registrationId);
-        if (result) {
-          finalResults.push(result);
-          if (!result.success && result.errorCode !== 'invalid_credentials') {
-            stillFailing.push(account);
-          }
-        } else {
-          // Not processed this pass (queue may have been aborted) — keep for next pass
-          stillFailing.push(account);
-        }
-      }
-
-      const passSucceeded = toRetry.length - stillFailing.length;
-      console.log(`🔁 VPS Healthy-Retry pass ${pass}: ${passSucceeded} recovered, ${stillFailing.length} still failing`);
-
-      toRetry = stillFailing;
-    }
-
-    // Any accounts still failing after all passes — mark as exhausted
-    for (const account of toRetry) {
-      finalResults.push({
-        registrationId: account.registrationId,
-        accountNumber: account.accountNumber,
-        userId: account.userId,
-        username: account.username,
-        success: false,
-        errorCode: 'retry_exhausted',
-        errorMessage: `Failed after ${CYCLE_RETRY_PASSES} standard + ${HEALTHY_RETRY_PASSES} healthy-only retry passes`,
-      });
-    }
-
-    return finalResults;
-  }
+  // NOTE: retryCycleFailures() and retryOnHealthyTerminals() were removed — the
+  // unified continuous shared-queue model (SharedQueue.requeueForRetry /
+  // requeueForConfirmation, driven from terminalWorker) now handles all retries
+  // and credential confirmation INSIDE runSharedQueueWorkers(). See terminalWorker
+  // for the full logic.
 
   /**
    * Pull a single account with retry logic
@@ -1064,7 +887,12 @@ export class VpsPullScheduler {
       };
     }
 
-    let credentialFailCount = 0;
+    // Is this dispatch the SECOND-terminal confirmation of an earlier -6?
+    // (account.excludedTerminalId is only ever set by SharedQueue.requeueForConfirmation,
+    // and next() guarantees this dispatch went to a DIFFERENT terminal than the one that
+    // set it — so reaching here with excludedTerminalId set means this terminal IS the
+    // confirmation attempt.)
+    const isConfirmation = account.excludedTerminalId !== undefined;
 
     for (let attempt = 1; attempt <= MAX_RETRIES_PER_ACCOUNT; attempt++) {
       try {
@@ -1134,22 +962,33 @@ export class VpsPullScheduler {
         // Credential failure check — prefer explicit error_type field, fall back to message parsing
         const err = (data.message || '').toLowerCase();
         if (data.error_type === 'credential_failure' || err.includes('authorization') || err.includes('invalid') || err.includes('password') || err.includes('credential')) {
-          credentialFailCount++;
-          if (credentialFailCount < CREDENTIAL_CONFIRM_ATTEMPTS) {
-            await this.delay(RETRY_DELAY_MS);
-            continue;
+          if (isConfirmation) {
+            // Second terminal also got -6 — CONFIRMED bad credentials.
+            // Cache by normalized accountNumber — blocks all DB registrations for this MT5 account
+            // regardless of formatting differences (#, spaces, commas)
+            this.credentialFailureCache.add(normalizeAccountNumber(account.accountNumber));
+            return {
+              registrationId: account.registrationId,
+              accountNumber: account.accountNumber,
+              userId: account.userId,
+              username: account.username,
+              success: false,
+              errorCode: 'invalid_credentials',
+              errorMessage: data.message || 'Invalid credentials',
+              terminalId,
+            };
           }
-          // Cache by normalized accountNumber — blocks all DB registrations for this MT5 account
-          // regardless of formatting differences (#, spaces, commas)
-          this.credentialFailureCache.add(normalizeAccountNumber(account.accountNumber));
+          // First -6 on this terminal — not yet confirmed. The terminalWorker will route
+          // this account to a DIFFERENT terminal for confirmation (front of queue, excluded
+          // from this terminal). No caching yet, no notification yet.
           return {
             registrationId: account.registrationId,
             accountNumber: account.accountNumber,
             userId: account.userId,
             username: account.username,
             success: false,
-            errorCode: 'invalid_credentials',
-            errorMessage: data.message || 'Invalid credentials',
+            errorCode: 'credential_suspect',
+            errorMessage: data.message || 'Possible invalid credentials — awaiting confirmation on a different terminal',
             terminalId,
           };
         }
@@ -1185,20 +1024,27 @@ export class VpsPullScheduler {
         }
 
         if (error.response?.status === 401 || error.response?.status === 422) {
-          credentialFailCount++;
-          if (credentialFailCount < CREDENTIAL_CONFIRM_ATTEMPTS) {
-            await this.delay(RETRY_DELAY_MS);
-            continue;
+          if (isConfirmation) {
+            this.credentialFailureCache.add(normalizeAccountNumber(account.accountNumber));
+            return {
+              registrationId: account.registrationId,
+              accountNumber: account.accountNumber,
+              userId: account.userId,
+              username: account.username,
+              success: false,
+              errorCode: 'invalid_credentials',
+              errorMessage: error.response?.data?.message || 'Authentication failed',
+              terminalId,
+            };
           }
-          this.credentialFailureCache.add(normalizeAccountNumber(account.accountNumber));
           return {
             registrationId: account.registrationId,
             accountNumber: account.accountNumber,
             userId: account.userId,
             username: account.username,
             success: false,
-            errorCode: 'invalid_credentials',
-            errorMessage: error.response?.data?.message || 'Authentication failed',
+            errorCode: 'credential_suspect',
+            errorMessage: error.response?.data?.message || 'Possible authentication failure — awaiting confirmation on a different terminal',
             terminalId,
           };
         }
