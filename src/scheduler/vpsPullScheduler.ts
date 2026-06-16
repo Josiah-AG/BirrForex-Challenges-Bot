@@ -486,7 +486,11 @@ export class VpsPullScheduler {
       const credentialFailures = allResults.filter(r => !r.success && r.errorCode === 'invalid_credentials');
       const otherFailures = allResults.filter(r => !r.success && r.errorCode !== 'invalid_credentials');
 
-      // Handle credential failures — notify users
+      // Handle credential failures — notify users.
+      // NOTE: terminalWorker already calls handleCredentialFailure() immediately the
+      // instant each account is confirmed (so the DB write survives an interrupted
+      // cycle). handleCredentialFailure() is idempotent — this loop is just a safety
+      // net in case any slipped through (e.g. an error swallowed the immediate call).
       for (const failure of credentialFailures) {
         await this.handleCredentialFailure(failure, challengeToPull);
       }
@@ -685,8 +689,9 @@ export class VpsPullScheduler {
       await this.savePullTerminalStats(completedBatchId);
 
       // Handle credential failures — set pull_status='password_changed' and notify users.
-      // The regular scheduled pull does this in Step 5. The admin pull must do the same —
-      // otherwise accounts with bad credentials won't show the "Update password" button.
+      // NOTE: terminalWorker already calls handleCredentialFailure() immediately the
+      // instant each account is confirmed, so this survives the admin pull being
+      // cancelled/interrupted partway through. This loop is just a safety net.
       const adminCredentialFailures = allResults.filter(r => !r.success && r.errorCode === 'invalid_credentials');
       for (const failure of adminCredentialFailures) {
         await this.handleCredentialFailure(failure, challengeToPull);
@@ -833,6 +838,23 @@ export class VpsPullScheduler {
         resultsMutex.results.push(result);
         terminal.totalFailed++;
         this.sharedQueue.done(account.registrationId, account.accountNumber);
+
+        // Persist pull_status='password_changed' to the DB IMMEDIATELY — do not wait
+        // for the end of the cycle. Confirmation state (credentialFailureCache, the
+        // SharedQueue exclusion bookkeeping) lives only in memory and is wiped the
+        // instant this cycle is interrupted (VPS reboot, scheduler redeploy/restart,
+        // or an admin force-pull cancelling the running cycle via cancelPull()). If we
+        // wait until Step 5's batch loop to write this, an interrupted cycle forgets
+        // the confirmation entirely and the account burns ANOTHER two real logins on
+        // two more terminals the next time anything touches it. Writing it here makes
+        // the confirmation durable the moment it happens, no matter what happens after.
+        // handleCredentialFailure() is idempotent (checks pull_status before doing
+        // anything), so the Step 5 loop calling it again afterward is a harmless no-op.
+        try {
+          await this.handleCredentialFailure(result, challenge);
+        } catch (e) {
+          console.error(`⚠️ VPS Pull: Immediate credential-failure persistence failed for ${result.accountNumber}:`, e);
+        }
       } else {
         // Non-credential (terminal/network) error
         terminal.consecutiveFailures++;
