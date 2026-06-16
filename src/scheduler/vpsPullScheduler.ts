@@ -96,7 +96,10 @@ function normalizeAccountNumber(accountNumber: string): string {
 
 class SharedQueue {
   private queue: AccountToPull[] = [];
-  private inProgress = new Set<number>();
+  private inProgress = new Set<number>();         // by registrationId
+  private inProgressAccounts = new Set<string>(); // by normalized accountNumber — prevents concurrent
+                                                  // pulls of the same physical MT5 account when two
+                                                  // registrationIds share the same credentials
 
   load(accounts: AccountToPull[]) {
     // Deduplicate by normalized MT5 account number — if the same physical MT5
@@ -132,24 +135,41 @@ class SharedQueue {
     const normal = deduped.filter(a => !a.isPriority);
     this.queue = [...priority, ...normal];
     this.inProgress.clear();
+    this.inProgressAccounts.clear();
   }
 
-  /** Terminal grabs next available account */
+  /** Terminal grabs next available account.
+   *  Skips (defers) any account whose normalized MT5 number is already being
+   *  processed by another concurrent terminal worker — avoids duplicate real
+   *  MT5 logins when two registrationIds share the same account credentials. */
   next(): AccountToPull | null {
-    if (this.queue.length === 0) return null;
-    const account = this.queue.shift()!;
+    // Find first account whose MT5 number isn't already in-flight
+    const idx = this.queue.findIndex(a => {
+      const key = normalizeAccountNumber(a.accountNumber);
+      return !key || !this.inProgressAccounts.has(key);
+    });
+    if (idx === -1) return null;
+    const [account] = this.queue.splice(idx, 1);
     this.inProgress.add(account.registrationId);
+    const key = normalizeAccountNumber(account.accountNumber);
+    if (key) this.inProgressAccounts.add(key);
     return account;
   }
 
   /** Mark account as done (success or final failure) */
-  done(registrationId: number) {
+  done(registrationId: number, accountNumber?: string) {
     this.inProgress.delete(registrationId);
+    if (accountNumber) {
+      const key = normalizeAccountNumber(accountNumber);
+      if (key) this.inProgressAccounts.delete(key);
+    }
   }
 
   /** Return account to queue (for retry) */
   requeue(account: AccountToPull) {
     this.inProgress.delete(account.registrationId);
+    const key = normalizeAccountNumber(account.accountNumber);
+    if (key) this.inProgressAccounts.delete(key);
     this.queue.push(account);
   }
 
@@ -818,7 +838,7 @@ export class VpsPullScheduler {
         }
       }
 
-      this.sharedQueue.done(account.registrationId);
+      this.sharedQueue.done(account.registrationId, account.accountNumber);
       await this.delay(BATCH_DELAY_MS);
     }
   }

@@ -40,8 +40,11 @@ terminal_subtype_map = ["standard"] * NUM_WORKERS
 # Tracks per-account credential failure attempts across ALL terminals.
 #
 # Rules:
-#   Attempt 1 (first unique terminal fails) → allow a retry on a DIFFERENT terminal
-#   Attempt 2 (second unique terminal also fails) → permanently ban for this cycle
+#   First unique terminal fails with -6 → immediately ban for this cycle (no retry).
+#   -6 is a definitive broker credential rejection, never an IPC/terminal glitch.
+#   Previously we allowed a 2nd terminal to "confirm" — but that caused an extra
+#   real MT5 login and left the account with a non-invalid_credentials errorCode,
+#   which pushed it into the retry loop and accumulated even more real logins.
 #
 # Each entry: { "terminals": [t1, t2, ...], "banned": bool, "ts": float }
 # TTL: 10 minutes (safely expires before the next scheduled pull cycle)
@@ -80,7 +83,9 @@ def _get_credential_entry(account: str) -> dict | None:
 
 def _record_credential_failure(account: str, terminal: int) -> dict:
     """Record a credential failure on the given terminal.
-    Returns the updated entry with 'banned' set if 2 unique terminals have failed."""
+    Returns the updated entry with 'banned' set immediately on the FIRST unique terminal failure.
+    MT5 error -6 ('Authorization failed') is a definitive broker credential rejection,
+    never an IPC/terminal glitch, so there is no need to confirm on a second terminal."""
     key = _normalize_account(account)
     entry = _global_credential_cache.get(key)
     now = _time.time()
@@ -91,16 +96,14 @@ def _record_credential_failure(account: str, terminal: int) -> dict:
         entry["terminals"].append(terminal)
 
     unique_count = len(entry["terminals"])
-    if unique_count >= 2:
+    # Ban immediately on first failure — no retry on a different terminal.
+    if unique_count >= 1:
         entry["banned"] = True
 
     entry["ts"] = now  # refresh TTL on every update
     _global_credential_cache[key] = entry
 
-    if entry["banned"]:
-        print(f"[Router] 🚫 Account {account} (key={key}) BANNED — credential failure on {unique_count} terminals: {entry['terminals']}")
-    else:
-        print(f"[Router] ⚠️  Account {account} (key={key}) credential fail on T{terminal} (attempt {unique_count}/2) — 1 more terminal allowed")
+    print(f"[Router] 🚫 Account {account} (key={key}) BANNED immediately — credential failure on T{terminal} (terminals: {entry['terminals']})")
     return entry
 
 
@@ -386,15 +389,15 @@ async def pull(req: PullRequest):
         raise HTTPException(status_code=401, detail="Invalid API key")
 
     # ── Global credential ban check ───────────────────────────────────────
-    # An account is banned once 2 different terminals have both returned
-    # credential failures. At that point we're certain — reject immediately.
+    # An account is banned immediately on the FIRST terminal credential failure.
+    # MT5 -6 is a definitive broker rejection — no confirmation on a 2nd terminal needed.
     entry = _get_credential_entry(req.account)
     if entry and entry["banned"]:
         terminals_tried = entry["terminals"]
         print(f"[Router] 🚫 Account {req.account} globally banned — failed on terminals {terminals_tried}, skipping")
         return {
             "success":          False,
-            "message":          f"Credential failure confirmed on {len(terminals_tried)} terminals {terminals_tried} — account globally banned this cycle",
+            "message":          f"Credential failure on terminal(s) {terminals_tried} — account globally banned this cycle",
             "error_type":       "credential_failure",
             "terminals_tried":  len(terminals_tried),
         }
