@@ -39,12 +39,14 @@ terminal_subtype_map = ["standard"] * NUM_WORKERS
 # ── Global credential attempt tracker ──────────────────────────────────────
 # Tracks per-account credential failure attempts across ALL terminals.
 #
-# Rules:
-#   First unique terminal fails with -6 → immediately ban for this cycle (no retry).
-#   -6 is a definitive broker credential rejection, never an IPC/terminal glitch.
-#   Previously we allowed a 2nd terminal to "confirm" — but that caused an extra
-#   real MT5 login and left the account with a non-invalid_credentials errorCode,
-#   which pushed it into the retry loop and accumulated even more real logins.
+# Rules (v2 — matches the scheduler's two-terminal confirmation model):
+#   First unique terminal fails with -6 → recorded as UNCONFIRMED, NOT banned yet.
+#   The scheduler (vpsPullScheduler.ts) will explicitly dispatch a SECOND, real
+#   pull attempt to a DIFFERENT terminal (it passes terminal_id explicitly) to
+#   confirm. Only once a SECOND unique terminal also fails with -6 is the account
+#   considered confirmed and banned for the rest of this cycle.
+#   This guarantees the "confirmation" is a genuine second real MT5 login on a
+#   different terminal, not a cache short-circuit.
 #
 # Each entry: { "terminals": [t1, t2, ...], "banned": bool, "ts": float }
 # TTL: 10 minutes (safely expires before the next scheduled pull cycle)
@@ -83,9 +85,10 @@ def _get_credential_entry(account: str) -> dict | None:
 
 def _record_credential_failure(account: str, terminal: int) -> dict:
     """Record a credential failure on the given terminal.
-    Returns the updated entry with 'banned' set immediately on the FIRST unique terminal failure.
-    MT5 error -6 ('Authorization failed') is a definitive broker credential rejection,
-    never an IPC/terminal glitch, so there is no need to confirm on a second terminal."""
+    Only bans the account once a SECOND unique terminal has also failed with -6 —
+    this is the genuine real-login confirmation step the scheduler relies on.
+    A single terminal's -6 is recorded but left unbanned so the scheduler's
+    explicit confirmation dispatch to a different terminal can go through for real."""
     key = _normalize_account(account)
     entry = _global_credential_cache.get(key)
     now = _time.time()
@@ -96,14 +99,17 @@ def _record_credential_failure(account: str, terminal: int) -> dict:
         entry["terminals"].append(terminal)
 
     unique_count = len(entry["terminals"])
-    # Ban immediately on first failure — no retry on a different terminal.
-    if unique_count >= 1:
+    # Ban only after a SECOND different terminal confirms -6 with a real login.
+    if unique_count >= 2:
         entry["banned"] = True
 
     entry["ts"] = now  # refresh TTL on every update
     _global_credential_cache[key] = entry
 
-    print(f"[Router] 🚫 Account {account} (key={key}) BANNED immediately — credential failure on T{terminal} (terminals: {entry['terminals']})")
+    if entry["banned"]:
+        print(f"[Router] 🚫 Account {account} (key={key}) CONFIRMED + BANNED — credential failure on {unique_count} different terminals (terminals: {entry['terminals']})")
+    else:
+        print(f"[Router] ⚠️ Account {account} (key={key}) credential failure on T{terminal} — unconfirmed, awaiting a different terminal's real attempt (terminals: {entry['terminals']})")
     return entry
 
 
@@ -389,15 +395,18 @@ async def pull(req: PullRequest):
         raise HTTPException(status_code=401, detail="Invalid API key")
 
     # ── Global credential ban check ───────────────────────────────────────
-    # An account is banned immediately on the FIRST terminal credential failure.
-    # MT5 -6 is a definitive broker rejection — no confirmation on a 2nd terminal needed.
+    # An account is only banned after a SECOND different terminal has confirmed
+    # the -6 with a genuine real login (see _record_credential_failure). A single
+    # unconfirmed failure does NOT block this request — this lets the scheduler's
+    # explicit confirmation dispatch (it always passes terminal_id for a DIFFERENT
+    # terminal than the one that just failed) go through to a real worker login.
     entry = _get_credential_entry(req.account)
     if entry and entry["banned"]:
         terminals_tried = entry["terminals"]
-        print(f"[Router] 🚫 Account {req.account} globally banned — failed on terminals {terminals_tried}, skipping")
+        print(f"[Router] 🚫 Account {req.account} globally banned — confirmed failure on terminals {terminals_tried}, skipping")
         return {
             "success":          False,
-            "message":          f"Credential failure on terminal(s) {terminals_tried} — account globally banned this cycle",
+            "message":          f"Credential failure confirmed on terminal(s) {terminals_tried} — account globally banned this cycle",
             "error_type":       "credential_failure",
             "terminals_tried":  len(terminals_tried),
         }
