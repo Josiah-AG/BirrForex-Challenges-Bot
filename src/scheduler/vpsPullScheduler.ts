@@ -711,6 +711,18 @@ export class VpsPullScheduler {
       const completedBatchId = batchId;
       batchId = null;
       await this.savePullTerminalStats(completedBatchId);
+
+      // Handle credential failures — set pull_status='password_changed' and notify users.
+      // The regular scheduled pull does this in Step 5. The admin pull must do the same —
+      // otherwise accounts with bad credentials won't show the "Update password" button.
+      const adminCredentialFailures = allResults.filter(r => !r.success && r.errorCode === 'invalid_credentials');
+      for (const failure of adminCredentialFailures) {
+        await this.handleCredentialFailure(failure, challengeToPull);
+      }
+      if (adminCredentialFailures.length > 0) {
+        console.log(`🔑 VPS Admin Pull: ${adminCredentialFailures.length} credential failure(s) handled — users notified`);
+      }
+
       await this.bulkUpdatePullStatus(allResults);
       await this.reportCandleFailures(challengeToPull.id, 0);
 
