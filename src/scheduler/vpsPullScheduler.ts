@@ -1387,6 +1387,12 @@ export class VpsPullScheduler {
     const zeroBalanceFilter = forceAll
       ? ''
       : 'AND (l.zero_balance_at IS NULL OR l.total_trades = 0 OR l.id IS NULL OR r.actual_starting_balance IS NULL)';
+    // forceAll = admin override: also retry accounts previously confirmed as credential
+    // failures (pull_status='password_changed'). Admin full pull must attempt EVERY
+    // account in the database for this challenge — no permanent skips. If credentials
+    // are still bad it'll simply get re-confirmed and re-flagged; if the user fixed
+    // their password since the last failure, this is the only way it gets noticed.
+    const passwordChangedFilter = forceAll ? '' : "AND (r.pull_status IS NULL OR r.pull_status != 'password_changed')";
 
     const result = await db.query(
       `SELECT r.id, r.account_number, r.mt5_server, r.investor_password, r.user_id, r.username, r.nickname, r.last_pull_at
@@ -1397,7 +1403,7 @@ export class VpsPullScheduler {
          AND r.investor_password IS NOT NULL
          ${connectionFilter}
          ${zeroBalanceFilter}
-         AND (r.pull_status IS NULL OR r.pull_status != 'password_changed')
+         ${passwordChangedFilter}
        ORDER BY r.id`,
       [challengeId]
     );
