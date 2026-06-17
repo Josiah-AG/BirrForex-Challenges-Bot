@@ -349,12 +349,14 @@ async function validateSlWithCandles(trade: TradeRow, maxHoldHours: number | nul
   // Message shows admin-set max (not tolerance-adjusted)
   const riskLabel = trade.symbol.endsWith('c') ? `¢${maxRiskDollars}` : `$${maxRiskDollars}`;
 
+  const netLabel = trade.symbol.endsWith('c') ? `¢${tradeNet.toFixed(2)}` : `$${tradeNet.toFixed(2)}`;
+
   for (const candle of safeCandles) {
     if (isBuy) {
       if (candle.low <= maxSlPrice) {
         const eatTime = formatCandleTimeEAT(candle.time, tf.periodMs);
         return {
-          violation: `SL violated. Price exceeded the maximum allowed risk (${riskLabel}, SL should be @ ${maxSlPrice.toFixed(5)}) on the ${tf.timeframe} candle formed at ${eatTime}. Trade should have been closed at that point`,
+          violation: `Price exceeded the maximum allowed risk (${riskLabel}, virtual SL @ ${maxSlPrice.toFixed(5)}) on the ${tf.timeframe} candle formed at ${eatTime}. Trade should have been closed at that point. Profit of ${netLabel} not counted — max allowed loss of ${riskLabel} deducted instead.`,
           slAllowedPrice: maxSlPrice, slMaxAdversePrice, slCheckResult: 'fake_sl',
         };
       }
@@ -362,7 +364,7 @@ async function validateSlWithCandles(trade: TradeRow, maxHoldHours: number | nul
       if (candle.high >= maxSlPrice) {
         const eatTime = formatCandleTimeEAT(candle.time, tf.periodMs);
         return {
-          violation: `SL violated. Price exceeded the maximum allowed risk (${riskLabel}, SL should be @ ${maxSlPrice.toFixed(5)}) on the ${tf.timeframe} candle formed at ${eatTime}. Trade should have been closed at that point`,
+          violation: `Price exceeded the maximum allowed risk (${riskLabel}, virtual SL @ ${maxSlPrice.toFixed(5)}) on the ${tf.timeframe} candle formed at ${eatTime}. Trade should have been closed at that point. Profit of ${netLabel} not counted — max allowed loss of ${riskLabel} deducted instead.`,
           slAllowedPrice: maxSlPrice, slMaxAdversePrice, slCheckResult: 'fake_sl',
         };
       }
@@ -907,57 +909,57 @@ export class WpEvaluationEngine {
         violations.push(`Exceeded max ${rules.pair_limit} simultaneous ${trade.symbol} trades (also open: ${coStr})`);
       }
 
-      // Stop loss checks
+      // Stop loss checks — a missing SL is no longer flagged by itself.
+      // Instead, every profitable trade (SL set or not) gets the fake-SL candle
+      // check run against the max allowed risk. A real SL just adds the extra
+      // "SL risk exceeds max" layer on top.
+      let slPenaltyDollars = 0;
       if (rules.stop_loss_required) {
         const sl = parseFloat(String(trade.stop_loss));
         const hasSl = sl !== 0 && !isNaN(sl);
         const currency = reg.is_cent ? '¢' : '$';
 
-        if (!hasSl) {
-          // No SL at entry — immediate flag, no further SL checks
-          violations.push(`No stop loss set on entry`);
-          await db.query(`UPDATE wp_trades SET sl_check_result = 'skipped' WHERE id = $1`, [trade.id]).catch(() => {});
-        } else {
-          // SL was set at entry — check if it was valid and not removed/widened later
-
-          // Layer A: SL risk check with 10% tolerance (internal only — message shows raw max)
-          if (rules.max_risk_dollars) {
-            const slDollars = calculateSlDollars(
-              trade.symbol, parseFloat(String(trade.volume)),
-              parseFloat(String(trade.open_price)), sl,
-              parseFloat(String(trade.close_price)), tradeNet
-            );
-            const tolerance = rules.max_risk_dollars * 0.10;
-            if (slDollars > rules.max_risk_dollars + tolerance) {
-              violations.push(`SL risk ${currency}${slDollars.toFixed(2)} exceeds max ${currency}${rules.max_risk_dollars}`);
-            }
+        // Layer A: SL risk check (only meaningful when an actual SL is set)
+        if (hasSl && rules.max_risk_dollars) {
+          const slDollars = calculateSlDollars(
+            trade.symbol, parseFloat(String(trade.volume)),
+            parseFloat(String(trade.open_price)), sl,
+            parseFloat(String(trade.close_price)), tradeNet
+          );
+          const tolerance = rules.max_risk_dollars * 0.10;
+          if (slDollars > rules.max_risk_dollars + tolerance) {
+            violations.push(`SL risk ${currency}${slDollars.toFixed(2)} exceeds max ${currency}${rules.max_risk_dollars}`);
           }
+        }
 
-          // Layer B: Fake SL candle check — only on winning trades
-          // Detects SL removed or widened after entry
-          if (rules.max_risk_dollars && tradeNet > 0) {
-            const slOutcome = await validateSlWithCandles(trade, rules.max_hold_hours || null, rules.max_risk_dollars);
-            // Save SL detail fields to DB
-            await db.query(
-              `UPDATE wp_trades SET sl_allowed_price = $1, sl_max_adverse_price = $2, sl_check_result = $3 WHERE id = $4`,
-              [slOutcome.slAllowedPrice, slOutcome.slMaxAdversePrice, slOutcome.slCheckResult, trade.id]
-            ).catch(() => {});
-            if (slOutcome.violation === 'FAILED') {
-              slCheckFailures.push({ ticket: trade.ticket, symbol: trade.symbol, tradeId: trade.id });
-              await db.query(`UPDATE wp_trades SET sl_check_pending = true WHERE id = $1`, [trade.id]).catch(() => {});
-            } else if (slOutcome.violation) {
-              violations.push(slOutcome.violation);
-              await db.query(`UPDATE wp_trades SET sl_check_pending = false WHERE id = $1`, [trade.id]).catch(() => {});
-            } else {
-              await db.query(`UPDATE wp_trades SET sl_check_pending = false WHERE id = $1`, [trade.id]).catch(() => {});
-            }
+        // Layer B: Fake SL candle check — runs on every winning trade regardless
+        // of whether an SL was set. Detects price action breaching the max
+        // allowed risk (whether the real SL was removed/widened, or there was
+        // never an SL at all).
+        if (rules.max_risk_dollars && tradeNet > 0) {
+          const slOutcome = await validateSlWithCandles(trade, rules.max_hold_hours || null, rules.max_risk_dollars);
+          // Save SL detail fields to DB
+          await db.query(
+            `UPDATE wp_trades SET sl_allowed_price = $1, sl_max_adverse_price = $2, sl_check_result = $3 WHERE id = $4`,
+            [slOutcome.slAllowedPrice, slOutcome.slMaxAdversePrice, slOutcome.slCheckResult, trade.id]
+          ).catch(() => {});
+          if (slOutcome.violation === 'FAILED') {
+            slCheckFailures.push({ ticket: trade.ticket, symbol: trade.symbol, tradeId: trade.id });
+            await db.query(`UPDATE wp_trades SET sl_check_pending = true WHERE id = $1`, [trade.id]).catch(() => {});
+          } else if (slOutcome.violation) {
+            violations.push(slOutcome.violation);
+            // Don't zero the whole profit — only deduct the max allowed risk amount.
+            slPenaltyDollars = rules.max_risk_dollars;
+            await db.query(`UPDATE wp_trades SET sl_check_pending = false WHERE id = $1`, [trade.id]).catch(() => {});
           } else {
-            // Losing trade or no max_risk rule — SL candle check skipped
-            await db.query(
-              `UPDATE wp_trades SET sl_check_result = 'skipped' WHERE id = $1`,
-              [trade.id]
-            ).catch(() => {});
+            await db.query(`UPDATE wp_trades SET sl_check_pending = false WHERE id = $1`, [trade.id]).catch(() => {});
           }
+        } else {
+          // Losing trade or no max_risk rule — SL candle check skipped
+          await db.query(
+            `UPDATE wp_trades SET sl_check_result = 'skipped' WHERE id = $1`,
+            [trade.id]
+          ).catch(() => {});
         }
       }
 
@@ -991,7 +993,14 @@ export class WpEvaluationEngine {
       const isQualified = violations.length === 0;
       if (!isQualified) {
         flaggedCount++;
-        if (tradeNet > 0) profitRemoved += tradeNet;
+        if (slPenaltyDollars > 0) {
+          // Fake-SL breach: don't zero the whole profit — remove the actual profit
+          // AND subtract the max-allowed-risk amount, so this trade nets to
+          // -slPenaltyDollars in qualifiedProfit instead of $0.
+          profitRemoved += tradeNet + slPenaltyDollars;
+        } else if (tradeNet > 0) {
+          profitRemoved += tradeNet;
+        }
       }
 
       // Only clear sl_check_pending here if it wasn't just set — pending flag is managed above
@@ -1242,7 +1251,7 @@ export class WpEvaluationEngine {
     if (cfg.max_open_trades) rules.push(`📈 Maximum ${cfg.max_open_trades} trades open at the same time`);
     if (cfg.pair_limit) rules.push(`🔄 Maximum ${cfg.pair_limit} trades on the same pair simultaneously`);
     if (cfg.stop_loss_required) {
-      let t = '🛡️ Stop loss required on all trades — must be placed at entry';
+      let t = '🛡️ Maximum risk per trade is enforced (verified via candle check, with or without an SL set)';
       if (cfg.max_risk_dollars) {
         if (showDual) {
           t += ` (max risk: $${cfg.max_risk_dollars} Standard / ${cfg.max_risk_dollars * 100}¢ Cent)`;
