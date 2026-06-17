@@ -2084,7 +2084,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures }: { ch
   const [loadingFailed, setLoadingFailed] = useState(false);
   const [actionMsg, setActionMsg] = useState("");
   const [retrying, setRetrying] = useState<string | null>(null);
-  const [showFilter, setShowFilter] = useState<"credential" | "failed" | "skipped" | "all">("credential");
+  const [showFilter, setShowFilter] = useState<"credential" | "failed" | "skipped" | "sl" | "all">("credential");
   const [pullProgress, setPullProgress] = useState<any>(null);
   const [polling, setPolling] = useState(false);
   const pollIntervalRef = useRef<number | null>(null);
@@ -2307,19 +2307,21 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures }: { ch
       )}
 
       {/* Filter Tabs */}
-      {(credentialFailures.length > 0 || failedAccounts.length > 0 || skippedAccounts.length > 0) && (
-        <div className="flex gap-2 mb-2">
-          <button onClick={() => setShowFilter("credential")} className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${showFilter === "credential" ? "bg-gold/20 text-gold border border-gold/30" : "bg-white/5 text-gray-400 hover:text-white"}`}>🔑 Credential Failures ({credentialFailures.length})</button>
-          <button onClick={() => setShowFilter("failed")} className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${showFilter === "failed" ? "bg-loss/20 text-loss border border-loss/30" : "bg-white/5 text-gray-400 hover:text-white"}`}>❌ Failed ({failedAccounts.length})</button>
-          <button onClick={() => setShowFilter("skipped")} className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${showFilter === "skipped" ? "bg-gray-500/20 text-gray-300 border border-gray-500/30" : "bg-white/5 text-gray-400 hover:text-white"}`}>⏭️ Skipped ({skippedAccounts.length})</button>
-          <button onClick={() => setShowFilter("all")} className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${showFilter === "all" ? "bg-royal/20 text-royal border border-royal/30" : "bg-white/5 text-gray-400 hover:text-white"}`}>All</button>
-        </div>
-      )}
+      <div className="flex gap-2 mb-2 flex-wrap">
+        <button onClick={() => setShowFilter("credential")} className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${showFilter === "credential" ? "bg-gold/20 text-gold border border-gold/30" : "bg-white/5 text-gray-400 hover:text-white"}`}>🔑 Credential Failures ({credentialFailures.length})</button>
+        <button onClick={() => setShowFilter("failed")} className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${showFilter === "failed" ? "bg-loss/20 text-loss border border-loss/30" : "bg-white/5 text-gray-400 hover:text-white"}`}>❌ Failed ({failedAccounts.length})</button>
+        <button onClick={() => setShowFilter("skipped")} className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${showFilter === "skipped" ? "bg-gray-500/20 text-gray-300 border border-gray-500/30" : "bg-white/5 text-gray-400 hover:text-white"}`}>⏭️ Skipped ({skippedAccounts.length})</button>
+        <button onClick={() => setShowFilter("sl")} className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${showFilter === "sl" ? "bg-amber-500/20 text-amber-400 border border-amber-500/30" : "bg-white/5 text-gray-400 hover:text-white"}`}>🕯️ Fake SL Detection Failure ({slFailures.length})</button>
+        <button onClick={() => setShowFilter("all")} className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${showFilter === "all" ? "bg-royal/20 text-royal border border-royal/30" : "bg-white/5 text-gray-400 hover:text-white"}`}>All</button>
+      </div>
 
       {/* Credential Failures List — only password_changed / invalid_credentials accounts */}
-      {(showFilter === "credential" || showFilter === "all") && credentialFailures.length > 0 && (
+      {(showFilter === "credential" || showFilter === "all") && (
         <div className="glass rounded-2xl border border-gold/20 p-5">
           <h3 className="text-sm font-semibold text-gold mb-4">🔑 Credential Failures ({credentialFailures.length})</h3>
+          {credentialFailures.length === 0 ? (
+            <p className="text-[11px] text-profit text-center py-2">✅ No credential failures right now.</p>
+          ) : (
           <div className="space-y-2 max-h-[400px] overflow-y-auto">
             {credentialFailures.map((f: any) => (
               <div key={f.registration_id} className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10">
@@ -2358,54 +2360,75 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures }: { ch
               </div>
             ))}
           </div>
+          )}
         </div>
       )}
 
-      {/* Failed Accounts List (non-credential failures) */}
-      {(showFilter === "failed" || showFilter === "all") && failedAccounts.length > 0 && (
+      {/* Failed Accounts List (non-credential failures) — always shown when this tab is active, even with 0, so retry UI never disappears */}
+      {(showFilter === "failed" || showFilter === "all") && (
         <div className="glass rounded-2xl border border-loss/20 p-5">
           <h3 className="text-sm font-semibold text-loss mb-4">❌ Failed Accounts ({failedAccounts.length})</h3>
-          <div className="space-y-2 max-h-[400px] overflow-y-auto">
-            {failedAccounts.map((f: any) => (
-              <div key={f.registration_id} className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10">
-                <div>
-                  <p className="text-sm text-white font-semibold">{f.account_number} <span className="text-gray-500 text-xs">@{f.username || f.nickname || "unknown"}</span></p>
-                  {f.email && <p className="text-[10px] text-gray-400">{f.email}</p>}
-                  <p className="text-[10px] text-loss">{f.pull_status}: {(f.pull_error || f.error_message || "Unknown error").substring(0, 60)}</p>
-                  <p className="text-[10px] text-gray-500">{f.last_pull_at ? formatEAT(f.last_pull_at) : "Never"}</p>
+          {failedAccounts.length > 0 ? (
+            <div className="space-y-2 max-h-[400px] overflow-y-auto">
+              {failedAccounts.map((f: any) => (
+                <div key={f.registration_id} className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10">
+                  <div>
+                    <p className="text-sm text-white font-semibold">{f.account_number} <span className="text-gray-500 text-xs">@{f.username || f.nickname || "unknown"}</span></p>
+                    {f.email && <p className="text-[10px] text-gray-400">{f.email}</p>}
+                    <p className="text-[10px] text-loss">{f.pull_status}: {(f.pull_error || f.error_message || "Unknown error").substring(0, 60)}</p>
+                    <p className="text-[10px] text-gray-500">{f.last_pull_at ? formatEAT(f.last_pull_at) : "Never"}</p>
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <button onClick={() => handleRetryAccount(f.registration_id)} disabled={retrying === String(f.registration_id)} className="px-3 py-1.5 rounded-lg bg-royal/20 border border-royal/30 text-royal text-[10px] font-bold hover:bg-royal/30 transition-all disabled:opacity-50">
+                      {retrying === String(f.registration_id) ? "..." : "🔄 Retry"}
+                    </button>
+                  </div>
                 </div>
-                <div className="flex flex-col gap-1.5">
-                  <button onClick={() => handleRetryAccount(f.registration_id)} disabled={retrying === String(f.registration_id)} className="px-3 py-1.5 rounded-lg bg-royal/20 border border-royal/30 text-royal text-[10px] font-bold hover:bg-royal/30 transition-all disabled:opacity-50">
-                    {retrying === String(f.registration_id) ? "..." : "🔄 Retry"}
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-[11px] text-profit text-center py-2">✅ No failed accounts right now.</p>
+          )}
         </div>
       )}
 
       {/* Skipped Accounts (zero balance + disqualified) */}
-      {(showFilter === "skipped" || showFilter === "all") && skippedAccounts.length > 0 && (
+      {(showFilter === "skipped" || showFilter === "all") && (
         <div className="glass rounded-2xl border border-gray-500/20 p-5">
           <h3 className="text-sm font-semibold text-gray-300 mb-4">⏭️ Skipped from Pull ({skippedAccounts.length})</h3>
-          <div className="space-y-2 max-h-[300px] overflow-y-auto">
-            {skippedAccounts.map((s: any) => (
-              <div key={s.registration_id} className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10">
-                <div>
-                  <p className="text-sm text-white font-semibold">{s.account_number} <span className="text-gray-500 text-xs">@{s.username || s.nickname || "unknown"}</span></p>
-                  {s.email && <p className="text-[10px] text-gray-400">{s.email}</p>}
-                  <p className="text-[10px] text-gray-500">
-                    {s.disqualified ? <span className="text-loss">DQ: {(s.disqualified_reason || "").substring(0, 40)}</span> : <span className="text-gold">Zero balance since {s.zero_balance_at ? formatEAT(s.zero_balance_at) : "—"}</span>}
-                  </p>
+          {skippedAccounts.length > 0 ? (
+            <div className="space-y-2 max-h-[300px] overflow-y-auto">
+              {skippedAccounts.map((s: any) => (
+                <div key={s.registration_id} className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10">
+                  <div>
+                    <p className="text-sm text-white font-semibold">{s.account_number} <span className="text-gray-500 text-xs">@{s.username || s.nickname || "unknown"}</span></p>
+                    {s.email && <p className="text-[10px] text-gray-400">{s.email}</p>}
+                    <p className="text-[10px] text-gray-500">
+                      {s.disqualified ? <span className="text-loss">DQ: {(s.disqualified_reason || "").substring(0, 40)}</span> : <span className="text-gold">Zero balance since {s.zero_balance_at ? formatEAT(s.zero_balance_at) : "—"}</span>}
+                    </p>
+                  </div>
+                  <span className={`px-2 py-1 rounded text-[10px] font-bold ${s.disqualified ? "bg-loss/20 text-loss" : "bg-gold/20 text-gold"}`}>
+                    {s.disqualified ? "DQ" : "$0"}
+                  </span>
                 </div>
-                <span className={`px-2 py-1 rounded text-[10px] font-bold ${s.disqualified ? "bg-loss/20 text-loss" : "bg-gold/20 text-gold"}`}>
-                  {s.disqualified ? "DQ" : "$0"}
-                </span>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-[11px] text-profit text-center py-2">✅ Nothing skipped right now.</p>
+          )}
         </div>
+      )}
+
+      {/* Fake SL Detection Failures List */}
+      {(showFilter === "sl" || showFilter === "all") && (
+        slFailures.length > 0 ? (
+          <SlFailuresPanel challengeId={challengeId} slFailures={slFailures} apiUrl={apiUrl} secretPath={secretPath} />
+        ) : (
+          <div className="glass rounded-2xl border border-amber-500/20 p-5">
+            <h3 className="text-sm font-semibold text-amber-400 mb-1">🕯️ Fake SL Detection Failure (0)</h3>
+            <p className="text-[11px] text-profit text-center py-2">✅ No candle-check failures right now.</p>
+          </div>
+        )
       )}
 
       {/* Terminal Status Grid */}
@@ -2443,11 +2466,6 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures }: { ch
           <p className="text-[11px] text-gray-500 mt-3">Per-terminal data will appear here after the next pull cycle completes.</p>
         )}
       </div>
-
-      {/* SL Check Failures Panel */}
-      {slFailures.length > 0 && (
-        <SlFailuresPanel challengeId={challengeId} slFailures={slFailures} apiUrl={apiUrl} secretPath={secretPath} />
-      )}
 
       {/* Pull History Table */}
       {pullHistory.length > 0 && (
