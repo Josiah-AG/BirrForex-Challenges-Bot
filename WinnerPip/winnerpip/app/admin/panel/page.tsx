@@ -2326,7 +2326,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures }: { ch
                 <div>
                   <p className="text-sm text-white font-semibold">
                     {f.account_number} <span className="text-gray-500 text-xs">@{f.username || f.nickname || "unknown"}</span>
-                    {f.disqualified && <span className="ml-2 px-1.5 py-0.5 rounded bg-loss/20 text-loss text-[9px] font-bold align-middle">DQ'd</span>}
+                    {f.disqualified && <span className="ml-2 px-1.5 py-0.5 rounded bg-loss/20 text-loss text-[9px] font-bold align-middle">DQ&apos;d</span>}
                   </p>
                   {f.email && <p className="text-[10px] text-gray-400">{f.email}</p>}
                   <p className="text-[10px] text-loss">{f.pull_status}: {(f.pull_error || f.error_message || "Invalid credentials").substring(0, 60)}</p>
