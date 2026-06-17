@@ -2388,6 +2388,43 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/export-leaderboard`, admi
  * GET /api/admin/:secretPath/challenge/:id/export-user-trades?registration_id=X
  * Full MT5 trade history for one participant including Fake SL detail columns
  */
+// Crypto symbols trade 24/7, so unlike forex/metals they get no weekend/server-timezone
+// grace period at the challenge boundaries — see isTradeInChallengeWindow() below.
+const CRYPTO_TICKERS = ['BTC', 'ETH', 'LTC', 'XRP', 'DOGE', 'BCH', 'ADA', 'SOL', 'BNB', 'DOT', 'SHIB', 'TRX', 'AVAX'];
+function isCryptoSymbol(symbol: string): boolean {
+  const s = (symbol || '').toUpperCase();
+  return CRYPTO_TICKERS.some(c => s.includes(c));
+}
+// Mirrors wpEvaluationEngine.isWeekend() — forex/metals market closes Fri 22:00 UTC,
+// reopens Sun 22:00 UTC.
+function isWeekendTime(d: Date): boolean {
+  const day = d.getUTCDay();
+  const hour = d.getUTCHours();
+  if (day === 6) return true;
+  if (day === 0 && hour < 22) return true;
+  if (day === 5 && hour >= 22) return true;
+  return false;
+}
+// Non-crypto trades near the challenge start/end get a small buffer because the MT5
+// broker server's own timezone can shift a genuinely in-window trade's timestamp just
+// outside the strict start_date/end_date boundary. Crypto trades 24/7, so there's no
+// such excuse — they're held to the strict boundary with zero buffer, and a crypto
+// trade landing on a weekend gets no special treatment either.
+const BOUNDARY_BUFFER_MS = 6 * 60 * 60 * 1000; // 6 hours — absorbs broker server timezone drift
+function isTradeInChallengeWindow(trade: any, startDate: Date, endDate: Date): boolean {
+  const openMs = new Date(trade.open_time).getTime();
+  const closeMs = new Date(trade.close_time).getTime();
+  if (isCryptoSymbol(trade.symbol)) {
+    // Strict — no buffer, no weekend grace. Crypto trades 24/7, so a crypto trade
+    // landing on a weekend is never excused as "broker was closed" — exclude it.
+    if (isWeekendTime(new Date(trade.open_time)) || isWeekendTime(new Date(trade.close_time))) return false;
+    return openMs >= startDate.getTime() && closeMs <= endDate.getTime();
+  }
+  const bufferedStart = startDate.getTime() - BOUNDARY_BUFFER_MS;
+  const bufferedEnd = endDate.getTime() + BOUNDARY_BUFFER_MS;
+  return openMs >= bufferedStart && closeMs <= bufferedEnd;
+}
+
 app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/export-user-trades`, adminIpCheck, async (req, res) => {
   try {
     const challengeId    = parseInt(req.params.id);
@@ -2413,10 +2450,19 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/export-user-trades`, admi
     const reg       = regRes.rows[0];
     if (!reg) return res.status(404).json({ error: 'Registration not found' });
 
+    // Only export trades that actually fall within the challenge period (the same
+    // trades the evaluator scores) — not the full raw MT5 history for the account,
+    // which can include trades placed after the challenge ended/before it started.
+    const challengeStart = challenge?.start_date ? new Date(challenge.start_date) : null;
+    const challengeEnd   = challenge?.end_date ? new Date(challenge.end_date) : null;
+    const filteredTrades = (challengeStart && challengeEnd)
+      ? tradesRes.rows.filter((t: any) => isTradeInChallengeWindow(t, challengeStart, challengeEnd))
+      : tradesRes.rows;
+
     return res.json({
       challenge: { title: challenge?.title, startDate: challenge?.start_date, endDate: challenge?.end_date },
       user: { nickname: reg.nickname, accountNumber: reg.account_number, server: reg.mt5_server, accountType: reg.account_type, isCent: reg.is_cent },
-      trades: tradesRes.rows.map((t: any) => ({
+      trades: filteredTrades.map((t: any) => ({
         ticket:           t.ticket,
         positionId:       t.position_id,
         symbol:           t.symbol,
