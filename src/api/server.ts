@@ -2453,7 +2453,16 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/failed-accounts`, adminIp
   try {
     const challengeId = parseInt(req.params.id);
     const { leaderboardService } = require('../services/leaderboardService');
-    const failed = await leaderboardService.getFailedAccounts(challengeId);
+    const allFailed = await leaderboardService.getFailedAccounts(challengeId);
+
+    // Credential failures (password_changed / invalid_credentials — confirmed via the
+    // 2-terminal real-login confirmation flow) get their own bucket, separate from
+    // every other kind of pull failure (timeouts, API errors, etc.). They're the only
+    // ones that need/get an "Update Password" action; mixing them into the generic
+    // "failed" list made it hard for the admin to tell which accounts actually need a
+    // password fix vs. which just need a retry.
+    const credentialFailures = allFailed.filter((f: any) => f.pull_status === 'password_changed' || f.pull_status === 'invalid_credentials');
+    const failed = allFailed.filter((f: any) => f.pull_status !== 'password_changed' && f.pull_status !== 'invalid_credentials');
 
     // Also get skipped accounts (zero balance WITH trades = blown, or disqualified)
     // Exclude accounts that are still being pulled (0 balance + 0 trades = hasn't deposited yet, still pulling)
@@ -2473,7 +2482,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/failed-accounts`, adminIp
       [challengeId]
     );
 
-    return res.json({ failed, skipped: skipped.rows });
+    return res.json({ failed, credentialFailures, skipped: skipped.rows });
   } catch (error) {
     console.error('Failed accounts error:', error);
     return res.status(500).json({ error: 'Internal server error' });
@@ -2855,7 +2864,16 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/update-password`, adminI
             `UPDATE trading_registrations SET investor_password = $1, pull_status = 'success', pull_error = NULL, connection_verified = true, connection_verified_at = NOW() WHERE id = $2`,
             [newPassword, registrationId]
           );
-          return res.json({ success: true, verified: true, message: 'Password updated and verified — account is back online' });
+          // Backfill: force a full pull for this account + push to the live leaderboard
+          // immediately + notify the user, instead of leaving it for the next scheduled
+          // incremental cron (which would miss trades from the outage window). Fire-and-
+          // forget — the admin already gets their response below.
+          const globalScheduler = (global as any).__vpsPullScheduler;
+          if (globalScheduler) {
+            globalScheduler.recoverAccountAfterCredentialFix(registrationId, challengeId, 'admin')
+              .catch((e: any) => console.error('recoverAccountAfterCredentialFix (admin flow) failed:', e));
+          }
+          return res.json({ success: true, verified: true, message: 'Password updated and verified — account is back online, backfill pull + ranking update started' });
         } else {
           return res.json({ success: false, verified: false, message: `Verification failed: ${verifyRes.data?.message || 'Invalid password'}` });
         }

@@ -234,6 +234,7 @@ class PullRequest(BaseModel):
     terminal_id:      Optional[int] = None
     from_date:        Optional[str] = None
     orders_from_date: Optional[str] = None
+    extended_sync:    Optional[bool] = False
 
 
 class CandlesRequest(BaseModel):
@@ -475,6 +476,7 @@ async def pull(req: PullRequest):
                             "api_key":          req.api_key,
                             "from_date":        req.from_date,
                             "orders_from_date": req.orders_from_date,
+                            "extended_sync":    req.extended_sync,
                         },
                     )
                     data = resp.json()

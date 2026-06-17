@@ -686,7 +686,7 @@ def do_verify(account: int, server: str, password: str) -> dict:
     }
 
 
-def do_pull(account: int, server: str, password: str, from_date: str = None, orders_from_date: str = None) -> dict:
+def do_pull(account: int, server: str, password: str, from_date: str = None, orders_from_date: str = None, extended_sync: bool = False) -> dict:
     # Cache hit — known bad credentials, skip login entirely, no terminal contact
     if _is_credential_cached(account):
         print(f"  [W{TERMINAL_ID}] do_pull: account {account} in credential cache — skipping login")
@@ -722,7 +722,13 @@ def do_pull(account: int, server: str, password: str, from_date: str = None, ord
     # ping_last is in microseconds — convert to ms for readable calculation.
     ping_ms = (term_info.ping_last / 1000.0) if (term_info.ping_last and term_info.ping_last > 0) else 500.0
     wait_sec = max(6.0, min(20.0, ping_ms / 50.0))
-    print(f"  [W{TERMINAL_ID}] Broker ping: {ping_ms:.0f}ms — waiting {wait_sec:.1f}s for history sync")
+    if extended_sync:
+        # Midnight 25h safety pull — give the broker double the time to stream
+        # a full day+ of history before we start reading it.
+        wait_sec *= 2.0
+        print(f"  [W{TERMINAL_ID}] Broker ping: {ping_ms:.0f}ms — extended_sync ON — waiting {wait_sec:.1f}s for history sync")
+    else:
+        print(f"  [W{TERMINAL_ID}] Broker ping: {ping_ms:.0f}ms — waiting {wait_sec:.1f}s for history sync")
     time.sleep(wait_sec)
 
     account_info = mt5.account_info()
@@ -977,6 +983,7 @@ class PullRequest(BaseModel):
     api_key:          str
     from_date:        Optional[str] = None
     orders_from_date: Optional[str] = None
+    extended_sync:    Optional[bool] = False
 
 
 class CandlesRequest(BaseModel):
@@ -1035,7 +1042,7 @@ def pull(req: PullRequest):
         print(f"  [W{TERMINAL_ID}] /pull: account {account_number} in credential cache — instant reject")
         return {"success": False, "error_type": "credential_failure", "message": f"Credential failure cached for account {account_number}"}
     with _lock:
-        result = do_pull(account_number, req.server, req.password, req.from_date, req.orders_from_date)
+        result = do_pull(account_number, req.server, req.password, req.from_date, req.orders_from_date, extended_sync=req.extended_sync)
     _schedule_idle_restore()
     return result
 

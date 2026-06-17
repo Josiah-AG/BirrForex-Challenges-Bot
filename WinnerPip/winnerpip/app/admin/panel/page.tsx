@@ -2079,11 +2079,12 @@ function SlFailuresPanel({ challengeId, slFailures, apiUrl, secretPath }: { chal
 
 function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures }: { challengeId: string; pullHistory: any[]; terminalStatus: any[]; slFailures: any[] }) {
   const [failedAccounts, setFailedAccounts] = useState<any[]>([]);
+  const [credentialFailures, setCredentialFailures] = useState<any[]>([]);
   const [skippedAccounts, setSkippedAccounts] = useState<any[]>([]);
   const [loadingFailed, setLoadingFailed] = useState(false);
   const [actionMsg, setActionMsg] = useState("");
   const [retrying, setRetrying] = useState<string | null>(null);
-  const [showFilter, setShowFilter] = useState<"failed" | "skipped" | "all">("failed");
+  const [showFilter, setShowFilter] = useState<"credential" | "failed" | "skipped" | "all">("credential");
   const [pullProgress, setPullProgress] = useState<any>(null);
   const [polling, setPolling] = useState(false);
   const pollIntervalRef = useRef<number | null>(null);
@@ -2100,7 +2101,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures }: { ch
     setLoadingFailed(true);
     try {
       const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/failed-accounts`);
-      if (res.ok) { const data = await res.json(); setFailedAccounts(data.failed || []); setSkippedAccounts(data.skipped || []); }
+      if (res.ok) { const data = await res.json(); setFailedAccounts(data.failed || []); setCredentialFailures(data.credentialFailures || []); setSkippedAccounts(data.skipped || []); }
     } catch (_e) {}
     setLoadingFailed(false);
   };
@@ -2282,15 +2283,43 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures }: { ch
       )}
 
       {/* Filter Tabs */}
-      {(failedAccounts.length > 0 || skippedAccounts.length > 0) && (
+      {(credentialFailures.length > 0 || failedAccounts.length > 0 || skippedAccounts.length > 0) && (
         <div className="flex gap-2 mb-2">
+          <button onClick={() => setShowFilter("credential")} className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${showFilter === "credential" ? "bg-gold/20 text-gold border border-gold/30" : "bg-white/5 text-gray-400 hover:text-white"}`}>🔑 Credential Failures ({credentialFailures.length})</button>
           <button onClick={() => setShowFilter("failed")} className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${showFilter === "failed" ? "bg-loss/20 text-loss border border-loss/30" : "bg-white/5 text-gray-400 hover:text-white"}`}>❌ Failed ({failedAccounts.length})</button>
           <button onClick={() => setShowFilter("skipped")} className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${showFilter === "skipped" ? "bg-gray-500/20 text-gray-300 border border-gray-500/30" : "bg-white/5 text-gray-400 hover:text-white"}`}>⏭️ Skipped ({skippedAccounts.length})</button>
           <button onClick={() => setShowFilter("all")} className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${showFilter === "all" ? "bg-royal/20 text-royal border border-royal/30" : "bg-white/5 text-gray-400 hover:text-white"}`}>All</button>
         </div>
       )}
 
-      {/* Failed Accounts List */}
+      {/* Credential Failures List — only password_changed / invalid_credentials accounts */}
+      {(showFilter === "credential" || showFilter === "all") && credentialFailures.length > 0 && (
+        <div className="glass rounded-2xl border border-gold/20 p-5">
+          <h3 className="text-sm font-semibold text-gold mb-4">🔑 Credential Failures ({credentialFailures.length})</h3>
+          <div className="space-y-2 max-h-[400px] overflow-y-auto">
+            {credentialFailures.map((f: any) => (
+              <div key={f.registration_id} className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10">
+                <div>
+                  <p className="text-sm text-white font-semibold">{f.account_number} <span className="text-gray-500 text-xs">@{f.username || f.nickname || "unknown"}</span></p>
+                  {f.email && <p className="text-[10px] text-gray-400">{f.email}</p>}
+                  <p className="text-[10px] text-loss">{f.pull_status}: {(f.pull_error || f.error_message || "Invalid credentials").substring(0, 60)}</p>
+                  <p className="text-[10px] text-gray-500">{f.last_pull_at ? formatEAT(f.last_pull_at) : "Never"}</p>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <button onClick={() => handleRetryAccount(f.registration_id)} disabled={retrying === String(f.registration_id)} className="px-3 py-1.5 rounded-lg bg-royal/20 border border-royal/30 text-royal text-[10px] font-bold hover:bg-royal/30 transition-all disabled:opacity-50">
+                    {retrying === String(f.registration_id) ? "..." : "🔄 Retry"}
+                  </button>
+                  <button onClick={() => { const pw = prompt("Enter new investor password:"); if (pw) handleUpdatePassword(f.registration_id, pw); }} className="px-3 py-1.5 rounded-lg bg-gold/20 border border-gold/30 text-gold text-[10px] font-bold hover:bg-gold/30 transition-all">
+                    🔑 Update PW
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Failed Accounts List (non-credential failures) */}
       {(showFilter === "failed" || showFilter === "all") && failedAccounts.length > 0 && (
         <div className="glass rounded-2xl border border-loss/20 p-5">
           <h3 className="text-sm font-semibold text-loss mb-4">❌ Failed Accounts ({failedAccounts.length})</h3>
@@ -2307,11 +2336,6 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures }: { ch
                   <button onClick={() => handleRetryAccount(f.registration_id)} disabled={retrying === String(f.registration_id)} className="px-3 py-1.5 rounded-lg bg-royal/20 border border-royal/30 text-royal text-[10px] font-bold hover:bg-royal/30 transition-all disabled:opacity-50">
                     {retrying === String(f.registration_id) ? "..." : "🔄 Retry"}
                   </button>
-                  {(f.pull_status === "password_changed" || f.pull_status === "invalid_credentials") && (
-                    <button onClick={() => { const pw = prompt("Enter new investor password:"); if (pw) handleUpdatePassword(f.registration_id, pw); }} className="px-3 py-1.5 rounded-lg bg-gold/20 border border-gold/30 text-gold text-[10px] font-bold hover:bg-gold/30 transition-all">
-                      🔑 Update PW
-                    </button>
-                  )}
                 </div>
               </div>
             ))}

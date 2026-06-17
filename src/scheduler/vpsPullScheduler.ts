@@ -299,16 +299,17 @@ export class VpsPullScheduler {
 
     // EAT = UTC+3 → UTC times: 21:00, 01:00, 05:00, 09:00, 13:00, 17:00
     // EAT schedule: 00:00, 04:00, 08:00, 12:00, 16:00, 20:00
-    cron.schedule('0 21,1,5,9,13,17 * * *', () => this.runPullCycle());
+    // Explicit timezone: 'UTC' so this is correct regardless of the host OS clock/TZ env var.
+    cron.schedule('0 21,1,5,9,13,17 * * *', () => this.runPullCycle(), { timezone: 'UTC' });
 
     // Check for 48h disqualifications every hour
-    cron.schedule('30 * * * *', () => this.checkDisqualifications());
+    cron.schedule('30 * * * *', () => this.checkDisqualifications(), { timezone: 'UTC' });
 
     // Terminal health recheck every 10 min
-    cron.schedule('*/10 * * * *', () => this.recheckUnhealthyTerminals());
+    cron.schedule('*/10 * * * *', () => this.recheckUnhealthyTerminals(), { timezone: 'UTC' });
 
     // Auto-start / auto-end challenges based on scheduled EAT times — runs every minute
-    cron.schedule('* * * * *', () => this.checkChallengeLifecycle());
+    cron.schedule('* * * * *', () => this.checkChallengeLifecycle(), { timezone: 'UTC' });
 
     console.log('✅ VPS Pull Scheduler v2 started (shared queue, per-account eval, staging → live flush)');
 
@@ -921,15 +922,33 @@ export class VpsPullScheduler {
         // Pull strategy:
         // - Challenge ended (status = reviewing): FULL pull from challenge start (final sync)
         // - First pull (lastPullAt is null): FULL pull from challenge start
+        // - Midnight (00:00 EAT) run, NOT the challenge's first night: 25h safety pull
+        //   (previous day's midnight -1h to now), with extended_sync so the VPS worker
+        //   waits longer for MT5 history sync. Skipped on the first night since
+        //   auto-start already does its own full pull that night.
         // - Subsequent pulls during active challenge: incremental (5h window)
         // - Orders always fetch from challenge start (lightweight, provides open_time/open_price)
         const challengeStartDate = challenge?.start_date ? new Date(challenge.start_date).toISOString() : undefined;
         const isChallengeEnded = challenge?.status === 'reviewing' || challenge?.status === 'completed';
         let fromDate: string;
+        let extendedSync = false;
 
         if (isChallengeEnded || !account.lastPullAt) {
           // Full pull: challenge ended (final sync) OR first-ever pull
           fromDate = challengeStartDate || new Date(2020, 0, 1).toISOString();
+        } else if (challenge && this.isMidnightEATRun() && !this.isFirstNightSinceChallengeStart(challenge)) {
+          // 25h daily safety pull: yesterday's midnight EAT, minus 1h overlap, to now.
+          const now = new Date();
+          const nowEAT = new Date(now.getTime() + 3 * 60 * 60 * 1000);
+          const yesterdayMidnightEAT = new Date(Date.UTC(
+            nowEAT.getUTCFullYear(), nowEAT.getUTCMonth(), nowEAT.getUTCDate() - 1, 0, 0, 0
+          ));
+          // Convert back to UTC instant, then subtract 1h overlap.
+          const yesterdayMidnightUTC = new Date(yesterdayMidnightEAT.getTime() - 3 * 60 * 60 * 1000);
+          const safetyFrom = new Date(yesterdayMidnightUTC.getTime() - 60 * 60 * 1000);
+          fromDate = safetyFrom.toISOString();
+          extendedSync = true;
+          console.log(`🌙 VPS Pull: 25h midnight safety pull for ${account.accountNumber} — from ${fromDate}`);
         } else {
           // Incremental: last 5 hours (4h window + 1h overlap for confidence)
           const now = new Date();
@@ -948,6 +967,9 @@ export class VpsPullScheduler {
           from_date: fromDate,
           orders_from_date: ordersFromDate,
         };
+        if (extendedSync) {
+          requestBody.extended_sync = true;
+        }
 
         const response = await axios.post(
           `${this.baseUrl}/pull`,
@@ -1252,6 +1274,37 @@ export class VpsPullScheduler {
     const now = new Date();
     const eatTime = new Date(now.getTime() + 3 * 60 * 60 * 1000);
     return eatTime.getUTCDay() === 6 && eatTime.getUTCHours() === 6;
+  }
+
+  // ==================== HELPER: MIDNIGHT 25H SAFETY PULL ====================
+
+  /**
+   * True only during the 00:00 EAT scheduled run (UTC hour 21).
+   * This is one of the 6 daily cron slots ('0 21,1,5,9,13,17 * * *').
+   */
+  private isMidnightEATRun(): boolean {
+    const now = new Date();
+    const eatTime = new Date(now.getTime() + 3 * 60 * 60 * 1000);
+    return eatTime.getUTCHours() === 0;
+  }
+
+  /**
+   * True if "today" (EAT) is the same calendar day the challenge started, i.e.
+   * this midnight run would be the FIRST midnight since challenge start.
+   * On that first night, auto-start already ran its own full pull — so the
+   * 25h safety-pull logic should NOT apply (it would just duplicate work).
+   * From the next midnight onward, this returns false and the 25h window kicks in.
+   */
+  private isFirstNightSinceChallengeStart(challenge: TradingChallenge): boolean {
+    if (!challenge?.start_date) return true; // safe default: skip 25h logic if unknown
+    const now = new Date();
+    const nowEAT = new Date(now.getTime() + 3 * 60 * 60 * 1000);
+    const startEAT = new Date(new Date(challenge.start_date).getTime() + 3 * 60 * 60 * 1000);
+
+    const todayKey = `${nowEAT.getUTCFullYear()}-${nowEAT.getUTCMonth()}-${nowEAT.getUTCDate()}`;
+    const startKey = `${startEAT.getUTCFullYear()}-${startEAT.getUTCMonth()}-${startEAT.getUTCDate()}`;
+
+    return todayKey === startKey;
   }
 
   private async isWeekendTradingAllowed(challengeId: number): Promise<boolean> {
@@ -1600,6 +1653,108 @@ export class VpsPullScheduler {
       } catch (e) {
         console.error(`Could not queue Discord DM for user ${failure.userId}:`, e);
       }
+    }
+  }
+
+  // ==================== CREDENTIAL RECOVERY ====================
+
+  /**
+   * Called the moment an account's credentials are confirmed fixed — either the
+   * user re-verifying via the bot's tc_update_password flow, or an admin doing it
+   * from the dashboard's /update-password route. The MT5 login has already been
+   * verified by the caller; this handles everything that needs to happen next.
+   *
+   * Why this exists: handleCredentialFailure() deliberately freezes last_pull_at
+   * while an account is flagged password_changed (see the comment in the
+   * terminalWorker invalid_credentials branch). But nothing was ever resetting it
+   * afterward — so the very next scheduled pull would just do its normal 5h
+   * incremental window from "now", silently skipping every trade that happened
+   * during the outage. Nulling last_pull_at here forces pullSingleAccount's
+   * incremental-vs-full check to take the full-pull branch instead, and we don't
+   * wait for the next cron tick to do it — we pull, evaluate, and re-rank right now.
+   */
+  async recoverAccountAfterCredentialFix(
+    registrationId: number,
+    challengeId: number,
+    source: 'user' | 'admin' = 'user'
+  ): Promise<(PullResult & { evaluated?: boolean }) | null> {
+    try {
+      await db.query(`UPDATE trading_registrations SET last_pull_at = NULL WHERE id = $1`, [registrationId]);
+
+      const result = await this.retrySingleAccount(registrationId, challengeId);
+
+      if (result.success) {
+        try {
+          const { leaderboardService } = require('../services/leaderboardService');
+          await leaderboardService.flushStagingToLive(challengeId);
+          await leaderboardService.ensureAllParticipantsHaveEntries(challengeId);
+          await leaderboardService.updateRankings(challengeId);
+          console.log(`✅ recoverAccountAfterCredentialFix: backfill pull + rank update done for reg ${registrationId}`);
+        } catch (e) {
+          console.error(`⚠️ recoverAccountAfterCredentialFix: leaderboard update failed for reg ${registrationId}:`, e);
+        }
+      } else {
+        console.warn(`⚠️ recoverAccountAfterCredentialFix: backfill pull for reg ${registrationId} did not succeed (errorCode=${result.errorCode}) — will resolve on the next scheduled cycle`);
+      }
+
+      // Notify regardless of the backfill pull's outcome — the password fix itself
+      // is what the user/admin cares about confirming; a transient pull hiccup will
+      // just resolve on the next scheduled cycle like any other account.
+      await this.notifyAccountRecovered(registrationId, challengeId, source);
+
+      return result;
+    } catch (e) {
+      console.error(`⚠️ recoverAccountAfterCredentialFix failed for reg ${registrationId}:`, e);
+      return null;
+    }
+  }
+
+  private async notifyAccountRecovered(registrationId: number, challengeId: number, source: 'user' | 'admin') {
+    try {
+      const regResult = await db.query(
+        `SELECT r.user_id, r.account_number, r.source AS notify_source, c.title
+         FROM trading_registrations r JOIN trading_challenges c ON c.id = r.challenge_id
+         WHERE r.id = $1`,
+        [registrationId]
+      );
+      if (regResult.rows.length === 0) return;
+      const reg = regResult.rows[0];
+      const notifySource = reg.notify_source || 'telegram';
+      const byAdminText = source === 'admin' ? ' by an admin' : '';
+
+      if (notifySource === 'telegram') {
+        try {
+          await this.bot.bot.telegram.sendMessage(
+            reg.user_id,
+            `✅ <b>Account Access Restored — ${reg.title}</b>\n\n` +
+            `Your investor password was updated${byAdminText} and verified successfully.\n\n` +
+            `Account <b>${reg.account_number}</b> is back online. We've already pulled and evaluated your full trade history, ` +
+            `so any trades made while access was down are now reflected on the leaderboard.`,
+            { parse_mode: 'HTML' }
+          );
+        } catch (e) {
+          console.error(`Could not notify Telegram user ${reg.user_id} of recovery:`, e);
+        }
+      } else if (notifySource === 'discord') {
+        try {
+          await db.query(
+            `INSERT INTO discord_dm_queue
+               (discord_user_id, registration_id, challenge_id, notification_type, message_title, message_body)
+             VALUES ($1, $2, $3, 'password_recovered', $4, $5)`,
+            [
+              String(reg.user_id),
+              registrationId,
+              challengeId,
+              '✅ Account Access Restored',
+              `Your investor password was updated${byAdminText} and verified for **${reg.title}**.\n\nAccount **${reg.account_number}** is back online — we've already pulled your full trade history so nothing is missed on the leaderboard.`,
+            ]
+          );
+        } catch (e) {
+          console.error(`Could not queue Discord recovery DM for user ${reg.user_id}:`, e);
+        }
+      }
+    } catch (e) {
+      console.error(`notifyAccountRecovered failed for reg ${registrationId}:`, e);
     }
   }
 
