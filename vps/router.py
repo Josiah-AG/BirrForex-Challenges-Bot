@@ -11,12 +11,46 @@ New in v7.0:
 """
 
 import os
+import subprocess
 import asyncio
 import httpx
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import Optional, Dict, Any
 import uvicorn
+
+
+def _get_git_commit() -> str:
+    """Returns the short git commit hash of the checkout this file is running
+    from, so we can always tell — from logs or /health — exactly which code
+    is live, instead of guessing from a hand-maintained version string."""
+    try:
+        repo_dir = os.path.dirname(os.path.abspath(__file__))
+        out = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=repo_dir, capture_output=True, text=True, timeout=5,
+        )
+        commit = out.stdout.strip()
+        return commit if commit else "unknown"
+    except Exception:
+        return "unknown"
+
+
+def _get_git_commit_time() -> str:
+    try:
+        repo_dir = os.path.dirname(os.path.abspath(__file__))
+        out = subprocess.run(
+            ["git", "log", "-1", "--format=%cI"],
+            cwd=repo_dir, capture_output=True, text=True, timeout=5,
+        )
+        ts = out.stdout.strip()
+        return ts if ts else "unknown"
+    except Exception:
+        return "unknown"
+
+
+GIT_COMMIT = _get_git_commit()
+GIT_COMMIT_TIME = _get_git_commit_time()
 
 app = FastAPI(title="WinnerPip VPS Router", version="7.0.0")
 
@@ -258,6 +292,8 @@ async def health():
     return {
         "status":               "ok" if alive > 0 else "degraded",
         "version":              "7.0.0",
+        "git_commit":           GIT_COMMIT,
+        "git_commit_time":      GIT_COMMIT_TIME,
         "terminals":            NUM_WORKERS,
         "alive_workers":        alive,
         "healthy_terminals":    healthy_list,
@@ -551,6 +587,7 @@ if __name__ == "__main__":
     print("=" * 50)
     print("  WinnerPip VPS Router v7.0")
     print("  Subtype-Aware Candle Routing + Smart Retry")
+    print(f"  Git commit: {GIT_COMMIT}  ({GIT_COMMIT_TIME})")
     print("=" * 50)
     print(f"  API Key:  {'SET (' + API_KEY[:8] + '...)' if API_KEY else 'NOT SET — WARNING!'}")
     print(f"  Workers:  {NUM_WORKERS} (ports {WORKER_BASE_PORT}-{WORKER_BASE_PORT + NUM_WORKERS - 1})")

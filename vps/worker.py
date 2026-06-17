@@ -29,6 +29,39 @@ from pydantic import BaseModel
 from typing import Optional
 import uvicorn
 
+
+def _get_git_commit() -> str:
+    """Returns the short git commit hash of the checkout this file is running
+    from, so we can always tell — from logs or /health — exactly which code
+    is live, instead of guessing from a hand-maintained version string."""
+    try:
+        repo_dir = os.path.dirname(os.path.abspath(__file__))
+        out = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=repo_dir, capture_output=True, text=True, timeout=5,
+        )
+        commit = out.stdout.strip()
+        return commit if commit else "unknown"
+    except Exception:
+        return "unknown"
+
+
+def _get_git_commit_time() -> str:
+    try:
+        repo_dir = os.path.dirname(os.path.abspath(__file__))
+        out = subprocess.run(
+            ["git", "log", "-1", "--format=%cI"],
+            cwd=repo_dir, capture_output=True, text=True, timeout=5,
+        )
+        ts = out.stdout.strip()
+        return ts if ts else "unknown"
+    except Exception:
+        return "unknown"
+
+
+GIT_COMMIT = _get_git_commit()
+GIT_COMMIT_TIME = _get_git_commit_time()
+
 # ── Timestamped logging ──────────────────────────────────────────────────────
 # Override built-in print so every log line automatically gets a UTC timestamp.
 # Format: [YYYY-MM-DD HH:MM:SS UTC] <message>
@@ -962,6 +995,8 @@ class CandlesRequest(BaseModel):
 def health():
     return {
         "status":               "ok",
+        "git_commit":           GIT_COMMIT,
+        "git_commit_time":      GIT_COMMIT_TIME,
         "terminal_id":          TERMINAL_ID,
         "port":                 PORT,
         "ipc_connected":        _ipc_connected,
@@ -1020,6 +1055,7 @@ def candles(req: CandlesRequest):
 if __name__ == "__main__":
     print(f"=" * 50)
     print(f"  VPS Worker {TERMINAL_ID} (v9.0 — Credential-Safe Recovery + History Sync Fix)")
+    print(f"  Git commit: {GIT_COMMIT}  ({GIT_COMMIT_TIME})")
     print(f"  Terminal: {TERMINAL_PATH}")
     print(f"  Port:     {PORT}")
     print(f"  Home:     {BASE_ACCOUNT} @ {BASE_SERVER} (standard)")
