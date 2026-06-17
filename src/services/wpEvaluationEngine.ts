@@ -754,7 +754,17 @@ export class WpEvaluationEngine {
       events.push({ time: lt.openMs,  posId: lt.posId, symbol: lt.symbol, action: 'open' });
       events.push({ time: lt.closeMs, posId: lt.posId, symbol: lt.symbol, action: 'close' });
     });
-    events.sort((a, b) => a.time - b.time || (a.action === 'close' ? -1 : 1));
+    // Tie-break at equal timestamps: a position's OWN open/close pair (0-duration trade)
+    // must self-cancel — open before its own close — otherwise it would be deleted
+    // (no-op, since it was never added yet) before being added, leaving it stuck in the
+    // open set forever and falsely flagging every later trade as "simultaneous".
+    // For DIFFERENT positions at the same instant, close still sorts before open so a
+    // trade closing exactly when another opens isn't counted as overlapping.
+    events.sort((a, b) => {
+      if (a.time !== b.time) return a.time - b.time;
+      if (a.posId === b.posId) return a.action === 'open' ? -1 : 1;
+      return a.action === 'close' ? -1 : 1;
+    });
 
     // positionViolators: posId → [co-offending posIds]
     const positionViolators = new Map<number, number[]>();
@@ -806,7 +816,13 @@ export class WpEvaluationEngine {
           symEvents.push({ time: lt.openMs,  posId: lt.posId, symbol: lt.symbol, action: 'open' });
           symEvents.push({ time: lt.closeMs, posId: lt.posId, symbol: lt.symbol, action: 'close' });
         });
-        symEvents.sort((a, b) => a.time - b.time || (a.action === 'close' ? -1 : 1));
+        // Same self-cancel fix as the global open-trades check above: a 0-duration
+        // position's own open/close pair must not get stuck "open" forever.
+        symEvents.sort((a, b) => {
+          if (a.time !== b.time) return a.time - b.time;
+          if (a.posId === b.posId) return a.action === 'open' ? -1 : 1;
+          return a.action === 'close' ? -1 : 1;
+        });
         const symOpen = new Set<number>();
         const symPosViolators = new Map<number, number[]>();
         for (const ev of symEvents) {

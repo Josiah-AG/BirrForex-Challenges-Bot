@@ -2545,14 +2545,17 @@ function generateTradesHTML(data: any): string {
   const fmtEAT = (iso: string) => {
     if (!iso) return "—";
     const d = new Date(new Date(iso).getTime() + 3 * 60 * 60 * 1000);
-    return d.toISOString().replace("T", " ").substring(0, 16) + " EAT";
+    return d.toISOString().replace("T", " ").substring(0, 19) + " EAT";
   };
   const duration = (open: string, close: string) => {
     if (!open || !close) return "—";
-    const m = Math.round((new Date(close).getTime() - new Date(open).getTime()) / 60000);
-    if (m < 60) return `${m}m`;
-    const h = Math.floor(m / 60), rm = m % 60;
-    return rm > 0 ? `${h}h ${rm}m` : `${h}h`;
+    const totalSec = Math.round((new Date(close).getTime() - new Date(open).getTime()) / 1000);
+    if (totalSec < 60) return `${totalSec}s`;
+    const h = Math.floor(totalSec / 3600);
+    const rm = Math.floor((totalSec % 3600) / 60);
+    const rs = totalSec % 60;
+    if (h > 0) return rs > 0 ? `${h}h ${rm}m ${rs}s` : (rm > 0 ? `${h}h ${rm}m` : `${h}h`);
+    return rs > 0 ? `${rm}m ${rs}s` : `${rm}m`;
   };
   const slResultBadge = (r: string | null) => {
     if (!r) return `<span style="color:#6b7280">—</span>`;
