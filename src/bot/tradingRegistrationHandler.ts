@@ -897,25 +897,44 @@ export class TradingRegistrationHandler {
         await ctx.reply('⏳ <b>Verifying new password...</b>', { parse_mode: 'HTML' });
         const verifyResult = await vpsService.verifyConnection(session.data.account_number, session.data.mt5_server, newPassword);
         if (verifyResult.success) {
-          // Update password in database and reset pull status
+          // Check disqualified status BEFORE updating — if the 48h auto-DQ rule already
+          // fired on this account, fixing the password does NOT auto-reinstate it. Only
+          // an admin can reverse a disqualification (confirmed deliberately, dashboard-side).
+          const dqCheck = await db.query(`SELECT disqualified FROM trading_registrations WHERE id = $1`, [session.data.registration_id]);
+          const wasDisqualified = dqCheck.rows[0]?.disqualified === true;
+
+          // Update password in database and reset pull status. Deliberately leave
+          // `disqualified` untouched — see note above.
           await db.query(
             `UPDATE trading_registrations SET investor_password = $1, pull_status = 'success', pull_error = NULL, connection_verified = true, connection_verified_at = NOW() WHERE id = $2`,
             [newPassword, session.data.registration_id]
           );
           userSessions.delete(telegramId);
-          await ctx.reply('✅ <b>Password updated successfully!</b>\n\nYour account is now accessible again. We\'re pulling your full trade history now to backfill anything missed while access was down.\n\n⚠️ <b>Remember:</b> Do NOT change your investor password again until the challenge ends.', { parse_mode: 'HTML' });
-          // Backfill: force a full pull for this account + push to the live leaderboard
-          // immediately, instead of waiting for the next scheduled incremental cron
-          // (which would only look back 5h and miss the outage window). Fire-and-forget —
-          // the user already got their confirmation; this just makes the data catch up.
-          try {
-            const globalScheduler = (global as any).__vpsPullScheduler;
-            if (globalScheduler && session.data.challenge_id) {
-              globalScheduler.recoverAccountAfterCredentialFix(session.data.registration_id, session.data.challenge_id, 'user')
-                .catch((e: any) => console.error('recoverAccountAfterCredentialFix (user flow) failed:', e));
+
+          if (wasDisqualified) {
+            await ctx.reply(
+              '✅ <b>Password updated and verified.</b>\n\n' +
+              '⚠️ However, this account was <b>disqualified</b> (password was not updated within the 48h window). ' +
+              'A working password alone does not automatically reinstate it — please contact @birrFXadmin if you\'d like to request reinstatement.',
+              { parse_mode: 'HTML' }
+            );
+            // No backfill pull/rank update — account stays out of the leaderboard
+            // until an admin explicitly reinstates it via the dashboard.
+          } else {
+            await ctx.reply('✅ <b>Password updated successfully!</b>\n\nYour account is now accessible again. We\'re pulling your full trade history now to backfill anything missed while access was down.\n\n⚠️ <b>Remember:</b> Do NOT change your investor password again until the challenge ends.', { parse_mode: 'HTML' });
+            // Backfill: force a full pull for this account + push to the live leaderboard
+            // immediately, instead of waiting for the next scheduled incremental cron
+            // (which would only look back 5h and miss the outage window). Fire-and-forget —
+            // the user already got their confirmation; this just makes the data catch up.
+            try {
+              const globalScheduler = (global as any).__vpsPullScheduler;
+              if (globalScheduler && session.data.challenge_id) {
+                globalScheduler.recoverAccountAfterCredentialFix(session.data.registration_id, session.data.challenge_id, 'user')
+                  .catch((e: any) => console.error('recoverAccountAfterCredentialFix (user flow) failed:', e));
+              }
+            } catch (e) {
+              console.error('Failed to trigger post-recovery backfill pull:', e);
             }
-          } catch (e) {
-            console.error('Failed to trigger post-recovery backfill pull:', e);
           }
         } else if (verifyResult.status === 'invalid_credentials') {
           await ctx.reply('❌ <b>Connection failed</b> — the password you entered is incorrect.\n\nPlease enter the correct <b>Investor (Read-Only) Password:</b>', { parse_mode: 'HTML' });

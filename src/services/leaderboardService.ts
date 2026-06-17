@@ -213,6 +213,8 @@ export class LeaderboardService {
         r.pull_status,
         r.pull_error,
         r.last_pull_at,
+        r.disqualified,
+        r.disqualified_reason,
         e.error_code,
         e.error_message,
         e.created_at as error_time,
@@ -236,7 +238,13 @@ export class LeaderboardService {
          LIMIT 1
        ) dm ON true
        WHERE r.challenge_id = $1
-         AND r.disqualified = false
+         AND (
+           r.disqualified = false
+           -- Credential failures stay visible even after the 48h auto-DQ rule fires —
+           -- the admin still needs to see/retry/update-password these, otherwise they
+           -- silently disappear into the generic "Skipped" bucket with no way to act.
+           OR r.pull_status IN ('password_changed', 'invalid_credentials')
+         )
          AND r.pull_status NOT IN ('success', 'ready', 'never_pulled', 'pending_verify')
          AND r.pull_status IS NOT NULL
        ORDER BY

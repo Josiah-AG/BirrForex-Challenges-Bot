@@ -2461,8 +2461,12 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/failed-accounts`, adminIp
     // ones that need/get an "Update Password" action; mixing them into the generic
     // "failed" list made it hard for the admin to tell which accounts actually need a
     // password fix vs. which just need a retry.
+    // Credential failures show up regardless of disqualified status (the 48h auto-DQ
+    // rule shouldn't make them disappear from the admin's view — see leaderboardService
+    // .getFailedAccounts()). The generic "failed" bucket keeps the old behavior of
+    // excluding disqualified accounts (those belong in the "skipped" bucket below).
     const credentialFailures = allFailed.filter((f: any) => f.pull_status === 'password_changed' || f.pull_status === 'invalid_credentials');
-    const failed = allFailed.filter((f: any) => f.pull_status !== 'password_changed' && f.pull_status !== 'invalid_credentials');
+    const failed = allFailed.filter((f: any) => f.pull_status !== 'password_changed' && f.pull_status !== 'invalid_credentials' && !f.disqualified);
 
     // Also get skipped accounts (zero balance WITH trades = blown, or disqualified)
     // Exclude accounts that are still being pulled (0 balance + 0 trades = hasn't deposited yet, still pulling)
@@ -2840,11 +2844,11 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/update-password`, adminI
 
     // Get account details
     const regResult = await db.query(
-      `SELECT account_number, mt5_server, pull_status FROM trading_registrations WHERE id = $1 AND challenge_id = $2`,
+      `SELECT account_number, mt5_server, pull_status, disqualified, disqualified_reason FROM trading_registrations WHERE id = $1 AND challenge_id = $2`,
       [registrationId, challengeId]
     );
     if (regResult.rows.length === 0) return res.status(404).json({ error: 'Registration not found' });
-    if (regResult.rows[0].pull_status === 'success') return res.json({ success: false, message: 'Already resolved — password was updated from another channel' });
+    if (regResult.rows[0].pull_status === 'success' && !regResult.rows[0].disqualified) return res.json({ success: false, message: 'Already resolved — password was updated from another channel' });
 
     const reg = regResult.rows[0];
 
@@ -2859,11 +2863,28 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/update-password`, adminI
         }, { timeout: 25000 });
 
         if (verifyRes.data?.success) {
-          // Update password and reset status
+          // Update password and reset status. Note: deliberately do NOT touch
+          // `disqualified` here — if this account was auto-DQ'd by the 48h
+          // no-password-update rule, it stays disqualified until the admin
+          // explicitly confirms reinstatement via /reinstate-account below.
           await db.query(
             `UPDATE trading_registrations SET investor_password = $1, pull_status = 'success', pull_error = NULL, connection_verified = true, connection_verified_at = NOW() WHERE id = $2`,
             [newPassword, registrationId]
           );
+
+          if (reg.disqualified) {
+            // Password is fixed and verified, but the account is disqualified —
+            // hold off on the backfill pull / rank update until the admin
+            // explicitly confirms reinstatement (separate endpoint below).
+            return res.json({
+              success: true,
+              verified: true,
+              requiresReinstateConfirm: true,
+              disqualifiedReason: reg.disqualified_reason,
+              message: 'Password updated and verified, but this account is disqualified — confirm reinstatement to resume pulls and rejoin the leaderboard.',
+            });
+          }
+
           // Backfill: force a full pull for this account + push to the live leaderboard
           // immediately + notify the user, instead of leaving it for the next scheduled
           // incremental cron (which would miss trades from the outage window). Fire-and-
@@ -2895,6 +2916,53 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/update-password`, adminI
     }
   } catch (error) {
     console.error('Admin update password error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * POST /api/admin/:secretPath/challenge/:id/reinstate-account
+ * Admin explicitly confirms reinstatement of a disqualified account whose
+ * credential failure was just fixed (password updated + verified). Requires
+ * { registrationId, confirm: true } — the frontend must show the admin an
+ * explicit "are you sure?" prompt (with the disqualified_reason) before
+ * calling this, since un-DQing reverses a real challenge-rules penalty.
+ */
+app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/reinstate-account`, adminIpCheck, async (req, res) => {
+  try {
+    const challengeId = parseInt(req.params.id);
+    const { registrationId, confirm } = req.body;
+    if (!registrationId) return res.status(400).json({ error: 'registrationId required' });
+    if (!confirm) return res.json({ success: false, message: 'Reinstatement requires explicit confirmation' });
+
+    const regResult = await db.query(
+      `SELECT account_number, disqualified, pull_status FROM trading_registrations WHERE id = $1 AND challenge_id = $2`,
+      [registrationId, challengeId]
+    );
+    if (regResult.rows.length === 0) return res.status(404).json({ error: 'Registration not found' });
+    const reg = regResult.rows[0];
+    if (!reg.disqualified) return res.json({ success: false, message: 'Account is not disqualified — nothing to reinstate' });
+    if (reg.pull_status !== 'success') return res.json({ success: false, message: 'Password has not been verified yet — update the password first' });
+
+    await db.query(
+      `UPDATE trading_registrations SET disqualified = false, disqualified_at = NULL, disqualified_reason = NULL WHERE id = $1`,
+      [registrationId]
+    );
+    await db.query(
+      `UPDATE wp_leaderboard SET is_disqualified = false, disqualify_reason = NULL WHERE registration_id = $1`,
+      [registrationId]
+    ).catch(() => {});
+
+    // Now run the same backfill pull + evaluate + rank + notify flow as a normal recovery.
+    const globalScheduler = (global as any).__vpsPullScheduler;
+    if (globalScheduler) {
+      globalScheduler.recoverAccountAfterCredentialFix(registrationId, challengeId, 'admin')
+        .catch((e: any) => console.error('recoverAccountAfterCredentialFix (reinstate flow) failed:', e));
+    }
+
+    return res.json({ success: true, message: `Account ${reg.account_number} reinstated — backfill pull + ranking update started` });
+  } catch (error) {
+    console.error('Reinstate account error:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
 });

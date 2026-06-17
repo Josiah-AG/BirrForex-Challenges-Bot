@@ -2210,12 +2210,36 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures }: { ch
       const data = await res.json();
       if (data.success) {
         setActionMsg(`✅ ${data.message}`);
+        if (data.requiresReinstateConfirm) {
+          const ok = window.confirm(
+            `This account was disqualified.\n\nReason: ${data.disqualifiedReason || "unknown"}\n\n` +
+            `Password is fixed and verified. Are you sure you want to reinstate it ` +
+            `(resume pulls and rejoin the leaderboard)?`
+          );
+          if (ok) {
+            await handleReinstateAccount(regId);
+          } else {
+            setActionMsg("⚠️ Password updated but account left disqualified (not reinstated)");
+          }
+        }
         setTimeout(() => fetchFailed(), 1000);
       } else {
         setActionMsg(`❌ ${data.message || "Update failed"}`);
       }
     } catch (_e) { setActionMsg("❌ Connection error"); }
     setRetrying(null);
+  };
+
+  const handleReinstateAccount = async (regId: number) => {
+    try {
+      const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/reinstate-account`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ registrationId: regId, confirm: true }),
+      });
+      const data = await res.json();
+      setActionMsg(data.success ? `✅ ${data.message}` : `❌ ${data.message || "Reinstate failed"}`);
+      setTimeout(() => fetchFailed(), 1000);
+    } catch (_e) { setActionMsg("❌ Connection error"); }
   };
 
   useEffect(() => { fetchFailed(); }, [challengeId]);
@@ -2300,9 +2324,13 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures }: { ch
             {credentialFailures.map((f: any) => (
               <div key={f.registration_id} className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10">
                 <div>
-                  <p className="text-sm text-white font-semibold">{f.account_number} <span className="text-gray-500 text-xs">@{f.username || f.nickname || "unknown"}</span></p>
+                  <p className="text-sm text-white font-semibold">
+                    {f.account_number} <span className="text-gray-500 text-xs">@{f.username || f.nickname || "unknown"}</span>
+                    {f.disqualified && <span className="ml-2 px-1.5 py-0.5 rounded bg-loss/20 text-loss text-[9px] font-bold align-middle">DQ'd</span>}
+                  </p>
                   {f.email && <p className="text-[10px] text-gray-400">{f.email}</p>}
                   <p className="text-[10px] text-loss">{f.pull_status}: {(f.pull_error || f.error_message || "Invalid credentials").substring(0, 60)}</p>
+                  {f.disqualified && f.disqualified_reason && <p className="text-[10px] text-loss/80">DQ reason: {f.disqualified_reason}</p>}
                   <p className="text-[10px] text-gray-500">{f.last_pull_at ? formatEAT(f.last_pull_at) : "Never"}</p>
                 </div>
                 <div className="flex flex-col gap-1.5">
@@ -2312,6 +2340,20 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures }: { ch
                   <button onClick={() => { const pw = prompt("Enter new investor password:"); if (pw) handleUpdatePassword(f.registration_id, pw); }} className="px-3 py-1.5 rounded-lg bg-gold/20 border border-gold/30 text-gold text-[10px] font-bold hover:bg-gold/30 transition-all">
                     🔑 Update PW
                   </button>
+                  {f.disqualified && f.pull_status === "success" && (
+                    <button
+                      onClick={() => {
+                        const ok = window.confirm(
+                          `This account was disqualified.\n\nReason: ${f.disqualified_reason || "unknown"}\n\n` +
+                          `Password is already verified working. Are you sure you want to reinstate it?`
+                        );
+                        if (ok) handleReinstateAccount(f.registration_id);
+                      }}
+                      className="px-3 py-1.5 rounded-lg bg-profit/20 border border-profit/30 text-profit text-[10px] font-bold hover:bg-profit/30 transition-all"
+                    >
+                      ✅ Reinstate
+                    </button>
+                  )}
                 </div>
               </div>
             ))}
