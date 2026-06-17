@@ -2561,12 +2561,16 @@ function generateTradesHTML(data: any): string {
     if (r === 'no_candles')return `<span style="color:#f59e0b;font-weight:700">? No Data</span>`;
     return `<span style="color:#6b7280">Skipped</span>`;
   };
+  // Violation text often references other trades' tickets (e.g. "also open: #302576583
+  // [XAUUSDc]") — turn those into in-page links that jump straight to that trade's row.
+  const linkifyTickets = (text: string) =>
+    text.replace(/#(\d+)/g, (m: string, tid: string) => `<a href="#trade-${tid}" style="color:#fbbf24;text-decoration:underline">#${tid}</a>`);
   const rows = (trades || []).map((t: any, i: number) => {
     const flagged = !t.isQualified;
     const bg = flagged ? "#2a0a0a" : (i % 2 === 0 ? "#111827" : "#0f172a");
     const profitColor = t.profit >= 0 ? "#22c55e" : "#ef4444";
-    const viols = (t.violations || []).map((v: any) => typeof v === 'string' ? v : v?.detail || 'Rule violation').join('<br>');
-    return `<tr style="background:${bg};border-bottom:1px solid #1f2937">
+    const viols = linkifyTickets((t.violations || []).map((v: any) => typeof v === 'string' ? v : v?.detail || 'Rule violation').join('<br>'));
+    return `<tr id="trade-${t.ticket}" class="trow" style="background:${bg};border-bottom:1px solid #1f2937">
       <td style="padding:8px 10px;color:#9ca3af;font-size:11px">${i + 1}</td>
       <td style="padding:8px 10px;color:#d1d5db;font-size:11px">${t.ticket}</td>
       <td style="padding:8px 10px;color:#f9fafb;font-weight:600;font-size:12px">${t.symbol}</td>
@@ -2602,6 +2606,9 @@ function generateTradesHTML(data: any): string {
   th{padding:10px 10px;text-align:left;font-size:10px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap}
   .note{margin-top:16px;padding:12px 16px;background:#1f2937;border-radius:8px;font-size:11px;color:#9ca3af}
   .note b{color:#f9fafb}
+  tbody tr.trow{transition:background .12s ease}
+  tbody tr.trow:hover{background:#1e293b !important;outline:1px solid #374151}
+  tbody tr.trow:target{background:#1e3a5f !important;outline:2px solid #60a5fa}
 </style>
 </head><body>
 <h1>${user?.nickname || "User"} — MT5 Trade History</h1>
