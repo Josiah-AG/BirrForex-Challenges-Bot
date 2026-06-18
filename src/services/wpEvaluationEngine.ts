@@ -623,11 +623,24 @@ export class WpEvaluationEngine {
       } else {
         const csTime = challengeStart ? new Date(challengeStart).getTime() : 0;
 
+        // Only treat genuine cash deposits as "deposits". MT5/brokers post several other
+        // things through the same deal_type='balance' bucket that are NOT trader-initiated
+        // deposits and must never trigger the recharge/DQ logic below, regardless of sign:
+        //   - Index/stock dividend adjustments  (comment like "DIV-USTEC-1204213")
+        //   - Swap/rollover credited as a balance op instead of per-trade swap (e.g. "SWAP")
+        //   - Bonus credits, corrections, and other broker-side balance corrections
+        // Real deposits/withdrawals from this broker are tagged "D-..." / "W-...".
         const allDeposits = await db.query(
           `SELECT profit, time FROM wp_deals
            WHERE challenge_id = $1 AND registration_id = $2
              AND (deal_type ILIKE '%balance%' OR deal_type = '2')
              AND profit > 0
+             AND comment NOT ILIKE 'DIV%'
+             AND comment NOT ILIKE '%DIVIDEND%'
+             AND comment NOT ILIKE '%SWAP%'
+             AND comment NOT ILIKE '%BONUS%'
+             AND comment NOT ILIKE '%CREDIT%'
+             AND comment NOT ILIKE '%CORRECTION%'
            ORDER BY time ASC`,
           [challengeId, reg.id]
         );
