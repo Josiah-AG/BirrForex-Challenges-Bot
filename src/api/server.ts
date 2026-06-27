@@ -1218,41 +1218,33 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/pulls`, adminIpCheck, asy
       }
     }
 
-    // SL check failures (last 7 days, grouped by account)
+    // SL check failures — live from wp_trades (sl_check_pending=true or check_failed)
     let slFailures: any[] = [];
     const slResult = await db.query(
-      `SELECT we.registration_id, we.account_number, we.error_message, we.created_at,
-              r.nickname, r.username, r.account_subtype
-       FROM wp_pull_errors we
-       JOIN trading_registrations r ON we.registration_id = r.id
+      `SELECT r.id as registration_id, r.account_number, r.nickname, r.username, r.account_subtype,
+              COUNT(t.id) FILTER (WHERE t.sl_check_pending = true) as trades_pending,
+              COUNT(t.id) FILTER (WHERE t.sl_check_result = 'check_failed') as trades_failed,
+              MAX(t.sl_check_attempts) as max_attempts,
+              MAX(t.close_time) as last_seen
+       FROM trading_registrations r
+       JOIN wp_trades t ON t.registration_id = r.id AND t.challenge_id = $1
+         AND (t.sl_check_pending = true OR t.sl_check_result = 'check_failed')
        WHERE r.challenge_id = $1
-         AND we.error_code = 'sl_check_failed'
-         AND we.created_at > NOW() - INTERVAL '7 days'
-       ORDER BY we.created_at DESC`,
+       GROUP BY r.id, r.account_number, r.nickname, r.username, r.account_subtype
+       ORDER BY MAX(t.close_time) DESC`,
       [challengeId]
     );
-    // Group by account — count unchecked trades
-    const slByAccount = new Map<string, any>();
-    for (const row of slResult.rows) {
-      const key = String(row.registration_id);
-      const parsed = (() => { try { return JSON.parse(row.error_message); } catch { return {}; } })();
-      const unchecked = parsed.trades_unchecked || 1;
-      if (!slByAccount.has(key)) {
-        slByAccount.set(key, {
-          registration_id: row.registration_id,
-          account_number: row.account_number,
-          nickname: row.nickname || row.account_number,
-          username: row.username,
-          account_subtype: row.account_subtype,
-          trades_unchecked: unchecked,
-          last_seen: row.created_at,
-        });
-      } else {
-        slByAccount.get(key)!.trades_unchecked += unchecked;
-        slByAccount.get(key)!.last_seen = row.created_at;
-      }
-    }
-    slFailures = [...slByAccount.values()];
+    slFailures = slResult.rows.map((r: any) => ({
+      registration_id: r.registration_id,
+      account_number: r.account_number,
+      nickname: r.nickname || r.account_number,
+      username: r.username,
+      account_subtype: r.account_subtype,
+      trades_unchecked: parseInt(r.trades_pending || '0'),
+      trades_failed: parseInt(r.trades_failed || '0'),
+      max_attempts: parseInt(r.max_attempts || '0'),
+      last_seen: r.last_seen,
+    }));
 
     return res.json({ pulls: batches.rows, terminalStats, slFailures });
   } catch (error) {

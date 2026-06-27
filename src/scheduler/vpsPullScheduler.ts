@@ -1948,25 +1948,57 @@ export class VpsPullScheduler {
    */
   private async reportCandleFailures(challengeId: number, durationSec: number) {
     try {
-      // Use sl_check_pending trades as the source of truth (DB-persisted)
-      const result = await db.query(
+      const { Markup } = require('telegraf');
+
+      // 1. Trades still pending (retrying) — benefit of doubt still active
+      const pending = await db.query(
         `SELECT DISTINCT r.id as registration_id, r.account_number, r.nickname, r.account_subtype,
-                COUNT(t.id) as pending_count
+                COUNT(t.id) as pending_count, MAX(t.sl_check_attempts) as max_attempts
          FROM trading_registrations r
          JOIN wp_trades t ON t.registration_id = r.id AND t.challenge_id = $1 AND t.sl_check_pending = true
          WHERE r.challenge_id = $1
          GROUP BY r.id, r.account_number, r.nickname, r.account_subtype`,
         [challengeId]
       );
-      if (result.rows.length === 0) return;
 
-      const lines = result.rows
-        .map((r: any) => `• ${r.nickname || r.account_number} (${r.account_subtype || 'standard'}) — ${r.pending_count} trade(s)`)
-        .join('\n');
+      // 2. Trades escalated to check_failed — penalty already applied
+      const escalated = await db.query(
+        `SELECT DISTINCT r.id as registration_id, r.account_number, r.nickname, r.account_subtype,
+                COUNT(t.id) as failed_count, MAX(t.sl_check_attempts) as max_attempts
+         FROM trading_registrations r
+         JOIN wp_trades t ON t.registration_id = r.id AND t.challenge_id = $1 AND t.sl_check_result = 'check_failed'
+         WHERE r.challenge_id = $1
+         GROUP BY r.id, r.account_number, r.nickname, r.account_subtype`,
+        [challengeId]
+      );
 
-      // Build inline keyboard — one retry button per account, callback data is self-contained
-      const { Markup } = require('telegraf');
-      const buttons = result.rows.map((r: any) =>
+      if (pending.rows.length === 0 && escalated.rows.length === 0) return;
+
+      let msg = '';
+
+      if (pending.rows.length > 0) {
+        const lines = pending.rows
+          .map((r: any) => `• ${r.nickname || r.account_number} — ${r.pending_count} trade(s) pending (attempt ${r.max_attempts}/5)`)
+          .join('\n');
+        msg += `⚠️ <b>Max Risk Check Incomplete</b>\n\n` +
+          `${pending.rows.length} account(s) had candle fetch failures — retrying next cycle.\n\n` +
+          `${lines}\n\n`;
+      }
+
+      if (escalated.rows.length > 0) {
+        const lines = escalated.rows
+          .map((r: any) => `• ${r.nickname || r.account_number} — ${r.failed_count} trade(s) ❌ penalty applied`)
+          .join('\n');
+        msg += `🚨 <b>Max Risk Check Failed (Escalated)</b>\n\n` +
+          `${escalated.rows.length} account(s) exhausted all retry attempts.\n` +
+          `Max-risk penalty has been applied to unverifiable trades.\n\n` +
+          `${lines}\n\n`;
+      }
+
+      msg += `<i>Click a button to manually retry an account's pending check now.</i>`;
+
+      // Retry buttons only for still-pending accounts
+      const buttons = pending.rows.map((r: any) =>
         [Markup.button.callback(
           `🔄 Retry: ${r.nickname || r.account_number}`,
           `sl_retry_${challengeId}_${r.registration_id}`
@@ -1974,14 +2006,8 @@ export class VpsPullScheduler {
       );
 
       await this.bot.bot.telegram.sendMessage(
-        config.adminUserId,
-        `⚠️ <b>Max Risk Check Incomplete</b>\n\n` +
-        `${result.rows.length} account(s) had candle fetch failures.\n` +
-        `Benefit of doubt applied — trades not penalised yet.\n\n` +
-        `${lines}\n\n` +
-        `<i>Click a button to retry the SL check for that account now.\n` +
-        `Unretried accounts will be auto-checked on the next pull cycle.</i>`,
-        { parse_mode: 'HTML', ...Markup.inlineKeyboard(buttons) }
+        config.adminUserId, msg.trim(),
+        { parse_mode: 'HTML', ...(buttons.length > 0 ? Markup.inlineKeyboard(buttons) : {}) }
       );
     } catch (e) {
       console.warn('⚠️ Could not report candle failures to admin:', (e as Error).message);

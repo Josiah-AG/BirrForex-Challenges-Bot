@@ -2019,10 +2019,12 @@ function SlFailuresPanel({ challengeId, slFailures, apiUrl, secretPath }: { chal
       const data = await res.json();
       if (data.success) {
         setResults(r => ({ ...r, [regId]: `✅ ${data.message}` }));
-        // Remove from list if no more pending trades
-        if (data.checked > 0 || data.cleared > 0) {
-          setItems(prev => prev.filter(f => f.registration_id !== regId));
-        }
+        // Update item: clear pending count; if escalated entries remain, keep the card
+        setItems(prev => prev.map(f => {
+          if (f.registration_id !== regId) return f;
+          const remaining = { ...f, trades_unchecked: 0 };
+          return remaining;
+        }).filter(f => f.trades_unchecked > 0 || f.trades_failed > 0));
       } else {
         setResults(r => ({ ...r, [regId]: `❌ ${data.error || "Failed"}` }));
       }
@@ -2038,7 +2040,7 @@ function SlFailuresPanel({ challengeId, slFailures, apiUrl, secretPath }: { chal
         ⚠️ Max Risk Check Incomplete ({items.length} account{items.length !== 1 ? "s" : ""})
       </h3>
       <p className="text-[11px] text-gray-400 mb-4">
-        These accounts had candle fetch failures during SL verification (last 7 days). Trades are not penalised yet — benefit of doubt applied. Retry to check now, or they will be auto-checked on the next pull cycle.
+        These accounts have trades with candle fetch failures during max risk verification. Pending trades still have benefit of doubt — retry to check now, or they will be auto-checked on the next pull cycle. Escalated trades (5 failed attempts) have had the max-risk penalty applied automatically.
       </p>
       <div className="space-y-2 max-h-[300px] overflow-y-auto">
         {items.map((f: any) => (
@@ -2056,16 +2058,22 @@ function SlFailuresPanel({ challengeId, slFailures, apiUrl, secretPath }: { chal
             </div>
             <div className="flex flex-col items-end gap-1">
               <div className="text-right mb-1">
-                <p className="text-sm text-gold font-bold">{f.trades_unchecked}</p>
-                <p className="text-[10px] text-gray-500">trades unchecked</p>
+                {f.trades_unchecked > 0 && (
+                  <p className="text-sm text-gold font-bold">{f.trades_unchecked} <span className="text-[10px] font-normal text-gray-500">pending (attempt {f.max_attempts}/5)</span></p>
+                )}
+                {f.trades_failed > 0 && (
+                  <p className="text-sm text-loss font-bold">{f.trades_failed} <span className="text-[10px] font-normal text-gray-500">escalated ❌ penalty applied</span></p>
+                )}
               </div>
-              <button
-                onClick={() => handleRetry(f.registration_id, f.nickname)}
-                disabled={retrying === String(f.registration_id)}
-                className="px-3 py-1.5 rounded-lg bg-gold/20 border border-gold/30 text-gold text-[10px] font-bold hover:bg-gold/30 transition-all disabled:opacity-50"
-              >
-                {retrying === String(f.registration_id) ? "Checking..." : "🔄 Retry SL Check"}
-              </button>
+              {f.trades_unchecked > 0 && (
+                <button
+                  onClick={() => handleRetry(f.registration_id, f.nickname)}
+                  disabled={retrying === String(f.registration_id)}
+                  className="px-3 py-1.5 rounded-lg bg-gold/20 border border-gold/30 text-gold text-[10px] font-bold hover:bg-gold/30 transition-all disabled:opacity-50"
+                >
+                  {retrying === String(f.registration_id) ? "Checking..." : "🔄 Retry SL Check"}
+                </button>
+              )}
             </div>
           </div>
         ))}
@@ -2695,8 +2703,10 @@ function generateTradesHTML(data: any): string {
   const slResultBadge = (r: string | null) => {
     if (!r) return `<span style="color:#6b7280">—</span>`;
     if (r === 'passed')    return `<span style="color:#22c55e;font-weight:700">✓ Passed</span>`;
-    if (r === 'fake_sl')   return `<span style="color:#ef4444;font-weight:700">⚠ Max Risk Breached</span>`;
-    if (r === 'no_candles')return `<span style="color:#f59e0b;font-weight:700">? No Data</span>`;
+    if (r === 'fake_sl')      return `<span style="color:#ef4444;font-weight:700">⚠ Max Risk Breached</span>`;
+    if (r === 'no_candles')   return `<span style="color:#f59e0b;font-weight:700">? No Data</span>`;
+    if (r === 'conflicting')  return `<span style="color:#f59e0b;font-weight:700">⚡ Conflicting Results — Rechecking</span>`;
+    if (r === 'check_failed') return `<span style="color:#ef4444;font-weight:700">✗ Unresolvable — Penalty Applied</span>`;
     return `<span style="color:#6b7280">Skipped</span>`;
   };
   // Violation text often references other trades' tickets (e.g. "also open: #302576583

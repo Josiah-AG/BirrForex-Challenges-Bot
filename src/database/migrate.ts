@@ -280,6 +280,11 @@ async function migrate() {
     await db.query(`ALTER TABLE wp_trades ADD COLUMN IF NOT EXISTS sl_check_result VARCHAR(20);`).catch(() => {});
     console.log('✅ Fake SL detail columns migration OK');
 
+    // Retry attempt counter for pending SL checks
+    await db.query(`ALTER TABLE wp_trades ADD COLUMN IF NOT EXISTS sl_check_attempts INTEGER DEFAULT 0;`).catch(() => {});
+    await db.query(`ALTER TABLE wp_trades ADD COLUMN IF NOT EXISTS sl_conflict_count INTEGER DEFAULT 0;`).catch(() => {});
+    console.log('✅ sl_check_attempts / sl_conflict_count migration OK');
+
     // Fix Discord registrations that have standard_cent accounts but is_cent=false
     // These registered before the Discord bot passed is_cent/account_subtype to the API
     await db.query(`
