@@ -1412,16 +1412,17 @@ export class WpEvaluationEngine {
     if (cfg.max_open_trades) rules.push(`📈 Maximum ${cfg.max_open_trades} trades open at the same time`);
     if (cfg.pair_limit) rules.push(`🔄 Maximum ${cfg.pair_limit} trades on the same pair simultaneously`);
     if (cfg.stop_loss_required) {
-      let t = '🛡️ Maximum risk per trade is enforced (verified via candle check, with or without an SL set)';
+      let t = '🛡️ Max risk per trade';
       if (cfg.max_risk_dollars) {
         if (showDual) {
-          t += ` (max risk: $${cfg.max_risk_dollars} Standard / ${cfg.max_risk_dollars * 100}¢ Cent)`;
+          t += `: $${cfg.max_risk_dollars} (Standard) / ${cfg.max_risk_dollars * 100}¢ (Cent)`;
         } else if (isRealCentOnly) {
-          t += ` (max risk: ${cfg.max_risk_dollars}¢)`;
+          t += `: ${cfg.max_risk_dollars}¢`;
         } else {
-          t += ` (max risk: $${cfg.max_risk_dollars})`;
+          t += `: $${cfg.max_risk_dollars}`;
         }
       }
+      t += ' — each trade is checked; profits removed if limit is breached';
       rules.push(t);
     }
     if (cfg.daily_loss_cap) {
@@ -1436,13 +1437,6 @@ export class WpEvaluationEngine {
     if (cfg.max_hold_hours) rules.push(`⏱️ Maximum trade duration: ${cfg.max_hold_hours} hours`);
     if (!cfg.weekend_trading) rules.push('🚫 No weekend trading');
     if (cfg.min_active_days) rules.push(`📅 Minimum ${cfg.min_active_days} active trading days to qualify`);
-    if (isCent) {
-      if (isRealCentOnly) {
-        rules.push('💰 Cent account only');
-      } else {
-        rules.push('💰 Only cent accounts allowed for real account category');
-      }
-    }
     rules.push('🚫 No recharging (additional deposits) allowed during the challenge');
     rules.push('✅ Unlimited trades per day — as long as all rules are followed');
     rules.push('✅ No leverage limit');
