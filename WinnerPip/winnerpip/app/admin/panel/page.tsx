@@ -2713,31 +2713,97 @@ function generateTradesHTML(data: any): string {
   // [XAUUSDc]") — turn those into in-page links that jump straight to that trade's row.
   const linkifyTickets = (text: string) =>
     text.replace(/#(\d+)/g, (m: string, tid: string) => `<a href="#trade-${tid}" style="color:#fbbf24;text-decoration:underline">#${tid}</a>`);
-  const rows = (trades || []).map((t: any, i: number) => {
-    const flagged = !t.isQualified;
-    const bg = flagged ? "#2a0a0a" : (i % 2 === 0 ? "#111827" : "#0f172a");
-    const profitColor = t.profit >= 0 ? "#22c55e" : "#ef4444";
-    const viols = linkifyTickets((t.violations || []).map((v: any) => typeof v === 'string' ? v : v?.detail || 'Rule violation').join('<br>'));
-    return `<tr id="trade-${t.ticket}" class="trow" style="background:${bg};border-bottom:1px solid #1f2937">
-      <td style="padding:8px 10px;color:#9ca3af;font-size:11px">${i + 1}</td>
-      <td style="padding:8px 10px;color:#d1d5db;font-size:11px">${t.ticket}</td>
-      <td style="padding:8px 10px;color:#f9fafb;font-weight:600;font-size:12px">${t.symbol}</td>
-      <td style="padding:8px 10px;font-weight:700;font-size:11px;color:${t.type?.toLowerCase() === 'buy' ? '#22c55e' : '#ef4444'}">${t.type?.toUpperCase()}</td>
-      <td style="padding:8px 10px;color:#d1d5db;font-size:11px;white-space:nowrap">${fmtEAT(t.openTime)}</td>
-      <td style="padding:8px 10px;color:#d1d5db;font-size:11px;white-space:nowrap">${fmtEAT(t.closeTime)}</td>
-      <td style="padding:8px 10px;color:#9ca3af;font-size:11px;text-align:center">${duration(t.openTime, t.closeTime)}</td>
-      <td style="padding:8px 10px;color:#d1d5db;font-size:11px;text-align:right">${Number(t.volume).toFixed(2)}</td>
-      <td style="padding:8px 10px;color:#d1d5db;font-size:11px;text-align:right">${Number(t.openPrice).toFixed(5)}</td>
-      <td style="padding:8px 10px;color:#d1d5db;font-size:11px;text-align:right">${Number(t.closePrice).toFixed(5)}</td>
-      <td style="padding:8px 10px;color:#9ca3af;font-size:11px;text-align:right">${t.stopLoss ? Number(t.stopLoss).toFixed(5) : "—"}</td>
-      <td style="padding:8px 10px;color:#9ca3af;font-size:11px;text-align:right">${t.slAllowedPrice ? Number(t.slAllowedPrice).toFixed(5) : "—"}</td>
-      <td style="padding:8px 10px;font-size:11px;text-align:right;color:${t.type?.toLowerCase() === 'buy' ? '#ef4444' : '#22c55e'}">${t.slMaxAdversePrice ? Number(t.slMaxAdversePrice).toFixed(5) : "—"}</td>
-      <td style="padding:8px 10px;font-size:11px;text-align:center">${slResultBadge(t.slCheckResult)}</td>
-      <td style="padding:8px 10px;font-weight:700;font-size:12px;text-align:right;color:${profitColor}">${cur(t.profit)}</td>
-      <td style="padding:8px 10px;font-size:10px;text-align:right;color:#6b7280">${cur(t.commission)} / ${cur(t.swap)}</td>
-      <td style="padding:8px 10px;font-size:11px;text-align:center">${flagged ? `<span style="color:#ef4444;font-weight:700">🚩 Flagged</span>` : `<span style="color:#22c55e">✓</span>`}</td>
-      <td style="padding:8px 10px;font-size:10px;color:#ef4444;max-width:220px">${viols}</td>
+  // Group trades by positionId for partial close display
+  const tradeList: any[] = trades || [];
+  const posMap = new Map<number, any[]>();
+  for (const t of tradeList) {
+    const key = t.positionId ?? t.ticket;
+    if (!posMap.has(key)) posMap.set(key, []);
+    posMap.get(key)!.push(t);
+  }
+  Array.from(posMap.values()).forEach(g => g.sort((a: any, b: any) => new Date(a.closeTime).getTime() - new Date(b.closeTime).getTime()));
+  const groups = Array.from(posMap.values()).sort((a, b) => new Date(b[b.length-1].closeTime).getTime() - new Date(a[a.length-1].closeTime).getTime());
+
+  let rowNum = 0;
+  const rows = groups.map((group: any[]) => {
+    rowNum++;
+    if (group.length === 1) {
+      const t = group[0];
+      const flagged = !t.isQualified;
+      const bg = flagged ? "#2a0a0a" : (rowNum % 2 === 0 ? "#111827" : "#0f172a");
+      const profitColor = t.profit >= 0 ? "#22c55e" : "#ef4444";
+      const viols = linkifyTickets((t.violations || []).map((v: any) => typeof v === 'string' ? v : v?.detail || 'Rule violation').join('<br>'));
+      return `<tr id="trade-${t.ticket}" class="trow" style="background:${bg};border-bottom:1px solid #1f2937">
+        <td style="padding:8px 10px;color:#9ca3af;font-size:11px">${rowNum}</td>
+        <td style="padding:8px 10px;color:#d1d5db;font-size:11px">${t.ticket}</td>
+        <td style="padding:8px 10px;color:#f9fafb;font-weight:600;font-size:12px">${t.symbol}</td>
+        <td style="padding:8px 10px;font-weight:700;font-size:11px;color:${t.type?.toLowerCase() === 'buy' ? '#22c55e' : '#ef4444'}">${t.type?.toUpperCase()}</td>
+        <td style="padding:8px 10px;color:#d1d5db;font-size:11px;white-space:nowrap">${fmtEAT(t.openTime)}</td>
+        <td style="padding:8px 10px;color:#d1d5db;font-size:11px;white-space:nowrap">${fmtEAT(t.closeTime)}</td>
+        <td style="padding:8px 10px;color:#9ca3af;font-size:11px;text-align:center">${duration(t.openTime, t.closeTime)}</td>
+        <td style="padding:8px 10px;color:#d1d5db;font-size:11px;text-align:right">${Number(t.volume).toFixed(2)}</td>
+        <td style="padding:8px 10px;color:#d1d5db;font-size:11px;text-align:right">${Number(t.openPrice).toFixed(5)}</td>
+        <td style="padding:8px 10px;color:#d1d5db;font-size:11px;text-align:right">${Number(t.closePrice).toFixed(5)}</td>
+        <td style="padding:8px 10px;color:#9ca3af;font-size:11px;text-align:right">${t.stopLoss ? Number(t.stopLoss).toFixed(5) : "—"}</td>
+        <td style="padding:8px 10px;color:#9ca3af;font-size:11px;text-align:right">${t.slAllowedPrice ? Number(t.slAllowedPrice).toFixed(5) : "—"}</td>
+        <td style="padding:8px 10px;font-size:11px;text-align:right;color:${t.type?.toLowerCase() === 'buy' ? '#ef4444' : '#22c55e'}">${t.slMaxAdversePrice ? Number(t.slMaxAdversePrice).toFixed(5) : "—"}</td>
+        <td style="padding:8px 10px;font-size:11px;text-align:center">${slResultBadge(t.slCheckResult)}</td>
+        <td style="padding:8px 10px;font-weight:700;font-size:12px;text-align:right;color:${profitColor}">${cur(t.profit)}</td>
+        <td style="padding:8px 10px;font-size:10px;text-align:right;color:#6b7280">${cur(t.commission)} / ${cur(t.swap)}</td>
+        <td style="padding:8px 10px;font-size:11px;text-align:center">${flagged ? `<span style="color:#ef4444;font-weight:700">🚩 Flagged</span>` : `<span style="color:#22c55e">✓</span>`}</td>
+        <td style="padding:8px 10px;font-size:10px;color:#ef4444;max-width:220px">${viols}</td>
+      </tr>`;
+    }
+    // Partial close group
+    const first = group[0];
+    const totalProfit = group.reduce((s: number, t: any) => s + Number(t.profit), 0);
+    const totalVol = group.reduce((s: number, t: any) => s + Number(t.volume), 0);
+    const anyFlagged = group.some((t: any) => !t.isQualified);
+    const parentBg = anyFlagged ? "#2a0a0a" : (rowNum % 2 === 0 ? "#111827" : "#0f172a");
+    const totalProfitColor = totalProfit >= 0 ? "#22c55e" : "#ef4444";
+    const allViols = linkifyTickets(group.flatMap((t: any) => (t.violations || []).map((v: any) => typeof v === 'string' ? v : v?.detail || 'Rule violation')).join('<br>'));
+    const parentRow = `<tr class="trow" style="background:${parentBg};border-bottom:1px solid #374151">
+      <td style="padding:8px 10px;color:#9ca3af;font-size:11px">${rowNum}</td>
+      <td style="padding:8px 10px;color:#6b7280;font-size:10px">${first.positionId ?? first.ticket}<br><span style="color:#4b5563">${group.length} closes</span></td>
+      <td style="padding:8px 10px;color:#f9fafb;font-weight:600;font-size:12px">${first.symbol}</td>
+      <td style="padding:8px 10px;font-weight:700;font-size:11px;color:${first.type?.toLowerCase() === 'buy' ? '#22c55e' : '#ef4444'}">${first.type?.toUpperCase()}</td>
+      <td style="padding:8px 10px;color:#d1d5db;font-size:11px;white-space:nowrap">${fmtEAT(first.openTime)}</td>
+      <td style="padding:8px 10px;color:#9ca3af;font-size:11px;white-space:nowrap">— (${group.length} closes)</td>
+      <td style="padding:8px 10px;color:#9ca3af;font-size:11px;text-align:center">${duration(first.openTime, group[group.length-1].closeTime)}</td>
+      <td style="padding:8px 10px;color:#d1d5db;font-size:11px;text-align:right;font-weight:700">${totalVol.toFixed(2)}</td>
+      <td style="padding:8px 10px;color:#d1d5db;font-size:11px;text-align:right">${Number(first.openPrice).toFixed(5)}</td>
+      <td style="padding:8px 10px;color:#9ca3af;font-size:11px;text-align:right">—</td>
+      <td style="padding:8px 10px;color:#9ca3af;font-size:11px;text-align:right">${first.stopLoss ? Number(first.stopLoss).toFixed(5) : "—"}</td>
+      <td colspan="3" style="padding:8px 10px;color:#6b7280;font-size:10px;text-align:center">see closes below</td>
+      <td style="padding:8px 10px;font-weight:700;font-size:12px;text-align:right;color:${totalProfitColor}">${cur(totalProfit)}</td>
+      <td style="padding:8px 10px;font-size:10px;text-align:right;color:#6b7280">${cur(group.reduce((s: number, t: any) => s + Number(t.commission||0), 0))} / ${cur(group.reduce((s: number, t: any) => s + Number(t.swap||0), 0))}</td>
+      <td style="padding:8px 10px;font-size:11px;text-align:center">${anyFlagged ? `<span style="color:#ef4444;font-weight:700">🚩 Flagged</span>` : `<span style="color:#22c55e">✓</span>`}</td>
+      <td style="padding:8px 10px;font-size:10px;color:#ef4444;max-width:220px">${allViols}</td>
     </tr>`;
+    const subRows = group.map((t: any) => {
+      const flagged = !t.isQualified;
+      const profitColor = t.profit >= 0 ? "#22c55e" : "#ef4444";
+      return `<tr id="trade-${t.ticket}" class="trow" style="background:#0d1117;border-bottom:1px solid #1f2937">
+        <td style="padding:5px 10px;color:#4b5563;font-size:10px">└</td>
+        <td style="padding:5px 10px;color:#6b7280;font-size:10px">${t.ticket}</td>
+        <td></td><td></td>
+        <td></td>
+        <td style="padding:5px 10px;color:#9ca3af;font-size:10px;white-space:nowrap">${fmtEAT(t.closeTime)}</td>
+        <td style="padding:5px 10px;color:#9ca3af;font-size:10px;text-align:center">${duration(first.openTime, t.closeTime)}</td>
+        <td style="padding:5px 10px;color:#d1d5db;font-size:10px;text-align:right">${Number(t.volume).toFixed(2)}</td>
+        <td></td>
+        <td style="padding:5px 10px;color:#d1d5db;font-size:10px;text-align:right">${Number(t.closePrice).toFixed(5)}</td>
+        <td></td>
+        <td style="padding:5px 10px;color:#9ca3af;font-size:10px;text-align:right">${t.slAllowedPrice ? Number(t.slAllowedPrice).toFixed(5) : "—"}</td>
+        <td style="padding:5px 10px;font-size:10px;text-align:right;color:${t.type?.toLowerCase() === 'buy' ? '#ef4444' : '#22c55e'}">${t.slMaxAdversePrice ? Number(t.slMaxAdversePrice).toFixed(5) : "—"}</td>
+        <td style="padding:5px 10px;font-size:10px;text-align:center">${slResultBadge(t.slCheckResult)}</td>
+        <td style="padding:5px 10px;font-weight:600;font-size:11px;text-align:right;color:${profitColor}">${cur(t.profit)}</td>
+        <td style="padding:5px 10px;font-size:10px;text-align:right;color:#6b7280">${cur(t.commission)} / ${cur(t.swap)}</td>
+        <td style="padding:5px 10px;font-size:10px;text-align:center">${flagged ? `<span style="color:#ef4444">🚩</span>` : `<span style="color:#22c55e">✓</span>`}</td>
+        <td></td>
+      </tr>`;
+    }).join("");
+    return parentRow + subRows;
   }).join("");
 
   return `<!DOCTYPE html><html><head><meta charset="utf-8">
