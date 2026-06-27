@@ -2971,6 +2971,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/pull-single-account`, ad
     return res.json({
       success: pullResult.success,
       errorMessage: pullResult.success ? null : (pullResult.errorMessage || 'Pull failed'),
+      terminalAttempts: pullResult.success ? null : ((pullResult as any).terminalAttempts || null),
       tradesFound: newTradeCount,
       tradesAdded,
       faultsFound: flaggedCount,

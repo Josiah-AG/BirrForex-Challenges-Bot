@@ -62,6 +62,7 @@ interface PullResult {
   equity?: number;
   terminalId?: number;
   terminalsAttempted?: number[];
+  terminalAttempts?: { terminalId: number; errorCode: string; errorMessage: string }[];
 }
 
 interface TerminalState {
@@ -1165,10 +1166,11 @@ export class VpsPullScheduler {
       };
     }
 
+    const challengeData = await db.query(`SELECT start_date FROM trading_challenges WHERE id = $1`, [challengeId]);
+    const terminalAttempts: { terminalId: number; errorCode: string; errorMessage: string }[] = [];
+
     for (let i = 0; i < Math.min(3, healthyTerminals.length); i++) {
       const terminal = healthyTerminals[i];
-      // Load challenge for from_date
-      const challengeData = await db.query(`SELECT start_date FROM trading_challenges WHERE id = $1`, [challengeId]);
       const result = await this.pullSingleAccount(account, terminal.id, challengeData.rows[0]);
 
       if (result.success) {
@@ -1188,17 +1190,26 @@ export class VpsPullScheduler {
         return { ...result, evaluated };
       }
 
+      terminalAttempts.push({
+        terminalId: terminal.id,
+        errorCode:    result.errorCode    || 'unknown',
+        errorMessage: result.errorMessage || 'Unknown error',
+      });
+
       if (result.errorCode === 'invalid_credentials') {
-        return result;
+        return { ...result, terminalAttempts };
       }
 
       await this.delay(RETRY_DELAY_MS);
     }
 
+    const summary = terminalAttempts.map(a => `T${a.terminalId}: ${a.errorMessage}`).join(' · ');
     return {
       registrationId, accountNumber: account.accountNumber,
       userId: account.userId, username: account.username,
-      success: false, errorCode: 'retry_exhausted', errorMessage: 'Failed on all terminals',
+      success: false, errorCode: 'retry_exhausted',
+      errorMessage: summary || 'Failed on all terminals',
+      terminalAttempts,
     };
   }
 

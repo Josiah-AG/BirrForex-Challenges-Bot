@@ -2608,7 +2608,21 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures }: { ch
               ) : (
                 <>
                   <p className="text-sm font-bold text-loss text-center">Pull Failed</p>
-                  <p className="text-[11px] text-gray-400 text-center">{indivResult.errorMessage || "Unknown error"}</p>
+                  {indivResult.terminalAttempts && indivResult.terminalAttempts.length > 0 ? (
+                    <div className="space-y-1">
+                      {indivResult.terminalAttempts.map((a: any, i: number) => (
+                        <div key={i} className="flex items-start gap-2 bg-white/5 rounded-lg px-3 py-2">
+                          <span className="text-[10px] font-bold text-gray-500 shrink-0 mt-0.5">T{a.terminalId}</span>
+                          <div className="min-w-0">
+                            <span className="text-[10px] font-semibold text-loss block">{a.errorCode}</span>
+                            <span className="text-[10px] text-gray-400 break-words">{a.errorMessage}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-[11px] text-gray-400 text-center">{indivResult.errorMessage || "Unknown error"}</p>
+                  )}
                   <button onClick={handleIndivPull} disabled={indivPulling} className="w-full py-2 rounded-xl bg-purple-500/20 border border-purple-500/30 text-purple-300 text-xs font-bold hover:bg-purple-500/30 transition-all disabled:opacity-50">Retry Pull</button>
                 </>
               )}
