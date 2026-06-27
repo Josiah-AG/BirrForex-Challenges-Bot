@@ -2035,7 +2035,7 @@ function SlFailuresPanel({ challengeId, slFailures, apiUrl, secretPath }: { chal
   return (
     <div className="glass rounded-2xl border border-gold/20 p-5">
       <h3 className="text-sm font-semibold text-gold mb-1 flex items-center gap-2">
-        ⚠️ Fake SL Check Incomplete ({items.length} account{items.length !== 1 ? "s" : ""})
+        ⚠️ Max Risk Check Incomplete ({items.length} account{items.length !== 1 ? "s" : ""})
       </h3>
       <p className="text-[11px] text-gray-400 mb-4">
         These accounts had candle fetch failures during SL verification (last 7 days). Trades are not penalised yet — benefit of doubt applied. Retry to check now, or they will be auto-checked on the next pull cycle.
@@ -2351,7 +2351,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures }: { ch
         <button onClick={() => setShowFilter("credential")} className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${showFilter === "credential" ? "bg-gold/20 text-gold border border-gold/30" : "bg-white/5 text-gray-400 hover:text-white"}`}>🔑 Credential Failures ({credentialFailures.length})</button>
         <button onClick={() => setShowFilter("failed")} className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${showFilter === "failed" ? "bg-loss/20 text-loss border border-loss/30" : "bg-white/5 text-gray-400 hover:text-white"}`}>❌ Failed ({failedAccounts.length})</button>
         <button onClick={() => setShowFilter("skipped")} className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${showFilter === "skipped" ? "bg-gray-500/20 text-gray-300 border border-gray-500/30" : "bg-white/5 text-gray-400 hover:text-white"}`}>⏭️ Skipped ({skippedAccounts.length})</button>
-        <button onClick={() => setShowFilter("sl")} className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${showFilter === "sl" ? "bg-amber-500/20 text-amber-400 border border-amber-500/30" : "bg-white/5 text-gray-400 hover:text-white"}`}>🕯️ Fake SL Detection Failure ({slFailures.length})</button>
+        <button onClick={() => setShowFilter("sl")} className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${showFilter === "sl" ? "bg-amber-500/20 text-amber-400 border border-amber-500/30" : "bg-white/5 text-gray-400 hover:text-white"}`}>🕯️ Max Risk Check Failure ({slFailures.length})</button>
         <button onClick={() => setShowFilter("all")} className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${showFilter === "all" ? "bg-royal/20 text-royal border border-royal/30" : "bg-white/5 text-gray-400 hover:text-white"}`}>All</button>
         <button onClick={() => { setShowFilter("individual"); setIndivResult(null); }} className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${showFilter === "individual" ? "bg-purple-500/20 text-purple-400 border border-purple-500/30" : "bg-white/5 text-gray-400 hover:text-white"}`}>🎯 Pull Individual Account</button>
       </div>
@@ -2466,7 +2466,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures }: { ch
           <SlFailuresPanel challengeId={challengeId} slFailures={slFailures} apiUrl={apiUrl} secretPath={secretPath} />
         ) : (
           <div className="glass rounded-2xl border border-amber-500/20 p-5">
-            <h3 className="text-sm font-semibold text-amber-400 mb-1">🕯️ Fake SL Detection Failure (0)</h3>
+            <h3 className="text-sm font-semibold text-amber-400 mb-1">🕯️ Max Risk Check Failure (0)</h3>
             <p className="text-[11px] text-profit text-center py-2">✅ No candle-check failures right now.</p>
           </div>
         )
@@ -2695,7 +2695,7 @@ function generateTradesHTML(data: any): string {
   const slResultBadge = (r: string | null) => {
     if (!r) return `<span style="color:#6b7280">—</span>`;
     if (r === 'passed')    return `<span style="color:#22c55e;font-weight:700">✓ Passed</span>`;
-    if (r === 'fake_sl')   return `<span style="color:#ef4444;font-weight:700">⚠ Fake SL</span>`;
+    if (r === 'fake_sl')   return `<span style="color:#ef4444;font-weight:700">⚠ Max Risk Breached</span>`;
     if (r === 'no_candles')return `<span style="color:#f59e0b;font-weight:700">? No Data</span>`;
     return `<span style="color:#6b7280">Skipped</span>`;
   };
@@ -2770,7 +2770,7 @@ function generateTradesHTML(data: any): string {
 <div class="note">
   <b>Allowed SL</b> — the furthest price the SL is allowed to be at (based on max risk rule). &nbsp;
   <b>Max Adverse</b> — the most extreme price the market reached during the trade (min low for Buy, max high for Sell). &nbsp;
-  <b>SL Check: ⚠ Fake SL</b> — market moved past the Allowed SL but the trade stayed open (SL was removed or widened).
+  <b>SL Check: ⚠ Max Risk Breached</b> — price moved past the maximum allowed risk level during the trade.
 </div>
 </body></html>`;
 }

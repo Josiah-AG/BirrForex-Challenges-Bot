@@ -1975,7 +1975,7 @@ export class VpsPullScheduler {
 
       await this.bot.bot.telegram.sendMessage(
         config.adminUserId,
-        `⚠️ <b>Fake SL Check Incomplete</b>\n\n` +
+        `⚠️ <b>Max Risk Check Incomplete</b>\n\n` +
         `${result.rows.length} account(s) had candle fetch failures.\n` +
         `Benefit of doubt applied — trades not penalised yet.\n\n` +
         `${lines}\n\n` +
