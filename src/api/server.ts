@@ -507,7 +507,7 @@ app.get('/api/challenges/:id/user-trades', async (req, res) => {
 
     // Find registration by nickname
     const reg = await db.query(
-      `SELECT r.id, c.start_date FROM trading_registrations r
+      `SELECT r.id, c.start_date, c.end_date FROM trading_registrations r
        JOIN trading_challenges c ON r.challenge_id = c.id
        WHERE r.challenge_id = $1 AND LOWER(r.nickname) = LOWER($2) AND (r.status IS NULL OR r.status != 'removed')`,
       [challengeId, nickname]
@@ -516,14 +516,20 @@ app.get('/api/challenges/:id/user-trades', async (req, res) => {
 
     const registrationId = reg.rows[0].id;
     const startDate = reg.rows[0].start_date;
+    const endDate = reg.rows[0].end_date;
 
-    // Build date filter
+    // Build date filter — restrict to challenge period only
     let dateFilter = '';
     const baseParams: any[] = [challengeId, registrationId];
     if (startDate) {
       const graceStart = new Date(new Date(startDate).getTime() - 3 * 60 * 60 * 1000);
       dateFilter = ` AND close_time >= $3`;
       baseParams.push(graceStart.toISOString());
+    }
+    if (endDate) {
+      const graceEnd = new Date(new Date(endDate).getTime() + 27 * 60 * 60 * 1000);
+      dateFilter += ` AND close_time <= $${baseParams.length + 1}`;
+      baseParams.push(graceEnd.toISOString());
     }
 
     // Get total count
@@ -585,6 +591,7 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
     const cId = regInfo.rows[0]?.challenge_id;
     const cDates = await db.query(`SELECT start_date, end_date FROM trading_challenges WHERE id = $1`, [cId]);
     const cStartDate = cDates.rows[0]?.start_date;
+    const cEndDate   = cDates.rows[0]?.end_date;
     let tradesQuery = `SELECT ticket, symbol, trade_type, volume, open_time, close_time,
               open_price, close_price, profit, commission, swap, is_qualified, violations, sl_check_pending, sl_check_result
        FROM wp_trades
@@ -594,6 +601,11 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
       const graceStart = new Date(new Date(cStartDate).getTime() - 3 * 60 * 60 * 1000);
       tradesQuery += ` AND close_time >= $3`;
       tradesParams.push(graceStart.toISOString());
+    }
+    if (cEndDate) {
+      const graceEnd = new Date(new Date(cEndDate).getTime() + 27 * 60 * 60 * 1000);
+      tradesQuery += ` AND close_time <= $${tradesParams.length + 1}`;
+      tradesParams.push(graceEnd.toISOString());
     }
     tradesQuery += ` ORDER BY close_time DESC LIMIT 50`;
     const trades = await db.query(tradesQuery, tradesParams);
@@ -1432,12 +1444,27 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/finduser`, adminIpCheck, 
 
     const r = result.rows[0];
 
-    // Get recent trades
-    const trades = await db.query(
-      `SELECT symbol, trade_type, volume, profit, close_time, is_qualified, violations
-       FROM wp_trades WHERE registration_id = $1 ORDER BY close_time DESC LIMIT 10`,
-      [r.id]
+    // Get recent trades — scoped to challenge period
+    const challengeDatesLookup = await db.query(
+      `SELECT start_date, end_date FROM trading_challenges WHERE id = $1`, [challengeId]
     );
+    const lookupStart = challengeDatesLookup.rows[0]?.start_date;
+    const lookupEnd   = challengeDatesLookup.rows[0]?.end_date;
+    let lookupTradesQuery = `SELECT symbol, trade_type, volume, profit, close_time, is_qualified, violations
+       FROM wp_trades WHERE challenge_id = $1 AND registration_id = $2`;
+    const lookupTradesParams: any[] = [challengeId, r.id];
+    if (lookupStart) {
+      const graceStart = new Date(new Date(lookupStart).getTime() - 3 * 60 * 60 * 1000);
+      lookupTradesQuery += ` AND close_time >= $${lookupTradesParams.length + 1}`;
+      lookupTradesParams.push(graceStart.toISOString());
+    }
+    if (lookupEnd) {
+      const graceEnd = new Date(new Date(lookupEnd).getTime() + 27 * 60 * 60 * 1000);
+      lookupTradesQuery += ` AND close_time <= $${lookupTradesParams.length + 1}`;
+      lookupTradesParams.push(graceEnd.toISOString());
+    }
+    lookupTradesQuery += ` ORDER BY close_time DESC LIMIT 10`;
+    const trades = await db.query(lookupTradesQuery, lookupTradesParams);
 
     return res.json({
       found: true,
@@ -1750,16 +1777,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/user-trades-mt5`, adminIp
     const registrationId = parseInt(req.query.registration_id as string);
     if (!registrationId) return res.status(400).json({ error: 'registration_id required' });
 
-    const trades = await db.query(
-      `SELECT ticket, symbol, trade_type, volume, open_time, close_time,
-              open_price, close_price, stop_loss, take_profit,
-              profit, commission, swap, comment, is_qualified, violations
-       FROM wp_trades WHERE challenge_id = $1 AND registration_id = $2
-       ORDER BY open_time ASC`,
-      [challengeId, registrationId]
-    );
-
-    // Get user info + challenge info
+    // Get user info + challenge info first so we can apply date filter
     const reg = await db.query(
       `SELECT r.nickname, r.account_number, r.mt5_server, r.account_type, r.is_cent,
               c.title, c.start_date, c.end_date
@@ -1769,6 +1787,24 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/user-trades-mt5`, adminIp
       [registrationId]
     );
     const user = reg.rows[0] || {};
+
+    let mt5TradesQuery = `SELECT ticket, symbol, trade_type, volume, open_time, close_time,
+              open_price, close_price, stop_loss, take_profit,
+              profit, commission, swap, comment, is_qualified, violations
+       FROM wp_trades WHERE challenge_id = $1 AND registration_id = $2`;
+    const mt5TradesParams: any[] = [challengeId, registrationId];
+    if (user.start_date) {
+      const graceStart = new Date(new Date(user.start_date).getTime() - 3 * 60 * 60 * 1000);
+      mt5TradesQuery += ` AND close_time >= $${mt5TradesParams.length + 1}`;
+      mt5TradesParams.push(graceStart.toISOString());
+    }
+    if (user.end_date) {
+      const graceEnd = new Date(new Date(user.end_date).getTime() + 27 * 60 * 60 * 1000);
+      mt5TradesQuery += ` AND close_time <= $${mt5TradesParams.length + 1}`;
+      mt5TradesParams.push(graceEnd.toISOString());
+    }
+    mt5TradesQuery += ` ORDER BY open_time ASC`;
+    const trades = await db.query(mt5TradesQuery, mt5TradesParams);
 
     // Compute MT5-style results
     const positions = trades.rows;
