@@ -341,6 +341,12 @@ async function migrate() {
     //
     // Step 1: Delete old-format records (ticket = position_id) that now have a correct
     //         newer record (ticket = closing_deal_ticket, same position_id) — the duplicates.
+    // Old records created before the position_id column existed have position_id = NULL.
+    // First backfill position_id = ticket for those records (since old worker used position_id as ticket).
+    await db.query(`
+      UPDATE wp_trades SET position_id = ticket WHERE position_id IS NULL
+    `).catch(() => {});
+
     const deleteResult = await db.query(`
       DELETE FROM wp_trades old
       WHERE old.ticket = old.position_id
