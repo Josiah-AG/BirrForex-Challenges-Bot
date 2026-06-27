@@ -2849,6 +2849,105 @@ function generateTradesHTML(data: any): string {
     return parentRow + subRows;
   }).join("");
 
+  // ── Evaluation report stats ──────────────────────────────────────────────
+  const totalPositions   = groups.length;
+  const flaggedPositions = groups.filter(g => g.some((t: any) => !t.isQualified)).length;
+  const qualifiedPositions = totalPositions - flaggedPositions;
+  const totalDeals       = tradeList.length;
+  const qualifiedDeals   = tradeList.filter((t: any) => t.isQualified).length;
+
+  const grossProfit    = tradeList.reduce((s: number, t: any) => s + (Number(t.profit) > 0 ? Number(t.profit) : 0), 0);
+  const grossLoss      = tradeList.reduce((s: number, t: any) => s + (Number(t.profit) < 0 ? Number(t.profit) : 0), 0);
+  const netProfit      = tradeList.reduce((s: number, t: any) => s + Number(t.profit), 0);
+  const qualifiedProfit = tradeList.filter((t: any) => t.isQualified).reduce((s: number, t: any) => s + Number(t.profit), 0);
+  const removedProfit  = tradeList.filter((t: any) => !t.isQualified).reduce((s: number, t: any) => s + Number(t.profit), 0);
+
+  // Active trading days (unique EAT calendar dates with at least one close)
+  const tradingDays = new Set(tradeList.map((t: any) => {
+    const d = new Date(new Date(t.closeTime).getTime() + 3 * 60 * 60 * 1000);
+    return d.toISOString().substring(0, 10);
+  })).size;
+
+  // Gather all violation texts and group by type
+  const allViolTexts: string[] = tradeList.flatMap((t: any) =>
+    (t.violations || []).map((v: any) => (typeof v === 'string' ? v : v?.detail || ''))
+  );
+  const violsByType: Record<string, { count: number; tickets: number[] }> = {};
+  for (const t of tradeList) {
+    const viols = (t.violations || []).map((v: any) => (typeof v === 'string' ? v : v?.detail || ''));
+    for (const vt of viols) {
+      let key = 'Other';
+      if (/maximum allowed risk|virtual SL|fake.sl/i.test(vt))  key = 'Max Risk (SL) Breached';
+      else if (/simultaneous/i.test(vt))                         key = 'Simultaneous Trades';
+      else if (/news|economic/i.test(vt))                        key = 'News Trading';
+      else if (/hold.*(time|hours?)|duration/i.test(vt))         key = 'Max Hold Time';
+      else if (/profit target|daily.*(loss|drawdown)/i.test(vt)) key = 'Daily Limit';
+      else if (/lot.size|volume/i.test(vt))                      key = 'Lot Size';
+      else if (/weekend/i.test(vt))                              key = 'Weekend Trade';
+      else if (/could not be verified|check.failed/i.test(vt))   key = 'Unverified (Penalty Applied)';
+      if (!violsByType[key]) violsByType[key] = { count: 0, tickets: [] };
+      violsByType[key].count++;
+      violsByType[key].tickets.push(t.ticket);
+    }
+  }
+
+  const slPendingCount = tradeList.filter((t: any) => t.slCheckPending).length;
+
+  const statCard = (label: string, value: string, sub: string, accent: string) =>
+    `<div style="background:#111827;border:1px solid #1f2937;border-radius:12px;padding:18px 20px;min-width:0">
+      <div style="font-size:10px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px">${label}</div>
+      <div style="font-size:26px;font-weight:800;color:${accent};line-height:1">${value}</div>
+      ${sub ? `<div style="font-size:11px;color:#6b7280;margin-top:5px">${sub}</div>` : ''}
+    </div>`;
+
+  const evalRows = groups.map((group: any[], gi: number) => {
+    const first = group[0];
+    const totalP = group.reduce((s: number, t: any) => s + Number(t.profit), 0);
+    const anyF = group.some((t: any) => !t.isQualified);
+    const slResult = group.every((t: any) => t.slCheckResult === 'passed') ? 'passed'
+      : group.some((t: any) => t.slCheckResult === 'fake_sl') ? 'fake_sl'
+      : group.some((t: any) => t.slCheckResult === 'check_failed') ? 'check_failed'
+      : group.some((t: any) => t.slCheckPending) ? 'pending'
+      : group[group.length - 1].slCheckResult;
+    const slBadge = slResult === 'passed'       ? `<span style="color:#22c55e;font-weight:700">✓ Passed</span>`
+      : slResult === 'fake_sl'      ? `<span style="color:#ef4444;font-weight:700">⚠ Breached</span>`
+      : slResult === 'check_failed' ? `<span style="color:#ef4444;font-weight:700">✗ Penalty</span>`
+      : slResult === 'pending'      ? `<span style="color:#f59e0b;font-weight:700">⏳ Pending</span>`
+      :                               `<span style="color:#6b7280">—</span>`;
+    const qualBadge = anyF
+      ? `<span style="color:#ef4444;font-weight:700">🚩 Flagged</span>`
+      : `<span style="color:#22c55e;font-weight:700">✓ Pass</span>`;
+    const allV = group.flatMap((t: any) => (t.violations || []).map((v: any) => typeof v === 'string' ? v : v?.detail || ''));
+    const firstV = allV[0] ? (allV[0].length > 90 ? allV[0].substring(0, 88) + '…' : allV[0]) : '';
+    const row_bg = anyF ? '#1a0505' : (gi % 2 === 0 ? '#111827' : '#0f172a');
+    const profColor = totalP >= 0 ? '#22c55e' : '#ef4444';
+    const isPartial = group.length > 1;
+    const ticketDisplay = isPartial
+      ? `<a href="#trade-${first.ticket}" style="color:#60a5fa;text-decoration:none">${first.positionId ?? first.ticket}</a> <span style="color:#4b5563;font-size:9px">(${group.length} closes)</span>`
+      : `<a href="#trade-${first.ticket}" style="color:#60a5fa;text-decoration:none">${first.ticket}</a>`;
+    return `<tr style="background:${row_bg};border-bottom:1px solid #1f2937">
+      <td style="padding:7px 10px;color:#6b7280;font-size:11px">${gi + 1}</td>
+      <td style="padding:7px 10px;font-size:11px">${ticketDisplay}</td>
+      <td style="padding:7px 10px;font-weight:700;font-size:12px;color:#f9fafb">${first.symbol}</td>
+      <td style="padding:7px 10px;font-weight:700;font-size:11px;color:${first.type?.toLowerCase() === 'buy' ? '#22c55e' : '#ef4444'}">${first.type?.toUpperCase()}</td>
+      <td style="padding:7px 10px;font-size:10px;color:#9ca3af;white-space:nowrap">${fmtEAT(first.openTime)}</td>
+      <td style="padding:7px 10px;font-size:10px;color:#9ca3af;white-space:nowrap">${fmtEAT(group[group.length-1].closeTime)}</td>
+      <td style="padding:7px 10px;color:#d1d5db;font-size:11px;text-align:right">${Number(group.reduce((s: number, t: any) => s + Number(t.volume), 0)).toFixed(2)}</td>
+      <td style="padding:7px 10px;font-weight:700;font-size:12px;text-align:right;color:${profColor}">${cur(totalP)}</td>
+      <td style="padding:7px 10px;font-size:11px;text-align:center">${slBadge}</td>
+      <td style="padding:7px 10px;font-size:11px;text-align:center">${qualBadge}</td>
+      <td style="padding:7px 10px;font-size:10px;color:#ef4444;max-width:260px">${firstV}</td>
+    </tr>`;
+  }).join('');
+
+  const violationRows = Object.entries(violsByType).map(([type, info]) =>
+    `<tr style="border-bottom:1px solid #1f2937">
+      <td style="padding:8px 14px;font-weight:700;color:#fbbf24;font-size:12px">${type}</td>
+      <td style="padding:8px 14px;color:#ef4444;font-weight:700;font-size:14px;text-align:center">${info.count}</td>
+      <td style="padding:8px 14px;color:#6b7280;font-size:10px">${[...new Set(info.tickets)].slice(0, 8).map(tk => `<a href="#trade-${tk}" style="color:#60a5fa;text-decoration:none">#${tk}</a>`).join(', ')}${info.tickets.length > 8 ? ` … +${info.tickets.length - 8} more` : ''}</td>
+    </tr>`
+  ).join('');
+
   return `<!DOCTYPE html><html><head><meta charset="utf-8">
 <title>${user?.nickname || "User"} — MT5 Trade History</title>
 <style>
@@ -2866,6 +2965,20 @@ function generateTradesHTML(data: any): string {
   tbody tr.trow{transition:background .12s ease}
   tbody tr.trow:hover{background:#1e293b !important;outline:1px solid #374151}
   tbody tr.trow:target{background:#1e3a5f !important;outline:2px solid #60a5fa}
+  .eval-section{page-break-before:always;margin-top:56px;padding-top:40px;border-top:2px solid #1f2937}
+  .section-title{font-size:18px;font-weight:800;color:#f9fafb;margin:0 0 6px}
+  .section-sub{font-size:12px;color:#6b7280;margin-bottom:24px}
+  .stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin-bottom:28px}
+  .divider{border:none;border-top:1px solid #1f2937;margin:32px 0}
+  .eval-table{width:100%;border-collapse:collapse;font-size:12px}
+  .eval-table thead tr{background:#1f2937;border-bottom:2px solid #374151}
+  .eval-table th{padding:9px 10px;font-size:10px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap}
+  .eval-table tbody tr:hover{background:#1e293b !important}
+  .viols-table{width:100%;border-collapse:collapse}
+  .viols-table thead tr{background:#1f2937}
+  .viols-table th{padding:9px 14px;font-size:10px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em}
+  .viols-table tbody tr:hover{background:#1e293b !important}
+  @media print{.eval-section{page-break-before:always}}
 </style>
 </head><body>
 <h1>${user?.nickname || "User"} — MT5 Trade History</h1>
@@ -2891,5 +3004,57 @@ function generateTradesHTML(data: any): string {
   <b>Max Adverse</b> — the most extreme price the market reached during the trade (min low for Buy, max high for Sell). &nbsp;
   <b>SL Check: ⚠ Max Risk Breached</b> — price moved past the maximum allowed risk level during the trade.
 </div>
+
+<!-- ══════════════════════ EVALUATION REPORT ══════════════════════ -->
+<div class="eval-section">
+  <div class="section-title">📋 Evaluation Report</div>
+  <div class="section-sub">Challenge: ${challenge?.title || "—"} &nbsp;·&nbsp; ${user?.nickname || "—"} &nbsp;·&nbsp; Account ${user?.accountNumber}</div>
+
+  <!-- Row 1: Trade counts -->
+  <div class="stat-grid">
+    ${statCard('Total Positions', String(totalPositions), `${totalDeals} closing deal${totalDeals !== 1 ? 's' : ''}`, '#f9fafb')}
+    ${statCard('Qualified', String(qualifiedPositions), `${qualifiedDeals} of ${totalDeals} deals`, '#22c55e')}
+    ${statCard('Flagged', String(flaggedPositions), flaggedPositions > 0 ? `${totalDeals - qualifiedDeals} flagged deal${(totalDeals - qualifiedDeals) !== 1 ? 's' : ''}` : 'No violations', flaggedPositions > 0 ? '#ef4444' : '#22c55e')}
+    ${statCard('Trading Days', String(tradingDays), 'unique EAT calendar days', '#60a5fa')}
+    ${statCard('SL Checks Pending', String(slPendingCount), slPendingCount > 0 ? 'awaiting candle data' : 'all resolved', slPendingCount > 0 ? '#f59e0b' : '#22c55e')}
+  </div>
+
+  <!-- Row 2: P&L summary -->
+  <div style="font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px">Profit & Loss Summary</div>
+  <div class="stat-grid">
+    ${statCard('Gross Profit', cur(grossProfit), 'from winning positions', '#22c55e')}
+    ${statCard('Gross Loss', cur(grossLoss), 'from losing positions', '#ef4444')}
+    ${statCard('Net Total', cur(netProfit), 'all positions combined', netProfit >= 0 ? '#22c55e' : '#ef4444')}
+    ${statCard('Qualified Profit', cur(qualifiedProfit), 'counts toward target', qualifiedProfit >= 0 ? '#22c55e' : '#ef4444')}
+    ${statCard("Flagged P&L", cur(removedProfit), 'from disqualified positions', '#9ca3af')}
+  </div>
+
+  ${allViolTexts.length > 0 ? `
+  <hr class="divider">
+  <!-- Violations breakdown -->
+  <div style="font-size:14px;font-weight:800;color:#f9fafb;margin-bottom:14px">⚠ Violation Breakdown</div>
+  <table class="viols-table" style="margin-bottom:28px">
+    <thead><tr><th>Violation Type</th><th style="text-align:center">Count</th><th>Affected Tickets</th></tr></thead>
+    <tbody style="color:#d1d5db">${violationRows}</tbody>
+  </table>` : `
+  <hr class="divider">
+  <div style="padding:20px;background:#111827;border:1px solid #1f2937;border-radius:10px;text-align:center;color:#22c55e;font-weight:700;margin-bottom:28px">
+    ✓ No violations found — all positions qualified
+  </div>`}
+
+  <hr class="divider">
+  <!-- Per-position evaluation summary -->
+  <div style="font-size:14px;font-weight:800;color:#f9fafb;margin-bottom:14px">Position Evaluation Summary</div>
+  <table class="eval-table">
+    <thead><tr>
+      <th>#</th><th>Ticket / Position</th><th>Symbol</th><th>Type</th>
+      <th>Open (EAT)</th><th>Close (EAT)</th><th>Lots</th>
+      <th style="text-align:right">Profit</th><th style="text-align:center">SL Check</th>
+      <th style="text-align:center">Result</th><th>Violation (summary)</th>
+    </tr></thead>
+    <tbody>${evalRows}</tbody>
+  </table>
+</div>
+
 </body></html>`;
 }
