@@ -535,7 +535,7 @@ app.get('/api/challenges/:id/user-trades', async (req, res) => {
 
     // Get trades with pagination
     const trades = await db.query(
-      `SELECT symbol, trade_type, volume, profit, commission, swap, close_time, open_time, is_qualified, violations, sl_check_pending
+      `SELECT symbol, trade_type, volume, profit, commission, swap, close_time, open_time, is_qualified, violations, sl_check_pending, sl_check_result
        FROM wp_trades WHERE challenge_id = $1 AND registration_id = $2${dateFilter}
        ORDER BY close_time DESC LIMIT ${limit} OFFSET ${offset}`,
       baseParams
@@ -554,6 +554,7 @@ app.get('/api/challenges/:id/user-trades', async (req, res) => {
         isQualified: t.is_qualified,
         violations: t.violations || [],
         slCheckPending: t.sl_check_pending || false,
+        slCheckResult: t.sl_check_result || null,
       })),
     });
   } catch (error) {
@@ -581,7 +582,7 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
     const cDates = await db.query(`SELECT start_date, end_date FROM trading_challenges WHERE id = $1`, [cId]);
     const cStartDate = cDates.rows[0]?.start_date;
     let tradesQuery = `SELECT ticket, symbol, trade_type, volume, open_time, close_time,
-              open_price, close_price, profit, commission, swap, is_qualified, violations, sl_check_pending
+              open_price, close_price, profit, commission, swap, is_qualified, violations, sl_check_pending, sl_check_result
        FROM wp_trades
        WHERE challenge_id = $1 AND registration_id = $2`;
     const tradesParams: any[] = [cId, registrationId];
@@ -675,6 +676,7 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
         isQualified: t.is_qualified,
         violations: t.violations || [],
         slCheckPending: t.sl_check_pending || false,
+        slCheckResult: t.sl_check_result || null,
       })),
     });
   } catch (error) {

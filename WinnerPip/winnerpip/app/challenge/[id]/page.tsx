@@ -13,7 +13,7 @@ interface Trade {
   ticket: number; symbol: string; type: string; volume: number;
   openPrice: number; closePrice: number; openTime: string; closeTime: string;
   profit: number; commission: number; swap: number;
-  isQualified: boolean; violations: string[]; slCheckPending?: boolean;
+  isQualified: boolean; violations: string[]; slCheckPending?: boolean; slCheckResult?: string | null;
 }
 interface LeaderboardEntry {
   nickname: string; accountType: string; rank: number;
@@ -572,18 +572,20 @@ export default function ChallengeDashboard() {
                     <th className="text-center py-3 px-4 text-[10px] text-gray-400 font-medium uppercase">Status</th>
                   </tr></thead>
                   <tbody>{recentTrades.map((t) => (
-                    <tr key={t.ticket} onClick={() => setSelectedTrade(t)} className={`border-b border-white/5 hover:bg-white/5 cursor-pointer transition-colors ${t.slCheckPending ? "bg-gold/5" : !t.isQualified ? "bg-loss/5" : ""}`}>
+                    <tr key={t.ticket} onClick={() => setSelectedTrade(t)} className={`border-b border-white/5 hover:bg-white/5 cursor-pointer transition-colors ${t.slCheckResult === 'conflicting' ? "bg-amber-500/5" : t.slCheckPending ? "bg-gold/5" : !t.isQualified ? "bg-loss/5" : ""}`}>
                       <td className="py-3 px-4 text-xs text-gray-400">{formatDate(t.closeTime)}</td>
                       <td className="py-3 px-4 text-sm text-white font-semibold">{t.symbol}</td>
                       <td className="py-3 px-4"><span className={`px-2 py-1 rounded-md text-[10px] font-semibold ${t.type === "Buy" ? "bg-profit/10 text-profit" : "bg-loss/10 text-loss"}`}>{t.type}</span></td>
                       <td className={`py-3 px-4 text-right text-sm font-bold ${t.profit >= 0 ? "text-profit" : "text-loss"}`}>{t.profit >= 0 ? "+" : ""}${t.profit.toFixed(2)}</td>
                       <td className="py-3 px-4 text-center text-xs text-gray-400">{t.volume}</td>
                       <td className="py-3 px-4 text-center">
-                        {t.slCheckPending
-                          ? <span title="SL check pending" className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-gold/20 border border-gold/40 text-gold text-[10px] font-bold cursor-help">?</span>
-                          : t.isQualified
-                            ? <span className="text-profit">✓</span>
-                            : <span className="text-loss">🚩</span>
+                        {t.slCheckResult === 'conflicting'
+                          ? <span title="This trade is under investigation. Result may change after the next check." className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-amber-500/20 border border-amber-400/50 text-amber-400 text-[10px] font-bold cursor-help">?</span>
+                          : t.slCheckPending
+                            ? <span title="Max risk check in progress" className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-gold/20 border border-gold/40 text-gold text-[10px] font-bold cursor-help">⏳</span>
+                            : t.isQualified
+                              ? <span className="text-profit">✓</span>
+                              : <span className="text-loss">🚩</span>
                         }
                       </td>
                     </tr>
@@ -819,18 +821,20 @@ export default function ChallengeDashboard() {
                     <th className="text-center py-3 px-4 text-[10px] text-gray-400 font-medium uppercase">Status</th>
                   </tr></thead>
                   <tbody>{recentTrades.map((t) => (
-                    <tr key={t.ticket} onClick={() => setSelectedTrade(t)} className={`border-b border-white/5 hover:bg-white/5 cursor-pointer transition-colors ${t.slCheckPending ? "bg-gold/5" : !t.isQualified ? "bg-loss/5" : ""}`}>
+                    <tr key={t.ticket} onClick={() => setSelectedTrade(t)} className={`border-b border-white/5 hover:bg-white/5 cursor-pointer transition-colors ${t.slCheckResult === 'conflicting' ? "bg-amber-500/5" : t.slCheckPending ? "bg-gold/5" : !t.isQualified ? "bg-loss/5" : ""}`}>
                       <td className="py-3 px-4 text-xs text-gray-400">{formatDate(t.closeTime)}</td>
                       <td className="py-3 px-4 text-sm text-white font-semibold">{t.symbol}</td>
                       <td className="py-3 px-4"><span className={`px-2 py-1 rounded-md text-[10px] font-semibold ${t.type === "Buy" ? "bg-profit/10 text-profit" : "bg-loss/10 text-loss"}`}>{t.type}</span></td>
                       <td className={`py-3 px-4 text-right text-sm font-bold ${t.profit >= 0 ? "text-profit" : "text-loss"}`}>{t.profit >= 0 ? "+" : ""}${t.profit.toFixed(2)}</td>
                       <td className="py-3 px-4 text-center text-xs text-gray-400">{t.volume}</td>
                       <td className="py-3 px-4 text-center">
-                        {t.slCheckPending
-                          ? <span title="SL check pending" className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-gold/20 border border-gold/40 text-gold text-[10px] font-bold cursor-help">?</span>
-                          : t.isQualified
-                            ? <span className="text-profit">✓</span>
-                            : <span className="text-loss">🚩</span>
+                        {t.slCheckResult === 'conflicting'
+                          ? <span title="This trade is under investigation. Result may change after the next check." className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-amber-500/20 border border-amber-400/50 text-amber-400 text-[10px] font-bold cursor-help">?</span>
+                          : t.slCheckPending
+                            ? <span title="Max risk check in progress" className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-gold/20 border border-gold/40 text-gold text-[10px] font-bold cursor-help">⏳</span>
+                            : t.isQualified
+                              ? <span className="text-profit">✓</span>
+                              : <span className="text-loss">🚩</span>
                         }
                       </td>
                     </tr>
@@ -954,17 +958,26 @@ export default function ChallengeDashboard() {
                 <span className="text-sm text-gray-400">Net Profit/Loss</span>
                 <span className={`text-lg font-bold ${selectedTrade.profit >= 0 ? "text-profit" : "text-loss"}`}>{selectedTrade.profit >= 0 ? "+" : ""}${selectedTrade.profit.toFixed(2)}</span>
               </div>
-              <div className={`p-4 rounded-xl border ${selectedTrade.slCheckPending ? "bg-gold/10 border-gold/30" : selectedTrade.isQualified ? "bg-profit/10 border-profit/20" : "bg-loss/10 border-loss/20"}`}>
-                {selectedTrade.slCheckPending ? (
+              <div className={`p-4 rounded-xl border ${selectedTrade.slCheckResult === 'conflicting' ? "bg-amber-500/10 border-amber-400/30" : selectedTrade.slCheckPending ? "bg-gold/10 border-gold/30" : selectedTrade.isQualified ? "bg-profit/10 border-profit/20" : "bg-loss/10 border-loss/20"}`}>
+                {selectedTrade.slCheckResult === 'conflicting' ? (
                   <div>
-                    <p className="text-sm text-gold font-semibold flex items-center gap-2 mb-2">
-                      <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-gold/30 border border-gold/50 text-[10px] font-bold">?</span>
-                      SL Check Pending
+                    <p className="text-sm text-amber-400 font-semibold flex items-center gap-2 mb-2">
+                      <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-amber-500/30 border border-amber-400/50 text-[10px] font-bold">?</span>
+                      Under Investigation
                     </p>
                     <p className="text-xs text-gray-300">
-                      The stop loss candle check for this trade could not be completed due to a data fetch issue.
-                      This trade may be disqualified if it is found against the rules in the next check.
-                      Benefit of doubt is applied until then — this trade is currently treated as qualified.
+                      This trade is under investigation. Our system has received conflicting results across checks and is re-verifying.
+                      This trade is currently treated as qualified. Result may change after the next check.
+                    </p>
+                  </div>
+                ) : selectedTrade.slCheckPending ? (
+                  <div>
+                    <p className="text-sm text-gold font-semibold flex items-center gap-2 mb-2">
+                      <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-gold/30 border border-gold/50 text-[10px] font-bold">⏳</span>
+                      Max Risk Check In Progress
+                    </p>
+                    <p className="text-xs text-gray-300">
+                      The max risk candle check for this trade could not be completed yet. Benefit of doubt is applied — this trade is currently treated as qualified.
                     </p>
                   </div>
                 ) : selectedTrade.isQualified ? (
@@ -1059,7 +1072,7 @@ export default function ChallengeDashboard() {
                       <p className="text-xs font-semibold text-gray-400 mb-2">Trades ({selectedUserTrades.length})</p>
                       <div className="space-y-2 max-h-[300px] overflow-y-auto">
                         {selectedUserTrades.map((t, i) => (
-                          <div key={i} className={`py-2 px-3 rounded-lg ${!t.isQualified ? 'bg-loss/10 border border-loss/20' : 'bg-white/5'}`}>
+                          <div key={i} className={`py-2 px-3 rounded-lg ${t.slCheckResult === 'conflicting' ? 'bg-amber-500/5 border border-amber-400/20' : !t.isQualified ? 'bg-loss/10 border border-loss/20' : 'bg-white/5'}`}>
                             <div className="flex items-center justify-between">
                               <div className="flex items-center gap-2">
                                 <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${t.type?.toLowerCase() === 'buy' ? 'bg-profit/20 text-profit' : 'bg-loss/20 text-loss'}`}>{t.type}</span>
@@ -1073,9 +1086,12 @@ export default function ChallengeDashboard() {
                               </div>
                               <div className="text-right">
                                 <p className={`text-xs font-bold ${t.profit >= 0 ? 'text-profit' : 'text-loss'}`}>{selectedUser.isCent ? `${t.profit.toFixed(2)}¢` : `$${t.profit.toFixed(2)}`}</p>
-                                <p className="text-[10px] text-gray-500">{t.volume} lot {!t.isQualified && <span className="text-loss">🚩</span>}</p>
+                                <p className="text-[10px] text-gray-500">{t.volume} lot {t.slCheckResult === 'conflicting' ? <span title="This trade is under investigation. Result may change after the next check." className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-amber-500/20 border border-amber-400/50 text-amber-400 text-[9px] font-bold cursor-help ml-1">?</span> : !t.isQualified ? <span className="text-loss">🚩</span> : null}</p>
                               </div>
                             </div>
+                            {t.slCheckResult === 'conflicting' && (
+                              <p className="text-[10px] text-amber-400 mt-1 pl-7">⚠ This trade is under investigation. Result may change after the next check.</p>
+                            )}
                             {!t.isQualified && t.violations && t.violations.length > 0 && (
                               <p className="text-[10px] text-loss mt-1 pl-7">⚠️ {typeof t.violations[0] === 'string' ? t.violations[0] : t.violations[0]?.detail || 'Rule violation'}</p>
                             )}
