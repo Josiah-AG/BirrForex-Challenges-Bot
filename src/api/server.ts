@@ -2858,6 +2858,101 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/retry-account`, adminIpC
 });
 
 /**
+ * POST /api/admin/:secretPath/challenge/:id/pull-single-account
+ * Full pull + evaluate + rank update for ONE specific account (by registrationId).
+ * Works on all registrations including disqualified ones.
+ * Returns before/after stats for the admin result popup.
+ */
+app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/pull-single-account`, adminIpCheck, async (req, res) => {
+  try {
+    const challengeId = parseInt(req.params.id);
+    const { registrationId } = req.body;
+    if (!registrationId) return res.status(400).json({ error: 'registrationId required' });
+
+    // Snapshot state BEFORE pull
+    const before = await db.query(
+      `SELECT r.disqualified, r.disqualified_reason, l.rank as prev_rank,
+              (SELECT COUNT(*) FROM wp_trades WHERE registration_id = $1) as trade_count
+       FROM trading_registrations r
+       LEFT JOIN wp_leaderboard l ON l.registration_id = r.id
+       WHERE r.id = $1 AND r.challenge_id = $2`,
+      [registrationId, challengeId]
+    );
+    if (before.rows.length === 0) return res.status(404).json({ error: 'Registration not found' });
+    const prevRank = before.rows[0].prev_rank;
+    const prevTradeCount = parseInt(before.rows[0].trade_count || '0');
+
+    // NULL out last_pull_at → forces full pull from challenge start (not just incremental)
+    await db.query(
+      `UPDATE trading_registrations SET last_pull_at = NULL WHERE id = $1`,
+      [registrationId]
+    );
+
+    // Run pull + evaluate via the scheduler's existing single-account path
+    const scheduler = (global as any).__vpsPullScheduler;
+    if (!scheduler) return res.status(503).json({ error: 'Pull scheduler not initialised yet — try again in a moment' });
+
+    const pullResult = await scheduler.retrySingleAccount(registrationId, challengeId);
+
+    // Evaluate (retrySingleAccount already calls evaluateSingleAccount, but re-run to
+    // get flaggedCount reliably even if it errored inside the scheduler)
+    let flaggedCount = 0;
+    let totalTrades = 0;
+    try {
+      const { evaluationEngine } = require('../services/wpEvaluationEngine');
+      const evalResult = await evaluationEngine.evaluateSingleAccount(challengeId, registrationId);
+      flaggedCount = evalResult.flaggedCount;
+      const tradeCountResult = await db.query(
+        `SELECT COUNT(*) as total, COUNT(*) FILTER (WHERE NOT is_qualified) as flagged
+         FROM wp_trades WHERE registration_id = $1`,
+        [registrationId]
+      );
+      totalTrades = parseInt(tradeCountResult.rows[0]?.total || '0');
+      flaggedCount = parseInt(tradeCountResult.rows[0]?.flagged || '0');
+    } catch {}
+
+    // Update rankings for the whole challenge so rank changes reflect correctly
+    try {
+      const { leaderboardService } = require('../services/leaderboardService');
+      await leaderboardService.flushStagingToLive(challengeId);
+      await leaderboardService.ensureAllParticipantsHaveEntries(challengeId);
+      await leaderboardService.updateRankings(challengeId);
+    } catch {}
+
+    // Snapshot state AFTER pull
+    const after = await db.query(
+      `SELECT r.disqualified, r.disqualified_reason, l.rank as new_rank
+       FROM trading_registrations r
+       LEFT JOIN wp_leaderboard l ON l.registration_id = r.id
+       WHERE r.id = $1`,
+      [registrationId]
+    );
+
+    const newRank = after.rows[0]?.new_rank ?? null;
+    const isDisqualified = after.rows[0]?.disqualified ?? false;
+    const dqReason = after.rows[0]?.disqualified_reason ?? null;
+    const newTradeCount = totalTrades;
+    const tradesAdded = Math.max(0, newTradeCount - prevTradeCount);
+
+    return res.json({
+      success: pullResult.success,
+      errorMessage: pullResult.success ? null : (pullResult.errorMessage || 'Pull failed'),
+      tradesFound: newTradeCount,
+      tradesAdded,
+      faultsFound: flaggedCount,
+      prevRank,
+      newRank,
+      isDisqualified,
+      dqReason,
+    });
+
+  } catch (error) {
+    console.error('pull-single-account error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
  * POST /api/admin/:secretPath/challenge/:id/retry-all-failed
  * Queue all failed accounts for retry in next cycle
  */

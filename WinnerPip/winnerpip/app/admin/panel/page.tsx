@@ -2084,7 +2084,15 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures }: { ch
   const [loadingFailed, setLoadingFailed] = useState(false);
   const [actionMsg, setActionMsg] = useState("");
   const [retrying, setRetrying] = useState<string | null>(null);
-  const [showFilter, setShowFilter] = useState<"credential" | "failed" | "skipped" | "sl" | "all">("credential");
+  const [showFilter, setShowFilter] = useState<"credential" | "failed" | "skipped" | "sl" | "all" | "individual">("credential");
+
+  // Individual account pull state
+  const [indivQuery, setIndivQuery] = useState("");
+  const [indivSearched, setIndivSearched] = useState(false);
+  const [indivUser, setIndivUser] = useState<any>(null);
+  const [indivSearching, setIndivSearching] = useState(false);
+  const [indivPulling, setIndivPulling] = useState(false);
+  const [indivResult, setIndivResult] = useState<any>(null);
   const [pullProgress, setPullProgress] = useState<any>(null);
   const [polling, setPolling] = useState(false);
   const pollIntervalRef = useRef<number | null>(null);
@@ -2242,6 +2250,38 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures }: { ch
     } catch (_e) { setActionMsg("❌ Connection error"); }
   };
 
+  const handleIndivSearch = async () => {
+    const q = indivQuery.trim();
+    if (!q) return;
+    setIndivSearching(true);
+    setIndivSearched(true);
+    setIndivUser(null);
+    setIndivResult(null);
+    try {
+      const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/finduser?q=${encodeURIComponent(q)}`);
+      if (res.ok) {
+        const data = await res.json();
+        setIndivUser(data.found ? data.user : null);
+      }
+    } catch (_e) {}
+    setIndivSearching(false);
+  };
+
+  const handleIndivPull = async () => {
+    if (!indivUser) return;
+    setIndivPulling(true);
+    setIndivResult(null);
+    try {
+      const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/pull-single-account`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ registrationId: indivUser.id }),
+      });
+      const data = await res.json();
+      setIndivResult(data);
+    } catch (_e) { setIndivResult({ success: false, errorMessage: "Network error" }); }
+    setIndivPulling(false);
+  };
+
   useEffect(() => { fetchFailed(); }, [challengeId]);
 
   return (
@@ -2313,6 +2353,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures }: { ch
         <button onClick={() => setShowFilter("skipped")} className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${showFilter === "skipped" ? "bg-gray-500/20 text-gray-300 border border-gray-500/30" : "bg-white/5 text-gray-400 hover:text-white"}`}>⏭️ Skipped ({skippedAccounts.length})</button>
         <button onClick={() => setShowFilter("sl")} className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${showFilter === "sl" ? "bg-amber-500/20 text-amber-400 border border-amber-500/30" : "bg-white/5 text-gray-400 hover:text-white"}`}>🕯️ Fake SL Detection Failure ({slFailures.length})</button>
         <button onClick={() => setShowFilter("all")} className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${showFilter === "all" ? "bg-royal/20 text-royal border border-royal/30" : "bg-white/5 text-gray-400 hover:text-white"}`}>All</button>
+        <button onClick={() => { setShowFilter("individual"); setIndivResult(null); }} className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${showFilter === "individual" ? "bg-purple-500/20 text-purple-400 border border-purple-500/30" : "bg-white/5 text-gray-400 hover:text-white"}`}>🎯 Pull Individual Account</button>
       </div>
 
       {/* Credential Failures List — only password_changed / invalid_credentials accounts */}
@@ -2429,6 +2470,100 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures }: { ch
             <p className="text-[11px] text-profit text-center py-2">✅ No candle-check failures right now.</p>
           </div>
         )
+      )}
+
+      {/* Pull Individual Account Panel */}
+      {showFilter === "individual" && (
+        <div className="glass rounded-2xl border border-purple-500/20 p-5 space-y-4">
+          <h3 className="text-sm font-semibold text-purple-400 flex items-center gap-2">🎯 Pull Individual Account</h3>
+          <p className="text-[11px] text-gray-400">Search by email, account number, username or nickname. This runs a full pull from challenge start, re-evaluates all rules, and updates rankings.</p>
+
+          {/* Search */}
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={indivQuery}
+              onChange={e => { setIndivQuery(e.target.value); setIndivSearched(false); setIndivUser(null); setIndivResult(null); }}
+              onKeyDown={e => e.key === "Enter" && handleIndivSearch()}
+              placeholder="Email / account number / username / nickname..."
+              className="flex-1 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-purple-500/40"
+            />
+            <button onClick={handleIndivSearch} disabled={indivSearching || !indivQuery.trim()} className="px-4 py-2 rounded-xl bg-purple-500/20 border border-purple-500/30 text-purple-400 text-xs font-bold hover:bg-purple-500/30 transition-all disabled:opacity-50">
+              {indivSearching ? "Searching..." : "Find"}
+            </button>
+          </div>
+
+          {/* No result */}
+          {indivSearched && !indivSearching && !indivUser && (
+            <p className="text-[11px] text-loss text-center py-2">No participant found matching that query.</p>
+          )}
+
+          {/* Found user card */}
+          {indivUser && (
+            <div className="bg-white/5 border border-white/10 rounded-xl p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-bold text-white">{indivUser.nickname || indivUser.username}</p>
+                  <p className="text-[11px] text-gray-400">@{indivUser.username} · {indivUser.email}</p>
+                </div>
+                {indivUser.disqualified
+                  ? <span className="px-2 py-1 rounded-lg bg-loss/20 text-loss text-[10px] font-bold border border-loss/30">DQ</span>
+                  : <span className="px-2 py-1 rounded-lg bg-profit/20 text-profit text-[10px] font-bold border border-profit/30">Active</span>
+                }
+              </div>
+              <div className="grid grid-cols-3 gap-2 text-[11px]">
+                <div className="bg-white/5 rounded-lg p-2 text-center"><p className="text-gray-400">Account</p><p className="text-white font-semibold">{indivUser.accountNumber}</p></div>
+                <div className="bg-white/5 rounded-lg p-2 text-center"><p className="text-gray-400">Rank</p><p className="text-white font-semibold">{indivUser.rank ? `#${indivUser.rank}` : "—"}</p></div>
+                <div className="bg-white/5 rounded-lg p-2 text-center"><p className="text-gray-400">Trades</p><p className="text-white font-semibold">{indivUser.totalTrades}</p></div>
+                <div className="bg-white/5 rounded-lg p-2 text-center"><p className="text-gray-400">Qual. Profit</p><p className="text-profit font-semibold">{indivUser.isCent ? `${Number(indivUser.qualifiedProfit).toFixed(2)}¢` : `$${Number(indivUser.qualifiedProfit).toFixed(2)}`}</p></div>
+                <div className="bg-white/5 rounded-lg p-2 text-center"><p className="text-gray-400">Flagged</p><p className="text-loss font-semibold">{indivUser.flaggedTrades}</p></div>
+                <div className="bg-white/5 rounded-lg p-2 text-center"><p className="text-gray-400">Active Days</p><p className="text-white font-semibold">{indivUser.activeDays}</p></div>
+              </div>
+              {indivUser.disqualified && indivUser.disqualifiedReason && (
+                <p className="text-[10px] text-loss bg-loss/10 rounded-lg px-3 py-2">DQ Reason: {indivUser.disqualifiedReason}</p>
+              )}
+              {!indivResult && (
+                <button onClick={handleIndivPull} disabled={indivPulling} className="w-full py-2.5 rounded-xl bg-purple-500/20 border border-purple-500/30 text-purple-300 text-xs font-bold hover:bg-purple-500/30 transition-all disabled:opacity-50">
+                  {indivPulling ? "⏳ Pulling full history & evaluating… (30–60s)" : "⚡ Pull This Account"}
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Result popup card */}
+          {indivResult && (
+            <div className={`rounded-xl border p-4 space-y-3 ${indivResult.success ? "bg-profit/5 border-profit/20" : "bg-loss/5 border-loss/20"}`}>
+              {indivResult.success ? (
+                <>
+                  <p className="text-sm font-bold text-profit text-center">✅ Pull Complete</p>
+                  <div className="grid grid-cols-2 gap-2 text-[11px]">
+                    <div className="bg-white/5 rounded-lg p-2 text-center"><p className="text-gray-400">Trades in DB</p><p className="text-white font-bold">{indivResult.tradesFound}</p></div>
+                    <div className="bg-white/5 rounded-lg p-2 text-center"><p className="text-gray-400">New Trades Added</p><p className="text-royal font-bold">{indivResult.tradesAdded}</p></div>
+                    <div className="bg-white/5 rounded-lg p-2 text-center"><p className="text-gray-400">Faults Found</p><p className="text-loss font-bold">{indivResult.faultsFound}</p></div>
+                    <div className="bg-white/5 rounded-lg p-2 text-center">
+                      <p className="text-gray-400">Rank</p>
+                      <p className="text-white font-bold">
+                        {indivResult.prevRank ? `#${indivResult.prevRank}` : "—"} → {indivResult.newRank ? `#${indivResult.newRank}` : "—"}
+                      </p>
+                    </div>
+                  </div>
+                  {indivResult.isDisqualified ? (
+                    <p className="text-[10px] text-loss bg-loss/10 rounded-lg px-3 py-2 text-center">Account remains disqualified · {indivResult.dqReason}</p>
+                  ) : (
+                    <p className="text-[10px] text-profit text-center">Account is active and in good standing.</p>
+                  )}
+                  <button onClick={() => { setIndivResult(null); setIndivUser(null); setIndivSearched(false); setIndivQuery(""); }} className="w-full py-2 rounded-xl bg-white/5 border border-white/10 text-gray-400 text-xs hover:text-white transition-all">Clear</button>
+                </>
+              ) : (
+                <>
+                  <p className="text-sm font-bold text-loss text-center">Pull Failed</p>
+                  <p className="text-[11px] text-gray-400 text-center">{indivResult.errorMessage || "Unknown error"}</p>
+                  <button onClick={handleIndivPull} disabled={indivPulling} className="w-full py-2 rounded-xl bg-purple-500/20 border border-purple-500/30 text-purple-300 text-xs font-bold hover:bg-purple-500/30 transition-all disabled:opacity-50">Retry Pull</button>
+                </>
+              )}
+            </div>
+          )}
+        </div>
       )}
 
       {/* Terminal Status Grid */}
