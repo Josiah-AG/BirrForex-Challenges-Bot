@@ -1089,36 +1089,79 @@ export default function AdminDashboard() {
                 </div>
               )}
               <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Account Type</p><span className={`px-3 py-1 rounded text-xs font-semibold ${selectedParticipant.accountType === "real" ? "bg-gold/10 text-gold" : "bg-royal/10 text-royal"}`}>{selectedParticipant.accountType}</span></div>
-              {selectedParticipantTrades.length > 0 && (
-                <div className="mt-2">
-                  <p className="text-xs font-semibold text-gray-400 mb-2">Trades ({selectedParticipantTrades.length})</p>
-                  <div className="space-y-2 max-h-[300px] overflow-y-auto">
-                    {selectedParticipantTrades.map((t: any, i: number) => (
-                      <div key={i} className={`py-2 px-3 rounded-lg ${!t.isQualified ? 'bg-loss/10 border border-loss/20' : 'bg-white/5'}`}>
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${t.type?.toLowerCase() === 'buy' ? 'bg-profit/20 text-profit' : 'bg-loss/20 text-loss'}`}>{t.type}</span>
-                            <div>
-                              <p className="text-xs text-white font-medium">{t.symbol}</p>
-                              <p className="text-[10px] text-gray-500">
-                                {t.openTime ? new Date(t.openTime).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''}{' '}
-                                {t.openTime ? new Date(new Date(t.openTime).getTime() + 3*60*60*1000).toISOString().substring(11,16) : ''} → {t.closeTime ? new Date(new Date(t.closeTime).getTime() + 3*60*60*1000).toISOString().substring(11,16) : ''}
-                              </p>
+              {selectedParticipantTrades.length > 0 && (() => {
+                const fmtEAT = (d: string) => new Date(new Date(d).getTime() + 3*60*60*1000).toISOString().substring(11,16);
+                const cur = (v: number) => selectedParticipant.isCent ? `${v.toFixed(2)}¢` : `$${v.toFixed(2)}`;
+                // Group by positionId
+                const posMap = new Map<number, any[]>();
+                for (const t of selectedParticipantTrades) {
+                  const key = t.positionId ?? t.ticket;
+                  if (!posMap.has(key)) posMap.set(key, []);
+                  posMap.get(key)!.push(t);
+                }
+                Array.from(posMap.values()).forEach(g => g.sort((a: any, b: any) => new Date(a.closeTime).getTime() - new Date(b.closeTime).getTime()));
+                const groups = Array.from(posMap.values()).sort((a: any[], b: any[]) => new Date(b[b.length-1].closeTime).getTime() - new Date(a[a.length-1].closeTime).getTime());
+                return (
+                  <div className="mt-2">
+                    <p className="text-xs font-semibold text-gray-400 mb-2">Trades ({groups.length})</p>
+                    <div className="space-y-2 max-h-[300px] overflow-y-auto">
+                      {groups.map((group: any[]) => {
+                        if (group.length === 1) {
+                          const t = group[0];
+                          return (
+                            <div key={t.ticket} className={`py-2 px-3 rounded-lg ${t.slCheckResult === 'conflicting' ? 'bg-amber-500/5 border border-amber-400/20' : !t.isQualified ? 'bg-loss/10 border border-loss/20' : 'bg-white/5'}`}>
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                  <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${t.type?.toLowerCase() === 'buy' ? 'bg-profit/20 text-profit' : 'bg-loss/20 text-loss'}`}>{t.type}</span>
+                                  <div>
+                                    <p className="text-xs text-white font-medium">{t.symbol}</p>
+                                    <p className="text-[10px] text-gray-500">{t.openTime ? new Date(t.openTime).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''} {t.openTime ? fmtEAT(t.openTime) : ''} → {t.closeTime ? fmtEAT(t.closeTime) : ''}</p>
+                                  </div>
+                                </div>
+                                <div className="text-right">
+                                  <p className={`text-xs font-bold ${t.profit >= 0 ? 'text-profit' : 'text-loss'}`}>{cur(t.profit)}</p>
+                                  <p className="text-[10px] text-gray-500">{t.volume} lot {t.slCheckResult === 'conflicting' ? <span className="text-amber-400 ml-1">?</span> : !t.isQualified ? <span className="text-loss">🚩</span> : null}</p>
+                                </div>
+                              </div>
+                              {!t.isQualified && t.violations?.length > 0 && <p className="text-[10px] text-loss mt-1 pl-7">⚠️ {typeof t.violations[0] === 'string' ? t.violations[0] : (t.violations[0] as any)?.detail || 'Rule violation'}</p>}
                             </div>
+                          );
+                        }
+                        const totalProfit = group.reduce((s: number, t: any) => s + Number(t.profit), 0);
+                        const totalVol = group.reduce((s: number, t: any) => s + Number(t.volume), 0);
+                        const anyFlagged = group.some((t: any) => !t.isQualified);
+                        const anyConflict = group.some((t: any) => t.slCheckResult === 'conflicting');
+                        const first = group[0];
+                        return (
+                          <div key={`g-${first.positionId ?? first.ticket}`} className={`rounded-lg overflow-hidden ${anyFlagged ? 'border border-loss/20' : anyConflict ? 'border border-amber-400/20' : 'border border-white/10'}`}>
+                            <div className={`py-2 px-3 ${anyFlagged ? 'bg-loss/10' : anyConflict ? 'bg-amber-500/5' : 'bg-white/5'}`}>
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                  <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${first.type?.toLowerCase() === 'buy' ? 'bg-profit/20 text-profit' : 'bg-loss/20 text-loss'}`}>{first.type}</span>
+                                  <div>
+                                    <p className="text-xs text-white font-medium">{first.symbol} <span className="text-gray-500 font-normal">{group.length} closes</span></p>
+                                    <p className="text-[10px] text-gray-500">{first.openTime ? new Date(first.openTime).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''} {first.openTime ? fmtEAT(first.openTime) : ''}</p>
+                                  </div>
+                                </div>
+                                <div className="text-right">
+                                  <p className={`text-xs font-bold ${totalProfit >= 0 ? 'text-profit' : 'text-loss'}`}>{cur(totalProfit)}</p>
+                                  <p className="text-[10px] text-gray-500">{totalVol.toFixed(2)} lot {anyFlagged ? <span className="text-loss">🚩</span> : anyConflict ? <span className="text-amber-400">?</span> : null}</p>
+                                </div>
+                              </div>
+                            </div>
+                            {group.map((t: any) => (
+                              <div key={t.ticket} className={`py-1.5 px-3 pl-6 border-t border-white/5 flex items-center justify-between ${!t.isQualified ? 'bg-loss/5' : ''}`}>
+                                <p className="text-[10px] text-gray-500">└ → {fmtEAT(t.closeTime)} · {t.volume} lot</p>
+                                <p className={`text-[10px] font-semibold ${t.profit >= 0 ? 'text-profit' : 'text-loss'}`}>{cur(t.profit)}</p>
+                              </div>
+                            ))}
                           </div>
-                          <div className="text-right">
-                            <p className={`text-xs font-bold ${t.profit >= 0 ? 'text-profit' : 'text-loss'}`}>{selectedParticipant.isCent ? `${t.profit.toFixed(2)}¢` : `$${t.profit.toFixed(2)}`}</p>
-                            <p className="text-[10px] text-gray-500">{t.volume} lot {!t.isQualified && <span className="text-loss">🚩</span>}</p>
-                          </div>
-                        </div>
-                        {!t.isQualified && t.violations && t.violations.length > 0 && (
-                          <p className="text-[10px] text-loss mt-1 pl-7">⚠️ {typeof t.violations[0] === 'string' ? t.violations[0] : t.violations[0]?.detail || 'Rule violation'}</p>
-                        )}
-                      </div>
-                    ))}
+                        );
+                      })}
+                    </div>
                   </div>
-                </div>
-              )}
+                );
+              })()}
               {/* Export MT5 Trade History */}
               {selectedParticipant.registrationId && (
                 <button
