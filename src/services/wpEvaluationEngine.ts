@@ -287,13 +287,18 @@ interface SlCheckOutcome {
 
 const SL_SKIPPED: SlCheckOutcome = { violation: null, slAllowedPrice: null, slMaxAdversePrice: null, slCheckResult: 'skipped' };
 
-async function validateSlWithCandles(trade: TradeRow, maxHoldHours: number | null = null, maxRiskDollars: number = 0): Promise<SlCheckOutcome> {
+async function validateSlWithCandles(
+  trade: TradeRow,
+  maxHoldHours: number | null = null,
+  maxRiskDollars: number = 0,
+  opts?: { windowStart?: Date; windowEnd?: Date; effectiveVolume?: number }
+): Promise<SlCheckOutcome> {
   if (!trade.open_time || !trade.close_time) return SL_SKIPPED;
   if (!maxRiskDollars || maxRiskDollars <= 0) return SL_SKIPPED;
 
   const openPrice  = parseFloat(String(trade.open_price));
   const closePrice = parseFloat(String(trade.close_price));
-  const volume     = parseFloat(String(trade.volume));
+  const volume     = opts?.effectiveVolume ?? parseFloat(String(trade.volume));
   const tradeNet   = parseFloat(String(trade.profit)) + parseFloat(String(trade.commission || 0)) + parseFloat(String(trade.swap || 0));
   const isBuy      = trade.trade_type?.toLowerCase() === 'buy';
 
@@ -306,15 +311,17 @@ async function validateSlWithCandles(trade: TradeRow, maxHoldHours: number | nul
   const maxSlPrice = calculateMaxSlPrice(trade.symbol, volume, openPrice, effectiveMaxRisk, isBuy, closePrice, tradeNet);
   if (maxSlPrice <= 0) return SL_SKIPPED;
 
-  const openMs  = new Date(trade.open_time).getTime();
-  const closeMs = new Date(trade.close_time).getTime();
+  const windowFrom = opts?.windowStart ?? new Date(trade.open_time);
+  const windowTo   = opts?.windowEnd   ?? new Date(trade.close_time);
+  const openMs     = windowFrom.getTime();
+  const closeMs    = windowTo.getTime();
   if (openMs <= 946684800000 || closeMs <= openMs) return { ...SL_SKIPPED, slAllowedPrice: maxSlPrice };
 
   const holdMinutes = (closeMs - openMs) / (60 * 1000);
   let tf = selectTimeframe(holdMinutes, maxHoldHours);
   if (!tf) return { ...SL_SKIPPED, slAllowedPrice: maxSlPrice };
 
-  let candles = await fetchCandles(trade.symbol, new Date(trade.open_time), new Date(trade.close_time), tf.timeframe);
+  let candles = await fetchCandles(trade.symbol, windowFrom, windowTo, tf.timeframe);
 
   // Timeframe fallback: if selected timeframe returns nothing, step down to finer
   // timeframes (M5 → M1) before giving up. MT5 is more likely to have finer data
@@ -326,7 +333,7 @@ async function validateSlWithCandles(trade: TradeRow, maxHoldHours: number | nul
     ].filter(f => f.timeframe !== tf!.timeframe);
 
     for (const fallback of fallbacks) {
-      candles = await fetchCandles(trade.symbol, new Date(trade.open_time), new Date(trade.close_time), fallback.timeframe);
+      candles = await fetchCandles(trade.symbol, windowFrom, windowTo, fallback.timeframe);
       if (candles && candles.length > 0) {
         tf = fallback; // switch to the timeframe we actually got data for
         break;
@@ -378,6 +385,44 @@ async function validateSlWithCandles(trade: TradeRow, maxHoldHours: number | nul
   }
 
   return { violation: null, slAllowedPrice: maxSlPrice, slMaxAdversePrice, slCheckResult: 'passed' };
+}
+
+// Partial-close-aware SL check.
+// siblings = all closing deals for the same position_id, sorted by close_time asc.
+// For each deal we check the candle window from the END of the previous partial close (or open_time for the first)
+// using the lot that was still open at that point. Window 0 (full lot) governs all deals — if it's breached, every
+// partial of the position is marked fake_sl (loss occurred before any partial was taken).
+async function runSlCheckForTrade(
+  trade: TradeRow,
+  siblings: TradeRow[],
+  maxHoldHours: number | null,
+  maxRiskDollars: number
+): Promise<SlCheckOutcome> {
+  if (siblings.length <= 1) {
+    return validateSlWithCandles(trade, maxHoldHours, maxRiskDollars);
+  }
+
+  const totalLot = siblings.reduce((s, t) => s + parseFloat(String(t.volume)), 0);
+  const thisIdx  = siblings.findIndex(t => t.ticket === trade.ticket);
+
+  // Window 0: open → first partial close with total lot
+  const w0 = await validateSlWithCandles(trade, maxHoldHours, maxRiskDollars, {
+    windowStart: new Date(trade.open_time),
+    windowEnd:   new Date(siblings[0].close_time),
+    effectiveVolume: totalLot,
+  });
+
+  if (w0.violation === 'FAILED') return w0; // no candle data
+  if (w0.violation) return w0;              // Window 0 breached → all partials fail
+  if (thisIdx === 0) return w0;             // first partial, passed
+
+  // Later partial: check own window [prev_close → this_close] with remaining lot
+  const windowStart  = new Date(siblings[thisIdx - 1].close_time);
+  const remainingLot = siblings.slice(thisIdx).reduce((s, t) => s + parseFloat(String(t.volume)), 0);
+  return validateSlWithCandles(trade, maxHoldHours, maxRiskDollars, {
+    windowStart,
+    effectiveVolume: remainingLot,
+  });
 }
 
 // ==================== ENGINE ====================
@@ -991,8 +1036,12 @@ export class WpEvaluationEngine {
             const v = storedViols.find(x => x.includes('maximum allowed risk') || x.includes('could not be verified'));
             if (v && !violations.includes(v)) { violations.push(v); slPenaltyDollars = rules.max_risk_dollars; }
           } else {
-            // Run candle check
-            const slOutcome = await validateSlWithCandles(trade, rules.max_hold_hours || null, rules.max_risk_dollars);
+            // Run candle check (partial-close aware)
+            const posId = trade.position_id ?? trade.ticket;
+            const siblings = allTrades
+              .filter(t => (t.position_id ?? t.ticket) === posId)
+              .sort((a, b) => new Date(a.close_time).getTime() - new Date(b.close_time).getTime());
+            const slOutcome = await runSlCheckForTrade(trade, siblings, rules.max_hold_hours || null, rules.max_risk_dollars);
 
             if (slOutcome.violation === 'FAILED') {
               // No candle data returned
@@ -1445,6 +1494,27 @@ export class WpEvaluationEngine {
         return { checked: 0, violations: 0, cleared: 0, nickname: reg.nickname || reg.account_number };
       }
 
+      // Fetch all siblings for positions that have pending trades, so runSlCheckForTrade can window correctly
+      const pendingPosIds = [...new Set(pendingResult.rows.map((t: any) => t.position_id ?? t.ticket).filter(Boolean))];
+      const siblingsResult = pendingPosIds.length > 0
+        ? await db.query(
+            `SELECT id, ticket, position_id, volume, open_time, close_time, profit, commission, swap,
+                    open_price, close_price, trade_type, symbol, stop_loss, sl_check_result,
+                    sl_check_attempts, sl_conflict_count
+             FROM wp_trades
+             WHERE challenge_id = $1 AND registration_id = $2 AND position_id = ANY($3::bigint[])
+             ORDER BY close_time ASC`,
+            [challengeId, registrationId, pendingPosIds]
+          ).catch(() => ({ rows: [] as any[] }))
+        : { rows: [] as any[] };
+
+      const siblingsByPos = new Map<number, any[]>();
+      for (const row of siblingsResult.rows) {
+        const key = row.position_id ?? row.ticket;
+        if (!siblingsByPos.has(key)) siblingsByPos.set(key, []);
+        siblingsByPos.get(key)!.push(row);
+      }
+
       let checkedCount = 0;
       let violationCount = 0;
       let clearedCount = 0;
@@ -1462,7 +1532,10 @@ export class WpEvaluationEngine {
         const existingResult = trade.sl_check_result as string | null;
         const existingViols: string[] = (() => { try { return JSON.parse(trade.violations || '[]'); } catch { return []; } })();
 
-        const slOutcome = await validateSlWithCandles(trade, rules.max_hold_hours || null, rules.max_risk_dollars);
+        const recheckPosId = (trade as any).position_id ?? trade.ticket;
+        const recheckSiblings = (siblingsByPos.get(recheckPosId) || [trade])
+          .sort((a: any, b: any) => new Date(a.close_time).getTime() - new Date(b.close_time).getTime());
+        const slOutcome = await runSlCheckForTrade(trade, recheckSiblings, rules.max_hold_hours || null, rules.max_risk_dollars);
         checkedCount++;
 
         if (slOutcome.violation === 'FAILED') {
