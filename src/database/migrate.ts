@@ -335,6 +335,46 @@ async function migrate() {
     await db.query(`CREATE INDEX IF NOT EXISTS idx_discord_dm_queue_unsent ON discord_dm_queue(sent) WHERE sent = false;`).catch(() => {});
     console.log('✅ Discord DM queue migration OK');
 
+    // Fix old-format trade records created by worker.py before the deal-ticket fix.
+    // Old worker stored ticket=position_id and used the closing deal's type directly
+    // (BUY to close a SELL → stored as BUY) — both wrong ticket and wrong direction.
+    //
+    // Step 1: Delete old-format records (ticket = position_id) that now have a correct
+    //         newer record (ticket = closing_deal_ticket, same position_id) — the duplicates.
+    const deleteResult = await db.query(`
+      DELETE FROM wp_trades old
+      WHERE old.ticket = old.position_id
+        AND EXISTS (
+          SELECT 1 FROM wp_trades newer
+          WHERE newer.challenge_id    = old.challenge_id
+            AND newer.account_number  = old.account_number
+            AND newer.position_id     = old.position_id
+            AND newer.ticket         != old.ticket
+        )
+    `).catch(() => ({ rowCount: 0 }));
+    console.log(`✅ Deleted ${(deleteResult as any).rowCount} old-format duplicate trade records`);
+
+    // Step 2: For remaining old-format records with no newer counterpart,
+    //         flip the trade_type (Buy↔Sell) and reset SL check so they get re-evaluated.
+    const fixResult = await db.query(`
+      UPDATE wp_trades
+      SET trade_type        = CASE WHEN trade_type = 'Buy' THEN 'Sell' ELSE 'Buy' END,
+          sl_check_result   = NULL,
+          sl_check_pending  = true,
+          sl_check_attempts = 0,
+          sl_conflict_count = 0
+      WHERE ticket = position_id
+        AND trade_type IN ('Buy', 'Sell')
+        AND NOT EXISTS (
+          SELECT 1 FROM wp_trades newer
+          WHERE newer.challenge_id    = wp_trades.challenge_id
+            AND newer.account_number  = wp_trades.account_number
+            AND newer.position_id     = wp_trades.position_id
+            AND newer.ticket         != wp_trades.ticket
+        )
+    `).catch(() => ({ rowCount: 0 }));
+    console.log(`✅ Fixed trade_type on ${(fixResult as any).rowCount} orphaned old-format trade records`);
+
     console.log('✅ Database migration completed successfully!');
     process.exit(0);
   } catch (error) {
