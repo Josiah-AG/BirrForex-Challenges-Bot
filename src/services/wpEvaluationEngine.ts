@@ -254,12 +254,15 @@ function selectTimeframe(holdMinutes: number, maxHoldHours: number | null): { ti
  * Format candle open time in EAT for violation messages.
  * Returns simple time like "10:30 EAT" or "13:00 EAT"
  */
-function formatCandleTimeEAT(candleTimeISO: string, periodMs: number): string {
+function formatCandleTimeEAT(candleTimeISO: string, _periodMs: number): string {
   const utc = new Date(candleTimeISO);
   const eat = new Date(utc.getTime() + 3 * 60 * 60 * 1000); // UTC+3
-  const h = eat.getUTCHours().toString().padStart(2, '0');
-  const m = eat.getUTCMinutes().toString().padStart(2, '0');
-  return `${h}:${m} EAT`;
+  const yyyy = eat.getUTCFullYear();
+  const mo   = (eat.getUTCMonth() + 1).toString().padStart(2, '0');
+  const dd   = eat.getUTCDate().toString().padStart(2, '0');
+  const h    = eat.getUTCHours().toString().padStart(2, '0');
+  const m    = eat.getUTCMinutes().toString().padStart(2, '0');
+  return `${yyyy}-${mo}-${dd} ${h}:${m} EAT`;
 }
 
 /**
