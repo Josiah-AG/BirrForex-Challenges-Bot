@@ -2958,7 +2958,7 @@ function generateTradesHTML(data: any): string {
     `<tr style="border-bottom:1px solid #1f2937">
       <td style="padding:8px 14px;font-weight:700;color:#fbbf24;font-size:12px">${type}</td>
       <td style="padding:8px 14px;color:#ef4444;font-weight:700;font-size:14px;text-align:center">${info.count}</td>
-      <td style="padding:8px 14px;color:#6b7280;font-size:10px">${[...new Set(info.tickets)].slice(0, 8).map(tk => `<a href="#trade-${tk}" style="color:#60a5fa;text-decoration:none">#${tk}</a>`).join(', ')}${info.tickets.length > 8 ? ` … +${info.tickets.length - 8} more` : ''}</td>
+      <td style="padding:8px 14px;color:#6b7280;font-size:10px">${Array.from(new Set(info.tickets)).slice(0, 8).map((tk: number) => `<a href="#trade-${tk}" style="color:#60a5fa;text-decoration:none">#${tk}</a>`).join(', ')}${info.tickets.length > 8 ? ` … +${info.tickets.length - 8} more` : ''}</td>
     </tr>`
   ).join('');
 
