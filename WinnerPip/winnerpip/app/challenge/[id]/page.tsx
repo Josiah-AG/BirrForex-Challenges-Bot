@@ -275,8 +275,8 @@ export default function ChallengeDashboard() {
   const effectiveIsCent = myStats ? (myStats.isCent || (challenge?.onlyCentAccount && myStats.accountType === 'real') || false) : false;
   const isBlownAccount = myStats && myStats.totalTrades > 0 && myStats.currentBalance <= 0;
 
-  // Win Rate & Avg RR (computed from trades)
-  const winningTrades = recentTrades.filter(t => t.profit > 0);
+  // Win Rate & Avg RR — only count qualified profitable trades as wins
+  const winningTrades = recentTrades.filter(t => t.profit > 0 && t.isQualified !== false);
   const losingTrades = recentTrades.filter(t => t.profit < 0);
   const winRate = recentTrades.length > 0 ? Math.round((winningTrades.length / recentTrades.length) * 100) : 0;
   const avgWin = winningTrades.length > 0 ? winningTrades.reduce((s, t) => s + t.profit, 0) / winningTrades.length : 0;
@@ -1179,7 +1179,7 @@ export default function ChallengeDashboard() {
                   </div>
                   {/* Win Rate & Avg RR */}
                   {selectedUserTrades.length > 0 && (() => {
-                    const wins = selectedUserTrades.filter((t: any) => t.profit > 0);
+                    const wins = selectedUserTrades.filter((t: any) => t.profit > 0 && t.isQualified !== false);
                     const losses = selectedUserTrades.filter((t: any) => t.profit < 0);
                     const wr = Math.round((wins.length / selectedUserTrades.length) * 100);
                     const aw = wins.length > 0 ? wins.reduce((s: number, t: any) => s + t.profit, 0) / wins.length : 0;

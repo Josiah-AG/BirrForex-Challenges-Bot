@@ -510,9 +510,13 @@ export class VpsPullScheduler {
       await this.completePullBatch(batchId, successful.length, credentialFailures.length + otherFailures.length, newTrades, 'completed');
       await this.savePullTerminalStats(batchId);
 
-      // === STEP 6: Final sync → immediate leaderboard update ===
-      if (isFinalSync && successful.length > 0) {
-        console.log('📊 VPS Pull: Final sync — flushing staging + updating leaderboard immediately');
+      // === STEP 6: Flush staging → live + update rankings after every cycle ===
+      // Runs immediately after pull+evaluation so users always see current data,
+      // not data from the previous cycle. The start-of-cycle flush (step 1) stays
+      // as a safety net but will be a no-op once staging is cleared here.
+      if (successful.length > 0) {
+        const flushLabel = isFinalSync ? 'Final sync' : 'Cycle complete';
+        console.log(`📊 VPS Pull: ${flushLabel} — flushing staging + updating leaderboard`);
         await leaderboardService.flushStagingToLive(challengeToPull.id);
         await leaderboardService.ensureAllParticipantsHaveEntries(challengeToPull.id);
         await leaderboardService.updateRankings(challengeToPull.id);
