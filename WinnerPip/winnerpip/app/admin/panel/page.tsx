@@ -544,7 +544,7 @@ export default function AdminDashboard() {
                   <th className="text-left py-3 px-4 text-[10px] text-gray-400 uppercase">Type</th>
                   <th className="text-right py-3 px-4 text-[10px] text-gray-400 uppercase">Balance / Gross</th>
                   {!leaderboardPreStart && <><th className="text-center py-3 px-4 text-[10px] text-gray-400 uppercase">Trades</th>
-                  <th className="text-center py-3 px-4 text-[10px] text-gray-400 uppercase">Win%</th>
+                  <th className="text-center py-3 px-4 text-[10px] text-gray-400 uppercase">Pass%</th>
                   <th className="text-center py-3 px-4 text-[10px] text-gray-400 uppercase">Profit</th>
                   <th className="text-center py-3 px-4 text-[10px] text-gray-400 uppercase">Violations</th></>}
                 </tr></thead>
