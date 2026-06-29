@@ -275,10 +275,11 @@ export default function ChallengeDashboard() {
   const effectiveIsCent = myStats ? (myStats.isCent || (challenge?.onlyCentAccount && myStats.accountType === 'real') || false) : false;
   const isBlownAccount = myStats && myStats.totalTrades > 0 && myStats.currentBalance <= 0;
 
-  // Win Rate & Avg RR — only count qualified profitable trades as wins
+  // Win Rate & Avg RR — exclude breakeven trades from denominator; only qualified wins count
   const winningTrades = recentTrades.filter(t => t.profit > 0 && t.isQualified !== false);
   const losingTrades = recentTrades.filter(t => t.profit < 0);
-  const winRate = recentTrades.length > 0 ? Math.round((winningTrades.length / recentTrades.length) * 100) : 0;
+  const decidedTrades = winningTrades.length + losingTrades.length;
+  const winRate = decidedTrades > 0 ? Math.round((winningTrades.length / decidedTrades) * 100) : 0;
   const avgWin = winningTrades.length > 0 ? winningTrades.reduce((s, t) => s + t.profit, 0) / winningTrades.length : 0;
   const avgLoss = losingTrades.length > 0 ? Math.abs(losingTrades.reduce((s, t) => s + t.profit, 0) / losingTrades.length) : 0;
   const avgRR = avgLoss > 0 ? avgWin / avgLoss : 0;
@@ -1181,7 +1182,8 @@ export default function ChallengeDashboard() {
                   {selectedUserTrades.length > 0 && (() => {
                     const wins = selectedUserTrades.filter((t: any) => t.profit > 0 && t.isQualified !== false);
                     const losses = selectedUserTrades.filter((t: any) => t.profit < 0);
-                    const wr = Math.round((wins.length / selectedUserTrades.length) * 100);
+                    const decided = wins.length + losses.length;
+                    const wr = decided > 0 ? Math.round((wins.length / decided) * 100) : 0;
                     const aw = wins.length > 0 ? wins.reduce((s: number, t: any) => s + t.profit, 0) / wins.length : 0;
                     const al = losses.length > 0 ? Math.abs(losses.reduce((s: number, t: any) => s + t.profit, 0) / losses.length) : 0;
                     const rr = al > 0 ? aw / al : 0;

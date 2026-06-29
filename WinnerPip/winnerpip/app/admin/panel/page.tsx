@@ -1092,7 +1092,8 @@ export default function AdminDashboard() {
               {selectedParticipantTrades.length > 0 && (() => {
                 const _wins = selectedParticipantTrades.filter((t: any) => t.profit > 0 && t.isQualified !== false);
                 const _losses = selectedParticipantTrades.filter((t: any) => t.profit < 0);
-                const _wr = Math.round((_wins.length / selectedParticipantTrades.length) * 100);
+                const _decided = _wins.length + _losses.length;
+                const _wr = _decided > 0 ? Math.round((_wins.length / _decided) * 100) : 0;
                 const _aw = _wins.length > 0 ? _wins.reduce((s: number, t: any) => s + t.profit, 0) / _wins.length : 0;
                 const _al = _losses.length > 0 ? Math.abs(_losses.reduce((s: number, t: any) => s + t.profit, 0) / _losses.length) : 0;
                 const _rr = _al > 0 ? _aw / _al : 0;
