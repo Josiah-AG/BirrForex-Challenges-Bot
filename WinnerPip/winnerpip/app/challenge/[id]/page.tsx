@@ -571,7 +571,7 @@ export default function ChallengeDashboard() {
                 <div className="flex items-center justify-center gap-1 mb-1 text-loss"><AlertTriangle size={14} /><p className="text-[9px] uppercase tracking-wider font-medium">Flagged</p></div>
                 <p className="text-lg font-bold text-loss">{myStats.flaggedTrades}</p>
               </button>
-              <MiniStat label="Win Rate" value={`${winRate}%`} icon={<ChevronUp size={14} />} color={winRate >= 50 ? "text-profit" : "text-loss"} />
+              <MiniStat label="Win Rate (Qualified)" value={`${winRate}%`} icon={<ChevronUp size={14} />} color={winRate >= 50 ? "text-profit" : "text-loss"} />
               <MiniStat label="Avg RR" value={avgRR > 0 ? avgRR.toFixed(2) : "—"} icon={<ChevronDown size={14} />} color="text-royal" />
             </div>
 
@@ -869,7 +869,7 @@ export default function ChallengeDashboard() {
                 <div className="flex items-center justify-center gap-1 mb-1 text-loss"><AlertTriangle size={14} /><p className="text-[9px] uppercase tracking-wider font-medium">Flagged</p></div>
                 <p className="text-lg font-bold text-loss">{myStats.flaggedTrades}</p>
               </button>
-              <MiniStat label="Win Rate" value={`${winRate}%`} icon={<ChevronUp size={14} />} color={winRate >= 50 ? "text-profit" : "text-loss"} />
+              <MiniStat label="Win Rate (Qualified)" value={`${winRate}%`} icon={<ChevronUp size={14} />} color={winRate >= 50 ? "text-profit" : "text-loss"} />
               <MiniStat label="Avg RR" value={avgRR > 0 ? avgRR.toFixed(2) : "—"} icon={<ChevronDown size={14} />} color="text-royal" />
             </div>
 
@@ -1187,7 +1187,7 @@ export default function ChallengeDashboard() {
                     const rr = al > 0 ? aw / al : 0;
                     return (
                       <div className="grid grid-cols-2 gap-3 mb-4">
-                        <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500 mb-1">Win Rate</p><p className={`text-lg font-bold ${wr >= 50 ? "text-profit" : "text-loss"}`}>{wr}%</p></div>
+                        <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500 mb-1">Win Rate (Qualified)</p><p className={`text-lg font-bold ${wr >= 50 ? "text-profit" : "text-loss"}`}>{wr}%</p></div>
                         <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500 mb-1">Avg RR</p><p className="text-lg font-bold text-royal">{rr > 0 ? rr.toFixed(2) : "—"}</p></div>
                       </div>
                     );

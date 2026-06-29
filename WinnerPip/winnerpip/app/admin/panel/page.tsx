@@ -560,7 +560,7 @@ export default function AdminDashboard() {
                     {!leaderboardPreStart && <><td className="py-3 px-4 text-center text-sm text-gray-400">{e.totalTrades}</td>
                     <td className="py-3 px-4 text-center text-sm text-gray-400">{e.totalTrades > 0 ? `${Math.round((e.qualifiedTrades / e.totalTrades) * 100)}%` : "—"}</td>
                     <td className="py-3 px-4 text-center text-sm text-royal">{e.totalTrades > 0 ? (e.isCent ? `${Number(e.qualifiedProfit).toFixed(2)}¢` : `$${Number(e.qualifiedProfit).toFixed(2)}`) : "—"}</td>
-                    <td className="py-3 px-4 text-center">{e.flaggedTrades > 0 ? <span className="text-loss font-bold">{e.flaggedTrades}</span> : <span className="text-profit">✓</span>}</td></>}
+                    <td className="py-3 px-4 text-center"><span className={e.flaggedTrades > 0 ? "text-loss font-bold" : "text-gray-500"}>{e.flaggedTrades}</span></td></>}
                   </tr>
                 ))}</tbody>
               </table>
@@ -1089,6 +1089,20 @@ export default function AdminDashboard() {
                 </div>
               )}
               <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Account Type</p><span className={`px-3 py-1 rounded text-xs font-semibold ${selectedParticipant.accountType === "real" ? "bg-gold/10 text-gold" : "bg-royal/10 text-royal"}`}>{selectedParticipant.accountType}</span></div>
+              {selectedParticipantTrades.length > 0 && (() => {
+                const _wins = selectedParticipantTrades.filter((t: any) => t.profit > 0 && t.isQualified !== false);
+                const _losses = selectedParticipantTrades.filter((t: any) => t.profit < 0);
+                const _wr = Math.round((_wins.length / selectedParticipantTrades.length) * 100);
+                const _aw = _wins.length > 0 ? _wins.reduce((s: number, t: any) => s + t.profit, 0) / _wins.length : 0;
+                const _al = _losses.length > 0 ? Math.abs(_losses.reduce((s: number, t: any) => s + t.profit, 0) / _losses.length) : 0;
+                const _rr = _al > 0 ? _aw / _al : 0;
+                return (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500 mb-1">Win Rate (Qualified)</p><p className={`text-lg font-bold ${_wr >= 50 ? "text-profit" : "text-loss"}`}>{_wr}%</p></div>
+                    <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500 mb-1">Avg RR</p><p className="text-lg font-bold text-royal">{_rr > 0 ? _rr.toFixed(2) : "—"}</p></div>
+                  </div>
+                );
+              })()}
               {selectedParticipantTrades.length > 0 && (() => {
                 const fmtEAT = (d: string) => new Date(new Date(d).getTime() + 3*60*60*1000).toISOString().substring(11,16);
                 const cur = (v: number) => selectedParticipant.isCent ? `${v.toFixed(2)}¢` : `$${v.toFixed(2)}`;
