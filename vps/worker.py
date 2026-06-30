@@ -922,6 +922,43 @@ def do_pull(account: int, server: str, password: str, from_date: str = None, ord
     }
 
 
+def _wait_history_cache(term_info) -> None:
+    """
+    Primes the broker history stream and blocks until a full date-range
+    deals_get() reports a stable count (or 20 one-second attempts are
+    exhausted) — the same stabilization logic used by do_list_positions().
+    Position-scoped history_orders_get/history_deals_get(position=...) calls
+    read from this same local cache, so they're just as vulnerable to a cold
+    cache returning empty/partial results right after login.
+    """
+    date_to = datetime.now(timezone.utc)
+    mt5.history_deals_total(datetime(2020, 1, 1, tzinfo=timezone.utc), date_to)
+    ping_ms = (term_info.ping_last / 1000.0) if (term_info.ping_last and term_info.ping_last > 0) else 500.0
+    time.sleep(max(6.0, min(20.0, ping_ms / 50.0)))
+
+    prev_count = -1
+    stable_streak = 0
+    for _ in range(20):
+        deals = mt5.history_deals_get(datetime(2020, 1, 1, tzinfo=timezone.utc), date_to)
+        current_count = len(deals) if deals is not None else 0
+
+        if current_count == 0:
+            stable_streak = 0
+            prev_count = 0
+            time.sleep(1)
+            continue
+
+        if current_count == prev_count:
+            stable_streak += 1
+            if stable_streak >= 2:
+                break
+        else:
+            stable_streak = 0
+
+        prev_count = current_count
+        time.sleep(1)
+
+
 def do_resolve_opens(account: int, server: str, password: str, position_ids: list) -> dict:
     """
     Targeted fix for trades whose open_time/open_price came back null from a bulk
@@ -947,12 +984,12 @@ def do_resolve_opens(account: int, server: str, password: str, position_ids: lis
     if not term_info or not term_info.connected:
         return {"success": False, "error_type": "ipc_failure", "message": "Terminal not connected to broker"}
 
-    # Prime + wait for the broker history stream to stabilize before querying —
-    # without this, history_orders_get/history_deals_get silently return empty
-    # right after login because the terminal's local cache hasn't synced yet.
-    mt5.history_deals_total(datetime(2020, 1, 1, tzinfo=timezone.utc), datetime.now(timezone.utc))
-    ping_ms = (term_info.ping_last / 1000.0) if (term_info.ping_last and term_info.ping_last > 0) else 500.0
-    time.sleep(max(6.0, min(20.0, ping_ms / 50.0)))
+    # Prime + stabilize the broker history stream before querying — a flat sleep
+    # isn't reliable on a cold cache, so wait for a full date-range deals_get to
+    # report a stable count first (same approach as do_list_positions/do_pull).
+    # Without this, position-scoped history_orders_get/history_deals_get calls
+    # silently return empty/partial right after login.
+    _wait_history_cache(term_info)
 
     resolved = {}
     for pos_id in position_ids:
@@ -1092,6 +1129,14 @@ def do_resolve_trades(account: int, server: str, password: str, position_ids: li
     term_info = mt5.terminal_info()
     if not term_info or not term_info.connected:
         return {"success": False, "error_type": "ipc_failure", "message": "Terminal not connected to broker"}
+
+    # Prime + stabilize the broker history stream before querying — a flat sleep
+    # isn't reliable on a cold cache, so wait for a full date-range deals_get to
+    # report a stable count first (same approach as do_list_positions/do_pull).
+    # Without this, position-scoped history_orders_get/history_deals_get calls
+    # silently return empty/partial (e.g. close deal but no open deal) right
+    # after login because the terminal's local cache hasn't synced yet.
+    _wait_history_cache(term_info)
 
     trades = []
     for pos_id in position_ids:
