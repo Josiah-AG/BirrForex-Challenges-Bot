@@ -2341,12 +2341,23 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures }: { ch
     setIndivPulling(true);
     setIndivResult(null);
     try {
-      const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/pull-single-account`, {
+      const startRes = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/pull-single-account`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ registrationId: indivUser.id }),
       });
-      const data = await res.json();
-      setIndivResult(data);
+      const startData = await startRes.json();
+      if (!startData.started) { setIndivResult(startData); setIndivPulling(false); return; }
+
+      // Pull can take 1-3 min (multiple terminal retries) — poll instead of
+      // holding one long-lived request open, which can get killed upstream.
+      const deadline = Date.now() + 5 * 60 * 1000;
+      while (Date.now() < deadline) {
+        await new Promise(r => setTimeout(r, 3000));
+        const res = await fetch(`${apiUrl}/api/admin/${secretPath}/pull-single-status?registrationId=${indivUser.id}`);
+        const data = await res.json();
+        if (data.done) { setIndivResult(data); setIndivPulling(false); return; }
+      }
+      setIndivResult({ success: false, errorMessage: "Timed out waiting for pull to finish" });
     } catch (_e) { setIndivResult({ success: false, errorMessage: "Network error" }); }
     setIndivPulling(false);
   };

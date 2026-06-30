@@ -2916,11 +2916,20 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/retry-account`, adminIpC
   }
 });
 
+// In-memory result cache for individual-account pulls, keyed by registrationId.
+// The pull itself can take 1-3 minutes (multiple terminal retries, each with a
+// reconcile/resolve pass), which is long enough to get killed by an upstream
+// proxy/edge timeout if held open as a single synchronous HTTP request. So the
+// route below kicks the work off in the background and returns immediately;
+// the frontend polls pull-single-status until a result lands here.
+const individualPullResults = new Map<number, any>();
+
 /**
  * POST /api/admin/:secretPath/challenge/:id/pull-single-account
- * Full pull + evaluate + rank update for ONE specific account (by registrationId).
- * Works on all registrations including disqualified ones.
- * Returns before/after stats for the admin result popup.
+ * Kicks off a full pull + evaluate + rank update for ONE specific account
+ * (by registrationId) in the background and returns immediately. Works on
+ * all registrations including disqualified ones. Poll pull-single-status
+ * for the result.
  */
 app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/pull-single-account`, adminIpCheck, async (req, res) => {
   try {
@@ -2947,69 +2956,91 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/pull-single-account`, ad
       [registrationId]
     );
 
-    // Run pull + evaluate via the scheduler's existing single-account path
     const scheduler = (global as any).__vpsPullScheduler;
     if (!scheduler) return res.status(503).json({ error: 'Pull scheduler not initialised yet — try again in a moment' });
 
-    const pullResult = await scheduler.retrySingleAccount(registrationId, challengeId);
+    individualPullResults.delete(registrationId);
+    res.json({ success: true, started: true });
 
-    // Evaluate (retrySingleAccount already calls evaluateSingleAccount, but re-run to
-    // get flaggedCount reliably even if it errored inside the scheduler)
-    let flaggedCount = 0;
-    let totalTrades = 0;
-    try {
-      const { evaluationEngine } = require('../services/wpEvaluationEngine');
-      const evalResult = await evaluationEngine.evaluateSingleAccount(challengeId, registrationId);
-      flaggedCount = evalResult.flaggedCount;
-      const tradeCountResult = await db.query(
-        `SELECT COUNT(*) as total, COUNT(*) FILTER (WHERE NOT is_qualified) as flagged
-         FROM wp_trades WHERE registration_id = $1`,
-        [registrationId]
-      );
-      totalTrades = parseInt(tradeCountResult.rows[0]?.total || '0');
-      flaggedCount = parseInt(tradeCountResult.rows[0]?.flagged || '0');
-    } catch {}
+    // Run the actual pull + evaluate + rank update in the background.
+    (async () => {
+      try {
+        const pullResult = await scheduler.retrySingleAccount(registrationId, challengeId);
 
-    // Update rankings for the whole challenge so rank changes reflect correctly
-    try {
-      const { leaderboardService } = require('../services/leaderboardService');
-      await leaderboardService.flushStagingToLive(challengeId);
-      await leaderboardService.ensureAllParticipantsHaveEntries(challengeId);
-      await leaderboardService.updateRankings(challengeId);
-    } catch {}
+        let flaggedCount = 0;
+        let totalTrades = 0;
+        try {
+          const { evaluationEngine } = require('../services/wpEvaluationEngine');
+          await evaluationEngine.evaluateSingleAccount(challengeId, registrationId);
+          const tradeCountResult = await db.query(
+            `SELECT COUNT(*) as total, COUNT(*) FILTER (WHERE NOT is_qualified) as flagged
+             FROM wp_trades WHERE registration_id = $1`,
+            [registrationId]
+          );
+          totalTrades = parseInt(tradeCountResult.rows[0]?.total || '0');
+          flaggedCount = parseInt(tradeCountResult.rows[0]?.flagged || '0');
+        } catch {}
 
-    // Snapshot state AFTER pull
-    const after = await db.query(
-      `SELECT r.disqualified, r.disqualified_reason, l.rank as new_rank
-       FROM trading_registrations r
-       LEFT JOIN wp_leaderboard l ON l.registration_id = r.id
-       WHERE r.id = $1`,
-      [registrationId]
-    );
+        try {
+          const { leaderboardService } = require('../services/leaderboardService');
+          await leaderboardService.flushStagingToLive(challengeId);
+          await leaderboardService.ensureAllParticipantsHaveEntries(challengeId);
+          await leaderboardService.updateRankings(challengeId);
+        } catch {}
 
-    const newRank = after.rows[0]?.new_rank ?? null;
-    const isDisqualified = after.rows[0]?.disqualified ?? false;
-    const dqReason = after.rows[0]?.disqualified_reason ?? null;
-    const newTradeCount = totalTrades;
-    const tradesAdded = Math.max(0, newTradeCount - prevTradeCount);
+        const after = await db.query(
+          `SELECT r.disqualified, r.disqualified_reason, l.rank as new_rank
+           FROM trading_registrations r
+           LEFT JOIN wp_leaderboard l ON l.registration_id = r.id
+           WHERE r.id = $1`,
+          [registrationId]
+        );
 
-    return res.json({
-      success: pullResult.success,
-      errorMessage: pullResult.success ? null : (pullResult.errorMessage || 'Pull failed'),
-      terminalAttempts: pullResult.success ? null : ((pullResult as any).terminalAttempts || null),
-      tradesFound: newTradeCount,
-      tradesAdded,
-      faultsFound: flaggedCount,
-      prevRank,
-      newRank,
-      isDisqualified,
-      dqReason,
-    });
+        const newRank = after.rows[0]?.new_rank ?? null;
+        const isDisqualified = after.rows[0]?.disqualified ?? false;
+        const dqReason = after.rows[0]?.disqualified_reason ?? null;
+        const newTradeCount = totalTrades;
+        const tradesAdded = Math.max(0, newTradeCount - prevTradeCount);
+
+        individualPullResults.set(registrationId, {
+          done: true,
+          success: pullResult.success,
+          errorMessage: pullResult.success ? null : (pullResult.errorMessage || 'Pull failed'),
+          terminalAttempts: pullResult.success ? null : ((pullResult as any).terminalAttempts || null),
+          tradesFound: newTradeCount,
+          tradesAdded,
+          faultsFound: flaggedCount,
+          prevRank,
+          newRank,
+          isDisqualified,
+          dqReason,
+        });
+      } catch (error) {
+        console.error('pull-single-account background error:', error);
+        individualPullResults.set(registrationId, {
+          done: true,
+          success: false,
+          errorMessage: 'Internal error during pull',
+        });
+      }
+    })();
 
   } catch (error) {
     console.error('pull-single-account error:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
+});
+
+/**
+ * GET /api/admin/:secretPath/pull-single-status?registrationId=X
+ * Poll for the result of a background pull-single-account run.
+ */
+app.get(`/api/admin/${ADMIN_SECRET_PATH}/pull-single-status`, adminIpCheck, async (req, res) => {
+  const registrationId = parseInt(req.query.registrationId as string);
+  if (!registrationId) return res.status(400).json({ error: 'registrationId required' });
+  const result = individualPullResults.get(registrationId);
+  if (!result) return res.json({ done: false });
+  return res.json(result);
 });
 
 /**
