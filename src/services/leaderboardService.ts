@@ -55,10 +55,17 @@ export class LeaderboardService {
       );
       offset = parseInt(tier1Count.rows[0].cnt);
 
-      // Tier 2: Blown (balance ≤ 0, had trades) — by zero_balance_at DESC (most recent blown = higher)
+      // Tier 2: Blown/negative (balance ≤ 0, had trades) — rank by the balance
+      // number itself (less negative = better), same as Tier 1, NOT by when the
+      // account blew. zero_balance_at / total_trades only break exact balance ties
+      // (e.g. two accounts both sitting at 0 with 0 trades).
       await db.query(
         `UPDATE wp_leaderboard SET rank = sub.rn FROM (
-          SELECT id, (ROW_NUMBER() OVER (ORDER BY zero_balance_at DESC NULLS LAST)) + $3 as rn
+          SELECT id, (ROW_NUMBER() OVER (
+            ORDER BY COALESCE(normalized_balance, adjusted_balance) DESC,
+                     total_trades DESC,
+                     zero_balance_at DESC NULLS LAST
+          )) + $3 as rn
           FROM wp_leaderboard
           WHERE challenge_id=$1 AND account_type=$2 AND is_disqualified=false
             AND current_balance <= 0 AND current_balance IS NOT NULL
