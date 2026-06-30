@@ -377,7 +377,7 @@ export class VpsPullScheduler {
       const successfulAccounts = remaining.filter(a => successful.some(r => r.registrationId === a.registrationId));
       await this.reconcileMissingTrades(challengeId, batchId, successfulAccounts, healthyTerminals, challenge);
       await this.resolveNullOpenTimes(challengeId, batchId, successfulAccounts, healthyTerminals, challenge);
-      await this.evaluateAllAccounts(challengeId, successfulAccounts);
+      await this.evaluateAllAccounts(challengeId, successfulAccounts, batchId);
       const newTrades = successful.reduce((sum, r) => sum + (r.tradesCount || 0), 0);
       await this.completePullBatch(batchId, successful.length, failed.length, newTrades, 'completed');
 
@@ -523,7 +523,7 @@ export class VpsPullScheduler {
       const successfulAccounts = accountsWithPriority.filter(a => successful.some(r => r.registrationId === a.registrationId));
       await this.reconcileMissingTrades(challengeToPull.id, batchId, successfulAccounts, healthyTerminals, challengeToPull);
       await this.resolveNullOpenTimes(challengeToPull.id, batchId, successfulAccounts, healthyTerminals, challengeToPull);
-      await this.evaluateAllAccounts(challengeToPull.id, successfulAccounts);
+      await this.evaluateAllAccounts(challengeToPull.id, successfulAccounts, batchId);
 
       // Complete batch
       const newTrades = successful.reduce((sum, r) => sum + (r.tradesCount || 0), 0);
@@ -713,7 +713,7 @@ export class VpsPullScheduler {
       const successfulAccounts = accounts.filter(a => successful.some(r => r.registrationId === a.registrationId));
       await this.reconcileMissingTrades(challengeId, batchId, successfulAccounts, healthyTerminals, challengeToPull);
       await this.resolveNullOpenTimes(challengeId, batchId, successfulAccounts, healthyTerminals, challengeToPull);
-      await this.evaluateAllAccounts(challengeId, successfulAccounts);
+      await this.evaluateAllAccounts(challengeId, successfulAccounts, batchId);
 
       const newTrades = successful.reduce((sum, r) => sum + (r.tradesCount || 0), 0);
       await this.completePullBatch(batchId, successful.length, failed.length, newTrades, 'completed');
@@ -2231,12 +2231,23 @@ export class VpsPullScheduler {
    * finished (or had nothing to do). Replaces the old per-account streaming
    * evaluate call that used to run inside terminalWorker immediately after pull.
    */
-  private async evaluateAllAccounts(challengeId: number, accounts: AccountToPull[]): Promise<void> {
+  private async evaluateAllAccounts(challengeId: number, accounts: AccountToPull[], batchId: number | null = null): Promise<void> {
+    if (batchId && accounts.length > 0) {
+      await db.query(
+        `UPDATE wp_pull_batches SET phase = 'evaluating', phase2_total = $1, phase2_processed = 0, phase2_round = 0 WHERE id = $2`,
+        [accounts.length, batchId]
+      ).catch(() => {});
+    }
+    let processed = 0;
     for (const account of accounts) {
       try {
         await evaluationEngine.evaluateSingleAccount(challengeId, account.registrationId);
       } catch (evalErr) {
         console.error(`⚠️ Eval error for ${account.accountNumber}:`, evalErr);
+      }
+      processed++;
+      if (batchId) {
+        await db.query(`UPDATE wp_pull_batches SET phase2_processed = $1 WHERE id = $2`, [processed, batchId]).catch(() => {});
       }
     }
   }

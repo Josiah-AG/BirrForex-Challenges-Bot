@@ -313,6 +313,7 @@ export default function AdminDashboard() {
   }, []).sort((a: any, b: any) => b.count - a.count).slice(0, 5);
 
   // Fetch leaderboard when leaderboard tab is active
+  const fetchLeaderboardRef = useRef<() => void>(() => {});
   useEffect(() => {
     if (!isAdmin || activeSection !== "leaderboard" || !selectedChallengeId) return;
     const fetchLeaderboard = async () => {
@@ -327,6 +328,7 @@ export default function AdminDashboard() {
         }
       } catch {}
     };
+    fetchLeaderboardRef.current = fetchLeaderboard;
     fetchLeaderboard();
   }, [isAdmin, activeSection, selectedChallengeId, leaderboardCategory]);
 
@@ -617,7 +619,7 @@ export default function AdminDashboard() {
 
         {/* ==================== PULL HISTORY + TERMINALS ==================== */}
         {activeSection === "pulls" && (
-          <PullsTab challengeId={selectedChallengeId} pullHistory={pullHistory} terminalStatus={terminalStatus} slFailures={slFailures} onPullFinished={() => fetchPullsRef.current()} />
+          <PullsTab challengeId={selectedChallengeId} pullHistory={pullHistory} terminalStatus={terminalStatus} slFailures={slFailures} onPullFinished={() => { fetchPullsRef.current(); fetchLeaderboardRef.current(); }} />
         )}
 
         {/* ==================== PARTICIPANTS (Find User + Export) ==================== */}
@@ -2389,7 +2391,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold text-white flex items-center gap-2">
               <Loader2 size={16} className="text-royal animate-spin" />
-              {pullProgress.phase === 'reconciling' ? 'Recovering Missing Trades' : pullProgress.phase === 'resolving_nulls' ? 'Resolving Missing Open Times' : 'Pull In Progress'}
+              {pullProgress.phase === 'reconciling' ? 'Recovering Missing Trades' : pullProgress.phase === 'resolving_nulls' ? 'Resolving Missing Open Times' : pullProgress.phase === 'evaluating' ? 'Evaluating Accounts' : 'Pull In Progress'}
             </h3>
             <div className="flex items-center gap-3">
               <span className="text-xs text-gray-400">{pullProgress.elapsedSeconds}s elapsed</span>
@@ -2418,20 +2420,20 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
             <div className="flex-1 h-3 bg-white/10 rounded-full overflow-hidden">
               <div className="h-full rounded-full bg-gradient-to-r from-royal to-profit transition-all duration-1000" style={{ width: `${pullProgress.percent || 0}%` }} />
             </div>
-            {(pullProgress.phase === 'reconciling' || pullProgress.phase === 'resolving_nulls') && <span className="text-profit text-xs">✓</span>}
+            {(pullProgress.phase === 'reconciling' || pullProgress.phase === 'resolving_nulls' || pullProgress.phase === 'evaluating') && <span className="text-profit text-xs">✓</span>}
           </div>
           <div className="flex items-center justify-between text-xs text-gray-400 mb-2">
             <span>{pullProgress.processed || 0} / {pullProgress.totalAccounts || 0} accounts</span>
             <span className="text-royal font-semibold">{pullProgress.percent || 0}%</span>
           </div>
 
-          {/* Phase 2 bar — reconciling missing trades or resolving null open_time, only shown once it actually starts */}
-          {(pullProgress.phase === 'reconciling' || pullProgress.phase === 'resolving_nulls') && (
+          {/* Phase 2 bar — reconciling missing trades, resolving null open_time, or evaluating accounts, only shown once it actually starts */}
+          {(pullProgress.phase === 'reconciling' || pullProgress.phase === 'resolving_nulls' || pullProgress.phase === 'evaluating') && (
             <>
               <div className="flex items-center gap-2 mb-1 mt-3">
-                <span className="text-[10px] text-gray-500 w-16">Phase 2</span>
+                <span className="text-[10px] text-gray-500 w-16">{pullProgress.phase === 'evaluating' ? 'Phase 3' : 'Phase 2'}</span>
                 <div className="flex-1 h-3 bg-white/10 rounded-full overflow-hidden">
-                  <div className="h-full rounded-full bg-gradient-to-r from-gold to-amber-400 transition-all duration-1000" style={{ width: `${pullProgress.phase2Percent || 0}%` }} />
+                  <div className={`h-full rounded-full transition-all duration-1000 ${pullProgress.phase === 'evaluating' ? 'bg-gradient-to-r from-purple-500 to-purple-300' : 'bg-gradient-to-r from-gold to-amber-400'}`} style={{ width: `${pullProgress.phase2Percent || 0}%` }} />
                 </div>
               </div>
               <div className="flex items-center justify-between text-xs text-gray-400">
@@ -2439,7 +2441,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
                   {pullProgress.phase2Processed || 0} / {pullProgress.phase2Total || 0} accounts
                   {pullProgress.phase === 'resolving_nulls' && <> — round {pullProgress.phase2Round || 1}/{pullProgress.phase2MaxRounds || 5}</>}
                 </span>
-                <span className="text-gold font-semibold">{pullProgress.phase2Percent || 0}%</span>
+                <span className={`font-semibold ${pullProgress.phase === 'evaluating' ? 'text-purple-300' : 'text-gold'}`}>{pullProgress.phase2Percent || 0}%</span>
               </div>
             </>
           )}
@@ -2447,23 +2449,40 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
       )}
 
       {/* Last Completed Pull Summary */}
-      {pullProgress && !pullProgress.isRunning && pullProgress.lastBatch && (
-        <div className={`glass rounded-2xl border p-4 ${pullProgress.lastBatch.reconciled ? "border-profit/20" : "border-amber-500/30"}`}>
-          <div className="flex items-center justify-between">
-            <p className={`text-xs font-semibold ${pullProgress.lastBatch.reconciled ? "text-profit" : "text-amber-400"}`}>
-              {pullProgress.lastBatch.reconciled ? "✅" : "⚠️"} Last pull: {pullProgress.lastBatch.successful}✓ {pullProgress.lastBatch.failed}✗ — {pullProgress.lastBatch.newTrades} new trades — {pullProgress.lastBatch.durationSec}s
-            </p>
-            <p className="text-[10px] text-gray-500">{pullProgress.lastBatch.completedAt ? (() => { const d = new Date(new Date(pullProgress.lastBatch.completedAt).getTime() + 3*60*60*1000); return `${String(d.getUTCHours()).padStart(2,"0")}:${String(d.getUTCMinutes()).padStart(2,"0")} EAT`; })() : ""}</p>
-          </div>
-          <p className={`text-[11px] mt-1.5 font-medium ${pullProgress.lastBatch.reconciled ? "text-profit/80" : "text-amber-400/90"}`}>
-            {pullProgress.lastBatch.phase2Total === 0
+      {pullProgress && !pullProgress.isRunning && pullProgress.lastBatch && (() => {
+        const lb = pullProgress.lastBatch;
+        const completedEAT = lb.completedAt ? (() => { const d = new Date(new Date(lb.completedAt).getTime() + 3*60*60*1000); return `${String(d.getUTCHours()).padStart(2,"0")}:${String(d.getUTCMinutes()).padStart(2,"0")} EAT`; })() : "";
+        const allOk = lb.failed === 0 && lb.reconciled;
+        return (
+        <div className={`glass rounded-2xl border p-4 ${allOk ? "border-profit/20" : "border-amber-500/30"}`}>
+          <p className={`text-xs font-bold ${allOk ? "text-profit" : "text-amber-400"}`}>
+            {allOk
+              ? `✅ All ${lb.totalAccounts} accounts pulled and evaluated — data up to date as of ${completedEAT}`
+              : `⚠️ ${lb.failed} of ${lb.totalAccounts} account(s) failed — data up to date as of ${completedEAT} (see below)`}
+          </p>
+          <p className="text-[11px] text-gray-400 mt-1">{lb.successful}✓ {lb.failed}✗ — {lb.newTrades} new trades — {lb.durationSec}s</p>
+
+          {lb.failedAccounts && lb.failedAccounts.length > 0 && (
+            <div className="mt-2.5 space-y-1 max-h-[180px] overflow-y-auto">
+              {lb.failedAccounts.map((f: any, i: number) => (
+                <div key={i} className="flex items-start justify-between gap-3 px-2.5 py-1.5 rounded-lg bg-loss/10 border border-loss/20">
+                  <span className="text-[11px] text-white font-semibold whitespace-nowrap">{f.accountNumber} <span className="text-gray-500 font-normal">@{f.nickname || f.username || "unknown"}</span></span>
+                  <span className="text-[10px] text-loss text-right">{f.errorCode}{f.errorMessage ? `: ${String(f.errorMessage).substring(0, 80)}` : ""}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <p className={`text-[11px] mt-2.5 font-medium ${lb.reconciled ? "text-profit/80" : "text-amber-400/90"}`}>
+            {lb.phase2Total === 0
               ? "✅ Reconciliation: nothing to fix — all trades had open_time on first pass"
-              : pullProgress.lastBatch.reconciled
-              ? `✅ Reconciliation successful — ${pullProgress.lastBatch.phase2Total} account(s) resolved in ${pullProgress.lastBatch.phase2Round} round(s)`
-              : `⚠️ Reconciliation incomplete — ${pullProgress.lastBatch.stillNullCount} trade(s) still missing open_time after ${pullProgress.lastBatch.phase2Round} round(s)`}
+              : lb.reconciled
+              ? `✅ Reconciliation successful — ${lb.phase2Total} account(s) resolved in ${lb.phase2Round} round(s)`
+              : `⚠️ Reconciliation incomplete — ${lb.stillNullCount} trade(s) still missing open_time after ${lb.phase2Round} round(s)`}
           </p>
         </div>
-      )}
+        );
+      })()}
 
       {/* Filter Tabs */}
       <div className="flex gap-2 mb-2 flex-wrap">

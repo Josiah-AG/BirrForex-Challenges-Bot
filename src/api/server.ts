@@ -2674,7 +2674,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/pull-status`, adminIpCheck, async (req,
       const elapsed = Math.round((Date.now() - new Date(batch.started_at).getTime()) / 1000);
       const phase = batch.phase || 'pulling';
 
-      if (phase === 'resolving_nulls' || phase === 'reconciling') {
+      if (phase === 'resolving_nulls' || phase === 'reconciling' || phase === 'evaluating') {
         // Phase 1.5/2 progress is driven explicitly by the scheduler — completePullBatch()
         // is only called once phase 2 + the deferred evaluation finish. No auto-complete
         // heuristic here, just report progress as-is.
@@ -2746,6 +2746,19 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/pull-status`, adminIpCheck, async (req,
         reconciled = stillNullCount === 0;
       }
 
+      // Exact accounts that failed during this specific batch — wp_pull_errors rows
+      // tagged with this batch's id only come from logPullError() (actual pull
+      // failures), not the SL-check or drawdown-notify logs which leave pull_batch_id
+      // null, so this is a clean per-batch failure list, not a "currently failing" one.
+      const failedDetail = await db.query(
+        `SELECT pe.account_number, pe.error_code, pe.error_message, r.nickname, r.username
+         FROM wp_pull_errors pe
+         LEFT JOIN trading_registrations r ON r.id = pe.registration_id
+         WHERE pe.pull_batch_id = $1
+         ORDER BY pe.created_at ASC`,
+        [b.id]
+      );
+
       return res.json({
         isRunning: false,
         lastBatch: {
@@ -2764,6 +2777,13 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/pull-status`, adminIpCheck, async (req,
           phase2Round: b.phase2_round,
           reconciled,
           stillNullCount,
+          failedAccounts: failedDetail.rows.map((f: any) => ({
+            accountNumber: f.account_number,
+            nickname: f.nickname,
+            username: f.username,
+            errorCode: f.error_code,
+            errorMessage: f.error_message,
+          })),
         },
       });
     }
