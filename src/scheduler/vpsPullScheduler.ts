@@ -1977,8 +1977,10 @@ export class VpsPullScheduler {
         { headers: { 'Content-Type': 'application/json' }, timeout: ACCOUNT_TIMEOUT_MS, signal: abortSignal }
       );
       if (response.data?.success) return (response.data.position_ids || []).map((id: any) => Number(id));
+      console.error(`🔍 VPS Pull: ${account.accountNumber} /list-positions responded success=false: ${JSON.stringify(response.data)}`);
       return null;
-    } catch (e) {
+    } catch (e: any) {
+      console.error(`🔍 VPS Pull: ${account.accountNumber} /list-positions threw: status=${e?.response?.status} data=${JSON.stringify(e?.response?.data)} message=${e?.message}`);
       return null;
     }
   }
