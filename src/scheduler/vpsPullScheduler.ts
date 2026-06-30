@@ -33,6 +33,10 @@ const MAX_TERMINALS = 10;
 const MAX_RETRIES_PER_ACCOUNT = 3;
 const RETRY_DELAY_MS = 3000;
 const ACCOUNT_TIMEOUT_MS = 30000;
+// resolve-opens/resolve-trades run a full history-cache stabilization wait
+// (_wait_history_cache in worker.py) before querying — that alone can take up
+// to ~40s on a cold cache, so they need a longer timeout than other endpoints.
+const HISTORY_RESOLVE_TIMEOUT_MS = 60000;
 const BATCH_DELAY_MS = 1500;
 const PASSWORD_WARNING_HOURS = 48;
 const TERMINAL_HEALTH_RECHECK_MS = 10 * 60 * 1000;
@@ -1924,7 +1928,7 @@ export class VpsPullScheduler {
           terminal_id: terminalId,
           position_ids: positionIds,
         },
-        { headers: { 'Content-Type': 'application/json' }, timeout: ACCOUNT_TIMEOUT_MS, signal: abortSignal }
+        { headers: { 'Content-Type': 'application/json' }, timeout: HISTORY_RESOLVE_TIMEOUT_MS, signal: abortSignal }
       );
       if (response.data?.success) {
         const resolved = response.data.resolved || {};
@@ -1933,8 +1937,10 @@ export class VpsPullScheduler {
         }
         return resolved;
       }
+      console.warn(`⚠️ VPS Pull: resolveOpensForAccount ${account.accountNumber} responded success=false: ${JSON.stringify(response.data)}`);
       return null;
-    } catch (e) {
+    } catch (e: any) {
+      console.warn(`⚠️ VPS Pull: resolveOpensForAccount ${account.accountNumber} threw: status=${e?.response?.status} code=${e?.code} message=${e?.message}`);
       return null;
     }
   }
@@ -2013,11 +2019,13 @@ export class VpsPullScheduler {
           terminal_id: terminalId,
           position_ids: positionIds,
         },
-        { headers: { 'Content-Type': 'application/json' }, timeout: ACCOUNT_TIMEOUT_MS, signal: abortSignal }
+        { headers: { 'Content-Type': 'application/json' }, timeout: HISTORY_RESOLVE_TIMEOUT_MS, signal: abortSignal }
       );
       if (response.data?.success) return response.data.trades || [];
+      console.warn(`⚠️ VPS Pull: resolveTradesForAccount ${account.accountNumber} responded success=false: ${JSON.stringify(response.data)}`);
       return null;
-    } catch (e) {
+    } catch (e: any) {
+      console.warn(`⚠️ VPS Pull: resolveTradesForAccount ${account.accountNumber} threw: status=${e?.response?.status} code=${e?.code} message=${e?.message}`);
       return null;
     }
   }
