@@ -1,6 +1,7 @@
 import { db } from '../database/db';
 import { config } from '../config';
 import axios from 'axios';
+import { leaderboardService } from './leaderboardService';
 
 /**
  * WinnerPip Real-Time Evaluation Engine
@@ -1417,15 +1418,10 @@ export class WpEvaluationEngine {
   }
 
   async updateRankings(challengeId: number) {
-    for (const accountType of ['demo', 'real']) {
-      await db.query(
-        `UPDATE wp_leaderboard SET rank = sub.rn FROM (
-          SELECT id, ROW_NUMBER() OVER (ORDER BY adjusted_balance DESC) as rn
-          FROM wp_leaderboard WHERE challenge_id=$1 AND account_type=$2 AND is_disqualified=false
-        ) sub WHERE wp_leaderboard.id = sub.id`,
-        [challengeId, accountType]
-      );
-    }
+    // Delegates to the canonical tiered ranking implementation (qualified-profit
+    // based, with balance/trades/zero-balance/DQ tiering) instead of a separate
+    // simplified balance-only sort, so all code paths produce identical ranks.
+    await leaderboardService.updateRankings(challengeId);
   }
 
   // ==================== RULES ====================
