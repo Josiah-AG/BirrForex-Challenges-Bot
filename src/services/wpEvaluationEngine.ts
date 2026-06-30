@@ -965,7 +965,11 @@ export class WpEvaluationEngine {
     // EVERY child close of that position (win or loss), not just whichever close
     // happened to be profitable.
     const isDefinitiveSl = (r: string | null | undefined) => r === 'fake_sl' || r === 'passed';
-    interface PositionSlOutcome { violation: string | null; isBreach: boolean; slAllowedPrice: number | null; slMaxAdversePrice: number | null; slCheckResult: string }
+    interface PositionSlOutcome {
+      layerABreach: boolean; layerAViolation: string | null;
+      layerBBreach: boolean; layerBViolation: string | null;
+      slAllowedPrice: number | null; slMaxAdversePrice: number | null; slCheckResult: string;
+    }
     const positionSlOutcomes = new Map<number, PositionSlOutcome>();
 
     if (rules.stop_loss_required && rules.max_risk_dollars) {
@@ -978,8 +982,12 @@ export class WpEvaluationEngine {
         const entryTrade = siblings[0];
         const totalLot = siblings.reduce((s, t) => s + parseFloat(String(t.volume)), 0);
 
-        // Layer A: declared SL risk, evaluated against the FULL original lot —
-        // the SL governs the whole position regardless of how it's later closed.
+        // Layer A: declared SL placed wider than the max allowed risk — disqualifies
+        // the trade on its own (profit removed only, no extra penalty — see "Apply"
+        // below). Evaluated against the FULL original lot, since the SL governs the
+        // whole position regardless of how it's later closed.
+        let layerABreach = false;
+        let layerAViolation: string | null = null;
         const sl = parseFloat(String(entryTrade.stop_loss));
         const hasSl = sl !== 0 && !isNaN(sl);
         if (hasSl) {
@@ -991,29 +999,44 @@ export class WpEvaluationEngine {
           );
           const tolerance = rules.max_risk_dollars * 0.10;
           if (slDollars > rules.max_risk_dollars + tolerance) {
-            positionSlOutcomes.set(posId, {
-              violation: `SL risk ${currency}${slDollars.toFixed(2)} exceeds max ${currency}${rules.max_risk_dollars}${isPartialClose ? ' (full position) — all closes disqualified' : ''}`,
-              isBreach: true, slAllowedPrice: null, slMaxAdversePrice: null, slCheckResult: 'fake_sl',
-            });
-            continue;
+            layerABreach = true;
+            layerAViolation = `Declared SL risk ${currency}${slDollars.toFixed(2)} exceeds max ${currency}${rules.max_risk_dollars}${isPartialClose ? ' (full position) — all closes disqualified' : ''}`;
           }
         }
 
-        // Layer B: candle-based Window 0 check (open → first close, full lot).
-        // For single (non-partial) trades, only matters when profitable — a losing
-        // single trade already realized its loss, nothing to "remove". For
-        // partial-close positions, the full-lot Window 0 risk applies regardless of
-        // which individual close ended up profitable, since the riskiest exposure
-        // happened before any partial was taken off.
+        // Layer B: candle-based Window 0 check (open → first close, full lot) —
+        // confirms whether price actually moved past the max-risk level for real
+        // ("fake SL"), independent of what the trader declared. Runs regardless of
+        // the Layer A outcome above — the two are independent and can stack; only
+        // Layer B carries the extra max-allowed-loss penalty. For single
+        // (non-partial) trades, only matters when profitable — a losing single trade
+        // already realized its loss, nothing to "remove". For partial-close
+        // positions, the full-lot Window 0 risk applies regardless of which
+        // individual close ended up profitable, since the riskiest exposure happened
+        // before any partial was taken off.
+        let layerBBreach = false;
+        let layerBViolation: string | null = null;
+        let slAllowedPrice: number | null = null;
+        let slMaxAdversePrice: number | null = null;
+        let slCheckResult = 'skipped';
         const anyProfitable = siblings.some(t => (parseFloat(String(t.profit)) + parseFloat(String(t.commission || 0)) + parseFloat(String(t.swap || 0))) > 0);
-        if (!isPartialClose && !anyProfitable) continue;
-
-        const w0 = await runSlCheckForTrade(entryTrade, siblings, rules.max_hold_hours || null, rules.max_risk_dollars);
-        if (w0.violation && w0.violation !== 'FAILED') {
-          positionSlOutcomes.set(posId, { violation: w0.violation, isBreach: true, slAllowedPrice: w0.slAllowedPrice ?? null, slMaxAdversePrice: w0.slMaxAdversePrice ?? null, slCheckResult: 'fake_sl' });
+        if (isPartialClose || anyProfitable) {
+          const w0 = await runSlCheckForTrade(entryTrade, siblings, rules.max_hold_hours || null, rules.max_risk_dollars);
+          if (w0.violation && w0.violation !== 'FAILED') {
+            layerBBreach = true;
+            layerBViolation = w0.violation;
+            slAllowedPrice = w0.slAllowedPrice ?? null;
+            slMaxAdversePrice = w0.slMaxAdversePrice ?? null;
+            slCheckResult = 'fake_sl';
+          }
+          // Window 0 passed, or no candle data — layerBBreach stays false; per-trade
+          // loop below falls back to its existing individual-window check +
+          // escalation logic.
         }
-        // Window 0 passed, or no candle data — leave unset; per-trade loop below
-        // falls back to its existing individual-window check + escalation logic.
+
+        if (layerABreach || layerBBreach) {
+          positionSlOutcomes.set(posId, { layerABreach, layerAViolation, layerBBreach, layerBViolation, slAllowedPrice, slMaxAdversePrice, slCheckResult });
+        }
       }
     }
 
@@ -1065,8 +1088,17 @@ export class WpEvaluationEngine {
         const posId = ticketToPosition.get(trade.ticket) ?? trade.ticket;
         const posOutcome = positionSlOutcomes.get(posId);
 
-        if (posOutcome?.isBreach) {
-          violations.push(posOutcome.violation!);
+        // Layer A — declared SL too wide. Disqualifies on its own; profit-only
+        // removal happens in the "Apply" block below via violations.length > 0, no
+        // extra penalty added here.
+        if (posOutcome?.layerABreach) {
+          violations.push(posOutcome.layerAViolation!);
+        }
+
+        if (posOutcome?.layerBBreach) {
+          // Layer B (fake SL) confirmed at position level — full max-risk penalty,
+          // stacks on top of Layer A above if both breached.
+          violations.push(posOutcome.layerBViolation!);
           if (rules.max_risk_dollars) slPenaltyDollars = rules.max_risk_dollars;
           await db.query(
             `UPDATE wp_trades SET sl_allowed_price = $1, sl_max_adverse_price = $2, sl_check_result = $3, sl_check_pending = false, sl_check_attempts = 0, sl_conflict_count = 0 WHERE id = $4`,
