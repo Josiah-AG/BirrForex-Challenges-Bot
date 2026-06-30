@@ -1165,9 +1165,12 @@ export default function AdminDashboard() {
                               </div>
                             </div>
                             {group.map((t: any) => (
-                              <div key={t.ticket} className={`py-1.5 px-3 pl-6 border-t border-white/5 flex items-center justify-between ${!t.isQualified ? 'bg-loss/5' : ''}`}>
-                                <p className="text-[10px] text-gray-500">└ → {fmtEAT(t.closeTime)} · {t.volume} lot</p>
-                                <p className={`text-[10px] font-semibold ${t.profit >= 0 ? 'text-profit' : 'text-loss'}`}>{cur(t.profit)}</p>
+                              <div key={t.ticket} className={`py-1.5 px-3 pl-6 border-t border-white/5 ${!t.isQualified ? 'bg-loss/5' : ''}`}>
+                                <div className="flex items-center justify-between">
+                                  <p className="text-[10px] text-gray-500">└ → {fmtEAT(t.closeTime)} · {t.volume} lot</p>
+                                  <p className={`text-[10px] font-semibold ${t.profit >= 0 ? 'text-profit' : 'text-loss'}`}>{cur(t.profit)}</p>
+                                </div>
+                                {!t.isQualified && t.violations?.length > 0 && <p className="text-[10px] text-loss mt-1 pl-2">⚠️ {typeof t.violations[0] === 'string' ? t.violations[0] : (t.violations[0] as any)?.detail || 'Rule violation'}</p>}
                               </div>
                             ))}
                           </div>
@@ -2855,6 +2858,7 @@ function generateTradesHTML(data: any): string {
     const subRows = group.map((t: any) => {
       const flagged = !t.isQualified;
       const profitColor = t.profit >= 0 ? "#22c55e" : "#ef4444";
+      const tViols = linkifyTickets((t.violations || []).map((v: any) => typeof v === 'string' ? v : v?.detail || 'Rule violation').join('<br>'));
       return `<tr id="trade-${t.ticket}" class="trow" style="background:#0d1117;border-bottom:1px solid #1f2937">
         <td style="padding:5px 10px;color:#4b5563;font-size:10px">└</td>
         <td style="padding:5px 10px;color:#6b7280;font-size:10px">${t.ticket}</td>
@@ -2872,7 +2876,7 @@ function generateTradesHTML(data: any): string {
         <td style="padding:5px 10px;font-weight:600;font-size:11px;text-align:right;color:${profitColor}">${cur(t.profit)}</td>
         <td style="padding:5px 10px;font-size:10px;text-align:right;color:#6b7280">${cur(t.commission)} / ${cur(t.swap)}</td>
         <td style="padding:5px 10px;font-size:10px;text-align:center">${flagged ? `<span style="color:#ef4444">🚩</span>` : `<span style="color:#22c55e">✓</span>`}</td>
-        <td></td>
+        <td style="padding:5px 10px;font-size:9px;color:#ef4444;max-width:220px">${tViols}</td>
       </tr>`;
     }).join("");
     return parentRow + subRows;

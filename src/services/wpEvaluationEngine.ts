@@ -956,6 +956,66 @@ export class WpEvaluationEngine {
       }
     }
 
+    // === Position-level SL pre-check ===
+    // The SL — whether declared by the user or implied via candle data — governs the
+    // position's FULL lot size at entry. Partially closing later doesn't reduce the
+    // risk already taken on the first segment. So both layers are evaluated ONCE per
+    // position using the full lot; if either breaches, the SAME violation applies to
+    // EVERY child close of that position (win or loss), not just whichever close
+    // happened to be profitable.
+    const isDefinitiveSl = (r: string | null | undefined) => r === 'fake_sl' || r === 'passed';
+    interface PositionSlOutcome { violation: string | null; isBreach: boolean; slAllowedPrice: number | null; slMaxAdversePrice: number | null; slCheckResult: string }
+    const positionSlOutcomes = new Map<number, PositionSlOutcome>();
+
+    if (rules.stop_loss_required && rules.max_risk_dollars) {
+      const currency = reg.is_cent ? '¢' : '$';
+      for (const [posId, tickets] of positionToTickets) {
+        const siblings = allTrades
+          .filter(t => tickets.includes(t.ticket))
+          .sort((a, b) => new Date(a.close_time).getTime() - new Date(b.close_time).getTime());
+        const isPartialClose = siblings.length > 1;
+        const entryTrade = siblings[0];
+        const totalLot = siblings.reduce((s, t) => s + parseFloat(String(t.volume)), 0);
+
+        // Layer A: declared SL risk, evaluated against the FULL original lot —
+        // the SL governs the whole position regardless of how it's later closed.
+        const sl = parseFloat(String(entryTrade.stop_loss));
+        const hasSl = sl !== 0 && !isNaN(sl);
+        if (hasSl) {
+          const entryNet = parseFloat(String(entryTrade.profit)) + parseFloat(String(entryTrade.commission || 0)) + parseFloat(String(entryTrade.swap || 0));
+          const slDollars = calculateSlDollars(
+            entryTrade.symbol, totalLot,
+            parseFloat(String(entryTrade.open_price)), sl,
+            parseFloat(String(entryTrade.close_price)), entryNet
+          );
+          const tolerance = rules.max_risk_dollars * 0.10;
+          if (slDollars > rules.max_risk_dollars + tolerance) {
+            positionSlOutcomes.set(posId, {
+              violation: `SL risk ${currency}${slDollars.toFixed(2)} exceeds max ${currency}${rules.max_risk_dollars}${isPartialClose ? ' (full position) — all closes disqualified' : ''}`,
+              isBreach: true, slAllowedPrice: null, slMaxAdversePrice: null, slCheckResult: 'fake_sl',
+            });
+            continue;
+          }
+        }
+
+        // Layer B: candle-based Window 0 check (open → first close, full lot).
+        // For single (non-partial) trades, only matters when profitable — a losing
+        // single trade already realized its loss, nothing to "remove". For
+        // partial-close positions, the full-lot Window 0 risk applies regardless of
+        // which individual close ended up profitable, since the riskiest exposure
+        // happened before any partial was taken off.
+        const anyProfitable = siblings.some(t => (parseFloat(String(t.profit)) + parseFloat(String(t.commission || 0)) + parseFloat(String(t.swap || 0))) > 0);
+        if (!isPartialClose && !anyProfitable) continue;
+
+        const w0 = await runSlCheckForTrade(entryTrade, siblings, rules.max_hold_hours || null, rules.max_risk_dollars);
+        if (w0.violation && w0.violation !== 'FAILED') {
+          positionSlOutcomes.set(posId, { violation: w0.violation, isBreach: true, slAllowedPrice: w0.slAllowedPrice ?? null, slMaxAdversePrice: w0.slMaxAdversePrice ?? null, slCheckResult: 'fake_sl' });
+        }
+        // Window 0 passed, or no candle data — leave unset; per-trade loop below
+        // falls back to its existing individual-window check + escalation logic.
+      }
+    }
+
     // Evaluate each trade
     const slCheckFailures: { ticket: number; symbol: string; tradeId: number }[] = [];
     for (const trade of allTrades) {
@@ -989,43 +1049,29 @@ export class WpEvaluationEngine {
         violations.push(`Exceeded max ${rules.pair_limit} simultaneous ${trade.symbol} trades (also open: ${coStr})`);
       }
 
-      // Stop loss checks — a missing SL is no longer flagged by itself.
-      // Instead, every profitable trade (SL set or not) gets the fake-SL candle
-      // check run against the max allowed risk. A real SL just adds the extra
-      // "SL risk exceeds max" layer on top.
+      // Stop loss checks — Layer A (declared SL) and Layer B (candle-based Window 0)
+      // are pre-evaluated once per POSITION using the full lot size (see
+      // `positionSlOutcomes` pre-pass above). If the position-level check breached,
+      // the same violation applies to every child close — win or loss. Otherwise,
+      // fall back to this trade's own individual-window check below (handles later
+      // partials and the no-data/conflict escalation tracking).
       let slPenaltyDollars = 0;
       if (rules.stop_loss_required) {
-        const sl = parseFloat(String(trade.stop_loss));
-        const hasSl = sl !== 0 && !isNaN(sl);
         const currency = reg.is_cent ? '¢' : '$';
-
-        // Layer A: SL risk check (only meaningful when an actual SL is set)
-        if (hasSl && rules.max_risk_dollars) {
-          const slDollars = calculateSlDollars(
-            trade.symbol, parseFloat(String(trade.volume)),
-            parseFloat(String(trade.open_price)), sl,
-            parseFloat(String(trade.close_price)), tradeNet
-          );
-          const tolerance = rules.max_risk_dollars * 0.10;
-          if (slDollars > rules.max_risk_dollars + tolerance) {
-            violations.push(`SL risk ${currency}${slDollars.toFixed(2)} exceeds max ${currency}${rules.max_risk_dollars}`);
-          }
-        }
-
-        // Layer B: Max risk candle check — runs on every winning trade.
-        //
-        // Per-trade result merging rules:
-        //   • New result = no data,  existing = definitive  → keep existing (don't overwrite good data with nothing)
-        //   • New result = definitive, existing = no data    → take new result
-        //   • New result = definitive, existing = definitive, same   → confirm (no change needed)
-        //   • New result = definitive, existing = definitive, differ → mark 'conflicting', recheck next pull
-        //   • After 3 conflicts → escalate to stricter result (fake_sl wins)
-        //   • After 5 consecutive no-data attempts → escalate to 'check_failed', apply penalty
         const MAX_SL_CHECK_ATTEMPTS = 5;
         const MAX_CONFLICTS = 3;
-        const isDefinitive = (r: string | null | undefined) => r === 'fake_sl' || r === 'passed';
+        const isDefinitive = isDefinitiveSl;
+        const posId = ticketToPosition.get(trade.ticket) ?? trade.ticket;
+        const posOutcome = positionSlOutcomes.get(posId);
 
-        if (rules.max_risk_dollars && tradeNet > 0) {
+        if (posOutcome?.isBreach) {
+          violations.push(posOutcome.violation!);
+          if (rules.max_risk_dollars) slPenaltyDollars = rules.max_risk_dollars;
+          await db.query(
+            `UPDATE wp_trades SET sl_allowed_price = $1, sl_max_adverse_price = $2, sl_check_result = $3, sl_check_pending = false, sl_check_attempts = 0, sl_conflict_count = 0 WHERE id = $4`,
+            [posOutcome.slAllowedPrice, posOutcome.slMaxAdversePrice, posOutcome.slCheckResult, trade.id]
+          ).catch(() => {});
+        } else if (rules.max_risk_dollars && tradeNet > 0) {
           const existingResult = trade.sl_check_result;
           const attempts = (trade.sl_check_attempts ?? 0);
           const conflicts = (trade.sl_conflict_count ?? 0);

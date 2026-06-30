@@ -635,13 +635,20 @@ export default function ChallengeDashboard() {
                           <td className="py-2 px-4 text-center">{groupStatusCell(status)}</td>
                         </tr>
                         {group.map(t => (
-                          <tr key={t.ticket} onClick={() => setSelectedTrade(t)} className={`border-b border-white/5 hover:bg-white/5 cursor-pointer transition-colors ${!t.isQualified ? "bg-loss/5" : ""}`}>
-                            <td className="py-2 pl-8 pr-4 text-xs text-gray-500">└ {formatTimeEAT(t.closeTime)}</td>
-                            <td></td><td></td>
-                            <td className={`py-2 px-4 text-right text-xs font-semibold ${t.profit >= 0 ? "text-profit" : "text-loss"}`}>{t.profit >= 0 ? "+" : ""}${t.profit.toFixed(2)}</td>
-                            <td className="py-2 px-4 text-center text-xs text-gray-400">{t.volume}</td>
-                            <td className="py-2 px-4 text-center">{tradeStatusCell(t)}</td>
-                          </tr>
+                          <React.Fragment key={t.ticket}>
+                            <tr onClick={() => setSelectedTrade(t)} className={`border-b ${!t.isQualified && t.violations?.length > 0 ? "border-white/0" : "border-white/5"} hover:bg-white/5 cursor-pointer transition-colors ${!t.isQualified ? "bg-loss/5" : ""}`}>
+                              <td className="py-2 pl-8 pr-4 text-xs text-gray-500">└ {formatTimeEAT(t.closeTime)}</td>
+                              <td></td><td></td>
+                              <td className={`py-2 px-4 text-right text-xs font-semibold ${t.profit >= 0 ? "text-profit" : "text-loss"}`}>{t.profit >= 0 ? "+" : ""}${t.profit.toFixed(2)}</td>
+                              <td className="py-2 px-4 text-center text-xs text-gray-400">{t.volume}</td>
+                              <td className="py-2 px-4 text-center">{tradeStatusCell(t)}</td>
+                            </tr>
+                            {!t.isQualified && t.violations?.length > 0 && (
+                              <tr className="border-b border-white/5 bg-loss/5">
+                                <td colSpan={6} className="pb-2 pl-8 pr-4 text-[10px] text-loss">⚠️ {typeof t.violations[0] === 'string' ? t.violations[0] : (t.violations[0] as any)?.detail || 'Rule violation'}</td>
+                              </tr>
+                            )}
+                          </React.Fragment>
                         ))}
                       </React.Fragment>
                     );
@@ -933,13 +940,20 @@ export default function ChallengeDashboard() {
                           <td className="py-2 px-4 text-center">{groupStatusCell(status)}</td>
                         </tr>
                         {group.map(t => (
-                          <tr key={t.ticket} onClick={() => setSelectedTrade(t)} className={`border-b border-white/5 hover:bg-white/5 cursor-pointer transition-colors ${!t.isQualified ? "bg-loss/5" : ""}`}>
-                            <td className="py-2 pl-8 pr-4 text-xs text-gray-500">└ {formatTimeEAT(t.closeTime)}</td>
-                            <td></td><td></td>
-                            <td className={`py-2 px-4 text-right text-xs font-semibold ${t.profit >= 0 ? "text-profit" : "text-loss"}`}>{t.profit >= 0 ? "+" : ""}${t.profit.toFixed(2)}</td>
-                            <td className="py-2 px-4 text-center text-xs text-gray-400">{t.volume}</td>
-                            <td className="py-2 px-4 text-center">{tradeStatusCell(t)}</td>
-                          </tr>
+                          <React.Fragment key={t.ticket}>
+                            <tr onClick={() => setSelectedTrade(t)} className={`border-b ${!t.isQualified && t.violations?.length > 0 ? "border-white/0" : "border-white/5"} hover:bg-white/5 cursor-pointer transition-colors ${!t.isQualified ? "bg-loss/5" : ""}`}>
+                              <td className="py-2 pl-8 pr-4 text-xs text-gray-500">└ {formatTimeEAT(t.closeTime)}</td>
+                              <td></td><td></td>
+                              <td className={`py-2 px-4 text-right text-xs font-semibold ${t.profit >= 0 ? "text-profit" : "text-loss"}`}>{t.profit >= 0 ? "+" : ""}${t.profit.toFixed(2)}</td>
+                              <td className="py-2 px-4 text-center text-xs text-gray-400">{t.volume}</td>
+                              <td className="py-2 px-4 text-center">{tradeStatusCell(t)}</td>
+                            </tr>
+                            {!t.isQualified && t.violations?.length > 0 && (
+                              <tr className="border-b border-white/5 bg-loss/5">
+                                <td colSpan={6} className="pb-2 pl-8 pr-4 text-[10px] text-loss">⚠️ {typeof t.violations[0] === 'string' ? t.violations[0] : (t.violations[0] as any)?.detail || 'Rule violation'}</td>
+                              </tr>
+                            )}
+                          </React.Fragment>
                         ))}
                       </React.Fragment>
                     );
@@ -1252,13 +1266,16 @@ export default function ChallengeDashboard() {
                                 </div>
                               </div>
                               {group.map(t => (
-                                <div key={t.ticket} className={`py-1.5 px-3 pl-6 border-t border-white/5 flex items-center justify-between ${!t.isQualified ? 'bg-loss/5' : ''}`}>
-                                  <p className="text-[10px] text-gray-500">└ → {fmtEAT(t.closeTime)}</p>
-                                  <div className="flex items-center gap-3">
-                                    <p className="text-[10px] text-gray-500">{t.volume} lot</p>
-                                    <p className={`text-[10px] font-semibold ${t.profit >= 0 ? 'text-profit' : 'text-loss'}`}>{cur(t.profit)}</p>
-                                    <span>{t.slCheckResult === 'conflicting' ? <span className="text-amber-400 text-[10px]">?</span> : !t.isQualified ? <span className="text-loss text-[10px]">🚩</span> : <span className="text-profit text-[10px]">✓</span>}</span>
+                                <div key={t.ticket} className={`py-1.5 px-3 pl-6 border-t border-white/5 ${!t.isQualified ? 'bg-loss/5' : ''}`}>
+                                  <div className="flex items-center justify-between">
+                                    <p className="text-[10px] text-gray-500">└ → {fmtEAT(t.closeTime)}</p>
+                                    <div className="flex items-center gap-3">
+                                      <p className="text-[10px] text-gray-500">{t.volume} lot</p>
+                                      <p className={`text-[10px] font-semibold ${t.profit >= 0 ? 'text-profit' : 'text-loss'}`}>{cur(t.profit)}</p>
+                                      <span>{t.slCheckResult === 'conflicting' ? <span className="text-amber-400 text-[10px]">?</span> : !t.isQualified ? <span className="text-loss text-[10px]">🚩</span> : <span className="text-profit text-[10px]">✓</span>}</span>
+                                    </div>
                                   </div>
+                                  {!t.isQualified && t.violations?.length > 0 && <p className="text-[10px] text-loss mt-1 pl-2">⚠️ {typeof t.violations[0] === 'string' ? t.violations[0] : (t.violations[0] as any)?.detail || 'Rule violation'}</p>}
                                 </div>
                               ))}
                             </div>
