@@ -947,6 +947,13 @@ def do_resolve_opens(account: int, server: str, password: str, position_ids: lis
     if not term_info or not term_info.connected:
         return {"success": False, "error_type": "ipc_failure", "message": "Terminal not connected to broker"}
 
+    # Prime + wait for the broker history stream to stabilize before querying —
+    # without this, history_orders_get/history_deals_get silently return empty
+    # right after login because the terminal's local cache hasn't synced yet.
+    mt5.history_deals_total(datetime(2020, 1, 1, tzinfo=timezone.utc), datetime.now(timezone.utc))
+    ping_ms = (term_info.ping_last / 1000.0) if (term_info.ping_last and term_info.ping_last > 0) else 500.0
+    time.sleep(max(6.0, min(20.0, ping_ms / 50.0)))
+
     resolved = {}
     for pos_id in position_ids:
         open_time = None

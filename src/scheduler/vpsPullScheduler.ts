@@ -1926,7 +1926,13 @@ export class VpsPullScheduler {
         },
         { headers: { 'Content-Type': 'application/json' }, timeout: ACCOUNT_TIMEOUT_MS, signal: abortSignal }
       );
-      if (response.data?.success) return response.data.resolved || {};
+      if (response.data?.success) {
+        const resolved = response.data.resolved || {};
+        if (positionIds.length > 0 && Object.keys(resolved).length === 0) {
+          console.warn(`⚠️ VPS Pull: resolveOpensForAccount got empty resolution for ${account.accountNumber} on terminal ${terminalId} despite ${positionIds.length} position(s) requested — terminal history may not have stabilized`);
+        }
+        return resolved;
+      }
       return null;
     } catch (e) {
       return null;
