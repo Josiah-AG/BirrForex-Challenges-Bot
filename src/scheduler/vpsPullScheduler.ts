@@ -1503,20 +1503,23 @@ export class VpsPullScheduler {
       }
     } catch {}
 
-    // forceAll = admin override: pull every account that has credentials, regardless of
-    // balance/blown state or DQ status. Evaluation engine preserves DQ flags — it writes
-    // to staging which is then flushed without clearing the disqualified column.
+    // forceAll = admin override: pull every account regardless of balance/blown state
+    // or DQ status. Evaluation engine preserves DQ flags — it writes to staging which
+    // is then flushed without clearing the disqualified column.
     const disqualifiedFilter = forceAll ? '' : 'AND r.disqualified = false';
-    const connectionFilter = forceAll ? '' : 'AND r.connection_verified = true';
     const zeroBalanceFilter = forceAll
       ? ''
       : 'AND (l.zero_balance_at IS NULL OR l.total_trades = 0 OR l.id IS NULL OR r.actual_starting_balance IS NULL)';
-    // forceAll = admin override: also retry accounts previously confirmed as credential
-    // failures (pull_status='password_changed'). Admin full pull must attempt EVERY
-    // account in the database for this challenge — no permanent skips. If credentials
-    // are still bad it'll simply get re-confirmed and re-flagged; if the user fixed
-    // their password since the last failure, this is the only way it gets noticed.
-    const passwordChangedFilter = forceAll ? '' : "AND (r.pull_status IS NULL OR r.pull_status != 'password_changed')";
+    // connection_verified and confirmed credential failures (pull_status='password_changed')
+    // are NOT bypassed by forceAll, even for the final post-challenge-end pull or other
+    // admin "full pull" actions — an account that has never verified a working connection,
+    // or is already confirmed locked out, isn't "qualified for pull" and just wastes a
+    // terminal slot retrying a login that's known to fail. Credential-failure accounts get
+    // noticed and retried automatically once the user fixes their password and re-verifies
+    // (which flips connection_verified back to true / clears pull_status) — see
+    // tradingRegistrationHandler.ts's credential-recovery flow.
+    const connectionFilter = 'AND r.connection_verified = true';
+    const passwordChangedFilter = "AND (r.pull_status IS NULL OR r.pull_status != 'password_changed')";
 
     const result = await db.query(
       `SELECT r.id, r.account_number, r.mt5_server, r.investor_password, r.user_id, r.username, r.nickname, r.last_pull_at
