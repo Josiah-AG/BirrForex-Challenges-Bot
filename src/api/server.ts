@@ -2724,11 +2724,28 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/pull-status`, adminIpCheck, async (req,
 
     // Not running — get last completed batch
     const last = await db.query(
-      `SELECT id, total_accounts, successful, failed, new_trades_found, status, started_at, completed_at FROM wp_pull_batches ORDER BY started_at DESC LIMIT 1`
+      `SELECT id, challenge_id, total_accounts, successful, failed, new_trades_found, status, started_at, completed_at, phase, phase2_total, phase2_processed, phase2_round
+       FROM wp_pull_batches ORDER BY started_at DESC LIMIT 1`
     );
 
     if (last.rows.length > 0) {
       const b = last.rows[0];
+
+      // Reconciliation/null-resolution outcome: phase2_total = 0 means nothing
+      // needed fixing (trivially successful). Otherwise compare against how many
+      // positions are still actually missing/null right now, since phase2_processed
+      // just counts attempts, not successes (resolveOpensForAccount can come back empty).
+      let reconciled = true;
+      let stillNullCount = 0;
+      if (b.phase === 'resolving_nulls' || b.phase2_total > 0) {
+        const stillNull = await db.query(
+          `SELECT COUNT(*) as cnt FROM wp_trades WHERE challenge_id = $1 AND open_time IS NULL AND close_time >= $2`,
+          [b.challenge_id, b.started_at]
+        );
+        stillNullCount = parseInt(stillNull.rows[0].cnt);
+        reconciled = stillNullCount === 0;
+      }
+
       return res.json({
         isRunning: false,
         lastBatch: {
@@ -2741,6 +2758,12 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/pull-status`, adminIpCheck, async (req,
           startedAt: b.started_at,
           completedAt: b.completed_at,
           durationSec: b.completed_at ? Math.round((new Date(b.completed_at).getTime() - new Date(b.started_at).getTime()) / 1000) : null,
+          phase: b.phase,
+          phase2Total: b.phase2_total,
+          phase2Processed: b.phase2_processed,
+          phase2Round: b.phase2_round,
+          reconciled,
+          stillNullCount,
         },
       });
     }

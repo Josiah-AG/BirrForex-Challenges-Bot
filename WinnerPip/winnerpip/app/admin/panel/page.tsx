@@ -360,6 +360,7 @@ export default function AdminDashboard() {
 
   // Fetch pull data when pulls tab is active
   const [slFailures, setSlFailures] = useState<any[]>([]);
+  const fetchPullsRef = useRef<() => void>(() => {});
   useEffect(() => {
     if (!isAdmin || activeSection !== "pulls" || !selectedChallengeId) return;
     const fetchPulls = async () => {
@@ -400,6 +401,7 @@ export default function AdminDashboard() {
         }
       } catch {}
     };
+    fetchPullsRef.current = fetchPulls;
     fetchPulls();
   }, [isAdmin, activeSection, selectedChallengeId]);
 
@@ -615,7 +617,7 @@ export default function AdminDashboard() {
 
         {/* ==================== PULL HISTORY + TERMINALS ==================== */}
         {activeSection === "pulls" && (
-          <PullsTab challengeId={selectedChallengeId} pullHistory={pullHistory} terminalStatus={terminalStatus} slFailures={slFailures} />
+          <PullsTab challengeId={selectedChallengeId} pullHistory={pullHistory} terminalStatus={terminalStatus} slFailures={slFailures} onPullFinished={() => fetchPullsRef.current()} />
         )}
 
         {/* ==================== PARTICIPANTS (Find User + Export) ==================== */}
@@ -2146,7 +2148,7 @@ function SlFailuresPanel({ challengeId, slFailures, apiUrl, secretPath }: { chal
   );
 }
 
-function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures }: { challengeId: string; pullHistory: any[]; terminalStatus: any[]; slFailures: any[] }) {
+function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPullFinished }: { challengeId: string; pullHistory: any[]; terminalStatus: any[]; slFailures: any[]; onPullFinished?: () => void }) {
   const [failedAccounts, setFailedAccounts] = useState<any[]>([]);
   const [credentialFailures, setCredentialFailures] = useState<any[]>([]);
   const [skippedAccounts, setSkippedAccounts] = useState<any[]>([]);
@@ -2229,7 +2231,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures }: { ch
         if (!d.isRunning) {
           stopPoll();
           fetchFailed();
-          setTimeout(() => window.location.reload(), 1000);
+          onPullFinished?.();
         }
       } catch (_e) {}
     }, 3000);
@@ -2446,11 +2448,20 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures }: { ch
 
       {/* Last Completed Pull Summary */}
       {pullProgress && !pullProgress.isRunning && pullProgress.lastBatch && (
-        <div className="glass rounded-2xl border border-profit/20 p-4">
+        <div className={`glass rounded-2xl border p-4 ${pullProgress.lastBatch.reconciled ? "border-profit/20" : "border-amber-500/30"}`}>
           <div className="flex items-center justify-between">
-            <p className="text-xs text-profit font-semibold">✅ Last pull: {pullProgress.lastBatch.successful}✓ {pullProgress.lastBatch.failed}✗ — {pullProgress.lastBatch.newTrades} new trades — {pullProgress.lastBatch.durationSec}s</p>
+            <p className={`text-xs font-semibold ${pullProgress.lastBatch.reconciled ? "text-profit" : "text-amber-400"}`}>
+              {pullProgress.lastBatch.reconciled ? "✅" : "⚠️"} Last pull: {pullProgress.lastBatch.successful}✓ {pullProgress.lastBatch.failed}✗ — {pullProgress.lastBatch.newTrades} new trades — {pullProgress.lastBatch.durationSec}s
+            </p>
             <p className="text-[10px] text-gray-500">{pullProgress.lastBatch.completedAt ? (() => { const d = new Date(new Date(pullProgress.lastBatch.completedAt).getTime() + 3*60*60*1000); return `${String(d.getUTCHours()).padStart(2,"0")}:${String(d.getUTCMinutes()).padStart(2,"0")} EAT`; })() : ""}</p>
           </div>
+          <p className={`text-[11px] mt-1.5 font-medium ${pullProgress.lastBatch.reconciled ? "text-profit/80" : "text-amber-400/90"}`}>
+            {pullProgress.lastBatch.phase2Total === 0
+              ? "✅ Reconciliation: nothing to fix — all trades had open_time on first pass"
+              : pullProgress.lastBatch.reconciled
+              ? `✅ Reconciliation successful — ${pullProgress.lastBatch.phase2Total} account(s) resolved in ${pullProgress.lastBatch.phase2Round} round(s)`
+              : `⚠️ Reconciliation incomplete — ${pullProgress.lastBatch.stillNullCount} trade(s) still missing open_time after ${pullProgress.lastBatch.phase2Round} round(s)`}
+          </p>
         </div>
       )}
 
