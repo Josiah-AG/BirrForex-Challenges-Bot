@@ -2674,8 +2674,8 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/pull-status`, adminIpCheck, async (req,
       const elapsed = Math.round((Date.now() - new Date(batch.started_at).getTime()) / 1000);
       const phase = batch.phase || 'pulling';
 
-      if (phase === 'resolving_nulls') {
-        // Phase 2 progress is driven explicitly by the scheduler — completePullBatch()
+      if (phase === 'resolving_nulls' || phase === 'reconciling') {
+        // Phase 1.5/2 progress is driven explicitly by the scheduler — completePullBatch()
         // is only called once phase 2 + the deferred evaluation finish. No auto-complete
         // heuristic here, just report progress as-is.
         const phase2Percent = batch.phase2_total > 0
@@ -2687,7 +2687,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/pull-status`, adminIpCheck, async (req,
           totalAccounts: batch.total_accounts,
           processed: batch.total_accounts,
           percent: 100,
-          phase: 'resolving_nulls',
+          phase,
           phase2Total: batch.phase2_total,
           phase2Processed: batch.phase2_processed,
           phase2Round: batch.phase2_round,

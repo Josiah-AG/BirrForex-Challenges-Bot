@@ -371,6 +371,7 @@ export class VpsPullScheduler {
       const successful = allResults.filter(r => r.success);
       const failed = allResults.filter(r => !r.success);
       const successfulAccounts = remaining.filter(a => successful.some(r => r.registrationId === a.registrationId));
+      await this.reconcileMissingTrades(challengeId, batchId, successfulAccounts, healthyTerminals, challenge);
       await this.resolveNullOpenTimes(challengeId, batchId, successfulAccounts, healthyTerminals, challenge);
       await this.evaluateAllAccounts(challengeId, successfulAccounts);
       const newTrades = successful.reduce((sum, r) => sum + (r.tradesCount || 0), 0);
@@ -516,6 +517,7 @@ export class VpsPullScheduler {
       // (deferred from the old per-account streaming evaluate so evaluation never
       // reads a trade that still has a fixable NULL open_time)
       const successfulAccounts = accountsWithPriority.filter(a => successful.some(r => r.registrationId === a.registrationId));
+      await this.reconcileMissingTrades(challengeToPull.id, batchId, successfulAccounts, healthyTerminals, challengeToPull);
       await this.resolveNullOpenTimes(challengeToPull.id, batchId, successfulAccounts, healthyTerminals, challengeToPull);
       await this.evaluateAllAccounts(challengeToPull.id, successfulAccounts);
 
@@ -705,6 +707,7 @@ export class VpsPullScheduler {
 
       // === PHASE 2 + 3: resolve any NULL open_time trades, then evaluate ===
       const successfulAccounts = accounts.filter(a => successful.some(r => r.registrationId === a.registrationId));
+      await this.reconcileMissingTrades(challengeId, batchId, successfulAccounts, healthyTerminals, challengeToPull);
       await this.resolveNullOpenTimes(challengeId, batchId, successfulAccounts, healthyTerminals, challengeToPull);
       await this.evaluateAllAccounts(challengeId, successfulAccounts);
 
@@ -1203,7 +1206,10 @@ export class VpsPullScheduler {
           [registrationId]
         );
 
-        // Phase 2: resolve any NULL open_time trades for this account before evaluating
+        // Reconcile any missing trades, then resolve any NULL open_time trades, before evaluating
+        try {
+          await this.reconcileMissingTrades(challengeId, null, [account], [terminal], challengeData.rows[0]);
+        } catch (e) {}
         try {
           await this.resolveNullOpenTimes(challengeId, null as any, [account], [terminal], challengeData.rows[0]);
         } catch (e) {}
@@ -1925,6 +1931,168 @@ export class VpsPullScheduler {
     } catch (e) {
       return null;
     }
+  }
+
+  /**
+   * Mirrors pullSingleAccount()'s fromDate selection exactly, so the reconciliation
+   * scan compares MT5 against the DB for the same window phase 1 just pulled.
+   */
+  private getReconcileFromDate(account: AccountToPull, challenge: TradingChallenge): string {
+    const challengeStartDate = challenge?.start_date ? new Date(challenge.start_date).toISOString() : undefined;
+    const isChallengeEnded = challenge?.status === 'reviewing' || challenge?.status === 'completed';
+
+    if (isChallengeEnded || !account.lastPullAt) {
+      return challengeStartDate || new Date(2020, 0, 1).toISOString();
+    }
+    if (challenge && this.isMidnightEATRun() && !this.isFirstNightSinceChallengeStart(challenge)) {
+      const now = new Date();
+      const nowEAT = new Date(now.getTime() + 3 * 60 * 60 * 1000);
+      const yesterdayMidnightEAT = new Date(Date.UTC(
+        nowEAT.getUTCFullYear(), nowEAT.getUTCMonth(), nowEAT.getUTCDate() - 1, 0, 0, 0
+      ));
+      const yesterdayMidnightUTC = new Date(yesterdayMidnightEAT.getTime() - 3 * 60 * 60 * 1000);
+      const safetyFrom = new Date(yesterdayMidnightUTC.getTime() - 60 * 60 * 1000);
+      return safetyFrom.toISOString();
+    }
+    const now = new Date();
+    return new Date(now.getTime() - 5 * 60 * 60 * 1000).toISOString();
+  }
+
+  /**
+   * Targeted /list-positions call — returns the ground-truth set of closed
+   * position_ids MT5 has for this account in [fromDate, now], independent of
+   * whatever ended up saved in wp_trades.
+   */
+  private async listMt5Positions(
+    account: AccountToPull,
+    terminalId: number,
+    fromDate: string,
+    abortSignal?: AbortSignal
+  ): Promise<number[] | null> {
+    try {
+      const response = await axios.post(
+        `${this.baseUrl}/list-positions`,
+        {
+          account: account.accountNumber,
+          server: account.server,
+          password: account.investorPassword,
+          api_key: this.apiKey,
+          terminal_id: terminalId,
+          from_date: fromDate,
+          to_date: new Date().toISOString(),
+        },
+        { headers: { 'Content-Type': 'application/json' }, timeout: ACCOUNT_TIMEOUT_MS, signal: abortSignal }
+      );
+      if (response.data?.success) return (response.data.position_ids || []).map((id: any) => Number(id));
+      return null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /**
+   * Targeted /resolve-trades call — fetches complete trade records (open+close
+   * time/price, volume, profit, etc.) for specific position_ids via MT5's
+   * date-range-independent position= lookups, ready to hand to saveTrades().
+   */
+  private async resolveTradesForAccount(
+    account: AccountToPull,
+    terminalId: number,
+    positionIds: number[],
+    abortSignal?: AbortSignal
+  ): Promise<any[] | null> {
+    try {
+      const response = await axios.post(
+        `${this.baseUrl}/resolve-trades`,
+        {
+          account: account.accountNumber,
+          server: account.server,
+          password: account.investorPassword,
+          api_key: this.apiKey,
+          terminal_id: terminalId,
+          position_ids: positionIds,
+        },
+        { headers: { 'Content-Type': 'application/json' }, timeout: ACCOUNT_TIMEOUT_MS, signal: abortSignal }
+      );
+      if (response.data?.success) return response.data.trades || [];
+      return null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /**
+   * Phase 1.5 — reconciliation. Compares MT5's actual closed-position count for
+   * each account's pull window against what's saved in wp_trades and backfills
+   * anything missing (not just null-open_time rows — entire trades that never
+   * made it into the DB, e.g. dropped at a windowed-query boundary during the
+   * main pull). Runs once per pull cycle, before phase 2's null-time resolution,
+   * using the same shared terminal pool. No-op if nothing is missing.
+   */
+  private async reconcileMissingTrades(
+    challengeId: number,
+    batchId: number | null,
+    accounts: AccountToPull[],
+    healthyTerminals: TerminalState[],
+    challenge: TradingChallenge
+  ): Promise<void> {
+    if (accounts.length === 0 || healthyTerminals.length === 0) return;
+
+    const tasks: { account: AccountToPull; positionIds: number[] }[] = [];
+    for (const account of accounts) {
+      if (this.cancelRequested) break;
+      const fromDate = this.getReconcileFromDate(account, challenge);
+
+      const mt5Positions = await this.listMt5Positions(account, healthyTerminals[0].id, fromDate, this.abortController?.signal);
+      if (mt5Positions === null || mt5Positions.length === 0) continue;
+
+      const dbRows = await db.query(
+        `SELECT DISTINCT position_id FROM wp_trades WHERE challenge_id = $1 AND account_number = $2 AND close_time >= $3`,
+        [challengeId, account.accountNumber, fromDate]
+      );
+      const dbPositionIds = new Set(dbRows.rows.map((r: any) => Number(r.position_id)));
+      const missing = mt5Positions.filter(id => !dbPositionIds.has(id));
+
+      if (missing.length > 0) {
+        console.log(`🔍 VPS Pull: ${account.accountNumber} missing ${missing.length} trade(s) from DB (MT5 has ${mt5Positions.length}, DB has ${dbPositionIds.size}) — backfilling`);
+        tasks.push({ account, positionIds: missing });
+      }
+    }
+
+    if (tasks.length === 0) return;
+
+    if (batchId) {
+      await db.query(
+        `UPDATE wp_pull_batches SET phase = 'reconciling', phase2_total = $1, phase2_processed = 0, phase2_round = 0 WHERE id = $2`,
+        [tasks.length, batchId]
+      );
+    }
+
+    let totalRecovered = 0;
+    const queue = [...tasks];
+    let processed = 0;
+    const workers = healthyTerminals.map(async terminal => {
+      while (true) {
+        if (this.cancelRequested) return;
+        const task = queue.shift();
+        if (!task) return;
+
+        const trades = await this.resolveTradesForAccount(task.account, terminal.id, task.positionIds, this.abortController?.signal);
+        if (trades && trades.length > 0) {
+          await this.saveTrades(task.account, trades);
+          totalRecovered += trades.length;
+        }
+
+        processed++;
+        if (batchId) {
+          await db.query(`UPDATE wp_pull_batches SET phase2_processed = $1 WHERE id = $2`, [processed, batchId]).catch(() => {});
+        }
+        await this.delay(BATCH_DELAY_MS);
+      }
+    });
+    await Promise.all(workers);
+
+    console.log(`✅ VPS Pull: reconciliation recovered ${totalRecovered} missing trade(s) across ${tasks.length} account(s)`);
   }
 
   /**

@@ -988,6 +988,149 @@ def do_resolve_opens(account: int, server: str, password: str, position_ids: lis
     }
 
 
+def do_list_positions(account: int, server: str, password: str, from_date: str, to_date: str) -> dict:
+    """
+    Ground-truth check: returns the distinct closed position_ids MT5 actually has
+    for this account in [from_date, to_date], independent of whatever ended up
+    saved in the DB. Used to detect trades that were dropped somewhere between
+    a windowed /pull and the database (not just null open_time — entirely missing
+    rows), so they can be targeted for recovery via /resolve-trades.
+    """
+    if _is_credential_cached(account):
+        return {"success": False, "error_type": "credential_failure", "message": f"Credential failure cached for account {account}"}
+
+    if not login_user(account, password, server):
+        err = mt5.last_error()
+        if _last_login_was_credential_error:
+            _cache_credential_failure(account)
+        else:
+            threading.Thread(target=_async_stage2_recovery, args=("ipc failure in list_positions",), daemon=True).start()
+        return {"success": False, "error_type": "credential_failure" if _last_login_was_credential_error else "ipc_failure", "message": f"Login failed: {err}"}
+
+    term_info = mt5.terminal_info()
+    if not term_info or not term_info.connected:
+        return {"success": False, "error_type": "ipc_failure", "message": "Terminal not connected to broker"}
+
+    try:
+        date_from = datetime.fromisoformat(from_date.replace("Z", "+00:00"))
+    except Exception:
+        date_from = datetime(2020, 1, 1, tzinfo=timezone.utc)
+    try:
+        date_to = datetime.fromisoformat(to_date.replace("Z", "+00:00"))
+    except Exception:
+        date_to = datetime.now(timezone.utc)
+
+    deals = mt5.history_deals_get(date_from, date_to)
+    position_ids = set()
+    if deals is not None:
+        for deal in deals:
+            if deal.entry == 1 and deal.position_id:
+                position_ids.add(deal.position_id)
+
+    return {
+        "success":      True,
+        "position_ids": list(position_ids),
+        "terminal_id":  TERMINAL_ID,
+    }
+
+
+def do_resolve_trades(account: int, server: str, password: str, position_ids: list) -> dict:
+    """
+    Like do_resolve_opens() but returns the full trade record (not just open_time),
+    so positions found missing from the DB entirely by /list-positions can be
+    inserted directly without a separate /pull round-trip.
+    """
+    if _is_credential_cached(account):
+        return {"success": False, "error_type": "credential_failure", "message": f"Credential failure cached for account {account}"}
+
+    if not login_user(account, password, server):
+        err = mt5.last_error()
+        if _last_login_was_credential_error:
+            _cache_credential_failure(account)
+        else:
+            threading.Thread(target=_async_stage2_recovery, args=("ipc failure in resolve_trades",), daemon=True).start()
+        return {"success": False, "error_type": "credential_failure" if _last_login_was_credential_error else "ipc_failure", "message": f"Login failed: {err}"}
+
+    term_info = mt5.terminal_info()
+    if not term_info or not term_info.connected:
+        return {"success": False, "error_type": "ipc_failure", "message": "Terminal not connected to broker"}
+
+    trades = []
+    for pos_id in position_ids:
+        try:
+            deals = mt5.history_deals_get(position=pos_id)
+        except Exception:
+            deals = None
+        if not deals:
+            continue
+
+        open_deal = None
+        close_deal = None
+        for d in deals:
+            if d.entry == 0 and open_deal is None:
+                open_deal = d
+            elif d.entry == 1:
+                close_deal = d  # last closing deal wins on a fully-closed position
+
+        if not close_deal:
+            continue
+
+        try:
+            pos_orders = mt5.history_orders_get(position=pos_id)
+        except Exception:
+            pos_orders = None
+
+        open_time = None
+        open_price = None
+        sl = 0
+        tp = 0
+        if pos_orders:
+            opening_orders = sorted([o for o in pos_orders if o.position_id == pos_id], key=lambda o: o.time_setup)
+            if opening_orders:
+                first = opening_orders[0]
+                if first.time_setup:
+                    open_time = datetime.fromtimestamp(first.time_setup, tz=timezone.utc).isoformat()
+                    open_price = first.price_open
+            for o in opening_orders:
+                if o.sl:
+                    sl = o.sl
+                if o.tp:
+                    tp = o.tp
+
+        if open_time is None and open_deal is not None:
+            open_time = datetime.fromtimestamp(open_deal.time, tz=timezone.utc).isoformat()
+            open_price = open_deal.price
+
+        if open_deal is not None:
+            trade_type = "Buy" if open_deal.type == 0 else "Sell" if open_deal.type == 1 else "Other"
+        else:
+            trade_type = "Sell" if close_deal.type == 0 else "Buy" if close_deal.type == 1 else "Other"
+
+        trades.append({
+            "ticket":      close_deal.ticket,
+            "position_id": pos_id,
+            "symbol":      close_deal.symbol,
+            "type":        trade_type,
+            "volume":      close_deal.volume,
+            "open_time":   open_time,
+            "close_time":  datetime.fromtimestamp(close_deal.time, tz=timezone.utc).isoformat(),
+            "open_price":  open_price,
+            "close_price": close_deal.price,
+            "stop_loss":   sl,
+            "take_profit": tp,
+            "profit":      close_deal.profit,
+            "commission":  close_deal.commission,
+            "swap":        close_deal.swap,
+            "comment":     close_deal.comment or "",
+        })
+
+    return {
+        "success":     True,
+        "trades":      trades,
+        "terminal_id": TERMINAL_ID,
+    }
+
+
 def do_candles(symbol: str, timeframe: str, from_time: str, to_time: str, required_subtype: str = None) -> dict:
     global _current_account_str
 
@@ -1070,6 +1213,23 @@ class ResolveOpensRequest(BaseModel):
     position_ids: list
 
 
+class ListPositionsRequest(BaseModel):
+    account:   str
+    server:    str
+    password:  str
+    api_key:   str
+    from_date: str
+    to_date:   str
+
+
+class ResolveTradesRequest(BaseModel):
+    account:      str
+    server:       str
+    password:     str
+    api_key:      str
+    position_ids: list
+
+
 # ==================== ENDPOINTS ====================
 
 @app.get("/health")
@@ -1131,6 +1291,34 @@ def resolve_opens(req: ResolveOpensRequest):
         return {"success": False, "error_type": "credential_failure", "message": f"Credential failure cached for account {account_number}"}
     with _lock:
         result = do_resolve_opens(account_number, req.server, req.password, req.position_ids)
+    _schedule_idle_restore()
+    return result
+
+
+@app.post("/list-positions")
+def list_positions(req: ListPositionsRequest):
+    if req.api_key != API_KEY:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+    account_number = int(req.account.replace("#", "").replace(" ", ""))
+    if _is_credential_cached(account_number):
+        print(f"  [W{TERMINAL_ID}] /list-positions: account {account_number} in credential cache — instant reject")
+        return {"success": False, "error_type": "credential_failure", "message": f"Credential failure cached for account {account_number}"}
+    with _lock:
+        result = do_list_positions(account_number, req.server, req.password, req.from_date, req.to_date)
+    _schedule_idle_restore()
+    return result
+
+
+@app.post("/resolve-trades")
+def resolve_trades(req: ResolveTradesRequest):
+    if req.api_key != API_KEY:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+    account_number = int(req.account.replace("#", "").replace(" ", ""))
+    if _is_credential_cached(account_number):
+        print(f"  [W{TERMINAL_ID}] /resolve-trades: account {account_number} in credential cache — instant reject")
+        return {"success": False, "error_type": "credential_failure", "message": f"Credential failure cached for account {account_number}"}
+    with _lock:
+        result = do_resolve_trades(account_number, req.server, req.password, req.position_ids)
     _schedule_idle_restore()
     return result
 
