@@ -579,8 +579,9 @@ export class WpEvaluationEngine {
       params.push(graceStart.toISOString());
     }
     if (challengeEnd) {
+      const graceEnd = new Date(new Date(challengeEnd).getTime() + 27 * 60 * 60 * 1000);
       startFilter += ` AND close_time <= $${params.length + 1}`;
-      params.push(new Date(challengeEnd).toISOString());
+      params.push(graceEnd.toISOString());
     }
 
     const trades = await db.query(
