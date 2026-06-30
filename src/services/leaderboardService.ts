@@ -30,20 +30,11 @@ export class LeaderboardService {
       let offset = 0;
 
       // Tier 1: Has balance > 0 (whether traded or not)
-      // Sort: 1) qualified profit DESC (normalized for cent accounts so it's
-      //          comparable across account sub-types) — this is the actual
-      //          trading performance after disqualified trades are removed, and
-      //          must outrank raw balance: a trader with a large starting deposit
-      //          but heavy violations (deeply negative qualified profit) should
-      //          NOT outrank a trader who simply lost less, just because their
-      //          balance cushion kept them numerically positive.
-      //       2) balance DESC (tiebreaker only)  3) trades DESC  4) last trade
-      //          earliest  5) registered earliest (stable tiebreaker)
+      // Sort: 1) balance DESC  2) trades DESC  3) last trade earliest  4) registered earliest (stable tiebreaker)
       await db.query(
         `UPDATE wp_leaderboard SET rank = sub.rn FROM (
           SELECT l.id, ROW_NUMBER() OVER (
-            ORDER BY (CASE WHEN l.is_cent THEN l.qualified_profit / 100.0 ELSE l.qualified_profit END) DESC,
-                     COALESCE(l.normalized_balance, l.adjusted_balance) DESC,
+            ORDER BY COALESCE(l.normalized_balance, l.adjusted_balance) DESC,
                      l.total_trades DESC,
                      l.last_trade_time ASC NULLS LAST,
                      r.registered_at ASC
