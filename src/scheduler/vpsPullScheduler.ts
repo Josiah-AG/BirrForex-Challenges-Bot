@@ -1934,28 +1934,21 @@ export class VpsPullScheduler {
   }
 
   /**
-   * Mirrors pullSingleAccount()'s fromDate selection exactly, so the reconciliation
-   * scan compares MT5 against the DB for the same window phase 1 just pulled.
+   * Reconciliation window — deliberately WIDER than pullSingleAccount()'s own
+   * fromDate (which is just 5h for an incremental pull). A position dropped by
+   * a pull a few cycles ago would never be re-checked if reconciliation only
+   * looked at the current cycle's narrow window, since each subsequent
+   * incremental pull's window has already moved past it. Reuses the same
+   * extended scope as the null-open_time scan (24h/30h/full) so strays from
+   * recent cycles, not just the current one, get caught.
    */
   private getReconcileFromDate(account: AccountToPull, challenge: TradingChallenge): string {
     const challengeStartDate = challenge?.start_date ? new Date(challenge.start_date).toISOString() : undefined;
-    const isChallengeEnded = challenge?.status === 'reviewing' || challenge?.status === 'completed';
-
-    if (isChallengeEnded || !account.lastPullAt) {
+    const lookbackHours = this.getNullScanLookbackHours(account, challenge);
+    if (lookbackHours === null) {
       return challengeStartDate || new Date(2020, 0, 1).toISOString();
     }
-    if (challenge && this.isMidnightEATRun() && !this.isFirstNightSinceChallengeStart(challenge)) {
-      const now = new Date();
-      const nowEAT = new Date(now.getTime() + 3 * 60 * 60 * 1000);
-      const yesterdayMidnightEAT = new Date(Date.UTC(
-        nowEAT.getUTCFullYear(), nowEAT.getUTCMonth(), nowEAT.getUTCDate() - 1, 0, 0, 0
-      ));
-      const yesterdayMidnightUTC = new Date(yesterdayMidnightEAT.getTime() - 3 * 60 * 60 * 1000);
-      const safetyFrom = new Date(yesterdayMidnightUTC.getTime() - 60 * 60 * 1000);
-      return safetyFrom.toISOString();
-    }
-    const now = new Date();
-    return new Date(now.getTime() - 5 * 60 * 60 * 1000).toISOString();
+    return new Date(Date.now() - lookbackHours * 60 * 60 * 1000).toISOString();
   }
 
   /**
