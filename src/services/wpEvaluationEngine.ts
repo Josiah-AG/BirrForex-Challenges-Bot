@@ -1227,9 +1227,9 @@ export class WpEvaluationEngine {
     if (slCheckFailures.length > 0) {
       try {
         await db.query(
-          `INSERT INTO wp_pull_errors (challenge_id, registration_id, account_number, error_code, error_message)
-           VALUES ($1, $2, $3, 'sl_check_failed', $4)`,
-          [challengeId, reg.id, reg.account_number, JSON.stringify({ trades_unchecked: slCheckFailures.length, tickets: slCheckFailures.map(f => f.ticket) })]
+          `INSERT INTO wp_pull_errors (registration_id, account_number, error_code, error_message)
+           VALUES ($1, $2, 'sl_check_failed', $3)`,
+          [reg.id, reg.account_number, JSON.stringify({ trades_unchecked: slCheckFailures.length, tickets: slCheckFailures.map(f => f.ticket) })]
         );
       } catch (e) {
         console.log(`⚠️ Could not log SL check failure for ${reg.account_number}:`, (e as Error).message);
@@ -1303,16 +1303,16 @@ export class WpEvaluationEngine {
   private async notifyDailyDrawdown(challengeId: number, reg: any, day: string, time: string, cap: number) {
     // Check if already notified today
     const existing = await db.query(
-      `SELECT 1 FROM wp_pull_errors WHERE challenge_id = $1 AND registration_id = $2 AND error_code = 'drawdown_notified' AND created_at::date = $3::date`,
-      [challengeId, reg.id, day]
+      `SELECT 1 FROM wp_pull_errors WHERE registration_id = $1 AND error_code = 'drawdown_notified' AND created_at::date = $2::date`,
+      [reg.id, day]
     );
     if (existing.rows.length > 0) return; // Already notified today
 
     // Record notification
     await db.query(
-      `INSERT INTO wp_pull_errors (challenge_id, registration_id, account_number, error_code, error_message)
-       VALUES ($1, $2, $3, 'drawdown_notified', $4)`,
-      [challengeId, reg.id, reg.account_number, `Drawdown $${cap} reached at ${time} EAT on ${day}`]
+      `INSERT INTO wp_pull_errors (registration_id, account_number, error_code, error_message)
+       VALUES ($1, $2, 'drawdown_notified', $3)`,
+      [reg.id, reg.account_number, `Drawdown $${cap} reached at ${time} EAT on ${day}`]
     );
 
     // Send Telegram notification (only for Telegram users — skip Discord users)
