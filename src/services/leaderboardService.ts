@@ -29,7 +29,12 @@ export class LeaderboardService {
     for (const accountType of ['demo', 'real']) {
       let offset = 0;
 
-      // Tier 1: Has balance > 0 (whether traded or not)
+      // Tier 1: qualified/adjusted balance > 0 (whether traded or not). Tier
+      // boundary MUST use the same qualified metric as the sort key below
+      // (normalized/adjusted balance), not raw current_balance — a heavily
+      // disqualified account can still show a positive raw broker balance while
+      // its qualified balance is deeply negative, and that account belongs in
+      // Tier 2 with the other negative accounts, not floating above them here.
       // Sort: 1) balance DESC  2) trades DESC  3) last trade earliest  4) registered earliest (stable tiebreaker)
       await db.query(
         `UPDATE wp_leaderboard SET rank = sub.rn FROM (
@@ -42,7 +47,7 @@ export class LeaderboardService {
           FROM wp_leaderboard l
           JOIN trading_registrations r ON r.id = l.registration_id
           WHERE l.challenge_id=$1 AND l.account_type=$2 AND l.is_disqualified=false
-            AND (l.current_balance > 0 OR l.current_balance IS NULL)
+            AND (COALESCE(l.normalized_balance, l.adjusted_balance) > 0 OR l.adjusted_balance IS NULL)
         ) sub WHERE wp_leaderboard.id = sub.id`,
         [challengeId, accountType]
       );
@@ -50,12 +55,12 @@ export class LeaderboardService {
       const tier1Count = await db.query(
         `SELECT COUNT(*) as cnt FROM wp_leaderboard
          WHERE challenge_id=$1 AND account_type=$2 AND is_disqualified=false
-           AND (current_balance > 0 OR current_balance IS NULL)`,
+           AND (COALESCE(normalized_balance, adjusted_balance) > 0 OR adjusted_balance IS NULL)`,
         [challengeId, accountType]
       );
       offset = parseInt(tier1Count.rows[0].cnt);
 
-      // Tier 2: Blown/negative (balance ≤ 0, had trades) — rank by the balance
+      // Tier 2: qualified/adjusted balance ≤ 0 (had trades) — rank by the balance
       // number itself (less negative = better), same as Tier 1, NOT by when the
       // account blew. zero_balance_at / total_trades only break exact balance ties
       // (e.g. two accounts both sitting at 0 with 0 trades).
@@ -68,7 +73,7 @@ export class LeaderboardService {
           )) + $3 as rn
           FROM wp_leaderboard
           WHERE challenge_id=$1 AND account_type=$2 AND is_disqualified=false
-            AND current_balance <= 0 AND current_balance IS NOT NULL
+            AND COALESCE(normalized_balance, adjusted_balance) <= 0 AND adjusted_balance IS NOT NULL
         ) sub WHERE wp_leaderboard.id = sub.id`,
         [challengeId, accountType, offset]
       );
@@ -76,7 +81,7 @@ export class LeaderboardService {
       const tier2Count = await db.query(
         `SELECT COUNT(*) as cnt FROM wp_leaderboard
          WHERE challenge_id=$1 AND account_type=$2 AND is_disqualified=false
-           AND current_balance <= 0 AND current_balance IS NOT NULL`,
+           AND COALESCE(normalized_balance, adjusted_balance) <= 0 AND adjusted_balance IS NOT NULL`,
         [challengeId, accountType]
       );
       offset += parseInt(tier2Count.rows[0].cnt);
