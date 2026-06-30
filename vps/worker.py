@@ -1020,7 +1020,38 @@ def do_list_positions(account: int, server: str, password: str, from_date: str, 
     except Exception:
         date_to = datetime.now(timezone.utc)
 
-    deals = mt5.history_deals_get(date_from, date_to)
+    # Prime broker history cache, same as do_pull() — starts the stream early.
+    mt5.history_deals_total(datetime(2020, 1, 1, tzinfo=timezone.utc), date_to)
+    ping_ms = (term_info.ping_last / 1000.0) if (term_info.ping_last and term_info.ping_last > 0) else 500.0
+    time.sleep(max(6.0, min(20.0, ping_ms / 50.0)))
+
+    # Same stabilization loop as do_pull() — a single unstabilized read can come
+    # back incomplete (e.g. right after a terminal restart, before the broker has
+    # finished streaming this account's history), which would make this endpoint's
+    # "ground truth" itself miss positions, defeating the whole point of the check.
+    prev_count = -1
+    stable_streak = 0
+    deals = None
+    for _ in range(20):
+        deals = mt5.history_deals_get(date_from, date_to)
+        current_count = len(deals) if deals is not None else 0
+
+        if current_count == 0:
+            stable_streak = 0
+            prev_count = 0
+            time.sleep(1)
+            continue
+
+        if current_count == prev_count:
+            stable_streak += 1
+            if stable_streak >= 2:
+                break
+        else:
+            stable_streak = 0
+
+        prev_count = current_count
+        time.sleep(1)
+
     position_ids = set()
     if deals is not None:
         for deal in deals:
