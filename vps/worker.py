@@ -922,6 +922,72 @@ def do_pull(account: int, server: str, password: str, from_date: str = None, ord
     }
 
 
+def do_resolve_opens(account: int, server: str, password: str, position_ids: list) -> dict:
+    """
+    Targeted fix for trades whose open_time/open_price came back null from a bulk
+    windowed /pull (the position's opening order/deal fell outside that pull's
+    date range). Looks up each position directly by position_id — no date range
+    needed, since MT5 indexes deal/order history by position regardless of when
+    it occurred — so this can find an opening that happened long before the
+    window any /pull call queried.
+    One login session handles the whole batch of position_ids passed in.
+    """
+    if _is_credential_cached(account):
+        return {"success": False, "error_type": "credential_failure", "message": f"Credential failure cached for account {account}"}
+
+    if not login_user(account, password, server):
+        err = mt5.last_error()
+        if _last_login_was_credential_error:
+            _cache_credential_failure(account)
+        else:
+            threading.Thread(target=_async_stage2_recovery, args=("ipc failure in resolve_opens",), daemon=True).start()
+        return {"success": False, "error_type": "credential_failure" if _last_login_was_credential_error else "ipc_failure", "message": f"Login failed: {err}"}
+
+    term_info = mt5.terminal_info()
+    if not term_info or not term_info.connected:
+        return {"success": False, "error_type": "ipc_failure", "message": "Terminal not connected to broker"}
+
+    resolved = {}
+    for pos_id in position_ids:
+        open_time = None
+        open_price = None
+
+        try:
+            pos_orders = mt5.history_orders_get(position=pos_id)
+        except Exception:
+            pos_orders = None
+        if pos_orders:
+            opening_orders = [o for o in pos_orders if o.position_id == pos_id]
+            if opening_orders:
+                opening_orders.sort(key=lambda o: o.time_setup)
+                first = opening_orders[0]
+                if first.time_setup:
+                    open_time = datetime.fromtimestamp(first.time_setup, tz=timezone.utc).isoformat()
+                    open_price = first.price_open
+
+        if open_time is None:
+            try:
+                pos_deals = mt5.history_deals_get(position=pos_id)
+            except Exception:
+                pos_deals = None
+            if pos_deals:
+                opening_deals = [d for d in pos_deals if d.position_id == pos_id and d.entry == 0]
+                if opening_deals:
+                    opening_deals.sort(key=lambda d: d.time)
+                    first = opening_deals[0]
+                    open_time = datetime.fromtimestamp(first.time, tz=timezone.utc).isoformat()
+                    open_price = first.price
+
+        if open_time:
+            resolved[str(pos_id)] = {"open_time": open_time, "open_price": open_price}
+
+    return {
+        "success":     True,
+        "resolved":    resolved,
+        "terminal_id": TERMINAL_ID,
+    }
+
+
 def do_candles(symbol: str, timeframe: str, from_time: str, to_time: str, required_subtype: str = None) -> dict:
     global _current_account_str
 
@@ -996,6 +1062,14 @@ class CandlesRequest(BaseModel):
     required_subtype:  Optional[str] = None
 
 
+class ResolveOpensRequest(BaseModel):
+    account:      str
+    server:       str
+    password:     str
+    api_key:      str
+    position_ids: list
+
+
 # ==================== ENDPOINTS ====================
 
 @app.get("/health")
@@ -1043,6 +1117,20 @@ def pull(req: PullRequest):
         return {"success": False, "error_type": "credential_failure", "message": f"Credential failure cached for account {account_number}"}
     with _lock:
         result = do_pull(account_number, req.server, req.password, req.from_date, req.orders_from_date, extended_sync=req.extended_sync)
+    _schedule_idle_restore()
+    return result
+
+
+@app.post("/resolve-opens")
+def resolve_opens(req: ResolveOpensRequest):
+    if req.api_key != API_KEY:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+    account_number = int(req.account.replace("#", "").replace(" ", ""))
+    if _is_credential_cached(account_number):
+        print(f"  [W{TERMINAL_ID}] /resolve-opens: account {account_number} in credential cache — instant reject")
+        return {"success": False, "error_type": "credential_failure", "message": f"Credential failure cached for account {account_number}"}
+    with _lock:
+        result = do_resolve_opens(account_number, req.server, req.password, req.position_ids)
     _schedule_idle_restore()
     return result
 

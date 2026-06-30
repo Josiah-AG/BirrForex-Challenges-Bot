@@ -2374,7 +2374,10 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures }: { ch
       {pullProgress?.isRunning && (
         <div className="glass rounded-2xl border border-royal/20 p-5">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold text-white flex items-center gap-2"><Loader2 size={16} className="text-royal animate-spin" /> Pull In Progress</h3>
+            <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+              <Loader2 size={16} className="text-royal animate-spin" />
+              {pullProgress.phase === 'resolving_nulls' ? 'Resolving Missing Open Times' : 'Pull In Progress'}
+            </h3>
             <div className="flex items-center gap-3">
               <span className="text-xs text-gray-400">{pullProgress.elapsedSeconds}s elapsed</span>
               <button
@@ -2395,13 +2398,35 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures }: { ch
               </button>
             </div>
           </div>
-          <div className="w-full h-3 bg-white/10 rounded-full overflow-hidden mb-2">
-            <div className="h-full rounded-full bg-gradient-to-r from-royal to-profit transition-all duration-1000" style={{ width: `${pullProgress.percent || 0}%` }} />
+
+          {/* Phase 1 bar — pulling */}
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-[10px] text-gray-500 w-16">Phase 1</span>
+            <div className="flex-1 h-3 bg-white/10 rounded-full overflow-hidden">
+              <div className="h-full rounded-full bg-gradient-to-r from-royal to-profit transition-all duration-1000" style={{ width: `${pullProgress.percent || 0}%` }} />
+            </div>
+            {pullProgress.phase === 'resolving_nulls' && <span className="text-profit text-xs">✓</span>}
           </div>
-          <div className="flex items-center justify-between text-xs text-gray-400">
+          <div className="flex items-center justify-between text-xs text-gray-400 mb-2">
             <span>{pullProgress.processed || 0} / {pullProgress.totalAccounts || 0} accounts</span>
             <span className="text-royal font-semibold">{pullProgress.percent || 0}%</span>
           </div>
+
+          {/* Phase 2 bar — resolving null open_time, only shown once it actually starts */}
+          {pullProgress.phase === 'resolving_nulls' && (
+            <>
+              <div className="flex items-center gap-2 mb-1 mt-3">
+                <span className="text-[10px] text-gray-500 w-16">Phase 2</span>
+                <div className="flex-1 h-3 bg-white/10 rounded-full overflow-hidden">
+                  <div className="h-full rounded-full bg-gradient-to-r from-gold to-amber-400 transition-all duration-1000" style={{ width: `${pullProgress.phase2Percent || 0}%` }} />
+                </div>
+              </div>
+              <div className="flex items-center justify-between text-xs text-gray-400">
+                <span>{pullProgress.phase2Processed || 0} / {pullProgress.phase2Total || 0} accounts — round {pullProgress.phase2Round || 1}/{pullProgress.phase2MaxRounds || 5}</span>
+                <span className="text-gold font-semibold">{pullProgress.phase2Percent || 0}%</span>
+              </div>
+            </>
+          )}
         </div>
       )}
 

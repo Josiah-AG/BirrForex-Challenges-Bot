@@ -2665,12 +2665,38 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/pull-status`, adminIpCheck, async (req,
   try {
     // Check if there's a currently running batch
     const running = await db.query(
-      `SELECT id, challenge_id, total_accounts, started_at FROM wp_pull_batches WHERE status = 'running' ORDER BY started_at DESC LIMIT 1`
+      `SELECT id, challenge_id, total_accounts, started_at, phase, phase2_total, phase2_processed, phase2_round
+       FROM wp_pull_batches WHERE status = 'running' ORDER BY started_at DESC LIMIT 1`
     );
 
     if (running.rows.length > 0) {
       const batch = running.rows[0];
       const elapsed = Math.round((Date.now() - new Date(batch.started_at).getTime()) / 1000);
+      const phase = batch.phase || 'pulling';
+
+      if (phase === 'resolving_nulls') {
+        // Phase 2 progress is driven explicitly by the scheduler — completePullBatch()
+        // is only called once phase 2 + the deferred evaluation finish. No auto-complete
+        // heuristic here, just report progress as-is.
+        const phase2Percent = batch.phase2_total > 0
+          ? Math.min(100, Math.round((batch.phase2_processed / batch.phase2_total) * 100))
+          : 0;
+        return res.json({
+          isRunning: true,
+          batchId: batch.id,
+          totalAccounts: batch.total_accounts,
+          processed: batch.total_accounts,
+          percent: 100,
+          phase: 'resolving_nulls',
+          phase2Total: batch.phase2_total,
+          phase2Processed: batch.phase2_processed,
+          phase2Round: batch.phase2_round,
+          phase2MaxRounds: 5,
+          phase2Percent,
+          elapsedSeconds: elapsed,
+          startedAt: batch.started_at,
+        });
+      }
 
       // Count how many have been processed so far (success + failed since batch started)
       const processed = await db.query(
@@ -2680,21 +2706,20 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/pull-status`, adminIpCheck, async (req,
       const processedCount = Math.min(parseInt(processed.rows[0].cnt), batch.total_accounts);
       const percent = batch.total_accounts > 0 ? Math.min(100, Math.round((processedCount / batch.total_accounts) * 100)) : 0;
 
-      // If all accounts processed, batch is done — mark completed
-      if (processedCount >= batch.total_accounts) {
-        await db.query(`UPDATE wp_pull_batches SET status = 'completed', completed_at = NOW() WHERE id = $1 AND status = 'running'`, [batch.id]);
-        // Return as not running so frontend hides the progress bar
-      } else {
-        return res.json({
-          isRunning: true,
-          batchId: batch.id,
-          totalAccounts: batch.total_accounts,
-          processed: processedCount,
-          percent,
-          elapsedSeconds: elapsed,
-          startedAt: batch.started_at,
-        });
-      }
+      // Phase 1 (pulling) is done when all accounts processed, but the batch row only
+      // flips to status='completed' once the scheduler finishes phase 2 + evaluation
+      // (completePullBatch()). Until then, just report phase 1 as 100% — no auto-complete
+      // here, that would hide the bar before phase 2 has a chance to start.
+      return res.json({
+        isRunning: true,
+        batchId: batch.id,
+        totalAccounts: batch.total_accounts,
+        processed: processedCount,
+        percent,
+        phase: 'pulling',
+        elapsedSeconds: elapsed,
+        startedAt: batch.started_at,
+      });
     }
 
     // Not running — get last completed batch

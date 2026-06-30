@@ -381,6 +381,13 @@ async function migrate() {
     `).catch(() => ({ rowCount: 0 }));
     console.log(`✅ Fixed trade_type on ${(fixResult as any).rowCount} orphaned old-format trade records`);
 
+    // Phase 2 (null open_time resolution) progress tracking on pull batches
+    await db.query(`ALTER TABLE wp_pull_batches ADD COLUMN IF NOT EXISTS phase VARCHAR(20) DEFAULT 'pulling';`).catch(() => {});
+    await db.query(`ALTER TABLE wp_pull_batches ADD COLUMN IF NOT EXISTS phase2_total INTEGER DEFAULT 0;`).catch(() => {});
+    await db.query(`ALTER TABLE wp_pull_batches ADD COLUMN IF NOT EXISTS phase2_processed INTEGER DEFAULT 0;`).catch(() => {});
+    await db.query(`ALTER TABLE wp_pull_batches ADD COLUMN IF NOT EXISTS phase2_round INTEGER DEFAULT 0;`).catch(() => {});
+    console.log('✅ wp_pull_batches phase2 columns migration OK');
+
     console.log('✅ Database migration completed successfully!');
     process.exit(0);
   } catch (error) {

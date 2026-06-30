@@ -366,9 +366,16 @@ export class VpsPullScheduler {
       // Load remaining into shared queue and process
       this.sharedQueue.load(remaining.map(a => ({ ...a, isPriority: false })));
       const batchId = await this.createPullBatch(challengeId, remaining.length);
-      await this.runSharedQueueWorkers(healthyTerminals, challenge, batchId);
+      const allResults = await this.runSharedQueueWorkers(healthyTerminals, challenge, batchId);
 
-      const duration = Math.round((Date.now() - Date.now()) / 1000);
+      const successful = allResults.filter(r => r.success);
+      const failed = allResults.filter(r => !r.success);
+      const successfulAccounts = remaining.filter(a => successful.some(r => r.registrationId === a.registrationId));
+      await this.resolveNullOpenTimes(challengeId, batchId, successfulAccounts, healthyTerminals, challenge);
+      await this.evaluateAllAccounts(challengeId, successfulAccounts);
+      const newTrades = successful.reduce((sum, r) => sum + (r.tradesCount || 0), 0);
+      await this.completePullBatch(batchId, successful.length, failed.length, newTrades, 'completed');
+
       console.log(`✅ VPS Pull: Resumed cycle complete — ${remaining.length} accounts processed`);
 
       this.isRunning = false;
@@ -504,6 +511,13 @@ export class VpsPullScheduler {
       for (const failure of [...credentialFailures, ...otherFailures]) {
         await this.logPullError(batchId, failure);
       }
+
+      // === PHASE 2 + 3: resolve any NULL open_time trades, then evaluate ===
+      // (deferred from the old per-account streaming evaluate so evaluation never
+      // reads a trade that still has a fixable NULL open_time)
+      const successfulAccounts = accountsWithPriority.filter(a => successful.some(r => r.registrationId === a.registrationId));
+      await this.resolveNullOpenTimes(challengeToPull.id, batchId, successfulAccounts, healthyTerminals, challengeToPull);
+      await this.evaluateAllAccounts(challengeToPull.id, successfulAccounts);
 
       // Complete batch
       const newTrades = successful.reduce((sum, r) => sum + (r.tradesCount || 0), 0);
@@ -688,6 +702,12 @@ export class VpsPullScheduler {
 
       const successful = allResults.filter(r => r.success);
       const failed = allResults.filter(r => !r.success);
+
+      // === PHASE 2 + 3: resolve any NULL open_time trades, then evaluate ===
+      const successfulAccounts = accounts.filter(a => successful.some(r => r.registrationId === a.registrationId));
+      await this.resolveNullOpenTimes(challengeId, batchId, successfulAccounts, healthyTerminals, challengeToPull);
+      await this.evaluateAllAccounts(challengeId, successfulAccounts);
+
       const newTrades = successful.reduce((sum, r) => sum + (r.tradesCount || 0), 0);
       await this.completePullBatch(batchId, successful.length, failed.length, newTrades, 'completed');
       const completedBatchId = batchId;
@@ -824,13 +844,12 @@ export class VpsPullScheduler {
           await db.query(`UPDATE trading_registrations SET last_pull_at = NOW() WHERE id = $1`, [account.registrationId]).catch(() => {});
         }
 
-        // === PER-ACCOUNT EVALUATION (streaming) ===
-        try {
-          await evaluationEngine.evaluateSingleAccount(challenge.id, account.registrationId);
-        } catch (evalErr) {
-          console.error(`⚠️ Eval error for ${account.accountNumber}:`, evalErr);
-          // Non-fatal — evaluation saved partially
-        }
+        // NOTE: per-account evaluation used to run here immediately (streaming).
+        // It now runs in a deferred phase 3, AFTER the phase 2 null-open-time
+        // resolution pass completes for the whole batch — see resolveNullOpenTimes()
+        // and evaluateAllAccounts(), called from each pull-cycle entry point once
+        // runSharedQueueWorkers() returns. This guarantees evaluation never reads a
+        // trade with a still-fixable NULL open_time.
       } else if (result.errorCode === 'credential_suspect') {
         // First -6 on this terminal — NOT a final result. Terminal stays healthy
         // (this was a clean credential rejection, not a terminal fault).
@@ -1170,7 +1189,7 @@ export class VpsPullScheduler {
       };
     }
 
-    const challengeData = await db.query(`SELECT start_date FROM trading_challenges WHERE id = $1`, [challengeId]);
+    const challengeData = await db.query(`SELECT id, start_date, status FROM trading_challenges WHERE id = $1`, [challengeId]);
     const terminalAttempts: { terminalId: number; errorCode: string; errorMessage: string }[] = [];
 
     for (let i = 0; i < Math.min(3, healthyTerminals.length); i++) {
@@ -1183,6 +1202,11 @@ export class VpsPullScheduler {
           `UPDATE trading_registrations SET last_pull_at = NOW(), pull_status = 'success', pull_error = NULL WHERE id = $1`,
           [registrationId]
         );
+
+        // Phase 2: resolve any NULL open_time trades for this account before evaluating
+        try {
+          await this.resolveNullOpenTimes(challengeId, null as any, [account], [terminal], challengeData.rows[0]);
+        } catch (e) {}
 
         // Run evaluation
         let evaluated = false;
@@ -1544,9 +1568,10 @@ export class VpsPullScheduler {
              symbol = EXCLUDED.symbol,
              trade_type = EXCLUDED.trade_type,
              volume = EXCLUDED.volume,
-             open_time = EXCLUDED.open_time,
+             open_time = COALESCE(EXCLUDED.open_time, wp_trades.open_time),
              close_time = EXCLUDED.close_time,
-             open_price = EXCLUDED.open_price,
+             open_price = CASE WHEN EXCLUDED.open_price IS NULL OR EXCLUDED.open_price = 0
+                                THEN wp_trades.open_price ELSE EXCLUDED.open_price END,
              close_price = EXCLUDED.close_price,
              stop_loss = EXCLUDED.stop_loss,
              take_profit = EXCLUDED.take_profit,
@@ -1869,6 +1894,165 @@ export class VpsPullScheduler {
       }
     } catch (e) {
       console.warn('⚠️ Could not save terminal stats:', (e as Error).message);
+    }
+  }
+
+  /**
+   * Targeted /resolve-opens call for one account — one login session resolves
+   * every still-null position passed in. Returns a map of position_id -> {open_time, open_price}.
+   */
+  private async resolveOpensForAccount(
+    account: AccountToPull,
+    terminalId: number,
+    positionIds: number[],
+    abortSignal?: AbortSignal
+  ): Promise<Record<string, { open_time: string; open_price: number }> | null> {
+    try {
+      const response = await axios.post(
+        `${this.baseUrl}/resolve-opens`,
+        {
+          account: account.accountNumber,
+          server: account.server,
+          password: account.investorPassword,
+          api_key: this.apiKey,
+          terminal_id: terminalId,
+          position_ids: positionIds,
+        },
+        { headers: { 'Content-Type': 'application/json' }, timeout: ACCOUNT_TIMEOUT_MS, signal: abortSignal }
+      );
+      if (response.data?.success) return response.data.resolved || {};
+      return null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /**
+   * Per-account lookback scope for the null-resolution scan — mirrors the exact
+   * pull-strategy decision in pullSingleAccount() so phase 2 only rescans the
+   * window that account's phase-1 pull actually covered:
+   *   - full pull (challenge ended OR first-ever pull for that account): scan all trades
+   *   - midnight 25h safety pull: ~30h lookback
+   *   - incremental pull: 24h lookback
+   */
+  private getNullScanLookbackHours(account: AccountToPull, challenge: TradingChallenge): number | null {
+    const isChallengeEnded = challenge?.status === 'reviewing' || challenge?.status === 'completed';
+    if (isChallengeEnded || !account.lastPullAt) return null; // full scope
+    if (challenge && this.isMidnightEATRun() && !this.isFirstNightSinceChallengeStart(challenge)) return 30;
+    return 24;
+  }
+
+  /**
+   * Phase 2 — finds trades with NULL open_time (left over from a bulk windowed
+   * pull whose query range missed the position's true opening order/deal) and
+   * resolves them via targeted per-position MT5 lookups, up to 5 rounds.
+   * Dispatches through the same shared terminal pool used for phase 1 pulls —
+   * never holds a terminal open waiting; each round just picks up whatever is
+   * still null and requeues unresolved ones for the next round.
+   * No-op (and leaves wp_pull_batches.phase untouched) if there's nothing to fix.
+   */
+  private async resolveNullOpenTimes(
+    challengeId: number,
+    batchId: number | null,
+    accounts: AccountToPull[],
+    healthyTerminals: TerminalState[],
+    challenge: TradingChallenge
+  ): Promise<void> {
+    const MAX_ROUNDS = 5;
+    if (accounts.length === 0 || healthyTerminals.length === 0) return;
+
+    for (let round = 1; round <= MAX_ROUNDS; round++) {
+      if (this.cancelRequested) break;
+
+      // Find still-null positions per account, scoped to that account's own
+      // phase-1 pull window (full scope vs 24h/30h incremental scope).
+      const tasks: { account: AccountToPull; positionIds: number[] }[] = [];
+      for (const account of accounts) {
+        const lookbackHours = this.getNullScanLookbackHours(account, challenge);
+        const params: any[] = [challengeId, account.accountNumber];
+        let dateClause = '';
+        if (lookbackHours !== null) {
+          dateClause = ` AND close_time >= NOW() - INTERVAL '${lookbackHours} hours'`;
+        }
+        const rows = await db.query(
+          `SELECT DISTINCT position_id FROM wp_trades
+           WHERE challenge_id = $1 AND account_number = $2 AND open_time IS NULL${dateClause}`,
+          params
+        );
+        if (rows.rows.length > 0) {
+          tasks.push({ account, positionIds: rows.rows.map((r: any) => Number(r.position_id)) });
+        }
+      }
+
+      if (tasks.length === 0) {
+        if (round === 1) return; // nothing to fix — phase 2 never starts
+        break; // resolved before hitting MAX_ROUNDS
+      }
+
+      if (batchId) {
+        if (round === 1) {
+          await db.query(
+            `UPDATE wp_pull_batches SET phase = 'resolving_nulls', phase2_total = $1, phase2_processed = 0, phase2_round = 1 WHERE id = $2`,
+            [tasks.length, batchId]
+          );
+        } else {
+          await db.query(
+            `UPDATE wp_pull_batches SET phase2_total = $1, phase2_processed = 0, phase2_round = $2 WHERE id = $3`,
+            [tasks.length, round, batchId]
+          );
+        }
+      }
+
+      console.log(`🔧 VPS Pull: Phase 2 round ${round}/${MAX_ROUNDS} — resolving null open_time for ${tasks.length} account(s)`);
+
+      const queue = [...tasks];
+      let processed = 0;
+      const workers = healthyTerminals.map(async terminal => {
+        while (true) {
+          if (this.cancelRequested) return;
+          const task = queue.shift();
+          if (!task) return;
+
+          const resolved = await this.resolveOpensForAccount(
+            task.account,
+            terminal.id,
+            task.positionIds,
+            this.abortController?.signal
+          );
+          if (resolved) {
+            for (const [posIdStr, data] of Object.entries(resolved)) {
+              if (!data?.open_time) continue;
+              await db.query(
+                `UPDATE wp_trades SET open_time = $1, open_price = COALESCE($2, open_price), synced_at = NOW()
+                 WHERE challenge_id = $3 AND account_number = $4 AND position_id = $5 AND open_time IS NULL`,
+                [data.open_time, data.open_price ?? null, challengeId, task.account.accountNumber, posIdStr]
+              ).catch(() => {});
+            }
+          }
+
+          processed++;
+          if (batchId) {
+            await db.query(`UPDATE wp_pull_batches SET phase2_processed = $1 WHERE id = $2`, [processed, batchId]).catch(() => {});
+          }
+          await this.delay(BATCH_DELAY_MS);
+        }
+      });
+      await Promise.all(workers);
+    }
+  }
+
+  /**
+   * Phase 3 — deferred evaluation, run once phase 2's null-resolution pass has
+   * finished (or had nothing to do). Replaces the old per-account streaming
+   * evaluate call that used to run inside terminalWorker immediately after pull.
+   */
+  private async evaluateAllAccounts(challengeId: number, accounts: AccountToPull[]): Promise<void> {
+    for (const account of accounts) {
+      try {
+        await evaluationEngine.evaluateSingleAccount(challengeId, account.registrationId);
+      } catch (evalErr) {
+        console.error(`⚠️ Eval error for ${account.accountNumber}:`, evalErr);
+      }
     }
   }
 
