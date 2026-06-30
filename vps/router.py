@@ -237,6 +237,25 @@ class PullRequest(BaseModel):
     extended_sync:    Optional[bool] = False
 
 
+class ListPositionsRequest(BaseModel):
+    account:     str
+    server:      str
+    password:    str
+    api_key:     str
+    terminal_id: Optional[int] = None
+    from_date:   str
+    to_date:     str
+
+
+class ResolveTradesRequest(BaseModel):
+    account:      str
+    server:       str
+    password:     str
+    api_key:      str
+    terminal_id:  Optional[int] = None
+    position_ids: list
+
+
 class CandlesRequest(BaseModel):
     symbol:           str
     timeframe:        str = "M1"
@@ -503,6 +522,129 @@ async def pull(req: PullRequest):
                         return data
                     # ─────────────────────────────────────────────────────────
 
+                    last_error = data.get("message", "Worker error")
+                    if is_terminal_error(last_error) and retry < MAX_RETRIES_SAME_TERMINAL:
+                        await asyncio.sleep(RETRY_DELAY)
+                        continue
+                    worker_healthy[current_terminal - 1] = False
+                    break
+            except Exception as e:
+                last_error = str(e)[:200]
+                worker_healthy[current_terminal - 1] = False
+                if retry < MAX_RETRIES_SAME_TERMINAL:
+                    await asyncio.sleep(RETRY_DELAY)
+                    continue
+                break
+
+        next_t = get_next_healthy_worker(tried_terminals)
+        if next_t == 0:
+            break
+        current_terminal = next_t
+
+    return {"success": False, "message": last_error, "error_type": "terminal",
+            "terminals_tried": len(tried_terminals), "terminal_used": current_terminal}
+
+
+@app.post("/list-positions")
+async def list_positions(req: ListPositionsRequest):
+    if req.api_key != API_KEY:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+
+    tried_terminals = set()
+    last_error = "All workers failed"
+
+    global _next_worker
+    if req.terminal_id and 1 <= req.terminal_id <= NUM_WORKERS:
+        first_terminal = req.terminal_id
+    else:
+        _next_worker   = (_next_worker % NUM_WORKERS) + 1
+        first_terminal = _next_worker
+
+    current_terminal = first_terminal
+
+    while len(tried_terminals) < MAX_DIFFERENT_TERMINALS:
+        tried_terminals.add(current_terminal)
+
+        for retry in range(MAX_RETRIES_SAME_TERMINAL + 1):
+            try:
+                async with httpx.AsyncClient(timeout=WORKER_TIMEOUT) as client:
+                    resp = await client.post(
+                        f"{worker_url(current_terminal)}/list-positions",
+                        json={
+                            "account":   req.account,
+                            "server":    req.server,
+                            "password":  req.password,
+                            "api_key":   req.api_key,
+                            "from_date": req.from_date,
+                            "to_date":   req.to_date,
+                        },
+                    )
+                    data = resp.json()
+                    if data.get("success"):
+                        worker_healthy[current_terminal - 1] = True
+                        data["terminal_used"] = current_terminal
+                        return data
+                    last_error = data.get("message", "Worker error")
+                    if is_terminal_error(last_error) and retry < MAX_RETRIES_SAME_TERMINAL:
+                        await asyncio.sleep(RETRY_DELAY)
+                        continue
+                    worker_healthy[current_terminal - 1] = False
+                    break
+            except Exception as e:
+                last_error = str(e)[:200]
+                worker_healthy[current_terminal - 1] = False
+                if retry < MAX_RETRIES_SAME_TERMINAL:
+                    await asyncio.sleep(RETRY_DELAY)
+                    continue
+                break
+
+        next_t = get_next_healthy_worker(tried_terminals)
+        if next_t == 0:
+            break
+        current_terminal = next_t
+
+    return {"success": False, "message": last_error, "error_type": "terminal",
+            "terminals_tried": len(tried_terminals), "terminal_used": current_terminal}
+
+
+@app.post("/resolve-trades")
+async def resolve_trades(req: ResolveTradesRequest):
+    if req.api_key != API_KEY:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+
+    tried_terminals = set()
+    last_error = "All workers failed"
+
+    global _next_worker
+    if req.terminal_id and 1 <= req.terminal_id <= NUM_WORKERS:
+        first_terminal = req.terminal_id
+    else:
+        _next_worker   = (_next_worker % NUM_WORKERS) + 1
+        first_terminal = _next_worker
+
+    current_terminal = first_terminal
+
+    while len(tried_terminals) < MAX_DIFFERENT_TERMINALS:
+        tried_terminals.add(current_terminal)
+
+        for retry in range(MAX_RETRIES_SAME_TERMINAL + 1):
+            try:
+                async with httpx.AsyncClient(timeout=WORKER_TIMEOUT) as client:
+                    resp = await client.post(
+                        f"{worker_url(current_terminal)}/resolve-trades",
+                        json={
+                            "account":      req.account,
+                            "server":       req.server,
+                            "password":     req.password,
+                            "api_key":      req.api_key,
+                            "position_ids": req.position_ids,
+                        },
+                    )
+                    data = resp.json()
+                    if data.get("success"):
+                        worker_healthy[current_terminal - 1] = True
+                        data["terminal_used"] = current_terminal
+                        return data
                     last_error = data.get("message", "Worker error")
                     if is_terminal_error(last_error) and retry < MAX_RETRIES_SAME_TERMINAL:
                         await asyncio.sleep(RETRY_DELAY)
