@@ -2037,7 +2037,14 @@ export class VpsPullScheduler {
       const fromDate = this.getReconcileFromDate(account, challenge);
 
       const mt5Positions = await this.listMt5Positions(account, healthyTerminals[0].id, fromDate, this.abortController?.signal);
-      if (mt5Positions === null || mt5Positions.length === 0) continue;
+      if (mt5Positions === null) {
+        console.log(`🔍 VPS Pull: ${account.accountNumber} reconcile check: /list-positions returned null (since ${fromDate}) — skipping`);
+        continue;
+      }
+      if (mt5Positions.length === 0) {
+        console.log(`🔍 VPS Pull: ${account.accountNumber} reconcile check: MT5 has 0 closed positions (since ${fromDate})`);
+        continue;
+      }
 
       const dbRows = await db.query(
         `SELECT DISTINCT position_id FROM wp_trades WHERE challenge_id = $1 AND account_number = $2 AND close_time >= $3`,
@@ -2046,8 +2053,9 @@ export class VpsPullScheduler {
       const dbPositionIds = new Set(dbRows.rows.map((r: any) => Number(r.position_id)));
       const missing = mt5Positions.filter(id => !dbPositionIds.has(id));
 
+      console.log(`🔍 VPS Pull: ${account.accountNumber} reconcile check (since ${fromDate}): MT5 has ${mt5Positions.length} [${mt5Positions.join(',')}], DB has ${dbPositionIds.size} [${[...dbPositionIds].join(',')}], missing=${missing.length}`);
+
       if (missing.length > 0) {
-        console.log(`🔍 VPS Pull: ${account.accountNumber} missing ${missing.length} trade(s) from DB (MT5 has ${mt5Positions.length}, DB has ${dbPositionIds.size}) — backfilling`);
         tasks.push({ account, positionIds: missing });
       }
     }
