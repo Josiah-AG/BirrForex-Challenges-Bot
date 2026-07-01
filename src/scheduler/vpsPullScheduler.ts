@@ -860,33 +860,7 @@ export class VpsPullScheduler {
         }
 
         // Store balance operations (deposits / withdrawals) from this pull
-        const balanceOps: any[] = result.balance_ops || [];
-        if (balanceOps.length > 0) {
-          for (const op of balanceOps) {
-            await db.query(
-              `INSERT INTO wp_balance_ops (challenge_id, registration_id, account_number, deal_ticket, op_time, amount, op_type, comment)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-               ON CONFLICT (challenge_id, registration_id, deal_ticket) DO NOTHING`,
-              [challenge.id, account.registrationId, account.accountNumber, op.ticket, op.time, op.amount, op.op_type, op.comment || null]
-            ).catch(() => {});
-          }
-          // Compute total withdrawn for this account in this challenge and update leaderboard
-          const withdrawnRes = await db.query(
-            `SELECT COALESCE(SUM(ABS(amount)), 0) as total_withdrawn
-             FROM wp_balance_ops
-             WHERE challenge_id = $1 AND registration_id = $2 AND op_type = 'withdrawal'`,
-            [challenge.id, account.registrationId]
-          ).catch(() => null);
-          const totalWithdrawn = withdrawnRes ? parseFloat(withdrawnRes.rows[0]?.total_withdrawn || '0') : 0;
-          // is_withdrawn: balance is 0 AND there are withdrawal ops (not just blown by trading)
-          const isWithdrawn = totalWithdrawn > 0 && (result.balance ?? 0) <= 0;
-          await db.query(
-            `UPDATE wp_leaderboard
-             SET total_withdrawn = $1, is_withdrawn = $2
-             WHERE challenge_id = $3 AND registration_id = $4`,
-            [totalWithdrawn, isWithdrawn, challenge.id, account.registrationId]
-          ).catch(() => {});
-        }
+        await this.storeBalanceOps(challenge.id, account.registrationId, account.accountNumber, result.balance_ops || [], result.balance ?? 0);
 
         // NOTE: per-account evaluation used to run here immediately (streaming).
         // It now runs in a deferred phase 3, AFTER the phase 2 null-open-time
@@ -1067,6 +1041,7 @@ export class VpsPullScheduler {
             dealsCount,
             balance: data.balance,
             equity: data.equity,
+            balance_ops: data.balance_ops || [],
             terminalId,
           };
         }
@@ -1246,6 +1221,9 @@ export class VpsPullScheduler {
           `UPDATE trading_registrations SET last_pull_at = NOW(), pull_status = 'success', pull_error = NULL WHERE id = $1`,
           [registrationId]
         );
+
+        // Store balance ops (deposits / withdrawals / swap / dividend)
+        await this.storeBalanceOps(challengeId, registrationId, account.accountNumber, result.balance_ops || [], result.balance ?? 0);
 
         // Reconcile any missing trades, then resolve any NULL open_time trades, before evaluating
         try {
@@ -1695,6 +1673,33 @@ export class VpsPullScheduler {
         );
       } catch (e) {}
     }
+  }
+
+  // ==================== BALANCE OPS (deposits / withdrawals / swap / dividend) ====================
+
+  private async storeBalanceOps(challengeId: number, registrationId: number, accountNumber: string, balanceOps: any[], currentBalance: number): Promise<void> {
+    if (!balanceOps || balanceOps.length === 0) return;
+    for (const op of balanceOps) {
+      await db.query(
+        `INSERT INTO wp_balance_ops (challenge_id, registration_id, account_number, deal_ticket, op_time, amount, op_type, comment)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         ON CONFLICT (challenge_id, registration_id, deal_ticket) DO NOTHING`,
+        [challengeId, registrationId, accountNumber, op.ticket, op.time, op.amount, op.op_type, op.comment || null]
+      ).catch(() => {});
+    }
+    const withdrawnRes = await db.query(
+      `SELECT COALESCE(SUM(ABS(amount)), 0) as total_withdrawn
+       FROM wp_balance_ops
+       WHERE challenge_id = $1 AND registration_id = $2 AND op_type = 'withdrawal'`,
+      [challengeId, registrationId]
+    ).catch(() => null);
+    const totalWithdrawn = withdrawnRes ? parseFloat(withdrawnRes.rows[0]?.total_withdrawn || '0') : 0;
+    const isWithdrawn = totalWithdrawn > 0 && currentBalance <= 0;
+    await db.query(
+      `UPDATE wp_leaderboard SET total_withdrawn = $1, is_withdrawn = $2
+       WHERE challenge_id = $3 AND registration_id = $4`,
+      [totalWithdrawn, isWithdrawn, challengeId, registrationId]
+    ).catch(() => {});
   }
 
   // ==================== CREDENTIAL FAILURE HANDLING ====================
