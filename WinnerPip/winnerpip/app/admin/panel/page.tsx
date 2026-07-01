@@ -308,8 +308,7 @@ export default function AdminDashboard() {
   const categorizeViolation = (rule: string): string => {
     if (/daily.*drawdown breach/i.test(rule)) return 'Daily drawdown breach';
     if (/exceeded max \d+ simultaneous open trades/i.test(rule)) return 'Simultaneous open trades limit';
-    const pairMatch = rule.match(/exceeded max \d+ simultaneous (\S+) trades/i);
-    if (pairMatch) return `Simultaneous pair limit (${pairMatch[1]})`;
+    if (/exceeded max \d+ simultaneous \S+ trades/i.test(rule)) return 'Simultaneous pair limit';
     if (/declared sl risk/i.test(rule)) return 'SL risk too wide';
     if (/fake sl|price.*max.*risk/i.test(rule)) return 'Fake SL detected';
     if (/max risk candle check could not be verified/i.test(rule)) return 'SL check unverifiable';
@@ -319,13 +318,21 @@ export default function AdminDashboard() {
     return rule.replace(/\s*\(.*\)\s*$/, '').trim();
   };
 
-  const topViolations = flaggedParticipants.flatMap(p => p.rules || []).reduce((acc: any[], rule: string) => {
+  const topViolations = flaggedParticipants.flatMap(p =>
+    (p.rules || []).map((rule: string) => ({ rule, nickname: p.nickname }))
+  ).reduce((acc: any[], { rule, nickname }: { rule: string; nickname: string }) => {
     const category = categorizeViolation(rule);
     const existing = acc.find(v => v.rule === category);
-    if (existing) existing.count++;
-    else acc.push({ rule: category, count: 1 });
+    if (existing) {
+      existing.count++;
+      existing.details.push({ nickname, detail: rule });
+    } else {
+      acc.push({ rule: category, count: 1, details: [{ nickname, detail: rule }] });
+    }
     return acc;
   }, []).sort((a: any, b: any) => b.count - a.count).slice(0, 5);
+
+  const [expandedViolation, setExpandedViolation] = useState<string | null>(null);
 
   // Fetch leaderboard when leaderboard tab is active
   const fetchLeaderboardRef = useRef<() => void>(() => {});
@@ -364,9 +371,9 @@ export default function AdminDashboard() {
             violations: parseInt(v.violation_count),
             profitRemoved: parseFloat(v.profit_removed),
             flaggedTrades: v.flagged_trades || [],
-            rules: (v.flagged_trades || []).slice(0, 5).map((t: any) => {
+            rules: (v.flagged_trades || []).flatMap((t: any) => {
               const violations = typeof t.violations === 'string' ? JSON.parse(t.violations) : (t.violations || []);
-              return violations[0] || 'Rule violation';
+              return violations.map((viol: string) => viol || 'Rule violation');
             }),
           })));
         }
@@ -530,11 +537,21 @@ export default function AdminDashboard() {
             <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2"><AlertTriangle size={16} className="text-loss" /> Top Rule Violations</h3>
             <div className="space-y-3">
               {topViolations.length === 0 ? <p className="text-sm text-gray-500">No violation data yet — will populate after VPS pulls begin</p> : topViolations.map((v: any, i: number) => (
-                <div key={i} className="flex items-center gap-3">
-                  <div className="flex-1">
+                <div key={i}>
+                  <button className="w-full text-left" onClick={() => setExpandedViolation(expandedViolation === v.rule ? null : v.rule)}>
                     <div className="flex justify-between mb-1"><span className="text-sm text-gray-300">{v.rule}</span><span className="text-xs text-gray-500">{v.count}</span></div>
                     <div className="w-full h-2 bg-white/10 rounded-full overflow-hidden"><div className="h-full bg-loss/60 rounded-full" style={{ width: `${Math.min((v.count / Math.max(...topViolations.map((x: any) => x.count), 1)) * 100, 100)}%` }} /></div>
-                  </div>
+                  </button>
+                  {expandedViolation === v.rule && (
+                    <div className="mt-2 ml-1 space-y-1 border-l-2 border-loss/30 pl-3">
+                      {v.details.map((d: any, j: number) => (
+                        <div key={j} className="flex gap-2 text-xs">
+                          <span className="text-royal font-medium shrink-0">{d.nickname}</span>
+                          <span className="text-gray-400 truncate">{d.detail.replace(/\s*\(also open:.*\)/, '').replace(/\(full position\).*/, '').trim()}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
