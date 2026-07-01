@@ -392,6 +392,26 @@ async function migrate() {
     await db.query(`ALTER TABLE trading_registrations ADD COLUMN IF NOT EXISTS last_known_equity NUMERIC(15,2);`).catch(() => {});
     console.log('✅ last_known_equity column migration OK');
 
+    // Withdrawal tracking
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS wp_balance_ops (
+        id              SERIAL PRIMARY KEY,
+        challenge_id    INTEGER NOT NULL,
+        registration_id INTEGER NOT NULL,
+        account_number  BIGINT  NOT NULL,
+        deal_ticket     BIGINT  NOT NULL,
+        op_time         TIMESTAMPTZ NOT NULL,
+        amount          NUMERIC(15,2) NOT NULL,
+        op_type         VARCHAR(20) NOT NULL,
+        comment         TEXT,
+        UNIQUE (challenge_id, registration_id, deal_ticket)
+      )
+    `).catch(() => {});
+    await db.query(`ALTER TABLE trading_leaderboard ADD COLUMN IF NOT EXISTS total_withdrawn NUMERIC(15,2) DEFAULT 0;`).catch(() => {});
+    await db.query(`ALTER TABLE trading_leaderboard ADD COLUMN IF NOT EXISTS is_withdrawn BOOLEAN DEFAULT FALSE;`).catch(() => {});
+    await db.query(`CREATE INDEX IF NOT EXISTS idx_balance_ops_reg ON wp_balance_ops (challenge_id, registration_id);`).catch(() => {});
+    console.log('✅ wp_balance_ops + withdrawal columns migration OK');
+
     console.log('✅ Database migration completed successfully!');
     process.exit(0);
   } catch (error) {

@@ -911,13 +911,38 @@ def do_pull(account: int, server: str, password: str, from_date: str = None, ord
                     "comment":     deal.comment or "",
                 })
 
+    # ── Balance operations (deposits / withdrawals / swap / dividend) ─────────
+    # MT5 deal types that affect balance but are not trades:
+    #   2  = DEAL_TYPE_BALANCE    (deposits, withdrawals, corrections)
+    #   12 = DEAL_TYPE_INTEREST   (swap/interest charges)
+    #   15 = DEAL_TYPE_DIVIDEND
+    #   16 = DEAL_TYPE_DIVIDEND_FRANKED
+    BALANCE_OP_TYPES = {
+        2:  lambda p: "withdrawal" if p < 0 else "deposit",
+        12: lambda p: "swap",
+        15: lambda p: "dividend",
+        16: lambda p: "dividend",
+    }
+    balance_ops = []
+    if trades_raw is not None:
+        for deal in trades_raw:
+            if deal.type in BALANCE_OP_TYPES:
+                balance_ops.append({
+                    "ticket":  deal.ticket,
+                    "time":    datetime.fromtimestamp(deal.time, tz=timezone.utc).isoformat(),
+                    "amount":  deal.profit,
+                    "op_type": BALANCE_OP_TYPES[deal.type](deal.profit),
+                    "comment": deal.comment or "",
+                })
+
     return {
         "success":     True,
-        "message":     f"Pulled {len(trades_list)} trades, {len(deals_list)} deals",
+        "message":     f"Pulled {len(trades_list)} trades, {len(deals_list)} deals, {len(balance_ops)} balance ops",
         "balance":     balance,
         "equity":      equity,
         "trades":      trades_list,
         "deals":       deals_list,
+        "balance_ops": balance_ops,
         "terminal_id": TERMINAL_ID,
     }
 

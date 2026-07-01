@@ -64,6 +64,7 @@ interface PullResult {
   dealsCount?: number;
   balance?: number;
   equity?: number;
+  balance_ops?: Array<{ ticket: number; time: string; amount: number; op_type: string; comment: string }>;
   terminalId?: number;
   terminalsAttempted?: number[];
   terminalAttempts?: { terminalId: number; errorCode: string; errorMessage: string }[];
@@ -858,6 +859,35 @@ export class VpsPullScheduler {
           await db.query(`UPDATE trading_registrations SET last_pull_at = NOW() WHERE id = $1`, [account.registrationId]).catch(() => {});
         }
 
+        // Store balance operations (deposits / withdrawals) from this pull
+        const balanceOps: any[] = result.balance_ops || [];
+        if (balanceOps.length > 0) {
+          for (const op of balanceOps) {
+            await db.query(
+              `INSERT INTO wp_balance_ops (challenge_id, registration_id, account_number, deal_ticket, op_time, amount, op_type, comment)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+               ON CONFLICT (challenge_id, registration_id, deal_ticket) DO NOTHING`,
+              [challenge.id, account.registrationId, account.accountNumber, op.ticket, op.time, op.amount, op.op_type, op.comment || null]
+            ).catch(() => {});
+          }
+          // Compute total withdrawn for this account in this challenge and update leaderboard
+          const withdrawnRes = await db.query(
+            `SELECT COALESCE(SUM(ABS(amount)), 0) as total_withdrawn
+             FROM wp_balance_ops
+             WHERE challenge_id = $1 AND registration_id = $2 AND op_type = 'withdrawal'`,
+            [challenge.id, account.registrationId]
+          ).catch(() => null);
+          const totalWithdrawn = withdrawnRes ? parseFloat(withdrawnRes.rows[0]?.total_withdrawn || '0') : 0;
+          // is_withdrawn: balance is 0 AND there are withdrawal ops (not just blown by trading)
+          const isWithdrawn = totalWithdrawn > 0 && (result.balance ?? 0) <= 0;
+          await db.query(
+            `UPDATE trading_leaderboard
+             SET total_withdrawn = $1, is_withdrawn = $2
+             WHERE challenge_id = $3 AND registration_id = $4`,
+            [totalWithdrawn, isWithdrawn, challenge.id, account.registrationId]
+          ).catch(() => {});
+        }
+
         // NOTE: per-account evaluation used to run here immediately (streaming).
         // It now runs in a deferred phase 3, AFTER the phase 2 null-open-time
         // resolution pass completes for the whole batch — see resolveNullOpenTimes()
@@ -1526,7 +1556,8 @@ export class VpsPullScheduler {
          AND NOT (
            r.last_known_equity IS NOT NULL AND r.last_known_equity <= 0
            AND l.total_trades > 0
-         )`;
+         )
+         AND COALESCE(l.is_withdrawn, false) = false`;
     // connection_verified and confirmed credential failures (pull_status='password_changed')
     // are NOT bypassed by forceAll, even for the final post-challenge-end pull or other
     // admin "full pull" actions — an account that has never verified a working connection,

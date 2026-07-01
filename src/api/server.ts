@@ -430,7 +430,9 @@ app.get('/api/challenges/:id/leaderboard', async (req, res) => {
              l.qualified_profit, l.gross_profit, l.profit_removed, l.total_trades,
              l.qualified_trades, l.flagged_trades, l.is_qualified, l.is_disqualified,
              l.disqualify_reason, l.last_trade_time, l.last_updated, l.zero_balance_at,
-             COALESCE(l.is_cent, r.is_cent, false) as is_cent, l.normalized_balance
+             COALESCE(l.is_cent, r.is_cent, false) as is_cent, l.normalized_balance,
+             COALESCE(l.is_withdrawn, false) as is_withdrawn,
+             COALESCE(l.total_withdrawn, 0) as total_withdrawn
       FROM wp_leaderboard l
       JOIN trading_registrations r ON l.registration_id = r.id AND (r.status IS NULL OR r.status != 'removed')
       WHERE l.challenge_id = $1
@@ -481,7 +483,9 @@ app.get('/api/challenges/:id/leaderboard', async (req, res) => {
         isQualified: r.is_qualified,
         isDisqualified: r.is_disqualified || false,
         disqualifyReason: r.disqualify_reason || null,
-        isBlown: r.total_trades > 0 && parseFloat(r.current_balance) <= 0,
+        isBlown: r.total_trades > 0 && parseFloat(r.current_balance) <= 0 && !r.is_withdrawn,
+        isWithdrawn: r.is_withdrawn || false,
+        totalWithdrawn: parseFloat(r.total_withdrawn) || 0,
         isCent: r.is_cent || false,
         lastTradeTime: r.last_trade_time,
         lastUpdated: r.last_updated,
@@ -547,25 +551,46 @@ app.get('/api/challenges/:id/user-trades', async (req, res) => {
       baseParams
     );
 
+    // Fetch withdrawal/deposit ops for this registration
+    const balanceOps = await db.query(
+      `SELECT deal_ticket, op_time, amount, op_type, comment
+       FROM wp_balance_ops
+       WHERE challenge_id = $1 AND registration_id = $2
+       ORDER BY op_time DESC`,
+      [challengeId, registrationId]
+    ).catch(() => ({ rows: [] }));
+
+    const tradeRows = trades.rows.map((t: any) => ({
+      ticket: t.ticket,
+      positionId: t.position_id,
+      symbol: t.symbol,
+      type: t.trade_type,
+      volume: parseFloat(t.volume),
+      profit: parseFloat(t.profit) + parseFloat(t.commission || 0) + parseFloat(t.swap || 0),
+      closeTime: t.close_time,
+      openTime: t.open_time,
+      openPrice: parseFloat(t.open_price) || 0,
+      closePrice: parseFloat(t.close_price) || 0,
+      isQualified: t.is_qualified,
+      violations: t.violations || [],
+      slCheckPending: t.sl_check_pending || false,
+      slCheckResult: t.sl_check_result || null,
+    }));
+
+    const balanceOpRows = balanceOps.rows.map((b: any) => ({
+      _isBalanceOp: true,
+      ticket: b.deal_ticket,
+      opType: b.op_type,
+      amount: parseFloat(b.amount),
+      closeTime: b.op_time,
+      comment: b.comment || '',
+    }));
+
     return res.json({
       total,
       hasMore: offset + limit < total,
-      trades: trades.rows.map((t: any) => ({
-        ticket: t.ticket,
-        positionId: t.position_id,
-        symbol: t.symbol,
-        type: t.trade_type,
-        volume: parseFloat(t.volume),
-        profit: parseFloat(t.profit) + parseFloat(t.commission || 0) + parseFloat(t.swap || 0),
-        closeTime: t.close_time,
-        openTime: t.open_time,
-        openPrice: parseFloat(t.open_price) || 0,
-        closePrice: parseFloat(t.close_price) || 0,
-        isQualified: t.is_qualified,
-        violations: t.violations || [],
-        slCheckPending: t.sl_check_pending || false,
-        slCheckResult: t.sl_check_result || null,
-      })),
+      trades: tradeRows,
+      balanceOps: balanceOpRows,
     });
   } catch (error) {
     return res.status(500).json({ error: 'Internal server error' });
@@ -2335,7 +2360,9 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/admin-leaderboard`, admin
               l.rank, l.current_balance, l.adjusted_balance, l.qualified_profit,
               l.gross_profit, l.profit_removed, l.total_trades, l.qualified_trades,
               l.flagged_trades, l.is_qualified, l.is_disqualified, l.disqualify_reason,
-              l.last_trade_time, l.last_updated, l.zero_balance_at
+              l.last_trade_time, l.last_updated, l.zero_balance_at,
+              COALESCE(l.is_withdrawn, false) as is_withdrawn,
+              COALESCE(l.total_withdrawn, 0) as total_withdrawn
        FROM trading_registrations r
        LEFT JOIN wp_leaderboard l ON l.registration_id = r.id
        WHERE r.challenge_id = $1
@@ -2378,10 +2405,12 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/admin-leaderboard`, admin
           isQualified: r.is_qualified || false,
           isDisqualified: r.is_disqualified || r.disqualified || false,
           disqualifyReason: r.disqualify_reason || r.disqualified_reason || null,
-          isBlown: (r.total_trades > 0) && (
+          isBlown: (r.total_trades > 0) && !r.is_withdrawn && (
             parseFloat(r.current_balance) <= 0 ||
             (r.last_known_equity !== null && r.last_known_equity !== undefined && parseFloat(r.last_known_equity) <= 0)
           ),
+          isWithdrawn: r.is_withdrawn || false,
+          totalWithdrawn: parseFloat(r.total_withdrawn) || 0,
           isCent,
           lastTradeTime: r.last_trade_time,
           lastUpdated: r.last_updated,

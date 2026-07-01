@@ -15,6 +15,7 @@ export default function AdminDashboard() {
   const [activeSection, setActiveSection] = useState<"overview" | "leaderboard" | "violations" | "pulls" | "screening" | "participants" | "rules" | "health" | "create" | "settings">("overview");
   const [selectedParticipant, setSelectedParticipant] = useState<any>(null);
   const [selectedParticipantTrades, setSelectedParticipantTrades] = useState<any[]>([]);
+  const [selectedParticipantBalanceOps, setSelectedParticipantBalanceOps] = useState<any[]>([]);
   const [selectedTrade, setSelectedTrade] = useState<any>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [foundUser, setFoundUser] = useState<any>(null);
@@ -56,15 +57,19 @@ export default function AdminDashboard() {
 
   // Fetch trades for selected participant
   useEffect(() => {
-    if (!selectedParticipant || !selectedParticipant.nickname || selectedParticipant.totalTrades === 0) {
+    if (!selectedParticipant || !selectedParticipant.nickname) {
       setSelectedParticipantTrades([]);
+      setSelectedParticipantBalanceOps([]);
       return;
     }
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
     fetch(`${apiUrl}/api/challenges/${selectedChallengeId}/user-trades?nickname=${encodeURIComponent(selectedParticipant.nickname)}`)
-      .then(r => r.ok ? r.json() : { trades: [] })
-      .then(d => setSelectedParticipantTrades(d.trades || []))
-      .catch(() => setSelectedParticipantTrades([]));
+      .then(r => r.ok ? r.json() : { trades: [], balanceOps: [] })
+      .then(d => {
+        setSelectedParticipantTrades(d.trades || []);
+        setSelectedParticipantBalanceOps(d.balanceOps || []);
+      })
+      .catch(() => { setSelectedParticipantTrades([]); setSelectedParticipantBalanceOps([]); });
   }, [selectedParticipant, selectedChallengeId]);
 
   const handleAdminLogin = async () => {
@@ -587,14 +592,15 @@ export default function AdminDashboard() {
                   <th className="text-center py-3 px-4 text-[10px] text-gray-400 uppercase">Violations</th></>}
                 </tr></thead>
                 <tbody>{leaderboard.length === 0 ? <tr><td colSpan={leaderboardPreStart ? 5 : 9} className="py-8 text-center text-gray-500">No leaderboard data yet — will populate after VPS pulls and evaluation</td></tr> : leaderboard.map((e: any) => (
-                  <tr key={e.rank || e.nickname} className={`border-b border-white/5 hover:bg-white/5 cursor-pointer ${e.isDisqualified ? "opacity-50" : ""}`} onClick={() => setSelectedParticipant(e)}>
+                  <tr key={e.rank || e.nickname} className={`border-b border-white/5 hover:bg-white/5 cursor-pointer ${e.isDisqualified ? "opacity-50" : e.isWithdrawn ? "opacity-40" : ""}`} onClick={() => setSelectedParticipant(e)}>
                     <td className="py-3 px-4"><span className={`text-sm font-bold ${e.isDisqualified ? "text-loss" : e.rank && e.rank <= 3 ? "text-gold" : "text-gray-400"}`}>{e.rank || (e.notYetEvaluated ? <span className="text-[10px] text-gray-600">—</span> : "—")}</span></td>
-                    <td className="py-3 px-4"><p className="text-sm text-white font-semibold">{e.nickname}{e.isDisqualified ? <span className="ml-2 text-[10px] text-loss">DQ</span> : e.isBlown ? <span className="ml-2 text-[10px] text-amber-400">💥 Blown</span> : ""}</p><p className="text-[10px] text-gray-500 mt-0.5">{e.email || ""}</p></td>
+                    <td className="py-3 px-4"><p className="text-sm text-white font-semibold">{e.nickname}{e.isDisqualified ? <span className="ml-2 text-[10px] text-loss">DQ</span> : e.isWithdrawn ? <span className="ml-2 text-[10px] text-gray-400" title="User withdrew all funds — out of challenge">🚪 Exited</span> : e.isBlown ? <span className="ml-2 text-[10px] text-amber-400" title="Account blown">💀 Blown</span> : ""}</p><p className="text-[10px] text-gray-500 mt-0.5">{e.email || ""}</p></td>
                     <td className="py-3 px-4"><p className="text-xs text-gray-300 font-mono">{e.accountNumber || "—"}</p></td>
                     <td className="py-3 px-4"><span className={`px-2 py-1 rounded text-[10px] font-semibold ${e.accountType === "real" ? "bg-gold/10 text-gold" : "bg-royal/10 text-royal"}`}>{e.accountType}</span></td>
                     <td className="py-3 px-4 text-right">
-                      <p className={`text-sm font-bold ${e.isDisqualified ? "text-loss" : "text-white"}`}>{e.isDisqualified ? "DQ" : e.isCent ? `${Number(e.adjustedBalance).toFixed(2)}¢` : `$${Number(e.adjustedBalance).toFixed(2)}`}</p>
-                      {!e.isDisqualified && <p className="text-[10px] text-gray-500 mt-0.5">{e.isCent ? `${Number(e.currentBalance).toFixed(2)}¢` : `$${Number(e.currentBalance).toFixed(2)}`}</p>}
+                      <p className={`text-sm font-bold ${e.isDisqualified ? "text-loss" : e.isWithdrawn ? "text-gray-500" : "text-white"}`}>{e.isDisqualified ? "DQ" : e.isWithdrawn ? "Exited" : e.isCent ? `${Number(e.adjustedBalance).toFixed(2)}¢` : `$${Number(e.adjustedBalance).toFixed(2)}`}</p>
+                      {!e.isDisqualified && !e.isWithdrawn && <p className="text-[10px] text-gray-500 mt-0.5">{e.isCent ? `${Number(e.currentBalance).toFixed(2)}¢` : `$${Number(e.currentBalance).toFixed(2)}`}</p>}
+                      {e.isWithdrawn && e.totalWithdrawn > 0 && <p className="text-[10px] text-gray-600 mt-0.5">withdrew {e.isCent ? `${Number(e.totalWithdrawn).toFixed(2)}¢` : `$${Number(e.totalWithdrawn).toFixed(2)}`}</p>}
                     </td>
                     {!leaderboardPreStart && <><td className="py-3 px-4 text-center text-sm text-gray-400">{e.totalTrades}</td>
                     <td className="py-3 px-4 text-center text-sm text-gray-400">{e.totalTrades > 0 ? `${Math.round((e.qualifiedTrades / e.totalTrades) * 100)}%` : "—"}</td>
@@ -1112,6 +1118,19 @@ export default function AdminDashboard() {
               <button onClick={() => setSelectedParticipant(null)} className="p-2 hover:bg-white/10 rounded-lg"><X size={18} className="text-gray-400" /></button>
             </div>
             <div className="p-5 space-y-4">
+              {selectedParticipant.isWithdrawn && (
+                <div className="p-4 rounded-xl bg-gray-500/10 border border-gray-500/20">
+                  <p className="text-xs text-gray-400 mb-1">🚪 Account Exited</p>
+                  <p className="text-sm text-white">User withdrew all funds and is out of the challenge.</p>
+                  {selectedParticipant.totalWithdrawn > 0 && <p className="text-xs text-gray-500 mt-1">Total withdrawn: {cur(selectedParticipant.totalWithdrawn, selectedParticipant.isCent)}</p>}
+                </div>
+              )}
+              {selectedParticipant.isBlown && !selectedParticipant.isWithdrawn && (
+                <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20">
+                  <p className="text-xs text-gray-400 mb-1">💀 Account Blown</p>
+                  <p className="text-sm text-white">Balance hit zero from trading losses.</p>
+                </div>
+              )}
               {selectedParticipant.isDisqualified ? (
                 <div className="p-4 rounded-xl bg-loss/10 border border-loss/20">
                   <p className="text-xs text-gray-400 mb-1">Disqualified</p>
@@ -1143,10 +1162,17 @@ export default function AdminDashboard() {
                   </div>
                 );
               })()}
-              {selectedParticipantTrades.length > 0 && (() => {
+              {(selectedParticipantTrades.length > 0 || selectedParticipantBalanceOps.length > 0) && (() => {
                 const fmtEAT = (d: string) => new Date(new Date(d).getTime() + 3*60*60*1000).toISOString().substring(11,16);
-                const cur = (v: number) => selectedParticipant.isCent ? `${v.toFixed(2)}¢` : `$${v.toFixed(2)}`;
-                // Group by positionId
+                const fmtDateEAT = (d: string) => { const dt = new Date(new Date(d).getTime() + 3*60*60*1000); return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); };
+                const c = (v: number) => selectedParticipant.isCent ? `${v.toFixed(2)}¢` : `$${v.toFixed(2)}`;
+                const opMeta: Record<string, { icon: string; label: string; bg: string; border: string; textColor: string; sign: (a: number) => string }> = {
+                  deposit:    { icon: '💰', label: 'Deposit',    bg: 'bg-profit/10', border: 'border-profit/20', textColor: 'text-profit',      sign: () => '+' },
+                  withdrawal: { icon: '🚪', label: 'Withdrawal', bg: 'bg-loss/10',   border: 'border-loss/20',   textColor: 'text-loss',        sign: () => '-' },
+                  swap:       { icon: '🔄', label: 'Swap',       bg: 'bg-amber-500/10', border: 'border-amber-500/20', textColor: 'text-amber-400', sign: (a) => a < 0 ? '-' : '+' },
+                  dividend:   { icon: '📊', label: 'Dividend',   bg: 'bg-royal/10',  border: 'border-royal/20',  textColor: 'text-royal',       sign: () => '+' },
+                };
+                // Group trades by positionId
                 const posMap = new Map<number, any[]>();
                 for (const t of selectedParticipantTrades) {
                   const key = t.positionId ?? t.ticket;
@@ -1154,26 +1180,51 @@ export default function AdminDashboard() {
                   posMap.get(key)!.push(t);
                 }
                 Array.from(posMap.values()).forEach(g => g.sort((a: any, b: any) => new Date(a.closeTime).getTime() - new Date(b.closeTime).getTime()));
-                const groups = Array.from(posMap.values()).sort((a: any[], b: any[]) => new Date(b[b.length-1].closeTime).getTime() - new Date(a[a.length-1].closeTime).getTime());
+                // Build unified feed: each entry has a sortTime and a type
+                type FeedItem = { sortTime: number } & ({ kind: 'trade'; group: any[] } | { kind: 'op'; op: any });
+                const feed: FeedItem[] = [];
+                posMap.forEach(group => {
+                  feed.push({ kind: 'trade', group, sortTime: new Date(group[0].closeTime).getTime() });
+                });
+                for (const op of selectedParticipantBalanceOps) {
+                  feed.push({ kind: 'op', op, sortTime: new Date(op.closeTime).getTime() });
+                }
+                // Oldest first so initial deposit appears at the top
+                feed.sort((a, b) => a.sortTime - b.sortTime);
+                const tradeCount = posMap.size;
                 return (
                   <div className="mt-2">
-                    <p className="text-xs font-semibold text-gray-400 mb-2">Trades ({groups.length})</p>
-                    <div className="space-y-2 max-h-[300px] overflow-y-auto">
-                      {groups.map((group: any[]) => {
+                    <p className="text-xs font-semibold text-gray-400 mb-2">Account History · {tradeCount} trade{tradeCount !== 1 ? 's' : ''}</p>
+                    <div className="space-y-2 max-h-[360px] overflow-y-auto">
+                      {feed.map((item, idx) => {
+                        if (item.kind === 'op') {
+                          const op = item.op;
+                          const meta = opMeta[op.opType] || opMeta.deposit;
+                          return (
+                            <div key={`op-${op.ticket}`} className={`flex items-center justify-between py-2 px-3 rounded-lg border ${meta.bg} ${meta.border}`}>
+                              <div>
+                                <p className="text-xs text-white font-medium">{meta.icon} {meta.label}</p>
+                                <p className="text-[10px] text-gray-500">{fmtDateEAT(op.closeTime)} {fmtEAT(op.closeTime)} EAT{op.comment ? ` · ${op.comment}` : ''}</p>
+                              </div>
+                              <p className={`text-xs font-bold ${meta.textColor}`}>{meta.sign(op.amount)}{c(Math.abs(op.amount))}</p>
+                            </div>
+                          );
+                        }
+                        const group = item.group;
                         if (group.length === 1) {
                           const t = group[0];
                           return (
-                            <div key={t.ticket} onClick={() => setSelectedTrade(t)} className={`py-2 px-3 rounded-lg cursor-pointer hover:brightness-125 transition-all ${t.slCheckResult === 'conflicting' ? 'bg-amber-500/5 border border-amber-400/20' : !t.isQualified ? 'bg-loss/10 border border-loss/20' : 'bg-white/5'}`}>
+                            <div key={`t-${t.ticket}-${idx}`} onClick={() => setSelectedTrade(t)} className={`py-2 px-3 rounded-lg cursor-pointer hover:brightness-125 transition-all ${t.slCheckResult === 'conflicting' ? 'bg-amber-500/5 border border-amber-400/20' : !t.isQualified ? 'bg-loss/10 border border-loss/20' : 'bg-white/5'}`}>
                               <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-2">
                                   <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${t.type?.toLowerCase() === 'buy' ? 'bg-profit/20 text-profit' : 'bg-loss/20 text-loss'}`}>{t.type}</span>
                                   <div>
                                     <p className="text-xs text-white font-medium">{t.symbol}</p>
-                                    <p className="text-[10px] text-gray-500">{t.openTime ? new Date(t.openTime).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''} {t.openTime ? fmtEAT(t.openTime) : ''} → {t.closeTime ? fmtEAT(t.closeTime) : ''}</p>
+                                    <p className="text-[10px] text-gray-500">{t.openTime ? fmtDateEAT(t.openTime) : ''} {t.openTime ? fmtEAT(t.openTime) : ''} → {t.closeTime ? fmtEAT(t.closeTime) : ''}</p>
                                   </div>
                                 </div>
                                 <div className="text-right">
-                                  <p className={`text-xs font-bold ${t.profit >= 0 ? 'text-profit' : 'text-loss'}`}>{cur(t.profit)}</p>
+                                  <p className={`text-xs font-bold ${t.profit >= 0 ? 'text-profit' : 'text-loss'}`}>{c(t.profit)}</p>
                                   <p className="text-[10px] text-gray-500">{t.volume} lot {t.slCheckResult === 'conflicting' ? <span className="text-amber-400 ml-1">?</span> : !t.isQualified ? <span className="text-loss">🚩</span> : null}</p>
                                 </div>
                               </div>
@@ -1187,18 +1238,18 @@ export default function AdminDashboard() {
                         const anyConflict = group.some((t: any) => t.slCheckResult === 'conflicting');
                         const first = group[0];
                         return (
-                          <div key={`g-${first.positionId ?? first.ticket}`} className={`rounded-lg overflow-hidden ${anyFlagged ? 'border border-loss/20' : anyConflict ? 'border border-amber-400/20' : 'border border-white/10'}`}>
+                          <div key={`g-${first.positionId ?? first.ticket}-${idx}`} className={`rounded-lg overflow-hidden ${anyFlagged ? 'border border-loss/20' : anyConflict ? 'border border-amber-400/20' : 'border border-white/10'}`}>
                             <div onClick={() => setSelectedTrade({ ...first, ticket: first.positionId ?? first.ticket, _isGroupHeader: true, _group: group, profit: totalProfit, volume: totalVol })} className={`py-2 px-3 cursor-pointer hover:brightness-125 transition-all ${anyFlagged ? 'bg-loss/10' : anyConflict ? 'bg-amber-500/5' : 'bg-white/5'}`}>
                               <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-2">
                                   <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${first.type?.toLowerCase() === 'buy' ? 'bg-profit/20 text-profit' : 'bg-loss/20 text-loss'}`}>{first.type}</span>
                                   <div>
                                     <p className="text-xs text-white font-medium">{first.symbol} <span className="text-gray-500 font-normal">{group.length} closes</span></p>
-                                    <p className="text-[10px] text-gray-500">{first.openTime ? new Date(first.openTime).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''} {first.openTime ? fmtEAT(first.openTime) : ''}</p>
+                                    <p className="text-[10px] text-gray-500">{first.openTime ? fmtDateEAT(first.openTime) : ''} {first.openTime ? fmtEAT(first.openTime) : ''}</p>
                                   </div>
                                 </div>
                                 <div className="text-right">
-                                  <p className={`text-xs font-bold ${totalProfit >= 0 ? 'text-profit' : 'text-loss'}`}>{cur(totalProfit)}</p>
+                                  <p className={`text-xs font-bold ${totalProfit >= 0 ? 'text-profit' : 'text-loss'}`}>{c(totalProfit)}</p>
                                   <p className="text-[10px] text-gray-500">{totalVol.toFixed(2)} lot {anyFlagged ? <span className="text-loss">🚩</span> : anyConflict ? <span className="text-amber-400">?</span> : null}</p>
                                 </div>
                               </div>
@@ -1207,7 +1258,7 @@ export default function AdminDashboard() {
                               <div key={t.ticket} onClick={() => setSelectedTrade(t)} className={`py-1.5 px-3 pl-6 border-t border-white/5 cursor-pointer hover:brightness-125 transition-all ${!t.isQualified ? 'bg-loss/5' : ''}`}>
                                 <div className="flex items-center justify-between">
                                   <p className="text-[10px] text-gray-500">└ → {fmtEAT(t.closeTime)} · {t.volume} lot</p>
-                                  <p className={`text-[10px] font-semibold ${t.profit >= 0 ? 'text-profit' : 'text-loss'}`}>{cur(t.profit)}</p>
+                                  <p className={`text-[10px] font-semibold ${t.profit >= 0 ? 'text-profit' : 'text-loss'}`}>{c(t.profit)}</p>
                                 </div>
                                 {!t.isQualified && t.violations?.length > 0 && <p className="text-[10px] text-loss mt-1 pl-2">⚠️ {typeof t.violations[0] === 'string' ? t.violations[0] : (t.violations[0] as any)?.detail || 'Rule violation'}</p>}
                               </div>
