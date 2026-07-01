@@ -2505,8 +2505,8 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/pull-trade`, adminIpChec
 
     // Compute diff
     const diff: Record<string, { db: any; fresh: any }> = {};
+    const numEq = (a: any, b: any) => Math.abs(parseFloat(a) - parseFloat(b)) < 0.0001;
     if (dbFormatted) {
-      const numEq = (a: any, b: any) => Math.abs(parseFloat(a) - parseFloat(b)) < 0.0001;
       if (dbFormatted.symbol !== freshFormatted.symbol) diff.symbol = { db: dbFormatted.symbol, fresh: freshFormatted.symbol };
       if (dbFormatted.type !== freshFormatted.type) diff.type = { db: dbFormatted.type, fresh: freshFormatted.type };
       if (!numEq(dbFormatted.volume, freshFormatted.volume)) diff.volume = { db: dbFormatted.volume, fresh: freshFormatted.volume };
@@ -2519,6 +2519,129 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/pull-trade`, adminIpChec
       if (!numEq(dbFormatted.swap, freshFormatted.swap)) diff.swap = { db: dbFormatted.swap, fresh: freshFormatted.swap };
     }
 
+    // ── Dry-run evaluation of the fresh trade ──────────────────────────────
+    // Snapshot → upsert fresh → evaluate → read result → restore
+    let freshEval: { isQualified: boolean | null; violations: string[]; slCheckResult: string | null; slWillRecheck: boolean } = {
+      isQualified: null, violations: [], slCheckResult: null, slWillRecheck: false,
+    };
+    try {
+      // 1. Snapshot staging row
+      const stagingSnap = await db.query(
+        `SELECT * FROM wp_leaderboard_staging WHERE challenge_id = $1 AND registration_id = $2`,
+        [challengeId, reg.id]
+      );
+      const stagingRow = stagingSnap.rows[0] || null;
+
+      // 2. SL carry-over: if SL and open price unchanged, reuse existing SL check result
+      const slUnchanged = dbTrade &&
+        numEq(dbTrade.stop_loss ?? 0, fresh.stop_loss ?? 0) &&
+        numEq(dbTrade.open_price, fresh.open_price);
+      const carrySlResult = slUnchanged ? dbTrade!.sl_check_result : null;
+      const slWillRecheck = !slUnchanged && (fresh.stop_loss != null);
+
+      // 3. Upsert fresh trade (sl_check_pending=false to skip async SL recheck during preview)
+      await db.query(
+        `INSERT INTO wp_trades
+           (challenge_id, registration_id, ticket, symbol, trade_type, volume,
+            open_time, close_time, open_price, close_price, stop_loss, take_profit,
+            profit, commission, swap, comment,
+            sl_check_result, sl_check_pending, is_qualified, violations, position_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,false,NULL,'[]',$3)
+         ON CONFLICT (challenge_id, registration_id, ticket) DO UPDATE SET
+           symbol = EXCLUDED.symbol, trade_type = EXCLUDED.trade_type, volume = EXCLUDED.volume,
+           open_time = EXCLUDED.open_time, close_time = EXCLUDED.close_time,
+           open_price = EXCLUDED.open_price, close_price = EXCLUDED.close_price,
+           stop_loss = EXCLUDED.stop_loss, take_profit = EXCLUDED.take_profit,
+           profit = EXCLUDED.profit, commission = EXCLUDED.commission, swap = EXCLUDED.swap,
+           comment = EXCLUDED.comment, sl_check_result = $17, sl_check_pending = false,
+           is_qualified = NULL, violations = '[]'`,
+        [
+          challengeId, reg.id, fresh.ticket, fresh.symbol, fresh.type, fresh.volume,
+          fresh.open_time, fresh.close_time, fresh.open_price, fresh.close_price,
+          fresh.stop_loss ?? null, fresh.take_profit ?? null,
+          fresh.profit, fresh.commission ?? 0, fresh.swap ?? 0, fresh.comment ?? null,
+          carrySlResult,
+        ]
+      );
+
+      // 4. Run evaluation
+      const globalEvalEngine = (global as any).__wpEvaluationEngine;
+      if (globalEvalEngine) {
+        await globalEvalEngine.evaluateSingleAccount(challengeId, reg.id);
+      }
+
+      // 5. Read back fresh evaluation for this ticket
+      const freshEvalRow = await db.query(
+        `SELECT is_qualified, violations, sl_check_result FROM wp_trades
+         WHERE challenge_id = $1 AND registration_id = $2 AND ticket = $3`,
+        [challengeId, reg.id, fresh.ticket]
+      );
+      if (freshEvalRow.rows[0]) {
+        const r = freshEvalRow.rows[0];
+        freshEval = {
+          isQualified: r.is_qualified,
+          violations: typeof r.violations === 'string' ? JSON.parse(r.violations || '[]') : (r.violations || []),
+          slCheckResult: r.sl_check_result,
+          slWillRecheck,
+        };
+      }
+
+      // 6. Restore wp_trades
+      if (dbTrade) {
+        await db.query(
+          `UPDATE wp_trades SET
+             symbol = $1, trade_type = $2, volume = $3,
+             open_time = $4, close_time = $5, open_price = $6, close_price = $7,
+             stop_loss = $8, take_profit = $9, profit = $10, commission = $11,
+             swap = $12, comment = $13, is_qualified = $14, violations = $15,
+             sl_check_result = $16, sl_check_pending = $17,
+             sl_allowed_price = $18, sl_max_adverse_price = $19
+           WHERE challenge_id = $20 AND registration_id = $21 AND ticket = $22`,
+          [
+            dbTrade.symbol, dbTrade.trade_type, dbTrade.volume,
+            dbTrade.open_time, dbTrade.close_time, dbTrade.open_price, dbTrade.close_price,
+            dbTrade.stop_loss ?? null, dbTrade.take_profit ?? null,
+            dbTrade.profit, dbTrade.commission ?? 0, dbTrade.swap ?? 0,
+            dbTrade.comment ?? null, dbTrade.is_qualified,
+            typeof dbTrade.violations === 'string' ? dbTrade.violations : JSON.stringify(dbTrade.violations || []),
+            dbTrade.sl_check_result ?? null, dbTrade.sl_check_pending ?? false,
+            dbTrade.sl_allowed_price ?? null, dbTrade.sl_max_adverse_price ?? null,
+            challengeId, reg.id, fresh.ticket,
+          ]
+        );
+      } else {
+        await db.query(
+          `DELETE FROM wp_trades WHERE challenge_id = $1 AND registration_id = $2 AND ticket = $3`,
+          [challengeId, reg.id, fresh.ticket]
+        );
+      }
+
+      // 7. Restore wp_leaderboard_staging
+      if (stagingRow) {
+        await db.query(
+          `UPDATE wp_leaderboard_staging SET
+             current_balance = $1, adjusted_balance = $2, normalized_balance = $3,
+             qualified_profit = $4, gross_profit = $5, profit_removed = $6,
+             total_trades = $7, qualified_trades = $8, flagged_trades = $9,
+             active_days = $10, is_qualified = $11, is_disqualified = $12,
+             disqualify_reason = $13, last_trade_time = $14, zero_balance_at = $15,
+             evaluated_at = $16
+           WHERE challenge_id = $17 AND registration_id = $18`,
+          [
+            stagingRow.current_balance, stagingRow.adjusted_balance, stagingRow.normalized_balance,
+            stagingRow.qualified_profit, stagingRow.gross_profit, stagingRow.profit_removed,
+            stagingRow.total_trades, stagingRow.qualified_trades, stagingRow.flagged_trades,
+            stagingRow.active_days, stagingRow.is_qualified, stagingRow.is_disqualified,
+            stagingRow.disqualify_reason, stagingRow.last_trade_time, stagingRow.zero_balance_at,
+            stagingRow.evaluated_at, challengeId, reg.id,
+          ]
+        );
+      }
+    } catch (evalErr) {
+      console.error('Pull trade dry-run eval error (non-fatal):', evalErr);
+    }
+    // ── End dry-run ────────────────────────────────────────────────────────
+
     return res.json({
       registrationId: reg.id,
       nickname: reg.nickname,
@@ -2526,6 +2649,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/pull-trade`, adminIpChec
       fresh: freshFormatted,
       db: dbFormatted,
       diff,
+      freshEval,
       identical: Object.keys(diff).length === 0 && dbFormatted !== null,
       notInDb: dbFormatted === null,
     });

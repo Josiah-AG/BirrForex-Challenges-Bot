@@ -2850,12 +2850,30 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
           {ptResult?.error && <p className="text-xs text-loss bg-loss/10 rounded-lg px-3 py-2">{ptResult.error}</p>}
           {ptResult && !ptResult.error && (() => {
             const f = ptResult.fresh; const d = ptResult.db; const diff = ptResult.diff || {};
+            const fe = ptResult.freshEval || {};
             const hasDiff = Object.keys(diff).length > 0;
             const fmtEAT = (s: string) => s ? new Date(new Date(s).getTime()+3*60*60*1000).toISOString().substring(0,16).replace("T"," ")+" EAT" : "—";
             const diffFields = new Set(Object.keys(diff));
+            const EvalSection = ({ isQualified, violations, slCheckResult, slWillRecheck, borderClass }: { isQualified: boolean | null; violations: string[]; slCheckResult: string | null; slWillRecheck?: boolean; borderClass: string }) => (
+              <div className={`mt-2 pt-2 border-t ${borderClass}`}>
+                <p className="text-[10px] text-gray-500 font-semibold uppercase mb-1">Evaluation</p>
+                {isQualified === null ? (
+                  <p className="text-[10px] text-gray-500 italic">Evaluation unavailable</p>
+                ) : (
+                  <>
+                    <p className={`text-[10px] font-bold ${isQualified === false ? "text-loss" : "text-profit"}`}>{isQualified === false ? "🚩 Flagged" : "✓ Qualified"}</p>
+                    {slCheckResult && <p className="text-[10px] text-gray-400">SL: <span className={slCheckResult === "fake_sl" ? "text-loss" : slCheckResult === "passed" ? "text-profit" : "text-amber-400"}>{slCheckResult}</span></p>}
+                    {slWillRecheck && !slCheckResult && <p className="text-[10px] text-amber-400/70 italic">SL will recheck on Replace</p>}
+                    {violations.length > 0 && <div className="mt-1 space-y-0.5">{violations.map((v: string, i: number) => <p key={i} className="text-[10px] text-loss/80">⚠️ {v}</p>)}</div>}
+                  </>
+                )}
+              </div>
+            );
             const TradePanel = ({ label, t, isFresh }: { label: string; t: any; isFresh: boolean }) => {
               if (!t) return <div className="flex-1 bg-white/5 rounded-xl p-3 flex items-center justify-center text-xs text-gray-500">Not in database yet</div>;
-              const violations: string[] = t.violations || [];
+              const violations: string[] = isFresh ? (fe.violations || []) : (t.violations || []);
+              const isQualified = isFresh ? (fe.isQualified ?? null) : t.isQualified;
+              const slCheckResult = isFresh ? (fe.slCheckResult ?? null) : (t.slCheckResult ?? null);
               return (
                 <div className={`flex-1 rounded-xl p-3 text-xs space-y-2 ${isFresh ? "bg-royal/5 border border-royal/20" : "bg-white/5 border border-white/10"}`}>
                   <p className={`text-[10px] font-bold uppercase tracking-wider ${isFresh ? "text-royal" : "text-gray-500"}`}>{label}</p>
@@ -2877,19 +2895,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
                       ];
                     })}
                   </div>
-                  {/* Evaluation result (DB only — fresh shows pending) */}
-                  <div className={`mt-2 pt-2 border-t ${isFresh ? "border-royal/20" : "border-white/10"}`}>
-                    <p className="text-[10px] text-gray-500 font-semibold uppercase mb-1">Evaluation</p>
-                    {isFresh ? (
-                      <p className="text-[10px] text-gray-500 italic">Will run after Replace</p>
-                    ) : (
-                      <>
-                        <p className={`text-[10px] font-bold ${t.isQualified === false ? "text-loss" : "text-profit"}`}>{t.isQualified === false ? "🚩 Flagged" : "✓ Qualified"}</p>
-                        {t.slCheckResult && <p className="text-[10px] text-gray-400">SL check: <span className={t.slCheckResult === "fake_sl" ? "text-loss" : t.slCheckResult === "passed" ? "text-profit" : "text-amber-400"}>{t.slCheckResult}</span></p>}
-                        {violations.length > 0 && <div className="mt-1 space-y-0.5">{violations.map((v: string, i: number) => <p key={i} className="text-[10px] text-loss/80">⚠️ {v}</p>)}</div>}
-                      </>
-                    )}
-                  </div>
+                  <EvalSection isQualified={isQualified} violations={violations} slCheckResult={slCheckResult} slWillRecheck={isFresh ? fe.slWillRecheck : false} borderClass={isFresh ? "border-royal/20" : "border-white/10"} />
                 </div>
               );
             };

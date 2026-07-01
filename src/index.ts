@@ -38,6 +38,7 @@ async function main() {
     // Pass bot to evaluation engine for notifications
     const { evaluationEngine } = require('./services/wpEvaluationEngine');
     evaluationEngine.setBot(bot);
+    (global as any).__wpEvaluationEngine = evaluationEngine;
 
     // Start WinnerPip API server (serves api.winnerpip.com endpoints)
     startApiServer();
