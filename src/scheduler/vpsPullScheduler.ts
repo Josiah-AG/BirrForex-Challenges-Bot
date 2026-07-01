@@ -844,9 +844,16 @@ export class VpsPullScheduler {
         resultsMutex.results.push(result);
         this.sharedQueue.done(account.registrationId, account.accountNumber);
 
-        // Save VPS balance and mark pull time for progress tracking
-        if (result.balance !== undefined) {
-          await db.query(`UPDATE trading_registrations SET last_known_balance = $1, last_pull_at = NOW() WHERE id = $2`, [result.balance, account.registrationId]).catch(() => {});
+        // Save VPS balance/equity and mark pull time for progress tracking
+        if (result.balance !== undefined || result.equity !== undefined) {
+          await db.query(
+            `UPDATE trading_registrations
+             SET last_known_balance = COALESCE($1, last_known_balance),
+                 last_known_equity  = COALESCE($2, last_known_equity),
+                 last_pull_at = NOW()
+             WHERE id = $3`,
+            [result.balance ?? null, result.equity ?? null, account.registrationId]
+          ).catch(() => {});
         } else {
           await db.query(`UPDATE trading_registrations SET last_pull_at = NOW() WHERE id = $1`, [account.registrationId]).catch(() => {});
         }
@@ -1507,9 +1514,19 @@ export class VpsPullScheduler {
     // or DQ status. Evaluation engine preserves DQ flags — it writes to staging which
     // is then flushed without clearing the disqualified column.
     const disqualifiedFilter = forceAll ? '' : 'AND r.disqualified = false';
+    // Skip accounts whose MT5 equity has hit zero (or gone negative) — the broker
+    // account is genuinely blown. Also skip accounts already marked blown via
+    // zero_balance_at (set by evaluation engine). Both conditions require total_trades > 0
+    // so new/unstarted accounts aren't skipped just because equity hasn't loaded yet.
     const zeroBalanceFilter = forceAll
       ? ''
-      : 'AND (l.zero_balance_at IS NULL OR l.total_trades = 0 OR l.id IS NULL OR r.actual_starting_balance IS NULL)';
+      : `AND (
+           l.zero_balance_at IS NULL OR l.total_trades = 0 OR l.id IS NULL OR r.actual_starting_balance IS NULL
+         )
+         AND NOT (
+           r.last_known_equity IS NOT NULL AND r.last_known_equity <= 0
+           AND l.total_trades > 0
+         )`;
     // connection_verified and confirmed credential failures (pull_status='password_changed')
     // are NOT bypassed by forceAll, even for the final post-challenge-end pull or other
     // admin "full pull" actions — an account that has never verified a working connection,

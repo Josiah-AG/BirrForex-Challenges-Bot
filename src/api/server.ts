@@ -2330,7 +2330,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/admin-leaderboard`, admin
     const result = await db.query(
       `SELECT r.id as registration_id, r.nickname, r.account_type, r.is_cent,
               r.email, r.account_number,
-              r.registration_balance, r.last_known_balance, r.actual_starting_balance,
+              r.registration_balance, r.last_known_balance, r.last_known_equity, r.actual_starting_balance,
               r.disqualified, r.disqualified_reason,
               l.rank, l.current_balance, l.adjusted_balance, l.qualified_profit,
               l.gross_profit, l.profit_removed, l.total_trades, l.qualified_trades,
@@ -2378,7 +2378,10 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/admin-leaderboard`, admin
           isQualified: r.is_qualified || false,
           isDisqualified: r.is_disqualified || r.disqualified || false,
           disqualifyReason: r.disqualify_reason || r.disqualified_reason || null,
-          isBlown: (r.total_trades > 0) && parseFloat(r.current_balance) <= 0,
+          isBlown: (r.total_trades > 0) && (
+            parseFloat(r.current_balance) <= 0 ||
+            (r.last_known_equity !== null && r.last_known_equity !== undefined && parseFloat(r.last_known_equity) <= 0)
+          ),
           isCent,
           lastTradeTime: r.last_trade_time,
           lastUpdated: r.last_updated,

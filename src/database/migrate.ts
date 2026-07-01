@@ -388,6 +388,10 @@ async function migrate() {
     await db.query(`ALTER TABLE wp_pull_batches ADD COLUMN IF NOT EXISTS phase2_round INTEGER DEFAULT 0;`).catch(() => {});
     console.log('✅ wp_pull_batches phase2 columns migration OK');
 
+    // Equity-based blown detection — store last VPS equity separately from balance
+    await db.query(`ALTER TABLE trading_registrations ADD COLUMN IF NOT EXISTS last_known_equity NUMERIC(15,2);`).catch(() => {});
+    console.log('✅ last_known_equity column migration OK');
+
     console.log('✅ Database migration completed successfully!');
     process.exit(0);
   } catch (error) {

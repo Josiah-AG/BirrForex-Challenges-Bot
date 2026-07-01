@@ -1364,6 +1364,26 @@ export class WpEvaluationEngine {
       activeDays, isQualified, lastTradeTime: lastTrade?.close_time || null,
     });
 
+    // If the VPS equity has hit zero (or below) on an account that has traded,
+    // mark it blown in staging regardless of the computed current_balance.
+    // This catches accounts where equity = 0 but gross balance formula still
+    // shows positive (e.g. open losing positions not yet reflected in closed trades).
+    if (allTrades.length > 0) {
+      const eqRow = await db.query(
+        `SELECT last_known_equity FROM trading_registrations WHERE id = $1`, [reg.id]
+      );
+      const equity = eqRow.rows[0]?.last_known_equity;
+      if (equity !== null && equity !== undefined && parseFloat(equity) <= 0) {
+        await db.query(
+          `UPDATE wp_leaderboard_staging
+           SET zero_balance_at = COALESCE(zero_balance_at, NOW()),
+               current_balance = LEAST(current_balance, 0)
+           WHERE challenge_id = $1 AND registration_id = $2`,
+          [challengeId, reg.id]
+        ).catch(() => {});
+      }
+    }
+
     return { flaggedCount, isQualified };
   }
 
