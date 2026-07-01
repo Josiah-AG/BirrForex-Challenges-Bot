@@ -2423,17 +2423,21 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/pull-trade`, adminIpChec
     if (regResult.rows.length === 0) return res.status(404).json({ error: 'Account not found in this challenge' });
     const reg = regResult.rows[0];
 
-    // Fetch existing DB record
+    const numEq = (a: any, b: any) => Math.abs(parseFloat(a ?? 0) - parseFloat(b ?? 0)) < 0.0001;
+
+    // Fetch existing DB record(s) — match by ticket OR position_id (mother trade case)
     const existing = await db.query(
       `SELECT ticket, symbol, trade_type, volume, open_time, close_time,
               open_price, close_price, stop_loss, take_profit, profit,
               commission, swap, comment, is_qualified, violations,
-              sl_check_result, sl_allowed_price, sl_max_adverse_price
+              sl_check_result, sl_check_pending, sl_allowed_price, sl_max_adverse_price, position_id
        FROM wp_trades
-       WHERE challenge_id = $1 AND registration_id = $2 AND ticket = $3`,
+       WHERE challenge_id = $1 AND registration_id = $2 AND (ticket = $3 OR position_id = $3::text)
+       ORDER BY close_time ASC`,
       [challengeId, reg.id, ticketNum]
     );
-    const dbTrade = existing.rows[0] || null;
+    const dbTrades = existing.rows; // may be multiple (partial closes)
+    const isPositionGroup = dbTrades.length > 1 || (dbTrades.length === 1 && dbTrades[0].position_id && dbTrades[0].ticket !== ticketNum);
 
     // Fetch fresh from VPS via scheduler
     const globalScheduler = (global as any).__vpsPullScheduler;
@@ -2459,110 +2463,152 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/pull-trade`, adminIpChec
     }
 
     if (!freshTrades || freshTrades.length === 0) {
-      return res.status(404).json({
-        error: 'Trade not found on MT5 after 3 attempts',
-        dbTrade: dbTrade ? formatTrade(dbTrade) : null,
-      });
+      return res.status(404).json({ error: 'Trade not found on MT5 after 3 attempts' });
     }
 
-    const fresh = freshTrades[0];
-    const freshFormatted = {
-      ticket: fresh.ticket,
-      symbol: fresh.symbol,
-      type: fresh.type,
-      volume: fresh.volume,
-      openTime: fresh.open_time,
-      closeTime: fresh.close_time,
-      openPrice: fresh.open_price,
-      closePrice: fresh.close_price,
-      stopLoss: fresh.stop_loss ?? null,
-      takeProfit: fresh.take_profit ?? null,
-      profit: fresh.profit,
-      commission: fresh.commission ?? 0,
-      swap: fresh.swap ?? 0,
-      comment: fresh.comment ?? null,
-    };
+    // Helpers
+    const formatDbRow = (t: any) => ({
+      ticket: t.ticket,
+      symbol: t.symbol,
+      type: t.trade_type,
+      volume: parseFloat(t.volume),
+      openTime: t.open_time,
+      closeTime: t.close_time,
+      openPrice: parseFloat(t.open_price),
+      closePrice: parseFloat(t.close_price),
+      stopLoss: t.stop_loss != null ? parseFloat(t.stop_loss) : null,
+      takeProfit: t.take_profit != null ? parseFloat(t.take_profit) : null,
+      profit: parseFloat(t.profit),
+      commission: parseFloat(t.commission ?? 0),
+      swap: parseFloat(t.swap ?? 0),
+      comment: t.comment ?? null,
+      isQualified: t.is_qualified,
+      violations: typeof t.violations === 'string' ? JSON.parse(t.violations || '[]') : (t.violations || []),
+      slCheckResult: t.sl_check_result,
+      positionId: t.position_id,
+    });
+    const formatFreshRow = (f: any) => ({
+      ticket: f.ticket,
+      symbol: f.symbol,
+      type: f.type,
+      volume: f.volume,
+      openTime: f.open_time,
+      closeTime: f.close_time,
+      openPrice: f.open_price,
+      closePrice: f.close_price,
+      stopLoss: f.stop_loss ?? null,
+      takeProfit: f.take_profit ?? null,
+      profit: f.profit,
+      commission: f.commission ?? 0,
+      swap: f.swap ?? 0,
+      comment: f.comment ?? null,
+      positionId: ticketNum,
+    });
 
-    const dbFormatted = dbTrade ? {
-      ticket: dbTrade.ticket,
-      symbol: dbTrade.symbol,
-      type: dbTrade.trade_type,
-      volume: parseFloat(dbTrade.volume),
-      openTime: dbTrade.open_time,
-      closeTime: dbTrade.close_time,
-      openPrice: parseFloat(dbTrade.open_price),
-      closePrice: parseFloat(dbTrade.close_price),
-      stopLoss: dbTrade.stop_loss != null ? parseFloat(dbTrade.stop_loss) : null,
-      takeProfit: dbTrade.take_profit != null ? parseFloat(dbTrade.take_profit) : null,
-      profit: parseFloat(dbTrade.profit),
-      commission: parseFloat(dbTrade.commission ?? 0),
-      swap: parseFloat(dbTrade.swap ?? 0),
-      comment: dbTrade.comment ?? null,
-      isQualified: dbTrade.is_qualified,
-      violations: typeof dbTrade.violations === 'string' ? JSON.parse(dbTrade.violations || '[]') : (dbTrade.violations || []),
-      slCheckResult: dbTrade.sl_check_result,
-    } : null;
+    // Build summary objects for display
+    const buildSummary = (trades: any[], totalProfit: number, totalVolume: number, first: any) => ({
+      ticket: ticketNum, // position ID as display ticket
+      symbol: first.symbol,
+      type: first.type ?? first.trade_type,
+      volume: totalVolume,
+      openTime: first.openTime ?? first.open_time,
+      openPrice: first.openPrice ?? parseFloat(first.open_price),
+      closePrice: null,
+      closeTime: null,
+      stopLoss: first.stopLoss ?? (first.stop_loss != null ? parseFloat(first.stop_loss) : null),
+      takeProfit: first.takeProfit ?? (first.take_profit != null ? parseFloat(first.take_profit) : null),
+      profit: totalProfit,
+      commission: trades.reduce((s: number, t: any) => s + parseFloat(t.commission ?? t.commission ?? 0), 0),
+      swap: trades.reduce((s: number, t: any) => s + parseFloat(t.swap ?? 0), 0),
+      comment: null,
+      _partials: trades,
+      _isGroup: true,
+    });
 
-    // Compute diff
+    const dbFormattedRows = dbTrades.map(formatDbRow);
+    const freshFormattedRows = freshTrades.map(formatFreshRow);
+
+    const dbTotalProfit = dbFormattedRows.reduce((s, t) => s + t.profit, 0);
+    const dbTotalVol = dbFormattedRows.reduce((s, t) => s + t.volume, 0);
+    const freshTotalProfit = freshFormattedRows.reduce((s, t) => s + t.profit, 0);
+    const freshTotalVol = freshFormattedRows.reduce((s, t) => s + t.volume, 0);
+
+    // For single trade, use the row directly; for group, use summary
+    const dbFormatted = dbTrades.length === 0 ? null
+      : (dbTrades.length === 1 && !isPositionGroup) ? dbFormattedRows[0]
+      : buildSummary(dbFormattedRows, dbTotalProfit, dbTotalVol, dbFormattedRows[0]);
+
+    const freshFormatted = freshTrades.length === 1 && !isPositionGroup ? freshFormattedRows[0]
+      : buildSummary(freshFormattedRows, freshTotalProfit, freshTotalVol, freshFormattedRows[0]);
+
+    // Compute diff (group: compare totals; single: compare fields)
     const diff: Record<string, { db: any; fresh: any }> = {};
-    const numEq = (a: any, b: any) => Math.abs(parseFloat(a) - parseFloat(b)) < 0.0001;
-    if (dbFormatted) {
-      if (dbFormatted.symbol !== freshFormatted.symbol) diff.symbol = { db: dbFormatted.symbol, fresh: freshFormatted.symbol };
-      if (dbFormatted.type !== freshFormatted.type) diff.type = { db: dbFormatted.type, fresh: freshFormatted.type };
-      if (!numEq(dbFormatted.volume, freshFormatted.volume)) diff.volume = { db: dbFormatted.volume, fresh: freshFormatted.volume };
-      if (!numEq(dbFormatted.openPrice, freshFormatted.openPrice)) diff.openPrice = { db: dbFormatted.openPrice, fresh: freshFormatted.openPrice };
-      if (!numEq(dbFormatted.closePrice, freshFormatted.closePrice)) diff.closePrice = { db: dbFormatted.closePrice, fresh: freshFormatted.closePrice };
-      if (!numEq(dbFormatted.profit, freshFormatted.profit)) diff.profit = { db: dbFormatted.profit, fresh: freshFormatted.profit };
-      const slDb = dbFormatted.stopLoss ?? 0; const slFr = freshFormatted.stopLoss ?? 0;
-      if (!numEq(slDb, slFr)) diff.stopLoss = { db: dbFormatted.stopLoss, fresh: freshFormatted.stopLoss };
-      if (!numEq(dbFormatted.commission, freshFormatted.commission)) diff.commission = { db: dbFormatted.commission, fresh: freshFormatted.commission };
-      if (!numEq(dbFormatted.swap, freshFormatted.swap)) diff.swap = { db: dbFormatted.swap, fresh: freshFormatted.swap };
+    if (dbFormatted && dbTrades.length > 0) {
+      if (!isPositionGroup) {
+        const db0 = dbFormattedRows[0]; const fr0 = freshFormattedRows[0];
+        if (db0.symbol !== fr0.symbol) diff.symbol = { db: db0.symbol, fresh: fr0.symbol };
+        if (db0.type !== fr0.type) diff.type = { db: db0.type, fresh: fr0.type };
+        if (!numEq(db0.volume, fr0.volume)) diff.volume = { db: db0.volume, fresh: fr0.volume };
+        if (!numEq(db0.openPrice, fr0.openPrice)) diff.openPrice = { db: db0.openPrice, fresh: fr0.openPrice };
+        if (!numEq(db0.closePrice, fr0.closePrice)) diff.closePrice = { db: db0.closePrice, fresh: fr0.closePrice };
+        if (!numEq(db0.profit, fr0.profit)) diff.profit = { db: db0.profit, fresh: fr0.profit };
+        if (!numEq(db0.stopLoss ?? 0, fr0.stopLoss ?? 0)) diff.stopLoss = { db: db0.stopLoss, fresh: fr0.stopLoss };
+        if (!numEq(db0.commission, fr0.commission)) diff.commission = { db: db0.commission, fresh: fr0.commission };
+      } else {
+        // Group: compare total profit/volume and number of partials
+        if (!numEq(dbTotalProfit, freshTotalProfit)) diff.profit = { db: dbTotalProfit, fresh: freshTotalProfit };
+        if (!numEq(dbTotalVol, freshTotalVol)) diff.volume = { db: dbTotalVol, fresh: freshTotalVol };
+        if (dbTrades.length !== freshTrades.length) diff.tradeCount = { db: dbTrades.length, fresh: freshTrades.length };
+      }
     }
 
-    // ── Dry-run evaluation of the fresh trade ──────────────────────────────
-    // Snapshot → upsert fresh → evaluate → read result → restore
-    let freshEval: { isQualified: boolean | null; violations: string[]; slCheckResult: string | null; slWillRecheck: boolean } = {
+    // ── Dry-run evaluation ─────────────────────────────────────────────────
+    let freshEval: { isQualified: boolean | null; violations: string[]; slCheckResult: string | null; slWillRecheck: boolean; perTrade?: any[] } = {
       isQualified: null, violations: [], slCheckResult: null, slWillRecheck: false,
     };
     try {
-      // 1. Snapshot staging row
+      // 1. Snapshot staging
       const stagingSnap = await db.query(
         `SELECT * FROM wp_leaderboard_staging WHERE challenge_id = $1 AND registration_id = $2`,
         [challengeId, reg.id]
       );
       const stagingRow = stagingSnap.rows[0] || null;
 
-      // 2. SL carry-over: if SL and open price unchanged, reuse existing SL check result
-      const slUnchanged = dbTrade &&
-        numEq(dbTrade.stop_loss ?? 0, fresh.stop_loss ?? 0) &&
-        numEq(dbTrade.open_price, fresh.open_price);
-      const carrySlResult = slUnchanged ? dbTrade!.sl_check_result : null;
-      const slWillRecheck = !slUnchanged && (fresh.stop_loss != null);
+      // 2. Track which tickets are new (not in DB) so we can delete them on restore
+      const existingTickets = new Set(dbTrades.map(t => t.ticket));
 
-      // 3. Upsert fresh trade (sl_check_pending=false to skip async SL recheck during preview)
-      await db.query(
-        `INSERT INTO wp_trades
-           (challenge_id, registration_id, ticket, symbol, trade_type, volume,
-            open_time, close_time, open_price, close_price, stop_loss, take_profit,
-            profit, commission, swap, comment,
-            sl_check_result, sl_check_pending, is_qualified, violations, position_id)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,false,NULL,'[]',$3)
-         ON CONFLICT (challenge_id, registration_id, ticket) DO UPDATE SET
-           symbol = EXCLUDED.symbol, trade_type = EXCLUDED.trade_type, volume = EXCLUDED.volume,
-           open_time = EXCLUDED.open_time, close_time = EXCLUDED.close_time,
-           open_price = EXCLUDED.open_price, close_price = EXCLUDED.close_price,
-           stop_loss = EXCLUDED.stop_loss, take_profit = EXCLUDED.take_profit,
-           profit = EXCLUDED.profit, commission = EXCLUDED.commission, swap = EXCLUDED.swap,
-           comment = EXCLUDED.comment, sl_check_result = $17, sl_check_pending = false,
-           is_qualified = NULL, violations = '[]'`,
-        [
-          challengeId, reg.id, fresh.ticket, fresh.symbol, fresh.type, fresh.volume,
-          fresh.open_time, fresh.close_time, fresh.open_price, fresh.close_price,
-          fresh.stop_loss ?? null, fresh.take_profit ?? null,
-          fresh.profit, fresh.commission ?? 0, fresh.swap ?? 0, fresh.comment ?? null,
-          carrySlResult,
-        ]
-      );
+      // 3. Upsert all fresh trades
+      for (const ft of freshTrades) {
+        const matchingDb = dbTrades.find(d => d.ticket === ft.ticket);
+        const slUnchangedFt = matchingDb &&
+          numEq(matchingDb.stop_loss ?? 0, ft.stop_loss ?? 0) &&
+          numEq(matchingDb.open_price, ft.open_price);
+        const carrySlResult = slUnchangedFt ? matchingDb.sl_check_result : null;
+
+        await db.query(
+          `INSERT INTO wp_trades
+             (challenge_id, registration_id, ticket, symbol, trade_type, volume,
+              open_time, close_time, open_price, close_price, stop_loss, take_profit,
+              profit, commission, swap, comment,
+              sl_check_result, sl_check_pending, is_qualified, violations, position_id)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,false,NULL,'[]',$18)
+           ON CONFLICT (challenge_id, registration_id, ticket) DO UPDATE SET
+             symbol = EXCLUDED.symbol, trade_type = EXCLUDED.trade_type, volume = EXCLUDED.volume,
+             open_time = EXCLUDED.open_time, close_time = EXCLUDED.close_time,
+             open_price = EXCLUDED.open_price, close_price = EXCLUDED.close_price,
+             stop_loss = EXCLUDED.stop_loss, take_profit = EXCLUDED.take_profit,
+             profit = EXCLUDED.profit, commission = EXCLUDED.commission, swap = EXCLUDED.swap,
+             comment = EXCLUDED.comment, sl_check_result = $17, sl_check_pending = false,
+             is_qualified = NULL, violations = '[]', position_id = EXCLUDED.position_id`,
+          [
+            challengeId, reg.id, ft.ticket, ft.symbol, ft.type, ft.volume,
+            ft.open_time, ft.close_time, ft.open_price, ft.close_price,
+            ft.stop_loss ?? null, ft.take_profit ?? null,
+            ft.profit, ft.commission ?? 0, ft.swap ?? 0, ft.comment ?? null,
+            carrySlResult, String(ticketNum),
+          ]
+        );
+      }
 
       // 4. Run evaluation
       const globalEvalEngine = (global as any).__wpEvaluationEngine;
@@ -2570,53 +2616,62 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/pull-trade`, adminIpChec
         await globalEvalEngine.evaluateSingleAccount(challengeId, reg.id);
       }
 
-      // 5. Read back fresh evaluation for this ticket
-      const freshEvalRow = await db.query(
-        `SELECT is_qualified, violations, sl_check_result FROM wp_trades
-         WHERE challenge_id = $1 AND registration_id = $2 AND ticket = $3`,
-        [challengeId, reg.id, fresh.ticket]
+      // 5. Read back fresh evaluation for all fresh tickets
+      const freshTickets = freshTrades.map(f => f.ticket);
+      const freshEvalRows = await db.query(
+        `SELECT ticket, is_qualified, violations, sl_check_result FROM wp_trades
+         WHERE challenge_id = $1 AND registration_id = $2 AND ticket = ANY($3)`,
+        [challengeId, reg.id, freshTickets]
       );
-      if (freshEvalRow.rows[0]) {
-        const r = freshEvalRow.rows[0];
-        freshEval = {
-          isQualified: r.is_qualified,
-          violations: typeof r.violations === 'string' ? JSON.parse(r.violations || '[]') : (r.violations || []),
-          slCheckResult: r.sl_check_result,
-          slWillRecheck,
-        };
+      const perTrade = freshEvalRows.rows.map((r: any) => ({
+        ticket: r.ticket,
+        isQualified: r.is_qualified,
+        violations: typeof r.violations === 'string' ? JSON.parse(r.violations || '[]') : (r.violations || []),
+        slCheckResult: r.sl_check_result,
+      }));
+      const allViolations: string[] = [...new Set(perTrade.flatMap((t: any) => t.violations))];
+      const anyFlagged = perTrade.some((t: any) => t.isQualified === false);
+      const slWillRecheck = freshTrades.some(ft => {
+        const matchingDb = dbTrades.find(d => d.ticket === ft.ticket);
+        return !matchingDb || !numEq(matchingDb.stop_loss ?? 0, ft.stop_loss ?? 0);
+      });
+      freshEval = { isQualified: !anyFlagged, violations: allViolations, slCheckResult: null, slWillRecheck, perTrade };
+
+      // 6. Restore wp_trades — update existing ones, delete new ones
+      for (const ft of freshTrades) {
+        const orig = dbTrades.find(d => d.ticket === ft.ticket);
+        if (orig) {
+          await db.query(
+            `UPDATE wp_trades SET
+               symbol = $1, trade_type = $2, volume = $3,
+               open_time = $4, close_time = $5, open_price = $6, close_price = $7,
+               stop_loss = $8, take_profit = $9, profit = $10, commission = $11,
+               swap = $12, comment = $13, is_qualified = $14, violations = $15,
+               sl_check_result = $16, sl_check_pending = $17,
+               sl_allowed_price = $18, sl_max_adverse_price = $19
+             WHERE challenge_id = $20 AND registration_id = $21 AND ticket = $22`,
+            [
+              orig.symbol, orig.trade_type, orig.volume,
+              orig.open_time, orig.close_time, orig.open_price, orig.close_price,
+              orig.stop_loss ?? null, orig.take_profit ?? null,
+              orig.profit, orig.commission ?? 0, orig.swap ?? 0,
+              orig.comment ?? null, orig.is_qualified,
+              typeof orig.violations === 'string' ? orig.violations : JSON.stringify(orig.violations || []),
+              orig.sl_check_result ?? null, orig.sl_check_pending ?? false,
+              orig.sl_allowed_price ?? null, orig.sl_max_adverse_price ?? null,
+              challengeId, reg.id, ft.ticket,
+            ]
+          );
+        } else {
+          // This trade didn't exist in DB before — delete it
+          await db.query(
+            `DELETE FROM wp_trades WHERE challenge_id = $1 AND registration_id = $2 AND ticket = $3`,
+            [challengeId, reg.id, ft.ticket]
+          );
+        }
       }
 
-      // 6. Restore wp_trades
-      if (dbTrade) {
-        await db.query(
-          `UPDATE wp_trades SET
-             symbol = $1, trade_type = $2, volume = $3,
-             open_time = $4, close_time = $5, open_price = $6, close_price = $7,
-             stop_loss = $8, take_profit = $9, profit = $10, commission = $11,
-             swap = $12, comment = $13, is_qualified = $14, violations = $15,
-             sl_check_result = $16, sl_check_pending = $17,
-             sl_allowed_price = $18, sl_max_adverse_price = $19
-           WHERE challenge_id = $20 AND registration_id = $21 AND ticket = $22`,
-          [
-            dbTrade.symbol, dbTrade.trade_type, dbTrade.volume,
-            dbTrade.open_time, dbTrade.close_time, dbTrade.open_price, dbTrade.close_price,
-            dbTrade.stop_loss ?? null, dbTrade.take_profit ?? null,
-            dbTrade.profit, dbTrade.commission ?? 0, dbTrade.swap ?? 0,
-            dbTrade.comment ?? null, dbTrade.is_qualified,
-            typeof dbTrade.violations === 'string' ? dbTrade.violations : JSON.stringify(dbTrade.violations || []),
-            dbTrade.sl_check_result ?? null, dbTrade.sl_check_pending ?? false,
-            dbTrade.sl_allowed_price ?? null, dbTrade.sl_max_adverse_price ?? null,
-            challengeId, reg.id, fresh.ticket,
-          ]
-        );
-      } else {
-        await db.query(
-          `DELETE FROM wp_trades WHERE challenge_id = $1 AND registration_id = $2 AND ticket = $3`,
-          [challengeId, reg.id, fresh.ticket]
-        );
-      }
-
-      // 7. Restore wp_leaderboard_staging
+      // 7. Restore staging
       if (stagingRow) {
         await db.query(
           `UPDATE wp_leaderboard_staging SET
@@ -2650,8 +2705,9 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/pull-trade`, adminIpChec
       db: dbFormatted,
       diff,
       freshEval,
-      identical: Object.keys(diff).length === 0 && dbFormatted !== null,
-      notInDb: dbFormatted === null,
+      isGroup: isPositionGroup || freshTrades.length > 1,
+      identical: Object.keys(diff).length === 0 && dbTrades.length > 0,
+      notInDb: dbTrades.length === 0,
     });
   } catch (error) {
     console.error('Pull trade error:', error);
@@ -2678,8 +2734,8 @@ function formatTrade(t: any) {
 app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/pull-trade/replace`, adminIpCheck, async (req, res) => {
   try {
     const challengeId = parseInt(req.params.id);
-    const { registrationId, ticket, freshTrade } = req.body;
-    if (!registrationId || !ticket || !freshTrade) return res.status(400).json({ error: 'registrationId, ticket, and freshTrade are required' });
+    const { registrationId, ticket, freshTrade, freshTrades: freshTradesArr } = req.body;
+    if (!registrationId || !ticket) return res.status(400).json({ error: 'registrationId and ticket are required' });
 
     const regResult = await db.query(
       `SELECT account_number FROM trading_registrations WHERE id = $1 AND challenge_id = $2`,
@@ -2688,34 +2744,39 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/pull-trade/replace`, adm
     if (!regResult.rows.length) return res.status(404).json({ error: 'Registration not found' });
     const accountNumber = regResult.rows[0].account_number;
 
-    // Upsert the fresh trade into wp_trades
-    await db.query(
-      `INSERT INTO wp_trades
-       (challenge_id, registration_id, account_number, ticket, position_id, symbol, trade_type, volume,
-        open_time, close_time, open_price, close_price, stop_loss, take_profit,
-        profit, commission, swap, comment, synced_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,NOW())
-       ON CONFLICT (challenge_id, account_number, ticket) DO UPDATE SET
-         symbol=EXCLUDED.symbol, trade_type=EXCLUDED.trade_type, volume=EXCLUDED.volume,
-         open_time=COALESCE(EXCLUDED.open_time, wp_trades.open_time),
-         close_time=EXCLUDED.close_time,
-         open_price=CASE WHEN EXCLUDED.open_price IS NULL OR EXCLUDED.open_price=0 THEN wp_trades.open_price ELSE EXCLUDED.open_price END,
-         close_price=EXCLUDED.close_price, stop_loss=EXCLUDED.stop_loss, take_profit=EXCLUDED.take_profit,
-         profit=EXCLUDED.profit, commission=EXCLUDED.commission, swap=EXCLUDED.swap,
-         comment=EXCLUDED.comment, synced_at=NOW(),
-         is_qualified=NULL, violations=NULL, sl_check_result=NULL,
-         sl_check_pending=true, sl_check_attempts=0`,
-      [
-        challengeId, registrationId, accountNumber, ticket,
-        freshTrade.positionId || ticket,
-        freshTrade.symbol, freshTrade.type, freshTrade.volume,
-        freshTrade.openTime, freshTrade.closeTime,
-        freshTrade.openPrice, freshTrade.closePrice,
-        freshTrade.stopLoss ?? null, freshTrade.takeProfit ?? null,
-        freshTrade.profit, freshTrade.commission ?? 0, freshTrade.swap ?? 0,
-        freshTrade.comment ?? null,
-      ]
-    );
+    // Support both single trade and group (array of partials)
+    const tradesToUpsert: any[] = freshTradesArr && Array.isArray(freshTradesArr) ? freshTradesArr : (freshTrade ? [freshTrade] : []);
+    if (tradesToUpsert.length === 0) return res.status(400).json({ error: 'No trade data provided' });
+
+    for (const ft of tradesToUpsert) {
+      await db.query(
+        `INSERT INTO wp_trades
+         (challenge_id, registration_id, account_number, ticket, position_id, symbol, trade_type, volume,
+          open_time, close_time, open_price, close_price, stop_loss, take_profit,
+          profit, commission, swap, comment, synced_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,NOW())
+         ON CONFLICT (challenge_id, account_number, ticket) DO UPDATE SET
+           symbol=EXCLUDED.symbol, trade_type=EXCLUDED.trade_type, volume=EXCLUDED.volume,
+           open_time=COALESCE(EXCLUDED.open_time, wp_trades.open_time),
+           close_time=EXCLUDED.close_time,
+           open_price=CASE WHEN EXCLUDED.open_price IS NULL OR EXCLUDED.open_price=0 THEN wp_trades.open_price ELSE EXCLUDED.open_price END,
+           close_price=EXCLUDED.close_price, stop_loss=EXCLUDED.stop_loss, take_profit=EXCLUDED.take_profit,
+           profit=EXCLUDED.profit, commission=EXCLUDED.commission, swap=EXCLUDED.swap,
+           comment=EXCLUDED.comment, synced_at=NOW(),
+           is_qualified=NULL, violations=NULL, sl_check_result=NULL,
+           sl_check_pending=true, sl_check_attempts=0`,
+        [
+          challengeId, registrationId, accountNumber, ft.ticket,
+          ft.positionId || ticket,
+          ft.symbol, ft.type, ft.volume,
+          ft.openTime, ft.closeTime,
+          ft.openPrice, ft.closePrice,
+          ft.stopLoss ?? null, ft.takeProfit ?? null,
+          ft.profit, ft.commission ?? 0, ft.swap ?? 0,
+          ft.comment ?? null,
+        ]
+      );
+    }
 
     // Re-evaluate the account
     const { wpEvaluationEngine } = require('../services/wpEvaluationEngine');

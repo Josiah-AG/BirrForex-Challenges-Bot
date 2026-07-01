@@ -2871,31 +2871,50 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
             );
             const TradePanel = ({ label, t, isFresh }: { label: string; t: any; isFresh: boolean }) => {
               if (!t) return <div className="flex-1 bg-white/5 rounded-xl p-3 flex items-center justify-center text-xs text-gray-500">Not in database yet</div>;
-              const violations: string[] = isFresh ? (fe.violations || []) : (t.violations || []);
-              const isQualified = isFresh ? (fe.isQualified ?? null) : t.isQualified;
+              const isGroup = !!t._isGroup;
+              const partials: any[] = t._partials || [];
+              const allPartialViolations = partials.flatMap((p: any) => p.violations || []).filter((v: string, i: number, a: string[]) => a.indexOf(v) === i);
+              const violations: string[] = isFresh ? (fe.violations || []) : (isGroup ? allPartialViolations : (t.violations || []));
+              const isQualified: boolean | null = isFresh ? (fe.isQualified ?? null) : (isGroup ? !partials.some((p: any) => p.isQualified === false) : t.isQualified);
               const slCheckResult = isFresh ? (fe.slCheckResult ?? null) : (t.slCheckResult ?? null);
+              const borderClass = isFresh ? "border-royal/20" : "border-white/10";
+              const cur2 = (v: number) => `$${Number(v).toFixed(2)}`;
               return (
                 <div className={`flex-1 rounded-xl p-3 text-xs space-y-2 ${isFresh ? "bg-royal/5 border border-royal/20" : "bg-white/5 border border-white/10"}`}>
                   <p className={`text-[10px] font-bold uppercase tracking-wider ${isFresh ? "text-royal" : "text-gray-500"}`}>{label}</p>
                   <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
                     {[
                       ["Symbol", t.symbol, "symbol"],
-                      ["Type", t.type, "type"],
-                      ["Lots", t.volume, "volume"],
+                      ["Type", (t.type ?? "").toUpperCase(), "type"],
+                      ["Lots", Number(t.volume).toFixed(2), "volume"],
                       ["Open", `${t.openPrice} @ ${fmtEAT(t.openTime)}`, "openPrice"],
-                      ["Close", `${t.closePrice} @ ${fmtEAT(t.closeTime)}`, "closePrice"],
+                      ...(!isGroup ? [["Close", `${t.closePrice} @ ${fmtEAT(t.closeTime)}`, "closePrice"] as [string,string,string]] : []),
                       ["SL", t.stopLoss ?? "none", "stopLoss"],
-                      ["Profit", t.profit, "profit"],
-                      ["Commission", t.commission ?? 0, "commission"],
+                      ["Profit", cur2(Number(t.profit)), "profit"],
                     ].map(([lbl, val, field]) => {
                       const changed = diffFields.has(field as string);
                       return [
                         <span key={field+"l"} className="text-gray-500">{lbl}</span>,
-                        <span key={field+"v"} className={`font-medium ${changed ? (isFresh ? "text-profit font-bold" : "text-loss line-through") : field === "profit" ? (Number(val) >= 0 ? "text-profit" : "text-loss") : "text-white"}`}>{String(val)}</span>
+                        <span key={field+"v"} className={`font-medium ${changed ? (isFresh ? "text-profit font-bold" : "text-loss line-through") : field === "profit" ? (Number(t.profit) >= 0 ? "text-profit" : "text-loss") : "text-white"}`}>{String(val)}</span>
                       ];
                     })}
                   </div>
-                  <EvalSection isQualified={isQualified} violations={violations} slCheckResult={slCheckResult} slWillRecheck={isFresh ? fe.slWillRecheck : false} borderClass={isFresh ? "border-royal/20" : "border-white/10"} />
+                  {/* Partials breakdown for group */}
+                  {isGroup && partials.length > 0 && (
+                    <div className="space-y-0.5">
+                      <p className="text-[10px] text-gray-500 font-semibold uppercase">Closes</p>
+                      {partials.map((p: any) => {
+                        const pEval = isFresh ? (fe.perTrade || []).find((e: any) => e.ticket === p.ticket) : p;
+                        return (
+                          <div key={p.ticket} className={`flex justify-between items-center px-2 py-1 rounded text-[10px] ${pEval?.isQualified === false ? "bg-loss/10" : "bg-white/5"}`}>
+                            <span className="text-gray-500">#{p.ticket}</span>
+                            <span className={Number(p.profit) >= 0 ? "text-profit" : "text-loss"}>{cur2(Number(p.profit))}{pEval?.isQualified === false ? " 🚩" : ""}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  <EvalSection isQualified={isQualified} violations={violations} slCheckResult={slCheckResult} slWillRecheck={isFresh ? fe.slWillRecheck : false} borderClass={borderClass} />
                 </div>
               );
             };
@@ -2910,8 +2929,8 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
                 </div>
                 {/* Side-by-side panels */}
                 <div className="flex gap-2">
-                  <TradePanel label="In Database" t={d} isFresh={false} />
-                  <TradePanel label={`Live from MT5 · #${f.ticket}`} t={f} isFresh={true} />
+                  <TradePanel label={ptResult.isGroup ? `In Database · ${d?._partials?.length ?? "?"} closes` : "In Database"} t={d} isFresh={false} />
+                  <TradePanel label={ptResult.isGroup ? `Live from MT5 · Position #${f.ticket}` : `Live from MT5 · #${f.ticket}`} t={f} isFresh={true} />
                 </div>
                 {/* Actions */}
                 {!ptResult.replaced && (
@@ -2919,9 +2938,12 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
                     <button disabled={ptReplacing || (ptResult.identical && !ptResult.notInDb)} onClick={async () => {
                       setPtReplacing(true);
                       try {
+                        const body = ptResult.isGroup
+                          ? { registrationId: ptResult.registrationId, ticket: ptTicket, freshTrades: f._partials }
+                          : { registrationId: ptResult.registrationId, ticket: f.ticket, freshTrade: f };
                         const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/pull-trade/replace`, {
                           method: "POST", headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({ registrationId: ptResult.registrationId, ticket: f.ticket, freshTrade: f }),
+                          body: JSON.stringify(body),
                         });
                         const data = await res.json();
                         if (res.ok) { setPtResult((prev: any) => ({ ...prev, replaced: true })); }
