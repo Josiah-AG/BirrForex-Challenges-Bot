@@ -1188,7 +1188,7 @@ export default function AdminDashboard() {
                         const first = group[0];
                         return (
                           <div key={`g-${first.positionId ?? first.ticket}`} className={`rounded-lg overflow-hidden ${anyFlagged ? 'border border-loss/20' : anyConflict ? 'border border-amber-400/20' : 'border border-white/10'}`}>
-                            <div className={`py-2 px-3 ${anyFlagged ? 'bg-loss/10' : anyConflict ? 'bg-amber-500/5' : 'bg-white/5'}`}>
+                            <div onClick={() => setSelectedTrade({ ...first, ticket: first.positionId ?? first.ticket, _isGroupHeader: true, _group: group, profit: totalProfit, volume: totalVol })} className={`py-2 px-3 cursor-pointer hover:brightness-125 transition-all ${anyFlagged ? 'bg-loss/10' : anyConflict ? 'bg-amber-500/5' : 'bg-white/5'}`}>
                               <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-2">
                                   <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${first.type?.toLowerCase() === 'buy' ? 'bg-profit/20 text-profit' : 'bg-loss/20 text-loss'}`}>{first.type}</span>
@@ -1252,38 +1252,58 @@ export default function AdminDashboard() {
       {/* ==================== TRADE DETAIL MODAL ==================== */}
       {selectedTrade && (() => {
         const t = selectedTrade;
+        const isGroup = (t as any)._isGroupHeader === true;
+        const group: any[] = (t as any)._group || [];
         const fmtEAT = (s: string) => s ? new Date(new Date(s).getTime()+3*60*60*1000).toISOString().substring(0,16).replace("T"," ")+" EAT" : "—";
         const isCent = selectedParticipant?.isCent ?? false;
         const cur = (v: number) => isCent ? `${Number(v).toFixed(2)}¢` : `$${Number(v).toFixed(2)}`;
-        const violations: string[] = Array.isArray(t.violations) ? t.violations : (typeof t.violations === 'string' ? JSON.parse(t.violations || '[]') : []);
+        const parseViolations = (x: any): string[] => Array.isArray(x.violations) ? x.violations : (typeof x.violations === 'string' ? JSON.parse(x.violations || '[]') : []);
+        const violations: string[] = parseViolations(t);
+        const anyGroupFlagged = isGroup && group.some((x: any) => x.isQualified === false);
+        const allGroupViolationsSet = isGroup ? group.flatMap(parseViolations).filter((v, i, a) => a.indexOf(v) === i) : violations;
+        const allGroupViolations: string[] = allGroupViolationsSet;
         return (
           <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[60] flex items-center justify-center p-4" onClick={() => setSelectedTrade(null)}>
-            <div className="bg-[#111827] rounded-2xl border border-white/10 p-5 max-w-sm w-full shadow-2xl space-y-4" onClick={e => e.stopPropagation()}>
+            <div className="bg-[#111827] rounded-2xl border border-white/10 p-5 max-w-sm w-full shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
               <div className="flex items-center justify-between">
                 <div>
-                  <h3 className="text-sm font-bold text-white">Ticket #{t.ticket}</h3>
-                  <p className="text-[10px] text-gray-500 mt-0.5">{t.symbol} · {selectedParticipant?.nickname}</p>
+                  <h3 className="text-sm font-bold text-white">
+                    {isGroup ? `Position #${t.ticket}` : `Ticket #${t.ticket}`}
+                    {isGroup && <span className="text-[10px] text-gray-500 font-normal ml-2">· {group.length} closes</span>}
+                  </h3>
+                  <p className="text-[10px] text-gray-500 mt-0.5">{t.symbol} · {t.type?.toUpperCase()} · {selectedParticipant?.nickname}</p>
                 </div>
                 <button onClick={() => setSelectedTrade(null)} className="p-2 hover:bg-white/10 rounded-lg"><X size={16} className="text-gray-400" /></button>
               </div>
               <div className="grid grid-cols-2 gap-2 text-xs">
                 <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Direction</p><span className={`px-2 py-0.5 rounded font-bold text-[10px] ${t.type?.toLowerCase()==='buy' ? 'bg-profit/20 text-profit' : 'bg-loss/20 text-loss'}`}>{t.type?.toUpperCase()}</span></div>
-                <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Lots</p><p className="text-white font-semibold">{t.volume}</p></div>
+                <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">{isGroup ? 'Total Lots' : 'Lots'}</p><p className="text-white font-semibold">{Number(t.volume).toFixed(2)}</p></div>
                 <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Open</p><p className="text-white">{t.openPrice}</p><p className="text-[10px] text-gray-500">{fmtEAT(t.openTime)}</p></div>
-                <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Close</p><p className="text-white">{t.closePrice}</p><p className="text-[10px] text-gray-500">{fmtEAT(t.closeTime)}</p></div>
+                {!isGroup && <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Close</p><p className="text-white">{t.closePrice}</p><p className="text-[10px] text-gray-500">{fmtEAT(t.closeTime)}</p></div>}
                 <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Stop Loss</p><p className="text-white">{t.stopLoss ?? "—"}</p></div>
                 <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Take Profit</p><p className="text-white">{t.takeProfit ?? "—"}</p></div>
-                <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Profit</p><p className={`font-bold ${t.profit >= 0 ? 'text-profit' : 'text-loss'}`}>{cur(t.profit)}</p></div>
-                <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Commission</p><p className="text-gray-300">{cur(t.commission ?? 0)}</p></div>
+                <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">{isGroup ? 'Total Profit' : 'Profit'}</p><p className={`font-bold ${t.profit >= 0 ? 'text-profit' : 'text-loss'}`}>{cur(t.profit)}</p></div>
+                {!isGroup && <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Commission</p><p className="text-gray-300">{cur(t.commission ?? 0)}</p></div>}
               </div>
+              {isGroup && (
+                <div className="space-y-1">
+                  <p className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider">Partial Closes</p>
+                  {group.map((x: any) => (
+                    <div key={x.ticket} className={`flex justify-between items-center px-3 py-2 rounded-lg text-xs ${x.isQualified === false ? 'bg-loss/10 border border-loss/20' : 'bg-white/5'}`}>
+                      <div><p className="text-gray-400">#{x.ticket} · {fmtEAT(x.closeTime)}</p><p className="text-[10px] text-gray-600">{x.volume} lot</p></div>
+                      <p className={`font-bold ${x.profit >= 0 ? 'text-profit' : 'text-loss'}`}>{cur(x.profit)}{x.isQualified === false ? ' 🚩' : ''}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
               <div className="grid grid-cols-2 gap-2 text-xs">
-                <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Status</p><p className={`font-semibold ${t.isQualified === false ? 'text-loss' : 'text-profit'}`}>{t.isQualified === false ? '🚩 Flagged' : '✓ Qualified'}</p></div>
-                <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">SL Check</p><p className={`text-[10px] font-semibold ${t.slCheckResult === 'fake_sl' ? 'text-loss' : t.slCheckResult === 'passed' ? 'text-profit' : t.slCheckResult === 'conflicting' ? 'text-amber-400' : 'text-gray-400'}`}>{t.slCheckResult ?? '—'}</p></div>
+                <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Status</p><p className={`font-semibold ${(isGroup ? anyGroupFlagged : t.isQualified === false) ? 'text-loss' : 'text-profit'}`}>{(isGroup ? anyGroupFlagged : t.isQualified === false) ? '🚩 Flagged' : '✓ Qualified'}</p></div>
+                {!isGroup && <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">SL Check</p><p className={`text-[10px] font-semibold ${t.slCheckResult === 'fake_sl' ? 'text-loss' : t.slCheckResult === 'passed' ? 'text-profit' : t.slCheckResult === 'conflicting' ? 'text-amber-400' : 'text-gray-400'}`}>{t.slCheckResult ?? '—'}</p></div>}
               </div>
-              {violations.length > 0 && (
+              {allGroupViolations.length > 0 && (
                 <div className="bg-loss/10 border border-loss/20 rounded-xl p-3 space-y-1">
                   <p className="text-[10px] text-loss font-semibold mb-1">Violations</p>
-                  {violations.map((v: string, i: number) => <p key={i} className="text-[10px] text-loss/80">⚠️ {v}</p>)}
+                  {allGroupViolations.map((v: string, i: number) => <p key={i} className="text-[10px] text-loss/80">⚠️ {v}</p>)}
                 </div>
               )}
               {t.comment && <p className="text-[10px] text-gray-500">Comment: {t.comment}</p>}
@@ -2832,50 +2852,65 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
             const f = ptResult.fresh; const d = ptResult.db; const diff = ptResult.diff || {};
             const hasDiff = Object.keys(diff).length > 0;
             const fmtEAT = (s: string) => s ? new Date(new Date(s).getTime()+3*60*60*1000).toISOString().substring(0,16).replace("T"," ")+" EAT" : "—";
-            const fieldLabel: Record<string,string> = { symbol:"Symbol", type:"Type", volume:"Lots", openPrice:"Open Price", closePrice:"Close Price", profit:"Profit", stopLoss:"Stop Loss", commission:"Commission", swap:"Swap" };
+            const diffFields = new Set(Object.keys(diff));
+            const TradePanel = ({ label, t, isFresh }: { label: string; t: any; isFresh: boolean }) => {
+              if (!t) return <div className="flex-1 bg-white/5 rounded-xl p-3 flex items-center justify-center text-xs text-gray-500">Not in database yet</div>;
+              const violations: string[] = t.violations || [];
+              return (
+                <div className={`flex-1 rounded-xl p-3 text-xs space-y-2 ${isFresh ? "bg-royal/5 border border-royal/20" : "bg-white/5 border border-white/10"}`}>
+                  <p className={`text-[10px] font-bold uppercase tracking-wider ${isFresh ? "text-royal" : "text-gray-500"}`}>{label}</p>
+                  <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+                    {[
+                      ["Symbol", t.symbol, "symbol"],
+                      ["Type", t.type, "type"],
+                      ["Lots", t.volume, "volume"],
+                      ["Open", `${t.openPrice} @ ${fmtEAT(t.openTime)}`, "openPrice"],
+                      ["Close", `${t.closePrice} @ ${fmtEAT(t.closeTime)}`, "closePrice"],
+                      ["SL", t.stopLoss ?? "none", "stopLoss"],
+                      ["Profit", t.profit, "profit"],
+                      ["Commission", t.commission ?? 0, "commission"],
+                    ].map(([lbl, val, field]) => {
+                      const changed = diffFields.has(field as string);
+                      return [
+                        <span key={field+"l"} className="text-gray-500">{lbl}</span>,
+                        <span key={field+"v"} className={`font-medium ${changed ? (isFresh ? "text-profit font-bold" : "text-loss line-through") : field === "profit" ? (Number(val) >= 0 ? "text-profit" : "text-loss") : "text-white"}`}>{String(val)}</span>
+                      ];
+                    })}
+                  </div>
+                  {/* Evaluation result (DB only — fresh shows pending) */}
+                  <div className={`mt-2 pt-2 border-t ${isFresh ? "border-royal/20" : "border-white/10"}`}>
+                    <p className="text-[10px] text-gray-500 font-semibold uppercase mb-1">Evaluation</p>
+                    {isFresh ? (
+                      <p className="text-[10px] text-gray-500 italic">Will run after Replace</p>
+                    ) : (
+                      <>
+                        <p className={`text-[10px] font-bold ${t.isQualified === false ? "text-loss" : "text-profit"}`}>{t.isQualified === false ? "🚩 Flagged" : "✓ Qualified"}</p>
+                        {t.slCheckResult && <p className="text-[10px] text-gray-400">SL check: <span className={t.slCheckResult === "fake_sl" ? "text-loss" : t.slCheckResult === "passed" ? "text-profit" : "text-amber-400"}>{t.slCheckResult}</span></p>}
+                        {violations.length > 0 && <div className="mt-1 space-y-0.5">{violations.map((v: string, i: number) => <p key={i} className="text-[10px] text-loss/80">⚠️ {v}</p>)}</div>}
+                      </>
+                    )}
+                  </div>
+                </div>
+              );
+            };
             return (
               <div className="space-y-3">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-xs font-semibold text-white">{ptResult.nickname}</span>
-                  <span className="text-[10px] text-gray-500">{ptResult.accountNumber}</span>
+                  <span className="text-[10px] text-gray-500 font-mono">{ptResult.accountNumber}</span>
                   {ptResult.notInDb && <span className="text-[10px] bg-royal/20 text-royal px-2 py-0.5 rounded">New — not in DB yet</span>}
-                  {ptResult.identical && <span className="text-[10px] bg-profit/20 text-profit px-2 py-0.5 rounded">✓ Identical to DB</span>}
-                  {hasDiff && <span className="text-[10px] bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded">{Object.keys(diff).length} difference{Object.keys(diff).length > 1 ? "s" : ""}</span>}
+                  {ptResult.identical && !ptResult.notInDb && <span className="text-[10px] bg-profit/20 text-profit px-2 py-0.5 rounded">✓ Identical</span>}
+                  {hasDiff && <span className="text-[10px] bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded">{Object.keys(diff).length} field{Object.keys(diff).length > 1 ? "s" : ""} changed</span>}
                 </div>
-                {/* Fresh trade summary */}
-                <div className="bg-white/5 rounded-xl p-3 text-xs space-y-1">
-                  <p className="text-[10px] text-gray-500 font-semibold uppercase mb-2">Live from MT5 (ticket #{f.ticket})</p>
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-                    <span className="text-gray-400">Symbol</span><span className="text-white">{f.symbol}</span>
-                    <span className="text-gray-400">Type</span><span className="text-white">{f.type}</span>
-                    <span className="text-gray-400">Lots</span><span className="text-white">{f.volume}</span>
-                    <span className="text-gray-400">Open</span><span className="text-white">{f.openPrice} @ {fmtEAT(f.openTime)}</span>
-                    <span className="text-gray-400">Close</span><span className="text-white">{f.closePrice} @ {fmtEAT(f.closeTime)}</span>
-                    <span className="text-gray-400">SL</span><span className="text-white">{f.stopLoss ?? "none"}</span>
-                    <span className="text-gray-400">Profit</span><span className={`font-bold ${f.profit >= 0 ? "text-profit" : "text-loss"}`}>{f.profit}</span>
-                  </div>
+                {/* Side-by-side panels */}
+                <div className="flex gap-2">
+                  <TradePanel label="In Database" t={d} isFresh={false} />
+                  <TradePanel label={`Live from MT5 · #${f.ticket}`} t={f} isFresh={true} />
                 </div>
-                {/* Diff table */}
-                {hasDiff && d && (
-                  <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl p-3 text-xs space-y-1">
-                    <p className="text-[10px] text-amber-400 font-semibold uppercase mb-2">Differences</p>
-                    <div className="grid grid-cols-3 gap-x-3 gap-y-1">
-                      <span className="text-gray-500 font-semibold">Field</span><span className="text-gray-500 font-semibold">In DB</span><span className="text-gray-500 font-semibold">Live</span>
-                      {Object.entries(diff).map(([k, v]: [string, any]) => (
-                        <>
-                          <span key={k+"l"} className="text-gray-400">{fieldLabel[k] ?? k}</span>
-                          <span key={k+"d"} className="text-loss line-through">{String(v.db ?? "—")}</span>
-                          <span key={k+"f"} className="text-profit">{String(v.fresh ?? "—")}</span>
-                        </>
-                      ))}
-                    </div>
-                    {d.isQualified === false && <p className="text-[10px] text-loss mt-2">DB trade is flagged · {d.violations?.join(", ")}</p>}
-                  </div>
-                )}
                 {/* Actions */}
-                {!ptResult.identical && (
+                {!ptResult.replaced && (
                   <div className="flex gap-2">
-                    <button disabled={ptReplacing} onClick={async () => {
+                    <button disabled={ptReplacing || (ptResult.identical && !ptResult.notInDb)} onClick={async () => {
                       setPtReplacing(true);
                       try {
                         const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/pull-trade/replace`, {
@@ -2883,17 +2918,17 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
                           body: JSON.stringify({ registrationId: ptResult.registrationId, ticket: f.ticket, freshTrade: f }),
                         });
                         const data = await res.json();
-                        if (res.ok) { setPtResult((prev: any) => ({ ...prev, replaced: true, identical: true, diff: {} })); }
+                        if (res.ok) { setPtResult((prev: any) => ({ ...prev, replaced: true })); }
                         else { alert(data.error || "Replace failed"); }
                       } catch { alert("Network error"); }
                       setPtReplacing(false);
                     }} className="flex-1 py-2 rounded-xl bg-profit/20 border border-profit/30 text-profit text-xs font-bold hover:bg-profit/30 transition-all disabled:opacity-50">
-                      {ptReplacing ? "Replacing…" : ptResult.replaced ? "✓ Replaced" : "Replace & Re-evaluate"}
+                      {ptReplacing ? "Replacing…" : ptResult.identical && !ptResult.notInDb ? "No changes to replace" : "Replace & Re-evaluate"}
                     </button>
                     <button onClick={() => setPtResult(null)} className="flex-1 py-2 rounded-xl bg-white/5 border border-white/10 text-gray-400 text-xs font-bold hover:bg-white/10 transition-all">Ignore</button>
                   </div>
                 )}
-                {ptResult.identical && !ptResult.notInDb && <p className="text-xs text-profit text-center">✓ {ptResult.replaced ? "Replaced successfully — account re-evaluated" : "Trade matches DB — no changes needed"}</p>}
+                {ptResult.replaced && <p className="text-xs text-profit text-center">✓ Replaced — account re-evaluated and rankings updated</p>}
               </div>
             );
           })()}
