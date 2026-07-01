@@ -36,10 +36,13 @@ export class LeaderboardService {
       // its qualified balance is deeply negative, and that account belongs in
       // Tier 2 with the other negative accounts, not floating above them here.
       // Sort: 1) balance DESC  2) trades DESC  3) last trade earliest  4) registered earliest (stable tiebreaker)
+      // Tier 1: active accounts with positive effective balance (withdrawn accounts
+      // are treated as 0 regardless of their stored adjusted_balance)
       await db.query(
         `UPDATE wp_leaderboard SET rank = sub.rn FROM (
           SELECT l.id, ROW_NUMBER() OVER (
-            ORDER BY COALESCE(l.normalized_balance, l.adjusted_balance) DESC,
+            ORDER BY CASE WHEN COALESCE(l.is_withdrawn, false) THEN 0
+                          ELSE COALESCE(l.normalized_balance, l.adjusted_balance) END DESC,
                      l.total_trades DESC,
                      l.last_trade_time ASC NULLS LAST,
                      r.registered_at ASC
@@ -47,6 +50,7 @@ export class LeaderboardService {
           FROM wp_leaderboard l
           JOIN trading_registrations r ON r.id = l.registration_id
           WHERE l.challenge_id=$1 AND l.account_type=$2 AND l.is_disqualified=false
+            AND COALESCE(l.is_withdrawn, false) = false
             AND (COALESCE(l.normalized_balance, l.adjusted_balance) > 0 OR l.adjusted_balance IS NULL)
         ) sub WHERE wp_leaderboard.id = sub.id`,
         [challengeId, accountType]
@@ -55,15 +59,32 @@ export class LeaderboardService {
       const tier1Count = await db.query(
         `SELECT COUNT(*) as cnt FROM wp_leaderboard
          WHERE challenge_id=$1 AND account_type=$2 AND is_disqualified=false
+           AND COALESCE(is_withdrawn, false) = false
            AND (COALESCE(normalized_balance, adjusted_balance) > 0 OR adjusted_balance IS NULL)`,
         [challengeId, accountType]
       );
       offset = parseInt(tier1Count.rows[0].cnt);
 
-      // Tier 2: qualified/adjusted balance ≤ 0 (had trades) — rank by the balance
-      // number itself (less negative = better), same as Tier 1, NOT by when the
-      // account blew. zero_balance_at / total_trades only break exact balance ties
-      // (e.g. two accounts both sitting at 0 with 0 trades).
+      // Tier 2a: withdrawn accounts — exited voluntarily, rank above blown, below active
+      await db.query(
+        `UPDATE wp_leaderboard SET rank = sub.rn FROM (
+          SELECT id, (ROW_NUMBER() OVER (ORDER BY total_trades DESC)) + $3 as rn
+          FROM wp_leaderboard
+          WHERE challenge_id=$1 AND account_type=$2 AND is_disqualified=false
+            AND COALESCE(is_withdrawn, false) = true
+        ) sub WHERE wp_leaderboard.id = sub.id`,
+        [challengeId, accountType, offset]
+      );
+
+      const tier2aCount = await db.query(
+        `SELECT COUNT(*) as cnt FROM wp_leaderboard
+         WHERE challenge_id=$1 AND account_type=$2 AND is_disqualified=false
+           AND COALESCE(is_withdrawn, false) = true`,
+        [challengeId, accountType]
+      );
+      offset += parseInt(tier2aCount.rows[0].cnt);
+
+      // Tier 2b: blown/negative balance (had trades) — rank by balance DESC (less negative = better)
       await db.query(
         `UPDATE wp_leaderboard SET rank = sub.rn FROM (
           SELECT id, (ROW_NUMBER() OVER (
@@ -73,6 +94,7 @@ export class LeaderboardService {
           )) + $3 as rn
           FROM wp_leaderboard
           WHERE challenge_id=$1 AND account_type=$2 AND is_disqualified=false
+            AND COALESCE(is_withdrawn, false) = false
             AND COALESCE(normalized_balance, adjusted_balance) <= 0 AND adjusted_balance IS NOT NULL
         ) sub WHERE wp_leaderboard.id = sub.id`,
         [challengeId, accountType, offset]
@@ -81,6 +103,7 @@ export class LeaderboardService {
       const tier2Count = await db.query(
         `SELECT COUNT(*) as cnt FROM wp_leaderboard
          WHERE challenge_id=$1 AND account_type=$2 AND is_disqualified=false
+           AND COALESCE(is_withdrawn, false) = false
            AND COALESCE(normalized_balance, adjusted_balance) <= 0 AND adjusted_balance IS NOT NULL`,
         [challengeId, accountType]
       );
