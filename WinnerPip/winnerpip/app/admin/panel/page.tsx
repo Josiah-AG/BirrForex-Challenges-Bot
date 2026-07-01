@@ -15,6 +15,7 @@ export default function AdminDashboard() {
   const [activeSection, setActiveSection] = useState<"overview" | "leaderboard" | "violations" | "pulls" | "screening" | "participants" | "rules" | "health" | "create" | "settings">("overview");
   const [selectedParticipant, setSelectedParticipant] = useState<any>(null);
   const [selectedParticipantTrades, setSelectedParticipantTrades] = useState<any[]>([]);
+  const [selectedTrade, setSelectedTrade] = useState<any>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [foundUser, setFoundUser] = useState<any>(null);
   const [searchPerformed, setSearchPerformed] = useState(false);
@@ -577,6 +578,7 @@ export default function AdminDashboard() {
                 <thead><tr className="border-b border-white/5">
                   <th className="text-left py-3 px-4 text-[10px] text-gray-400 uppercase">#</th>
                   <th className="text-left py-3 px-4 text-[10px] text-gray-400 uppercase">Nickname</th>
+                  <th className="text-left py-3 px-4 text-[10px] text-gray-400 uppercase">Account</th>
                   <th className="text-left py-3 px-4 text-[10px] text-gray-400 uppercase">Type</th>
                   <th className="text-right py-3 px-4 text-[10px] text-gray-400 uppercase">Balance / Gross</th>
                   {!leaderboardPreStart && <><th className="text-center py-3 px-4 text-[10px] text-gray-400 uppercase">Trades</th>
@@ -584,10 +586,11 @@ export default function AdminDashboard() {
                   <th className="text-center py-3 px-4 text-[10px] text-gray-400 uppercase">Profit</th>
                   <th className="text-center py-3 px-4 text-[10px] text-gray-400 uppercase">Violations</th></>}
                 </tr></thead>
-                <tbody>{leaderboard.length === 0 ? <tr><td colSpan={leaderboardPreStart ? 4 : 8} className="py-8 text-center text-gray-500">No leaderboard data yet — will populate after VPS pulls and evaluation</td></tr> : leaderboard.map((e: any) => (
+                <tbody>{leaderboard.length === 0 ? <tr><td colSpan={leaderboardPreStart ? 5 : 9} className="py-8 text-center text-gray-500">No leaderboard data yet — will populate after VPS pulls and evaluation</td></tr> : leaderboard.map((e: any) => (
                   <tr key={e.rank || e.nickname} className={`border-b border-white/5 hover:bg-white/5 cursor-pointer ${e.isDisqualified ? "opacity-50" : ""}`} onClick={() => setSelectedParticipant(e)}>
                     <td className="py-3 px-4"><span className={`text-sm font-bold ${e.isDisqualified ? "text-loss" : e.rank && e.rank <= 3 ? "text-gold" : "text-gray-400"}`}>{e.rank || (e.notYetEvaluated ? <span className="text-[10px] text-gray-600">—</span> : "—")}</span></td>
-                    <td className="py-3 px-4 text-sm text-white font-semibold">{e.nickname}{e.isDisqualified ? <span className="ml-2 text-[10px] text-loss">DQ</span> : ""}</td>
+                    <td className="py-3 px-4"><p className="text-sm text-white font-semibold">{e.nickname}{e.isDisqualified ? <span className="ml-2 text-[10px] text-loss">DQ</span> : ""}</p><p className="text-[10px] text-gray-500 mt-0.5">{e.email || ""}</p></td>
+                    <td className="py-3 px-4"><p className="text-xs text-gray-300 font-mono">{e.accountNumber || "—"}</p></td>
                     <td className="py-3 px-4"><span className={`px-2 py-1 rounded text-[10px] font-semibold ${e.accountType === "real" ? "bg-gold/10 text-gold" : "bg-royal/10 text-royal"}`}>{e.accountType}</span></td>
                     <td className="py-3 px-4 text-right">
                       <p className={`text-sm font-bold ${e.isDisqualified ? "text-loss" : "text-white"}`}>{e.isDisqualified ? "DQ" : e.isCent ? `${Number(e.adjustedBalance).toFixed(2)}¢` : `$${Number(e.adjustedBalance).toFixed(2)}`}</p>
@@ -1160,7 +1163,7 @@ export default function AdminDashboard() {
                         if (group.length === 1) {
                           const t = group[0];
                           return (
-                            <div key={t.ticket} className={`py-2 px-3 rounded-lg ${t.slCheckResult === 'conflicting' ? 'bg-amber-500/5 border border-amber-400/20' : !t.isQualified ? 'bg-loss/10 border border-loss/20' : 'bg-white/5'}`}>
+                            <div key={t.ticket} onClick={() => setSelectedTrade(t)} className={`py-2 px-3 rounded-lg cursor-pointer hover:brightness-125 transition-all ${t.slCheckResult === 'conflicting' ? 'bg-amber-500/5 border border-amber-400/20' : !t.isQualified ? 'bg-loss/10 border border-loss/20' : 'bg-white/5'}`}>
                               <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-2">
                                   <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${t.type?.toLowerCase() === 'buy' ? 'bg-profit/20 text-profit' : 'bg-loss/20 text-loss'}`}>{t.type}</span>
@@ -1201,7 +1204,7 @@ export default function AdminDashboard() {
                               </div>
                             </div>
                             {group.map((t: any) => (
-                              <div key={t.ticket} className={`py-1.5 px-3 pl-6 border-t border-white/5 ${!t.isQualified ? 'bg-loss/5' : ''}`}>
+                              <div key={t.ticket} onClick={() => setSelectedTrade(t)} className={`py-1.5 px-3 pl-6 border-t border-white/5 cursor-pointer hover:brightness-125 transition-all ${!t.isQualified ? 'bg-loss/5' : ''}`}>
                                 <div className="flex items-center justify-between">
                                   <p className="text-[10px] text-gray-500">└ → {fmtEAT(t.closeTime)} · {t.volume} lot</p>
                                   <p className={`text-[10px] font-semibold ${t.profit >= 0 ? 'text-profit' : 'text-loss'}`}>{cur(t.profit)}</p>
@@ -1245,6 +1248,49 @@ export default function AdminDashboard() {
           </div>
         </div>
       )}
+
+      {/* ==================== TRADE DETAIL MODAL ==================== */}
+      {selectedTrade && (() => {
+        const t = selectedTrade;
+        const fmtEAT = (s: string) => s ? new Date(new Date(s).getTime()+3*60*60*1000).toISOString().substring(0,16).replace("T"," ")+" EAT" : "—";
+        const isCent = selectedParticipant?.isCent ?? false;
+        const cur = (v: number) => isCent ? `${Number(v).toFixed(2)}¢` : `$${Number(v).toFixed(2)}`;
+        const violations: string[] = Array.isArray(t.violations) ? t.violations : (typeof t.violations === 'string' ? JSON.parse(t.violations || '[]') : []);
+        return (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[60] flex items-center justify-center p-4" onClick={() => setSelectedTrade(null)}>
+            <div className="bg-[#111827] rounded-2xl border border-white/10 p-5 max-w-sm w-full shadow-2xl space-y-4" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-bold text-white">Ticket #{t.ticket}</h3>
+                  <p className="text-[10px] text-gray-500 mt-0.5">{t.symbol} · {selectedParticipant?.nickname}</p>
+                </div>
+                <button onClick={() => setSelectedTrade(null)} className="p-2 hover:bg-white/10 rounded-lg"><X size={16} className="text-gray-400" /></button>
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Direction</p><span className={`px-2 py-0.5 rounded font-bold text-[10px] ${t.type?.toLowerCase()==='buy' ? 'bg-profit/20 text-profit' : 'bg-loss/20 text-loss'}`}>{t.type?.toUpperCase()}</span></div>
+                <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Lots</p><p className="text-white font-semibold">{t.volume}</p></div>
+                <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Open</p><p className="text-white">{t.openPrice}</p><p className="text-[10px] text-gray-500">{fmtEAT(t.openTime)}</p></div>
+                <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Close</p><p className="text-white">{t.closePrice}</p><p className="text-[10px] text-gray-500">{fmtEAT(t.closeTime)}</p></div>
+                <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Stop Loss</p><p className="text-white">{t.stopLoss ?? "—"}</p></div>
+                <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Take Profit</p><p className="text-white">{t.takeProfit ?? "—"}</p></div>
+                <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Profit</p><p className={`font-bold ${t.profit >= 0 ? 'text-profit' : 'text-loss'}`}>{cur(t.profit)}</p></div>
+                <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Commission</p><p className="text-gray-300">{cur(t.commission ?? 0)}</p></div>
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Status</p><p className={`font-semibold ${t.isQualified === false ? 'text-loss' : 'text-profit'}`}>{t.isQualified === false ? '🚩 Flagged' : '✓ Qualified'}</p></div>
+                <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">SL Check</p><p className={`text-[10px] font-semibold ${t.slCheckResult === 'fake_sl' ? 'text-loss' : t.slCheckResult === 'passed' ? 'text-profit' : t.slCheckResult === 'conflicting' ? 'text-amber-400' : 'text-gray-400'}`}>{t.slCheckResult ?? '—'}</p></div>
+              </div>
+              {violations.length > 0 && (
+                <div className="bg-loss/10 border border-loss/20 rounded-xl p-3 space-y-1">
+                  <p className="text-[10px] text-loss font-semibold mb-1">Violations</p>
+                  {violations.map((v: string, i: number) => <p key={i} className="text-[10px] text-loss/80">⚠️ {v}</p>)}
+                </div>
+              )}
+              {t.comment && <p className="text-[10px] text-gray-500">Comment: {t.comment}</p>}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ==================== VERIFY POPUP (rendered at top level to escape overflow) ==================== */}
       {verifyPopup && (
@@ -2189,7 +2235,14 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
   const [loadingFailed, setLoadingFailed] = useState(false);
   const [actionMsg, setActionMsg] = useState("");
   const [retrying, setRetrying] = useState<string | null>(null);
-  const [showFilter, setShowFilter] = useState<"credential" | "failed" | "skipped" | "sl" | "all" | "individual">("credential");
+  const [showFilter, setShowFilter] = useState<"credential" | "failed" | "skipped" | "sl" | "all" | "individual" | "pulltrade">("credential");
+
+  // Pull Trade state
+  const [ptAccountId, setPtAccountId] = useState("");
+  const [ptTicket, setPtTicket] = useState("");
+  const [ptLoading, setPtLoading] = useState(false);
+  const [ptResult, setPtResult] = useState<any>(null);
+  const [ptReplacing, setPtReplacing] = useState(false);
 
   // Individual account pull state
   const [indivQuery, setIndivQuery] = useState("");
@@ -2524,6 +2577,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
         <button onClick={() => setShowFilter("sl")} className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${showFilter === "sl" ? "bg-amber-500/20 text-amber-400 border border-amber-500/30" : "bg-white/5 text-gray-400 hover:text-white"}`}>🕯️ Max Risk Check Failure ({slFailures.length})</button>
         <button onClick={() => setShowFilter("all")} className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${showFilter === "all" ? "bg-royal/20 text-royal border border-royal/30" : "bg-white/5 text-gray-400 hover:text-white"}`}>All</button>
         <button onClick={() => { setShowFilter("individual"); setIndivResult(null); }} className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${showFilter === "individual" ? "bg-purple-500/20 text-purple-400 border border-purple-500/30" : "bg-white/5 text-gray-400 hover:text-white"}`}>🎯 Pull Individual Account</button>
+        <button onClick={() => { setShowFilter("pulltrade"); setPtResult(null); }} className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${showFilter === "pulltrade" ? "bg-amber-500/20 text-amber-400 border border-amber-500/30" : "bg-white/5 text-gray-400 hover:text-white"}`}>🔍 Pull Trade</button>
       </div>
 
       {/* Credential Failures List — only password_changed / invalid_credentials accounts */}
@@ -2747,6 +2801,102 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
               )}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Pull Trade Panel */}
+      {showFilter === "pulltrade" && (
+        <div className="glass rounded-2xl border border-amber-500/20 p-5 space-y-4">
+          <h3 className="text-sm font-semibold text-amber-400 flex items-center gap-2">🔍 Pull Trade by Ticket</h3>
+          <div className="flex gap-2">
+            <input value={ptAccountId} onChange={e => setPtAccountId(e.target.value)} placeholder="Account # or email" className="flex-1 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-amber-500/50" />
+            <input value={ptTicket} onChange={e => setPtTicket(e.target.value)} placeholder="Ticket #" className="w-36 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-amber-500/50" />
+            <button disabled={ptLoading || !ptAccountId || !ptTicket} onClick={async () => {
+              setPtLoading(true); setPtResult(null);
+              try {
+                const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/pull-trade`, {
+                  method: "POST", headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ accountIdentifier: ptAccountId, ticket: parseInt(ptTicket) }),
+                });
+                const data = await res.json();
+                if (!res.ok) { setPtResult({ error: data.error || "Failed" }); } else { setPtResult(data); }
+              } catch { setPtResult({ error: "Network error" }); }
+              setPtLoading(false);
+            }} className="px-4 py-2 rounded-xl bg-amber-500/20 border border-amber-500/30 text-amber-400 text-xs font-bold hover:bg-amber-500/30 transition-all disabled:opacity-50">
+              {ptLoading ? "⏳ Fetching…" : "Pull"}
+            </button>
+          </div>
+          {ptLoading && <p className="text-xs text-gray-400 text-center">Fetching from MT5… retrying up to 3× if history not loaded yet</p>}
+          {ptResult?.error && <p className="text-xs text-loss bg-loss/10 rounded-lg px-3 py-2">{ptResult.error}</p>}
+          {ptResult && !ptResult.error && (() => {
+            const f = ptResult.fresh; const d = ptResult.db; const diff = ptResult.diff || {};
+            const hasDiff = Object.keys(diff).length > 0;
+            const fmtEAT = (s: string) => s ? new Date(new Date(s).getTime()+3*60*60*1000).toISOString().substring(0,16).replace("T"," ")+" EAT" : "—";
+            const fieldLabel: Record<string,string> = { symbol:"Symbol", type:"Type", volume:"Lots", openPrice:"Open Price", closePrice:"Close Price", profit:"Profit", stopLoss:"Stop Loss", commission:"Commission", swap:"Swap" };
+            return (
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-semibold text-white">{ptResult.nickname}</span>
+                  <span className="text-[10px] text-gray-500">{ptResult.accountNumber}</span>
+                  {ptResult.notInDb && <span className="text-[10px] bg-royal/20 text-royal px-2 py-0.5 rounded">New — not in DB yet</span>}
+                  {ptResult.identical && <span className="text-[10px] bg-profit/20 text-profit px-2 py-0.5 rounded">✓ Identical to DB</span>}
+                  {hasDiff && <span className="text-[10px] bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded">{Object.keys(diff).length} difference{Object.keys(diff).length > 1 ? "s" : ""}</span>}
+                </div>
+                {/* Fresh trade summary */}
+                <div className="bg-white/5 rounded-xl p-3 text-xs space-y-1">
+                  <p className="text-[10px] text-gray-500 font-semibold uppercase mb-2">Live from MT5 (ticket #{f.ticket})</p>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                    <span className="text-gray-400">Symbol</span><span className="text-white">{f.symbol}</span>
+                    <span className="text-gray-400">Type</span><span className="text-white">{f.type}</span>
+                    <span className="text-gray-400">Lots</span><span className="text-white">{f.volume}</span>
+                    <span className="text-gray-400">Open</span><span className="text-white">{f.openPrice} @ {fmtEAT(f.openTime)}</span>
+                    <span className="text-gray-400">Close</span><span className="text-white">{f.closePrice} @ {fmtEAT(f.closeTime)}</span>
+                    <span className="text-gray-400">SL</span><span className="text-white">{f.stopLoss ?? "none"}</span>
+                    <span className="text-gray-400">Profit</span><span className={`font-bold ${f.profit >= 0 ? "text-profit" : "text-loss"}`}>{f.profit}</span>
+                  </div>
+                </div>
+                {/* Diff table */}
+                {hasDiff && d && (
+                  <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl p-3 text-xs space-y-1">
+                    <p className="text-[10px] text-amber-400 font-semibold uppercase mb-2">Differences</p>
+                    <div className="grid grid-cols-3 gap-x-3 gap-y-1">
+                      <span className="text-gray-500 font-semibold">Field</span><span className="text-gray-500 font-semibold">In DB</span><span className="text-gray-500 font-semibold">Live</span>
+                      {Object.entries(diff).map(([k, v]: [string, any]) => (
+                        <>
+                          <span key={k+"l"} className="text-gray-400">{fieldLabel[k] ?? k}</span>
+                          <span key={k+"d"} className="text-loss line-through">{String(v.db ?? "—")}</span>
+                          <span key={k+"f"} className="text-profit">{String(v.fresh ?? "—")}</span>
+                        </>
+                      ))}
+                    </div>
+                    {d.isQualified === false && <p className="text-[10px] text-loss mt-2">DB trade is flagged · {d.violations?.join(", ")}</p>}
+                  </div>
+                )}
+                {/* Actions */}
+                {!ptResult.identical && (
+                  <div className="flex gap-2">
+                    <button disabled={ptReplacing} onClick={async () => {
+                      setPtReplacing(true);
+                      try {
+                        const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/pull-trade/replace`, {
+                          method: "POST", headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ registrationId: ptResult.registrationId, ticket: f.ticket, freshTrade: f }),
+                        });
+                        const data = await res.json();
+                        if (res.ok) { setPtResult((prev: any) => ({ ...prev, replaced: true, identical: true, diff: {} })); }
+                        else { alert(data.error || "Replace failed"); }
+                      } catch { alert("Network error"); }
+                      setPtReplacing(false);
+                    }} className="flex-1 py-2 rounded-xl bg-profit/20 border border-profit/30 text-profit text-xs font-bold hover:bg-profit/30 transition-all disabled:opacity-50">
+                      {ptReplacing ? "Replacing…" : ptResult.replaced ? "✓ Replaced" : "Replace & Re-evaluate"}
+                    </button>
+                    <button onClick={() => setPtResult(null)} className="flex-1 py-2 rounded-xl bg-white/5 border border-white/10 text-gray-400 text-xs font-bold hover:bg-white/10 transition-all">Ignore</button>
+                  </div>
+                )}
+                {ptResult.identical && !ptResult.notInDb && <p className="text-xs text-profit text-center">✓ {ptResult.replaced ? "Replaced successfully — account re-evaluated" : "Trade matches DB — no changes needed"}</p>}
+              </div>
+            );
+          })()}
         </div>
       )}
 

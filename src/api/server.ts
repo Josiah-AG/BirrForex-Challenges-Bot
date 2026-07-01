@@ -2329,6 +2329,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/admin-leaderboard`, admin
     // All participants LEFT JOIN leaderboard — unevaluated accounts still appear
     const result = await db.query(
       `SELECT r.id as registration_id, r.nickname, r.account_type, r.is_cent,
+              r.email, r.account_number,
               r.registration_balance, r.last_known_balance, r.actual_starting_balance,
               r.disqualified, r.disqualified_reason,
               l.rank, l.current_balance, l.adjusted_balance, l.qualified_profit,
@@ -2362,6 +2363,8 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/admin-leaderboard`, admin
         return {
           registrationId: r.registration_id,
           nickname: r.nickname,
+          email: r.email || null,
+          accountNumber: r.account_number || null,
           accountType: r.account_type,
           rank: r.rank || null,
           currentBalance: hasLeaderboard ? parseFloat(r.current_balance) : fallbackBalance,
@@ -2385,6 +2388,220 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/admin-leaderboard`, admin
     });
   } catch (error) {
     console.error('Admin leaderboard error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * POST /api/admin/:secretPath/challenge/:id/pull-trade
+ * Fetch a specific trade from MT5 by ticket number and compare with DB.
+ * Body: { accountIdentifier: string (account# or email), ticket: number }
+ */
+app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/pull-trade`, adminIpCheck, async (req, res) => {
+  try {
+    const challengeId = parseInt(req.params.id);
+    const { accountIdentifier, ticket } = req.body;
+    if (!accountIdentifier || !ticket) return res.status(400).json({ error: 'accountIdentifier and ticket are required' });
+
+    const ticketNum = parseInt(ticket);
+    if (isNaN(ticketNum)) return res.status(400).json({ error: 'ticket must be a number' });
+
+    // Look up registration by account number or email
+    const regResult = await db.query(
+      `SELECT r.id, r.account_number, r.mt5_server, r.investor_password, r.nickname,
+              r.is_cent, r.account_type, r.account_subtype
+       FROM trading_registrations r
+       WHERE r.challenge_id = $1
+         AND (r.account_number = $2 OR LOWER(r.email) = LOWER($2))
+         AND r.connection_verified = true
+       LIMIT 1`,
+      [challengeId, accountIdentifier]
+    );
+    if (regResult.rows.length === 0) return res.status(404).json({ error: 'Account not found in this challenge' });
+    const reg = regResult.rows[0];
+
+    // Fetch existing DB record
+    const existing = await db.query(
+      `SELECT ticket, symbol, trade_type, volume, open_time, close_time,
+              open_price, close_price, stop_loss, take_profit, profit,
+              commission, swap, comment, is_qualified, violations,
+              sl_check_result, sl_allowed_price, sl_max_adverse_price
+       FROM wp_trades
+       WHERE challenge_id = $1 AND registration_id = $2 AND ticket = $3`,
+      [challengeId, reg.id, ticketNum]
+    );
+    const dbTrade = existing.rows[0] || null;
+
+    // Fetch fresh from VPS via scheduler
+    const globalScheduler = (global as any).__vpsPullScheduler;
+    if (!globalScheduler) return res.status(503).json({ error: 'VPS scheduler not running' });
+
+    const healthyTerminals = globalScheduler.terminals?.filter((t: any) => t.isHealthy);
+    if (!healthyTerminals?.length) return res.status(503).json({ error: 'No healthy VPS terminals available' });
+
+    const terminal = healthyTerminals[0];
+    const account = {
+      registrationId: reg.id,
+      accountNumber: reg.account_number,
+      server: reg.mt5_server,
+      investorPassword: reg.investor_password,
+    };
+
+    // Retry up to 3 times (MT5 history can take a moment to load)
+    let freshTrades: any[] | null = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (attempt > 0) await new Promise(r => setTimeout(r, 3000));
+      freshTrades = await globalScheduler.resolveTradesForAccount(account, terminal.id, [ticketNum]);
+      if (freshTrades && freshTrades.length > 0) break;
+    }
+
+    if (!freshTrades || freshTrades.length === 0) {
+      return res.status(404).json({
+        error: 'Trade not found on MT5 after 3 attempts',
+        dbTrade: dbTrade ? formatTrade(dbTrade) : null,
+      });
+    }
+
+    const fresh = freshTrades[0];
+    const freshFormatted = {
+      ticket: fresh.ticket,
+      symbol: fresh.symbol,
+      type: fresh.type,
+      volume: fresh.volume,
+      openTime: fresh.open_time,
+      closeTime: fresh.close_time,
+      openPrice: fresh.open_price,
+      closePrice: fresh.close_price,
+      stopLoss: fresh.stop_loss ?? null,
+      takeProfit: fresh.take_profit ?? null,
+      profit: fresh.profit,
+      commission: fresh.commission ?? 0,
+      swap: fresh.swap ?? 0,
+      comment: fresh.comment ?? null,
+    };
+
+    const dbFormatted = dbTrade ? {
+      ticket: dbTrade.ticket,
+      symbol: dbTrade.symbol,
+      type: dbTrade.trade_type,
+      volume: parseFloat(dbTrade.volume),
+      openTime: dbTrade.open_time,
+      closeTime: dbTrade.close_time,
+      openPrice: parseFloat(dbTrade.open_price),
+      closePrice: parseFloat(dbTrade.close_price),
+      stopLoss: dbTrade.stop_loss != null ? parseFloat(dbTrade.stop_loss) : null,
+      takeProfit: dbTrade.take_profit != null ? parseFloat(dbTrade.take_profit) : null,
+      profit: parseFloat(dbTrade.profit),
+      commission: parseFloat(dbTrade.commission ?? 0),
+      swap: parseFloat(dbTrade.swap ?? 0),
+      comment: dbTrade.comment ?? null,
+      isQualified: dbTrade.is_qualified,
+      violations: typeof dbTrade.violations === 'string' ? JSON.parse(dbTrade.violations || '[]') : (dbTrade.violations || []),
+      slCheckResult: dbTrade.sl_check_result,
+    } : null;
+
+    // Compute diff
+    const diff: Record<string, { db: any; fresh: any }> = {};
+    if (dbFormatted) {
+      const numEq = (a: any, b: any) => Math.abs(parseFloat(a) - parseFloat(b)) < 0.0001;
+      if (dbFormatted.symbol !== freshFormatted.symbol) diff.symbol = { db: dbFormatted.symbol, fresh: freshFormatted.symbol };
+      if (dbFormatted.type !== freshFormatted.type) diff.type = { db: dbFormatted.type, fresh: freshFormatted.type };
+      if (!numEq(dbFormatted.volume, freshFormatted.volume)) diff.volume = { db: dbFormatted.volume, fresh: freshFormatted.volume };
+      if (!numEq(dbFormatted.openPrice, freshFormatted.openPrice)) diff.openPrice = { db: dbFormatted.openPrice, fresh: freshFormatted.openPrice };
+      if (!numEq(dbFormatted.closePrice, freshFormatted.closePrice)) diff.closePrice = { db: dbFormatted.closePrice, fresh: freshFormatted.closePrice };
+      if (!numEq(dbFormatted.profit, freshFormatted.profit)) diff.profit = { db: dbFormatted.profit, fresh: freshFormatted.profit };
+      const slDb = dbFormatted.stopLoss ?? 0; const slFr = freshFormatted.stopLoss ?? 0;
+      if (!numEq(slDb, slFr)) diff.stopLoss = { db: dbFormatted.stopLoss, fresh: freshFormatted.stopLoss };
+      if (!numEq(dbFormatted.commission, freshFormatted.commission)) diff.commission = { db: dbFormatted.commission, fresh: freshFormatted.commission };
+      if (!numEq(dbFormatted.swap, freshFormatted.swap)) diff.swap = { db: dbFormatted.swap, fresh: freshFormatted.swap };
+    }
+
+    return res.json({
+      registrationId: reg.id,
+      nickname: reg.nickname,
+      accountNumber: reg.account_number,
+      fresh: freshFormatted,
+      db: dbFormatted,
+      diff,
+      identical: Object.keys(diff).length === 0 && dbFormatted !== null,
+      notInDb: dbFormatted === null,
+    });
+  } catch (error) {
+    console.error('Pull trade error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+function formatTrade(t: any) {
+  return {
+    ticket: t.ticket, symbol: t.symbol, type: t.trade_type,
+    volume: parseFloat(t.volume), openPrice: parseFloat(t.open_price),
+    closePrice: parseFloat(t.close_price), profit: parseFloat(t.profit),
+    stopLoss: t.stop_loss != null ? parseFloat(t.stop_loss) : null,
+    isQualified: t.is_qualified,
+    violations: typeof t.violations === 'string' ? JSON.parse(t.violations || '[]') : (t.violations || []),
+  };
+}
+
+/**
+ * POST /api/admin/:secretPath/challenge/:id/pull-trade/replace
+ * Replace DB trade with fresh VPS data and re-evaluate the account.
+ * Body: { registrationId: number, ticket: number, freshTrade: object }
+ */
+app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/pull-trade/replace`, adminIpCheck, async (req, res) => {
+  try {
+    const challengeId = parseInt(req.params.id);
+    const { registrationId, ticket, freshTrade } = req.body;
+    if (!registrationId || !ticket || !freshTrade) return res.status(400).json({ error: 'registrationId, ticket, and freshTrade are required' });
+
+    const regResult = await db.query(
+      `SELECT account_number FROM trading_registrations WHERE id = $1 AND challenge_id = $2`,
+      [registrationId, challengeId]
+    );
+    if (!regResult.rows.length) return res.status(404).json({ error: 'Registration not found' });
+    const accountNumber = regResult.rows[0].account_number;
+
+    // Upsert the fresh trade into wp_trades
+    await db.query(
+      `INSERT INTO wp_trades
+       (challenge_id, registration_id, account_number, ticket, position_id, symbol, trade_type, volume,
+        open_time, close_time, open_price, close_price, stop_loss, take_profit,
+        profit, commission, swap, comment, synced_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,NOW())
+       ON CONFLICT (challenge_id, account_number, ticket) DO UPDATE SET
+         symbol=EXCLUDED.symbol, trade_type=EXCLUDED.trade_type, volume=EXCLUDED.volume,
+         open_time=COALESCE(EXCLUDED.open_time, wp_trades.open_time),
+         close_time=EXCLUDED.close_time,
+         open_price=CASE WHEN EXCLUDED.open_price IS NULL OR EXCLUDED.open_price=0 THEN wp_trades.open_price ELSE EXCLUDED.open_price END,
+         close_price=EXCLUDED.close_price, stop_loss=EXCLUDED.stop_loss, take_profit=EXCLUDED.take_profit,
+         profit=EXCLUDED.profit, commission=EXCLUDED.commission, swap=EXCLUDED.swap,
+         comment=EXCLUDED.comment, synced_at=NOW(),
+         is_qualified=NULL, violations=NULL, sl_check_result=NULL,
+         sl_check_pending=true, sl_check_attempts=0`,
+      [
+        challengeId, registrationId, accountNumber, ticket,
+        freshTrade.positionId || ticket,
+        freshTrade.symbol, freshTrade.type, freshTrade.volume,
+        freshTrade.openTime, freshTrade.closeTime,
+        freshTrade.openPrice, freshTrade.closePrice,
+        freshTrade.stopLoss ?? null, freshTrade.takeProfit ?? null,
+        freshTrade.profit, freshTrade.commission ?? 0, freshTrade.swap ?? 0,
+        freshTrade.comment ?? null,
+      ]
+    );
+
+    // Re-evaluate the account
+    const { wpEvaluationEngine } = require('../services/wpEvaluationEngine');
+    await wpEvaluationEngine.evaluateSingleAccount(challengeId, registrationId);
+
+    // Flush staging and update rankings
+    const { leaderboardService } = require('../services/leaderboardService');
+    await leaderboardService.flushStagingToLive(challengeId);
+    await leaderboardService.updateRankings(challengeId);
+
+    return res.json({ success: true, message: 'Trade replaced and account re-evaluated' });
+  } catch (error) {
+    console.error('Pull trade replace error:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
 });

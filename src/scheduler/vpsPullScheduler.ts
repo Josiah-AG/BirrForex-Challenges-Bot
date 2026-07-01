@@ -239,7 +239,7 @@ export class VpsPullScheduler {
   private abortController: AbortController | null = null;
   private baseUrl: string;
   private apiKey: string;
-  private terminals: TerminalState[] = [];
+  terminals: TerminalState[] = [];
   private sharedQueue = new SharedQueue();
 
   /**
@@ -2005,7 +2005,7 @@ export class VpsPullScheduler {
    * time/price, volume, profit, etc.) for specific position_ids via MT5's
    * date-range-independent position= lookups, ready to hand to saveTrades().
    */
-  private async resolveTradesForAccount(
+  async resolveTradesForAccount(
     account: AccountToPull,
     terminalId: number,
     positionIds: number[],
