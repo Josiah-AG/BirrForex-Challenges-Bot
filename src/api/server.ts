@@ -2454,13 +2454,9 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/pull-trade`, adminIpChec
       investorPassword: reg.investor_password,
     };
 
-    // Determine what to resolve:
-    // - If DB has trades with position_id = ticketNum → input is a position ID;
-    //   resolve each associated closing ticket individually
-    // - Otherwise → input is a single ticket; resolve it directly
-    const resolveIds: number[] = isPositionGroup && dbTrades.length > 0
-      ? dbTrades.map((t: any) => parseInt(t.ticket))
-      : [ticketNum];
+    // Always resolve by the entered number (position_id or ticket).
+    // For position groups the VPS resolves all closing deals for that position_id.
+    const resolveIds: number[] = [ticketNum];
 
     // Retry up to 3 times (MT5 history can take a moment to load)
     let freshTrades: any[] | null = null;

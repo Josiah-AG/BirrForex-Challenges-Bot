@@ -1148,14 +1148,14 @@ def do_resolve_trades(account: int, server: str, password: str, position_ids: li
             continue
 
         open_deal = None
-        close_deal = None
+        close_deals = []
         for d in deals:
             if d.entry == 0 and open_deal is None:
                 open_deal = d
             elif d.entry == 1:
-                close_deal = d  # last closing deal wins on a fully-closed position
+                close_deals.append(d)  # collect ALL closing deals (partial closes)
 
-        if not close_deal:
+        if not close_deals:
             continue
 
         try:
@@ -1187,25 +1187,27 @@ def do_resolve_trades(account: int, server: str, password: str, position_ids: li
         if open_deal is not None:
             trade_type = "Buy" if open_deal.type == 0 else "Sell" if open_deal.type == 1 else "Other"
         else:
-            trade_type = "Sell" if close_deal.type == 0 else "Buy" if close_deal.type == 1 else "Other"
+            first_close = close_deals[0]
+            trade_type = "Sell" if first_close.type == 0 else "Buy" if first_close.type == 1 else "Other"
 
-        trades.append({
-            "ticket":      close_deal.ticket,
-            "position_id": pos_id,
-            "symbol":      close_deal.symbol,
-            "type":        trade_type,
-            "volume":      close_deal.volume,
-            "open_time":   open_time,
-            "close_time":  datetime.fromtimestamp(close_deal.time, tz=timezone.utc).isoformat(),
-            "open_price":  open_price,
-            "close_price": close_deal.price,
-            "stop_loss":   sl,
-            "take_profit": tp,
-            "profit":      close_deal.profit,
-            "commission":  close_deal.commission,
-            "swap":        close_deal.swap,
-            "comment":     close_deal.comment or "",
-        })
+        for close_deal in close_deals:
+            trades.append({
+                "ticket":      close_deal.ticket,
+                "position_id": pos_id,
+                "symbol":      close_deal.symbol,
+                "type":        trade_type,
+                "volume":      close_deal.volume,
+                "open_time":   open_time,
+                "close_time":  datetime.fromtimestamp(close_deal.time, tz=timezone.utc).isoformat(),
+                "open_price":  open_price,
+                "close_price": close_deal.price,
+                "stop_loss":   sl,
+                "take_profit": tp,
+                "profit":      close_deal.profit,
+                "commission":  close_deal.commission,
+                "swap":        close_deal.swap,
+                "comment":     close_deal.comment or "",
+            })
 
     return {
         "success":     True,
