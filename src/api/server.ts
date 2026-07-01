@@ -2432,7 +2432,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/pull-trade`, adminIpChec
               commission, swap, comment, is_qualified, violations,
               sl_check_result, sl_check_pending, sl_allowed_price, sl_max_adverse_price, position_id
        FROM wp_trades
-       WHERE challenge_id = $1 AND registration_id = $2 AND (ticket = $3 OR position_id = $3::text)
+       WHERE challenge_id = $1 AND registration_id = $2 AND (ticket = $3 OR position_id = $3)
        ORDER BY close_time ASC`,
       [challengeId, reg.id, ticketNum]
     );
@@ -2605,7 +2605,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/pull-trade`, adminIpChec
             ft.open_time, ft.close_time, ft.open_price, ft.close_price,
             ft.stop_loss ?? null, ft.take_profit ?? null,
             ft.profit, ft.commission ?? 0, ft.swap ?? 0, ft.comment ?? null,
-            carrySlResult, String(ticketNum),
+            carrySlResult, ticketNum,
           ]
         );
       }
