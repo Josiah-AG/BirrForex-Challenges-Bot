@@ -305,10 +305,25 @@ export default function AdminDashboard() {
   const [flaggedParticipants, setFlaggedParticipants] = useState<any[]>([]);
   const [screeningData, setScreeningData] = useState<any>(null);
 
+  const categorizeViolation = (rule: string): string => {
+    if (/daily.*drawdown breach/i.test(rule)) return 'Daily drawdown breach';
+    if (/exceeded max \d+ simultaneous open trades/i.test(rule)) return 'Simultaneous open trades limit';
+    const pairMatch = rule.match(/exceeded max \d+ simultaneous (\S+) trades/i);
+    if (pairMatch) return `Simultaneous pair limit (${pairMatch[1]})`;
+    if (/declared sl risk/i.test(rule)) return 'SL risk too wide';
+    if (/fake sl|price.*max.*risk/i.test(rule)) return 'Fake SL detected';
+    if (/max risk candle check could not be verified/i.test(rule)) return 'SL check unverifiable';
+    if (/lot size.*exceeds max/i.test(rule)) return 'Lot size exceeded';
+    if (/held.*exceeds max.*h/i.test(rule)) return 'Max hold time exceeded';
+    if (/weekend trading/i.test(rule)) return 'Weekend trading';
+    return rule.replace(/\s*\(.*\)\s*$/, '').trim();
+  };
+
   const topViolations = flaggedParticipants.flatMap(p => p.rules || []).reduce((acc: any[], rule: string) => {
-    const existing = acc.find(v => v.rule === rule);
+    const category = categorizeViolation(rule);
+    const existing = acc.find(v => v.rule === category);
     if (existing) existing.count++;
-    else acc.push({ rule, count: 1 });
+    else acc.push({ rule: category, count: 1 });
     return acc;
   }, []).sort((a: any, b: any) => b.count - a.count).slice(0, 5);
 
