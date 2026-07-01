@@ -669,8 +669,12 @@ export class WpEvaluationEngine {
       const regBalance  = parseFloat(regData.rows[0]?.registration_balance ?? '0') || 0;
       const currency    = reg.is_cent ? '¢' : '$';
 
-      if (savedActual !== null && savedActual !== undefined) {
-        // Already determined in a previous cycle — reuse it
+      if (savedActual !== null && savedActual !== undefined && parseFloat(savedActual) > 0) {
+        // Already determined in a previous cycle — reuse it.
+        // Only treat as determined if > 0: a saved 0 means detection ran but
+        // found no deposit yet (e.g. user registered with $0 and deposited between
+        // registration and challenge start, landing in preDeposits which the old
+        // zero-balance branch ignored). Re-run detection until we find a real amount.
         actualStartBalance = parseFloat(savedActual);
       } else {
         const csTime = challengeStart ? new Date(challengeStart).getTime() : 0;
@@ -735,12 +739,44 @@ export class WpEvaluationEngine {
 
         } else {
           // ── User had $0 before challenge — waiting for first deposit ─────
-          if (postDeposits.length === 0) {
-            // Hasn't deposited yet — profit stays $0, keep pulling
+          // Check pre-challenge deposits first: user registered with $0 but deposited
+          // between registration and challenge start (common — they fund the account
+          // after signing up but before the gun fires). These show up in preDeposits
+          // but the regBalance>0 branch never runs, so we must handle them here.
+          const preSum = preDeposits.reduce((sum, d) => sum + parseFloat(d.profit), 0);
+
+          if (postDeposits.length === 0 && preSum === 0) {
+            // Genuinely hasn't deposited at all yet — keep pulling
             actualStartBalance = 0;
+          } else if (postDeposits.length === 0 && preSum > 0) {
+            // Deposited before challenge start (between registration and challenge start)
+            actualStartBalance = preSum;
+
+            if (actualStartBalance > startingBalance + tolerance) {
+              await db.query(
+                `UPDATE trading_registrations SET disqualified = true, disqualified_at = NOW(), disqualified_reason = $1 WHERE id = $2 AND disqualified = false`,
+                [`Starting balance ${currency}${actualStartBalance.toFixed(2)} exceeds allowed starting balance of ${currency}${startingBalance.toFixed(2)}`, reg.id]
+              );
+            }
+
+            await db.query(
+              `UPDATE trading_registrations SET actual_starting_balance = $1 WHERE id = $2`,
+              [actualStartBalance, reg.id]
+            );
+
+            // Any deposit AFTER challenge start on top of the pre-deposit = recharging = DQ
+            if (postDeposits.length > 0) {
+              const d  = postDeposits[0];
+              const dt = new Date(d.time).toISOString().slice(0, 10);
+              await db.query(
+                `UPDATE trading_registrations SET disqualified = true, disqualified_at = NOW(), disqualified_reason = $1 WHERE id = $2 AND disqualified = false`,
+                [`Account recharged — deposit of ${currency}${parseFloat(d.profit).toFixed(2)} detected after challenge start (${dt})`, reg.id]
+              );
+            }
           } else {
+            // First deposit arrived after challenge start
             const firstAmount = parseFloat(postDeposits[0].profit);
-            actualStartBalance = firstAmount;
+            actualStartBalance = firstAmount + preSum; // preSum usually 0 here but include for correctness
 
             // First deposit above allowed limit?
             if (actualStartBalance > startingBalance + tolerance) {
