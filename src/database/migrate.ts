@@ -407,8 +407,8 @@ async function migrate() {
         UNIQUE (challenge_id, registration_id, deal_ticket)
       )
     `).catch(() => {});
-    await db.query(`ALTER TABLE trading_leaderboard ADD COLUMN IF NOT EXISTS total_withdrawn NUMERIC(15,2) DEFAULT 0;`).catch(() => {});
-    await db.query(`ALTER TABLE trading_leaderboard ADD COLUMN IF NOT EXISTS is_withdrawn BOOLEAN DEFAULT FALSE;`).catch(() => {});
+    await db.query(`ALTER TABLE wp_leaderboard ADD COLUMN IF NOT EXISTS total_withdrawn NUMERIC(15,2) DEFAULT 0;`).catch(() => {});
+    await db.query(`ALTER TABLE wp_leaderboard ADD COLUMN IF NOT EXISTS is_withdrawn BOOLEAN DEFAULT FALSE;`).catch(() => {});
     await db.query(`CREATE INDEX IF NOT EXISTS idx_balance_ops_reg ON wp_balance_ops (challenge_id, registration_id);`).catch(() => {});
     console.log('✅ wp_balance_ops + withdrawal columns migration OK');
 

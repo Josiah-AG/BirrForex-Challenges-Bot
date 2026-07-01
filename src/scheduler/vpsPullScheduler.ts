@@ -881,7 +881,7 @@ export class VpsPullScheduler {
           // is_withdrawn: balance is 0 AND there are withdrawal ops (not just blown by trading)
           const isWithdrawn = totalWithdrawn > 0 && (result.balance ?? 0) <= 0;
           await db.query(
-            `UPDATE trading_leaderboard
+            `UPDATE wp_leaderboard
              SET total_withdrawn = $1, is_withdrawn = $2
              WHERE challenge_id = $3 AND registration_id = $4`,
             [totalWithdrawn, isWithdrawn, challenge.id, account.registrationId]
