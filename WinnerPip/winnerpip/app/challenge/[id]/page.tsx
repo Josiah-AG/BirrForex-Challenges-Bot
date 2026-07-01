@@ -21,7 +21,7 @@ interface LeaderboardEntry {
   qualifiedProfit: number; grossProfit: number; profitRemoved: number;
   totalTrades: number; qualifiedTrades: number; flaggedTrades: number;
   isQualified: boolean; isDisqualified?: boolean; disqualifyReason?: string | null;
-  isBlown?: boolean; isCent?: boolean;
+  isBlown?: boolean; isCent?: boolean; isWithdrawn?: boolean; totalWithdrawn?: number;
   lastTradeTime: string | null; lastUpdated: string | null;
   isMe?: boolean;
 }
@@ -53,6 +53,7 @@ export default function ChallengeDashboard() {
   const [showNotStartedPopup, setShowNotStartedPopup] = useState(false);
   const [selectedUser, setSelectedUser] = useState<LeaderboardEntry | null>(null);
   const [selectedUserTrades, setSelectedUserTrades] = useState<any[]>([]);
+  const [selectedUserBalanceOps, setSelectedUserBalanceOps] = useState<any[]>([]);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [showLogin, setShowLogin] = useState(false);
   const [loginAccount, setLoginAccount] = useState("");
@@ -75,8 +76,9 @@ export default function ChallengeDashboard() {
 
   // Fetch trades when a user is selected in leaderboard modal
   useEffect(() => {
-    if (!selectedUser || !selectedUser.nickname || selectedUser.totalTrades === 0) {
+    if (!selectedUser || !selectedUser.nickname) {
       setSelectedUserTrades([]);
+      setSelectedUserBalanceOps([]);
       return;
     }
     const fetchUserTrades = async () => {
@@ -86,8 +88,9 @@ export default function ChallengeDashboard() {
         if (res.ok) {
           const data = await res.json();
           setSelectedUserTrades(data.trades || []);
+          setSelectedUserBalanceOps(data.balanceOps || []);
         }
-      } catch { setSelectedUserTrades([]); }
+      } catch { setSelectedUserTrades([]); setSelectedUserBalanceOps([]); }
     };
     fetchUserTrades();
   }, [selectedUser, params.id]);
@@ -675,7 +678,7 @@ export default function ChallengeDashboard() {
               ) : (
               <div className="divide-y divide-white/5">
                 {leaderboard.map((entry) => (
-                  <button key={entry.rank || entry.nickname} onClick={() => { setShowLeaderboardModal(true); setSelectedUser(entry); }} className={`w-full flex items-center gap-4 px-4 py-3 text-left transition-colors ${isWinner(entry) ? "bg-profit/10 border-l-2 border-profit hover:bg-profit/15" : entry.isMe ? "bg-royal/10 border-l-2 border-royal hover:bg-royal/15" : "hover:bg-white/5"} ${entry.isDisqualified ? "opacity-60" : ""}`}>
+                  <button key={entry.rank || entry.nickname} onClick={() => { setShowLeaderboardModal(true); setSelectedUser(entry); }} className={`w-full flex items-center gap-4 px-4 py-3 text-left transition-colors ${isWinner(entry) ? "bg-profit/10 border-l-2 border-profit hover:bg-profit/15" : entry.isMe ? "bg-royal/10 border-l-2 border-royal hover:bg-royal/15" : "hover:bg-white/5"} ${entry.isDisqualified ? "opacity-60" : ""} ${(entry.isWithdrawn || entry.isBlown) && !entry.isDisqualified ? "opacity-40" : ""}`}>
                     <div className={`flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center text-sm font-bold ${entry.isDisqualified ? "bg-loss/20 text-loss" : isWinner(entry) ? "bg-profit/20 text-profit" : "bg-white/5 text-gray-500"}`}>
                       {isWinner(entry) ? "🏆" : (entry.rank || "—")}
                     </div>
@@ -685,11 +688,13 @@ export default function ChallengeDashboard() {
                         {isWinner(entry) && <span className="px-1.5 py-0.5 bg-profit/20 text-profit text-[10px] rounded font-bold">#{entry.rank}</span>}
                         {entry.isMe && !isWinner(entry) && <span className="px-1.5 py-0.5 bg-royal/20 text-royal text-[10px] rounded font-bold">YOU</span>}
                         {entry.isDisqualified && <span className="px-1.5 py-0.5 bg-loss/20 text-loss text-[10px] rounded font-bold">DQ</span>}
+                        {entry.isWithdrawn && !entry.isDisqualified && <span className="px-1.5 py-0.5 bg-gray-500/20 text-gray-400 text-[10px] rounded font-bold">🚪 Exited</span>}
+                        {entry.isBlown && !entry.isDisqualified && !entry.isWithdrawn && <span className="px-1.5 py-0.5 bg-gray-500/20 text-gray-400 text-[10px] rounded font-bold">💀</span>}
                       </div>
-                      <p className="text-[10px] text-gray-500">{entry.totalTrades} trades • {entry.qualifiedTrades} qualified</p>
+                      <p className="text-[10px] text-gray-500">{entry.totalTrades} trades • {entry.qualifiedTrades} qualified{entry.isWithdrawn && entry.totalWithdrawn ? ` • withdrew ${formatBalance(entry.totalWithdrawn, entry.accountType, entry.isCent)}` : ""}</p>
                     </div>
                     <p className={`text-sm font-bold ${isWinner(entry) ? "text-profit" : "text-white"}`}>
-                      {entry.isDisqualified ? <span className="text-loss">DQ</span> : formatBalance(entry.adjustedBalance, entry.accountType, entry.isCent)}
+                      {entry.isDisqualified ? <span className="text-loss">DQ</span> : entry.isWithdrawn ? <span className="text-gray-400">Exited</span> : formatBalance(entry.adjustedBalance - (entry.totalWithdrawn || 0), entry.accountType, entry.isCent)}
                     </p>
                   </button>
                 ))}
@@ -984,20 +989,21 @@ export default function ChallengeDashboard() {
               ) : (
               <div className="divide-y divide-white/5">
                 {leaderboard.map((entry) => (
-                  <button key={entry.rank || entry.nickname} onClick={() => { setShowLeaderboardModal(true); setSelectedUser(entry); }} className={`w-full flex items-center gap-4 px-4 py-3 text-left hover:bg-white/5 transition-colors ${entry.isMe ? "bg-royal/10 border-l-2 border-royal" : (!leaderboardPreStart && challenge && entry.adjustedBalance >= challenge.targetBalance && !entry.isDisqualified) ? "bg-profit/5 border-l-2 border-profit/30" : ""} ${entry.isDisqualified ? "opacity-60" : ""}`}>
+                  <button key={entry.rank || entry.nickname} onClick={() => { setShowLeaderboardModal(true); setSelectedUser(entry); }} className={`w-full flex items-center gap-4 px-4 py-3 text-left hover:bg-white/5 transition-colors ${entry.isMe ? "bg-royal/10 border-l-2 border-royal" : (!leaderboardPreStart && challenge && entry.adjustedBalance >= challenge.targetBalance && !entry.isDisqualified) ? "bg-profit/5 border-l-2 border-profit/30" : ""} ${entry.isDisqualified ? "opacity-60" : ""} ${(entry.isWithdrawn || entry.isBlown) && !entry.isDisqualified ? "opacity-40" : ""}`}>
                     <div className={`flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center text-sm font-bold ${entry.isDisqualified ? "bg-loss/20 text-loss" : "bg-white/5 text-gray-500"}`}>{entry.rank || "—"}</div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         <p className={`text-sm font-semibold truncate ${entry.isMe ? "text-royal" : entry.isDisqualified ? "text-gray-500" : "text-white"}`}>{entry.nickname}</p>
                         {entry.isMe && <span className="px-1.5 py-0.5 bg-royal/20 text-royal text-[10px] rounded font-bold">YOU</span>}
                         {entry.isDisqualified && <span className="px-1.5 py-0.5 bg-loss/20 text-loss text-[10px] rounded font-bold">DQ</span>}
-                        {entry.isBlown && !entry.isDisqualified && <span className="px-1.5 py-0.5 bg-gray-500/20 text-gray-400 text-[10px] rounded font-bold">💀</span>}
+                        {entry.isWithdrawn && !entry.isDisqualified && <span className="px-1.5 py-0.5 bg-gray-500/20 text-gray-400 text-[10px] rounded font-bold">🚪 Exited</span>}
+                        {entry.isBlown && !entry.isDisqualified && !entry.isWithdrawn && <span className="px-1.5 py-0.5 bg-gray-500/20 text-gray-400 text-[10px] rounded font-bold">💀</span>}
                       </div>
-                      <p className="text-[10px] text-gray-500">{leaderboardPreStart ? entry.accountType : `${entry.totalTrades} trades • ${entry.qualifiedTrades} qualified • ${entry.accountType}`}</p>
+                      <p className="text-[10px] text-gray-500">{leaderboardPreStart ? entry.accountType : `${entry.totalTrades} trades • ${entry.qualifiedTrades} qualified • ${entry.accountType}${entry.isWithdrawn && entry.totalWithdrawn ? ` • withdrew ${formatBalance(entry.totalWithdrawn, entry.accountType, entry.isCent)}` : ""}`}</p>
 
                     </div>
                     <p className="text-sm font-bold text-white">
-                      {entry.isDisqualified ? <span className="text-loss">DQ</span> : formatBalance(entry.adjustedBalance, entry.accountType, entry.isCent)}
+                      {entry.isDisqualified ? <span className="text-loss">DQ</span> : entry.isWithdrawn ? <span className="text-gray-400">Exited</span> : formatBalance(entry.adjustedBalance - (entry.totalWithdrawn || 0), entry.accountType, entry.isCent)}
                     </p>
                   </button>
                 ))}
@@ -1174,7 +1180,7 @@ export default function ChallengeDashboard() {
                   <div>
                     <p className="text-xl font-bold text-white">{selectedUser.nickname}</p>
                     <p className="text-sm text-gray-400">
-                      {selectedUser.isDisqualified ? <span className="text-loss font-semibold">Disqualified</span> : <>Balance: <span className="text-white font-semibold">{formatBalance(selectedUser.adjustedBalance, selectedUser.accountType, selectedUser.isCent)}</span></>}
+                      {selectedUser.isDisqualified ? <span className="text-loss font-semibold">Disqualified</span> : selectedUser.isWithdrawn ? <span className="text-gray-400 font-semibold">🚪 Exited{selectedUser.totalWithdrawn ? ` • withdrew ${formatBalance(selectedUser.totalWithdrawn, selectedUser.accountType, selectedUser.isCent)}` : ''}</span> : <>Balance: <span className="text-white font-semibold">{formatBalance(selectedUser.adjustedBalance - (selectedUser.totalWithdrawn || 0), selectedUser.accountType, selectedUser.isCent)}</span></>}
                     </p>
                   </div>
                 </div>
@@ -1214,76 +1220,106 @@ export default function ChallengeDashboard() {
                     <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">P&L Removed</p><p className="text-sm font-bold text-loss">{formatBalance(selectedUser.profitRemoved, selectedUser.accountType, selectedUser.isCent)}</p></div>
                     <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Account Type</p><p className="text-sm font-bold text-white">{selectedUser.accountType === 'demo' ? 'Demo' : selectedUser.accountType === 'real' ? 'Real' : selectedUser.accountType}</p></div>
                   </div>
-                  {/* Recent Trades */}
-                  {selectedUserTrades.length > 0 && (
-                    <div className="mt-4">
-                      <p className="text-xs font-semibold text-gray-400 mb-2">Trades ({selectedUserTrades.length})</p>
-                      <div className="space-y-2 max-h-[300px] overflow-y-auto">
-                        {groupTradesByPosition(selectedUserTrades).map(({ positionId, trades: group }) => {
-                          const fmtEAT = (d: string) => new Date(new Date(d).getTime() + 3*60*60*1000).toISOString().substring(11,16);
-                          const cur = (v: number) => selectedUser.isCent ? `${v.toFixed(2)}¢` : `$${v.toFixed(2)}`;
-                          if (group.length === 1) {
-                            const t = group[0];
-                            return (
-                              <div key={t.ticket} className={`py-2 px-3 rounded-lg ${t.slCheckResult === 'conflicting' ? 'bg-amber-500/5 border border-amber-400/20' : !t.isQualified ? 'bg-loss/10 border border-loss/20' : 'bg-white/5'}`}>
-                                <div className="flex items-center justify-between">
+                  {/* Account History (trades + balance ops unified, oldest first) */}
+                  {(selectedUserTrades.length > 0 || selectedUserBalanceOps.length > 0) && (() => {
+                    type FeedItem = { sortTime: number } & ({ kind: 'trade'; group: any[] } | { kind: 'op'; op: any });
+                    const feed: FeedItem[] = [];
+                    groupTradesByPosition(selectedUserTrades).forEach(({ trades: group }) => {
+                      feed.push({ kind: 'trade', group, sortTime: group[0].openTime ? new Date(group[0].openTime).getTime() : 0 });
+                    });
+                    for (const op of selectedUserBalanceOps) {
+                      feed.push({ kind: 'op', op, sortTime: op.op_time ? new Date(op.op_time).getTime() : 0 });
+                    }
+                    feed.sort((a, b) => a.sortTime - b.sortTime);
+                    const opIcon = (t: string) => t === 'deposit' ? '💰' : t === 'withdrawal' ? '🚪' : t === 'swap' ? '🔄' : '📊';
+                    const opColor = (t: string) => t === 'deposit' ? 'text-profit' : t === 'withdrawal' ? 'text-loss' : t === 'swap' ? 'text-amber-400' : 'text-blue-400';
+                    const fmtEAT = (d: string) => new Date(new Date(d).getTime() + 3*60*60*1000).toISOString().substring(11,16);
+                    const cur = (v: number) => selectedUser!.isCent ? `${v.toFixed(2)}¢` : `$${v.toFixed(2)}`;
+                    return (
+                      <div className="mt-4">
+                        <p className="text-xs font-semibold text-gray-400 mb-2">Account History</p>
+                        <div className="space-y-2 max-h-[300px] overflow-y-auto">
+                          {feed.map((item, idx) => {
+                            if (item.kind === 'op') {
+                              const op = item.op;
+                              return (
+                                <div key={`op-${op.deal_ticket}`} className="py-2 px-3 rounded-lg bg-white/5 flex items-center justify-between">
                                   <div className="flex items-center gap-2">
-                                    <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${t.type?.toLowerCase() === 'buy' ? 'bg-profit/20 text-profit' : 'bg-loss/20 text-loss'}`}>{t.type}</span>
+                                    <span className="text-sm">{opIcon(op.op_type)}</span>
                                     <div>
-                                      <p className="text-xs text-white font-medium">{t.symbol}</p>
-                                      <p className="text-[10px] text-gray-500">{t.openTime ? new Date(t.openTime).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''} {t.openTime ? fmtEAT(t.openTime) : ''} → {t.closeTime ? fmtEAT(t.closeTime) : ''}</p>
+                                      <p className="text-xs text-white font-medium capitalize">{op.op_type}</p>
+                                      <p className="text-[10px] text-gray-500">{op.op_time ? new Date(op.op_time).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''}{op.comment ? ` • ${op.comment}` : ''}</p>
                                     </div>
                                   </div>
-                                  <div className="text-right">
-                                    <p className={`text-xs font-bold ${t.profit >= 0 ? 'text-profit' : 'text-loss'}`}>{cur(t.profit)}</p>
-                                    <p className="text-[10px] text-gray-500">{t.volume} lot {t.slCheckResult === 'conflicting' ? <span title="Under investigation." className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-amber-500/20 border border-amber-400/50 text-amber-400 text-[9px] font-bold cursor-help ml-1">?</span> : !t.isQualified ? <span className="text-loss">🚩</span> : null}</p>
+                                  <p className={`text-xs font-bold ${opColor(op.op_type)}`}>{op.amount >= 0 ? '+' : ''}{cur(op.amount)}</p>
+                                </div>
+                              );
+                            }
+                            const { group } = item;
+                            const positionId = group[0].positionId;
+                            if (group.length === 1) {
+                              const t = group[0];
+                              return (
+                                <div key={t.ticket} className={`py-2 px-3 rounded-lg ${t.slCheckResult === 'conflicting' ? 'bg-amber-500/5 border border-amber-400/20' : !t.isQualified ? 'bg-loss/10 border border-loss/20' : 'bg-white/5'}`}>
+                                  <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-2">
+                                      <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${t.type?.toLowerCase() === 'buy' ? 'bg-profit/20 text-profit' : 'bg-loss/20 text-loss'}`}>{t.type}</span>
+                                      <div>
+                                        <p className="text-xs text-white font-medium">{t.symbol}</p>
+                                        <p className="text-[10px] text-gray-500">{t.openTime ? new Date(t.openTime).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''} {t.openTime ? fmtEAT(t.openTime) : ''} → {t.closeTime ? fmtEAT(t.closeTime) : ''}</p>
+                                      </div>
+                                    </div>
+                                    <div className="text-right">
+                                      <p className={`text-xs font-bold ${t.profit >= 0 ? 'text-profit' : 'text-loss'}`}>{cur(t.profit)}</p>
+                                      <p className="text-[10px] text-gray-500">{t.volume} lot {t.slCheckResult === 'conflicting' ? <span title="Under investigation." className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-amber-500/20 border border-amber-400/50 text-amber-400 text-[9px] font-bold cursor-help ml-1">?</span> : !t.isQualified ? <span className="text-loss">🚩</span> : null}</p>
+                                    </div>
+                                  </div>
+                                  {t.slCheckResult === 'conflicting' && <p className="text-[10px] text-amber-400 mt-1 pl-7">⚠ Under investigation. Result may change after the next check.</p>}
+                                  {!t.isQualified && t.violations?.length > 0 && <p className="text-[10px] text-loss mt-1 pl-7">⚠️ {typeof t.violations[0] === 'string' ? t.violations[0] : (t.violations[0] as any)?.detail || 'Rule violation'}</p>}
+                                </div>
+                              );
+                            }
+                            const totalProfit = group.reduce((s: number, t: Trade) => s + t.profit, 0);
+                            const totalVol = group.reduce((s: number, t: Trade) => s + t.volume, 0);
+                            const status = groupWorstStatus(group);
+                            const first = group[0];
+                            return (
+                              <div key={`g-${positionId || idx}`} className={`rounded-lg overflow-hidden ${status === 'flagged' ? 'border border-loss/20' : status === 'conflicting' ? 'border border-amber-400/20' : 'border border-white/10'}`}>
+                                <div className={`py-2 px-3 ${status === 'flagged' ? 'bg-loss/10' : status === 'conflicting' ? 'bg-amber-500/5' : 'bg-white/5'}`}>
+                                  <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-2">
+                                      <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${first.type?.toLowerCase() === 'buy' ? 'bg-profit/20 text-profit' : 'bg-loss/20 text-loss'}`}>{first.type}</span>
+                                      <div>
+                                        <p className="text-xs text-white font-medium">{first.symbol} <span className="text-gray-500 font-normal">{group.length} closes</span></p>
+                                        <p className="text-[10px] text-gray-500">{first.openTime ? new Date(first.openTime).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''} {first.openTime ? fmtEAT(first.openTime) : ''}</p>
+                                      </div>
+                                    </div>
+                                    <div className="text-right">
+                                      <p className={`text-xs font-bold ${totalProfit >= 0 ? 'text-profit' : 'text-loss'}`}>{cur(totalProfit)}</p>
+                                      <p className="text-[10px] text-gray-500">{totalVol.toFixed(2)} lot</p>
+                                    </div>
                                   </div>
                                 </div>
-                                {t.slCheckResult === 'conflicting' && <p className="text-[10px] text-amber-400 mt-1 pl-7">⚠ Under investigation. Result may change after the next check.</p>}
-                                {!t.isQualified && t.violations?.length > 0 && <p className="text-[10px] text-loss mt-1 pl-7">⚠️ {typeof t.violations[0] === 'string' ? t.violations[0] : (t.violations[0] as any)?.detail || 'Rule violation'}</p>}
+                                {group.map((t: Trade) => (
+                                  <div key={t.ticket} className={`py-1.5 px-3 pl-6 border-t border-white/5 ${!t.isQualified ? 'bg-loss/5' : ''}`}>
+                                    <div className="flex items-center justify-between">
+                                      <p className="text-[10px] text-gray-500">└ → {fmtEAT(t.closeTime)}</p>
+                                      <div className="flex items-center gap-3">
+                                        <p className="text-[10px] text-gray-500">{t.volume} lot</p>
+                                        <p className={`text-[10px] font-semibold ${t.profit >= 0 ? 'text-profit' : 'text-loss'}`}>{cur(t.profit)}</p>
+                                        <span>{t.slCheckResult === 'conflicting' ? <span className="text-amber-400 text-[10px]">?</span> : !t.isQualified ? <span className="text-loss text-[10px]">🚩</span> : <span className="text-profit text-[10px]">✓</span>}</span>
+                                      </div>
+                                    </div>
+                                    {!t.isQualified && t.violations?.length > 0 && <p className="text-[10px] text-loss mt-1 pl-2">⚠️ {typeof t.violations[0] === 'string' ? t.violations[0] : (t.violations[0] as any)?.detail || 'Rule violation'}</p>}
+                                  </div>
+                                ))}
                               </div>
                             );
-                          }
-                          const totalProfit = group.reduce((s: number, t: Trade) => s + t.profit, 0);
-                          const totalVol = group.reduce((s: number, t: Trade) => s + t.volume, 0);
-                          const status = groupWorstStatus(group);
-                          const first = group[0];
-                          return (
-                            <div key={`g-${positionId}`} className={`rounded-lg overflow-hidden ${status === 'flagged' ? 'border border-loss/20' : status === 'conflicting' ? 'border border-amber-400/20' : 'border border-white/10'}`}>
-                              <div className={`py-2 px-3 ${status === 'flagged' ? 'bg-loss/10' : status === 'conflicting' ? 'bg-amber-500/5' : 'bg-white/5'}`}>
-                                <div className="flex items-center justify-between">
-                                  <div className="flex items-center gap-2">
-                                    <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${first.type?.toLowerCase() === 'buy' ? 'bg-profit/20 text-profit' : 'bg-loss/20 text-loss'}`}>{first.type}</span>
-                                    <div>
-                                      <p className="text-xs text-white font-medium">{first.symbol} <span className="text-gray-500 font-normal">{group.length} closes</span></p>
-                                      <p className="text-[10px] text-gray-500">{first.openTime ? new Date(first.openTime).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''} {first.openTime ? fmtEAT(first.openTime) : ''}</p>
-                                    </div>
-                                  </div>
-                                  <div className="text-right">
-                                    <p className={`text-xs font-bold ${totalProfit >= 0 ? 'text-profit' : 'text-loss'}`}>{cur(totalProfit)}</p>
-                                    <p className="text-[10px] text-gray-500">{totalVol.toFixed(2)} lot</p>
-                                  </div>
-                                </div>
-                              </div>
-                              {group.map(t => (
-                                <div key={t.ticket} className={`py-1.5 px-3 pl-6 border-t border-white/5 ${!t.isQualified ? 'bg-loss/5' : ''}`}>
-                                  <div className="flex items-center justify-between">
-                                    <p className="text-[10px] text-gray-500">└ → {fmtEAT(t.closeTime)}</p>
-                                    <div className="flex items-center gap-3">
-                                      <p className="text-[10px] text-gray-500">{t.volume} lot</p>
-                                      <p className={`text-[10px] font-semibold ${t.profit >= 0 ? 'text-profit' : 'text-loss'}`}>{cur(t.profit)}</p>
-                                      <span>{t.slCheckResult === 'conflicting' ? <span className="text-amber-400 text-[10px]">?</span> : !t.isQualified ? <span className="text-loss text-[10px]">🚩</span> : <span className="text-profit text-[10px]">✓</span>}</span>
-                                    </div>
-                                  </div>
-                                  {!t.isQualified && t.violations?.length > 0 && <p className="text-[10px] text-loss mt-1 pl-2">⚠️ {typeof t.violations[0] === 'string' ? t.violations[0] : (t.violations[0] as any)?.detail || 'Rule violation'}</p>}
-                                </div>
-                              ))}
-                            </div>
-                          );
-                        })}
+                          })}
+                        </div>
                       </div>
-                    </div>
-                  )}
+                    );
+                  })()}
                 </>)}
               </div>
             )}
