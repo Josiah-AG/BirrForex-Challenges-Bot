@@ -2051,6 +2051,43 @@ export class VpsPullScheduler {
   }
 
   /**
+   * Full account pull from a given date, returning all trades filtered by positionId.
+   * Used by Pull Trade to reliably fetch all partial closes for a position.
+   */
+  async pullTradesForPosition(
+    account: AccountToPull,
+    terminalId: number,
+    fromDate: string,
+    positionId: number
+  ): Promise<any[] | null> {
+    try {
+      const response = await axios.post(
+        `${this.baseUrl}/pull`,
+        {
+          account: account.accountNumber,
+          server: account.server,
+          password: account.investorPassword,
+          api_key: this.apiKey,
+          terminal_id: terminalId,
+          from_date: fromDate,
+          orders_from_date: fromDate,
+        },
+        { headers: { 'Content-Type': 'application/json' }, timeout: 60000 }
+      );
+      if (!response.data?.success) return null;
+      const allTrades: any[] = response.data.trades || [];
+      // Filter to trades belonging to this position
+      return allTrades.filter((t: any) =>
+        Number(t.position_id) === positionId || Number(t.ticket) === positionId
+      );
+    } catch (e: any) {
+      console.warn(`⚠️ VPS Pull: pullTradesForPosition ${account.accountNumber} threw: ${e?.message}`);
+      return null;
+    }
+  }
+
+
+  /**
    * Phase 1.5 — reconciliation. Compares MT5's actual closed-position count for
    * each account's pull window against what's saved in wp_trades and backfills
    * anything missing (not just null-open_time rows — entire trades that never

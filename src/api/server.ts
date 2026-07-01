@@ -2454,10 +2454,11 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/pull-trade`, adminIpChec
       investorPassword: reg.investor_password,
     };
 
-    // If we found multiple DB trades (partial closes), resolve by their individual
-    // closing-deal tickets so the VPS doesn't deduplicate to one-per-position.
-    // Fall back to the entered ticketNum if DB is empty.
-    const resolveIds = dbTrades.length > 1
+    // Determine what to resolve:
+    // - If DB has trades with position_id = ticketNum → input is a position ID;
+    //   resolve each associated closing ticket individually
+    // - Otherwise → input is a single ticket; resolve it directly
+    const resolveIds: number[] = isPositionGroup && dbTrades.length > 0
       ? dbTrades.map((t: any) => parseInt(t.ticket))
       : [ticketNum];
 
@@ -2467,14 +2468,6 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/pull-trade`, adminIpChec
       if (attempt > 0) await new Promise(r => setTimeout(r, 3000));
       freshTrades = await globalScheduler.resolveTradesForAccount(account, terminal.id, resolveIds);
       if (freshTrades && freshTrades.length > 0) break;
-    }
-    // If individual-ticket resolve missed some (VPS limitation), try position_id too
-    if (freshTrades && freshTrades.length < dbTrades.length) {
-      const posResult = await globalScheduler.resolveTradesForAccount(account, terminal.id, [ticketNum]);
-      if (posResult && posResult.length > 0) {
-        const existing = new Set(freshTrades.map((t: any) => t.ticket));
-        for (const t of posResult) { if (!existing.has(t.ticket)) freshTrades.push(t); }
-      }
     }
 
     if (!freshTrades || freshTrades.length === 0) {
