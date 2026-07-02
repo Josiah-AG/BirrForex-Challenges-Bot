@@ -65,6 +65,8 @@ interface PullResult {
   balance?: number;
   equity?: number;
   balance_ops?: Array<{ ticket: number; time: string; amount: number; op_type: string; comment: string }>;
+  hasNewData?: boolean;    // true if any trades or deals were saved (used to skip unnecessary re-evaluation)
+  hasNullOpenTimes?: boolean; // true if saved trades include entries with null open_time (needs phase 2 before eval)
   terminalId?: number;
   terminalsAttempted?: number[];
   terminalAttempts?: { terminalId: number; errorCode: string; errorMessage: string }[];
@@ -376,9 +378,16 @@ export class VpsPullScheduler {
       const successful = allResults.filter(r => r.success);
       const failed = allResults.filter(r => !r.success);
       const successfulAccounts = remaining.filter(a => successful.some(r => r.registrationId === a.registrationId));
-      await this.reconcileMissingTrades(challengeId, batchId, successfulAccounts, healthyTerminals, challenge);
-      await this.resolveNullOpenTimes(challengeId, batchId, successfulAccounts, healthyTerminals, challenge);
-      await this.evaluateAllAccounts(challengeId, successfulAccounts, batchId);
+      const noDataIds = new Set(successful.filter(r => !r.hasNewData).map(r => r.registrationId));
+      const needsPhase2 = successfulAccounts.filter(a => successful.find(r => r.registrationId === a.registrationId)?.hasNullOpenTimes);
+      const cleanAccounts = successfulAccounts.filter(a => { const r = successful.find(s => s.registrationId === a.registrationId); return r?.hasNewData && !r?.hasNullOpenTimes; });
+      const [reconcileAffected, nullFixAffected] = await Promise.all([
+        this.evaluateAllAccounts(challengeId, cleanAccounts, null),
+        this.reconcileMissingTrades(challengeId, batchId, successfulAccounts, healthyTerminals, challenge),
+        this.resolveNullOpenTimes(challengeId, batchId, needsPhase2, healthyTerminals, challenge),
+      ]).then(([, rec, nullFix]) => [rec, nullFix]);
+      const phase2EvalAccounts = successfulAccounts.filter(a => reconcileAffected.has(a.registrationId) || nullFixAffected.has(a.registrationId));
+      await this.evaluateAllAccounts(challengeId, phase2EvalAccounts, batchId, noDataIds);
       const newTrades = successful.reduce((sum, r) => sum + (r.tradesCount || 0), 0);
       await this.completePullBatch(batchId, successful.length, failed.length, newTrades, 'completed');
 
@@ -519,12 +528,31 @@ export class VpsPullScheduler {
       }
 
       // === PHASE 2 + 3: resolve any NULL open_time trades, then evaluate ===
-      // (deferred from the old per-account streaming evaluate so evaluation never
-      // reads a trade that still has a fixable NULL open_time)
       const successfulAccounts = accountsWithPriority.filter(a => successful.some(r => r.registrationId === a.registrationId));
-      await this.reconcileMissingTrades(challengeToPull.id, batchId, successfulAccounts, healthyTerminals, challengeToPull);
-      await this.resolveNullOpenTimes(challengeToPull.id, batchId, successfulAccounts, healthyTerminals, challengeToPull);
-      await this.evaluateAllAccounts(challengeToPull.id, successfulAccounts, batchId);
+
+      // Classify by whether they need phase 2 (null open_times) or can eval immediately.
+      // Accounts with no new data at all can skip evaluation entirely.
+      const noDataIds = new Set(successful.filter(r => !r.hasNewData).map(r => r.registrationId));
+      const needsPhase2 = successfulAccounts.filter(a => successful.find(r => r.registrationId === a.registrationId)?.hasNullOpenTimes);
+      const cleanAccounts = successfulAccounts.filter(a => {
+        const r = successful.find(s => s.registrationId === a.registrationId);
+        return r?.hasNewData && !r?.hasNullOpenTimes;
+      });
+
+      // Run streaming eval for clean accounts concurrently with phase 2 VPS work.
+      // Clean accounts have no null open_times so evaluation is safe to start immediately.
+      const [reconcileAffected, nullFixAffected] = await Promise.all([
+        this.evaluateAllAccounts(challengeToPull.id, cleanAccounts, null),  // no batchId — don't update phase display yet
+        this.reconcileMissingTrades(challengeToPull.id, batchId, successfulAccounts, healthyTerminals, challengeToPull),
+        this.resolveNullOpenTimes(challengeToPull.id, batchId, needsPhase2, healthyTerminals, challengeToPull),
+      ]).then(([, rec, nullFix]) => [rec, nullFix]);
+
+      // After phase 2: evaluate accounts that had null open_times fixed, plus any
+      // accounts that reconcile recovered trades for (skip ones with no changes).
+      const phase2EvalAccounts = successfulAccounts.filter(a =>
+        (reconcileAffected.has(a.registrationId) || nullFixAffected.has(a.registrationId))
+      );
+      await this.evaluateAllAccounts(challengeToPull.id, phase2EvalAccounts, batchId, noDataIds);
 
       // Complete batch
       const newTrades = successful.reduce((sum, r) => sum + (r.tradesCount || 0), 0);
@@ -712,9 +740,16 @@ export class VpsPullScheduler {
 
       // === PHASE 2 + 3: resolve any NULL open_time trades, then evaluate ===
       const successfulAccounts = accounts.filter(a => successful.some(r => r.registrationId === a.registrationId));
-      await this.reconcileMissingTrades(challengeId, batchId, successfulAccounts, healthyTerminals, challengeToPull);
-      await this.resolveNullOpenTimes(challengeId, batchId, successfulAccounts, healthyTerminals, challengeToPull);
-      await this.evaluateAllAccounts(challengeId, successfulAccounts, batchId);
+      const noDataIds = new Set(successful.filter(r => !r.hasNewData).map(r => r.registrationId));
+      const needsPhase2 = successfulAccounts.filter(a => successful.find(r => r.registrationId === a.registrationId)?.hasNullOpenTimes);
+      const cleanAccounts = successfulAccounts.filter(a => { const r = successful.find(s => s.registrationId === a.registrationId); return r?.hasNewData && !r?.hasNullOpenTimes; });
+      const [reconcileAffected, nullFixAffected] = await Promise.all([
+        this.evaluateAllAccounts(challengeId, cleanAccounts, null),
+        this.reconcileMissingTrades(challengeId, batchId, successfulAccounts, healthyTerminals, challengeToPull),
+        this.resolveNullOpenTimes(challengeId, batchId, needsPhase2, healthyTerminals, challengeToPull),
+      ]).then(([, rec, nullFix]) => [rec, nullFix]);
+      const phase2EvalAccounts = successfulAccounts.filter(a => reconcileAffected.has(a.registrationId) || nullFixAffected.has(a.registrationId));
+      await this.evaluateAllAccounts(challengeId, phase2EvalAccounts, batchId, noDataIds);
 
       const newTrades = successful.reduce((sum, r) => sum + (r.tradesCount || 0), 0);
       await this.completePullBatch(batchId, successful.length, failed.length, newTrades, 'completed');
@@ -1031,6 +1066,11 @@ export class VpsPullScheduler {
           if (tradesCount > 0) await this.saveTrades(account, data.trades);
           if (dealsCount > 0) await this.saveDeals(account, data.deals);
 
+          // Detect null open_times in this batch so the pull cycle can defer
+          // evaluation for these accounts until after the null-resolution pass.
+          const hasNullOpenTimes = tradesCount > 0 &&
+            (data.trades as any[]).some((t: any) => !t.open_time);
+
           return {
             registrationId: account.registrationId,
             accountNumber: account.accountNumber,
@@ -1042,6 +1082,8 @@ export class VpsPullScheduler {
             balance: data.balance,
             equity: data.equity,
             balance_ops: data.balance_ops || [],
+            hasNewData: tradesCount > 0 || dealsCount > 0,
+            hasNullOpenTimes,
             terminalId,
           };
         }
@@ -1584,94 +1626,104 @@ export class VpsPullScheduler {
   // ==================== TRADE/DEAL PERSISTENCE ====================
 
   private async saveTrades(account: AccountToPull, trades: any[]) {
-    // Get challenge_id for this registration
+    if (trades.length === 0) return;
+
     const regResult = await db.query(`SELECT challenge_id FROM trading_registrations WHERE id = $1`, [account.registrationId]);
     const challengeId = regResult.rows[0]?.challenge_id;
     if (!challengeId) return;
 
-    // Only save if we actually got trades from VPS
-    if (trades.length === 0) return;
+    // Bulk UPSERT — one round-trip for all trades instead of N sequential queries.
+    // Build a single multi-row VALUES list.
+    const COLS = 18;
+    const values: any[] = [];
+    const placeholders = trades.map((trade, i) => {
+      const base = i * COLS;
+      values.push(
+        challengeId, account.registrationId, account.accountNumber, trade.ticket,
+        trade.position_id || trade.ticket,
+        trade.symbol || null, trade.type || null, trade.volume || 0,
+        trade.open_time || null, trade.close_time || null,
+        trade.open_price || 0, trade.close_price || 0,
+        trade.stop_loss || null, trade.take_profit || null,
+        trade.profit || 0, trade.commission || 0, trade.swap || 0,
+        trade.comment || null,
+      );
+      return `($${base+1},$${base+2},$${base+3},$${base+4},$${base+5},$${base+6},$${base+7},$${base+8},$${base+9},$${base+10},$${base+11},$${base+12},$${base+13},$${base+14},$${base+15},$${base+16},$${base+17},$${base+18})`;
+    });
 
-    // UPSERT: Insert new trades, update existing ones (by unique constraint: challenge_id, account_number, ticket)
-    // This supports incremental pulls — we only get recent trades but don't lose older ones
-    for (const trade of trades) {
-      try {
-        await db.query(
-          `INSERT INTO wp_trades
-           (challenge_id, registration_id, account_number, ticket, position_id, symbol, trade_type, volume,
-            open_time, close_time, open_price, close_price, stop_loss, take_profit,
-            profit, commission, swap, comment, synced_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, NOW())
-           ON CONFLICT (challenge_id, account_number, ticket) DO UPDATE SET
-             position_id = EXCLUDED.position_id,
-             symbol = EXCLUDED.symbol,
-             trade_type = EXCLUDED.trade_type,
-             volume = EXCLUDED.volume,
-             open_time = COALESCE(EXCLUDED.open_time, wp_trades.open_time),
-             close_time = EXCLUDED.close_time,
-             open_price = CASE WHEN EXCLUDED.open_price IS NULL OR EXCLUDED.open_price = 0
-                                THEN wp_trades.open_price ELSE EXCLUDED.open_price END,
-             close_price = EXCLUDED.close_price,
-             stop_loss = EXCLUDED.stop_loss,
-             take_profit = EXCLUDED.take_profit,
-             profit = EXCLUDED.profit,
-             commission = EXCLUDED.commission,
-             swap = EXCLUDED.swap,
-             comment = EXCLUDED.comment,
-             synced_at = NOW()`,
-          [
-            challengeId, account.registrationId, account.accountNumber, trade.ticket,
-            trade.position_id || trade.ticket,
-            trade.symbol || null, trade.type || null, trade.volume || 0,
-            trade.open_time || null, trade.close_time || null,
-            trade.open_price || 0, trade.close_price || 0,
-            trade.stop_loss || null, trade.take_profit || null,
-            trade.profit || 0, trade.commission || 0, trade.swap || 0,
-            trade.comment || null,
-          ]
-        );
-      } catch (e) {
-        // Skip individual trade errors
-      }
+    try {
+      await db.query(
+        `INSERT INTO wp_trades
+         (challenge_id, registration_id, account_number, ticket, position_id, symbol, trade_type, volume,
+          open_time, close_time, open_price, close_price, stop_loss, take_profit,
+          profit, commission, swap, comment)
+         VALUES ${placeholders.join(',')}
+         ON CONFLICT (challenge_id, account_number, ticket) DO UPDATE SET
+           position_id  = EXCLUDED.position_id,
+           symbol       = EXCLUDED.symbol,
+           trade_type   = EXCLUDED.trade_type,
+           volume       = EXCLUDED.volume,
+           open_time    = COALESCE(EXCLUDED.open_time, wp_trades.open_time),
+           close_time   = EXCLUDED.close_time,
+           open_price   = CASE WHEN EXCLUDED.open_price IS NULL OR EXCLUDED.open_price = 0
+                               THEN wp_trades.open_price ELSE EXCLUDED.open_price END,
+           close_price  = EXCLUDED.close_price,
+           stop_loss    = EXCLUDED.stop_loss,
+           take_profit  = EXCLUDED.take_profit,
+           profit       = EXCLUDED.profit,
+           commission   = EXCLUDED.commission,
+           swap         = EXCLUDED.swap,
+           comment      = EXCLUDED.comment,
+           synced_at    = NOW()`,
+        values
+      );
+    } catch (e) {
+      console.error(`⚠️ saveTrades bulk insert error for ${account.accountNumber}:`, e);
     }
   }
 
   private async saveDeals(account: AccountToPull, deals: any[]) {
-    // Get challenge_id for this registration
+    if (deals.length === 0) return;
+
     const regResult = await db.query(`SELECT challenge_id FROM trading_registrations WHERE id = $1`, [account.registrationId]);
     const challengeId = regResult.rows[0]?.challenge_id;
     if (!challengeId) return;
 
-    // Only save if we got deals
-    if (deals.length === 0) return;
+    // Bulk UPSERT — one round-trip for all deals
+    const COLS = 13;
+    const values: any[] = [];
+    const placeholders = deals.map((deal, i) => {
+      const base = i * COLS;
+      values.push(
+        challengeId, account.registrationId, account.accountNumber,
+        deal.ticket, deal.type || null, deal.symbol || null,
+        deal.direction || null, deal.volume || 0, deal.price || 0,
+        deal.profit || 0, deal.balance || 0, deal.comment || null, deal.time || null,
+      );
+      return `($${base+1},$${base+2},$${base+3},$${base+4},$${base+5},$${base+6},$${base+7},$${base+8},$${base+9},$${base+10},$${base+11},$${base+12},$${base+13})`;
+    });
 
-    // UPSERT: Insert new deals, update existing ones (by unique constraint: challenge_id, account_number, ticket)
-    for (const deal of deals) {
-      try {
-        await db.query(
-          `INSERT INTO wp_deals
-           (challenge_id, registration_id, account_number, ticket, deal_type, symbol,
-            direction, volume, price, profit, balance, comment, time, synced_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW())
-           ON CONFLICT (challenge_id, account_number, ticket) DO UPDATE SET
-             deal_type = EXCLUDED.deal_type,
-             symbol = EXCLUDED.symbol,
-             direction = EXCLUDED.direction,
-             volume = EXCLUDED.volume,
-             price = EXCLUDED.price,
-             profit = EXCLUDED.profit,
-             balance = EXCLUDED.balance,
-             comment = EXCLUDED.comment,
-             time = EXCLUDED.time,
-             synced_at = NOW()`,
-          [
-            challengeId, account.registrationId, account.accountNumber,
-            deal.ticket, deal.type || null, deal.symbol || null,
-            deal.direction || null, deal.volume || 0, deal.price || 0,
-            deal.profit || 0, deal.balance || 0, deal.comment || null, deal.time || null,
-          ]
-        );
-      } catch (e) {}
+    try {
+      await db.query(
+        `INSERT INTO wp_deals
+         (challenge_id, registration_id, account_number, ticket, deal_type, symbol,
+          direction, volume, price, profit, balance, comment, time)
+         VALUES ${placeholders.join(',')}
+         ON CONFLICT (challenge_id, account_number, ticket) DO UPDATE SET
+           deal_type  = EXCLUDED.deal_type,
+           symbol     = EXCLUDED.symbol,
+           direction  = EXCLUDED.direction,
+           volume     = EXCLUDED.volume,
+           price      = EXCLUDED.price,
+           profit     = EXCLUDED.profit,
+           balance    = EXCLUDED.balance,
+           comment    = EXCLUDED.comment,
+           time       = EXCLUDED.time,
+           synced_at  = NOW()`,
+        values
+      );
+    } catch (e) {
+      console.error(`⚠️ saveDeals bulk insert error for ${account.accountNumber}:`, e);
     }
   }
 
@@ -2137,8 +2189,8 @@ export class VpsPullScheduler {
     accounts: AccountToPull[],
     healthyTerminals: TerminalState[],
     challenge: TradingChallenge
-  ): Promise<void> {
-    if (accounts.length === 0 || healthyTerminals.length === 0) return;
+  ): Promise<Set<number>> {  // returns registrationIds that got trades added
+    if (accounts.length === 0 || healthyTerminals.length === 0) return new Set();
 
     const tasks: { account: AccountToPull; positionIds: number[] }[] = [];
     for (const account of accounts) {
@@ -2169,7 +2221,7 @@ export class VpsPullScheduler {
       }
     }
 
-    if (tasks.length === 0) return;
+    if (tasks.length === 0) return new Set();
 
     if (batchId) {
       await db.query(
@@ -2179,6 +2231,7 @@ export class VpsPullScheduler {
     }
 
     let totalRecovered = 0;
+    const affectedIds = new Set<number>();
     const queue = [...tasks];
     let processed = 0;
     const workers = healthyTerminals.map(async terminal => {
@@ -2191,6 +2244,7 @@ export class VpsPullScheduler {
         if (trades && trades.length > 0) {
           await this.saveTrades(task.account, trades);
           totalRecovered += trades.length;
+          affectedIds.add(task.account.registrationId);
         }
 
         processed++;
@@ -2203,6 +2257,7 @@ export class VpsPullScheduler {
     await Promise.all(workers);
 
     console.log(`✅ VPS Pull: reconciliation recovered ${totalRecovered} missing trade(s) across ${tasks.length} account(s)`);
+    return affectedIds;
   }
 
   /**
@@ -2235,9 +2290,10 @@ export class VpsPullScheduler {
     accounts: AccountToPull[],
     healthyTerminals: TerminalState[],
     challenge: TradingChallenge
-  ): Promise<void> {
+  ): Promise<Set<number>> {  // returns registrationIds that had nulls fixed
     const MAX_ROUNDS = 5;
-    if (accounts.length === 0 || healthyTerminals.length === 0) return;
+    if (accounts.length === 0 || healthyTerminals.length === 0) return new Set();
+    const affectedIds = new Set<number>();
 
     for (let round = 1; round <= MAX_ROUNDS; round++) {
       if (this.cancelRequested) break;
@@ -2263,7 +2319,7 @@ export class VpsPullScheduler {
       }
 
       if (tasks.length === 0) {
-        if (round === 1) return; // nothing to fix — phase 2 never starts
+        if (round === 1) return new Set<number>(); // nothing to fix — phase 2 never starts
         break; // resolved before hitting MAX_ROUNDS
       }
 
@@ -2300,11 +2356,12 @@ export class VpsPullScheduler {
           if (resolved) {
             for (const [posIdStr, data] of Object.entries(resolved)) {
               if (!data?.open_time) continue;
-              await db.query(
+              const res = await db.query(
                 `UPDATE wp_trades SET open_time = $1, open_price = COALESCE($2, open_price), synced_at = NOW()
                  WHERE challenge_id = $3 AND account_number = $4 AND position_id = $5 AND open_time IS NULL`,
                 [data.open_time, data.open_price ?? null, challengeId, task.account.accountNumber, posIdStr]
-              ).catch(() => {});
+              ).catch(() => null);
+              if (res && res.rowCount && res.rowCount > 0) affectedIds.add(task.account.registrationId);
             }
           }
 
@@ -2317,32 +2374,49 @@ export class VpsPullScheduler {
       });
       await Promise.all(workers);
     }
+    return affectedIds;
   }
 
   /**
-   * Phase 3 — deferred evaluation, run once phase 2's null-resolution pass has
-   * finished (or had nothing to do). Replaces the old per-account streaming
-   * evaluate call that used to run inside terminalWorker immediately after pull.
+   * Phase 3 — parallel evaluation, run once phase 2's null-resolution pass has
+   * finished (or had nothing to do). Up to EVAL_CONCURRENCY accounts evaluated
+   * simultaneously. Accounts in skipIds are omitted (no data changed for them).
    */
-  private async evaluateAllAccounts(challengeId: number, accounts: AccountToPull[], batchId: number | null = null): Promise<void> {
-    if (batchId && accounts.length > 0) {
+  private async evaluateAllAccounts(
+    challengeId: number,
+    accounts: AccountToPull[],
+    batchId: number | null = null,
+    skipIds?: Set<number>
+  ): Promise<void> {
+    const EVAL_CONCURRENCY = 5;
+    const toEval = skipIds ? accounts.filter(a => !skipIds.has(a.registrationId)) : accounts;
+    if (toEval.length === 0) return;
+
+    if (batchId) {
       await db.query(
         `UPDATE wp_pull_batches SET phase = 'evaluating', phase2_total = $1, phase2_processed = 0, phase2_round = 0 WHERE id = $2`,
-        [accounts.length, batchId]
+        [toEval.length, batchId]
       ).catch(() => {});
     }
-    let processed = 0;
-    for (const account of accounts) {
-      try {
-        await evaluationEngine.evaluateSingleAccount(challengeId, account.registrationId);
-      } catch (evalErr) {
-        console.error(`⚠️ Eval error for ${account.accountNumber}:`, evalErr);
+
+    const mu = { idx: 0, processed: 0 };
+    const workers = Array.from({ length: Math.min(EVAL_CONCURRENCY, toEval.length) }, async () => {
+      while (true) {
+        const i = mu.idx++;
+        if (i >= toEval.length) break;
+        const account = toEval[i];
+        try {
+          await evaluationEngine.evaluateSingleAccount(challengeId, account.registrationId);
+        } catch (evalErr) {
+          console.error(`⚠️ Eval error for ${account.accountNumber}:`, evalErr);
+        }
+        mu.processed++;
+        if (batchId) {
+          await db.query(`UPDATE wp_pull_batches SET phase2_processed = $1 WHERE id = $2`, [mu.processed, batchId]).catch(() => {});
+        }
       }
-      processed++;
-      if (batchId) {
-        await db.query(`UPDATE wp_pull_batches SET phase2_processed = $1 WHERE id = $2`, [processed, batchId]).catch(() => {});
-      }
-    }
+    });
+    await Promise.all(workers);
   }
 
   private async createPullBatch(challengeId: number, totalAccounts: number): Promise<number> {
