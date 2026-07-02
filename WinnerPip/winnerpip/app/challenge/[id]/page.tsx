@@ -1158,15 +1158,23 @@ export default function ChallengeDashboard() {
             {!selectedUser ? (
               <div className="divide-y divide-white/5">
                 {leaderboard.map((entry) => (
-                  <button key={entry.rank || entry.nickname} onClick={() => setSelectedUser(entry)} className={`w-full flex items-center gap-4 px-4 py-3 text-left hover:bg-white/5 transition-colors ${entry.isMe ? "bg-royal/10 border-l-2 border-royal" : ""}`}>
+                  <button key={entry.rank || entry.nickname} onClick={() => setSelectedUser(entry)} className={`w-full flex items-center gap-4 px-4 py-3 text-left hover:bg-white/5 transition-colors ${entry.isMe ? "bg-royal/10 border-l-2 border-royal" : ""} ${entry.isDisqualified ? "opacity-60" : ""} ${(entry.isWithdrawn || entry.isBlown) && !entry.isDisqualified ? "opacity-40" : ""}`}>
                     <div className={`flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center text-sm font-bold ${entry.isDisqualified ? "bg-loss/20 text-loss" : isWinner(entry) ? "bg-profit/20 text-profit" : "bg-white/5 text-gray-500"}`}>
                       {isWinner(entry) ? "🏆" : (entry.rank || "—")}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2"><p className={`text-sm font-semibold truncate ${entry.isMe ? "text-royal" : "text-white"}`}>{entry.nickname}</p>{entry.isMe && <span className="px-1.5 py-0.5 bg-royal/20 text-royal text-[10px] rounded font-bold">YOU</span>}</div>
-                      <p className="text-[10px] text-gray-500">{entry.totalTrades} trades • {entry.qualifiedTrades} qualified</p>
+                      <div className="flex items-center gap-2">
+                        <p className={`text-sm font-semibold truncate ${entry.isMe ? "text-royal" : entry.isDisqualified ? "text-gray-500" : "text-white"}`}>{entry.nickname}</p>
+                        {entry.isMe && <span className="px-1.5 py-0.5 bg-royal/20 text-royal text-[10px] rounded font-bold">YOU</span>}
+                        {entry.isDisqualified && <span className="px-1.5 py-0.5 bg-loss/20 text-loss text-[10px] rounded font-bold">DQ</span>}
+                        {entry.isWithdrawn && !entry.isDisqualified && <span className="px-1.5 py-0.5 bg-gray-500/20 text-gray-400 text-[10px] rounded font-bold">🚪 Exited</span>}
+                        {entry.isBlown && !entry.isDisqualified && !entry.isWithdrawn && <span className="px-1.5 py-0.5 bg-gray-500/20 text-gray-400 text-[10px] rounded font-bold">💀</span>}
+                      </div>
+                      <p className="text-[10px] text-gray-500">{entry.totalTrades} trades • {entry.qualifiedTrades} qualified{entry.isWithdrawn && entry.totalWithdrawn ? ` • withdrew ${formatBalance(entry.totalWithdrawn, entry.accountType, entry.isCent)}` : ""}</p>
                     </div>
-                    <p className="text-sm font-bold text-white">${entry.adjustedBalance.toFixed(2)}</p>
+                    <p className={`text-sm font-bold ${entry.isDisqualified ? "text-loss" : "text-white"}`}>
+                      {entry.isDisqualified ? "DQ" : entry.isWithdrawn ? <span className="text-gray-400">Exited</span> : formatBalance(entry.adjustedBalance - (entry.totalWithdrawn || 0), entry.accountType, entry.isCent)}
+                    </p>
                   </button>
                 ))}
               </div>
@@ -1180,7 +1188,7 @@ export default function ChallengeDashboard() {
                   <div>
                     <p className="text-xl font-bold text-white">{selectedUser.nickname}</p>
                     <p className="text-sm text-gray-400">
-                      {selectedUser.isDisqualified ? <span className="text-loss font-semibold">Disqualified</span> : selectedUser.isWithdrawn ? <span className="text-gray-400 font-semibold">🚪 Exited{selectedUser.totalWithdrawn ? ` • withdrew ${formatBalance(selectedUser.totalWithdrawn, selectedUser.accountType, selectedUser.isCent)}` : ''}</span> : <>Balance: <span className="text-white font-semibold">{formatBalance(selectedUser.adjustedBalance - (selectedUser.totalWithdrawn || 0), selectedUser.accountType, selectedUser.isCent)}</span></>}
+                      {selectedUser.isDisqualified ? <span className="text-loss font-semibold">Disqualified</span> : selectedUser.isWithdrawn ? <span className="text-gray-400 font-semibold">🚪 User exited the challenge{selectedUser.totalWithdrawn ? ` • withdrew ${formatBalance(selectedUser.totalWithdrawn, selectedUser.accountType, selectedUser.isCent)}` : ''}</span> : selectedUser.isBlown ? <span className="text-gray-400 font-semibold">💀 Balance is zero from trading</span> : <>Balance: <span className="text-white font-semibold">{formatBalance(selectedUser.adjustedBalance - (selectedUser.totalWithdrawn || 0), selectedUser.accountType, selectedUser.isCent)}</span></>}
                     </p>
                   </div>
                 </div>
