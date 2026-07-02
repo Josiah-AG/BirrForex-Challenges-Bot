@@ -1189,8 +1189,8 @@ export default function AdminDashboard() {
                 for (const op of selectedParticipantBalanceOps) {
                   feed.push({ kind: 'op', op, sortTime: new Date(op.closeTime).getTime() });
                 }
-                // Oldest first so initial deposit appears at the top
-                feed.sort((a, b) => a.sortTime - b.sortTime);
+                // Newest first — most recent trades at top
+                feed.sort((a, b) => b.sortTime - a.sortTime);
                 const tradeCount = posMap.size;
                 return (
                   <div className="mt-2">

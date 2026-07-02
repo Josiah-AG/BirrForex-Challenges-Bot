@@ -1238,7 +1238,7 @@ export default function ChallengeDashboard() {
                     for (const op of selectedUserBalanceOps) {
                       feed.push({ kind: 'op', op, sortTime: op.op_time ? new Date(op.op_time).getTime() : 0 });
                     }
-                    feed.sort((a, b) => a.sortTime - b.sortTime);
+                    feed.sort((a, b) => b.sortTime - a.sortTime);
                     const opIcon = (t: string) => t === 'deposit' ? '💰' : t === 'withdrawal' ? '🚪' : t === 'swap' ? '🔄' : '📊';
                     const opColor = (t: string) => t === 'deposit' ? 'text-profit' : t === 'withdrawal' ? 'text-loss' : t === 'swap' ? 'text-amber-400' : 'text-blue-400';
                     const fmtEAT = (d: string) => new Date(new Date(d).getTime() + 3*60*60*1000).toISOString().substring(11,16);
