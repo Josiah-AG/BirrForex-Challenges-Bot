@@ -2331,18 +2331,25 @@ export class VpsPullScheduler {
         [accounts.length, batchId]
       ).catch(() => {});
     }
+    const EVAL_CONCURRENCY = 5;
     let processed = 0;
-    for (const account of accounts) {
-      try {
-        await evaluationEngine.evaluateSingleAccount(challengeId, account.registrationId);
-      } catch (evalErr) {
-        console.error(`⚠️ Eval error for ${account.accountNumber}:`, evalErr);
+    const queue = [...accounts];
+    const runWorker = async () => {
+      while (queue.length > 0) {
+        const account = queue.shift()!;
+        try {
+          await evaluationEngine.evaluateSingleAccount(challengeId, account.registrationId);
+        } catch (evalErr) {
+          console.error(`⚠️ Eval error for ${account.accountNumber}:`, evalErr);
+        }
+        processed++;
+        if (batchId) {
+          await db.query(`UPDATE wp_pull_batches SET phase2_processed = $1 WHERE id = $2`, [processed, batchId]).catch(() => {});
+        }
       }
-      processed++;
-      if (batchId) {
-        await db.query(`UPDATE wp_pull_batches SET phase2_processed = $1 WHERE id = $2`, [processed, batchId]).catch(() => {});
-      }
-    }
+    };
+    const workers = Array.from({ length: Math.min(EVAL_CONCURRENCY, accounts.length) }, runWorker);
+    await Promise.all(workers);
   }
 
   private async createPullBatch(challengeId: number, totalAccounts: number): Promise<number> {
