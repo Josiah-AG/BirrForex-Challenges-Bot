@@ -265,11 +265,18 @@ export default function ChallengeDashboard() {
   // Computed values
   const violations = recentTrades.filter(t => !t.isQualified);
 
-  // Top-N by rank — trophy/winner slot, regardless of whether they've fully qualified yet
+  // Top-N by rank AND above balance target
   const isWinner = (entry: LeaderboardEntry) => {
     if (!challenge || entry.isDisqualified || entry.isWithdrawn || entry.isBlown) return false;
     const count = entry.accountType === 'demo' ? (challenge.demoWinnersCount || 0) : (challenge.realWinnersCount || 0);
-    return count > 0 && entry.rank <= count;
+    return count > 0 && entry.rank <= count && (entry.adjustedBalance - (entry.totalWithdrawn || 0)) >= challenge.targetBalance;
+  };
+  const rankIcon = (entry: LeaderboardEntry) => {
+    if (entry.isDisqualified) return "🚫";
+    if (entry.isBlown && !entry.isWithdrawn) return "💀";
+    if (entry.isWithdrawn) return "🚪";
+    if (isWinner(entry)) return "🏆";
+    return entry.rank || "—";
   };
   const isAboveTarget = (entry: LeaderboardEntry) => {
     if (!challenge || entry.isDisqualified || entry.isWithdrawn || entry.isBlown || leaderboardPreStart) return false;
@@ -683,8 +690,8 @@ export default function ChallengeDashboard() {
               <div className="divide-y divide-white/5">
                 {leaderboard.map((entry) => (
                   <button key={entry.rank || entry.nickname} onClick={() => { setShowLeaderboardModal(true); setSelectedUser(entry); }} className={`w-full flex items-center gap-4 px-4 py-3 text-left transition-colors ${isWinner(entry) ? "bg-profit/15 border-l-2 border-profit hover:bg-profit/20" : isAboveTarget(entry) ? "bg-profit/5 border-l-2 border-profit/30 hover:bg-profit/10" : entry.isMe ? "bg-royal/10 border-l-2 border-royal hover:bg-royal/15" : "hover:bg-white/5"} ${entry.isDisqualified ? "opacity-60 bg-loss/10" : ""} ${(entry.isWithdrawn || entry.isBlown) && !entry.isDisqualified ? "opacity-40 bg-loss/5" : ""}`}>
-                    <div className={`flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center text-sm font-bold ${entry.isDisqualified ? "bg-loss/20 text-loss" : isWinner(entry) ? "bg-profit/20 text-profit" : isAboveTarget(entry) ? "bg-profit/10 text-profit/70" : "bg-white/5 text-gray-500"}`}>
-                      {isWinner(entry) ? "🏆" : (entry.rank || "—")}
+                    <div className={`flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center text-sm font-bold ${entry.isDisqualified ? "bg-loss/20 text-loss" : (entry.isBlown || entry.isWithdrawn) ? "bg-white/5 text-gray-500" : isWinner(entry) ? "bg-profit/20 text-profit" : isAboveTarget(entry) ? "bg-profit/10 text-profit/70" : "bg-white/5 text-gray-500"}`}>
+                      {rankIcon(entry)}
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
@@ -994,7 +1001,7 @@ export default function ChallengeDashboard() {
               <div className="divide-y divide-white/5">
                 {leaderboard.map((entry) => (
                   <button key={entry.rank || entry.nickname} onClick={() => { setShowLeaderboardModal(true); setSelectedUser(entry); }} className={`w-full flex items-center gap-4 px-4 py-3 text-left hover:bg-white/5 transition-colors ${isWinner(entry) ? "bg-profit/15 border-l-2 border-profit hover:bg-profit/20" : isAboveTarget(entry) ? "bg-profit/5 border-l-2 border-profit/30 hover:bg-profit/10" : entry.isMe ? "bg-royal/10 border-l-2 border-royal" : ""} ${entry.isDisqualified ? "opacity-60 bg-loss/10" : ""} ${(entry.isWithdrawn || entry.isBlown) && !entry.isDisqualified ? "opacity-40 bg-loss/5" : ""}`}>
-                    <div className={`flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center text-sm font-bold ${entry.isDisqualified ? "bg-loss/20 text-loss" : isWinner(entry) ? "bg-profit/20 text-profit" : isAboveTarget(entry) ? "bg-profit/10 text-profit/70" : "bg-white/5 text-gray-500"}`}>{isWinner(entry) ? "🏆" : (entry.rank || "—")}</div>
+                    <div className={`flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center text-sm font-bold ${entry.isDisqualified ? "bg-loss/20 text-loss" : (entry.isBlown || entry.isWithdrawn) ? "bg-white/5 text-gray-500" : isWinner(entry) ? "bg-profit/20 text-profit" : isAboveTarget(entry) ? "bg-profit/10 text-profit/70" : "bg-white/5 text-gray-500"}`}>{rankIcon(entry)}</div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         <p className={`text-sm font-semibold truncate ${isWinner(entry) ? "text-profit font-bold" : isAboveTarget(entry) ? "text-profit/80" : entry.isMe ? "text-royal" : entry.isDisqualified ? "text-gray-500" : "text-white"}`}>{entry.nickname}</p>
@@ -1163,8 +1170,8 @@ export default function ChallengeDashboard() {
               <div className="divide-y divide-white/5">
                 {leaderboard.map((entry) => (
                   <button key={entry.rank || entry.nickname} onClick={() => setSelectedUser(entry)} className={`w-full flex items-center gap-4 px-4 py-3 text-left hover:bg-white/5 transition-colors ${isWinner(entry) ? "bg-profit/15 border-l-2 border-profit hover:bg-profit/20" : isAboveTarget(entry) ? "bg-profit/5 border-l-2 border-profit/30 hover:bg-profit/10" : entry.isMe ? "bg-royal/10 border-l-2 border-royal" : ""} ${entry.isDisqualified ? "opacity-60 bg-loss/10" : ""} ${(entry.isWithdrawn || entry.isBlown) && !entry.isDisqualified ? "opacity-40 bg-loss/5" : ""}`}>
-                    <div className={`flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center text-sm font-bold ${entry.isDisqualified ? "bg-loss/20 text-loss" : isWinner(entry) ? "bg-profit/20 text-profit" : isAboveTarget(entry) ? "bg-profit/10 text-profit/70" : "bg-white/5 text-gray-500"}`}>
-                      {isWinner(entry) ? "🏆" : (entry.rank || "—")}
+                    <div className={`flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center text-sm font-bold ${entry.isDisqualified ? "bg-loss/20 text-loss" : (entry.isBlown || entry.isWithdrawn) ? "bg-white/5 text-gray-500" : isWinner(entry) ? "bg-profit/20 text-profit" : isAboveTarget(entry) ? "bg-profit/10 text-profit/70" : "bg-white/5 text-gray-500"}`}>
+                      {rankIcon(entry)}
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
