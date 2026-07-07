@@ -591,14 +591,18 @@ export default function AdminDashboard() {
                   <th className="text-center py-3 px-4 text-[10px] text-gray-400 uppercase">Profit</th>
                   <th className="text-center py-3 px-4 text-[10px] text-gray-400 uppercase">Violations</th></>}
                 </tr></thead>
-                <tbody>{leaderboard.length === 0 ? <tr><td colSpan={leaderboardPreStart ? 5 : 9} className="py-8 text-center text-gray-500">No leaderboard data yet — will populate after VPS pulls and evaluation</td></tr> : leaderboard.map((e: any) => (
-                  <tr key={e.rank || e.nickname} className={`border-b border-white/5 hover:bg-white/5 cursor-pointer ${e.isDisqualified ? "opacity-50" : e.isWithdrawn || e.isBlown ? "opacity-40" : ""}`} onClick={() => setSelectedParticipant(e)}>
-                    <td className="py-3 px-4"><span className={`text-sm font-bold ${e.isDisqualified ? "text-loss" : e.rank && e.rank <= 3 ? "text-gold" : "text-gray-400"}`}>{e.rank || (e.notYetEvaluated ? <span className="text-[10px] text-gray-600">—</span> : "—")}</span></td>
-                    <td className="py-3 px-4"><p className="text-sm text-white font-semibold">{e.nickname}{e.isDisqualified ? <span className="ml-2 text-[10px] text-loss">DQ</span> : e.isWithdrawn ? <span className="ml-2 text-[10px] text-gray-400" title="User withdrew all funds — out of challenge">🚪 Exited</span> : e.isBlown ? <span className="ml-2 text-[10px] text-amber-400" title="Account blown">💀 Blown</span> : ""}</p><p className="text-[10px] text-gray-500 mt-0.5">{e.email || ""}</p></td>
+                <tbody>{leaderboard.length === 0 ? <tr><td colSpan={leaderboardPreStart ? 5 : 9} className="py-8 text-center text-gray-500">No leaderboard data yet — will populate after VPS pulls and evaluation</td></tr> : leaderboard.map((e: any) => {
+                  const eWinnersCount = e.accountType === 'demo' ? parseInt(selectedChall?.demoWinnersCount || 3) : parseInt(selectedChall?.realWinnersCount || 3);
+                  const eIsWinner = !e.isDisqualified && !e.isWithdrawn && !e.isBlown && e.rank && e.rank <= eWinnersCount && Number(e.adjustedBalance) >= Number(selectedChall?.targetBalance || 0);
+                  const eIsAboveTarget = !e.isDisqualified && !e.isWithdrawn && !e.isBlown && !leaderboardPreStart && Number(e.adjustedBalance) >= Number(selectedChall?.targetBalance || 0);
+                  return (
+                  <tr key={e.rank || e.nickname} className={`border-b border-white/5 hover:bg-white/5 cursor-pointer ${e.isDisqualified ? "opacity-50 bg-loss/10" : (e.isWithdrawn || e.isBlown) ? "opacity-40 bg-loss/5" : eIsWinner ? "bg-profit/15" : eIsAboveTarget ? "bg-profit/5" : ""}`} onClick={() => setSelectedParticipant(e)}>
+                    <td className="py-3 px-4"><span className={`text-sm font-bold ${e.isDisqualified ? "text-loss" : eIsWinner ? "text-profit" : eIsAboveTarget ? "text-profit/70" : e.rank && e.rank <= 3 ? "text-gold" : "text-gray-400"}`}>{eIsWinner ? "🏆" : (e.rank || (e.notYetEvaluated ? <span className="text-[10px] text-gray-600">—</span> : "—"))}</span></td>
+                    <td className="py-3 px-4"><p className={`text-sm font-semibold ${eIsWinner ? "text-profit font-bold" : eIsAboveTarget ? "text-profit/80" : "text-white"}`}>{e.nickname}{e.isDisqualified ? <span className="ml-2 text-[10px] text-loss">DQ</span> : e.isWithdrawn ? <span className="ml-2 text-[10px] text-gray-400" title="User withdrew all funds — out of challenge">🚪 Exited</span> : e.isBlown ? <span className="ml-2 text-[10px] text-amber-400" title="Account blown">💀 Blown</span> : ""}</p><p className="text-[10px] text-gray-500 mt-0.5">{e.email || ""}</p></td>
                     <td className="py-3 px-4"><p className="text-xs text-gray-300 font-mono">{e.accountNumber || "—"}</p></td>
                     <td className="py-3 px-4"><span className={`px-2 py-1 rounded text-[10px] font-semibold ${e.accountType === "real" ? "bg-gold/10 text-gold" : "bg-royal/10 text-royal"}`}>{e.accountType}</span></td>
                     <td className="py-3 px-4 text-right">
-                      <p className={`text-sm font-bold ${e.isDisqualified ? "text-loss" : e.isWithdrawn ? "text-gray-500" : "text-white"}`}>{e.isDisqualified ? "DQ" : e.isWithdrawn ? "Exited" : e.isCent ? `${Number(e.adjustedBalance).toFixed(2)}¢` : `$${Number(e.adjustedBalance).toFixed(2)}`}</p>
+                      <p className={`text-sm font-bold ${e.isDisqualified ? "text-loss" : e.isWithdrawn ? "text-gray-500" : eIsWinner ? "text-profit" : eIsAboveTarget ? "text-profit/80" : "text-white"}`}>{e.isDisqualified ? "DQ" : e.isWithdrawn ? "Exited" : e.isCent ? `${Number(e.adjustedBalance).toFixed(2)}¢` : `$${Number(e.adjustedBalance).toFixed(2)}`}</p>
                       {!e.isDisqualified && !e.isWithdrawn && <p className="text-[10px] text-gray-500 mt-0.5">{e.isCent ? `${Number(e.currentBalance).toFixed(2)}¢` : `$${Number(e.currentBalance).toFixed(2)}`}</p>}
                       {e.isWithdrawn && e.totalWithdrawn > 0 && <p className="text-[10px] text-gray-600 mt-0.5">withdrew {e.isCent ? `${Number(e.totalWithdrawn).toFixed(2)}¢` : `$${Number(e.totalWithdrawn).toFixed(2)}`}</p>}
                     </td>
@@ -607,7 +611,8 @@ export default function AdminDashboard() {
                     <td className="py-3 px-4 text-center text-sm text-royal">{e.totalTrades > 0 ? (e.isCent ? `${Number(e.qualifiedProfit).toFixed(2)}¢` : `$${Number(e.qualifiedProfit).toFixed(2)}`) : "—"}</td>
                     <td className="py-3 px-4 text-center"><span className={e.flaggedTrades > 0 ? "text-loss font-bold" : "text-gray-500"}>{e.flaggedTrades}</span></td></>}
                   </tr>
-                ))}</tbody>
+                  );
+                })}</tbody>
               </table>
             </div>
           </div>

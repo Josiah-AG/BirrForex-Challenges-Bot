@@ -1113,7 +1113,14 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
 
     // Above target
     const aboveTarget = await db.query(
-      `SELECT COUNT(*) as cnt FROM wp_leaderboard WHERE challenge_id=$1 AND is_qualified=true`, [challengeId]);
+      `SELECT COUNT(*) as cnt
+       FROM wp_leaderboard l
+       JOIN trading_challenges tc ON tc.id = l.challenge_id
+       JOIN trading_registrations r ON r.id = l.registration_id
+       WHERE l.challenge_id=$1
+         AND (r.disqualified IS NULL OR r.disqualified = false)
+         AND (r.status IS NULL OR r.status != 'removed')
+         AND l.adjusted_balance >= tc.target_balance`, [challengeId]);
 
     // Balance stats — gross account balance across ALL participants in USD.
     //
