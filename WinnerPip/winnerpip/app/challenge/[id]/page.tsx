@@ -265,9 +265,9 @@ export default function ChallengeDashboard() {
   // Computed values
   const violations = recentTrades.filter(t => !t.isQualified);
 
-  // True winner: qualified (hit target) AND within the prize positions for their category
+  // Top-N by rank — trophy/winner slot, regardless of whether they've fully qualified yet
   const isWinner = (entry: LeaderboardEntry) => {
-    if (!challenge || entry.isDisqualified || !entry.isQualified) return false;
+    if (!challenge || entry.isDisqualified || entry.isWithdrawn || entry.isBlown) return false;
     const count = entry.accountType === 'demo' ? (challenge.demoWinnersCount || 0) : (challenge.realWinnersCount || 0);
     return count > 0 && entry.rank <= count;
   };
