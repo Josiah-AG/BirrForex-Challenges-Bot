@@ -2651,20 +2651,24 @@ export class VpsPullScheduler {
     const now = new Date().toISOString();
 
     // For each symbol find the last stored candle time so we only fetch new ones
+    // Normalize cent-account symbols (e.g. XAUUSDc → XAUUSD) since the standard
+    // base account is used for fetching and doesn't have "c" variants.
     const symbolRanges: Array<{ symbol: string; from_time: string; to_time: string }> = [];
+    const seenFetchSymbols = new Set<string>();
     for (const symbol of symbols) {
+      const fetchSymbol = symbol.endsWith('c') && symbol.length > 3 ? symbol.slice(0, -1) : symbol;
+      if (seenFetchSymbols.has(fetchSymbol)) continue;
+      seenFetchSymbols.add(fetchSymbol);
       const lastRow = await db.query(
         `SELECT MAX(time) as last_time FROM ohlc_candles WHERE challenge_id = $1 AND symbol = $2`,
-        [challenge.id, symbol]
+        [challenge.id, fetchSymbol]
       );
       const lastTime = lastRow.rows[0]?.last_time;
-      // Start 1 minute after last stored candle, or from challenge start if none
       const fromTime = lastTime
         ? new Date(new Date(lastTime).getTime() + 60 * 1000).toISOString()
         : challengeStart;
-      // Nothing to fetch if already up to date
       if (new Date(fromTime) >= new Date(now)) continue;
-      symbolRanges.push({ symbol, from_time: fromTime, to_time: now });
+      symbolRanges.push({ symbol: fetchSymbol, from_time: fromTime, to_time: now });
     }
 
     if (symbolRanges.length === 0) {
