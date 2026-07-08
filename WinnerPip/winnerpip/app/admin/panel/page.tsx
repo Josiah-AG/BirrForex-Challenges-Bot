@@ -1930,6 +1930,7 @@ function ChallengeSettingsPanel({ challengeId, challenges, onRefresh }: { challe
   const [msg, setMsg] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [ohlcUpdating, setOhlcUpdating] = useState(false);
+  const [ohlcMsg, setOhlcMsg] = useState("");
 
   // Convert UTC ISO string from API → datetime-local string displayed as EAT (UTC+3)
   function formatDateForInput(isoStr: string): string {
@@ -2096,13 +2097,13 @@ function ChallengeSettingsPanel({ challengeId, challenges, onRefresh }: { challe
           <div className="grid grid-cols-2 gap-2">
             <button
               onClick={async () => {
-                setOhlcUpdating(true); setMsg("");
+                setOhlcUpdating(true); setOhlcMsg("");
                 try {
                   const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/ohlc-update`, { method: "POST" });
                   const d = await res.json();
-                  if (res.ok) setMsg(`✅ OHLC update started — running in background. Check Railway logs for progress.`);
-                  else setMsg(`❌ OHLC update failed: ${d.error || res.statusText}`);
-                } catch { setMsg("❌ OHLC update failed"); }
+                  if (res.ok) setOhlcMsg(`✅ OHLC update started — running in background. Check Railway logs for progress.`);
+                  else setOhlcMsg(`❌ OHLC update failed: ${d.error || res.statusText}`);
+                } catch { setOhlcMsg("❌ OHLC update failed"); }
                 setOhlcUpdating(false);
               }}
               disabled={ohlcUpdating}
@@ -2121,6 +2122,7 @@ function ChallengeSettingsPanel({ challengeId, challenges, onRefresh }: { challe
               📥 Download OHLC CSV
             </button>
           </div>
+          {ohlcMsg && <div className={`mt-2 p-2.5 rounded-lg text-xs font-semibold ${ohlcMsg.startsWith("✅") ? "bg-profit/10 text-profit border border-profit/30" : "bg-loss/10 text-loss border border-loss/30"}`}>{ohlcMsg}</div>}
         </div>
 
         {/* Danger Zone */}
