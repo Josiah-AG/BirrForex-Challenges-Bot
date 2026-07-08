@@ -2679,37 +2679,36 @@ export class VpsPullScheduler {
 
     console.log(`📊 OHLC: Fetching candles for ${symbolRanges.length} symbol(s)...`);
 
-    let response: any;
-    try {
-      const res = await axios.post(`${this.baseUrl}/ohlc-bulk`, {
-        symbols: symbolRanges,
-        timeframe: 'M1',
-        api_key: this.apiKey,
-      }, { timeout: 120000 });
-      response = res.data;
-    } catch (e: any) {
-      console.error(`⚠️ OHLC: VPS request failed:`, e?.message || e);
-      return;
-    }
-
-    if (!response?.results) {
-      console.error('⚠️ OHLC: Invalid response from VPS');
-      return;
-    }
-
     let totalInserted = 0;
-    for (const [symbol, data] of Object.entries(response.results) as [string, any][]) {
-      if (!data.success || !data.candles?.length) continue;
-      const candles = data.candles as Array<{ time: string; open: number; high: number; low: number; close: number; volume: number }>;
+    for (const range of symbolRanges) {
+      let data: any;
+      try {
+        const res = await axios.post(`${this.baseUrl}/candles`, {
+          symbol: range.symbol,
+          timeframe: 'M1',
+          from_time: range.from_time,
+          to_time: range.to_time,
+          api_key: this.apiKey,
+        }, { timeout: 120000 });
+        data = res.data;
+      } catch (e: any) {
+        console.error(`⚠️ OHLC: VPS /candles failed for ${range.symbol}:`, e?.message || e);
+        continue;
+      }
 
-      // Batch upsert in chunks of 500 to avoid huge queries
+      if (!data?.success || !data.candles?.length) {
+        console.log(`📊 OHLC: ${range.symbol} — no candles returned`);
+        continue;
+      }
+
+      const candles = data.candles as Array<{ time: string; open: number; high: number; low: number; close: number; volume: number }>;
       const CHUNK = 500;
       for (let i = 0; i < candles.length; i += CHUNK) {
         const chunk = candles.slice(i, i + CHUNK);
         const values: any[] = [];
         const placeholders = chunk.map((c, idx) => {
-          const base = idx * 7;
-          values.push(challenge.id, symbol, c.time, c.open, c.high, c.low, c.close, c.volume);
+          const base = idx * 8;
+          values.push(challenge.id, range.symbol, c.time, c.open, c.high, c.low, c.close, c.volume);
           return `($${base + 1},$${base + 2},$${base + 3},$${base + 4},$${base + 5},$${base + 6},$${base + 7},$${base + 8})`;
         });
         await db.query(
@@ -2717,10 +2716,10 @@ export class VpsPullScheduler {
            VALUES ${placeholders.join(',')}
            ON CONFLICT (challenge_id, symbol, time) DO NOTHING`,
           values
-        ).catch(e => console.error(`⚠️ OHLC insert error for ${symbol}:`, e));
+        ).catch(e => console.error(`⚠️ OHLC insert error for ${range.symbol}:`, e));
         totalInserted += chunk.length;
       }
-      console.log(`📊 OHLC: ${symbol} — ${data.count} candles saved`);
+      console.log(`📊 OHLC: ${range.symbol} — ${candles.length} candles saved`);
     }
     console.log(`✅ OHLC: Updated ${totalInserted} candle rows for challenge ${challenge.id}`);
   }
