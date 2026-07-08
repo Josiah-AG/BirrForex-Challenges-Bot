@@ -1559,6 +1559,19 @@ export class WpEvaluationEngine {
         return { checked: 0, violations: 0, cleared: 0, nickname: reg.nickname || reg.account_number, error: 'No rules configured' };
       }
 
+      // Update OHLC candle data for pending symbols before re-checking
+      try {
+        const scheduler = (global as any).__vpsPullScheduler;
+        if (scheduler) {
+          const challengeData = await db.query(`SELECT * FROM trading_challenges WHERE id = $1`, [challengeId]);
+          if (challengeData.rows[0]) {
+            await scheduler.updateOhlcCandles(challengeData.rows[0]);
+          }
+        }
+      } catch (e) {
+        console.warn('⚠️ recheckSl: OHLC update failed (proceeding with existing data):', (e as Error).message);
+      }
+
       const MAX_SL_CHECK_ATTEMPTS = 5;
       const MAX_CONFLICTS = 3;
       const isDefinitive = (r: string | null | undefined) => r === 'fake_sl' || r === 'passed';

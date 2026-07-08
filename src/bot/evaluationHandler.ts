@@ -463,6 +463,97 @@ class EvaluationHandler {
       return;
     }
 
+    // === POST-EVALUATION: Fake SL candle check using local OHLC data ===
+    // Only on trades that passed all other rules (not flagged) and are profitable
+    if (wpRules?.stop_loss_required && wpRules?.max_risk_dollars) {
+      try {
+        const { db: database } = require('../database/db');
+        const remapToBase = (s: string) => s.replace(/[a-z]$/, '') + 'm';
+        const maxRisk = wpRules.max_risk_dollars;
+        const effectiveMaxRisk = maxRisk * 1.10; // 10% tolerance
+
+        let slFlagged = 0;
+        for (const pos of parsed.positions) {
+          const tradeNet = pos.profit + (pos.commission || 0) + (pos.swap || 0);
+          // Skip: losing trades, already flagged trades
+          const alreadyFlagged = result.flaggedTrades.some((f: any) => f.positionId === pos.positionId);
+          if (tradeNet <= 0 || alreadyFlagged) continue;
+
+          const symbol = remapToBase(pos.symbol);
+          const openTime = new Date(pos.openTime);
+          const closeTime = new Date(pos.closeTime);
+
+          // Query local OHLC candles
+          const candlesResult = await database.query(
+            `SELECT time, open, high, low, close FROM ohlc_candles
+             WHERE symbol = $1 AND time >= $2 AND time <= $3
+             ORDER BY time ASC`,
+            [symbol, openTime.toISOString(), closeTime.toISOString()]
+          );
+
+          if (candlesResult.rows.length < 3) continue; // Not enough data — skip (benefit of doubt)
+
+          // Calculate max SL price using ratio method
+          const openPrice = pos.entryPrice;
+          const closePrice = pos.exitPrice;
+          const volume = pos.volume;
+          const isBuy = pos.type === 'buy';
+          const closeDistance = Math.abs(closePrice - openPrice);
+
+          if (closeDistance === 0 || tradeNet === 0) continue;
+          const priceMove = closeDistance * (effectiveMaxRisk / Math.abs(tradeNet));
+          const maxSlPrice = isBuy ? openPrice - priceMove : openPrice + priceMove;
+
+          // Exclude first and last candle (entry/exit)
+          const openMs = openTime.getTime();
+          const closeMs = closeTime.getTime();
+          const safeCandles = candlesResult.rows.filter((c: any) => {
+            const t = new Date(c.time).getTime();
+            return t > openMs && t + 60000 <= closeMs;
+          });
+
+          // Check if price breached
+          let breached = false;
+          let breachTime = '';
+          for (const candle of safeCandles) {
+            if (isBuy && parseFloat(candle.low) <= maxSlPrice) {
+              breached = true;
+              const eat = new Date(new Date(candle.time).getTime() + 3 * 60 * 60 * 1000);
+              breachTime = `${String(eat.getUTCHours()).padStart(2,'0')}:${String(eat.getUTCMinutes()).padStart(2,'0')} EAT`;
+              break;
+            }
+            if (!isBuy && parseFloat(candle.high) >= maxSlPrice) {
+              breached = true;
+              const eat = new Date(new Date(candle.time).getTime() + 3 * 60 * 60 * 1000);
+              breachTime = `${String(eat.getUTCHours()).padStart(2,'0')}:${String(eat.getUTCMinutes()).padStart(2,'0')} EAT`;
+              break;
+            }
+          }
+
+          if (breached) {
+            const riskLabel = `$${maxRisk}`;
+            result.flaggedTrades.push({
+              positionId: pos.positionId,
+              symbol: pos.symbol,
+              openTime: pos.openTime,
+              profit: tradeNet,
+              reasons: [`Price exceeded the maximum allowed risk (${riskLabel}, virtual SL @ ${maxSlPrice.toFixed(5)}) on the M1 candle formed at ${breachTime}. Trade should have been closed at that point.`],
+            });
+            result.flaggedCount++;
+            result.profitRemoved += tradeNet + maxRisk;
+            result.adjustedBalance -= (tradeNet + maxRisk);
+            slFlagged++;
+          }
+        }
+
+        if (slFlagged > 0) {
+          result.isQualified = result.adjustedBalance >= evalConfig.targetBalance;
+        }
+      } catch (candleErr) {
+        console.warn('⚠️ Legacy eval candle check error (non-fatal):', (candleErr as Error).message);
+      }
+    }
+
     // Save evaluation
     const evalData = {
       challenge_id: session.challengeId,

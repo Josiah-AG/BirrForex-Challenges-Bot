@@ -1696,6 +1696,8 @@ function CreateChallengePanel({ onCreated }: { onCreated: (id: number) => void }
     pdf_url: "",
     video_url: "",
     evaluation_type: "winnerpip",
+    pull_count: "6",
+    first_pull_time: "00:00",
   });
 
   const [rules, setRules] = useState({
@@ -1716,12 +1718,21 @@ function CreateChallengePanel({ onCreated }: { onCreated: (id: number) => void }
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
     const secretPath = process.env.NEXT_PUBLIC_ADMIN_PATH || "";
     try {
+      // Generate pull_times from pull_count + first_pull_time
+      const pullCount = parseInt(form.pull_count) || 6;
+      const intervalHours = Math.floor(24 / pullCount);
+      const [fh, fm] = (form.first_pull_time || "00:00").split(":").map(Number);
+      const pullTimes: string[] = [];
+      for (let i = 0; i < pullCount; i++) {
+        const h = (fh + i * intervalHours) % 24;
+        pullTimes.push(`${String(h).padStart(2, "0")}:${String(fm).padStart(2, "0")}`);
+      }
+
       const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenges`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...form,
-          // Treat datetime-local value as EAT (UTC+3) explicitly — safe regardless of browser timezone
           start_date: form.start_date ? new Date(form.start_date + ":00+03:00").toISOString() : null,
           end_date: form.end_date ? new Date(form.end_date + ":00+03:00").toISOString() : null,
           registration_deadline: form.start_date ? new Date(form.start_date + ":00+03:00").toISOString() : null,
@@ -1732,6 +1743,9 @@ function CreateChallengePanel({ onCreated }: { onCreated: (id: number) => void }
           demo_winners_count: parseInt(form.demo_winners_count),
           real_prizes: form.real_prizes.split(",").map(p => p.trim()).filter(Boolean).map(p => isNaN(Number(p)) ? p : parseFloat(p)),
           demo_prizes: form.demo_prizes.split(",").map(p => p.trim()).filter(Boolean).map(p => isNaN(Number(p)) ? p : parseFloat(p)),
+          pull_times: pullTimes,
+          pull_interval_hours: intervalHours,
+          first_pull_time: form.first_pull_time,
         }),
       });
       if (!res.ok) { const d = await res.json(); setError(d.error || "Failed"); setSaving(false); return; }
@@ -1829,6 +1843,15 @@ function CreateChallengePanel({ onCreated }: { onCreated: (id: number) => void }
                   </button>
                 </div>
               </div>
+              {form.evaluation_type === "winnerpip" && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div><label className="text-xs text-gray-400 font-medium mb-1 block">Pulls per Day</label><input type="number" min="2" max="12" value={form.pull_count} onChange={e => setForm({...form, pull_count: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
+                  <div><label className="text-xs text-gray-400 font-medium mb-1 block">First Pull Time (EAT)</label><input type="time" value={form.first_pull_time} onChange={e => setForm({...form, first_pull_time: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
+                </div>
+              )}
+              {form.evaluation_type === "winnerpip" && (
+                <p className="text-[10px] text-gray-500 -mt-2">Schedule: {(() => { const c = parseInt(form.pull_count)||6; const iv = Math.floor(24/c); const [fh,fm] = (form.first_pull_time||"00:00").split(":").map(Number); return Array.from({length:c},(_,i)=>`${String((fh+i*iv)%24).padStart(2,"0")}:${String(fm).padStart(2,"0")}`).join(", "); })()} EAT</p>
+              )}
             </div>
             <div className="flex gap-3 mt-6">
               <button onClick={() => setStep(1)} className="flex-1 py-3 rounded-xl bg-white/5 border border-white/10 text-gray-400 font-semibold hover:bg-white/10 transition-all">Back</button>

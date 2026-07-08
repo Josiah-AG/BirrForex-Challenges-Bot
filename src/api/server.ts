@@ -1588,7 +1588,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenges`, adminIpCheck, async (req,
       starting_balance, target_balance,
       prize_pool_text, real_winners_count, demo_winners_count,
       real_prizes, demo_prizes, pdf_url, video_url,
-      evaluation_type,
+      evaluation_type, pull_times, pull_interval_hours, first_pull_time,
     } = req.body;
 
     if (!title || !type || !start_date || !end_date || !starting_balance) {
@@ -1603,8 +1603,9 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenges`, adminIpCheck, async (req,
       `INSERT INTO trading_challenges
        (title, type, status, start_date, end_date, registration_deadline, starting_balance, target_balance,
         prize_pool_text, real_winners_count, demo_winners_count, real_prizes, demo_prizes,
-        pdf_url, video_url, source, team_only, announcement_posted, evaluation_type)
-       VALUES ($1, $2, 'draft', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, false, $17)
+        pdf_url, video_url, source, team_only, announcement_posted, evaluation_type,
+        pull_times, pull_interval_hours, first_pull_time)
+       VALUES ($1, $2, 'draft', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, false, $17, $18, $19, $20)
        RETURNING *`,
       [
         title, type, start_date, end_date,
@@ -1615,6 +1616,9 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenges`, adminIpCheck, async (req,
         pdf_url || null, video_url || null,
         source || 'telegram', team_only || false,
         evalType,
+        JSON.stringify(pull_times || ['00:00','04:00','08:00','12:00','16:00','20:00']),
+        pull_interval_hours || 4,
+        first_pull_time || '00:00',
       ]
     );
 
