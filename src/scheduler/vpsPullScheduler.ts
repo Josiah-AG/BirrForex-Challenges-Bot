@@ -2650,13 +2650,16 @@ export class VpsPullScheduler {
     const challengeStart = new Date(challenge.start_date).toISOString();
     const now = new Date().toISOString();
 
-    // For each symbol find the last stored candle time so we only fetch new ones
-    // Normalize cent-account symbols (e.g. XAUUSDc → XAUUSD) since the standard
-    // base account is used for fetching and doesn't have "c" variants.
+    // For each symbol find the last stored candle time so we only fetch new ones.
+    // Remap to base account format: strip trailing lowercase suffix, add 'm'.
+    // e.g. EURUSDc → EURUSDm, XAUUSDm → XAUUSDm, GBPUSDc → GBPUSDm
+    // This matches the remapSymbolToBaseAccount() logic in wpEvaluationEngine.ts.
+    const remapToBase = (s: string) => s.replace(/[a-z]$/, '') + 'm';
+
     const symbolRanges: Array<{ symbol: string; from_time: string; to_time: string }> = [];
     const seenFetchSymbols = new Set<string>();
     for (const symbol of symbols) {
-      const fetchSymbol = symbol.endsWith('c') && symbol.length > 3 ? symbol.slice(0, -1) : symbol;
+      const fetchSymbol = remapToBase(symbol);
       if (seenFetchSymbols.has(fetchSymbol)) continue;
       seenFetchSymbols.add(fetchSymbol);
       const lastRow = await db.query(
