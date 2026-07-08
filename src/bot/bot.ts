@@ -541,6 +541,22 @@ export class Bot {
             await ctx.reply('❌ Announcement cancelled.');
             return;
           }
+          if (data.startsWith('eval_challenge_select_')) {
+            const parts = data.replace('eval_challenge_select_', '').split('_');
+            const challengeId = parseInt(parts[0]);
+            const mode = parts[1] as 'evaluate' | 'obo';
+            await evaluationHandler.handleChallengeSelect(ctx, challengeId, mode);
+            return;
+          }
+          if (data.startsWith('eval_wp_replace_')) {
+            const registrationId = parseInt(data.replace('eval_wp_replace_', ''));
+            await evaluationHandler.handleWpReplace(ctx, registrationId);
+            return;
+          }
+          if (data === 'eval_wp_keep') {
+            await evaluationHandler.handleWpKeep(ctx);
+            return;
+          }
           if (data === 'eval_overwrite_yes') {
             await ctx.answerCbQuery();
             await evaluationHandler.handleOverwriteConfirm(ctx);
@@ -609,21 +625,25 @@ export class Bot {
             // Delay to ensure DB update is committed
             await new Promise(r => setTimeout(r, 500));
             await new Promise(r => setTimeout(r, 500));
-            // Show next
-            const challenge2 = (await tradingChallengeService.getActiveChallenges())[0] || (await tradingChallengeService.getAllChallenges())[0];
+            // Show next — use session challenge if available
+            const oboSession2 = evaluationHandler.getSession(ctx.from!.id);
+            const challenge2 = oboSession2?.challenge || (await tradingChallengeService.getActiveChallenges())[0] || (await tradingChallengeService.getAllChallenges())[0];
             if (challenge2) await evaluationHandler.showNextUnevaluated(ctx, challenge2);
             return;
           }
           if (data === 'eval_obo_skip') {
             await ctx.answerCbQuery();
+            const skipSession = evaluationHandler.getSession(ctx.from!.id);
+            const skipChallenge = skipSession?.challenge;
             evaluationHandler.clearSession(ctx.from!.id);
-            const challenge = (await tradingChallengeService.getActiveChallenges())[0] || (await tradingChallengeService.getAllChallenges())[0];
+            const challenge = skipChallenge || (await tradingChallengeService.getActiveChallenges())[0] || (await tradingChallengeService.getAllChallenges())[0];
             if (challenge) await evaluationHandler.showNextUnevaluated(ctx, challenge);
             return;
           }
           if (data === 'eval_obo_next') {
             await ctx.answerCbQuery();
-            const challenge = (await tradingChallengeService.getActiveChallenges())[0] || (await tradingChallengeService.getAllChallenges())[0];
+            const nextSession = evaluationHandler.getSession(ctx.from!.id);
+            const challenge = nextSession?.challenge || (await tradingChallengeService.getActiveChallenges())[0] || (await tradingChallengeService.getAllChallenges())[0];
             if (challenge) await evaluationHandler.showNextUnevaluated(ctx, challenge);
             return;
           }
@@ -662,10 +682,11 @@ export class Bot {
             } catch (e) { console.error('Error notifying user:', e); }
 
             await ctx.reply('✅ @' + (dqUsername2 || 'unknown') + ' disqualified and notified. Moving to next...');
+            const dqChallenge = dqSession2?.challenge;
             evaluationHandler.clearSession(ctx.from!.id);
 
-            // Show next
-            const ch = (await tradingChallengeService.getActiveChallenges())[0] || (await tradingChallengeService.getAllChallenges())[0];
+            // Show next — prefer session's challenge to stay in same challenge
+            const ch = dqChallenge || (await tradingChallengeService.getActiveChallenges())[0] || (await tradingChallengeService.getAllChallenges())[0];
             if (ch) await evaluationHandler.showNextUnevaluated(ctx, ch);
             return;
           }

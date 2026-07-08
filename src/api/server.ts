@@ -1588,6 +1588,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenges`, adminIpCheck, async (req,
       starting_balance, target_balance,
       prize_pool_text, real_winners_count, demo_winners_count,
       real_prizes, demo_prizes, pdf_url, video_url,
+      evaluation_type,
     } = req.body;
 
     if (!title || !type || !start_date || !end_date || !starting_balance) {
@@ -1596,13 +1597,14 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenges`, adminIpCheck, async (req,
     if (!['demo', 'real', 'hybrid'].includes(type)) {
       return res.status(400).json({ error: 'Type must be demo, real, or hybrid' });
     }
+    const evalType = evaluation_type === 'legacy' ? 'legacy' : 'winnerpip';
 
     const result = await db.query(
       `INSERT INTO trading_challenges
        (title, type, status, start_date, end_date, registration_deadline, starting_balance, target_balance,
         prize_pool_text, real_winners_count, demo_winners_count, real_prizes, demo_prizes,
-        pdf_url, video_url, source, team_only, announcement_posted)
-       VALUES ($1, $2, 'draft', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, false)
+        pdf_url, video_url, source, team_only, announcement_posted, evaluation_type)
+       VALUES ($1, $2, 'draft', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, false, $17)
        RETURNING *`,
       [
         title, type, start_date, end_date,
@@ -1612,6 +1614,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenges`, adminIpCheck, async (req,
         JSON.stringify(real_prizes || []), JSON.stringify(demo_prizes || []),
         pdf_url || null, video_url || null,
         source || 'telegram', team_only || false,
+        evalType,
       ]
     );
 

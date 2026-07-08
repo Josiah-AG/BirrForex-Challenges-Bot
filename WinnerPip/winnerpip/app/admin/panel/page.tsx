@@ -1695,6 +1695,7 @@ function CreateChallengePanel({ onCreated }: { onCreated: (id: number) => void }
     demo_prizes: "300,200,100",
     pdf_url: "",
     video_url: "",
+    evaluation_type: "winnerpip",
   });
 
   const [rules, setRules] = useState({
@@ -1724,6 +1725,7 @@ function CreateChallengePanel({ onCreated }: { onCreated: (id: number) => void }
           start_date: form.start_date ? new Date(form.start_date + ":00+03:00").toISOString() : null,
           end_date: form.end_date ? new Date(form.end_date + ":00+03:00").toISOString() : null,
           registration_deadline: form.start_date ? new Date(form.start_date + ":00+03:00").toISOString() : null,
+          evaluation_type: form.evaluation_type || "winnerpip",
           starting_balance: parseFloat(form.starting_balance),
           target_balance: parseFloat(form.target_balance),
           real_winners_count: parseInt(form.real_winners_count),
@@ -1814,6 +1816,19 @@ function CreateChallengePanel({ onCreated }: { onCreated: (id: number) => void }
               {form.type !== "real" && <div><label className="text-xs text-gray-400 font-medium mb-1 block">Demo Prizes (comma-separated $)</label><input value={form.demo_prizes} onChange={e => setForm({...form, demo_prizes: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" placeholder="300,200,100" /></div>}
               <div><label className="text-xs text-gray-400 font-medium mb-1 block">PDF URL (optional)</label><input value={form.pdf_url} onChange={e => setForm({...form, pdf_url: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
               <div><label className="text-xs text-gray-400 font-medium mb-1 block">Video URL (optional)</label><input value={form.video_url} onChange={e => setForm({...form, video_url: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
+              <div>
+                <label className="text-xs text-gray-400 font-medium mb-1 block">Evaluation Method</label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button type="button" onClick={() => setForm({...form, evaluation_type: "winnerpip"})} className={`p-3 rounded-xl border text-center transition-all ${form.evaluation_type === "winnerpip" ? "border-royal bg-royal/10" : "border-white/20 hover:border-white/30"}`}>
+                    <p className="text-white font-bold text-sm">WinnerPip</p>
+                    <p className="text-[10px] text-gray-500 mt-0.5">Auto VPS pulls</p>
+                  </button>
+                  <button type="button" onClick={() => setForm({...form, evaluation_type: "legacy"})} className={`p-3 rounded-xl border text-center transition-all ${form.evaluation_type === "legacy" ? "border-gold bg-gold/10" : "border-white/20 hover:border-white/30"}`}>
+                    <p className="text-white font-bold text-sm">Legacy</p>
+                    <p className="text-[10px] text-gray-500 mt-0.5">Manual XLS submit</p>
+                  </button>
+                </div>
+              </div>
             </div>
             <div className="flex gap-3 mt-6">
               <button onClick={() => setStep(1)} className="flex-1 py-3 rounded-xl bg-white/5 border border-white/10 text-gray-400 font-semibold hover:bg-white/10 transition-all">Back</button>
@@ -1851,6 +1866,7 @@ function CreateChallengePanel({ onCreated }: { onCreated: (id: number) => void }
             <h3 className="text-xl font-bold text-white mb-4">Review & Create</h3>
             <div className="space-y-3 mb-6">
               <ReviewRow label="Source" value={form.source === "discord" ? "Discord (Team)" : "Telegram (Public)"} />
+              <ReviewRow label="Evaluation" value={form.evaluation_type === "legacy" ? "Legacy (Manual XLS)" : "WinnerPip (Auto)"} />
               <ReviewRow label="Title" value={form.title} />
               <ReviewRow label="Type" value={form.type} />
               <ReviewRow label="Period" value={`${form.start_date} → ${form.end_date}`} />

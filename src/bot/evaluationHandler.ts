@@ -20,6 +20,10 @@ interface EvalSession {
   pendingBuffer?: Buffer;
   pendingParsed?: any;
   pendingSubmission?: any;
+  // New fields for WP diff / challenge picker
+  mode?: 'evaluate' | 'obo';
+  pendingRegistrationId?: number;
+  pendingXlsPositions?: any[];
 }
 
 class EvaluationHandler {
@@ -28,7 +32,7 @@ class EvaluationHandler {
   hasActiveSession(telegramId: number): boolean {
     const session = this.evalSessions.get(telegramId);
     if (!session) return false;
-    // Only intercept text for steps that need text input
+    // Only intercept text for steps that need text input (not challenge_pick, which uses buttons)
     const textSteps = ['find_eval_search', 'delete_eval_search', 'resubmit_search', 'sendeval_search', 'asksubmission_search', 'obo_dq_reason', 'obo_dq_confirm'];
     return textSteps.includes(session.step);
   }
@@ -47,6 +51,77 @@ class EvaluationHandler {
     return this.evalSessions.get(telegramId);
   }
 
+  // ── Challenge picker helpers ──
+
+  private async getEligibleChallenges(): Promise<TradingChallenge[]> {
+    const all = await tradingChallengeService.getAllChallenges();
+    const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    return all.filter(c =>
+      c.status === 'active' ||
+      (c.status === 'registration_open') ||
+      (['reviewing', 'submission_open', 'completed'].includes(c.status) && new Date(c.end_date).getTime() > sevenDaysAgo)
+    );
+  }
+
+  private async showChallengePicker(ctx: Context, mode: 'evaluate' | 'obo', eligible: TradingChallenge[]): Promise<void> {
+    this.evalSessions.set(ctx.from!.id, {
+      step: 'challenge_pick',
+      challengeId: 0,
+      challenge: null as any,
+      isTest: false,
+      isReevaluate: false,
+      mode,
+    });
+    const buttons = eligible.map(c =>
+      [Markup.button.callback(
+        `${c.title} (${c.status})`,
+        `eval_challenge_select_${c.id}_${mode}`
+      )]
+    );
+    await ctx.reply(
+      `📊 <b>${mode === 'evaluate' ? 'Evaluation' : 'One-by-One Evaluation'}</b>\n\nChoose a challenge:`,
+      { parse_mode: 'HTML', ...Markup.inlineKeyboard(buttons) }
+    );
+  }
+
+  async handleChallengeSelect(ctx: Context, challengeId: number, mode: 'evaluate' | 'obo'): Promise<void> {
+    try {
+      const all = await tradingChallengeService.getAllChallenges();
+      const challenge = all.find(c => c.id === challengeId);
+      if (!challenge) {
+        await ctx.reply('❌ Challenge not found.');
+        return;
+      }
+
+      if (mode === 'obo') {
+        await ctx.answerCbQuery();
+        await this.showNextUnevaluated(ctx, challenge);
+        return;
+      }
+
+      // mode === 'evaluate'
+      await ctx.answerCbQuery();
+      this.evalSessions.set(ctx.from!.id, {
+        step: 'awaiting_file',
+        challengeId: challenge.id,
+        challenge,
+        isTest: false,
+        isReevaluate: false,
+        mode: 'evaluate',
+      });
+      await ctx.reply(
+        `📊 <b>Evaluation Mode</b>\n\n` +
+        `Challenge: <b>${challenge.title}</b> (ID: ${challenge.id})\n` +
+        `Period: ${new Date(challenge.start_date).toISOString().slice(0, 10)} → ${new Date(challenge.end_date).toISOString().slice(0, 10)}\n\n` +
+        `📎 Upload the MT5 trade history Excel file (.xlsx)\n<i>File name should be the account number (e.g. 161623548.xlsx)</i>`,
+        { parse_mode: 'HTML' }
+      );
+    } catch (error) {
+      console.error('Error in handleChallengeSelect:', error);
+      await ctx.reply('❌ Error selecting challenge.');
+    }
+  }
+
   // ── /evaluate ──
 
   async evaluate(ctx: Context): Promise<void> {
@@ -56,35 +131,33 @@ class EvaluationHandler {
         return;
       }
 
-      const challenges = await tradingChallengeService.getActiveChallenges();
-      let challenge = challenges[0] || null;
+      const eligible = await this.getEligibleChallenges();
 
-      if (!challenge) {
-        // Try latest challenge for reviewing status
-        const all = await tradingChallengeService.getAllChallenges();
-        challenge = all[0] || null;
-      }
-
-      if (!challenge) {
-        await ctx.reply('❌ No challenge found.');
+      if (eligible.length === 0) {
+        await ctx.reply('❌ No active or recently ended challenges found.');
         return;
       }
 
-      this.evalSessions.set(ctx.from!.id, {
-        step: 'awaiting_file',
-        challengeId: challenge.id,
-        challenge,
-        isTest: false,
-        isReevaluate: false,
-      });
-
-      await ctx.reply(
-        `📊 <b>Evaluation Mode</b>\n\n` +
-        `Challenge: <b>${challenge.title}</b> (ID: ${challenge.id})\n` +
-        `Period: ${new Date(challenge.start_date).toISOString().slice(0, 10)} → ${new Date(challenge.end_date).toISOString().slice(0, 10)}\n\n` +
-        `📎 Please upload the MT5 trade history Excel file (.xlsx)`,
-        { parse_mode: 'HTML' }
-      );
+      if (eligible.length === 1) {
+        const challenge = eligible[0];
+        this.evalSessions.set(ctx.from!.id, {
+          step: 'awaiting_file',
+          challengeId: challenge.id,
+          challenge,
+          isTest: false,
+          isReevaluate: false,
+          mode: 'evaluate',
+        });
+        await ctx.reply(
+          `📊 <b>Evaluation Mode</b>\n\n` +
+          `Challenge: <b>${challenge.title}</b> (ID: ${challenge.id})\n` +
+          `Period: ${new Date(challenge.start_date).toISOString().slice(0, 10)} → ${new Date(challenge.end_date).toISOString().slice(0, 10)}\n\n` +
+          `📎 Upload the MT5 trade history Excel file (.xlsx)\n<i>File name should be the account number (e.g. 161623548.xlsx)</i>`,
+          { parse_mode: 'HTML' }
+        );
+      } else {
+        await this.showChallengePicker(ctx, 'evaluate', eligible);
+      }
     } catch (error) {
       console.error('Error in evaluate:', error);
       await ctx.reply('❌ Error starting evaluation. Check logs.');
@@ -197,32 +270,64 @@ class EvaluationHandler {
 
       // Parse MT5 report
       const parsed = parseMT5Report(buffer);
-      const accountNumber = parsed.account.accountNumber;
+
+      // For evaluate mode: extract account number from filename (e.g. "161623548.xlsx")
+      // Fall back to the header inside the file
+      let accountNumber: string;
+      if (session.mode === 'evaluate') {
+        const baseName = (fileName || '').replace(/\.[^.]+$/, '').trim();
+        const numericMatch = baseName.match(/(\d{6,})/);
+        accountNumber = numericMatch ? numericMatch[1] : (parsed.account.accountNumber || '');
+      } else {
+        accountNumber = parsed.account.accountNumber || '';
+      }
 
       if (!accountNumber) {
-        await ctx.reply('❌ Could not extract account number from the file. Please check the file format.');
+        await ctx.reply('❌ Could not extract account number from filename or file header. Rename the file to the account number (e.g. 161623548.xlsx).');
         this.evalSessions.delete(ctx.from!.id);
         return;
       }
 
-      await ctx.reply('📋 Parsed account: <b>' + accountNumber + '</b> (' + parsed.account.accountType + ')\n📈 ' + parsed.positions.length + ' positions, ' + parsed.deals.length + ' deals', { parse_mode: 'HTML' });
+      await ctx.reply('📋 Account: <b>' + accountNumber + '</b> (' + parsed.account.accountType + ')\n📈 ' + parsed.positions.length + ' positions, ' + parsed.deals.length + ' deals', { parse_mode: 'HTML' });
 
       // Look up submission in DB (both test and real mode)
       const submission = await evaluationService.findSubmissionByAccount(session.challengeId, accountNumber);
 
+      // Also look up the WinnerPip registration directly (for WP diff/replace)
+      let wpRegistration: any = null;
+      try {
+        const regResult = await db.query(
+          'SELECT * FROM trading_registrations WHERE challenge_id = $1 AND account_number = $2 LIMIT 1',
+          [session.challengeId, accountNumber]
+        );
+        wpRegistration = regResult.rows[0] || null;
+      } catch {}
+
+      if (wpRegistration) {
+        session.pendingRegistrationId = wpRegistration.id;
+      }
+
       if (submission) {
         await ctx.reply(
-          '✅ <b>User found in submissions:</b>\n' +
-          '👤 Username: @' + (submission.username || 'unknown') + '\n' +
-          '🆔 Telegram ID: ' + submission.telegram_id + '\n' +
-          '📧 Email: ' + submission.email + '\n' +
-          '📊 Category: ' + submission.account_type + '\n' +
-          '💰 Reported Balance: ' + Number(submission.final_balance).toFixed(2),
+          '✅ <b>User found:</b>\n' +
+          '👤 Username: @' + (submission.username || wpRegistration?.username || 'unknown') + '\n' +
+          '🆔 Telegram ID: ' + (submission.telegram_id || wpRegistration?.user_id || 'N/A') + '\n' +
+          '📧 Email: ' + (submission.email || wpRegistration?.email || 'N/A') + '\n' +
+          '📊 Category: ' + (submission.account_type || wpRegistration?.account_type || 'N/A') + '\n' +
+          (submission.final_balance ? '💰 Reported Balance: ' + Number(submission.final_balance).toFixed(2) : ''),
+          { parse_mode: 'HTML' }
+        );
+      } else if (wpRegistration) {
+        await ctx.reply(
+          '✅ <b>Registration found (WinnerPip):</b>\n' +
+          '👤 Nickname: ' + (wpRegistration.nickname || wpRegistration.username || 'unknown') + '\n' +
+          '📊 Category: ' + wpRegistration.account_type + '\n' +
+          '🆔 Reg ID: ' + wpRegistration.id,
           { parse_mode: 'HTML' }
         );
       } else {
         await ctx.reply(
-          '⚠️ <b>Warning:</b> No submission found for account ' + accountNumber + ' in challenge ' + session.challengeId + '.\n' +
+          '⚠️ <b>Warning:</b> No submission or registration found for account ' + accountNumber + ' in this challenge.\n' +
           'Continuing evaluation anyway...',
           { parse_mode: 'HTML' }
         );
@@ -257,6 +362,14 @@ class EvaluationHandler {
           return;
         }
       }
+
+      // Store XLS positions for WP diff (if in evaluate mode)
+      if (session.mode === 'evaluate') {
+        session.pendingXlsPositions = parsed.positions;
+      }
+
+      // Override the account number extracted from filename into parsed object
+      parsed.account.accountNumber = accountNumber;
 
       // Continue with evaluation processing
       await this.processEvaluation(ctx, session, fileId, buffer, parsed, submission);
@@ -414,7 +527,14 @@ class EvaluationHandler {
 
     // Check if we're in one-by-one mode
     const isOneByOne = (session as any).currentSubmissionId !== undefined;
-    
+
+    // ── WinnerPip diff report (only in /evaluate mode with a known registration) ──
+    if (session.mode === 'evaluate' && session.pendingRegistrationId && session.pendingXlsPositions) {
+      await this.sendWpDiffReport(ctx, session, result);
+      // Keep session alive for Replace/Keep action (step updated inside sendWpDiffReport)
+      return;
+    }
+
     // Clear session
     this.evalSessions.delete(ctx.from!.id);
 
@@ -427,6 +547,221 @@ class EvaluationHandler {
         ])
       );
     }
+  }
+
+  // ── WinnerPip diff report ──
+
+  private async sendWpDiffReport(ctx: Context, session: EvalSession, evalResult: any): Promise<void> {
+    const registrationId = session.pendingRegistrationId!;
+    const xlsPositions: any[] = session.pendingXlsPositions!;
+    const challengeId = session.challengeId;
+
+    // Fetch current WP trades from DB
+    let dbTrades: any[] = [];
+    try {
+      const res = await db.query(
+        `SELECT * FROM wp_trades WHERE challenge_id = $1 AND registration_id = $2 ORDER BY open_time ASC`,
+        [challengeId, registrationId]
+      );
+      dbTrades = res.rows;
+    } catch (e) {
+      await ctx.reply('⚠️ Could not fetch WinnerPip trades for diff: ' + String(e).substring(0, 200));
+    }
+
+    // Build maps keyed by position_id
+    const xlsMap = new Map<string, any[]>();
+    for (const pos of xlsPositions) {
+      const key = String(pos.positionId);
+      if (!xlsMap.has(key)) xlsMap.set(key, []);
+      xlsMap.get(key)!.push(pos);
+    }
+
+    const dbMap = new Map<string, any[]>();
+    for (const row of dbTrades) {
+      const key = String(row.position_id || row.ticket);
+      if (!dbMap.has(key)) dbMap.set(key, []);
+      dbMap.get(key)!.push(row);
+    }
+
+    const onlyInXls: string[] = [];
+    const onlyInDb: string[] = [];
+    const different: Array<{ posId: string; diffs: string[] }> = [];
+
+    for (const [posId, xRows] of xlsMap) {
+      if (!dbMap.has(posId)) {
+        onlyInXls.push(posId);
+      } else {
+        const dRows = dbMap.get(posId)!;
+        const diffs = this.compareTradeSets(xRows, dRows);
+        if (diffs.length > 0) different.push({ posId, diffs });
+      }
+    }
+    for (const posId of dbMap.keys()) {
+      if (!xlsMap.has(posId)) onlyInDb.push(posId);
+    }
+
+    // Build diff message
+    let diffMsg = `📊 <b>WinnerPip vs XLS Diff</b>\n`;
+    diffMsg += `WP trades: ${dbTrades.length} rows | XLS positions: ${xlsPositions.length}\n\n`;
+
+    if (onlyInXls.length === 0 && onlyInDb.length === 0 && different.length === 0) {
+      diffMsg += `✅ <b>No differences found.</b> XLS matches WinnerPip data exactly.\n`;
+    } else {
+      if (onlyInXls.length > 0) {
+        diffMsg += `➕ <b>In XLS only (${onlyInXls.length}):</b>\n`;
+        for (const posId of onlyInXls.slice(0, 20)) {
+          const rows = xlsMap.get(posId)!;
+          const r = rows[0];
+          const totalProfit = rows.reduce((s: number, x: any) => s + (x.profit || 0), 0);
+          diffMsg += `  • Pos ${posId} | ${r.symbol} ${r.type} ${r.volume}L | P/L: ${totalProfit >= 0 ? '+' : ''}${totalProfit.toFixed(2)}\n`;
+        }
+        if (onlyInXls.length > 20) diffMsg += `  ...and ${onlyInXls.length - 20} more\n`;
+        diffMsg += '\n';
+      }
+      if (onlyInDb.length > 0) {
+        diffMsg += `➖ <b>In WinnerPip only (${onlyInDb.length}):</b>\n`;
+        for (const posId of onlyInDb.slice(0, 20)) {
+          const rows = dbMap.get(posId)!;
+          const r = rows[0];
+          const totalProfit = rows.reduce((s: number, x: any) => s + parseFloat(x.profit || 0), 0);
+          diffMsg += `  • Pos ${posId} | ${r.symbol || '?'} ${r.trade_type || '?'} ${r.volume || '?'}L | P/L: ${totalProfit >= 0 ? '+' : ''}${totalProfit.toFixed(2)}\n`;
+        }
+        if (onlyInDb.length > 20) diffMsg += `  ...and ${onlyInDb.length - 20} more\n`;
+        diffMsg += '\n';
+      }
+      if (different.length > 0) {
+        diffMsg += `⚡ <b>Data differences (${different.length}):</b>\n`;
+        for (const d of different.slice(0, 15)) {
+          diffMsg += `  • Pos ${d.posId}: ${d.diffs.join(', ')}\n`;
+        }
+        if (different.length > 15) diffMsg += `  ...and ${different.length - 15} more\n`;
+      }
+    }
+
+    const parts = this.splitMessage(diffMsg);
+    for (const part of parts) {
+      try { await ctx.reply(part, { parse_mode: 'HTML' }); } catch { await ctx.reply(part.replace(/<[^>]+>/g, '')); }
+    }
+
+    // Show Replace/Keep buttons
+    session.step = 'awaiting_wp_action';
+    await ctx.reply(
+      `🔄 <b>Update WinnerPip?</b>\n\n` +
+      `<b>Replace</b> — Delete current WP trades for this account and insert XLS data, then re-evaluate.\n` +
+      `<b>Keep</b> — Discard XLS, keep WinnerPip data as is.`,
+      {
+        parse_mode: 'HTML',
+        ...Markup.inlineKeyboard([
+          [Markup.button.callback('✅ Replace WinnerPip', `eval_wp_replace_${registrationId}`)],
+          [Markup.button.callback('❌ Keep WinnerPip', 'eval_wp_keep')],
+        ]),
+      }
+    );
+  }
+
+  private compareTradeSets(xlsRows: any[], dbRows: any[]): string[] {
+    const diffs: string[] = [];
+    const xlsTotalProfit = xlsRows.reduce((s: number, r: any) => s + (r.profit || 0), 0);
+    const dbTotalProfit = dbRows.reduce((s: number, r: any) => s + parseFloat(r.profit || 0), 0);
+    if (Math.abs(xlsTotalProfit - dbTotalProfit) > 0.01) {
+      diffs.push(`profit XLS=${xlsTotalProfit.toFixed(2)} WP=${dbTotalProfit.toFixed(2)}`);
+    }
+    const xlsTotalVol = xlsRows.reduce((s: number, r: any) => s + (r.volume || 0), 0);
+    const dbTotalVol = dbRows.reduce((s: number, r: any) => s + parseFloat(r.volume || 0), 0);
+    if (Math.abs(xlsTotalVol - dbTotalVol) > 0.001) {
+      diffs.push(`vol XLS=${xlsTotalVol.toFixed(2)} WP=${dbTotalVol.toFixed(2)}`);
+    }
+    if (xlsRows[0]?.symbol && dbRows[0]?.symbol && xlsRows[0].symbol !== dbRows[0].symbol) {
+      diffs.push(`symbol XLS=${xlsRows[0].symbol} WP=${dbRows[0].symbol}`);
+    }
+    return diffs;
+  }
+
+  // ── Handle WP Replace action ──
+
+  async handleWpReplace(ctx: Context, registrationId: number): Promise<void> {
+    try {
+      const session = this.evalSessions.get(ctx.from!.id);
+      if (!session || session.step !== 'awaiting_wp_action') {
+        await ctx.answerCbQuery('Session expired.');
+        return;
+      }
+      await ctx.answerCbQuery();
+      await ctx.reply('⏳ Replacing WinnerPip trades...');
+
+      const xlsPositions = session.pendingXlsPositions!;
+      const challengeId = session.challengeId;
+      const accountNumber = session.challenge ? String((session as any).pendingAccountNumber || xlsPositions[0]?.symbol || '') : '';
+
+      // Get account number from the evaluation that was just saved
+      let acctNum = '';
+      try {
+        const regRow = await db.query('SELECT account_number FROM trading_registrations WHERE id = $1', [registrationId]);
+        acctNum = regRow.rows[0]?.account_number || '';
+      } catch {}
+
+      // Delete existing wp_trades for this registration
+      await db.query(
+        'DELETE FROM wp_trades WHERE challenge_id = $1 AND registration_id = $2',
+        [challengeId, registrationId]
+      );
+
+      // Insert XLS positions as wp_trades rows
+      let inserted = 0;
+      for (let i = 0; i < xlsPositions.length; i++) {
+        const pos = xlsPositions[i];
+        const ticket = pos.positionId + (i === 0 ? '' : `_p${i}`);
+        try {
+          await db.query(
+            `INSERT INTO wp_trades
+             (challenge_id, registration_id, account_number, ticket, position_id, symbol, trade_type, volume,
+              open_time, close_time, open_price, close_price, stop_loss, take_profit,
+              profit, commission, swap, synced_at)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,NOW())
+             ON CONFLICT (challenge_id, account_number, ticket) DO UPDATE SET
+               position_id=EXCLUDED.position_id, symbol=EXCLUDED.symbol, trade_type=EXCLUDED.trade_type,
+               volume=EXCLUDED.volume, open_time=EXCLUDED.open_time, close_time=EXCLUDED.close_time,
+               open_price=EXCLUDED.open_price, close_price=EXCLUDED.close_price,
+               stop_loss=EXCLUDED.stop_loss, take_profit=EXCLUDED.take_profit,
+               profit=EXCLUDED.profit, commission=EXCLUDED.commission, swap=EXCLUDED.swap, synced_at=NOW()`,
+            [
+              challengeId, registrationId, acctNum,
+              pos.positionId, pos.positionId,
+              pos.symbol, pos.type, pos.volume,
+              pos.openTime || null, pos.closeTime || null,
+              pos.entryPrice || 0, pos.exitPrice || 0,
+              pos.sl || null, pos.tp || null,
+              pos.profit || 0, pos.commission || 0, pos.swap || 0,
+            ]
+          );
+          inserted++;
+        } catch (e) {
+          // skip individual errors
+        }
+      }
+
+      await ctx.reply(`✅ Inserted ${inserted} XLS trades. Re-evaluating...`);
+
+      // Re-run WP evaluation engine
+      try {
+        const { evaluationEngine: wpEngine } = require('../services/wpEvaluationEngine');
+        await wpEngine.evaluateSingleAccount(challengeId, registrationId);
+        await ctx.reply('✅ WinnerPip leaderboard updated successfully.');
+      } catch (e: any) {
+        await ctx.reply('⚠️ WP evaluation error: ' + (e?.message || String(e)).substring(0, 300));
+      }
+
+      this.evalSessions.delete(ctx.from!.id);
+    } catch (error: any) {
+      await ctx.reply('❌ Replace error: ' + (error?.message || String(error)).substring(0, 300));
+      this.evalSessions.delete(ctx.from!.id);
+    }
+  }
+
+  async handleWpKeep(ctx: Context): Promise<void> {
+    await ctx.answerCbQuery();
+    this.evalSessions.delete(ctx.from!.id);
+    await ctx.reply('✅ Kept WinnerPip data unchanged.');
   }
 
   // ── Handle text input for find/delete eval sessions ──
@@ -2214,12 +2549,14 @@ class EvaluationHandler {
     try {
       if (ctx.from!.id.toString() !== config.adminUserId) { await ctx.reply('❌ Not authorized.'); return; }
 
-      const challenges = await tradingChallengeService.getActiveChallenges();
-      let challenge = challenges[0] || null;
-      if (!challenge) { const all = await tradingChallengeService.getAllChallenges(); challenge = all[0] || null; }
-      if (!challenge) { await ctx.reply('❌ No challenge found.'); return; }
+      const eligible = await this.getEligibleChallenges();
+      if (eligible.length === 0) { await ctx.reply('❌ No active or recently ended challenges found.'); return; }
 
-      await this.showNextUnevaluated(ctx, challenge);
+      if (eligible.length === 1) {
+        await this.showNextUnevaluated(ctx, eligible[0]);
+      } else {
+        await this.showChallengePicker(ctx, 'obo', eligible);
+      }
     } catch (error) {
       console.error('Error in evaluateonebyone:', error);
       await ctx.reply('❌ Error starting one-by-one evaluation.');
