@@ -2650,12 +2650,10 @@ export class VpsPullScheduler {
     const challengeStart = new Date(challenge.start_date).toISOString();
     const now = new Date().toISOString();
 
-    // For each symbol find the last stored candle time so we only fetch new ones.
     // Remap to base account format: strip trailing lowercase suffix, add 'm'.
-    // e.g. EURUSDc → EURUSDm, XAUUSDm → XAUUSDm, GBPUSDc → GBPUSDm
-    // This matches the remapSymbolToBaseAccount() logic in wpEvaluationEngine.ts.
     const remapToBase = (s: string) => s.replace(/[a-z]$/, '') + 'm';
 
+    // === PASS 1: Forward-fill (fetch from last candle to now) ===
     const symbolRanges: Array<{ symbol: string; from_time: string; to_time: string }> = [];
     const seenFetchSymbols = new Set<string>();
     for (const symbol of symbols) {
@@ -2674,17 +2672,56 @@ export class VpsPullScheduler {
       symbolRanges.push({ symbol: fetchSymbol, from_time: fromTime, to_time: now });
     }
 
-    if (symbolRanges.length === 0) {
-      console.log(`📊 OHLC: All ${symbols.length} symbol(s) already up to date`);
-      return;
+    if (symbolRanges.length > 0 && this.baseUrl) {
+      console.log(`📊 OHLC: Pass 1 — Forward-fill for ${symbolRanges.length} symbol(s)...`);
+      await this.fetchAndStoreCandles(challenge.id, symbolRanges);
     }
 
-    if (!this.baseUrl) {
-      console.log('⚠️ OHLC: No VPS URL configured, skipping');
-      return;
+    // === PASS 2: Gap-fill (detect missing ranges from challenge start and fill them) ===
+    const gapRanges: Array<{ symbol: string; from_time: string; to_time: string }> = [];
+    for (const fetchSymbol of seenFetchSymbols) {
+      const firstRow = await db.query(
+        `SELECT MIN(time) as first_time FROM ohlc_candles WHERE challenge_id = $1 AND symbol = $2`,
+        [challenge.id, fetchSymbol]
+      );
+      const firstTime = firstRow.rows[0]?.first_time;
+      if (!firstTime) {
+        // No candles at all — entire range is a gap
+        gapRanges.push({ symbol: fetchSymbol, from_time: challengeStart, to_time: now });
+        continue;
+      }
+      // If first stored candle is more than 2 minutes after challenge start, there's a gap at the beginning
+      const firstMs = new Date(firstTime).getTime();
+      const startMs = new Date(challengeStart).getTime();
+      if (firstMs - startMs > 2 * 60 * 1000) {
+        gapRanges.push({
+          symbol: fetchSymbol,
+          from_time: challengeStart,
+          to_time: new Date(firstMs - 60 * 1000).toISOString(),
+        });
+      }
     }
 
-    console.log(`📊 OHLC: Fetching candles for ${symbolRanges.length} symbol(s)...`);
+    if (gapRanges.length > 0 && this.baseUrl) {
+      console.log(`📊 OHLC: Pass 2 — Gap-fill for ${gapRanges.length} symbol(s) missing early data...`);
+      await this.fetchAndStoreCandles(challenge.id, gapRanges);
+    }
+
+    // Final count
+    const totalResult = await db.query(
+      `SELECT COUNT(*) as total FROM ohlc_candles WHERE challenge_id = $1`, [challenge.id]
+    );
+    console.log(`✅ OHLC: Total candles stored for challenge ${challenge.id}: ${totalResult.rows[0].total}`);
+  }
+
+  /**
+   * Fetch candles from VPS and store in DB. Shared by forward-fill and gap-fill passes.
+   */
+  private async fetchAndStoreCandles(
+    challengeId: number,
+    symbolRanges: Array<{ symbol: string; from_time: string; to_time: string }>
+  ): Promise<number> {
+    if (!this.baseUrl || symbolRanges.length === 0) return 0;
 
     let response: any;
     try {
@@ -2696,12 +2733,12 @@ export class VpsPullScheduler {
       response = res.data;
     } catch (e: any) {
       console.error(`⚠️ OHLC: VPS request failed:`, e?.message || e);
-      return;
+      return 0;
     }
 
     if (!response?.results) {
       console.error('⚠️ OHLC: Invalid response from VPS');
-      return;
+      return 0;
     }
 
     let totalInserted = 0;
@@ -2714,7 +2751,7 @@ export class VpsPullScheduler {
         const values: any[] = [];
         const placeholders = chunk.map((c, idx) => {
           const base = idx * 8;
-          values.push(challenge.id, symbol, c.time, c.open, c.high, c.low, c.close, c.volume);
+          values.push(challengeId, symbol, c.time, c.open, c.high, c.low, c.close, c.volume);
           return `($${base + 1},$${base + 2},$${base + 3},$${base + 4},$${base + 5},$${base + 6},$${base + 7},$${base + 8})`;
         });
         await db.query(
@@ -2725,9 +2762,9 @@ export class VpsPullScheduler {
         ).catch(e => console.error(`⚠️ OHLC insert error for ${symbol}:`, e));
         totalInserted += chunk.length;
       }
-      console.log(`📊 OHLC: ${symbol} — ${data.count} candles saved`);
+      console.log(`📊 OHLC: ${symbol} — ${candles.length} candles saved`);
     }
-    console.log(`✅ OHLC: Updated ${totalInserted} candle rows for challenge ${challenge.id}`);
+    return totalInserted;
   }
 
   // ==================== UTILITY ====================
