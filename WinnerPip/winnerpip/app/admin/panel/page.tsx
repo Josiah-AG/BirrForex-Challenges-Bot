@@ -2100,7 +2100,7 @@ function ChallengeSettingsPanel({ challengeId, challenges, onRefresh }: { challe
                 try {
                   const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/ohlc-update`, { method: "POST" });
                   const d = await res.json();
-                  if (res.ok) setMsg(`✅ OHLC updated — ${d.total_candles?.toLocaleString()} candles across ${d.symbols} symbol(s)`);
+                  if (res.ok) setMsg(`✅ OHLC update started — running in background. Check Railway logs for progress.`);
                   else setMsg(`❌ OHLC update failed: ${d.error || res.statusText}`);
                 } catch { setMsg("❌ OHLC update failed"); }
                 setOhlcUpdating(false);

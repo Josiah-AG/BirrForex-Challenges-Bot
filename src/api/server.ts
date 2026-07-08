@@ -2131,15 +2131,25 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/ohlc-update`, adminIpChe
     const challenge = challengeResult.rows[0];
     if (!challenge) return res.status(404).json({ error: 'Challenge not found' });
 
-    const { vpsPullScheduler } = require('../scheduler/vpsPullScheduler');
-    await vpsPullScheduler.updateOhlcCandles(challenge);
+    const scheduler = (global as any).__vpsPullScheduler;
+    if (!scheduler) return res.status(503).json({ error: 'Pull scheduler not initialised yet — try again in a moment' });
 
-    const countResult = await db.query(
-      `SELECT COUNT(*) as total, COUNT(DISTINCT symbol) as symbols FROM ohlc_candles WHERE challenge_id = $1`,
-      [challengeId]
-    );
-    const { total, symbols } = countResult.rows[0];
-    return res.json({ success: true, total_candles: parseInt(total), symbols: parseInt(symbols) });
+    // Respond immediately so the browser doesn't timeout; run update in background
+    res.json({ success: true, started: true, message: 'OHLC update started — check server logs for progress' });
+
+    (async () => {
+      try {
+        await scheduler.updateOhlcCandles(challenge);
+        const countResult = await db.query(
+          `SELECT COUNT(*) as total, COUNT(DISTINCT symbol) as symbols FROM ohlc_candles WHERE challenge_id = $1`,
+          [challengeId]
+        );
+        const { total, symbols } = countResult.rows[0];
+        console.log(`✅ OHLC manual update done: ${total} candles, ${symbols} symbols for challenge ${challengeId}`);
+      } catch (e: any) {
+        console.error('OHLC background update error:', e?.message || e);
+      }
+    })();
   } catch (error: any) {
     console.error('OHLC update error:', error);
     return res.status(500).json({ error: error?.message || 'Internal server error' });
