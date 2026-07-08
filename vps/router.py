@@ -275,6 +275,18 @@ class CandlesRequest(BaseModel):
     required_subtype: Optional[str] = None
 
 
+class OhlcSymbolRange(BaseModel):
+    symbol:    str
+    from_time: str
+    to_time:   str
+
+
+class OhlcBulkRequest(BaseModel):
+    symbols:   list
+    timeframe: str = "M1"
+    api_key:   str
+
+
 class ConfigureRequest(BaseModel):
     api_key:        str
     terminals:      Dict[str, Any]   # {terminal_id_str: {subtype, account, server, password}}
@@ -793,6 +805,39 @@ async def get_candles(req: CandlesRequest):
 
     return {"success": False, "message": f"All terminals failed for {required_subtype} candles",
             "candles": [], "terminals_tried": len(tried)}
+
+
+@app.post("/candles")
+async def candles_alias(req: CandlesRequest):
+    """Alias for /api/v1/candles — routes to a standard terminal worker."""
+    return await get_candles(req)
+
+
+@app.post("/ohlc-bulk")
+async def ohlc_bulk(req: OhlcBulkRequest):
+    """Fetch 1-min candles for multiple symbols, routing each through a standard worker."""
+    if req.api_key != API_KEY:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+
+    # Pick one healthy standard terminal to run all candle fetches
+    candidates = get_candidates_for_subtype("standard")
+    wid = candidates[0] if candidates else 1
+
+    try:
+        async with httpx.AsyncClient(timeout=180.0) as client:
+            resp = await client.post(
+                f"{worker_url(wid)}/ohlc-bulk",
+                json={
+                    "symbols":   req.symbols,
+                    "timeframe": req.timeframe,
+                    "api_key":   req.api_key,
+                },
+            )
+            data = resp.json()
+            data["terminal_used"] = wid
+            return data
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Worker {wid} error: {str(e)[:200]}")
 
 
 # ==================== STARTUP ====================
