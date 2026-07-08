@@ -1260,13 +1260,21 @@ def do_candles(symbol: str, timeframe: str, from_time: str, to_time: str, requir
     except:
         return {"success": False, "message": "Invalid date format"}
 
-    # All terminals idle on the hardcoded standard base account.
-    # No subtype self-correct needed — just ensure MT5 is initialised.
     if not _ipc_connected:
         if not mt5.initialize(TERMINAL_PATH, timeout=15000):
             return {"success": False, "message": "MT5 not initialized"}
 
+    # Ensure symbol is subscribed so MT5 loads its history
+    if not mt5.symbol_select(symbol, True):
+        return {"success": False, "message": f"Cannot select symbol {symbol}", "candles": []}
+
     rates = mt5.copy_rates_range(symbol, tf, date_from, date_to)
+
+    # MT5 may need a moment to load history for newly selected symbols — retry once
+    if rates is None or len(rates) == 0:
+        import time as _time
+        _time.sleep(2)
+        rates = mt5.copy_rates_range(symbol, tf, date_from, date_to)
 
     if rates is None or len(rates) == 0:
         return {"success": False, "message": f"No candle data for {symbol}", "candles": []}
@@ -1284,6 +1292,67 @@ def do_candles(symbol: str, timeframe: str, from_time: str, to_time: str, requir
     ]
 
     return {"success": True, "candles": candles, "count": len(candles)}
+
+
+def do_ohlc_bulk(symbol_ranges: list, timeframe: str = "M1") -> dict:
+    """Fetch 1-min candles for multiple symbols, each with its own from/to range.
+    symbol_ranges: [{"symbol": "EURUSD", "from_time": "...", "to_time": "..."}, ...]
+    Returns: {"results": {"EURUSD": {"candles": [...], "count": N}, ...}}
+    """
+    if not _ipc_connected:
+        if not mt5.initialize(TERMINAL_PATH, timeout=15000):
+            return {"success": False, "message": "MT5 not initialized", "results": {}}
+
+    tf_map = {
+        "M1": mt5.TIMEFRAME_M1, "M5": mt5.TIMEFRAME_M5,
+        "M15": mt5.TIMEFRAME_M15, "H1": mt5.TIMEFRAME_H1,
+        "H4": mt5.TIMEFRAME_H4, "D1": mt5.TIMEFRAME_D1,
+    }
+    tf = tf_map.get(timeframe, mt5.TIMEFRAME_M1)
+
+    import time as _time
+    results = {}
+
+    for entry in symbol_ranges:
+        symbol = entry.get("symbol", "")
+        from_time = entry.get("from_time", "")
+        to_time = entry.get("to_time", "")
+
+        try:
+            date_from = datetime.fromisoformat(from_time.replace("Z", "+00:00").replace(" ", "T"))
+            date_to   = datetime.fromisoformat(to_time.replace("Z",   "+00:00").replace(" ", "T"))
+        except:
+            results[symbol] = {"success": False, "message": "Invalid date format", "candles": [], "count": 0}
+            continue
+
+        # Subscribe symbol to ensure history is available
+        if not mt5.symbol_select(symbol, True):
+            results[symbol] = {"success": False, "message": f"Cannot select {symbol}", "candles": [], "count": 0}
+            continue
+
+        rates = mt5.copy_rates_range(symbol, tf, date_from, date_to)
+        if rates is None or len(rates) == 0:
+            _time.sleep(2)
+            rates = mt5.copy_rates_range(symbol, tf, date_from, date_to)
+
+        if rates is None or len(rates) == 0:
+            results[symbol] = {"success": False, "message": f"No data for {symbol}", "candles": [], "count": 0}
+            continue
+
+        candles = [
+            {
+                "time":   datetime.fromtimestamp(rate[0], tz=timezone.utc).isoformat(),
+                "open":   float(rate[1]),
+                "high":   float(rate[2]),
+                "low":    float(rate[3]),
+                "close":  float(rate[4]),
+                "volume": int(rate[5]),
+            }
+            for rate in rates
+        ]
+        results[symbol] = {"success": True, "candles": candles, "count": len(candles)}
+
+    return {"success": True, "results": results}
 
 
 # ==================== MODELS ====================
@@ -1313,6 +1382,18 @@ class CandlesRequest(BaseModel):
     api_key:           str
     terminal_id:       Optional[int] = None
     required_subtype:  Optional[str] = None
+
+
+class OhlcSymbolRange(BaseModel):
+    symbol:    str
+    from_time: str
+    to_time:   str
+
+
+class OhlcBulkRequest(BaseModel):
+    symbols:   list[OhlcSymbolRange]
+    timeframe: str = "M1"
+    api_key:   str
 
 
 class ResolveOpensRequest(BaseModel):
@@ -1439,6 +1520,17 @@ def candles(req: CandlesRequest):
         raise HTTPException(status_code=401, detail="Invalid API key")
     with _lock:
         result = do_candles(req.symbol, req.timeframe, req.from_time, req.to_time, req.required_subtype)
+    _schedule_idle_restore()
+    return result
+
+
+@app.post("/ohlc-bulk")
+def ohlc_bulk(req: OhlcBulkRequest):
+    if req.api_key != API_KEY:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+    symbol_ranges = [{"symbol": s.symbol, "from_time": s.from_time, "to_time": s.to_time} for s in req.symbols]
+    with _lock:
+        result = do_ohlc_bulk(symbol_ranges, req.timeframe)
     _schedule_idle_restore()
     return result
 

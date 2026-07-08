@@ -1929,6 +1929,7 @@ function ChallengeSettingsPanel({ challengeId, challenges, onRefresh }: { challe
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [ohlcUpdating, setOhlcUpdating] = useState(false);
 
   // Convert UTC ISO string from API → datetime-local string displayed as EAT (UTC+3)
   function formatDateForInput(isoStr: string): string {
@@ -2085,6 +2086,40 @@ function ChallengeSettingsPanel({ challengeId, challenges, onRefresh }: { challe
             <button onClick={async () => { try { const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/export-evaluation`); if (res.ok) { const data = await res.json(); const csv = convertToCSV(data.evaluation); const blob = new Blob([csv], { type: "text/csv" }); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `${(editForm.title || `challenge_${challengeId}`).replace(/\s+/g, '_')}_evaluation.csv`; a.click(); setMsg("✅ Evaluation exported"); } } catch { setMsg("❌ Export failed"); } }} className="p-2.5 rounded-lg bg-profit/10 border border-profit/30 text-profit text-xs font-semibold hover:bg-profit/20 transition-all">📋 Evaluation CSV</button>
             <button onClick={async () => { try { const r = await fetch(`${apiUrl}/api/challenges/${challengeId}/rules`); const d = await r.json(); downloadRulesHTML(editForm, d.rules || [], d.isCent || false); } catch { downloadRulesHTML(editForm, [], false); } }} className="p-2.5 rounded-lg bg-royal/10 border border-royal/30 text-royal text-xs font-semibold hover:bg-royal/20 transition-all">📋 Rules Image</button>
             <button onClick={async () => { try { const r = await fetch(`${apiUrl}/api/challenges/${challengeId}/leaderboard?limit=10`); const d = await r.json(); downloadLeaderboardHTML({ ...editForm, real_winners_count: challenge?.realWinnersCount ?? 3, demo_winners_count: challenge?.demoWinnersCount ?? 3 }, d.leaderboard || []); } catch { downloadLeaderboardHTML(editForm, []); } }} className="p-2.5 rounded-lg bg-gold/10 border border-gold/30 text-gold text-xs font-semibold hover:bg-gold/20 transition-all">🏆 Leaderboard Image</button>
+          </div>
+        </div>
+
+        {/* OHLC Data */}
+        <div className="border-t border-white/10 pt-5">
+          <p className="text-xs text-gray-400 font-semibold mb-1 uppercase tracking-wider">OHLC 1-Min Candle Data</p>
+          <p className="text-[10px] text-gray-500 mb-3">Stores 1-min candles for all traded symbols from challenge start to now. Updated automatically at every pull.</p>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={async () => {
+                setOhlcUpdating(true); setMsg("");
+                try {
+                  const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/ohlc-update`, { method: "POST" });
+                  const d = await res.json();
+                  if (res.ok) setMsg(`✅ OHLC updated — ${d.total_candles?.toLocaleString()} candles across ${d.symbols} symbol(s)`);
+                  else setMsg(`❌ OHLC update failed: ${d.error || res.statusText}`);
+                } catch { setMsg("❌ OHLC update failed"); }
+                setOhlcUpdating(false);
+              }}
+              disabled={ohlcUpdating}
+              className="p-2.5 rounded-lg bg-royal/10 border border-royal/30 text-royal text-xs font-semibold hover:bg-royal/20 transition-all disabled:opacity-50"
+            >
+              {ohlcUpdating ? "⏳ Updating..." : "🔄 Update OHLC Data"}
+            </button>
+            <button
+              onClick={() => {
+                const url = `${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/ohlc-download`;
+                const a = document.createElement("a");
+                a.href = url; a.download = `${(editForm.title || `challenge_${challengeId}`).replace(/\s+/g, '_')}_ohlc.csv`; a.click();
+              }}
+              className="p-2.5 rounded-lg bg-white/5 border border-white/10 text-gray-300 text-xs font-semibold hover:bg-white/10 transition-all"
+            >
+              📥 Download OHLC CSV
+            </button>
           </div>
         </div>
 

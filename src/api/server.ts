@@ -2121,6 +2121,65 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/export-evaluation`, admin
 });
 
 /**
+ * POST /api/admin/:secretPath/challenge/:id/ohlc-update
+ * Manually trigger a full OHLC backfill for all symbols in this challenge
+ */
+app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/ohlc-update`, adminIpCheck, async (req, res) => {
+  try {
+    const challengeId = parseInt(req.params.id);
+    const challengeResult = await db.query(`SELECT * FROM trading_challenges WHERE id = $1`, [challengeId]);
+    const challenge = challengeResult.rows[0];
+    if (!challenge) return res.status(404).json({ error: 'Challenge not found' });
+
+    const { vpsPullScheduler } = require('../scheduler/vpsPullScheduler');
+    await vpsPullScheduler.updateOhlcCandles(challenge);
+
+    const countResult = await db.query(
+      `SELECT COUNT(*) as total, COUNT(DISTINCT symbol) as symbols FROM ohlc_candles WHERE challenge_id = $1`,
+      [challengeId]
+    );
+    const { total, symbols } = countResult.rows[0];
+    return res.json({ success: true, total_candles: parseInt(total), symbols: parseInt(symbols) });
+  } catch (error: any) {
+    console.error('OHLC update error:', error);
+    return res.status(500).json({ error: error?.message || 'Internal server error' });
+  }
+});
+
+/**
+ * GET /api/admin/:secretPath/challenge/:id/ohlc-download
+ * Download all OHLC 1-min candle data for the challenge as CSV
+ */
+app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/ohlc-download`, adminIpCheck, async (req, res) => {
+  try {
+    const challengeId = parseInt(req.params.id);
+    const challengeResult = await db.query(`SELECT title FROM trading_challenges WHERE id = $1`, [challengeId]);
+    const challenge = challengeResult.rows[0];
+    if (!challenge) return res.status(404).json({ error: 'Challenge not found' });
+
+    const rows = await db.query(
+      `SELECT symbol, time, open, high, low, close, volume
+       FROM ohlc_candles WHERE challenge_id = $1
+       ORDER BY symbol, time ASC`,
+      [challengeId]
+    );
+
+    const header = 'symbol,time,open,high,low,close,volume\n';
+    const csvRows = rows.rows.map((r: any) =>
+      `${r.symbol},${new Date(r.time).toISOString()},${r.open},${r.high},${r.low},${r.close},${r.volume}`
+    );
+    const csv = header + csvRows.join('\n');
+
+    const filename = `${(challenge.title || `challenge_${challengeId}`).replace(/\s+/g, '_')}_ohlc.csv`;
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    return res.send(csv);
+  } catch (error) {
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
  * GET /api/admin/:secretPath/challenge/:id/user-evaluation?registration_id=X
  * Per-user evaluation report — same format as Telegram /evaluate command
  */

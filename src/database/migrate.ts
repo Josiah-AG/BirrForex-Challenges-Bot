@@ -412,6 +412,23 @@ async function migrate() {
     await db.query(`CREATE INDEX IF NOT EXISTS idx_balance_ops_reg ON wp_balance_ops (challenge_id, registration_id);`).catch(() => {});
     console.log('✅ wp_balance_ops + withdrawal columns migration OK');
 
+    // OHLC 1-minute candle storage
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS ohlc_candles (
+        challenge_id  INTEGER       NOT NULL,
+        symbol        VARCHAR(20)   NOT NULL,
+        time          TIMESTAMPTZ   NOT NULL,
+        open          DOUBLE PRECISION,
+        high          DOUBLE PRECISION,
+        low           DOUBLE PRECISION,
+        close         DOUBLE PRECISION,
+        volume        INTEGER,
+        PRIMARY KEY (challenge_id, symbol, time)
+      )
+    `).catch(() => {});
+    await db.query(`CREATE INDEX IF NOT EXISTS idx_ohlc_challenge_symbol ON ohlc_candles (challenge_id, symbol, time DESC);`).catch(() => {});
+    console.log('✅ ohlc_candles table migration OK');
+
     console.log('✅ Database migration completed successfully!');
     process.exit(0);
   } catch (error) {

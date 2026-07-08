@@ -602,6 +602,11 @@ export class VpsPullScheduler {
       // === POST-CYCLE: Auto-recheck any trades still pending from previous cycles ===
       await this.autoRecheckPendingSlTrades(challengeToPull.id);
 
+      // === POST-CYCLE: Update OHLC 1-min candle data for all traded symbols ===
+      await this.updateOhlcCandles(challengeToPull).catch(e =>
+        console.error('⚠️ OHLC update error (non-fatal):', e)
+      );
+
       // === POST-CYCLE: Restore candle terminals back to base account ===
       await candleTerminalManager.restore();
 
@@ -2629,6 +2634,95 @@ export class VpsPullScheduler {
         `🚨 <b>CRITICAL: VPS Pull Failed</b>\n<b>${challenge.title}</b>\n\n${message}`,
         { parse_mode: 'HTML' });
     } catch (e) {}
+  }
+
+  // ==================== OHLC CANDLE STORAGE ====================
+
+  async updateOhlcCandles(challenge: TradingChallenge): Promise<void> {
+    // Collect all distinct symbols traded in this challenge
+    const symbolResult = await db.query(
+      `SELECT DISTINCT symbol FROM wp_trades WHERE challenge_id = $1 AND symbol IS NOT NULL AND symbol != ''`,
+      [challenge.id]
+    );
+    if (symbolResult.rows.length === 0) return;
+
+    const symbols: string[] = symbolResult.rows.map((r: any) => r.symbol);
+    const challengeStart = new Date(challenge.start_date).toISOString();
+    const now = new Date().toISOString();
+
+    // For each symbol find the last stored candle time so we only fetch new ones
+    const symbolRanges: Array<{ symbol: string; from_time: string; to_time: string }> = [];
+    for (const symbol of symbols) {
+      const lastRow = await db.query(
+        `SELECT MAX(time) as last_time FROM ohlc_candles WHERE challenge_id = $1 AND symbol = $2`,
+        [challenge.id, symbol]
+      );
+      const lastTime = lastRow.rows[0]?.last_time;
+      // Start 1 minute after last stored candle, or from challenge start if none
+      const fromTime = lastTime
+        ? new Date(new Date(lastTime).getTime() + 60 * 1000).toISOString()
+        : challengeStart;
+      // Nothing to fetch if already up to date
+      if (new Date(fromTime) >= new Date(now)) continue;
+      symbolRanges.push({ symbol, from_time: fromTime, to_time: now });
+    }
+
+    if (symbolRanges.length === 0) {
+      console.log(`📊 OHLC: All ${symbols.length} symbol(s) already up to date`);
+      return;
+    }
+
+    if (!this.baseUrl) {
+      console.log('⚠️ OHLC: No VPS URL configured, skipping');
+      return;
+    }
+
+    console.log(`📊 OHLC: Fetching candles for ${symbolRanges.length} symbol(s)...`);
+
+    let response: any;
+    try {
+      const res = await axios.post(`${this.baseUrl}/ohlc-bulk`, {
+        symbols: symbolRanges,
+        timeframe: 'M1',
+        api_key: this.apiKey,
+      }, { timeout: 120000 });
+      response = res.data;
+    } catch (e: any) {
+      console.error(`⚠️ OHLC: VPS request failed:`, e?.message || e);
+      return;
+    }
+
+    if (!response?.results) {
+      console.error('⚠️ OHLC: Invalid response from VPS');
+      return;
+    }
+
+    let totalInserted = 0;
+    for (const [symbol, data] of Object.entries(response.results) as [string, any][]) {
+      if (!data.success || !data.candles?.length) continue;
+      const candles = data.candles as Array<{ time: string; open: number; high: number; low: number; close: number; volume: number }>;
+
+      // Batch upsert in chunks of 500 to avoid huge queries
+      const CHUNK = 500;
+      for (let i = 0; i < candles.length; i += CHUNK) {
+        const chunk = candles.slice(i, i + CHUNK);
+        const values: any[] = [];
+        const placeholders = chunk.map((c, idx) => {
+          const base = idx * 7;
+          values.push(challenge.id, symbol, c.time, c.open, c.high, c.low, c.close, c.volume);
+          return `($${base + 1},$${base + 2},$${base + 3},$${base + 4},$${base + 5},$${base + 6},$${base + 7},$${base + 8})`;
+        });
+        await db.query(
+          `INSERT INTO ohlc_candles (challenge_id, symbol, time, open, high, low, close, volume)
+           VALUES ${placeholders.join(',')}
+           ON CONFLICT (challenge_id, symbol, time) DO NOTHING`,
+          values
+        ).catch(e => console.error(`⚠️ OHLC insert error for ${symbol}:`, e));
+        totalInserted += chunk.length;
+      }
+      console.log(`📊 OHLC: ${symbol} — ${data.count} candles saved`);
+    }
+    console.log(`✅ OHLC: Updated ${totalInserted} candle rows for challenge ${challenge.id}`);
   }
 
   // ==================== UTILITY ====================
