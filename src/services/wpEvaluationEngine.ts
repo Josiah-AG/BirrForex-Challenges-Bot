@@ -170,11 +170,11 @@ async function fetchCandles(
        WHERE symbol = $1 AND time >= $2 AND time <= $3
        ORDER BY time ASC
        LIMIT 5000`,
-      [baseSymbol, fromTime.toISOString(), toTime.toISOString()]
+      [baseSymbol, new Date(fromTime.getTime() - 60000).toISOString(), toTime.toISOString()]
     );
 
     if (result.rows.length === 0) {
-      // Debug: check if we have ANY candles for this symbol at all
+      // Check if we have ANY candles for this symbol at all
       const countCheck = await db.query(
         `SELECT COUNT(*) as cnt, MIN(time) as earliest, MAX(time) as latest FROM ohlc_candles WHERE symbol = $1`,
         [baseSymbol]
@@ -182,10 +182,13 @@ async function fetchCandles(
       const { cnt, earliest, latest } = countCheck.rows[0] || {};
       if (parseInt(cnt) === 0) {
         console.log(`⚠️ fetchCandles: No OHLC data at all for ${baseSymbol} (original: ${symbol})`);
-      } else {
-        console.log(`⚠️ fetchCandles: ${baseSymbol} has ${cnt} candles (${earliest} → ${latest}) but none in range ${fromTime.toISOString()} → ${toTime.toISOString()}`);
+        return null; // Truly no data — triggers FAILED/pending
       }
-      return null;
+      // Data exists for this symbol but not in the trade's time range.
+      // This means the trade is too short or falls in a market-closed gap.
+      // Return empty array (not null) — this will result in safeCandles=[] → SL_SKIPPED → pass.
+      console.log(`⚠️ fetchCandles: ${baseSymbol} has ${cnt} candles (${earliest} → ${latest}) but none in range ${new Date(fromTime.getTime() - 60000).toISOString()} → ${toTime.toISOString()} — treating as pass`);
+      return [];
     }
 
     return result.rows.map((r: any) => ({
@@ -328,8 +331,12 @@ async function validateSlWithCandles(
 
   let candles = await fetchCandles(trade.symbol, windowFrom, windowTo, 'M1');
 
-  if (!candles || candles.length === 0) {
+  if (candles === null) {
     return { violation: 'FAILED', slAllowedPrice: maxSlPrice, slMaxAdversePrice: null, slCheckResult: 'no_candles' };
+  }
+  if (candles.length === 0) {
+    // Symbol exists in DB but trade is too short — pass (benefit of doubt)
+    return { ...SL_SKIPPED, slAllowedPrice: maxSlPrice, slCheckResult: 'passed' };
   }
 
   // Exclude first and last candle (entry/exit candles have partial data)
