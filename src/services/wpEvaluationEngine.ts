@@ -165,18 +165,28 @@ async function fetchCandles(
   const baseSymbol = remapSymbolToBaseAccount(symbol);
 
   try {
-    // Get the challenge_id from the current evaluation context (set on the engine instance)
-    // We query all challenge candles for this symbol in the time range — ohlc_candles
-    // stores per-challenge data, but since a symbol's price is the same across challenges,
-    // we can query without challenge_id filter if needed. For correctness, use challenge scope.
     const result = await db.query(
       `SELECT time, open, high, low, close FROM ohlc_candles
        WHERE symbol = $1 AND time >= $2 AND time <= $3
-       ORDER BY time ASC`,
+       ORDER BY time ASC
+       LIMIT 5000`,
       [baseSymbol, fromTime.toISOString(), toTime.toISOString()]
     );
 
-    if (result.rows.length === 0) return null;
+    if (result.rows.length === 0) {
+      // Debug: check if we have ANY candles for this symbol at all
+      const countCheck = await db.query(
+        `SELECT COUNT(*) as cnt, MIN(time) as earliest, MAX(time) as latest FROM ohlc_candles WHERE symbol = $1`,
+        [baseSymbol]
+      );
+      const { cnt, earliest, latest } = countCheck.rows[0] || {};
+      if (parseInt(cnt) === 0) {
+        console.log(`⚠️ fetchCandles: No OHLC data at all for ${baseSymbol} (original: ${symbol})`);
+      } else {
+        console.log(`⚠️ fetchCandles: ${baseSymbol} has ${cnt} candles (${earliest} → ${latest}) but none in range ${fromTime.toISOString()} → ${toTime.toISOString()}`);
+      }
+      return null;
+    }
 
     return result.rows.map((r: any) => ({
       time: new Date(r.time).toISOString(),
@@ -1140,11 +1150,9 @@ export class WpEvaluationEngine {
           const attempts = (trade.sl_check_attempts ?? 0);
           const conflicts = (trade.sl_conflict_count ?? 0);
 
-          if (existingResult === 'check_failed') {
-            const storedViols: string[] = (() => { try { return JSON.parse((trade as any).violations || '[]'); } catch { return []; } })();
-            const v = storedViols.find(x => x.includes('maximum allowed risk') || x.includes('could not be verified'));
-            if (v && !violations.includes(v)) { violations.push(v); slPenaltyDollars = rules.max_risk_dollars; }
-          } else {
+          // Always re-run candle check (even if previously check_failed) — now that
+          // we use local OHLC data, old VPS failures should resolve.
+          {
             const posId2 = trade.position_id ?? trade.ticket;
             const siblings = allTrades
               .filter(t => (t.position_id ?? t.ticket) === posId2)
