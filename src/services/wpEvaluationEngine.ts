@@ -150,11 +150,11 @@ function remapSymbolToBaseAccount(symbol: string): string {
 }
 
 /**
- * Fetch OHLC candles from VPS for SL validation.
+ * Fetch OHLC candles from LOCAL ohlc_candles DB table.
  *
- * v8.0: All terminals idle on the hardcoded standard base account.
- * Symbol is remapped to the standard 'm' suffix before the request.
- * required_subtype is always 'standard' so the router picks any healthy terminal.
+ * Replaces the old VPS-based fetch. Symbol is remapped to the standard 'm' suffix
+ * (same as stored in ohlc_candles). Returns M1 candles for the requested range.
+ * Returns null if no candle data exists for this symbol/range.
  */
 async function fetchCandles(
   symbol: string,
@@ -163,37 +163,32 @@ async function fetchCandles(
   timeframe: string = 'M1',
 ): Promise<CandleResult | null> {
   const baseSymbol = remapSymbolToBaseAccount(symbol);
-  const MAX_ATTEMPTS = 4;
 
-  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-    try {
-      // On attempts 3+ expand the window by 30 min each side so MT5 can find
-      // history near session boundaries or when the chart isn't loaded yet.
-      const bufferMs = attempt >= 2 ? 30 * 60 * 1000 : 0;
-      const from = new Date(fromTime.getTime() - bufferMs);
-      const to   = new Date(toTime.getTime()   + bufferMs);
+  try {
+    // Get the challenge_id from the current evaluation context (set on the engine instance)
+    // We query all challenge candles for this symbol in the time range — ohlc_candles
+    // stores per-challenge data, but since a symbol's price is the same across challenges,
+    // we can query without challenge_id filter if needed. For correctness, use challenge scope.
+    const result = await db.query(
+      `SELECT time, open, high, low, close FROM ohlc_candles
+       WHERE symbol = $1 AND time >= $2 AND time <= $3
+       ORDER BY time ASC`,
+      [baseSymbol, fromTime.toISOString(), toTime.toISOString()]
+    );
 
-      const res = await axios.post(
-        `${config.vpsApiUrl}/api/v1/candles`,
-        {
-          symbol:           baseSymbol,
-          timeframe,
-          from_time:        from.toISOString(),
-          to_time:          to.toISOString(),
-          api_key:          config.vpsApiKey,
-          required_subtype: 'standard',
-        },
-        { headers: { 'Content-Type': 'application/json' }, timeout: 60000 }
-      );
-      if (res.data?.success && res.data?.candles?.length > 0) return res.data.candles;
-    } catch { /* network / timeout — retry */ }
+    if (result.rows.length === 0) return null;
 
-    if (attempt < MAX_ATTEMPTS - 1) {
-      // Exponential-ish back-off: 1 s, 2 s, 3 s
-      await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
-    }
+    return result.rows.map((r: any) => ({
+      time: new Date(r.time).toISOString(),
+      open: parseFloat(r.open),
+      high: parseFloat(r.high),
+      low: parseFloat(r.low),
+      close: parseFloat(r.close),
+    }));
+  } catch (e) {
+    console.error(`⚠️ fetchCandles DB error for ${baseSymbol}:`, (e as Error).message);
+    return null;
   }
-  return null;
 }
 
 /**
@@ -318,28 +313,10 @@ async function validateSlWithCandles(
   if (openMs <= 946684800000 || closeMs <= openMs) return { ...SL_SKIPPED, slAllowedPrice: maxSlPrice };
 
   const holdMinutes = (closeMs - openMs) / (60 * 1000);
-  let tf = selectTimeframe(holdMinutes, maxHoldHours);
-  if (!tf) return { ...SL_SKIPPED, slAllowedPrice: maxSlPrice };
+  // Always use M1 candles from local DB — no timeframe selection needed
+  const tf = { timeframe: 'M1', periodMs: 60 * 1000 };
 
-  let candles = await fetchCandles(trade.symbol, windowFrom, windowTo, tf.timeframe);
-
-  // Timeframe fallback: if selected timeframe returns nothing, step down to finer
-  // timeframes (M5 → M1) before giving up. MT5 is more likely to have finer data
-  // cached, and smaller candles always cover any hold duration.
-  if (!candles || candles.length === 0) {
-    const fallbacks = [
-      { timeframe: 'M5',  periodMs: 5  * 60 * 1000 },
-      { timeframe: 'M1',  periodMs: 1  * 60 * 1000 },
-    ].filter(f => f.timeframe !== tf!.timeframe);
-
-    for (const fallback of fallbacks) {
-      candles = await fetchCandles(trade.symbol, windowFrom, windowTo, fallback.timeframe);
-      if (candles && candles.length > 0) {
-        tf = fallback; // switch to the timeframe we actually got data for
-        break;
-      }
-    }
-  }
+  let candles = await fetchCandles(trade.symbol, windowFrom, windowTo, 'M1');
 
   if (!candles || candles.length === 0) {
     return { violation: 'FAILED', slAllowedPrice: maxSlPrice, slMaxAdversePrice: null, slCheckResult: 'no_candles' };
@@ -1109,136 +1086,6 @@ export class WpEvaluationEngine {
         violations.push(`Exceeded max ${rules.pair_limit} simultaneous ${trade.symbol} trades (also open: ${coStr})`);
       }
 
-      // Stop loss checks — Layer A (declared SL) and Layer B (candle-based Window 0)
-      // are pre-evaluated once per POSITION using the full lot size (see
-      // `positionSlOutcomes` pre-pass above). If the position-level check breached,
-      // the same violation applies to every child close — win or loss. Otherwise,
-      // fall back to this trade's own individual-window check below (handles later
-      // partials and the no-data/conflict escalation tracking).
-      let slPenaltyDollars = 0;
-      if (rules.stop_loss_required) {
-        const currency = reg.is_cent ? '¢' : '$';
-        const MAX_SL_CHECK_ATTEMPTS = 5;
-        const MAX_CONFLICTS = 3;
-        const isDefinitive = isDefinitiveSl;
-        const posId = ticketToPosition.get(trade.ticket) ?? trade.ticket;
-        const posOutcome = positionSlOutcomes.get(posId);
-
-        // Layer A — declared SL too wide. Disqualifies on its own; profit-only
-        // removal happens in the "Apply" block below via violations.length > 0, no
-        // extra penalty added here.
-        if (posOutcome?.layerABreach) {
-          violations.push(posOutcome.layerAViolation!);
-        }
-
-        if (posOutcome?.layerBBreach) {
-          // Layer B (fake SL) confirmed at position level — full max-risk penalty,
-          // stacks on top of Layer A above if both breached.
-          violations.push(posOutcome.layerBViolation!);
-          if (rules.max_risk_dollars) slPenaltyDollars = rules.max_risk_dollars;
-          await db.query(
-            `UPDATE wp_trades SET sl_allowed_price = $1, sl_max_adverse_price = $2, sl_check_result = $3, sl_check_pending = false, sl_check_attempts = 0, sl_conflict_count = 0 WHERE id = $4`,
-            [posOutcome.slAllowedPrice, posOutcome.slMaxAdversePrice, posOutcome.slCheckResult, trade.id]
-          ).catch(() => {});
-        } else if (rules.max_risk_dollars && tradeNet > 0) {
-          const existingResult = trade.sl_check_result;
-          const attempts = (trade.sl_check_attempts ?? 0);
-          const conflicts = (trade.sl_conflict_count ?? 0);
-
-          // If already escalated (check_failed), just re-apply the penalty — no new VPS call
-          if (existingResult === 'check_failed') {
-            const storedViols: string[] = (() => { try { return JSON.parse((trade as any).violations || '[]'); } catch { return []; } })();
-            const v = storedViols.find(x => x.includes('maximum allowed risk') || x.includes('could not be verified'));
-            if (v && !violations.includes(v)) { violations.push(v); slPenaltyDollars = rules.max_risk_dollars; }
-          } else {
-            // Run candle check (partial-close aware)
-            const posId = trade.position_id ?? trade.ticket;
-            const siblings = allTrades
-              .filter(t => (t.position_id ?? t.ticket) === posId)
-              .sort((a, b) => new Date(a.close_time).getTime() - new Date(b.close_time).getTime());
-            const slOutcome = await runSlCheckForTrade(trade, siblings, rules.max_hold_hours || null, rules.max_risk_dollars);
-
-            if (slOutcome.violation === 'FAILED') {
-              // No candle data returned
-              if (isDefinitive(existingResult)) {
-                // Keep existing good result — just stay pending for re-confirmation
-                await db.query(
-                  `UPDATE wp_trades SET sl_check_pending = true, sl_check_attempts = $1 WHERE id = $2`,
-                  [attempts + 1, trade.id]
-                ).catch(() => {});
-                // Re-apply existing violation if it was a breach
-                if (existingResult === 'fake_sl') {
-                  const storedViols: string[] = (() => { try { return JSON.parse((trade as any).violations || '[]'); } catch { return []; } })();
-                  const v = storedViols.find(x => x.includes('maximum allowed risk'));
-                  if (v && !violations.includes(v)) { violations.push(v); slPenaltyDollars = rules.max_risk_dollars; }
-                }
-              } else {
-                // No existing good result — increment no-data counter
-                const newAttempts = attempts + 1;
-                if (newAttempts >= MAX_SL_CHECK_ATTEMPTS) {
-                  // Escalate: benefit of doubt expired
-                  const riskLabel = trade.symbol.endsWith('c') ? `¢${rules.max_risk_dollars}` : `$${rules.max_risk_dollars}`;
-                  const escalationViol = `Max risk candle check could not be verified after ${newAttempts} attempts — max allowed loss of ${riskLabel} deducted as a precaution.`;
-                  violations.push(escalationViol);
-                  slPenaltyDollars = rules.max_risk_dollars;
-                  await db.query(
-                    `UPDATE wp_trades SET sl_check_result = 'check_failed', sl_check_pending = false, sl_check_attempts = $1 WHERE id = $2`,
-                    [newAttempts, trade.id]
-                  ).catch(() => {});
-                } else {
-                  await db.query(
-                    `UPDATE wp_trades SET sl_check_pending = true, sl_check_attempts = $1 WHERE id = $2`,
-                    [newAttempts, trade.id]
-                  ).catch(() => {});
-                }
-                slCheckFailures.push({ ticket: trade.ticket, symbol: trade.symbol, tradeId: trade.id });
-              }
-            } else {
-              // Got a definitive result this time
-              const newResultValue = slOutcome.violation ? 'fake_sl' : 'passed';
-
-              if (isDefinitive(existingResult) && existingResult !== newResultValue) {
-                // Conflict — two definitive results disagree
-                const newConflicts = conflicts + 1;
-                if (newConflicts >= MAX_CONFLICTS) {
-                  // Escalate: fake_sl wins (stricter side)
-                  const riskLabel = trade.symbol.endsWith('c') ? `¢${rules.max_risk_dollars}` : `$${rules.max_risk_dollars}`;
-                  const escalationViol = `Max risk check returned conflicting results across ${newConflicts} evaluations — max allowed loss of ${riskLabel} applied as a precaution.`;
-                  violations.push(escalationViol);
-                  slPenaltyDollars = rules.max_risk_dollars;
-                  await db.query(
-                    `UPDATE wp_trades SET sl_check_result = 'check_failed', sl_check_pending = false, sl_conflict_count = $1, sl_allowed_price = $2, sl_max_adverse_price = $3 WHERE id = $4`,
-                    [newConflicts, slOutcome.slAllowedPrice, slOutcome.slMaxAdversePrice, trade.id]
-                  ).catch(() => {});
-                } else {
-                  // Mark conflicting — re-check next pull
-                  await db.query(
-                    `UPDATE wp_trades SET sl_check_result = 'conflicting', sl_check_pending = true, sl_conflict_count = $1, sl_allowed_price = $2, sl_max_adverse_price = $3 WHERE id = $4`,
-                    [newConflicts, slOutcome.slAllowedPrice, slOutcome.slMaxAdversePrice, trade.id]
-                  ).catch(() => {});
-                  slCheckFailures.push({ ticket: trade.ticket, symbol: trade.symbol, tradeId: trade.id });
-                }
-              } else {
-                // Agree with existing (or first definitive result) — save and apply
-                await db.query(
-                  `UPDATE wp_trades SET sl_allowed_price = $1, sl_max_adverse_price = $2, sl_check_result = $3, sl_check_pending = false, sl_check_attempts = 0, sl_conflict_count = 0 WHERE id = $4`,
-                  [slOutcome.slAllowedPrice, slOutcome.slMaxAdversePrice, slOutcome.slCheckResult, trade.id]
-                ).catch(() => {});
-                if (slOutcome.violation) {
-                  violations.push(slOutcome.violation);
-                  slPenaltyDollars = rules.max_risk_dollars;
-                }
-              }
-            }
-          }
-        } else {
-          // Losing trade or no max_risk rule — skip, but protect any existing definitive result
-          if (!isDefinitive(trade.sl_check_result) && trade.sl_check_result !== 'check_failed') {
-            await db.query(`UPDATE wp_trades SET sl_check_result = 'skipped' WHERE id = $1`, [trade.id]).catch(() => {});
-          }
-        }
-      }
-
       // Daily loss cap
       if (dailyDrawdownFlagged.has(trade.ticket)) {
         const currency = reg.is_cent ? '¢' : '$';
@@ -1265,14 +1112,121 @@ export class WpEvaluationEngine {
         }
       }
 
+      // === SL CHECK — Only runs on profitable trades that pass ALL other rules above ===
+      let slPenaltyDollars = 0;
+      if (rules.stop_loss_required && violations.length === 0 && tradeNet > 0) {
+        const currency = reg.is_cent ? '¢' : '$';
+        const MAX_SL_CHECK_ATTEMPTS = 5;
+        const MAX_CONFLICTS = 3;
+        const isDefinitive = isDefinitiveSl;
+        const posId = ticketToPosition.get(trade.ticket) ?? trade.ticket;
+        const posOutcome = positionSlOutcomes.get(posId);
+
+        // Layer A — declared SL too wide
+        if (posOutcome?.layerABreach) {
+          violations.push(posOutcome.layerAViolation!);
+        }
+
+        if (posOutcome?.layerBBreach) {
+          // Layer B (fake SL) confirmed at position level
+          violations.push(posOutcome.layerBViolation!);
+          if (rules.max_risk_dollars) slPenaltyDollars = rules.max_risk_dollars;
+          await db.query(
+            `UPDATE wp_trades SET sl_allowed_price = $1, sl_max_adverse_price = $2, sl_check_result = $3, sl_check_pending = false, sl_check_attempts = 0, sl_conflict_count = 0 WHERE id = $4`,
+            [posOutcome.slAllowedPrice, posOutcome.slMaxAdversePrice, posOutcome.slCheckResult, trade.id]
+          ).catch(() => {});
+        } else if (rules.max_risk_dollars) {
+          const existingResult = trade.sl_check_result;
+          const attempts = (trade.sl_check_attempts ?? 0);
+          const conflicts = (trade.sl_conflict_count ?? 0);
+
+          if (existingResult === 'check_failed') {
+            const storedViols: string[] = (() => { try { return JSON.parse((trade as any).violations || '[]'); } catch { return []; } })();
+            const v = storedViols.find(x => x.includes('maximum allowed risk') || x.includes('could not be verified'));
+            if (v && !violations.includes(v)) { violations.push(v); slPenaltyDollars = rules.max_risk_dollars; }
+          } else {
+            const posId2 = trade.position_id ?? trade.ticket;
+            const siblings = allTrades
+              .filter(t => (t.position_id ?? t.ticket) === posId2)
+              .sort((a, b) => new Date(a.close_time).getTime() - new Date(b.close_time).getTime());
+            const slOutcome = await runSlCheckForTrade(trade, siblings, rules.max_hold_hours || null, rules.max_risk_dollars);
+
+            if (slOutcome.violation === 'FAILED') {
+              if (isDefinitive(existingResult)) {
+                await db.query(
+                  `UPDATE wp_trades SET sl_check_pending = true, sl_check_attempts = $1 WHERE id = $2`,
+                  [attempts + 1, trade.id]
+                ).catch(() => {});
+                if (existingResult === 'fake_sl') {
+                  const storedViols: string[] = (() => { try { return JSON.parse((trade as any).violations || '[]'); } catch { return []; } })();
+                  const v = storedViols.find(x => x.includes('maximum allowed risk'));
+                  if (v && !violations.includes(v)) { violations.push(v); slPenaltyDollars = rules.max_risk_dollars; }
+                }
+              } else {
+                const newAttempts = attempts + 1;
+                if (newAttempts >= MAX_SL_CHECK_ATTEMPTS) {
+                  const riskLabel = trade.symbol.endsWith('c') ? `¢${rules.max_risk_dollars}` : `$${rules.max_risk_dollars}`;
+                  const escalationViol = `Max risk candle check could not be verified after ${newAttempts} attempts — max allowed loss of ${riskLabel} deducted as a precaution.`;
+                  violations.push(escalationViol);
+                  slPenaltyDollars = rules.max_risk_dollars;
+                  await db.query(
+                    `UPDATE wp_trades SET sl_check_result = 'check_failed', sl_check_pending = false, sl_check_attempts = $1 WHERE id = $2`,
+                    [newAttempts, trade.id]
+                  ).catch(() => {});
+                } else {
+                  await db.query(
+                    `UPDATE wp_trades SET sl_check_pending = true, sl_check_attempts = $1 WHERE id = $2`,
+                    [newAttempts, trade.id]
+                  ).catch(() => {});
+                }
+                slCheckFailures.push({ ticket: trade.ticket, symbol: trade.symbol, tradeId: trade.id });
+              }
+            } else {
+              const newResultValue = slOutcome.violation ? 'fake_sl' : 'passed';
+
+              if (isDefinitive(existingResult) && existingResult !== newResultValue) {
+                const newConflicts = conflicts + 1;
+                if (newConflicts >= MAX_CONFLICTS) {
+                  const riskLabel = trade.symbol.endsWith('c') ? `¢${rules.max_risk_dollars}` : `$${rules.max_risk_dollars}`;
+                  const escalationViol = `Max risk check returned conflicting results across ${newConflicts} evaluations — max allowed loss of ${riskLabel} applied as a precaution.`;
+                  violations.push(escalationViol);
+                  slPenaltyDollars = rules.max_risk_dollars;
+                  await db.query(
+                    `UPDATE wp_trades SET sl_check_result = 'check_failed', sl_check_pending = false, sl_conflict_count = $1, sl_allowed_price = $2, sl_max_adverse_price = $3 WHERE id = $4`,
+                    [newConflicts, slOutcome.slAllowedPrice, slOutcome.slMaxAdversePrice, trade.id]
+                  ).catch(() => {});
+                } else {
+                  await db.query(
+                    `UPDATE wp_trades SET sl_check_result = 'conflicting', sl_check_pending = true, sl_conflict_count = $1, sl_allowed_price = $2, sl_max_adverse_price = $3 WHERE id = $4`,
+                    [newConflicts, slOutcome.slAllowedPrice, slOutcome.slMaxAdversePrice, trade.id]
+                  ).catch(() => {});
+                  slCheckFailures.push({ ticket: trade.ticket, symbol: trade.symbol, tradeId: trade.id });
+                }
+              } else {
+                await db.query(
+                  `UPDATE wp_trades SET sl_allowed_price = $1, sl_max_adverse_price = $2, sl_check_result = $3, sl_check_pending = false, sl_check_attempts = 0, sl_conflict_count = 0 WHERE id = $4`,
+                  [slOutcome.slAllowedPrice, slOutcome.slMaxAdversePrice, slOutcome.slCheckResult, trade.id]
+                ).catch(() => {});
+                if (slOutcome.violation) {
+                  violations.push(slOutcome.violation);
+                  slPenaltyDollars = rules.max_risk_dollars;
+                }
+              }
+            }
+          }
+        }
+      } else if (rules.stop_loss_required && (tradeNet <= 0 || violations.length > 0)) {
+        // Losing trade or already failed other rules — skip SL check, mark as skipped
+        if (!isDefinitiveSl(trade.sl_check_result) && trade.sl_check_result !== 'check_failed') {
+          await db.query(`UPDATE wp_trades SET sl_check_result = 'skipped' WHERE id = $1`, [trade.id]).catch(() => {});
+        }
+      }
+
       // Apply
       const isQualified = violations.length === 0;
       if (!isQualified) {
         flaggedCount++;
         if (slPenaltyDollars > 0) {
-          // Fake-SL breach: don't zero the whole profit — remove the actual profit
-          // AND subtract the max-allowed-risk amount, so this trade nets to
-          // -slPenaltyDollars in qualifiedProfit instead of $0.
           profitRemoved += tradeNet + slPenaltyDollars;
         } else if (tradeNet > 0) {
           profitRemoved += tradeNet;

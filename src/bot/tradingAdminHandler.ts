@@ -615,6 +615,42 @@ export class TradingAdminHandler {
 
       case 'tc_enter_video': {
         session.data.video_url = text === '/skip' ? null : text;
+        session.step = 'tc_enter_pull_count';
+        await ctx.reply('🔄 How many <b>pulls per day</b> during the challenge?\n\n<i>Default: 6 pulls per day (every 4 hours)</i>\nEnter a number (2-12):', { parse_mode: 'HTML' });
+        break;
+      }
+
+      case 'tc_enter_pull_count': {
+        const count = parseInt(text);
+        if (isNaN(count) || count < 2 || count > 12) {
+          await ctx.reply('❌ Enter a number between 2 and 12.');
+          return;
+        }
+        session.data.pull_count = count;
+        session.data.pull_interval_hours = Math.floor(24 / count);
+        session.step = 'tc_enter_first_pull_time';
+        await ctx.reply(`✅ ${count} pulls per day (every ${Math.floor(24 / count)} hours)\n\n⏰ Enter the <b>first pull time</b> (EAT):\nFormat: HH:MM\nExample: 08:00`, { parse_mode: 'HTML' });
+        break;
+      }
+
+      case 'tc_enter_first_pull_time': {
+        const match = text.match(/^(\d{2}):(\d{2})$/);
+        if (!match) { await ctx.reply('❌ Invalid format. Use HH:MM (e.g. 08:00)'); return; }
+        const hour = parseInt(match[1]);
+        const minute = parseInt(match[2]);
+        if (hour > 23 || minute > 59) { await ctx.reply('❌ Invalid time.'); return; }
+
+        const firstTime = `${match[1]}:${match[2]}`;
+        const interval = session.data.pull_interval_hours;
+        const pullTimes: string[] = [];
+        for (let i = 0; i < session.data.pull_count; i++) {
+          const h = (hour + i * interval) % 24;
+          pullTimes.push(`${String(h).padStart(2, '0')}:${match[2]}`);
+        }
+        session.data.pull_times = pullTimes;
+        session.data.first_pull_time = firstTime;
+
+        await ctx.reply(`✅ Pull schedule set:\n${pullTimes.map(t => `  • ${t} EAT`).join('\n')}`);
         await this.showConfirmation(ctx);
         break;
       }
@@ -952,6 +988,14 @@ export class TradingAdminHandler {
         demo_prizes: d.demo_prizes || [],
         prize_pool_text: d.prize_pool_text,
       });
+
+      // Save pull schedule
+      if (d.pull_times && d.pull_times.length > 0) {
+        await db.query(
+          `UPDATE trading_challenges SET pull_times = $1, pull_interval_hours = $2, first_pull_time = $3 WHERE id = $4`,
+          [JSON.stringify(d.pull_times), d.pull_interval_hours || 4, d.first_pull_time || '00:00', challenge.id]
+        );
+      }
 
       tradingAdminSessions.delete(telegramId);
       await ctx.answerCbQuery('Challenge created!');

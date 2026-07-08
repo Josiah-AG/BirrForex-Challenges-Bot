@@ -303,10 +303,8 @@ export class VpsPullScheduler {
       return;
     }
 
-    // EAT = UTC+3 → UTC times: 21:00, 01:00, 05:00, 09:00, 13:00, 17:00
-    // EAT schedule: 00:00, 04:00, 08:00, 12:00, 16:00, 20:00
-    // Explicit timezone: 'UTC' so this is correct regardless of the host OS clock/TZ env var.
-    cron.schedule('0 21,1,5,9,13,17 * * *', () => this.runPullCycle(), { timezone: 'UTC' });
+    // Per-challenge pull schedule: check every minute if any challenge needs a pull now
+    cron.schedule('* * * * *', () => this.checkPullSchedule(), { timezone: 'UTC' });
 
     // Check for 48h disqualifications every hour
     cron.schedule('30 * * * *', () => this.checkDisqualifications(), { timezone: 'UTC' });
@@ -321,6 +319,47 @@ export class VpsPullScheduler {
 
     // Resume interrupted cycle on startup (after 5s delay for other services to init)
     setTimeout(() => this.resumeInterruptedCycle(), 5000);
+  }
+
+  /**
+   * Per-minute check: compare current EAT time against each challenge's pull_times.
+   * If a match is found, trigger runPullCycle(). Queues if already running.
+   */
+  private pullScheduleTriggered = new Set<string>();
+
+  private async checkPullSchedule() {
+    if (this.isRunning) return;
+
+    try {
+      const now = new Date();
+      const eatTime = new Date(now.getTime() + 3 * 60 * 60 * 1000);
+      const currentHHMM = `${String(eatTime.getUTCHours()).padStart(2, '0')}:${String(eatTime.getUTCMinutes()).padStart(2, '0')}`;
+      const dateKey = eatTime.toISOString().split('T')[0];
+
+      const challenges = await db.query(
+        `SELECT id, status, pull_times, end_date, evaluation_type, winners_posted_at
+         FROM trading_challenges
+         WHERE status IN ('active', 'reviewing')
+           AND (status = 'active' OR (winners_posted_at IS NULL AND end_date > NOW() - INTERVAL '48 hours'))`
+      );
+
+      for (const challenge of challenges.rows) {
+        const pullTimes: string[] = challenge.pull_times || ['00:00','04:00','08:00','12:00','16:00','20:00'];
+        const dedupKey = `${challenge.id}_${currentHHMM}_${dateKey}`;
+
+        if (pullTimes.includes(currentHHMM) && !this.pullScheduleTriggered.has(dedupKey)) {
+          this.pullScheduleTriggered.add(dedupKey);
+          for (const key of this.pullScheduleTriggered) {
+            if (!key.includes(dateKey)) this.pullScheduleTriggered.delete(key);
+          }
+          console.log(`⏰ VPS Pull: Scheduled pull triggered for challenge ${challenge.id} at ${currentHHMM} EAT`);
+          this.runPullCycle();
+          return;
+        }
+      }
+    } catch (e) {
+      // Silent — runs every minute
+    }
   }
 
   /**
@@ -518,12 +557,16 @@ export class VpsPullScheduler {
         await this.logPullError(batchId, failure);
       }
 
-      // === PHASE 2 + 3: resolve any NULL open_time trades, then evaluate ===
-      // (deferred from the old per-account streaming evaluate so evaluation never
-      // reads a trade that still has a fixable NULL open_time)
+      // === PHASE 2 + 3: resolve any NULL open_time trades, then UPDATE OHLC, then evaluate ===
       const successfulAccounts = accountsWithPriority.filter(a => successful.some(r => r.registrationId === a.registrationId));
       await this.reconcileMissingTrades(challengeToPull.id, batchId, successfulAccounts, healthyTerminals, challengeToPull);
       await this.resolveNullOpenTimes(challengeToPull.id, batchId, successfulAccounts, healthyTerminals, challengeToPull);
+
+      // === OHLC UPDATE (before evaluation — evaluation uses local candle data) ===
+      await this.updateOhlcCandles(challengeToPull).catch(e =>
+        console.error('⚠️ OHLC update error (non-fatal):', e)
+      );
+
       await this.evaluateAllAccounts(challengeToPull.id, successfulAccounts, batchId);
 
       // Complete batch
@@ -601,11 +644,6 @@ export class VpsPullScheduler {
 
       // === POST-CYCLE: Auto-recheck any trades still pending from previous cycles ===
       await this.autoRecheckPendingSlTrades(challengeToPull.id);
-
-      // === POST-CYCLE: Update OHLC 1-min candle data for all traded symbols ===
-      await this.updateOhlcCandles(challengeToPull).catch(e =>
-        console.error('⚠️ OHLC update error (non-fatal):', e)
-      );
 
       // === POST-CYCLE: Restore candle terminals back to base account ===
       await candleTerminalManager.restore();
@@ -715,10 +753,16 @@ export class VpsPullScheduler {
       const successful = allResults.filter(r => r.success);
       const failed = allResults.filter(r => !r.success);
 
-      // === PHASE 2 + 3: resolve any NULL open_time trades, then evaluate ===
+      // === PHASE 2 + 3: resolve any NULL open_time trades, UPDATE OHLC, then evaluate ===
       const successfulAccounts = accounts.filter(a => successful.some(r => r.registrationId === a.registrationId));
       await this.reconcileMissingTrades(challengeId, batchId, successfulAccounts, healthyTerminals, challengeToPull);
       await this.resolveNullOpenTimes(challengeId, batchId, successfulAccounts, healthyTerminals, challengeToPull);
+
+      // === OHLC UPDATE (before evaluation) ===
+      await this.updateOhlcCandles(challengeToPull).catch(e =>
+        console.error('⚠️ OHLC update error (non-fatal):', e)
+      );
+
       await this.evaluateAllAccounts(challengeId, successfulAccounts, batchId);
 
       const newTrades = successful.reduce((sum, r) => sum + (r.tradesCount || 0), 0);

@@ -429,6 +429,12 @@ async function migrate() {
     await db.query(`CREATE INDEX IF NOT EXISTS idx_ohlc_challenge_symbol ON ohlc_candles (challenge_id, symbol, time DESC);`).catch(() => {});
     console.log('✅ ohlc_candles table migration OK');
 
+    // Per-challenge pull schedule
+    await db.query(`ALTER TABLE trading_challenges ADD COLUMN IF NOT EXISTS pull_times JSONB DEFAULT '["00:00","04:00","08:00","12:00","16:00","20:00"]';`).catch(() => {});
+    await db.query(`ALTER TABLE trading_challenges ADD COLUMN IF NOT EXISTS pull_interval_hours INTEGER DEFAULT 4;`).catch(() => {});
+    await db.query(`ALTER TABLE trading_challenges ADD COLUMN IF NOT EXISTS first_pull_time VARCHAR(5) DEFAULT '00:00';`).catch(() => {});
+    console.log('✅ pull_times column migration OK');
+
     console.log('✅ Database migration completed successfully!');
     process.exit(0);
   } catch (error) {
