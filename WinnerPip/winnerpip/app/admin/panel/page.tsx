@@ -2427,11 +2427,27 @@ function SlFailuresPanel({ challengeId, slFailures, apiUrl, secretPath }: { chal
       <div className="space-y-2 max-h-[300px] overflow-y-auto">
         {items.map((f: any) => (
           <div key={f.registration_id} className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10">
-            <div>
+            <div className="flex-1 min-w-0">
               <p className="text-sm text-white font-semibold">
                 {f.nickname} <span className="text-gray-500 text-xs">@{f.username || "—"}</span>
               </p>
               <p className="text-[10px] text-gray-400">{f.account_number} · {f.account_subtype}</p>
+              {f.trades && f.trades.length > 0 && (
+                <div className="mt-1.5 space-y-1">
+                  {f.trades.map((t: any) => (
+                    <div key={t.ticket} className="text-[10px] bg-black/20 rounded-lg px-2 py-1 border border-white/5">
+                      <span className="text-gray-300 font-mono">#{t.ticket}</span>
+                      <span className="text-gray-500 mx-1">·</span>
+                      <span className="text-white">{t.symbol}</span>
+                      <span className="text-gray-500 mx-1">·</span>
+                      <span className={t.profit >= 0 ? "text-profit" : "text-loss"}>{t.profit >= 0 ? "+" : ""}{t.profit.toFixed(2)}</span>
+                      <span className="text-gray-500 mx-1">·</span>
+                      <span className="text-gray-400">{t.durationSeconds}s</span>
+                      <p className="text-amber-400/80 mt-0.5">{t.reason}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
               {results[f.registration_id] && (
                 <p className={`text-[10px] mt-1 font-semibold ${results[f.registration_id].startsWith("✅") ? "text-profit" : "text-loss"}`}>
                   {results[f.registration_id]}

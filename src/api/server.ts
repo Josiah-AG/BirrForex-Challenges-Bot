@@ -1284,17 +1284,47 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/pulls`, adminIpCheck, asy
        ORDER BY MAX(t.close_time) DESC`,
       [challengeId]
     );
-    slFailures = slResult.rows.map((r: any) => ({
-      registration_id: r.registration_id,
-      account_number: r.account_number,
-      nickname: r.nickname || r.account_number,
-      username: r.username,
-      account_subtype: r.account_subtype,
-      trades_unchecked: parseInt(r.trades_pending || '0'),
-      trades_failed: parseInt(r.trades_failed || '0'),
-      max_attempts: parseInt(r.max_attempts || '0'),
-      last_seen: r.last_seen,
-    }));
+    // For each account, fetch the specific pending/failed trade details
+    for (const r of slResult.rows) {
+      const tradesDetail = await db.query(
+        `SELECT ticket, symbol, open_time, close_time, profit, sl_check_result, sl_check_attempts,
+                EXTRACT(EPOCH FROM (close_time - open_time)) as duration_seconds
+         FROM wp_trades
+         WHERE challenge_id = $1 AND registration_id = $2
+           AND (sl_check_pending = true OR sl_check_result = 'check_failed')
+         ORDER BY close_time DESC LIMIT 5`,
+        [challengeId, r.registration_id]
+      );
+      const trades = tradesDetail.rows.map((t: any) => {
+        const durationSec = parseInt(t.duration_seconds || '0');
+        let reason = 'No OHLC candle data available for this trade\'s time range';
+        if (durationSec < 120) reason = `Trade too short (${durationSec}s) — no intermediate candles to verify`;
+        else if (t.sl_check_result === 'check_failed') reason = `Candle check failed after ${t.sl_check_attempts} attempts — penalty applied`;
+        return {
+          ticket: t.ticket,
+          symbol: t.symbol,
+          openTime: t.open_time,
+          closeTime: t.close_time,
+          profit: parseFloat(t.profit),
+          durationSeconds: durationSec,
+          status: t.sl_check_result,
+          attempts: parseInt(t.sl_check_attempts || '0'),
+          reason,
+        };
+      });
+      slFailures.push({
+        registration_id: r.registration_id,
+        account_number: r.account_number,
+        nickname: r.nickname || r.account_number,
+        username: r.username,
+        account_subtype: r.account_subtype,
+        trades_unchecked: parseInt(r.trades_pending || '0'),
+        trades_failed: parseInt(r.trades_failed || '0'),
+        max_attempts: parseInt(r.max_attempts || '0'),
+        last_seen: r.last_seen,
+        trades,
+      });
+    }
 
     return res.json({ pulls: batches.rows, terminalStats, slFailures });
   } catch (error) {
