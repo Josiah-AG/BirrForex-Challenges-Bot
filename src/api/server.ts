@@ -2122,7 +2122,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/export-evaluation`, admin
 
 /**
  * POST /api/admin/:secretPath/challenge/:id/ohlc-update
- * Manually trigger a full OHLC backfill for all symbols in this challenge
+ * Synchronous OHLC backfill — waits for completion and returns detailed stats + gap check
  */
 app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/ohlc-update`, adminIpCheck, async (req, res) => {
   try {
@@ -2134,22 +2134,54 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/ohlc-update`, adminIpChe
     const scheduler = (global as any).__vpsPullScheduler;
     if (!scheduler) return res.status(503).json({ error: 'Pull scheduler not initialised yet — try again in a moment' });
 
-    // Respond immediately so the browser doesn't timeout; run update in background
-    res.json({ success: true, started: true, message: 'OHLC update started — check server logs for progress' });
+    // Run synchronously (caller must handle long timeout — frontend uses AbortController)
+    await scheduler.updateOhlcCandles(challenge);
 
-    (async () => {
-      try {
-        await scheduler.updateOhlcCandles(challenge);
-        const countResult = await db.query(
-          `SELECT COUNT(*) as total, COUNT(DISTINCT symbol) as symbols FROM ohlc_candles WHERE challenge_id = $1`,
-          [challengeId]
-        );
-        const { total, symbols } = countResult.rows[0];
-        console.log(`✅ OHLC manual update done: ${total} candles, ${symbols} symbols for challenge ${challengeId}`);
-      } catch (e: any) {
-        console.error('OHLC background update error:', e?.message || e);
-      }
-    })();
+    // Gather per-symbol stats + gap analysis
+    const symbolsResult = await db.query(
+      `SELECT symbol, COUNT(*) as candle_count, MIN(time) as first_candle, MAX(time) as last_candle
+       FROM ohlc_candles WHERE challenge_id = $1
+       GROUP BY symbol ORDER BY symbol`,
+      [challengeId]
+    );
+
+    const startDate = new Date(challenge.start_date);
+    const endDate = new Date(challenge.end_date);
+    const now = new Date();
+    const effectiveEnd = now < endDate ? now : endDate;
+
+    // Calculate expected minutes (forex market: exclude weekends roughly)
+    const totalMinutes = Math.floor((effectiveEnd.getTime() - startDate.getTime()) / 60000);
+
+    const symbols = symbolsResult.rows.map((r: any) => {
+      const count = parseInt(r.candle_count);
+      const first = new Date(r.first_candle);
+      const last = new Date(r.last_candle);
+      const coveredMinutes = Math.floor((last.getTime() - first.getTime()) / 60000) + 1;
+      const coveragePct = totalMinutes > 0 ? Math.min(100, Math.round((count / totalMinutes) * 100)) : 0;
+      return {
+        symbol: r.symbol,
+        candleCount: count,
+        firstCandle: r.first_candle,
+        lastCandle: r.last_candle,
+        coveragePercent: coveragePct,
+        expectedMinutes: totalMinutes,
+      };
+    });
+
+    const totalCandles = symbols.reduce((sum: number, s: any) => sum + s.candleCount, 0);
+
+    return res.json({
+      success: true,
+      challengeId,
+      totalCandles,
+      totalSymbols: symbols.length,
+      challengeStart: challenge.start_date,
+      challengeEnd: challenge.end_date,
+      effectiveEnd: effectiveEnd.toISOString(),
+      expectedMinutesPerSymbol: totalMinutes,
+      symbols,
+    });
   } catch (error: any) {
     console.error('OHLC update error:', error);
     return res.status(500).json({ error: error?.message || 'Internal server error' });

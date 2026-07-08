@@ -1931,6 +1931,8 @@ function ChallengeSettingsPanel({ challengeId, challenges, onRefresh }: { challe
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [ohlcUpdating, setOhlcUpdating] = useState(false);
   const [ohlcMsg, setOhlcMsg] = useState("");
+  const [ohlcResult, setOhlcResult] = useState<any>(null);
+  const [ohlcPopupOpen, setOhlcPopupOpen] = useState(false);
 
   // Convert UTC ISO string from API → datetime-local string displayed as EAT (UTC+3)
   function formatDateForInput(isoStr: string): string {
@@ -2097,19 +2099,25 @@ function ChallengeSettingsPanel({ challengeId, challenges, onRefresh }: { challe
           <div className="grid grid-cols-2 gap-2">
             <button
               onClick={async () => {
-                setOhlcUpdating(true); setOhlcMsg("");
+                setOhlcUpdating(true); setOhlcMsg(""); setOhlcResult(null); setOhlcPopupOpen(true);
                 try {
-                  const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/ohlc-update`, { method: "POST" });
+                  const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/ohlc-update`, { method: "POST", signal: AbortSignal.timeout(300000) });
                   const d = await res.json();
-                  if (res.ok) setOhlcMsg(`✅ OHLC update started — running in background. Check Railway logs for progress.`);
-                  else setOhlcMsg(`❌ OHLC update failed: ${d.error || res.statusText}`);
-                } catch { setOhlcMsg("❌ OHLC update failed"); }
+                  if (res.ok && d.success) {
+                    setOhlcResult(d);
+                    setOhlcMsg("✅ OHLC update complete");
+                  } else {
+                    setOhlcMsg(`❌ ${d.error || res.statusText}`);
+                  }
+                } catch (e: any) {
+                  setOhlcMsg(`❌ ${e?.name === "TimeoutError" ? "Request timed out (5min)" : "Network error"}`);
+                }
                 setOhlcUpdating(false);
               }}
               disabled={ohlcUpdating}
               className="p-2.5 rounded-lg bg-royal/10 border border-royal/30 text-royal text-xs font-semibold hover:bg-royal/20 transition-all disabled:opacity-50"
             >
-              {ohlcUpdating ? "⏳ Updating..." : "🔄 Update OHLC Data"}
+              {ohlcUpdating ? "⏳ Fetching..." : "🔄 Update OHLC Data"}
             </button>
             <button
               onClick={() => {
@@ -2122,8 +2130,87 @@ function ChallengeSettingsPanel({ challengeId, challenges, onRefresh }: { challe
               📥 Download OHLC CSV
             </button>
           </div>
-          {ohlcMsg && <div className={`mt-2 p-2.5 rounded-lg text-xs font-semibold ${ohlcMsg.startsWith("✅") ? "bg-profit/10 text-profit border border-profit/30" : "bg-loss/10 text-loss border border-loss/30"}`}>{ohlcMsg}</div>}
         </div>
+
+        {/* OHLC Progress/Result Popup */}
+        {ohlcPopupOpen && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4" onClick={() => { if (!ohlcUpdating) setOhlcPopupOpen(false); }}>
+            <div className="bg-[#0f1629] border border-white/10 rounded-2xl p-6 w-full max-w-md shadow-2xl" onClick={e => e.stopPropagation()}>
+              <h3 className="text-lg font-bold text-white mb-4">📊 OHLC Candle Update</h3>
+
+              {ohlcUpdating && (
+                <div className="space-y-3">
+                  <p className="text-sm text-gray-300">Fetching 1-min candles from VPS for all traded symbols...</p>
+                  <div className="w-full h-2 bg-white/10 rounded-full overflow-hidden">
+                    <div className="h-full bg-royal rounded-full animate-pulse" style={{ width: "80%" }} />
+                  </div>
+                  <p className="text-[10px] text-gray-500">This may take up to 2 minutes for large datasets.</p>
+                </div>
+              )}
+
+              {!ohlcUpdating && ohlcMsg.startsWith("❌") && (
+                <div className="p-3 rounded-xl bg-loss/10 border border-loss/30">
+                  <p className="text-sm text-loss font-semibold">{ohlcMsg}</p>
+                </div>
+              )}
+
+              {!ohlcUpdating && ohlcResult && (
+                <div className="space-y-4">
+                  {/* Summary */}
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="p-3 rounded-xl bg-profit/10 border border-profit/30 text-center">
+                      <p className="text-lg font-bold text-profit">{ohlcResult.totalCandles.toLocaleString()}</p>
+                      <p className="text-[10px] text-gray-400">Total Candles</p>
+                    </div>
+                    <div className="p-3 rounded-xl bg-royal/10 border border-royal/30 text-center">
+                      <p className="text-lg font-bold text-royal">{ohlcResult.totalSymbols}</p>
+                      <p className="text-[10px] text-gray-400">Symbols</p>
+                    </div>
+                    <div className="p-3 rounded-xl bg-gold/10 border border-gold/30 text-center">
+                      <p className="text-lg font-bold text-gold">{ohlcResult.expectedMinutesPerSymbol.toLocaleString()}</p>
+                      <p className="text-[10px] text-gray-400">Expected Min</p>
+                    </div>
+                  </div>
+
+                  {/* Per-symbol breakdown */}
+                  <div className="space-y-2">
+                    <p className="text-xs text-gray-400 font-semibold uppercase">Per-Symbol Coverage</p>
+                    {ohlcResult.symbols.map((s: any) => (
+                      <div key={s.symbol} className="p-3 rounded-xl bg-white/5 border border-white/10">
+                        <div className="flex justify-between items-center mb-1">
+                          <span className="text-sm font-bold text-white">{s.symbol}</span>
+                          <span className={`text-xs font-bold ${s.coveragePercent >= 70 ? "text-profit" : s.coveragePercent >= 40 ? "text-gold" : "text-loss"}`}>
+                            {s.coveragePercent}%
+                          </span>
+                        </div>
+                        <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden mb-1">
+                          <div
+                            className={`h-full rounded-full ${s.coveragePercent >= 70 ? "bg-profit" : s.coveragePercent >= 40 ? "bg-gold" : "bg-loss"}`}
+                            style={{ width: `${Math.min(100, s.coveragePercent)}%` }}
+                          />
+                        </div>
+                        <div className="flex justify-between text-[10px] text-gray-500">
+                          <span>{s.candleCount.toLocaleString()} candles stored</span>
+                          <span>{new Date(s.firstCandle).toLocaleDateString()} → {new Date(s.lastCandle).toLocaleDateString()}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <p className="text-[10px] text-gray-500">
+                    Coverage % = candles stored ÷ total minutes from challenge start to now. Markets close on weekends so 60-75% is normal for forex. Crypto should be near 100%.
+                  </p>
+                </div>
+              )}
+
+              {!ohlcUpdating && (
+                <button onClick={() => setOhlcPopupOpen(false)} className="w-full mt-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-gray-300 text-sm font-semibold hover:bg-white/10 transition-all">
+                  Close
+                </button>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Danger Zone */}
         <div className="border-t border-loss/20 pt-5">
