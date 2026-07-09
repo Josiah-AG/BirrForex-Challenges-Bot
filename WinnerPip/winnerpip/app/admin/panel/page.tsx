@@ -590,18 +590,24 @@ export default function AdminDashboard() {
                 {overview.metrics.bestWinRate && (
                   <div className="p-3 rounded-xl bg-royal/5 border border-royal/20">
                     <p className="text-[10px] text-gray-400 uppercase mb-1">Best Win Rate</p>
-                    <p className="text-lg font-bold text-royal">{overview.metrics.bestWinRate.winRate}%</p>
-                    <p className="text-[10px] text-gray-500">{overview.metrics.bestWinRate.trades} trades</p>
+                    <p className="text-lg font-bold text-royal">{overview.metrics.bestWinRate.qualifiedWinRate}%</p>
+                    <p className="text-[10px] text-gray-500">Qualified: {overview.metrics.bestWinRate.qualifiedWinRate}% | Overall: {overview.metrics.bestWinRate.overallWinRate}%</p>
                     <p className="text-[10px] text-white font-medium mt-0.5">{overview.metrics.bestWinRate.nickname}</p>
-                    <p className="text-[9px] text-gray-500">@{overview.metrics.bestWinRate.username || '—'}</p>
+                    <p className="text-[9px] text-gray-500">@{overview.metrics.bestWinRate.username || '—'} · {overview.metrics.bestWinRate.trades} trades</p>
                   </div>
                 )}
                 {overview.metrics.mostTradedPair && (
                   <div className="p-3 rounded-xl bg-gold/5 border border-gold/20">
                     <p className="text-[10px] text-gray-400 uppercase mb-1">Most Traded Pair</p>
                     <p className="text-lg font-bold text-gold">{overview.metrics.mostTradedPair.symbol}</p>
-                    <p className="text-[10px] text-gray-500">{overview.metrics.mostTradedPair.tradeCount} trades</p>
-                    <p className="text-[10px] text-gray-500">{overview.metrics.mostTradedPair.totalLots.toFixed(2)} lots</p>
+                    <p className="text-[10px] text-gray-500">{overview.metrics.mostTradedPair.tradeCount} trades · {overview.metrics.mostTradedPair.totalLots.toFixed(2)} lots</p>
+                  </div>
+                )}
+                {overview.metrics.leastTradedPair && overview.metrics.leastTradedPair.symbol !== overview.metrics.mostTradedPair?.symbol && (
+                  <div className="p-3 rounded-xl bg-white/5 border border-white/10">
+                    <p className="text-[10px] text-gray-400 uppercase mb-1">Least Traded Pair</p>
+                    <p className="text-lg font-bold text-gray-300">{overview.metrics.leastTradedPair.symbol}</p>
+                    <p className="text-[10px] text-gray-500">{overview.metrics.leastTradedPair.tradeCount} trades · {overview.metrics.leastTradedPair.totalLots.toFixed(2)} lots</p>
                   </div>
                 )}
                 <div className="p-3 rounded-xl bg-loss/5 border border-loss/20">

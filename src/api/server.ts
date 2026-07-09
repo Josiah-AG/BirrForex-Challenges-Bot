@@ -1187,20 +1187,34 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
        ORDER BY t.profit DESC LIMIT 1`, tradeParams.length > 1 ? tradeParams : [challengeId]
     );
 
-    // Best win rate (min 5 trades to qualify)
+    // Best win rate — qualified (from qualified trades only) and overall
     const bestWinRate = await db.query(
-      `SELECT r.nickname, r.username, r.email, l.qualified_trades, l.total_trades,
-              CASE WHEN l.total_trades > 0 THEN ROUND((l.qualified_trades::numeric / l.total_trades) * 100) ELSE 0 END as win_rate
+      `SELECT r.nickname, r.username, r.email, l.qualified_trades, l.total_trades, l.flagged_trades,
+              CASE WHEN l.total_trades > 0 THEN ROUND((l.qualified_trades::numeric / l.total_trades) * 100) ELSE 0 END as win_rate,
+              CASE WHEN (l.total_trades - l.flagged_trades) > 0
+                THEN ROUND(
+                  (SELECT COUNT(*)::numeric FROM wp_trades t
+                   WHERE t.registration_id = l.registration_id AND t.challenge_id = $1
+                     AND t.is_qualified = true AND t.profit > 0${tradeFilter})
+                  / (l.total_trades - l.flagged_trades) * 100)
+                ELSE 0 END as qualified_win_rate
        FROM wp_leaderboard l JOIN trading_registrations r ON l.registration_id = r.id
        WHERE l.challenge_id = $1 AND l.total_trades >= 5 AND r.disqualified = false
-       ORDER BY win_rate DESC, l.total_trades DESC LIMIT 1`, [challengeId]
+       ORDER BY qualified_win_rate DESC, win_rate DESC, l.total_trades DESC LIMIT 1`, tradeParams.length > 1 ? tradeParams : [challengeId]
     );
 
-    // Most traded pair
+    // Most traded pair (within challenge period only)
     const mostTradedPair = await db.query(
       `SELECT symbol, COUNT(*) as trade_count, COALESCE(SUM(volume), 0) as total_lots
        FROM wp_trades WHERE challenge_id = $1${tradeFilter}
        GROUP BY symbol ORDER BY trade_count DESC LIMIT 1`, tradeParams.length > 1 ? tradeParams : [challengeId]
+    );
+
+    // Least traded pair (within challenge period only, min 1 trade)
+    const leastTradedPair = await db.query(
+      `SELECT symbol, COUNT(*) as trade_count, COALESCE(SUM(volume), 0) as total_lots
+       FROM wp_trades WHERE challenge_id = $1${tradeFilter}
+       GROUP BY symbol ORDER BY trade_count ASC LIMIT 1`, tradeParams.length > 1 ? tradeParams : [challengeId]
     );
 
     // Blown accounts (equity <= 0 or zero_balance_at set)
@@ -1245,8 +1259,9 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
       latestScreening: latestScreening.rows[0] || null,
       metrics: {
         maxProfitTrade: maxProfitTrade.rows[0] ? { profit: parseFloat(maxProfitTrade.rows[0].profit), symbol: maxProfitTrade.rows[0].symbol, nickname: maxProfitTrade.rows[0].nickname, username: maxProfitTrade.rows[0].username, email: maxProfitTrade.rows[0].email } : null,
-        bestWinRate: bestWinRate.rows[0] ? { winRate: parseInt(bestWinRate.rows[0].win_rate), nickname: bestWinRate.rows[0].nickname, username: bestWinRate.rows[0].username, email: bestWinRate.rows[0].email, trades: parseInt(bestWinRate.rows[0].total_trades) } : null,
+        bestWinRate: bestWinRate.rows[0] ? { qualifiedWinRate: parseInt(bestWinRate.rows[0].qualified_win_rate || '0'), overallWinRate: parseInt(bestWinRate.rows[0].win_rate), nickname: bestWinRate.rows[0].nickname, username: bestWinRate.rows[0].username, email: bestWinRate.rows[0].email, trades: parseInt(bestWinRate.rows[0].total_trades) } : null,
         mostTradedPair: mostTradedPair.rows[0] ? { symbol: mostTradedPair.rows[0].symbol, tradeCount: parseInt(mostTradedPair.rows[0].trade_count), totalLots: parseFloat(mostTradedPair.rows[0].total_lots) } : null,
+        leastTradedPair: leastTradedPair.rows[0] ? { symbol: leastTradedPair.rows[0].symbol, tradeCount: parseInt(leastTradedPair.rows[0].trade_count), totalLots: parseFloat(leastTradedPair.rows[0].total_lots) } : null,
         blownAccounts: parseInt(blownAccounts.rows[0]?.cnt || '0'),
         mostActiveDay: mostActiveDay.rows[0] ? { day: mostActiveDay.rows[0].day, tradeCount: parseInt(mostActiveDay.rows[0].trade_count) } : null,
         leastActiveDay: leastActiveDay.rows[0] ? { day: leastActiveDay.rows[0].day, tradeCount: parseInt(leastActiveDay.rows[0].trade_count) } : null,
