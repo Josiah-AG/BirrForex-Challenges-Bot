@@ -2748,7 +2748,26 @@ export class VpsPullScheduler {
 
     if (gapRanges.length > 0 && this.baseUrl) {
       console.log(`📊 OHLC: Pass 2 — Gap-fill for ${gapRanges.length} symbol(s) missing early data...`);
+      // Wait 3s before retry — gives VPS terminal time to load new symbol charts
+      await this.delay(3000);
       await this.fetchAndStoreCandles(challenge.id, gapRanges);
+
+      // Pass 3: If any symbols STILL have 0 candles, try one more time with a longer wait
+      const stillEmpty: Array<{ symbol: string; from_time: string; to_time: string }> = [];
+      for (const range of gapRanges) {
+        const check = await db.query(
+          `SELECT COUNT(*) as cnt FROM ohlc_candles WHERE challenge_id = $1 AND symbol = $2`,
+          [challenge.id, range.symbol]
+        );
+        if (parseInt(check.rows[0].cnt) === 0) {
+          stillEmpty.push(range);
+        }
+      }
+      if (stillEmpty.length > 0 && this.baseUrl) {
+        console.log(`📊 OHLC: Pass 3 — Retry ${stillEmpty.length} symbol(s) that returned 0 (waiting 5s for chart load)...`);
+        await this.delay(5000);
+        await this.fetchAndStoreCandles(challenge.id, stillEmpty);
+      }
     }
 
     // Final count

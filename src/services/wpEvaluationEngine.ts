@@ -155,6 +155,8 @@ function remapSymbolToBaseAccount(symbol: string): string {
  * Replaces the old VPS-based fetch. Symbol is remapped to the standard 'm' suffix
  * (same as stored in ohlc_candles). Returns M1 candles for the requested range.
  * Returns null if no candle data exists for this symbol/range.
+ * If no data found but the symbol exists in wp_trades, triggers a live VPS fetch
+ * to fill the gap immediately (so evaluation completes within the same cycle).
  */
 async function fetchCandles(
   symbol: string,
@@ -174,21 +176,77 @@ async function fetchCandles(
     );
 
     if (result.rows.length === 0) {
-      // Check if we have ANY candles for this symbol at all
+      // No local data — try to fetch from VPS on-demand
       const countCheck = await db.query(
-        `SELECT COUNT(*) as cnt, MIN(time) as earliest, MAX(time) as latest FROM ohlc_candles WHERE symbol = $1`,
-        [baseSymbol]
+        `SELECT COUNT(*) as cnt FROM ohlc_candles WHERE symbol = $1`, [baseSymbol]
       );
-      const { cnt, earliest, latest } = countCheck.rows[0] || {};
-      if (parseInt(cnt) === 0) {
-        console.log(`⚠️ fetchCandles: No OHLC data at all for ${baseSymbol} (original: ${symbol})`);
-        return null; // Truly no data — triggers FAILED/pending
+      const hasAnyData = parseInt(countCheck.rows[0]?.cnt || '0') > 0;
+
+      if (hasAnyData) {
+        // Symbol exists but trade time is outside stored range — return empty (pass)
+        return [];
       }
-      // Data exists for this symbol but not in the trade's time range.
-      // This means the trade is too short or falls in a market-closed gap.
-      // Return empty array (not null) — this will result in safeCandles=[] → SL_SKIPPED → pass.
-      console.log(`⚠️ fetchCandles: ${baseSymbol} has ${cnt} candles (${earliest} → ${latest}) but none in range ${new Date(fromTime.getTime() - 60000).toISOString()} → ${toTime.toISOString()} — treating as pass`);
-      return [];
+
+      // Symbol has NO data at all — fetch from VPS now
+      console.log(`📊 fetchCandles: On-demand OHLC fetch for ${baseSymbol} (no local data)`);
+      try {
+        const scheduler = (global as any).__vpsPullScheduler;
+        if (scheduler && scheduler.baseUrl) {
+          const axios = require('axios');
+          const res = await axios.post(`${scheduler.baseUrl}/ohlc-bulk`, {
+            symbols: [{ symbol: baseSymbol, from_time: new Date(fromTime.getTime() - 3600000).toISOString(), to_time: toTime.toISOString() }],
+            timeframe: 'M1',
+            api_key: scheduler.apiKey,
+          }, { timeout: 60000 });
+
+          if (res.data?.results?.[baseSymbol]?.success && res.data.results[baseSymbol].candles?.length > 0) {
+            const candles = res.data.results[baseSymbol].candles;
+            // Store in DB
+            const challengeIds = await db.query(
+              `SELECT DISTINCT challenge_id FROM wp_trades WHERE symbol LIKE $1 LIMIT 1`,
+              [`%${baseSymbol.replace(/m$/, '')}%`]
+            );
+            const cid = challengeIds.rows[0]?.challenge_id;
+            if (cid) {
+              const CHUNK = 500;
+              for (let i = 0; i < candles.length; i += CHUNK) {
+                const chunk = candles.slice(i, i + CHUNK);
+                const values: any[] = [];
+                const placeholders = chunk.map((c: any, idx: number) => {
+                  const base = idx * 8;
+                  values.push(cid, baseSymbol, c.time, c.open, c.high, c.low, c.close, c.volume || 0);
+                  return `($${base+1},$${base+2},$${base+3},$${base+4},$${base+5},$${base+6},$${base+7},$${base+8})`;
+                });
+                await db.query(
+                  `INSERT INTO ohlc_candles (challenge_id, symbol, time, open, high, low, close, volume)
+                   VALUES ${placeholders.join(',')} ON CONFLICT (challenge_id, symbol, time) DO NOTHING`,
+                  values
+                ).catch(() => {});
+              }
+              console.log(`📊 fetchCandles: Stored ${candles.length} candles for ${baseSymbol} on-demand`);
+            }
+
+            // Now re-query from DB
+            const retry = await db.query(
+              `SELECT time, open, high, low, close FROM ohlc_candles
+               WHERE symbol = $1 AND time >= $2 AND time <= $3
+               ORDER BY time ASC LIMIT 5000`,
+              [baseSymbol, new Date(fromTime.getTime() - 60000).toISOString(), toTime.toISOString()]
+            );
+            if (retry.rows.length > 0) {
+              return retry.rows.map((r: any) => ({
+                time: new Date(r.time).toISOString(),
+                open: parseFloat(r.open), high: parseFloat(r.high),
+                low: parseFloat(r.low), close: parseFloat(r.close),
+              }));
+            }
+          }
+        }
+      } catch (e) {
+        console.warn(`⚠️ fetchCandles: On-demand VPS fetch failed for ${baseSymbol}:`, (e as Error).message);
+      }
+
+      return null; // Truly no data after trying
     }
 
     return result.rows.map((r: any) => ({
