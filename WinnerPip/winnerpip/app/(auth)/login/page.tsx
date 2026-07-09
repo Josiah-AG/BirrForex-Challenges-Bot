@@ -54,6 +54,7 @@ function LoginForm() {
         body: JSON.stringify({
           account_number: accountNumber.trim(),
           investor_password: investorPassword.trim(),
+          challenge_id: challengeId || undefined,
         }),
       });
 

@@ -482,7 +482,7 @@ export default function ChallengeDashboard() {
             {isLoggedIn && (
               <div className="flex items-center gap-2">
                 <button onClick={() => setShowRules(true)} className="flex items-center gap-2 px-3 py-2 glass border border-royal/30 text-royal hover:bg-royal/10 rounded-xl transition-all text-sm"><FileText size={14} /><span className="hidden sm:inline">Rules</span></button>
-                <button onClick={() => { localStorage.removeItem("wp_token"); localStorage.removeItem("wp_user"); setIsLoggedIn(false); setMyStats(null); setChallenge(null); setRecentTrades([]); setLeaderboard([]); }} className="flex items-center gap-2 px-3 py-2 glass border border-white/10 text-gray-400 hover:text-white hover:bg-white/10 rounded-xl transition-all text-sm"><LogOut size={14} /><span className="hidden sm:inline">Logout</span></button>
+                <button onClick={() => { localStorage.removeItem("wp_token"); localStorage.removeItem("wp_user"); window.location.href = "/"; }} className="flex items-center gap-2 px-3 py-2 glass border border-white/10 text-gray-400 hover:text-white hover:bg-white/10 rounded-xl transition-all text-sm"><LogOut size={14} /><span className="hidden sm:inline">Logout</span></button>
               </div>
             )}
           </div>
