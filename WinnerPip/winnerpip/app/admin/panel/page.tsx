@@ -568,73 +568,51 @@ export default function AdminDashboard() {
           {overview.metrics && (
             <div className="glass rounded-2xl border border-white/10 p-5">
               <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2"><TrendingUp size={16} className="text-profit" /> Trading Insights</h3>
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                {overview.metrics.maxProfitTrade && (
-                  <div className="p-3 rounded-xl bg-profit/5 border border-profit/20">
-                    <p className="text-[10px] text-gray-400 uppercase mb-1">Best Trade</p>
-                    <p className="text-lg font-bold text-profit">${overview.metrics.maxProfitTrade.profit.toFixed(2)}</p>
-                    <p className="text-[10px] text-gray-500">{overview.metrics.maxProfitTrade.symbol}</p>
-                    <p className="text-[10px] text-white font-medium mt-0.5">{overview.metrics.maxProfitTrade.nickname}</p>
-                    <p className="text-[9px] text-gray-500">@{overview.metrics.maxProfitTrade.username || '—'}</p>
-                  </div>
-                )}
-                {overview.metrics.maxLossTrade && (
-                  <div className="p-3 rounded-xl bg-loss/5 border border-loss/20">
-                    <p className="text-[10px] text-gray-400 uppercase mb-1">Worst Trade</p>
-                    <p className="text-lg font-bold text-loss">${overview.metrics.maxLossTrade.profit.toFixed(2)}</p>
-                    <p className="text-[10px] text-gray-500">{overview.metrics.maxLossTrade.symbol}</p>
-                    <p className="text-[10px] text-white font-medium mt-0.5">{overview.metrics.maxLossTrade.nickname}</p>
-                    <p className="text-[9px] text-gray-500">@{overview.metrics.maxLossTrade.username || '—'}</p>
-                  </div>
-                )}
-                {overview.metrics.bestWinRate && (
-                  <div className="p-3 rounded-xl bg-royal/5 border border-royal/20">
-                    <p className="text-[10px] text-gray-400 uppercase mb-1">Best Win Rate</p>
-                    <p className="text-lg font-bold text-royal">{overview.metrics.bestWinRate.qualifiedWinRate}%</p>
-                    <p className="text-[10px] text-gray-500">Qualified: {overview.metrics.bestWinRate.qualifiedWinRate}% | Overall: {overview.metrics.bestWinRate.overallWinRate}%</p>
-                    <p className="text-[10px] text-white font-medium mt-0.5">{overview.metrics.bestWinRate.nickname}</p>
-                    <p className="text-[9px] text-gray-500">@{overview.metrics.bestWinRate.username || '—'} · {overview.metrics.bestWinRate.trades} trades</p>
-                  </div>
-                )}
-                {overview.metrics.mostTradedPair && (
-                  <div className="p-3 rounded-xl bg-gold/5 border border-gold/20">
-                    <p className="text-[10px] text-gray-400 uppercase mb-1">Most Traded Pair</p>
-                    <p className="text-lg font-bold text-gold">{overview.metrics.mostTradedPair.symbol}</p>
-                    <p className="text-[10px] text-gray-500">{overview.metrics.mostTradedPair.tradeCount} trades · {overview.metrics.mostTradedPair.totalLots.toFixed(2)} lots</p>
-                  </div>
-                )}
-                {overview.metrics.leastTradedPair && overview.metrics.leastTradedPair.symbol !== overview.metrics.mostTradedPair?.symbol && (
-                  <div className="p-3 rounded-xl bg-white/5 border border-white/10">
-                    <p className="text-[10px] text-gray-400 uppercase mb-1">Least Traded Pair</p>
-                    <p className="text-lg font-bold text-gray-300">{overview.metrics.leastTradedPair.symbol}</p>
-                    <p className="text-[10px] text-gray-500">{overview.metrics.leastTradedPair.tradeCount} trades · {overview.metrics.leastTradedPair.totalLots.toFixed(2)} lots</p>
-                  </div>
-                )}
-                <div className="p-3 rounded-xl bg-loss/5 border border-loss/20">
-                  <p className="text-[10px] text-gray-400 uppercase mb-1">Blown Accounts</p>
-                  <p className="text-lg font-bold text-loss">{overview.metrics.blownAccounts}</p>
-                  <p className="text-[10px] text-gray-500">equity hit zero</p>
+              {overview.metrics.challengeType === 'hybrid' ? (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  {(['real', 'demo'] as const).map(cat => {
+                    const m = overview.metrics[cat];
+                    if (!m) return null;
+                    const label = cat === 'real' ? '💰 Real Account' : '🏦 Demo Account';
+                    return (
+                      <div key={cat} className="space-y-3">
+                        <p className="text-xs font-bold text-gray-300 uppercase">{label}</p>
+                        <div className="grid grid-cols-2 gap-2">
+                          {m.maxProfitTrade && <MetricCard title="Best Trade" value={`$${m.maxProfitTrade.profit.toFixed(2)}`} sub={`${m.maxProfitTrade.symbol}`} user={m.maxProfitTrade.nickname} color="text-profit" />}
+                          {m.maxLossTrade && <MetricCard title="Worst Trade" value={`$${m.maxLossTrade.profit.toFixed(2)}`} sub={m.maxLossTrade.symbol} user={m.maxLossTrade.nickname} color="text-loss" />}
+                          {m.bestQualifiedWinRate && <MetricCard title="Best Win Rate (Qual)" value={`${m.bestQualifiedWinRate.winRate}%`} sub={`${m.bestQualifiedWinRate.trades} trades`} user={m.bestQualifiedWinRate.nickname} color="text-royal" />}
+                          {m.bestOverallWinRate && <MetricCard title="Best Win Rate (All)" value={`${m.bestOverallWinRate.winRate}%`} sub={`${m.bestOverallWinRate.trades} trades`} user={m.bestOverallWinRate.nickname} color="text-royal" />}
+                          {m.mostTradedPair && <MetricCard title="Most Traded" value={m.mostTradedPair.symbol} sub={`${m.mostTradedPair.tradeCount} trades · ${m.mostTradedPair.totalLots.toFixed(2)} lots`} color="text-gold" />}
+                          {m.leastTradedPair && m.leastTradedPair.symbol !== m.mostTradedPair?.symbol && <MetricCard title="Least Traded" value={m.leastTradedPair.symbol} sub={`${m.leastTradedPair.tradeCount} trades`} color="text-gray-300" />}
+                          <MetricCard title="Blown" value={String(m.blownAccounts)} sub="equity = 0" color="text-loss" />
+                          <MetricCard title="Avg Trades/User" value={String(m.avgTradesPerUser)} sub="active traders" color="text-white" />
+                          {m.mostActiveDay && <MetricCard title="Most Active Day" value={new Date(m.mostActiveDay.day).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} sub={`${m.mostActiveDay.tradeCount} trades`} color="text-white" />}
+                          {m.leastActiveDay && <MetricCard title="Least Active Day" value={new Date(m.leastActiveDay.day).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} sub={`${m.leastActiveDay.tradeCount} trades`} color="text-gray-400" />}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
-                {overview.metrics.mostActiveDay && (
-                  <div className="p-3 rounded-xl bg-white/5 border border-white/10">
-                    <p className="text-[10px] text-gray-400 uppercase mb-1">Most Active Day</p>
-                    <p className="text-sm font-bold text-white">{new Date(overview.metrics.mostActiveDay.day).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</p>
-                    <p className="text-[10px] text-gray-500">{overview.metrics.mostActiveDay.tradeCount} trades</p>
-                  </div>
-                )}
-                {overview.metrics.leastActiveDay && (
-                  <div className="p-3 rounded-xl bg-white/5 border border-white/10">
-                    <p className="text-[10px] text-gray-400 uppercase mb-1">Least Active Day</p>
-                    <p className="text-sm font-bold text-white">{new Date(overview.metrics.leastActiveDay.day).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</p>
-                    <p className="text-[10px] text-gray-500">{overview.metrics.leastActiveDay.tradeCount} trades</p>
-                  </div>
-                )}
-                <div className="p-3 rounded-xl bg-white/5 border border-white/10">
-                  <p className="text-[10px] text-gray-400 uppercase mb-1">Avg Trades/User</p>
-                  <p className="text-lg font-bold text-white">{overview.metrics.avgTradesPerUser}</p>
-                  <p className="text-[10px] text-gray-500">among active traders</p>
-                </div>
-              </div>
+              ) : (
+                (() => {
+                  const m = overview.metrics.combined;
+                  if (!m) return null;
+                  return (
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                      {m.maxProfitTrade && <MetricCard title="Best Trade" value={`$${m.maxProfitTrade.profit.toFixed(2)}`} sub={m.maxProfitTrade.symbol} user={m.maxProfitTrade.nickname} username={m.maxProfitTrade.username} color="text-profit" />}
+                      {m.maxLossTrade && <MetricCard title="Worst Trade" value={`$${m.maxLossTrade.profit.toFixed(2)}`} sub={m.maxLossTrade.symbol} user={m.maxLossTrade.nickname} username={m.maxLossTrade.username} color="text-loss" />}
+                      {m.bestQualifiedWinRate && <MetricCard title="Best Win Rate (Qualified)" value={`${m.bestQualifiedWinRate.winRate}%`} sub={`${m.bestQualifiedWinRate.trades} trades`} user={m.bestQualifiedWinRate.nickname} username={m.bestQualifiedWinRate.username} color="text-royal" />}
+                      {m.bestOverallWinRate && <MetricCard title="Best Win Rate (Overall)" value={`${m.bestOverallWinRate.winRate}%`} sub={`${m.bestOverallWinRate.trades} trades`} user={m.bestOverallWinRate.nickname} username={m.bestOverallWinRate.username} color="text-royal" />}
+                      {m.mostTradedPair && <MetricCard title="Most Traded Pair" value={m.mostTradedPair.symbol} sub={`${m.mostTradedPair.tradeCount} trades · ${m.mostTradedPair.totalLots.toFixed(2)} lots`} color="text-gold" />}
+                      {m.leastTradedPair && m.leastTradedPair.symbol !== m.mostTradedPair?.symbol && <MetricCard title="Least Traded Pair" value={m.leastTradedPair.symbol} sub={`${m.leastTradedPair.tradeCount} trades · ${m.leastTradedPair.totalLots.toFixed(2)} lots`} color="text-gray-300" />}
+                      <MetricCard title="Blown Accounts" value={String(m.blownAccounts)} sub="equity hit zero" color="text-loss" />
+                      {m.mostActiveDay && <MetricCard title="Most Active Day" value={new Date(m.mostActiveDay.day).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} sub={`${m.mostActiveDay.tradeCount} trades`} color="text-white" />}
+                      {m.leastActiveDay && <MetricCard title="Least Active Day" value={new Date(m.leastActiveDay.day).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} sub={`${m.leastActiveDay.tradeCount} trades`} color="text-gray-400" />}
+                      <MetricCard title="Avg Trades/User" value={String(m.avgTradesPerUser)} sub="among active traders" color="text-white" />
+                    </div>
+                  );
+                })()
+              )}
             </div>
           )}
         </>)}
@@ -1498,6 +1476,18 @@ function StatCard({ icon, label, value, sub, color }: { icon: React.ReactNode; l
       <div className={`flex items-center gap-1.5 mb-1.5 ${color}`}>{icon}<p className="text-[9px] sm:text-[10px] text-gray-400 uppercase tracking-wider font-medium">{label}</p></div>
       <p className={`text-lg sm:text-2xl md:text-3xl font-bold ${color} truncate`}>{value}</p>
       <p className="text-[9px] sm:text-[10px] text-gray-500 mt-1 truncate">{sub}</p>
+    </div>
+  );
+}
+
+function MetricCard({ title, value, sub, user, username, color }: { title: string; value: string; sub: string; user?: string; username?: string; color: string }) {
+  return (
+    <div className="p-2.5 rounded-xl bg-white/5 border border-white/10">
+      <p className="text-[9px] text-gray-400 uppercase mb-0.5">{title}</p>
+      <p className={`text-sm font-bold ${color}`}>{value}</p>
+      <p className="text-[9px] text-gray-500">{sub}</p>
+      {user && <p className="text-[9px] text-white font-medium mt-0.5">{user}</p>}
+      {username && <p className="text-[8px] text-gray-500">@{username}</p>}
     </div>
   );
 }

@@ -1178,77 +1178,110 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
     const lastPull = await db.query(
       `SELECT completed_at FROM wp_pull_batches WHERE challenge_id=$1 AND status='completed' ORDER BY completed_at DESC LIMIT 1`, [challengeId]);
 
-    // === ADDITIONAL METRICS ===
-    // Max profit per trade (single best trade)
-    const maxProfitTrade = await db.query(
-      `SELECT t.profit, t.symbol, t.ticket, r.nickname, r.username, r.email
-       FROM wp_trades t JOIN trading_registrations r ON t.registration_id = r.id
-       WHERE t.challenge_id = $1 AND t.is_qualified = true${tradeFilter.replace(/\$2/g, '$2').replace(/\$3/g, '$3')}
-       ORDER BY t.profit DESC LIMIT 1`, tradeParams.length > 1 ? tradeParams : [challengeId]
-    );
+    // === ADDITIONAL METRICS (per category for hybrid, combined for single-type) ===
+    const challengeTypeResult = await db.query(`SELECT type FROM trading_challenges WHERE id = $1`, [challengeId]);
+    const challengeType = challengeTypeResult.rows[0]?.type || 'real';
+    const categories = challengeType === 'hybrid' ? ['real', 'demo'] : [challengeType];
 
-    // Best win rate — qualified (from qualified trades only) and overall
-    const bestWinRate = await db.query(
-      `SELECT r.nickname, r.username, r.email, l.qualified_trades, l.total_trades, l.flagged_trades,
-              CASE WHEN l.total_trades > 0 THEN ROUND((l.qualified_trades::numeric / l.total_trades) * 100) ELSE 0 END as win_rate,
-              CASE WHEN (l.total_trades - l.flagged_trades) > 0
-                THEN ROUND(
-                  (SELECT COUNT(*)::numeric FROM wp_trades t
-                   WHERE t.registration_id = l.registration_id AND t.challenge_id = $1
-                     AND t.is_qualified = true AND t.profit > 0${tradeFilter})
-                  / (l.total_trades - l.flagged_trades) * 100)
+    const buildMetricsForCategory = async (category: string | null) => {
+      const catJoin = category ? ` AND r.account_type = '${category}'` : '';
+      const catWhere = category ? ` AND t.registration_id IN (SELECT id FROM trading_registrations WHERE challenge_id = ${challengeId} AND account_type = '${category}')` : '';
+
+      // Load rules to check weekend_trading
+      const rulesForMetrics = await db.query(
+        `SELECT parameters FROM wp_challenge_rules WHERE challenge_id = $1 AND rule_code = 'config'`, [challengeId]
+      );
+      const rules2 = rulesForMetrics.rows[0]?.parameters;
+
+      const maxProfit = await db.query(
+        `SELECT t.profit, t.symbol, t.ticket, r.nickname, r.username, r.email
+         FROM wp_trades t JOIN trading_registrations r ON t.registration_id = r.id
+         WHERE t.challenge_id = $1 AND t.is_qualified = true${catWhere}${tradeFilter}
+         ORDER BY t.profit DESC LIMIT 1`, tradeParams.length > 1 ? tradeParams : [challengeId]);
+
+      const maxLoss = await db.query(
+        `SELECT t.profit, t.symbol, r.nickname, r.username
+         FROM wp_trades t JOIN trading_registrations r ON t.registration_id = r.id
+         WHERE t.challenge_id = $1${catWhere}${tradeFilter}
+         ORDER BY t.profit ASC LIMIT 1`, tradeParams.length > 1 ? tradeParams : [challengeId]);
+
+      // Best qualified win rate
+      const bestQualWin = await db.query(
+        `SELECT r.nickname, r.username, r.email, l.qualified_trades, l.total_trades, l.flagged_trades,
+                CASE WHEN l.qualified_trades > 0 THEN ROUND(
+                  (SELECT COUNT(*)::numeric FROM wp_trades t2
+                   WHERE t2.registration_id = l.registration_id AND t2.challenge_id = $1
+                     AND t2.is_qualified = true AND t2.profit > 0) / NULLIF(l.qualified_trades, 0) * 100)
                 ELSE 0 END as qualified_win_rate
-       FROM wp_leaderboard l JOIN trading_registrations r ON l.registration_id = r.id
-       WHERE l.challenge_id = $1 AND l.total_trades >= 5 AND r.disqualified = false
-       ORDER BY qualified_win_rate DESC, win_rate DESC, l.total_trades DESC LIMIT 1`, tradeParams.length > 1 ? tradeParams : [challengeId]
-    );
+         FROM wp_leaderboard l JOIN trading_registrations r ON l.registration_id = r.id
+         WHERE l.challenge_id = $1 AND l.total_trades >= 5 AND r.disqualified = false${catJoin}
+         ORDER BY qualified_win_rate DESC, l.total_trades DESC LIMIT 1`, [challengeId]);
 
-    // Most traded pair (within challenge period only)
-    const mostTradedPair = await db.query(
-      `SELECT symbol, COUNT(*) as trade_count, COALESCE(SUM(volume), 0) as total_lots
-       FROM wp_trades WHERE challenge_id = $1${tradeFilter}
-       GROUP BY symbol ORDER BY trade_count DESC LIMIT 1`, tradeParams.length > 1 ? tradeParams : [challengeId]
-    );
+      // Best overall win rate (profitable / total)
+      const bestOverallWin = await db.query(
+        `SELECT r.nickname, r.username, r.email, l.total_trades,
+                CASE WHEN l.total_trades > 0 THEN ROUND(
+                  (SELECT COUNT(*)::numeric FROM wp_trades t2
+                   WHERE t2.registration_id = l.registration_id AND t2.challenge_id = $1 AND t2.profit > 0)
+                  / l.total_trades * 100)
+                ELSE 0 END as overall_win_rate
+         FROM wp_leaderboard l JOIN trading_registrations r ON l.registration_id = r.id
+         WHERE l.challenge_id = $1 AND l.total_trades >= 5 AND r.disqualified = false${catJoin}
+         ORDER BY overall_win_rate DESC, l.total_trades DESC LIMIT 1`, [challengeId]);
 
-    // Least traded pair (within challenge period only, min 1 trade)
-    const leastTradedPair = await db.query(
-      `SELECT symbol, COUNT(*) as trade_count, COALESCE(SUM(volume), 0) as total_lots
-       FROM wp_trades WHERE challenge_id = $1${tradeFilter}
-       GROUP BY symbol ORDER BY trade_count ASC LIMIT 1`, tradeParams.length > 1 ? tradeParams : [challengeId]
-    );
+      const mostPair = await db.query(
+        `SELECT symbol, COUNT(*) as trade_count, COALESCE(SUM(volume), 0) as total_lots
+         FROM wp_trades WHERE challenge_id = $1${catWhere}${tradeFilter}
+         GROUP BY symbol ORDER BY trade_count DESC LIMIT 1`, tradeParams.length > 1 ? tradeParams : [challengeId]);
 
-    // Blown accounts (equity <= 0 or zero_balance_at set)
-    const blownAccounts = await db.query(
-      `SELECT COUNT(*) as cnt FROM wp_leaderboard
-       WHERE challenge_id = $1 AND zero_balance_at IS NOT NULL`, [challengeId]
-    );
+      const leastPair = await db.query(
+        `SELECT symbol, COUNT(*) as trade_count, COALESCE(SUM(volume), 0) as total_lots
+         FROM wp_trades WHERE challenge_id = $1${catWhere}${tradeFilter}
+         GROUP BY symbol ORDER BY trade_count ASC LIMIT 1`, tradeParams.length > 1 ? tradeParams : [challengeId]);
 
-    // Most active day (day with most trades)
-    const mostActiveDay = await db.query(
-      `SELECT DATE(close_time) as day, COUNT(*) as trade_count
-       FROM wp_trades WHERE challenge_id = $1${tradeFilter}
-       GROUP BY DATE(close_time) ORDER BY trade_count DESC LIMIT 1`, tradeParams.length > 1 ? tradeParams : [challengeId]
-    );
+      const blown = await db.query(
+        `SELECT COUNT(*) as cnt FROM wp_leaderboard l
+         JOIN trading_registrations r ON l.registration_id = r.id
+         WHERE l.challenge_id = $1 AND l.zero_balance_at IS NOT NULL${catJoin}`, [challengeId]);
 
-    // Least active day (day with fewest trades, excluding days with 0)
-    const leastActiveDay = await db.query(
-      `SELECT DATE(close_time) as day, COUNT(*) as trade_count
-       FROM wp_trades WHERE challenge_id = $1${tradeFilter}
-       GROUP BY DATE(close_time) ORDER BY trade_count ASC LIMIT 1`, tradeParams.length > 1 ? tradeParams : [challengeId]
-    );
+      const weekendFilter = rules2?.weekend_trading ? '' : ` AND EXTRACT(DOW FROM close_time) NOT IN (0, 6)`;
 
-    // Avg trades per user
-    const avgTradesPerUser = await db.query(
-      `SELECT ROUND(AVG(total_trades), 1) as avg_trades FROM wp_leaderboard WHERE challenge_id = $1 AND total_trades > 0`, [challengeId]
-    );
+      const mostDay = await db.query(
+        `SELECT DATE(close_time) as day, COUNT(*) as trade_count
+         FROM wp_trades WHERE challenge_id = $1${catWhere}${tradeFilter}${weekendFilter}
+         GROUP BY DATE(close_time) ORDER BY trade_count DESC LIMIT 1`, tradeParams.length > 1 ? tradeParams : [challengeId]);
 
-    // Max loss (worst single trade)
-    const maxLossTrade = await db.query(
-      `SELECT t.profit, t.symbol, r.nickname, r.username
-       FROM wp_trades t JOIN trading_registrations r ON t.registration_id = r.id
-       WHERE t.challenge_id = $1${tradeFilter}
-       ORDER BY t.profit ASC LIMIT 1`, tradeParams.length > 1 ? tradeParams : [challengeId]
-    );
+      const leastDay = await db.query(
+        `SELECT DATE(close_time) as day, COUNT(*) as trade_count
+         FROM wp_trades WHERE challenge_id = $1${catWhere}${tradeFilter}${weekendFilter}
+         GROUP BY DATE(close_time) ORDER BY trade_count ASC LIMIT 1`, tradeParams.length > 1 ? tradeParams : [challengeId]);
+
+      const avgTrades = await db.query(
+        `SELECT ROUND(AVG(total_trades), 1) as avg_trades FROM wp_leaderboard l
+         JOIN trading_registrations r ON l.registration_id = r.id
+         WHERE l.challenge_id = $1 AND l.total_trades > 0${catJoin}`, [challengeId]);
+
+      return {
+        maxProfitTrade: maxProfit.rows[0] ? { profit: parseFloat(maxProfit.rows[0].profit), symbol: maxProfit.rows[0].symbol, nickname: maxProfit.rows[0].nickname, username: maxProfit.rows[0].username, email: maxProfit.rows[0].email } : null,
+        maxLossTrade: maxLoss.rows[0] ? { profit: parseFloat(maxLoss.rows[0].profit), symbol: maxLoss.rows[0].symbol, nickname: maxLoss.rows[0].nickname, username: maxLoss.rows[0].username } : null,
+        bestQualifiedWinRate: bestQualWin.rows[0] ? { winRate: parseInt(bestQualWin.rows[0].qualified_win_rate || '0'), nickname: bestQualWin.rows[0].nickname, username: bestQualWin.rows[0].username, email: bestQualWin.rows[0].email, trades: parseInt(bestQualWin.rows[0].total_trades) } : null,
+        bestOverallWinRate: bestOverallWin.rows[0] ? { winRate: parseInt(bestOverallWin.rows[0].overall_win_rate || '0'), nickname: bestOverallWin.rows[0].nickname, username: bestOverallWin.rows[0].username, email: bestOverallWin.rows[0].email, trades: parseInt(bestOverallWin.rows[0].total_trades) } : null,
+        mostTradedPair: mostPair.rows[0] ? { symbol: mostPair.rows[0].symbol, tradeCount: parseInt(mostPair.rows[0].trade_count), totalLots: parseFloat(mostPair.rows[0].total_lots) } : null,
+        leastTradedPair: leastPair.rows[0] ? { symbol: leastPair.rows[0].symbol, tradeCount: parseInt(leastPair.rows[0].trade_count), totalLots: parseFloat(leastPair.rows[0].total_lots) } : null,
+        blownAccounts: parseInt(blown.rows[0]?.cnt || '0'),
+        mostActiveDay: mostDay.rows[0] ? { day: mostDay.rows[0].day, tradeCount: parseInt(mostDay.rows[0].trade_count) } : null,
+        leastActiveDay: leastDay.rows[0] ? { day: leastDay.rows[0].day, tradeCount: parseInt(leastDay.rows[0].trade_count) } : null,
+        avgTradesPerUser: parseFloat(avgTrades.rows[0]?.avg_trades || '0'),
+      };
+    };
+
+    const metrics: any = { challengeType };
+    if (challengeType === 'hybrid') {
+      metrics.real = await buildMetricsForCategory('real');
+      metrics.demo = await buildMetricsForCategory('demo');
+    } else {
+      metrics.combined = await buildMetricsForCategory(null);
+    }
 
     return res.json({
       participants: { total: parseInt(c.total), demo: parseInt(c.demo), real: parseInt(c.real), disqualified: parseInt(c.disqualified) },
@@ -1257,17 +1290,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
       balance: { total: totalBalance, real: realBalance, demo: demoBalance },
       qualified: parseInt(aboveTarget.rows[0].cnt),
       latestScreening: latestScreening.rows[0] || null,
-      metrics: {
-        maxProfitTrade: maxProfitTrade.rows[0] ? { profit: parseFloat(maxProfitTrade.rows[0].profit), symbol: maxProfitTrade.rows[0].symbol, nickname: maxProfitTrade.rows[0].nickname, username: maxProfitTrade.rows[0].username, email: maxProfitTrade.rows[0].email } : null,
-        bestWinRate: bestWinRate.rows[0] ? { qualifiedWinRate: parseInt(bestWinRate.rows[0].qualified_win_rate || '0'), overallWinRate: parseInt(bestWinRate.rows[0].win_rate), nickname: bestWinRate.rows[0].nickname, username: bestWinRate.rows[0].username, email: bestWinRate.rows[0].email, trades: parseInt(bestWinRate.rows[0].total_trades) } : null,
-        mostTradedPair: mostTradedPair.rows[0] ? { symbol: mostTradedPair.rows[0].symbol, tradeCount: parseInt(mostTradedPair.rows[0].trade_count), totalLots: parseFloat(mostTradedPair.rows[0].total_lots) } : null,
-        leastTradedPair: leastTradedPair.rows[0] ? { symbol: leastTradedPair.rows[0].symbol, tradeCount: parseInt(leastTradedPair.rows[0].trade_count), totalLots: parseFloat(leastTradedPair.rows[0].total_lots) } : null,
-        blownAccounts: parseInt(blownAccounts.rows[0]?.cnt || '0'),
-        mostActiveDay: mostActiveDay.rows[0] ? { day: mostActiveDay.rows[0].day, tradeCount: parseInt(mostActiveDay.rows[0].trade_count) } : null,
-        leastActiveDay: leastActiveDay.rows[0] ? { day: leastActiveDay.rows[0].day, tradeCount: parseInt(leastActiveDay.rows[0].trade_count) } : null,
-        avgTradesPerUser: parseFloat(avgTradesPerUser.rows[0]?.avg_trades || '0'),
-        maxLossTrade: maxLossTrade.rows[0] ? { profit: parseFloat(maxLossTrade.rows[0].profit), symbol: maxLossTrade.rows[0].symbol, nickname: maxLossTrade.rows[0].nickname, username: maxLossTrade.rows[0].username } : null,
-      },
+      metrics,
     });
   } catch (error) {
     console.error('Admin overview error:', error);
