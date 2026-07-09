@@ -1876,7 +1876,7 @@ function CreateChallengePanel({ onCreated }: { onCreated: (id: number) => void }
               <RuleToggle label="Stop Loss Required" value={rules.stop_loss_required} onChange={v => setRules({...rules, stop_loss_required: v})} />
               <RuleToggle label="Weekend Trading" value={rules.weekend_trading} onChange={v => setRules({...rules, weekend_trading: v})} />
               <RuleToggle label="Only Cent Account (Real)" value={rules.only_cent_account} onChange={v => setRules({...rules, only_cent_account: v, ...(v ? { allow_professional: false } : {})})} />
-              <RuleToggle label="Allow Professional Accounts (Pro/Zero/Raw)" value={rules.allow_professional || false} onChange={v => setRules({...rules, allow_professional: v})} />
+              {!rules.only_cent_account && <RuleToggle label="Allow Professional Accounts (Pro/Zero/Raw)" value={rules.allow_professional || false} onChange={v => setRules({...rules, allow_professional: v})} />}
             </div>
             <div className="flex gap-3 mt-6">
               <button onClick={() => setStep(2)} className="flex-1 py-3 rounded-xl bg-white/5 border border-white/10 text-gray-400 font-semibold hover:bg-white/10 transition-all">Back</button>
