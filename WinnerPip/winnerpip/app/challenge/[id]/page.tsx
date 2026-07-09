@@ -1279,7 +1279,7 @@ export default function ChallengeDashboard() {
                             if (group.length === 1) {
                               const t = group[0];
                               return (
-                                <div key={t.ticket} className={`py-2 px-3 rounded-lg ${t.slCheckResult === 'conflicting' ? 'bg-amber-500/5 border border-amber-400/20' : !t.isQualified ? 'bg-loss/10 border border-loss/20' : 'bg-white/5'}`}>
+                                <div key={t.ticket} className={`py-2 px-3 rounded-lg ${t.slCheckResult === 'conflicting' ? 'bg-amber-500/5 border border-amber-400/20' : t.slCheckPending ? 'bg-gold/5 border border-gold/20' : !t.isQualified ? 'bg-loss/10 border border-loss/20' : 'bg-white/5'}`}>
                                   <div className="flex items-center justify-between">
                                     <div className="flex items-center gap-2">
                                       <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${t.type?.toLowerCase() === 'buy' ? 'bg-profit/20 text-profit' : 'bg-loss/20 text-loss'}`}>{t.type}</span>
@@ -1290,10 +1290,11 @@ export default function ChallengeDashboard() {
                                     </div>
                                     <div className="text-right">
                                       <p className={`text-xs font-bold ${t.profit >= 0 ? 'text-profit' : 'text-loss'}`}>{cur(t.profit)}</p>
-                                      <p className="text-[10px] text-gray-500">{t.volume} lot {t.slCheckResult === 'conflicting' ? <span title="Under investigation." className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-amber-500/20 border border-amber-400/50 text-amber-400 text-[9px] font-bold cursor-help ml-1">?</span> : !t.isQualified ? <span className="text-loss">🚩</span> : null}</p>
+                                      <p className="text-[10px] text-gray-500">{t.volume} lot {t.slCheckResult === 'conflicting' ? <span title="Under investigation." className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-amber-500/20 border border-amber-400/50 text-amber-400 text-[9px] font-bold cursor-help ml-1">?</span> : t.slCheckPending ? <span title="Max risk check pending — result may change" className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-gold/20 border border-gold/40 text-gold text-[9px] font-bold cursor-help ml-1">?</span> : !t.isQualified ? <span className="text-loss">🚩</span> : null}</p>
                                     </div>
                                   </div>
                                   {t.slCheckResult === 'conflicting' && <p className="text-[10px] text-amber-400 mt-1 pl-7">⚠ Under investigation. Result may change after the next check.</p>}
+                                  {t.slCheckPending && <p className="text-[10px] text-gold mt-1 pl-7">⚠ Max risk check pending — benefit of doubt applied. Result may change.</p>}
                                   {!t.isQualified && t.violations?.length > 0 && <p className="text-[10px] text-loss mt-1 pl-7">⚠️ {typeof t.violations[0] === 'string' ? t.violations[0] : (t.violations[0] as any)?.detail || 'Rule violation'}</p>}
                                 </div>
                               );

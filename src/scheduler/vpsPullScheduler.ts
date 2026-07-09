@@ -562,12 +562,19 @@ export class VpsPullScheduler {
       await this.reconcileMissingTrades(challengeToPull.id, batchId, successfulAccounts, healthyTerminals, challengeToPull);
       await this.resolveNullOpenTimes(challengeToPull.id, batchId, successfulAccounts, healthyTerminals, challengeToPull);
 
+      // === DELAY: Let terminals return to base + wp_trades settle ===
+      console.log('📊 VPS Pull: Waiting 8s for terminals to settle before OHLC...');
+      await this.delay(8000);
+
       // === OHLC UPDATE (before evaluation — evaluation uses local candle data) ===
       await this.updateOhlcCandles(challengeToPull).catch(e =>
         console.error('⚠️ OHLC update error (non-fatal):', e)
       );
 
       await this.evaluateAllAccounts(challengeToPull.id, successfulAccounts, batchId);
+
+      // === POST-EVAL: Retry SL checks for trades still pending (missing OHLC) ===
+      await this.postEvalSlRetry(challengeToPull);
 
       // Complete batch
       const newTrades = successful.reduce((sum, r) => sum + (r.tradesCount || 0), 0);
@@ -758,12 +765,19 @@ export class VpsPullScheduler {
       await this.reconcileMissingTrades(challengeId, batchId, successfulAccounts, healthyTerminals, challengeToPull);
       await this.resolveNullOpenTimes(challengeId, batchId, successfulAccounts, healthyTerminals, challengeToPull);
 
+      // === DELAY: Let terminals settle ===
+      console.log('📊 VPS Pull: Waiting 8s for terminals to settle before OHLC...');
+      await this.delay(8000);
+
       // === OHLC UPDATE (before evaluation) ===
       await this.updateOhlcCandles(challengeToPull).catch(e =>
         console.error('⚠️ OHLC update error (non-fatal):', e)
       );
 
       await this.evaluateAllAccounts(challengeId, successfulAccounts, batchId);
+
+      // === POST-EVAL: Retry SL checks for trades still pending (missing OHLC) ===
+      await this.postEvalSlRetry(challengeToPull);
 
       const newTrades = successful.reduce((sum, r) => sum + (r.tradesCount || 0), 0);
       await this.completePullBatch(batchId, successful.length, failed.length, newTrades, 'completed');
@@ -2678,6 +2692,75 @@ export class VpsPullScheduler {
         `🚨 <b>CRITICAL: VPS Pull Failed</b>\n<b>${challenge.title}</b>\n\n${message}`,
         { parse_mode: 'HTML' });
     } catch (e) {}
+  }
+
+  // ==================== POST-EVAL SL RETRY ====================
+
+  /**
+   * After evaluation, find trades still sl_check_pending.
+   * For those: identify missing symbols, update OHLC for them, then re-evaluate those accounts.
+   * This ensures all SL checks complete within the same pull cycle.
+   */
+  private async postEvalSlRetry(challenge: TradingChallenge): Promise<void> {
+    try {
+      const pendingSymbols = await db.query(
+        `SELECT DISTINCT symbol FROM wp_trades
+         WHERE challenge_id = $1 AND sl_check_pending = true AND symbol IS NOT NULL`,
+        [challenge.id]
+      );
+
+      if (pendingSymbols.rows.length === 0) return;
+
+      const remapToBase = (s: string) => s.replace(/[a-z]$/, '') + 'm';
+      const missingSymbols = new Set<string>();
+
+      for (const row of pendingSymbols.rows) {
+        const baseSymbol = remapToBase(row.symbol);
+        const check = await db.query(
+          `SELECT COUNT(*) as cnt FROM ohlc_candles WHERE symbol = $1`, [baseSymbol]
+        );
+        if (parseInt(check.rows[0]?.cnt || '0') === 0) {
+          missingSymbols.add(baseSymbol);
+        }
+      }
+
+      if (missingSymbols.size > 0) {
+        console.log(`📊 Post-eval SL retry: Fetching OHLC for ${missingSymbols.size} missing symbol(s): ${[...missingSymbols].join(', ')}`);
+
+        const challengeStart = new Date(challenge.start_date).toISOString();
+        const now = new Date().toISOString();
+        const symbolRanges = [...missingSymbols].map(symbol => ({
+          symbol, from_time: challengeStart, to_time: now,
+        }));
+
+        // Wait a bit more for VPS to have charts loaded
+        await this.delay(5000);
+        await this.fetchAndStoreCandles(challenge.id, symbolRanges);
+      }
+
+      // Now re-evaluate accounts that have pending SL trades
+      const pendingAccounts = await evaluationEngine.getPendingSlAccounts(challenge.id);
+      if (pendingAccounts.length > 0) {
+        console.log(`📊 Post-eval SL retry: Re-evaluating ${pendingAccounts.length} account(s) with pending SL checks...`);
+        for (const regId of pendingAccounts) {
+          await evaluationEngine.evaluateSingleAccount(challenge.id, regId);
+        }
+      }
+
+      // Final check: any still pending?
+      const stillPending = await db.query(
+        `SELECT COUNT(*) as cnt FROM wp_trades WHERE challenge_id = $1 AND sl_check_pending = true`,
+        [challenge.id]
+      );
+      const remaining = parseInt(stillPending.rows[0].cnt);
+      if (remaining > 0) {
+        console.log(`⚠️ Post-eval SL retry: ${remaining} trade(s) still pending after retry (benefit of doubt applied)`);
+      } else {
+        console.log(`✅ Post-eval SL retry: All SL checks resolved within this cycle`);
+      }
+    } catch (e) {
+      console.error('⚠️ Post-eval SL retry error (non-fatal):', (e as Error).message);
+    }
   }
 
   // ==================== OHLC CANDLE STORAGE ====================

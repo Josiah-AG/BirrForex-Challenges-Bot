@@ -1230,7 +1230,7 @@ export default function AdminDashboard() {
                                 </div>
                                 <div className="text-right">
                                   <p className={`text-xs font-bold ${t.profit >= 0 ? 'text-profit' : 'text-loss'}`}>{c(t.profit)}</p>
-                                  <p className="text-[10px] text-gray-500">{t.volume} lot {t.slCheckResult === 'conflicting' ? <span className="text-amber-400 ml-1">?</span> : !t.isQualified ? <span className="text-loss">🚩</span> : null}</p>
+                                  <p className="text-[10px] text-gray-500">{t.volume} lot {t.slCheckResult === 'conflicting' ? <span className="text-amber-400 ml-1">?</span> : t.slCheckPending ? <span className="text-gold ml-1" title="Max risk check pending — result may change">?</span> : !t.isQualified ? <span className="text-loss">🚩</span> : null}</p>
                                 </div>
                               </div>
                               {!t.isQualified && t.violations?.length > 0 && <p className="text-[10px] text-loss mt-1 pl-7">⚠️ {typeof t.violations[0] === 'string' ? t.violations[0] : (t.violations[0] as any)?.detail || 'Rule violation'}</p>}
