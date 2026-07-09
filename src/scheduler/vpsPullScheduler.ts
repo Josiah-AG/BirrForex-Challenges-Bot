@@ -460,12 +460,7 @@ export class VpsPullScheduler {
       const isChallengeEnded = challengeToPull.status === 'reviewing' || challengeToPull.status === 'completed';
       const isFinalSync = this.isSaturdayFinalSync() || isChallengeEnded;
 
-      // === STEP 1: Flush previous cycle's staging data to live + update rankings ===
-      await leaderboardService.flushStagingToLive(challengeToPull.id);
-      await leaderboardService.ensureAllParticipantsHaveEntries(challengeToPull.id);
-      await leaderboardService.updateRankings(challengeToPull.id);
-
-      // === STEP 2: Build shared queue with failed-first priority ===
+      // === STEP 1: Build shared queue with failed-first priority ===
       const accounts = await this.getAccountsToPull(challengeToPull.id);
       if (accounts.length === 0) {
         console.log('📊 VPS Pull: No accounts to pull');
