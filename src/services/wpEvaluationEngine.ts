@@ -82,6 +82,7 @@ interface RuleConfig {
   weekend_trading: boolean;
   min_active_days: number;
   only_cent_account: boolean;
+  allow_professional: boolean;
 }
 
 interface TradeRow {
@@ -1467,7 +1468,7 @@ export class WpEvaluationEngine {
       max_lot_size: 0.02, max_open_trades: 3, pair_limit: 2,
       stop_loss_required: true, max_risk_dollars: 5, daily_loss_cap: 10,
       max_hold_hours: 24, weekend_trading: false, min_active_days: 7,
-      only_cent_account: false,
+      only_cent_account: false, allow_professional: false,
     };
     await this.saveRules(challengeId, defaults);
     console.log(`✅ WP Evaluation: Seeded default rules for challenge ${challengeId}`);

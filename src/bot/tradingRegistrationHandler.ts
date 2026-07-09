@@ -1080,38 +1080,25 @@ export class TradingRegistrationHandler {
       session.data.is_cent = isCentAccount;
       session.data.account_subtype = vpsAccountSubtype;
 
-      // === ACCOUNT SUBTYPE CHECK (per spec) ===
-      // For non-cent accounts, reject Pro/Raw/Zero — only Standard allowed
-      if (!isCentAccount && account_type !== 'demo') {
-        // Real standard accounts must be "standard" subtype
-        if (vpsAccountSubtype === 'pro' || vpsAccountSubtype === 'raw_spread' || vpsAccountSubtype === 'zero') {
-          session.step = 'tc_enter_account_number';
-          await ctx.reply(
-            '❌ <b>Account Type Not Allowed</b>\n\n' +
-            `Your account is a <b>${vpsAccountSubtype === 'pro' ? 'Pro' : vpsAccountSubtype === 'zero' ? 'Zero' : 'Raw Spread'}</b> account. This challenge only accepts <b>Standard</b> or <b>Standard Cent</b> accounts.\n\n` +
-            '📋 <b>How to create a Standard Account:</b>\n' +
-            '1. Open Exness → My Accounts\n' +
-            '2. Create New Account → Choose "Standard" or "Standard Cent"\n' +
-            '3. Select MT5 platform\n' +
-            '4. Fund the account\n\n' +
-            'Once ready, submit your standard account:',
-            { parse_mode: 'HTML', ...Markup.inlineKeyboard([
-              [Markup.button.callback('📝 Submit Another Account', `tc_new_real_acct_${session.data.challenge_id}`)],
-            ]) }
-          );
-          return;
-        }
-      }
-      // For demo accounts, also check subtype
-      if (account_type === 'demo' && vpsAccountSubtype !== 'standard' && vpsAccountSubtype !== 'unknown') {
+      // === ACCOUNT SUBTYPE CHECK ===
+      // Rules determine which subtypes are allowed:
+      //   only_cent_account ON → real: standard_cent only | demo: standard only
+      //   allow_professional ON → adds pro, raw_spread, zero to allowed list
+      //   Default (both OFF) → standard + standard_cent for real, standard for demo
+      const isPro = vpsAccountSubtype === 'pro' || vpsAccountSubtype === 'raw_spread' || vpsAccountSubtype === 'zero';
+      const allowPro = rules?.allow_professional || false;
+
+      if (isPro && !allowPro) {
         session.step = 'tc_enter_account_number';
+        const subtypeLabel = vpsAccountSubtype === 'pro' ? 'Pro' : vpsAccountSubtype === 'zero' ? 'Zero' : 'Raw Spread';
         await ctx.reply(
           '❌ <b>Account Type Not Allowed</b>\n\n' +
-          `Your account is a <b>${vpsAccountSubtype === 'pro' ? 'Pro' : vpsAccountSubtype === 'zero' ? 'Zero' : 'Raw Spread'}</b> account. This challenge only accepts <b>Standard</b> accounts.\n\n` +
+          `Your account is a <b>${subtypeLabel}</b> account. This challenge only accepts <b>Standard</b>${account_type !== 'demo' ? ' or <b>Standard Cent</b>' : ''} accounts.\n\n` +
           '📋 <b>How to create a Standard Account:</b>\n' +
           '1. Open Exness → My Accounts\n' +
-          '2. Create New Account → Choose "Standard"\n' +
-          '3. Select MT5 platform\n\n' +
+          '2. Create New Account → Choose "Standard"' + (account_type !== 'demo' ? ' or "Standard Cent"' : '') + '\n' +
+          '3. Select MT5 platform\n' +
+          (account_type !== 'demo' ? '4. Fund the account\n\n' : '\n') +
           'Once ready, submit your standard account:',
           { parse_mode: 'HTML', ...Markup.inlineKeyboard([
             [Markup.button.callback('📝 Submit Another Account', `tc_new_real_acct_${session.data.challenge_id}`)],
@@ -1490,8 +1477,12 @@ export class TradingRegistrationHandler {
       const challenge = await tradingChallengeService.getChallengeById(session.data.challenge_id);
       const startingBalance = Number(challenge?.starting_balance || 30);
 
-      // Reject non-standard subtypes (Pro/Raw/Zero)
-      if (!isCent && (subtype === 'pro' || subtype === 'raw_spread' || subtype === 'zero')) {
+      // Reject non-standard subtypes if pro not allowed
+      const isPro2 = subtype === 'pro' || subtype === 'raw_spread' || subtype === 'zero';
+      const { evaluationEngine: wpEngine2 } = require('../services/wpEvaluationEngine');
+      const rules2 = await wpEngine2.loadRules(session.data.challenge_id);
+      const allowPro2 = rules2?.allow_professional || false;
+      if (isPro2 && !allowPro2) {
         session.step = 'tc_change_acct_number';
         await ctx.reply(
           `❌ <b>Account Type Not Allowed</b>\n\nOnly Standard or Standard Cent accounts are accepted.\n\nSend your new <b>MT5 ${session.data.account_type === 'demo' ? 'Demo' : 'Real'} Account Number:</b>`,
