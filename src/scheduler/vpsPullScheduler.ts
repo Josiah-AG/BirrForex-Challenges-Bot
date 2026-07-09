@@ -500,16 +500,12 @@ export class VpsPullScheduler {
         return;
       }
 
-      // === PRE-CYCLE: Login candle accounts to their designated terminals ===
-      await candleTerminalManager.setup(challengeToPull.id, healthyTerminals.map(t => t.id));
-
       // Launch terminal workers (they pull from shared queue)
       const allResults = await this.runSharedQueueWorkers(healthyTerminals, challengeToPull, batchId);
 
       // If admin cancelled — skip retry, leaderboard, and reporting; just clean up
       if (this.cancelRequested) {
         console.log('🛑 VPS Pull: Cancelled — skipping retry/leaderboard steps');
-        await candleTerminalManager.restore();
         this.isRunning = false;
         this.cancelRequested = false;
         return;
@@ -644,12 +640,6 @@ export class VpsPullScheduler {
         console.log(`📊 Terminal distribution: ${terminalStats}`);
       }
 
-      // === POST-CYCLE: Auto-recheck any trades still pending from previous cycles ===
-      await this.autoRecheckPendingSlTrades(challengeToPull.id);
-
-      // === POST-CYCLE: Restore candle terminals back to base account ===
-      await candleTerminalManager.restore();
-
       // === POST-CYCLE: Report unresolved candle check failures to admin ===
       await this.reportCandleFailures(challengeToPull.id, duration);
 
@@ -731,18 +721,14 @@ export class VpsPullScheduler {
         return;
       }
 
-      await candleTerminalManager.setup(challengeToPull.id, healthyTerminals.map(t => t.id));
       const allResults = await this.runSharedQueueWorkers(healthyTerminals, challengeToPull, batchId);
 
       if (this.cancelRequested) {
         console.log('🛑 VPS Pull: Admin pull cancelled');
-        await candleTerminalManager.restore();
         await this.completePullBatch(batchId, 0, accounts.length, 0, 'cancelled').catch(() => {});
         batchId = null;
         return;
       }
-
-      await candleTerminalManager.restore();
 
       // Retry + credential confirmation already happened INSIDE the shared queue
       // (runSharedQueueWorkers only returns once the queue is fully empty — every
