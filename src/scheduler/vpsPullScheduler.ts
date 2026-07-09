@@ -38,7 +38,7 @@ const ACCOUNT_TIMEOUT_MS = 30000;
 // to ~40s on a cold cache, so they need a longer timeout than other endpoints.
 const HISTORY_RESOLVE_TIMEOUT_MS = 60000;
 const BATCH_DELAY_MS = 1500;
-const PASSWORD_WARNING_HOURS = 48;
+const PASSWORD_WARNING_HOURS = 24;
 const TERMINAL_HEALTH_RECHECK_MS = 10 * 60 * 1000;
 const TERMINAL_FAILURE_THRESHOLD = 5;
 // Unified continuous-queue retry model (replaces the old multi-phase retry system):
@@ -1947,7 +1947,7 @@ export class VpsPullScheduler {
 
       for (const reg of result.rows) {
         await db.query(
-          `UPDATE trading_registrations SET disqualified = true, disqualified_at = NOW(), disqualified_reason = 'Investor password changed — no update within 48h' WHERE id = $1`,
+          `UPDATE trading_registrations SET disqualified = true, disqualified_at = NOW(), disqualified_reason = 'Investor password changed — no update within 24h' WHERE id = $1`,
           [reg.id]
         );
 
@@ -1955,14 +1955,14 @@ export class VpsPullScheduler {
           await this.bot.bot.telegram.sendMessage(reg.user_id,
             `🚫 <b>Registration Disqualified — ${activeChallenge.title}</b>\n\n` +
             `Account <b>${reg.account_number}</b> has been disqualified.\n\n` +
-            `📛 <b>Reason:</b> Investor password was changed and not updated within 48 hours.\n\n` +
+            `📛 <b>Reason:</b> Investor password was changed and not updated within 24 hours.\n\n` +
             `<i>Contact @birrFXadmin if you believe this is an error.</i>`,
             { parse_mode: 'HTML' });
         } catch (e) {}
 
         try {
           await this.bot.bot.telegram.sendMessage(config.adminUserId,
-            `🚫 Auto-DQ: @${reg.username || 'unknown'} (${reg.account_number}) — password not updated in 48h`);
+            `🚫 Auto-DQ: @${reg.username || 'unknown'} (${reg.account_number}) — password not updated in 24h`);
         } catch (e) {}
       }
     } catch (error) {

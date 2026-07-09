@@ -2111,7 +2111,14 @@ function ChallengeSettingsPanel({ challengeId, challenges, onRefresh }: { challe
             <button onClick={() => handleExport('leaderboard')} className="p-2.5 rounded-lg bg-white/5 border border-white/10 text-gray-300 text-xs font-semibold hover:bg-white/10 transition-all">📊 Leaderboard CSV</button>
             <button onClick={async () => { try { const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/export-evaluation`); if (res.ok) { const data = await res.json(); const csv = convertToCSV(data.evaluation); const blob = new Blob([csv], { type: "text/csv" }); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `${(editForm.title || `challenge_${challengeId}`).replace(/\s+/g, '_')}_evaluation.csv`; a.click(); setMsg("✅ Evaluation exported"); } } catch { setMsg("❌ Export failed"); } }} className="p-2.5 rounded-lg bg-profit/10 border border-profit/30 text-profit text-xs font-semibold hover:bg-profit/20 transition-all">📋 Evaluation CSV</button>
             <button onClick={async () => { try { const r = await fetch(`${apiUrl}/api/challenges/${challengeId}/rules`); const d = await r.json(); downloadRulesHTML(editForm, d.rules || [], d.isCent || false); } catch { downloadRulesHTML(editForm, [], false); } }} className="p-2.5 rounded-lg bg-royal/10 border border-royal/30 text-royal text-xs font-semibold hover:bg-royal/20 transition-all">📋 Rules Image</button>
-            <button onClick={async () => { try { const r = await fetch(`${apiUrl}/api/challenges/${challengeId}/leaderboard?limit=10`); const d = await r.json(); downloadLeaderboardHTML({ ...editForm, real_winners_count: challenge?.realWinnersCount ?? 3, demo_winners_count: challenge?.demoWinnersCount ?? 3 }, d.leaderboard || []); } catch { downloadLeaderboardHTML(editForm, []); } }} className="p-2.5 rounded-lg bg-gold/10 border border-gold/30 text-gold text-xs font-semibold hover:bg-gold/20 transition-all">🏆 Leaderboard Image</button>
+            {editForm.type === 'hybrid' ? (
+              <>
+                <button onClick={async () => { try { const r = await fetch(`${apiUrl}/api/challenges/${challengeId}/leaderboard?limit=10&category=real`); const d = await r.json(); downloadLeaderboardHTML({ ...editForm, real_winners_count: challenge?.realWinnersCount ?? 3, demo_winners_count: challenge?.demoWinnersCount ?? 3 }, d.leaderboard || [], 'Real'); } catch { downloadLeaderboardHTML(editForm, [], 'Real'); } }} className="p-2.5 rounded-lg bg-gold/10 border border-gold/30 text-gold text-xs font-semibold hover:bg-gold/20 transition-all">🏆 Real Leaderboard</button>
+                <button onClick={async () => { try { const r = await fetch(`${apiUrl}/api/challenges/${challengeId}/leaderboard?limit=10&category=demo`); const d = await r.json(); downloadLeaderboardHTML({ ...editForm, real_winners_count: challenge?.realWinnersCount ?? 3, demo_winners_count: challenge?.demoWinnersCount ?? 3 }, d.leaderboard || [], 'Demo'); } catch { downloadLeaderboardHTML(editForm, [], 'Demo'); } }} className="p-2.5 rounded-lg bg-gold/10 border border-gold/30 text-gold text-xs font-semibold hover:bg-gold/20 transition-all">🏆 Demo Leaderboard</button>
+              </>
+            ) : (
+              <button onClick={async () => { try { const r = await fetch(`${apiUrl}/api/challenges/${challengeId}/leaderboard?limit=10`); const d = await r.json(); downloadLeaderboardHTML({ ...editForm, real_winners_count: challenge?.realWinnersCount ?? 3, demo_winners_count: challenge?.demoWinnersCount ?? 3 }, d.leaderboard || []); } catch { downloadLeaderboardHTML(editForm, []); } }} className="p-2.5 rounded-lg bg-gold/10 border border-gold/30 text-gold text-xs font-semibold hover:bg-gold/20 transition-all">🏆 Leaderboard Image</button>
+            )}
           </div>
         </div>
 
@@ -2307,7 +2314,7 @@ function downloadRulesHTML(challenge: any, rulesList: string[], isCent: boolean)
   URL.revokeObjectURL(url);
 }
 
-function downloadLeaderboardHTML(challenge: any, lb: any[]) {
+function downloadLeaderboardHTML(challenge: any, lb: any[], categoryLabel?: string) {
   const top10 = lb.slice(0, 10);
   const realWinners = parseInt(challenge.real_winners_count || challenge.realWinnersCount || 3);
   const demoWinners = parseInt(challenge.demo_winners_count || challenge.demoWinnersCount || 3);
@@ -2360,13 +2367,13 @@ function downloadLeaderboardHTML(challenge: any, lb: any[]) {
 </style></head><body>
 <div class="page">
 <div class="glow glow1"></div><div class="glow glow2"></div>
-<div class="header"><div class="trophy">🏆</div><div class="title">${challenge.title || 'Trading Challenge'}</div><div class="subtitle">Leaderboard — Top 10</div></div>
+<div class="header"><div class="trophy">🏆</div><div class="title">${challenge.title || 'Trading Challenge'}</div><div class="subtitle">Leaderboard — Top 10${categoryLabel ? ` (${categoryLabel} Account)` : ''}</div></div>
 <div class="lb-container">${rowsHTML}</div>
 <div class="footer"><div class="brand">BirrForex • WinnerPip</div></div>
 </div>
 <div class="page landscape">
 <div class="glow glow1"></div><div class="glow glow2"></div>
-<div class="header" style="margin-bottom:30px"><div class="trophy" style="font-size:48px">🏆</div><div class="title" style="font-size:38px">${challenge.title || 'Trading Challenge'}</div><div class="subtitle">Leaderboard — Top 10</div></div>
+<div class="header" style="margin-bottom:30px"><div class="trophy" style="font-size:48px">🏆</div><div class="title" style="font-size:38px">${challenge.title || 'Trading Challenge'}</div><div class="subtitle">Leaderboard — Top 10${categoryLabel ? ` (${categoryLabel} Account)` : ''}</div></div>
 <div class="lb-container">${rowsHTML}</div>
 <div class="footer"><div class="brand">BirrForex • WinnerPip</div></div>
 </div>
