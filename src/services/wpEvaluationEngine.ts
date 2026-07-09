@@ -181,7 +181,14 @@ async function fetchCandles(
       if (parseInt(countCheck.rows[0]?.cnt || '0') === 0) {
         return null; // No data at all → FAILED → pending
       }
-      return []; // Symbol exists but trade falls outside stored range → pass
+      // Symbol exists but no candles in this specific range.
+      // If the range is very short (<2 min), it's a short trade → pass.
+      // If longer, it's a genuine gap in coverage → return null to trigger retry.
+      const rangeMs = toTime.getTime() - fromTime.getTime();
+      if (rangeMs < 2 * 60 * 1000) {
+        return []; // Short trade → pass
+      }
+      return null; // Gap in OHLC coverage → pending, will retry
     }
 
     return result.rows.map((r: any) => ({

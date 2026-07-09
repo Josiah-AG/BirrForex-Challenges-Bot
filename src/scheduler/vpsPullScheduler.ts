@@ -563,8 +563,8 @@ export class VpsPullScheduler {
       await this.resolveNullOpenTimes(challengeToPull.id, batchId, successfulAccounts, healthyTerminals, challengeToPull);
 
       // === DELAY: Let terminals return to base + wp_trades settle ===
-      console.log('📊 VPS Pull: Waiting 8s for terminals to settle before OHLC...');
-      await this.delay(8000);
+      console.log('📊 VPS Pull: Waiting 30s for terminals to settle before OHLC...');
+      await this.delay(30000);
 
       // === OHLC UPDATE (before evaluation — evaluation uses local candle data) ===
       await this.updateOhlcCandles(challengeToPull).catch(e =>
@@ -766,8 +766,8 @@ export class VpsPullScheduler {
       await this.resolveNullOpenTimes(challengeId, batchId, successfulAccounts, healthyTerminals, challengeToPull);
 
       // === DELAY: Let terminals settle ===
-      console.log('📊 VPS Pull: Waiting 8s for terminals to settle before OHLC...');
-      await this.delay(8000);
+      console.log('📊 VPS Pull: Waiting 30s for terminals to settle before OHLC...');
+      await this.delay(30000);
 
       // === OHLC UPDATE (before evaluation) ===
       await this.updateOhlcCandles(challengeToPull).catch(e =>
@@ -2703,58 +2703,49 @@ export class VpsPullScheduler {
    */
   private async postEvalSlRetry(challenge: TradingChallenge): Promise<void> {
     try {
-      const pendingSymbols = await db.query(
-        `SELECT DISTINCT symbol FROM wp_trades
-         WHERE challenge_id = $1 AND sl_check_pending = true AND symbol IS NOT NULL`,
+      const pendingTrades = await db.query(
+        `SELECT DISTINCT symbol, MIN(open_time) as earliest_open, MAX(close_time) as latest_close
+         FROM wp_trades
+         WHERE challenge_id = $1 AND sl_check_pending = true AND symbol IS NOT NULL
+         GROUP BY symbol`,
         [challenge.id]
       );
 
-      if (pendingSymbols.rows.length === 0) return;
+      if (pendingTrades.rows.length === 0) return;
 
       const remapToBase = (s: string) => s.replace(/[a-z]$/, '') + 'm';
-      const missingSymbols = new Set<string>();
+      const symbolRanges: Array<{ symbol: string; from_time: string; to_time: string }> = [];
 
-      for (const row of pendingSymbols.rows) {
+      for (const row of pendingTrades.rows) {
         const baseSymbol = remapToBase(row.symbol);
-        const check = await db.query(
-          `SELECT COUNT(*) as cnt FROM ohlc_candles WHERE symbol = $1`, [baseSymbol]
-        );
-        if (parseInt(check.rows[0]?.cnt || '0') === 0) {
-          missingSymbols.add(baseSymbol);
-        }
+        // Always fetch for the time range of the pending trades — whether
+        // the symbol has some data or none, we need THIS specific range covered.
+        const from = new Date(new Date(row.earliest_open).getTime() - 60000).toISOString();
+        const to = new Date(row.latest_close).toISOString();
+        symbolRanges.push({ symbol: baseSymbol, from_time: from, to_time: to });
       }
 
-      if (missingSymbols.size > 0) {
-        console.log(`📊 Post-eval SL retry: Fetching OHLC for ${missingSymbols.size} missing symbol(s): ${[...missingSymbols].join(', ')}`);
-
-        const challengeStart = new Date(challenge.start_date).toISOString();
-        const now = new Date().toISOString();
-        const symbolRanges = [...missingSymbols].map(symbol => ({
-          symbol, from_time: challengeStart, to_time: now,
-        }));
-
-        // Wait a bit more for VPS to have charts loaded
-        await this.delay(5000);
-        await this.fetchAndStoreCandles(challenge.id, symbolRanges);
-      }
+      console.log(`📊 Post-eval SL retry: Fetching OHLC for ${symbolRanges.length} symbol(s) with pending trades...`);
+      await this.delay(5000);
+      await this.fetchAndStoreCandles(challenge.id, symbolRanges);
 
       // Now re-evaluate accounts that have pending SL trades
       const pendingAccounts = await evaluationEngine.getPendingSlAccounts(challenge.id);
       if (pendingAccounts.length > 0) {
-        console.log(`📊 Post-eval SL retry: Re-evaluating ${pendingAccounts.length} account(s) with pending SL checks...`);
+        console.log(`📊 Post-eval SL retry: Re-evaluating ${pendingAccounts.length} account(s)...`);
         for (const regId of pendingAccounts) {
           await evaluationEngine.evaluateSingleAccount(challenge.id, regId);
         }
       }
 
-      // Final check: any still pending?
+      // Final check
       const stillPending = await db.query(
         `SELECT COUNT(*) as cnt FROM wp_trades WHERE challenge_id = $1 AND sl_check_pending = true`,
         [challenge.id]
       );
       const remaining = parseInt(stillPending.rows[0].cnt);
       if (remaining > 0) {
-        console.log(`⚠️ Post-eval SL retry: ${remaining} trade(s) still pending after retry (benefit of doubt applied)`);
+        console.log(`⚠️ Post-eval SL retry: ${remaining} trade(s) still pending (benefit of doubt applied)`);
       } else {
         console.log(`✅ Post-eval SL retry: All SL checks resolved within this cycle`);
       }
