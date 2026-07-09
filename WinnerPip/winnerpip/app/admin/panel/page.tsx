@@ -2820,6 +2820,21 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
               ? `✅ Reconciliation successful — ${lb.phase2Total} account(s) resolved in ${lb.phase2Round} round(s)`
               : `⚠️ Reconciliation incomplete — ${lb.stillNullCount} trade(s) still missing open_time after ${lb.phase2Round} round(s)`}
           </p>
+
+          {/* OHLC Candle Data Summary */}
+          {lb.ohlc && lb.ohlc.symbolCount > 0 && (
+            <div className="mt-2.5 p-2.5 rounded-xl bg-white/5 border border-white/10">
+              <p className="text-[11px] text-royal font-semibold mb-1">📊 OHLC Candle Data — {lb.ohlc.totalCandles.toLocaleString()} candles across {lb.ohlc.symbolCount} instruments</p>
+              <div className="flex flex-wrap gap-x-4 gap-y-0.5">
+                {lb.ohlc.symbols.map((s: any) => (
+                  <span key={s.symbol} className="text-[10px] text-gray-400">
+                    {s.symbol}: <span className={`font-bold ${s.coveragePercent >= 90 ? "text-profit" : s.coveragePercent >= 60 ? "text-gold" : "text-loss"}`}>{s.coveragePercent}%</span>
+                    <span className="text-gray-600 ml-0.5">({s.candleCount.toLocaleString()})</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
         );
       })()}

@@ -3329,10 +3329,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/pull-status`, adminIpCheck, async (req,
         reconciled = stillNullCount === 0;
       }
 
-      // Exact accounts that failed during this specific batch — wp_pull_errors rows
-      // tagged with this batch's id only come from logPullError() (actual pull
-      // failures), not the SL-check or drawdown-notify logs which leave pull_batch_id
-      // null, so this is a clean per-batch failure list, not a "currently failing" one.
+      // Exact accounts that failed during this specific batch
       const failedDetail = await db.query(
         `SELECT pe.account_number, pe.error_code, pe.error_message, r.nickname, r.username
          FROM wp_pull_errors pe
@@ -3341,6 +3338,24 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/pull-status`, adminIpCheck, async (req,
          ORDER BY pe.created_at ASC`,
         [b.id]
       );
+
+      // OHLC candle stats for this challenge
+      const ohlcStats = await db.query(
+        `SELECT symbol, COUNT(*) as candle_count, MIN(time) as first_candle, MAX(time) as last_candle
+         FROM ohlc_candles WHERE challenge_id = $1
+         GROUP BY symbol ORDER BY symbol`,
+        [b.challenge_id]
+      );
+      const challengeForOhlc = await db.query(`SELECT start_date FROM trading_challenges WHERE id = $1`, [b.challenge_id]);
+      const ohlcChallengeStartMs = challengeForOhlc.rows[0] ? new Date(challengeForOhlc.rows[0].start_date).getTime() : 0;
+      const ohlcNowMs = Date.now();
+      const totalExpectedMinutes = ohlcChallengeStartMs > 0 ? Math.floor((ohlcNowMs - ohlcChallengeStartMs) / 60000) : 0;
+      const ohlcSymbols = ohlcStats.rows.map((r: any) => ({
+        symbol: r.symbol,
+        candleCount: parseInt(r.candle_count),
+        coveragePercent: totalExpectedMinutes > 0 ? Math.min(100, Math.round((parseInt(r.candle_count) / totalExpectedMinutes) * 100)) : 0,
+      }));
+      const totalOhlcCandles = ohlcSymbols.reduce((s: number, x: any) => s + x.candleCount, 0);
 
       return res.json({
         isRunning: false,
@@ -3360,6 +3375,12 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/pull-status`, adminIpCheck, async (req,
           phase2Round: b.phase2_round,
           reconciled,
           stillNullCount,
+          ohlc: {
+            totalCandles: totalOhlcCandles,
+            symbolCount: ohlcSymbols.length,
+            symbols: ohlcSymbols,
+            expectedMinutesPerSymbol: totalExpectedMinutes,
+          },
           failedAccounts: failedDetail.rows.map((f: any) => ({
             accountNumber: f.account_number,
             nickname: f.nickname,
