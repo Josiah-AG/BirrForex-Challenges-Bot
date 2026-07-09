@@ -2078,18 +2078,37 @@ export class TradingAdminHandler {
     const allocRecov = parseInt(totalStats?.total_allocation_recoveries || '0');
     const kycRecov = parseInt(totalStats?.total_kyc_recoveries || '0');
     const realAcctRecov = parseInt(totalStats?.total_real_acct_recoveries || '0');
-    const totalFailed = allocFail + kycFail + realAcctFail;
+
+    // Query new failure types directly from trading_failed_attempts
+    const newFailures = await db.query(
+      `SELECT failure_type, COUNT(*) as cnt, COUNT(CASE WHEN converted THEN 1 END) as converted_cnt
+       FROM trading_failed_attempts WHERE challenge_id = $1 GROUP BY failure_type`,
+      [challenge.id]
+    );
+    const failureMap: Record<string, { count: number; converted: number }> = {};
+    for (const row of newFailures.rows) {
+      failureMap[row.failure_type] = { count: parseInt(row.cnt), converted: parseInt(row.converted_cnt) };
+    }
+
+    const vpsCred = failureMap['vps_credential'] || { count: 0, converted: 0 };
+    const vpsTimeout = failureMap['vps_timeout'] || { count: 0, converted: 0 };
+    const vpsError = failureMap['vps_error'] || { count: 0, converted: 0 };
+    const abandoned = failureMap['abandoned'] || { count: 0, converted: 0 };
+    const totalVpsFail = vpsCred.count + vpsTimeout.count + vpsError.count;
+    const totalFailed = allocFail + kycFail + realAcctFail + totalVpsFail + abandoned.count;
 
     const text = `<b>📊 FULL REGISTRATION STATS</b>\n<b>${challenge.title}</b>\n\n` +
       `<b>✅ SUCCESSFUL REGISTRATIONS:</b>\n` +
       `➡️ <b>Total Registered:</b> ${counts.total}\n` +
       `   ├── Demo: ${counts.demo}\n` +
       `   └── Real: ${counts.real}\n\n` +
-      `<b>❌ FAILED REGISTRATIONS:</b>\n` +
-      `➡️ <b>Total Failed:</b> ${totalFailed}\n` +
+      `<b>❌ FAILED REGISTRATIONS:</b> (${totalFailed} total)\n` +
       `   ├── Allocation Failed: ${allocFail}${allocRecov > 0 ? ` <i>(${allocRecov} recovered ✅)</i>` : ''}\n` +
       `   ├── KYC Failed: ${kycFail}${kycRecov > 0 ? ` <i>(${kycRecov} recovered ✅)</i>` : ''}\n` +
-      `   └── Real Acct Not Allocated: ${realAcctFail}${realAcctRecov > 0 ? ` <i>(${realAcctRecov} recovered ✅)</i>` : ''}\n\n` +
+      `   ├── Real Acct Not Allocated: ${realAcctFail}${realAcctRecov > 0 ? ` <i>(${realAcctRecov} recovered ✅)</i>` : ''}\n` +
+      `   ├── VPS Credential Error: ${vpsCred.count}${vpsCred.converted > 0 ? ` <i>(${vpsCred.converted} recovered ✅)</i>` : ''}\n` +
+      `   ├── VPS Timeout/Error: ${vpsTimeout.count + vpsError.count}${(vpsTimeout.converted + vpsError.converted) > 0 ? ` <i>(${vpsTimeout.converted + vpsError.converted} recovered ✅)</i>` : ''}\n` +
+      `   └── Abandoned: ${abandoned.count}${abandoned.converted > 0 ? ` <i>(${abandoned.converted} recovered ✅)</i>` : ''}\n\n` +
       `<b>📋 OTHER ACTIVITY:</b>\n` +
       `➡️ <b>Manual Reviews:</b> ${manualReviews}\n` +
       `➡️ <b>Account Changes:</b> ${acctChanges}\n` +
@@ -2125,10 +2144,23 @@ export class TradingAdminHandler {
     const allocFail = stats.allocation_failures || 0;
     const kycFail = stats.kyc_failures || 0;
     const realAcctFail = stats.real_acct_failures || 0;
-    const totalFailed = allocFail + kycFail + realAcctFail;
     const allocRecov = stats.allocation_recoveries || 0;
     const kycRecov = stats.kyc_recoveries || 0;
     const realAcctRecov = stats.real_acct_recoveries || 0;
+
+    // Query today's new failure types from trading_failed_attempts
+    const todayFailures = await db.query(
+      `SELECT failure_type, COUNT(*) as cnt FROM trading_failed_attempts
+       WHERE challenge_id = $1 AND DATE(attempted_at) = $2::date
+       GROUP BY failure_type`,
+      [challenge.id, todayStr]
+    );
+    const todayMap: Record<string, number> = {};
+    for (const r of todayFailures.rows) todayMap[r.failure_type] = parseInt(r.cnt);
+    const vpsCred = todayMap['vps_credential'] || 0;
+    const vpsTO = (todayMap['vps_timeout'] || 0) + (todayMap['vps_error'] || 0);
+    const aband = todayMap['abandoned'] || 0;
+    const totalFailed = allocFail + kycFail + realAcctFail + vpsCred + vpsTO + aband;
 
     const text = `<b>📊 TODAY'S REGISTRATION STATS</b>\n<b>${challenge.title}</b>\n📅 ${dateDisplay}\n\n` +
       `<b>✅ New Registrations:</b> ${stats.new_registrations || 0}\n` +
@@ -2137,7 +2169,10 @@ export class TradingAdminHandler {
       `<b>❌ Failed Registrations:</b> ${totalFailed}\n` +
       `   ├── Allocation Failed: ${allocFail}\n` +
       `   ├── KYC Failed: ${kycFail}\n` +
-      `   └── Real Acct Not Allocated: ${realAcctFail}\n\n` +
+      `   ├── Real Acct Not Allocated: ${realAcctFail}\n` +
+      `   ├── VPS Credential Error: ${vpsCred}\n` +
+      `   ├── VPS Timeout/Error: ${vpsTO}\n` +
+      `   └── Abandoned: ${aband}\n\n` +
       `<b>📋 Other Activity:</b>\n` +
       `➡️ <b>Manual Reviews:</b> ${stats.manual_reviews || 0}\n` +
       `➡️ <b>Account Changes:</b> ${stats.account_changes || 0}\n` +

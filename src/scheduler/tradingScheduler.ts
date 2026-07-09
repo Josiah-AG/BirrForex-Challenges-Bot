@@ -1344,9 +1344,28 @@ export class TradingScheduler {
     const yesterdayStr = `${yesterday.getFullYear()}-${(yesterday.getMonth() + 1).toString().padStart(2, '0')}-${yesterday.getDate().toString().padStart(2, '0')}`;
 
     const dailyStats = await tradingChallengeService.getDailyStats(challenge.id, yesterdayStr);
-    const totalStats = await tradingChallengeService.getTotalStats(challenge.id);
     const counts = await tradingChallengeService.getRegistrationCounts(challenge.id);
     const startStr = toEAT(challenge.start_date).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
+
+    // Query all failure types from trading_failed_attempts (yesterday + totals)
+    const yesterdayFailures = await db.query(
+      `SELECT failure_type, COUNT(*) as cnt FROM trading_failed_attempts
+       WHERE challenge_id = $1 AND DATE(attempted_at) = $2::date
+       GROUP BY failure_type`,
+      [challenge.id, yesterdayStr]
+    );
+    const yMap: Record<string, number> = {};
+    for (const r of yesterdayFailures.rows) yMap[r.failure_type] = parseInt(r.cnt);
+
+    const totalFailures = await db.query(
+      `SELECT failure_type, COUNT(*) as cnt, COUNT(CASE WHEN converted THEN 1 END) as converted_cnt
+       FROM trading_failed_attempts WHERE challenge_id = $1 GROUP BY failure_type`,
+      [challenge.id]
+    );
+    const tMap: Record<string, { count: number; converted: number }> = {};
+    for (const r of totalFailures.rows) tMap[r.failure_type] = { count: parseInt(r.cnt), converted: parseInt(r.converted_cnt) };
+
+    const challengeType = challenge.type;
 
     let text = `<b>📊 DAILY REGISTRATION SUMMARY</b>\n<b>${challenge.title}</b>\n` +
       `📅 <b>Period:</b> ${yesterdayStr} 8:00 AM → ${dateStr} 8:00 AM\n\n`;
@@ -1355,25 +1374,40 @@ export class TradingScheduler {
       text += `<b>📈 LAST 24 HOURS:</b>\n` +
         `➡️ <b>New Registrations:</b> ${dailyStats.new_registrations}\n` +
         `   ├── Demo: ${dailyStats.demo_registrations}\n` +
-        `   └── Real: ${dailyStats.real_registrations}\n` +
-        `➡️ <b>Failed Registrations:</b> ${(dailyStats.allocation_failures || 0) + (dailyStats.kyc_failures || 0) + (dailyStats.real_acct_failures || 0)}\n` +
-        `   ├── Allocation Failed: ${dailyStats.allocation_failures || 0}\n` +
-        `   ├── KYC Failed: ${dailyStats.kyc_failures || 0}\n` +
-        `   └── Real Acct Not Allocated: ${dailyStats.real_acct_failures || 0}\n` +
-        `➡️ <b>Manual Reviews:</b> ${dailyStats.manual_reviews || 0}\n` +
-        `➡️ <b>Account Changes:</b> ${dailyStats.account_changes || 0}\n` +
-        `➡️ <b>Category Switches:</b> ${dailyStats.category_switches || 0}\n\n`;
+        `   └── Real: ${dailyStats.real_registrations}\n`;
     } else {
-      text += `<b>📈 LAST 24 HOURS:</b>\nNo activity\n\n`;
+      text += `<b>📈 LAST 24 HOURS:</b>\nNew Registrations: 0\n`;
     }
 
-    text += `<b>📊 TOTALS (Since Registration Opened):</b>\n` +
-      `➡️ <b>Total Registered:</b> ${counts.total}\n` +
-      `   ├── Demo: ${counts.demo}\n` +
-      `   └── Real: ${counts.real}\n` +
-      `➡️ <b>Total Failed Attempts:</b> ${parseInt(totalStats?.total_allocation_failures || '0') + parseInt(totalStats?.total_kyc_failures || '0') + parseInt(totalStats?.total_real_acct_failures || '0')}\n` +
-      `➡️ <b>Pending Manual Reviews:</b> ${totalStats?.total_manual_reviews || 0}\n\n` +
-      `⏰ <b>Challenge starts:</b> ${startStr}`;
+    const yTotal = Object.values(yMap).reduce((s, v) => s + v, 0);
+    if (yTotal > 0) {
+      text += `\n<b>❌ Failed Attempts (Yesterday):</b> ${yTotal}\n`;
+      if (yMap['allocation']) text += `   ├── Allocation: ${yMap['allocation']}\n`;
+      if (yMap['kyc']) text += `   ├── KYC: ${yMap['kyc']}\n`;
+      if (yMap['real_acct']) text += `   ├── Real Acct: ${yMap['real_acct']}\n`;
+      if (yMap['vps_credential']) text += `   ├── VPS Credential: ${yMap['vps_credential']}\n`;
+      if (yMap['vps_timeout'] || yMap['vps_error']) text += `   ├── VPS Timeout/Error: ${(yMap['vps_timeout'] || 0) + (yMap['vps_error'] || 0)}\n`;
+      if (yMap['abandoned']) text += `   └── Abandoned: ${yMap['abandoned']}\n`;
+    }
+
+    text += `\n<b>📊 TOTALS (Since Registration Opened):</b>\n` +
+      `➡️ <b>Total Registered:</b> ${counts.total}`;
+    if (challengeType === 'hybrid') {
+      text += ` (Demo: ${counts.demo} | Real: ${counts.real})`;
+    }
+    text += `\n`;
+
+    const grandTotal = Object.values(tMap).reduce((s, v) => s + v.count, 0);
+    const grandConverted = Object.values(tMap).reduce((s, v) => s + v.converted, 0);
+    if (grandTotal > 0) {
+      text += `➡️ <b>Total Failed:</b> ${grandTotal}${grandConverted > 0 ? ` (${grandConverted} recovered ✅)` : ''}\n`;
+      for (const [type, data] of Object.entries(tMap)) {
+        const label = type === 'allocation' ? 'Allocation' : type === 'kyc' ? 'KYC' : type === 'real_acct' ? 'Real Acct' : type === 'vps_credential' ? 'VPS Credential' : type === 'vps_timeout' ? 'VPS Timeout' : type === 'vps_error' ? 'VPS Error' : type === 'abandoned' ? 'Abandoned' : type;
+        text += `   • ${label}: ${data.count}${data.converted > 0 ? ` (${data.converted} ✅)` : ''}\n`;
+      }
+    }
+
+    text += `\n⏰ <b>Challenge starts:</b> ${startStr}`;
 
     try {
       await this.bot.bot.telegram.sendMessage(config.adminUserId, text, { parse_mode: 'HTML' });
