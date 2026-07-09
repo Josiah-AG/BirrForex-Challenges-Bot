@@ -566,7 +566,7 @@ export class VpsPullScheduler {
         console.error('⚠️ OHLC update error (non-fatal):', e)
       );
 
-      await this.evaluateAllAccounts(challengeToPull.id, successfulAccounts, batchId);
+      await this.evaluateAllAccounts(challengeToPull.id, successfulAccounts, batchId, successful);
 
       // === POST-EVAL: Retry SL checks for trades still pending (missing OHLC) ===
       await this.postEvalSlRetry(challengeToPull);
@@ -2382,16 +2382,29 @@ export class VpsPullScheduler {
    * finished (or had nothing to do). Replaces the old per-account streaming
    * evaluate call that used to run inside terminalWorker immediately after pull.
    */
-  private async evaluateAllAccounts(challengeId: number, accounts: AccountToPull[], batchId: number | null = null): Promise<void> {
-    if (batchId && accounts.length > 0) {
+  private async evaluateAllAccounts(challengeId: number, accounts: AccountToPull[], batchId: number | null = null, pullResults?: PullResult[]): Promise<void> {
+    // On scheduled (incremental) pulls: skip accounts that got 0 new trades
+    let accountsToEval = accounts;
+    if (pullResults && pullResults.length > 0) {
+      const accountsWithNewTrades = new Set(
+        pullResults.filter(r => r.success && (r.tradesCount || 0) > 0).map(r => r.registrationId)
+      );
+      const skipped = accounts.length - accountsWithNewTrades.size;
+      accountsToEval = accounts.filter(a => accountsWithNewTrades.has(a.registrationId));
+      if (skipped > 0) {
+        console.log(`📊 Evaluation: Skipping ${skipped} account(s) with 0 new trades, evaluating ${accountsToEval.length}`);
+      }
+    }
+
+    if (batchId && accountsToEval.length > 0) {
       await db.query(
         `UPDATE wp_pull_batches SET phase = 'evaluating', phase2_total = $1, phase2_processed = 0, phase2_round = 0 WHERE id = $2`,
-        [accounts.length, batchId]
+        [accountsToEval.length, batchId]
       ).catch(() => {});
     }
     const EVAL_CONCURRENCY = 5;
     let processed = 0;
-    const queue = [...accounts];
+    const queue = [...accountsToEval];
     const runWorker = async () => {
       while (queue.length > 0) {
         const account = queue.shift()!;
@@ -2406,7 +2419,7 @@ export class VpsPullScheduler {
         }
       }
     };
-    const workers = Array.from({ length: Math.min(EVAL_CONCURRENCY, accounts.length) }, runWorker);
+    const workers = Array.from({ length: Math.min(EVAL_CONCURRENCY, accountsToEval.length) }, runWorker);
     await Promise.all(workers);
   }
 
