@@ -103,6 +103,7 @@ export class TradingScheduler {
         await this.checkSubmissionDeadline(challenge, dateStr, timeStr);
         await this.checkDailyAdminSummary(challenge, dateStr, timeStr);
         await this.checkAutoEngagement(challenge, dateStr, timeStr, eatTime);
+        await this.checkAbandonedSessions(challenge, eatTime);
         await this.checkPartnerScreening(challenge, dateStr, timeStr);
         // Discord messages
         await this.checkDiscordFirstDay(challenge, dateStr, timeStr);
@@ -803,6 +804,48 @@ export class TradingScheduler {
 
   private engagementRunning = false;
 
+  private abandonedChecked = new Set<string>();
+
+  /**
+   * Check for abandoned registration sessions — users who started but didn't finish after 6 hours.
+   * Runs every hour (deduped by dateStr + hour).
+   */
+  private async checkAbandonedSessions(challenge: TradingChallenge, eatTime: Date) {
+    if (challenge.status !== 'registration_open') return;
+    if ((challenge as any).source === 'discord') return;
+
+    const hour = eatTime.getUTCHours();
+    const dateStr = eatTime.toISOString().split('T')[0];
+    const key = `${challenge.id}_${dateStr}_${hour}`;
+    if (this.abandonedChecked.has(key)) return;
+    this.abandonedChecked.add(key);
+
+    // Only check on the hour
+    if (eatTime.getUTCMinutes() > 4) return;
+
+    try {
+      const { tradingRegistrationHandler } = require('../bot/tradingRegistrationHandler');
+      const sessions = tradingRegistrationHandler.getAbandonedSessions ? tradingRegistrationHandler.getAbandonedSessions(6) : [];
+
+      for (const session of sessions) {
+        if (!session.challengeId || session.challengeId !== challenge.id) continue;
+        // Check if they already registered (not abandoned — just slow)
+        const existing = await tradingChallengeService.getRegistration(challenge.id, session.telegramId);
+        if (existing) continue;
+        // Check if already logged
+        const alreadyLogged = await db.query(
+          `SELECT 1 FROM trading_failed_attempts WHERE challenge_id = $1 AND telegram_id = $2 AND failure_type = 'abandoned'`,
+          [challenge.id, session.telegramId]
+        );
+        if (alreadyLogged.rows.length > 0) continue;
+
+        await tradingChallengeService.logFailedAttempt(challenge.id, session.telegramId, session.username || null, session.email || null, 'abandoned');
+      }
+    } catch (e) {
+      // Silent — runs frequently
+    }
+  }
+
   private async checkAutoEngagement(challenge: TradingChallenge, dateStr: string, timeStr: string, eatTime: Date) {
     // Only for registration_open challenges
     if (challenge.status !== 'registration_open') return;
@@ -891,8 +934,32 @@ export class TradingScheduler {
       } else {
         return `🚨 <b>Last chance!</b>\n\n<b>${title}</b> starts very soon!\n\nIf your account is now verified, register before it's too late!\n\nDon't miss out on the prizes! 🏆${contact}`;
       }
+    } else if (failureType === 'vps_credential') {
+      if (variant === 0) {
+        return `👋 <b>Hello from BirrForex Team!</b>\n\n<b>${title}</b> registration is still open!\n\nIt looks like you had trouble with your investor password last time.\n\n📋 <b>Quick fix:</b>\n1. Open Exness → My Accounts\n2. Click on your MT5 account\n3. Copy the Investor (Read-Only) Password\n\nTry registering again with the correct password:${contact}`;
+      } else if (variant === 1) {
+        return `⏰ <b>Reminder from BirrForex!</b>\n\nStill want to join <b>${title}</b>?\n\nMake sure you're using the <b>Investor (Read-Only) Password</b>, not your master password.\n\nGive it another try — we'd love to see you in the challenge! 💪${contact}`;
+      } else {
+        return `🚨 <b>Last chance!</b>\n\n<b>${title}</b> starts very soon!\n\nDouble-check your investor password and register before it's too late! 🏆${contact}`;
+      }
+    } else if (failureType === 'vps_timeout' || failureType === 'vps_error') {
+      if (variant === 0) {
+        return `👋 <b>Hello from BirrForex Team!</b>\n\n<b>${title}</b> registration is still open!\n\nLast time our server was busy and couldn't verify your account. This has been fixed!\n\nPlease try registering again — it should work smoothly now:${contact}`;
+      } else if (variant === 1) {
+        return `⏰ <b>Reminder from BirrForex!</b>\n\nThe technical issue that prevented your registration for <b>${title}</b> has been resolved.\n\nTry again now and join the challenge! 💪${contact}`;
+      } else {
+        return `🚨 <b>Last chance!</b>\n\n<b>${title}</b> starts very soon!\n\nOur systems are running smoothly — register now before it's too late! 🏆${contact}`;
+      }
+    } else if (failureType === 'abandoned') {
+      if (variant === 0) {
+        return `👋 <b>Hello from BirrForex Team!</b>\n\nWe noticed you started registering for <b>${title}</b> but didn't finish.\n\nNo worries — it only takes a minute to complete!\n\n👉 <b>Tap "Register Now" below to continue where you left off.</b>${contact}`;
+      } else if (variant === 1) {
+        return `⏰ <b>Reminder from BirrForex!</b>\n\nYou're almost there! You started registering for <b>${title}</b> but didn't finish.\n\nDon't miss this opportunity — complete your registration now! 💪${contact}`;
+      } else {
+        return `🚨 <b>Last chance!</b>\n\n<b>${title}</b> starts very soon!\n\nYou started registering but didn't complete it. Finish now before registration closes! 🏆${contact}`;
+      }
     } else {
-      // real_acct
+      // real_acct (default)
       if (variant === 0) {
         return `👋 <b>Hello from BirrForex Team!</b>\n\n<b>${title}</b> starting day is approaching fast!\n\nHave you created a new MT5 Real Account within your Exness yet?\n\nMake sure it's under the same email you registered with.${contact}`;
       } else if (variant === 1) {

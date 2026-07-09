@@ -490,8 +490,8 @@ class TradingChallengeService {
   }
 
   async getDueForEngagement(challengeId: number, isLast3Days: boolean): Promise<any[]> {
-    // First engagement: 24h after failure, no previous engagement
-    // Subsequent: every 48h (or 24h in last 3 days)
+    // Engagement schedule: 1st at 24h, 2nd at 48h after 1st, 3rd at 48h after 2nd
+    // Max 3 engagements total. Never engage converted users.
     const interval = isLast3Days ? '24 hours' : '48 hours';
     const result = await db.query(
       `SELECT fa.* FROM trading_failed_attempts fa
@@ -499,6 +499,7 @@ class TradingChallengeService {
        WHERE fa.challenge_id = $1
        AND tr.id IS NULL
        AND fa.converted = false
+       AND fa.engage_count < 3
        AND (
          (fa.engage_count = 0 AND fa.attempted_at < NOW() - INTERVAL '24 hours')
          OR

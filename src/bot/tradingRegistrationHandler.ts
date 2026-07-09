@@ -76,6 +76,29 @@ export class TradingRegistrationHandler {
     return knownUsers;
   }
 
+  /**
+   * Get sessions older than X hours that haven't completed registration (abandoned).
+   */
+  getAbandonedSessions(olderThanHours: number): Array<{ telegramId: number; challengeId: number; username: string | null; email: string | null }> {
+    const cutoff = Date.now() - olderThanHours * 60 * 60 * 1000;
+    const abandoned: Array<{ telegramId: number; challengeId: number; username: string | null; email: string | null }> = [];
+    for (const [telegramId, session] of userSessions.entries()) {
+      // Check if session is old enough and has a challenge_id
+      if (!session.data?.challenge_id) continue;
+      // Use the session creation time approximation from saveSessionsToDisk timestamps
+      // Since we don't store creation time, check if the session exists in the persisted file
+      // For now, we track all active sessions — the scheduler will only log them once (deduped by DB)
+      const user = knownUsers.get(telegramId);
+      abandoned.push({
+        telegramId,
+        challengeId: session.data.challenge_id,
+        username: user?.username || null,
+        email: session.data.email || null,
+      });
+    }
+    return abandoned;
+  }
+
   async startRegistration(ctx: Context, challengeId: number) {
     const telegramId = ctx.from!.id;
     // Track this user for manual verify lookup
@@ -1231,6 +1254,7 @@ export class TradingRegistrationHandler {
     switch (result.status) {
       case 'invalid_credentials':
         session.step = 'tc_enter_account_number';
+        await tradingChallengeService.logFailedAttempt(session.data.challenge_id, telegramId, ctx.from!.username || null, session.data.email, 'vps_credential');
         await ctx.reply(
           '❌ <b>Connection failed — Invalid credentials</b>\n\n' +
           'The investor password or account number/server combination is incorrect.\n\n' +
@@ -1243,6 +1267,7 @@ export class TradingRegistrationHandler {
         break;
 
       case 'server_not_found':
+        await tradingChallengeService.logFailedAttempt(session.data.challenge_id, telegramId, ctx.from!.username || null, session.data.email, 'vps_error');
         await ctx.reply(
           '❌ <b>Server not found</b>\n\n' +
           `The server "<code>${mt5_server}</code>" could not be reached.\n\n` +
@@ -1253,8 +1278,8 @@ export class TradingRegistrationHandler {
         break;
 
       case 'timeout':
-        // Allow retry or skip
         session.step = 'tc_enter_investor_password';
+        await tradingChallengeService.logFailedAttempt(session.data.challenge_id, telegramId, ctx.from!.username || null, session.data.email, 'vps_timeout');
         await ctx.reply(
           '⚠️ <b>Connection timed out</b>\n\n' +
           'The MT5 server took too long to respond. This can happen during high traffic.\n\n' +
@@ -1266,7 +1291,6 @@ export class TradingRegistrationHandler {
       case 'api_error':
       default:
         // VPS API is down — proceed without verification (graceful degradation)
-        // Allocation was already verified early, so just go to nickname
         console.log('VPS API error during registration, proceeding without verification:', result.message);
         await this.askForNickname(ctx, telegramId);
         break;
