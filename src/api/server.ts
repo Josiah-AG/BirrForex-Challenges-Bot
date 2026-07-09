@@ -3176,27 +3176,30 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/force-pull`, adminIpChec
 
 /**
  * POST /api/admin/:secretPath/challenge/:id/force-pull-rank
- * Pull + evaluate + flush + rank for a specific challenge (forceAll)
+ * Full Pull (Non-DQ) — full history pull from challenge start, but skips DQ'd, blown, and credential failures.
  */
 app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/force-pull-rank`, adminIpCheck, async (req, res) => {
   try {
     const challengeId = parseInt(req.params.id as string);
     const globalScheduler = (global as any).__vpsPullScheduler;
-    if (globalScheduler) {
-      globalScheduler.runPullCycleForChallenge(challengeId).then(async () => {
-        try {
-          const { leaderboardService } = require('../services/leaderboardService');
-          await leaderboardService.flushStagingToLive(challengeId);
-          await leaderboardService.ensureAllParticipantsHaveEntries(challengeId);
-          await leaderboardService.updateRankings(challengeId);
-          console.log(`✅ Force pull + rank: Rankings updated for challenge ${challengeId}`);
-        } catch (e) {
-          console.error('Force pull rank update error:', e);
-        }
-      }).catch((e: any) => console.error('Force pull error:', e));
-      return res.json({ success: true, message: 'Pull cycle started + rankings will update after completion.' });
+    if (!globalScheduler) {
+      return res.json({ success: false, message: 'Pull scheduler not initialized yet — try again in a moment' });
     }
-    return res.json({ success: false, message: 'Pull scheduler not initialized yet — try again in a moment' });
+
+    // Reset last_pull_at for active accounts only (not DQ'd, not credential failures)
+    await db.query(
+      `UPDATE trading_registrations SET last_pull_at = NULL
+       WHERE challenge_id = $1
+         AND disqualified = false
+         AND investor_password IS NOT NULL
+         AND connection_verified = true
+         AND (pull_status IS NULL OR pull_status NOT IN ('password_changed'))`,
+      [challengeId]
+    );
+
+    // Run normal pull cycle (not forceAll — respects DQ/credential filters)
+    globalScheduler.runPullCycle().catch((e: any) => console.error('Full pull non-DQ error:', e));
+    return res.json({ success: true, message: 'Full pull (non-DQ) started — pulling full history for active accounts only.' });
   } catch (error) {
     return res.status(500).json({ error: 'Internal server error' });
   }
