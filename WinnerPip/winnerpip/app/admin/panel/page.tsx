@@ -301,6 +301,7 @@ export default function AdminDashboard() {
     qualifiedCount: od?.qualified || 0,
     lastPullTime: od?.pulls?.lastPullAt ? (() => { const d = new Date(new Date(od.pulls.lastPullAt).getTime() + 3*60*60*1000); return `${String(d.getUTCHours()).padStart(2,"0")}:${String(d.getUTCMinutes()).padStart(2,"0")} EAT`; })() : "—",
     nextPullTime: (() => { const now = new Date(Date.now() + 3*60*60*1000); const h = now.getUTCHours(); const schedule = [0,4,8,12,16,20]; const next = schedule.find(s => s > h); return next !== undefined ? `${String(next).padStart(2,"0")}:00 EAT` : "00:00 EAT"; })(),
+    metrics: od?.metrics || null,
   };
 
   const [pullHistory, setPullHistory] = useState<any[]>([]);
@@ -562,6 +563,74 @@ export default function AdminDashboard() {
               ))}
             </div>
           </div>
+
+          {/* Trading Insights */}
+          {overview.metrics && (
+            <div className="glass rounded-2xl border border-white/10 p-5">
+              <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2"><TrendingUp size={16} className="text-profit" /> Trading Insights</h3>
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                {overview.metrics.maxProfitTrade && (
+                  <div className="p-3 rounded-xl bg-profit/5 border border-profit/20">
+                    <p className="text-[10px] text-gray-400 uppercase mb-1">Best Trade</p>
+                    <p className="text-lg font-bold text-profit">${overview.metrics.maxProfitTrade.profit.toFixed(2)}</p>
+                    <p className="text-[10px] text-gray-500">{overview.metrics.maxProfitTrade.symbol}</p>
+                    <p className="text-[10px] text-white font-medium mt-0.5">{overview.metrics.maxProfitTrade.nickname}</p>
+                    <p className="text-[9px] text-gray-500">@{overview.metrics.maxProfitTrade.username || '—'}</p>
+                  </div>
+                )}
+                {overview.metrics.maxLossTrade && (
+                  <div className="p-3 rounded-xl bg-loss/5 border border-loss/20">
+                    <p className="text-[10px] text-gray-400 uppercase mb-1">Worst Trade</p>
+                    <p className="text-lg font-bold text-loss">${overview.metrics.maxLossTrade.profit.toFixed(2)}</p>
+                    <p className="text-[10px] text-gray-500">{overview.metrics.maxLossTrade.symbol}</p>
+                    <p className="text-[10px] text-white font-medium mt-0.5">{overview.metrics.maxLossTrade.nickname}</p>
+                    <p className="text-[9px] text-gray-500">@{overview.metrics.maxLossTrade.username || '—'}</p>
+                  </div>
+                )}
+                {overview.metrics.bestWinRate && (
+                  <div className="p-3 rounded-xl bg-royal/5 border border-royal/20">
+                    <p className="text-[10px] text-gray-400 uppercase mb-1">Best Win Rate</p>
+                    <p className="text-lg font-bold text-royal">{overview.metrics.bestWinRate.winRate}%</p>
+                    <p className="text-[10px] text-gray-500">{overview.metrics.bestWinRate.trades} trades</p>
+                    <p className="text-[10px] text-white font-medium mt-0.5">{overview.metrics.bestWinRate.nickname}</p>
+                    <p className="text-[9px] text-gray-500">@{overview.metrics.bestWinRate.username || '—'}</p>
+                  </div>
+                )}
+                {overview.metrics.mostTradedPair && (
+                  <div className="p-3 rounded-xl bg-gold/5 border border-gold/20">
+                    <p className="text-[10px] text-gray-400 uppercase mb-1">Most Traded Pair</p>
+                    <p className="text-lg font-bold text-gold">{overview.metrics.mostTradedPair.symbol}</p>
+                    <p className="text-[10px] text-gray-500">{overview.metrics.mostTradedPair.tradeCount} trades</p>
+                    <p className="text-[10px] text-gray-500">{overview.metrics.mostTradedPair.totalLots.toFixed(2)} lots</p>
+                  </div>
+                )}
+                <div className="p-3 rounded-xl bg-loss/5 border border-loss/20">
+                  <p className="text-[10px] text-gray-400 uppercase mb-1">Blown Accounts</p>
+                  <p className="text-lg font-bold text-loss">{overview.metrics.blownAccounts}</p>
+                  <p className="text-[10px] text-gray-500">equity hit zero</p>
+                </div>
+                {overview.metrics.mostActiveDay && (
+                  <div className="p-3 rounded-xl bg-white/5 border border-white/10">
+                    <p className="text-[10px] text-gray-400 uppercase mb-1">Most Active Day</p>
+                    <p className="text-sm font-bold text-white">{new Date(overview.metrics.mostActiveDay.day).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</p>
+                    <p className="text-[10px] text-gray-500">{overview.metrics.mostActiveDay.tradeCount} trades</p>
+                  </div>
+                )}
+                {overview.metrics.leastActiveDay && (
+                  <div className="p-3 rounded-xl bg-white/5 border border-white/10">
+                    <p className="text-[10px] text-gray-400 uppercase mb-1">Least Active Day</p>
+                    <p className="text-sm font-bold text-white">{new Date(overview.metrics.leastActiveDay.day).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</p>
+                    <p className="text-[10px] text-gray-500">{overview.metrics.leastActiveDay.tradeCount} trades</p>
+                  </div>
+                )}
+                <div className="p-3 rounded-xl bg-white/5 border border-white/10">
+                  <p className="text-[10px] text-gray-400 uppercase mb-1">Avg Trades/User</p>
+                  <p className="text-lg font-bold text-white">{overview.metrics.avgTradesPerUser}</p>
+                  <p className="text-[10px] text-gray-500">among active traders</p>
+                </div>
+              </div>
+            </div>
+          )}
         </>)}
 
         {/* ==================== LEADERBOARD ==================== */}
