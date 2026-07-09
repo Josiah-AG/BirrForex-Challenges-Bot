@@ -1237,21 +1237,12 @@ export class WpEvaluationEngine {
                 }
               } else {
                 const newAttempts = attempts + 1;
-                if (newAttempts >= MAX_SL_CHECK_ATTEMPTS) {
-                  const riskLabel = trade.symbol.endsWith('c') ? `¢${rules.max_risk_dollars}` : `$${rules.max_risk_dollars}`;
-                  const escalationViol = `Max risk candle check could not be verified after ${newAttempts} attempts — max allowed loss of ${riskLabel} deducted as a precaution.`;
-                  violations.push(escalationViol);
-                  slPenaltyDollars = rules.max_risk_dollars;
-                  await db.query(
-                    `UPDATE wp_trades SET sl_check_result = 'check_failed', sl_check_pending = false, sl_check_attempts = $1 WHERE id = $2`,
-                    [newAttempts, trade.id]
-                  ).catch(() => {});
-                } else {
-                  await db.query(
-                    `UPDATE wp_trades SET sl_check_pending = true, sl_check_attempts = $1 WHERE id = $2`,
-                    [newAttempts, trade.id]
-                  ).catch(() => {});
-                }
+                // Benefit of doubt — never penalize. Keep pending, retry next cycle.
+                await db.query(
+                  `UPDATE wp_trades SET sl_check_pending = true, sl_check_attempts = $1 WHERE id = $2`,
+                  [newAttempts, trade.id]
+                ).catch(() => {});
+                slCheckFailures.push({ ticket: trade.ticket, symbol: trade.symbol, tradeId: trade.id });
                 slCheckFailures.push({ ticket: trade.ticket, symbol: trade.symbol, tradeId: trade.id });
               }
             } else {
@@ -1717,21 +1708,11 @@ export class WpEvaluationEngine {
             );
           } else {
             const newAttempts = attempts + 1;
-            if (newAttempts >= MAX_SL_CHECK_ATTEMPTS) {
-              const riskLabel = trade.symbol.endsWith('c') ? `¢${rules.max_risk_dollars}` : `$${rules.max_risk_dollars}`;
-              const escalationViol = `Max risk candle check could not be verified after ${newAttempts} attempts — max allowed loss of ${riskLabel} deducted as a precaution.`;
-              if (!existingViols.includes(escalationViol)) existingViols.push(escalationViol);
-              await db.query(
-                `UPDATE wp_trades SET sl_check_result = 'check_failed', sl_check_pending = false, sl_check_attempts = $1, is_qualified = false, violations = $2 WHERE id = $3`,
-                [newAttempts, JSON.stringify(existingViols), trade.id]
-              );
-              violationCount++;
-            } else {
-              await db.query(
-                `UPDATE wp_trades SET sl_check_pending = true, sl_check_attempts = $1 WHERE id = $2`,
-                [newAttempts, trade.id]
-              );
-            }
+            // Benefit of doubt — never penalize. Keep pending, retry next cycle.
+            await db.query(
+              `UPDATE wp_trades SET sl_check_pending = true, sl_check_attempts = $1 WHERE id = $2`,
+              [newAttempts, trade.id]
+            );
           }
           continue;
         }
