@@ -936,14 +936,15 @@ def do_pull(account: int, server: str, password: str, from_date: str = None, ord
                 })
 
     return {
-        "success":     True,
-        "message":     f"Pulled {len(trades_list)} trades, {len(deals_list)} deals, {len(balance_ops)} balance ops",
-        "balance":     balance,
-        "equity":      equity,
-        "trades":      trades_list,
-        "deals":       deals_list,
-        "balance_ops": balance_ops,
-        "terminal_id": TERMINAL_ID,
+        "success":      True,
+        "message":      f"Pulled {len(trades_list)} trades, {len(deals_list)} deals, {len(balance_ops)} balance ops",
+        "balance":      balance,
+        "equity":       equity,
+        "trades":       trades_list,
+        "deals":        deals_list,
+        "balance_ops":  balance_ops,
+        "position_ids": list(set(t["position_id"] for t in trades_list)),
+        "terminal_id":  TERMINAL_ID,
     }
 
 

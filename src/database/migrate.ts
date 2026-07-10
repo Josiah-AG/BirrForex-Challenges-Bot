@@ -386,7 +386,8 @@ async function migrate() {
     await db.query(`ALTER TABLE wp_pull_batches ADD COLUMN IF NOT EXISTS phase2_total INTEGER DEFAULT 0;`).catch(() => {});
     await db.query(`ALTER TABLE wp_pull_batches ADD COLUMN IF NOT EXISTS phase2_processed INTEGER DEFAULT 0;`).catch(() => {});
     await db.query(`ALTER TABLE wp_pull_batches ADD COLUMN IF NOT EXISTS phase2_round INTEGER DEFAULT 0;`).catch(() => {});
-    console.log('✅ wp_pull_batches phase2 columns migration OK');
+    await db.query(`ALTER TABLE wp_pull_batches ADD COLUMN IF NOT EXISTS phase_times JSONB;`).catch(() => {});
+    console.log('✅ wp_pull_batches phase2 + phase_times columns migration OK');
 
     // Equity-based blown detection — store last VPS equity separately from balance
     await db.query(`ALTER TABLE trading_registrations ADD COLUMN IF NOT EXISTS last_known_equity NUMERIC(15,2);`).catch(() => {});

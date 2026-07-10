@@ -68,6 +68,7 @@ interface PullResult {
   terminalId?: number;
   terminalsAttempted?: number[];
   terminalAttempts?: { terminalId: number; errorCode: string; errorMessage: string }[];
+  positionIds?: number[]; // Position IDs returned by VPS for inline reconciliation
 }
 
 interface TerminalState {
@@ -415,7 +416,7 @@ export class VpsPullScheduler {
       const successful = allResults.filter(r => r.success);
       const failed = allResults.filter(r => !r.success);
       const successfulAccounts = remaining.filter(a => successful.some(r => r.registrationId === a.registrationId));
-      await this.reconcileMissingTrades(challengeId, batchId, successfulAccounts, healthyTerminals, challenge);
+      await this.inlineReconcile(challengeId, batchId, successfulAccounts, successful, healthyTerminals);
       await this.resolveNullOpenTimes(challengeId, batchId, successfulAccounts, healthyTerminals, challenge);
       await this.evaluateAllAccounts(challengeId, successfulAccounts, batchId);
       const newTrades = successful.reduce((sum, r) => sum + (r.tradesCount || 0), 0);
@@ -549,28 +550,46 @@ export class VpsPullScheduler {
         await this.logPullError(batchId, failure);
       }
 
-      // === PHASE 2 + 3: resolve any NULL open_time trades, then UPDATE OHLC, then evaluate ===
+      // === PHASES 2-5 with timing ===
+      const phaseTimes: { pull: number; resolve: number; ohlc: number; evaluate: number } = { pull: 0, resolve: 0, ohlc: 0, evaluate: 0 };
+      phaseTimes.pull = Math.round((Date.now() - startTime) / 1000); // Phase 1 just finished
+
       const successfulAccounts = accountsWithPriority.filter(a => successful.some(r => r.registrationId === a.registrationId));
-      await this.reconcileMissingTrades(challengeToPull.id, batchId, successfulAccounts, healthyTerminals, challengeToPull);
+
+      // Phase 2: Inline reconcile + resolve null open times
+      const resolveStart = Date.now();
+      await db.query(`UPDATE wp_pull_batches SET phase = 'resolving' WHERE id = $1`, [batchId]).catch(() => {});
+      await this.inlineReconcile(challengeToPull.id, batchId, successfulAccounts, successful, healthyTerminals);
       await this.resolveNullOpenTimes(challengeToPull.id, batchId, successfulAccounts, healthyTerminals, challengeToPull);
+      phaseTimes.resolve = Math.round((Date.now() - resolveStart) / 1000);
 
       // === DELAY: Let terminals return to base + wp_trades settle ===
       console.log('📊 VPS Pull: Waiting 30s for terminals to settle before OHLC...');
       await this.delay(30000);
 
-      // === OHLC UPDATE (before evaluation — evaluation uses local candle data) ===
+      // Phase 3: OHLC UPDATE
+      const ohlcStart = Date.now();
+      await db.query(`UPDATE wp_pull_batches SET phase = 'ohlc' WHERE id = $1`, [batchId]).catch(() => {});
       await this.updateOhlcCandles(challengeToPull).catch(e =>
         console.error('⚠️ OHLC update error (non-fatal):', e)
       );
+      phaseTimes.ohlc = Math.round((Date.now() - ohlcStart) / 1000);
 
+      // Phase 4: Evaluate
+      const evalStart = Date.now();
       await this.evaluateAllAccounts(challengeToPull.id, successfulAccounts, batchId, successful);
+      phaseTimes.evaluate = Math.round((Date.now() - evalStart) / 1000);
 
       // === POST-EVAL: Retry SL checks for trades still pending (missing OHLC) ===
       await this.postEvalSlRetry(challengeToPull);
 
-      // Complete batch
+      // Complete batch — save phase timings
       const newTrades = successful.reduce((sum, r) => sum + (r.tradesCount || 0), 0);
       await this.completePullBatch(batchId, successful.length, credentialFailures.length + otherFailures.length, newTrades, 'completed');
+      await db.query(
+        `UPDATE wp_pull_batches SET phase_times = $1 WHERE id = $2`,
+        [JSON.stringify(phaseTimes), batchId]
+      ).catch(() => {});
       await this.savePullTerminalStats(batchId);
 
       // === STEP 6: Flush staging → live + update rankings after every cycle ===
@@ -745,7 +764,7 @@ export class VpsPullScheduler {
 
       // === PHASE 2 + 3: resolve any NULL open_time trades, UPDATE OHLC, then evaluate ===
       const successfulAccounts = accounts.filter(a => successful.some(r => r.registrationId === a.registrationId));
-      await this.reconcileMissingTrades(challengeId, batchId, successfulAccounts, healthyTerminals, challengeToPull);
+      await this.inlineReconcile(challengeId, batchId, successfulAccounts, successful, healthyTerminals);
       await this.resolveNullOpenTimes(challengeId, batchId, successfulAccounts, healthyTerminals, challengeToPull);
 
       // === DELAY: Let terminals settle ===
@@ -1088,6 +1107,7 @@ export class VpsPullScheduler {
             balance: data.balance,
             equity: data.equity,
             balance_ops: data.balance_ops || [],
+            positionIds: data.position_ids || [],
             terminalId,
           };
         }
@@ -2170,6 +2190,77 @@ export class VpsPullScheduler {
 
   /**
    * Phase 1.5 — reconciliation. Compares MT5's actual closed-position count for
+  /**
+   * Inline reconciliation — uses position_ids already returned by /pull (no extra login).
+   * Compares VPS-reported position IDs against what's saved in the DB. If any are
+   * missing, resolves them via /resolve-trades (which DOES require a login, but only
+   * for the few accounts that actually have missing data — typically 0).
+   */
+  private async inlineReconcile(
+    challengeId: number,
+    batchId: number | null,
+    accounts: AccountToPull[],
+    pullResults: PullResult[],
+    healthyTerminals: TerminalState[]
+  ): Promise<void> {
+    if (accounts.length === 0 || healthyTerminals.length === 0) return;
+
+    const tasks: { account: AccountToPull; positionIds: number[] }[] = [];
+
+    for (const account of accounts) {
+      if (this.cancelRequested) break;
+      const result = pullResults.find(r => r.registrationId === account.registrationId);
+      const vpsPositionIds = result?.positionIds || [];
+      if (vpsPositionIds.length === 0) continue; // No positions returned by VPS — nothing to reconcile
+
+      // Check which position IDs are already in the DB
+      const dbRows = await db.query(
+        `SELECT DISTINCT position_id FROM wp_trades WHERE challenge_id = $1 AND account_number = $2`,
+        [challengeId, account.accountNumber]
+      );
+      const dbPositionIds = new Set(dbRows.rows.map((r: any) => Number(r.position_id)));
+      const missing = vpsPositionIds.filter((id: number) => !dbPositionIds.has(id));
+
+      if (missing.length > 0) {
+        console.log(`🔍 VPS Pull: ${account.accountNumber} inline reconcile: ${missing.length} position(s) missing from DB — will resolve`);
+        tasks.push({ account, positionIds: missing });
+      }
+    }
+
+    if (tasks.length === 0) {
+      console.log(`✅ VPS Pull: Inline reconcile — all positions accounted for (0 missing)`);
+      return;
+    }
+
+    console.log(`🔧 VPS Pull: Inline reconcile — resolving ${tasks.length} account(s) with missing trades`);
+
+    // Resolve missing trades in parallel across healthy terminals
+    let totalRecovered = 0;
+    const queue = [...tasks];
+    const workers = healthyTerminals.map(async terminal => {
+      while (true) {
+        if (this.cancelRequested) return;
+        const task = queue.shift();
+        if (!task) return;
+
+        const trades = await this.resolveTradesForAccount(task.account, terminal.id, task.positionIds, this.abortController?.signal);
+        if (trades && trades.length > 0) {
+          await this.saveTrades(task.account, trades);
+          totalRecovered += trades.length;
+        }
+        await this.delay(BATCH_DELAY_MS);
+      }
+    });
+    await Promise.all(workers);
+
+    console.log(`✅ VPS Pull: Inline reconcile recovered ${totalRecovered} missing trade(s) across ${tasks.length} account(s)`);
+  }
+
+  /**
+   * Phase 1.5 — reconciliation (LEGACY — used only by retrySingleAccount).
+   * For batch pulls, use inlineReconcile() which uses position_ids from /pull response.
+   *
+   * Compares MT5's actual closed-position count for
    * each account's pull window against what's saved in wp_trades and backfills
    * anything missing (not just null-open_time rows — entire trades that never
    * made it into the DB, e.g. dropped at a windowed-query boundary during the

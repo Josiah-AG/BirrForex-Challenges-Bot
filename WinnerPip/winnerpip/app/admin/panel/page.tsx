@@ -2814,7 +2814,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold text-white flex items-center gap-2">
               <Loader2 size={16} className="text-royal animate-spin" />
-              {pullProgress.phase === 'reconciling' ? 'Recovering Missing Trades' : pullProgress.phase === 'resolving_nulls' ? 'Resolving Missing Open Times' : pullProgress.phase === 'evaluating' ? 'Evaluating Accounts' : 'Pull In Progress'}
+              {pullProgress.phase === 'resolving' ? 'Resolving Missing Data' : pullProgress.phase === 'resolving_nulls' ? 'Resolving Open Times' : pullProgress.phase === 'ohlc' ? 'Updating OHLC Candles' : pullProgress.phase === 'evaluating' ? 'Evaluating Accounts' : 'Pulling Accounts'}
             </h3>
             <div className="flex items-center gap-3">
               <span className="text-xs text-gray-400">{pullProgress.elapsedSeconds}s elapsed</span>
@@ -2824,7 +2824,6 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
                     try {
                       await fetch(`${apiUrl}/api/admin/${secretPath}/cancel-pull`, { method: "POST" });
                     } catch (_e) {}
-                    // Always stop polling and hide bar regardless of API response
                     setPullProgress((prev: any) => ({ ...prev, isRunning: false }));
                     if (pollIntervalRef.current) { clearInterval(pollIntervalRef.current); pollIntervalRef.current = null; }
                     setPolling(false);
@@ -2837,37 +2836,37 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
             </div>
           </div>
 
-          {/* Phase 1 bar — pulling */}
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-[10px] text-gray-500 w-16">Phase 1</span>
-            <div className="flex-1 h-3 bg-white/10 rounded-full overflow-hidden">
-              <div className="h-full rounded-full bg-gradient-to-r from-royal to-profit transition-all duration-1000" style={{ width: `${pullProgress.percent || 0}%` }} />
-            </div>
-            {(pullProgress.phase === 'reconciling' || pullProgress.phase === 'resolving_nulls' || pullProgress.phase === 'evaluating') && <span className="text-profit text-xs">✓</span>}
-          </div>
-          <div className="flex items-center justify-between text-xs text-gray-400 mb-2">
-            <span>{pullProgress.processed || 0} / {pullProgress.totalAccounts || 0} accounts</span>
-            <span className="text-royal font-semibold">{pullProgress.percent || 0}%</span>
+          {/* Phase steps indicator */}
+          <div className="flex items-center gap-1 mb-3">
+            {['pulling', 'resolving', 'ohlc', 'evaluating'].map((p, i) => {
+              const labels = ['Pull', 'Resolve', 'OHLC', 'Evaluate'];
+              const phases = ['pulling', 'resolving', 'ohlc', 'evaluating'];
+              const currentIdx = phases.indexOf(pullProgress.phase === 'resolving_nulls' ? 'resolving' : pullProgress.phase);
+              const isDone = i < currentIdx;
+              const isCurrent = i === currentIdx;
+              return (
+                <div key={p} className={`flex-1 text-center py-1 rounded text-[10px] font-bold ${isDone ? 'bg-profit/20 text-profit' : isCurrent ? 'bg-royal/20 text-royal border border-royal/30' : 'bg-white/5 text-gray-600'}`}>
+                  {isDone ? '✓ ' : ''}{labels[i]}
+                </div>
+              );
+            })}
           </div>
 
-          {/* Phase 2 bar — reconciling missing trades, resolving null open_time, or evaluating accounts, only shown once it actually starts */}
-          {(pullProgress.phase === 'reconciling' || pullProgress.phase === 'resolving_nulls' || pullProgress.phase === 'evaluating') && (
-            <>
-              <div className="flex items-center gap-2 mb-1 mt-3">
-                <span className="text-[10px] text-gray-500 w-16">{pullProgress.phase === 'evaluating' ? 'Phase 3' : 'Phase 2'}</span>
-                <div className="flex-1 h-3 bg-white/10 rounded-full overflow-hidden">
-                  <div className={`h-full rounded-full transition-all duration-1000 ${pullProgress.phase === 'evaluating' ? 'bg-gradient-to-r from-purple-500 to-purple-300' : 'bg-gradient-to-r from-gold to-amber-400'}`} style={{ width: `${pullProgress.phase2Percent || 0}%` }} />
-                </div>
-              </div>
-              <div className="flex items-center justify-between text-xs text-gray-400">
-                <span>
-                  {pullProgress.phase2Processed || 0} / {pullProgress.phase2Total || 0} accounts
-                  {pullProgress.phase === 'resolving_nulls' && <> — round {pullProgress.phase2Round || 1}/{pullProgress.phase2MaxRounds || 5}</>}
-                </span>
-                <span className={`font-semibold ${pullProgress.phase === 'evaluating' ? 'text-purple-300' : 'text-gold'}`}>{pullProgress.phase2Percent || 0}%</span>
-              </div>
-            </>
-          )}
+          {/* Main progress bar */}
+          <div className="flex items-center gap-2 mb-1">
+            <div className="flex-1 h-3 bg-white/10 rounded-full overflow-hidden">
+              <div className="h-full rounded-full bg-gradient-to-r from-royal to-profit transition-all duration-1000" style={{ width: `${pullProgress.phase === 'pulling' ? (pullProgress.percent || 0) : 100}%` }} />
+            </div>
+          </div>
+          <div className="flex items-center justify-between text-xs text-gray-400 mb-1">
+            {pullProgress.phase === 'pulling' ? (
+              <><span>{pullProgress.processed || 0} / {pullProgress.totalAccounts || 0} accounts</span><span className="text-royal font-semibold">{pullProgress.percent || 0}%</span></>
+            ) : pullProgress.phase === 'evaluating' || pullProgress.phase === 'resolving' || pullProgress.phase === 'resolving_nulls' ? (
+              <><span>{pullProgress.phase2Processed || 0} / {pullProgress.phase2Total || 0} accounts</span><span className="text-royal font-semibold">{pullProgress.phase2Percent || 0}%</span></>
+            ) : (
+              <><span>Processing...</span><span className="text-royal font-semibold">—</span></>
+            )}
+          </div>
         </div>
       )}
 
@@ -2884,6 +2883,16 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
               : `⚠️ ${lb.failed} of ${lb.totalAccounts} account(s) failed — data up to date as of ${completedEAT} (see below)`}
           </p>
           <p className="text-[11px] text-gray-400 mt-1">{lb.successful}✓ {lb.failed}✗ — {lb.newTrades} new trades — {lb.durationSec}s</p>
+
+          {/* Phase Timing Breakdown */}
+          {lb.phaseTimes && (
+            <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1.5">
+              <span className="text-[10px] text-gray-500">⏱ Pull: <span className="text-white font-semibold">{lb.phaseTimes.pull}s</span></span>
+              <span className="text-[10px] text-gray-500">Resolve: <span className="text-white font-semibold">{lb.phaseTimes.resolve}s</span></span>
+              <span className="text-[10px] text-gray-500">OHLC: <span className="text-white font-semibold">{lb.phaseTimes.ohlc}s</span></span>
+              <span className="text-[10px] text-gray-500">Evaluate: <span className="text-white font-semibold">{lb.phaseTimes.evaluate}s</span></span>
+            </div>
+          )}
 
           {lb.failedAccounts && lb.failedAccounts.length > 0 && (
             <div className="mt-2.5 space-y-1 max-h-[180px] overflow-y-auto">

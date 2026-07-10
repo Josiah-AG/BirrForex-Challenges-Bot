@@ -3357,7 +3357,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/pull-status`, adminIpCheck, async (req,
   try {
     // Check if there's a currently running batch
     const running = await db.query(
-      `SELECT id, challenge_id, total_accounts, started_at, phase, phase2_total, phase2_processed, phase2_round
+      `SELECT id, challenge_id, total_accounts, started_at, phase, phase2_total, phase2_processed, phase2_round, phase_times
        FROM wp_pull_batches WHERE status = 'running' ORDER BY started_at DESC LIMIT 1`
     );
 
@@ -3366,10 +3366,8 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/pull-status`, adminIpCheck, async (req,
       const elapsed = Math.round((Date.now() - new Date(batch.started_at).getTime()) / 1000);
       const phase = batch.phase || 'pulling';
 
-      if (phase === 'resolving_nulls' || phase === 'reconciling' || phase === 'evaluating') {
-        // Phase 1.5/2 progress is driven explicitly by the scheduler — completePullBatch()
-        // is only called once phase 2 + the deferred evaluation finish. No auto-complete
-        // heuristic here, just report progress as-is.
+      if (phase === 'resolving' || phase === 'resolving_nulls' || phase === 'reconciling' || phase === 'ohlc' || phase === 'evaluating') {
+        // Phase 2+ progress is driven explicitly by the scheduler
         const phase2Percent = batch.phase2_total > 0
           ? Math.min(100, Math.round((batch.phase2_processed / batch.phase2_total) * 100))
           : 0;
@@ -3387,6 +3385,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/pull-status`, adminIpCheck, async (req,
           phase2Percent,
           elapsedSeconds: elapsed,
           startedAt: batch.started_at,
+          phaseTimes: batch.phase_times || null,
         });
       }
 
@@ -3416,7 +3415,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/pull-status`, adminIpCheck, async (req,
 
     // Not running — get last completed batch
     const last = await db.query(
-      `SELECT id, challenge_id, total_accounts, successful, failed, new_trades_found, status, started_at, completed_at, phase, phase2_total, phase2_processed, phase2_round
+      `SELECT id, challenge_id, total_accounts, successful, failed, new_trades_found, status, started_at, completed_at, phase, phase2_total, phase2_processed, phase2_round, phase_times
        FROM wp_pull_batches ORDER BY started_at DESC LIMIT 1`
     );
 
@@ -3482,6 +3481,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/pull-status`, adminIpCheck, async (req,
           phase2Total: b.phase2_total,
           phase2Processed: b.phase2_processed,
           phase2Round: b.phase2_round,
+          phaseTimes: b.phase_times || null,
           reconciled,
           stillNullCount,
           ohlc: {
