@@ -1466,6 +1466,7 @@ def pull(req: PullRequest):
     if _is_credential_cached(account_number):
         print(f"  [W{TERMINAL_ID}] /pull: account {account_number} in credential cache — instant reject")
         return {"success": False, "error_type": "credential_failure", "message": f"Credential failure cached for account {account_number}"}
+    print(f"  [W{TERMINAL_ID}] ── PULL ── account={account_number}")
     with _lock:
         result = do_pull(account_number, req.server, req.password, req.from_date, req.orders_from_date, extended_sync=req.extended_sync)
     _schedule_idle_restore()
@@ -1480,6 +1481,7 @@ def resolve_opens(req: ResolveOpensRequest):
     if _is_credential_cached(account_number):
         print(f"  [W{TERMINAL_ID}] /resolve-opens: account {account_number} in credential cache — instant reject")
         return {"success": False, "error_type": "credential_failure", "message": f"Credential failure cached for account {account_number}"}
+    print(f"  [W{TERMINAL_ID}] ── RESOLVE-OPENS ── account={account_number} positions={req.position_ids}")
     with _lock:
         result = do_resolve_opens(account_number, req.server, req.password, req.position_ids)
     _schedule_idle_restore()
@@ -1494,6 +1496,7 @@ def list_positions(req: ListPositionsRequest):
     if _is_credential_cached(account_number):
         print(f"  [W{TERMINAL_ID}] /list-positions: account {account_number} in credential cache — instant reject")
         return {"success": False, "error_type": "credential_failure", "message": f"Credential failure cached for account {account_number}"}
+    print(f"  [W{TERMINAL_ID}] ── RECONCILE (list-positions) ── account={account_number}")
     with _lock:
         result = do_list_positions(account_number, req.server, req.password, req.from_date, req.to_date)
     _schedule_idle_restore()
@@ -1508,6 +1511,7 @@ def resolve_trades(req: ResolveTradesRequest):
     if _is_credential_cached(account_number):
         print(f"  [W{TERMINAL_ID}] /resolve-trades: account {account_number} in credential cache — instant reject")
         return {"success": False, "error_type": "credential_failure", "message": f"Credential failure cached for account {account_number}"}
+    print(f"  [W{TERMINAL_ID}] ── RESOLVE-TRADES ── account={account_number} positions={req.position_ids}")
     with _lock:
         result = do_resolve_trades(account_number, req.server, req.password, req.position_ids)
     _schedule_idle_restore()
@@ -1529,6 +1533,7 @@ def ohlc_bulk(req: OhlcBulkRequest):
     if req.api_key != API_KEY:
         raise HTTPException(status_code=401, detail="Invalid API key")
     symbol_ranges = [{"symbol": s.symbol, "from_time": s.from_time, "to_time": s.to_time} for s in req.symbols]
+    print(f"  [W{TERMINAL_ID}] ── OHLC-BULK ── {len(symbol_ranges)} symbol(s)")
     with _lock:
         result = do_ohlc_bulk(symbol_ranges, req.timeframe)
     _schedule_idle_restore()
