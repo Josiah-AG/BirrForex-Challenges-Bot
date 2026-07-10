@@ -92,6 +92,45 @@ function adminIpCheck(req: any, res: any, next: any) {
 
 // ==================== AUTH ENDPOINTS ====================
 
+// Account-based brute-force protection (complements IP-based authLimiter)
+const loginAttempts = new Map<string, { count: number; lastAttempt: number }>();
+const MAX_ACCOUNT_ATTEMPTS = 5;
+const ACCOUNT_LOCKOUT_MS = 15 * 60 * 1000; // 15 minutes
+
+function checkAccountLockout(accountNumber: string): boolean {
+  const key = accountNumber.trim();
+  const entry = loginAttempts.get(key);
+  if (!entry) return false;
+  if (Date.now() - entry.lastAttempt > ACCOUNT_LOCKOUT_MS) {
+    loginAttempts.delete(key);
+    return false;
+  }
+  return entry.count >= MAX_ACCOUNT_ATTEMPTS;
+}
+
+function recordFailedLogin(accountNumber: string) {
+  const key = accountNumber.trim();
+  const entry = loginAttempts.get(key);
+  if (!entry) {
+    loginAttempts.set(key, { count: 1, lastAttempt: Date.now() });
+  } else {
+    entry.count++;
+    entry.lastAttempt = Date.now();
+  }
+}
+
+function clearLoginAttempts(accountNumber: string) {
+  loginAttempts.delete(accountNumber.trim());
+}
+
+// Clean up stale entries every 30 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of loginAttempts) {
+    if (now - entry.lastAttempt > ACCOUNT_LOCKOUT_MS) loginAttempts.delete(key);
+  }
+}, 30 * 60 * 1000);
+
 /**
  * POST /api/auth/login
  * Body: { account_number, investor_password }
@@ -105,6 +144,11 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
 
     if (!account_number || !investor_password) {
       return res.status(400).json({ error: 'Account number and investor password are required' });
+    }
+
+    // Account-based lockout check
+    if (checkAccountLockout(account_number)) {
+      return res.status(429).json({ error: 'Too many failed attempts for this account. Try again in 15 minutes.' });
     }
 
     // Build query — if challenge_id provided, scope to that challenge
@@ -153,10 +197,12 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
         }
       }
 
+      recordFailedLogin(account_number);
       return res.status(401).json({ error: 'Invalid account number or investor password' });
     }
 
     const registration = result.rows[0];
+    clearLoginAttempts(account_number);
 
     // Generate a session token (simple JWT-like token for now)
     const token = generateToken(registration.id, registration.user_id);
