@@ -2387,25 +2387,32 @@ export class VpsPullScheduler {
         [accountsToEval.length, batchId]
       ).catch(() => {});
     }
-    const EVAL_CONCURRENCY = 5;
+    const EVAL_CONCURRENCY = 10;
     let processed = 0;
+    const evalStartTime = Date.now();
+    console.log(`📊 Evaluation: Starting ${accountsToEval.length} account(s) with concurrency ${EVAL_CONCURRENCY}`);
     const queue = [...accountsToEval];
-    const runWorker = async () => {
+    const runWorker = async (workerId: number) => {
       while (queue.length > 0) {
         const account = queue.shift()!;
+        const t0 = Date.now();
         try {
           await evaluationEngine.evaluateSingleAccount(challengeId, account.registrationId);
         } catch (evalErr) {
           console.error(`⚠️ Eval error for ${account.accountNumber}:`, evalErr);
         }
         processed++;
+        const elapsed = Date.now() - t0;
+        console.log(`📊 Eval W${workerId}: ${account.accountNumber} done in ${elapsed}ms (${processed}/${accountsToEval.length})`);
         if (batchId) {
           await db.query(`UPDATE wp_pull_batches SET phase2_processed = $1 WHERE id = $2`, [processed, batchId]).catch(() => {});
         }
       }
     };
-    const workers = Array.from({ length: Math.min(EVAL_CONCURRENCY, accountsToEval.length) }, runWorker);
+    const workers = Array.from({ length: Math.min(EVAL_CONCURRENCY, accountsToEval.length) }, (_, i) => runWorker(i + 1));
     await Promise.all(workers);
+    const evalDuration = Math.round((Date.now() - evalStartTime) / 1000);
+    console.log(`✅ Evaluation: ${accountsToEval.length} accounts done in ${evalDuration}s (concurrency ${EVAL_CONCURRENCY})`);
   }
 
   private async createPullBatch(challengeId: number, totalAccounts: number): Promise<number> {
