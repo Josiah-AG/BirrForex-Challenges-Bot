@@ -1407,7 +1407,15 @@ export default function AdminDashboard() {
               )}
               <div className="grid grid-cols-2 gap-2 text-xs">
                 <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Status</p><p className={`font-semibold ${(isGroup ? anyGroupFlagged : t.isQualified === false) ? 'text-loss' : 'text-profit'}`}>{(isGroup ? anyGroupFlagged : t.isQualified === false) ? '🚩 Flagged' : '✓ Qualified'}</p></div>
-                {!isGroup && <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">SL Check</p><p className={`text-[10px] font-semibold ${t.slCheckResult === 'fake_sl' ? 'text-loss' : t.slCheckResult === 'passed' ? 'text-profit' : t.slCheckResult === 'conflicting' ? 'text-amber-400' : 'text-gray-400'}`}>{t.slCheckResult ?? '—'}</p></div>}
+                <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">SL Check</p><p className={`text-[10px] font-semibold ${
+                  isGroup
+                    ? (() => { const results = group.map((g: any) => g.slCheckResult).filter(Boolean); const hasFake = results.includes('fake_sl'); const hasPending = group.some((g: any) => g.slCheckPending); const allPassed = results.length > 0 && results.every((r: string) => r === 'passed'); return hasFake ? 'text-loss' : hasPending ? 'text-gold' : allPassed ? 'text-profit' : 'text-gray-400'; })()
+                    : t.slCheckResult === 'fake_sl' ? 'text-loss' : t.slCheckResult === 'passed' ? 'text-profit' : t.slCheckResult === 'conflicting' ? 'text-amber-400' : t.slCheckPending ? 'text-gold' : 'text-gray-400'
+                }`}>{
+                  isGroup
+                    ? (() => { const results = group.map((g: any) => g.slCheckResult).filter(Boolean); const hasFake = results.includes('fake_sl'); const hasPending = group.some((g: any) => g.slCheckPending); const allPassed = results.length > 0 && results.every((r: string) => r === 'passed'); return hasFake ? '⚠ Breached' : hasPending ? '⏳ Pending' : allPassed ? '✓ Passed' : results[0] || '—'; })()
+                    : t.slCheckPending ? '⏳ Pending' : t.slCheckResult ?? '—'
+                }</p></div>
               </div>
               {allGroupViolations.length > 0 && (
                 <div className="bg-loss/10 border border-loss/20 rounded-xl p-3 space-y-1">
