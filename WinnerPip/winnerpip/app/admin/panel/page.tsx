@@ -1600,10 +1600,11 @@ function HealthCheckPanel() {
               )}
             </div>
 
-            {/* Terminal Login Test — always show all 10 */}
+            {/* Terminal Login Test — show all terminals */}
             {(() => {
               const results = healthData.deepCheck?.results || [];
               const vpsOnline = healthData.vps?.reachable;
+              const numTerminals = healthData.vps?.terminals || 15;
               const passedCount = results.filter((t: any) => t.success).length;
               const totalTested = results.length;
               const summary = !vpsOnline
@@ -1619,8 +1620,8 @@ function HealthCheckPanel() {
                     <Activity size={16} className="text-gold" /> Terminal Login Test
                     <span className={`ml-2 px-2 py-0.5 rounded text-[10px] font-bold ${summaryColor}`}>{summary}</span>
                   </h4>
-                  <div className="grid grid-cols-5 md:grid-cols-10 gap-2">
-                    {Array.from({ length: 10 }, (_, i) => {
+                  <div className="grid grid-cols-5 gap-2">
+                    {Array.from({ length: numTerminals }, (_, i) => {
                       const id = i + 1;
                       const result = results.find((t: any) => t.terminal === id);
                       const passed = result?.success === true;
