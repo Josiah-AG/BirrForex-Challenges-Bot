@@ -1488,7 +1488,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/vps-health`, adminIpCheck, async (req, 
       const BASE_SERVER = config.vpsBaseServer || 'Exness-MT5Trial9';
       const BASE_PASSWORD = config.vpsBasePassword || 'Abc@1234';
 
-      for (let tid = 1; tid <= 10; tid++) {
+      for (let tid = 1; tid <= 15; tid++) {
         try {
           const verifyRes = await axios.post(`${vpsUrl}/verify`, {
             account: BASE_ACCOUNT,
@@ -1545,7 +1545,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/vps-health`, adminIpCheck, async (req, 
     return res.json({
       vps: vpsStatus,
       deepCheck: terminalResults.length > 0 ? {
-        summary: `${successCount}/10 terminals working`,
+        summary: `${successCount}/${terminalResults.length} terminals working`,
         results: terminalResults,
         failed: failedTerminals,
       } : null,
