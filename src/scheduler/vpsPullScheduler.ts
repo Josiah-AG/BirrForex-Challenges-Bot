@@ -2186,11 +2186,15 @@ export class VpsPullScheduler {
     if (accounts.length === 0 || healthyTerminals.length === 0) return;
 
     const tasks: { account: AccountToPull; positionIds: number[] }[] = [];
+    let reconcileTerminalIdx = 0;
     for (const account of accounts) {
       if (this.cancelRequested) break;
       const fromDate = this.getReconcileFromDate(account, challenge);
 
-      const mt5Positions = await this.listMt5Positions(account, healthyTerminals[0].id, fromDate, this.abortController?.signal);
+      // Round-robin list-positions across all healthy terminals (not just T1)
+      const terminalForList = healthyTerminals[reconcileTerminalIdx % healthyTerminals.length];
+      reconcileTerminalIdx++;
+      const mt5Positions = await this.listMt5Positions(account, terminalForList.id, fromDate, this.abortController?.signal);
       if (mt5Positions === null) {
         console.log(`🔍 VPS Pull: ${account.accountNumber} reconcile check: /list-positions returned null (since ${fromDate}) — skipping`);
         continue;

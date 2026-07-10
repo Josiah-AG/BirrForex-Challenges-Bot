@@ -419,7 +419,7 @@ export default function AdminDashboard() {
 
           // Terminal stats — use real DB data if available, otherwise default all-healthy
           const dbStats: any[] = data.terminalStats || [];
-          const termStats = Array.from({length: 10}, (_, i) => {
+          const termStats = Array.from({length: 15}, (_, i) => {
             const t = dbStats.find((s: any) => s.terminal_id === i + 1);
             return t
               ? { id: i + 1, healthy: t.is_healthy, processed: t.total_processed, success: t.total_success, failed: t.total_failed }
