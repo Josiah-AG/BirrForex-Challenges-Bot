@@ -1,6 +1,6 @@
 """
 WinnerPip VPS Router v7.0 — Subtype-Aware Candle Routing + Smart Retry
-Runs on port 8000. Forwards requests to workers on ports 8001-8010.
+Runs on port 8000. Forwards requests to workers on ports 8001-8015.
 
 New in v7.0:
 - POST /configure: TG Bot assigns proportional home accounts to terminals
@@ -54,7 +54,7 @@ GIT_COMMIT_TIME = _get_git_commit_time()
 
 app = FastAPI(title="WinnerPip VPS Router", version="7.0.0")
 
-NUM_WORKERS      = 10
+NUM_WORKERS      = 15
 WORKER_BASE_PORT = 8001
 WORKER_TIMEOUT   = 120.0
 RETRY_DELAY      = 2.0

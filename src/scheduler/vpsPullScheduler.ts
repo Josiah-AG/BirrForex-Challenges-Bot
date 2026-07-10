@@ -29,7 +29,7 @@ import { Markup } from 'telegraf';
  * Schedule: 06:00, 10:00, 14:00, 18:00, 22:00, 02:00 EAT
  */
 
-const MAX_TERMINALS = 10;
+const MAX_TERMINALS = 15;
 const MAX_RETRIES_PER_ACCOUNT = 3;
 const RETRY_DELAY_MS = 3000;
 const ACCOUNT_TIMEOUT_MS = 30000;
@@ -1454,7 +1454,7 @@ export class VpsPullScheduler {
           await this.bot.bot.telegram.sendMessage(config.adminUserId,
             `⚠️ <b>VPS Terminal ${terminal.id} Unhealthy</b>\n\n` +
             `Down since ${terminal.unhealthySince?.toISOString()}\n` +
-            `Healthy terminals: ${this.getHealthyTerminalCount()}/10`,
+            `Healthy terminals: ${this.getHealthyTerminalCount()}/${MAX_TERMINALS}`,
             { parse_mode: 'HTML' });
         } catch (e) {}
         terminal.unhealthySince = new Date();
@@ -2448,7 +2448,7 @@ export class VpsPullScheduler {
     if (credentialFailures.length === 0 && failureRate <= 30) return;
 
     let text = `📊 <b>VPS Pull Report</b>\n<b>${challenge.title}</b>\n\n`;
-    text += `⏱️ ${durationSec}s | Terminals: ${this.getHealthyTerminalCount()}/10 healthy\n`;
+    text += `⏱️ ${durationSec}s | Terminals: ${this.getHealthyTerminalCount()}/${MAX_TERMINALS} healthy\n`;
     text += `✅ ${successful.length} | 🔑 ${credentialFailures.length} | ❌ ${otherFailures.length} | 📉 ${failureRate.toFixed(1)}% fail\n\n`;
 
     // Terminal distribution (work stealing verification)
@@ -2487,7 +2487,7 @@ export class VpsPullScheduler {
       try {
         await this.bot.bot.telegram.sendMessage(config.adminUserId,
           `🚨 <b>HIGH FAILURE RATE: ${failureRate.toFixed(0)}%</b>\n\n` +
-          `Healthy terminals: ${this.getHealthyTerminalCount()}/10\n` +
+          `Healthy terminals: ${this.getHealthyTerminalCount()}/${MAX_TERMINALS}\n` +
           `<i>Consider switching to Legacy evaluation via /evaluationtype</i>`,
           { parse_mode: 'HTML' });
       } catch (e) {}

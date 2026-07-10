@@ -11,7 +11,7 @@ REM Step 1: Write base account config for all terminals, then launch with /confi
 REM         This ensures every terminal starts on the base account regardless of
 REM         any corrupted saved state from previous credential failures.
 echo [1/3] Launching MT5 terminals...
-for /L %%i in (1,1,10) do (
+for /L %%i in (1,1,15) do (
     echo [Common]> "C:\MetaTrader\Terminal %%i\base_login.ini"
     echo Login=435924397>> "C:\MetaTrader\Terminal %%i\base_login.ini"
     echo Password=Abc@1234>> "C:\MetaTrader\Terminal %%i\base_login.ini"
@@ -28,7 +28,12 @@ start "" "C:\MetaTrader\Terminal 7\terminal64.exe"  /config:"C:\MetaTrader\Termi
 start "" "C:\MetaTrader\Terminal 8\terminal64.exe"  /config:"C:\MetaTrader\Terminal 8\base_login.ini"
 start "" "C:\MetaTrader\Terminal 9\terminal64.exe"  /config:"C:\MetaTrader\Terminal 9\base_login.ini"
 start "" "C:\MetaTrader\Terminal 10\terminal64.exe" /config:"C:\MetaTrader\Terminal 10\base_login.ini"
-echo     All 10 terminals launched.
+start "" "C:\MetaTrader\Terminal 11\terminal64.exe" /config:"C:\MetaTrader\Terminal 11\base_login.ini"
+start "" "C:\MetaTrader\Terminal 12\terminal64.exe" /config:"C:\MetaTrader\Terminal 12\base_login.ini"
+start "" "C:\MetaTrader\Terminal 13\terminal64.exe" /config:"C:\MetaTrader\Terminal 13\base_login.ini"
+start "" "C:\MetaTrader\Terminal 14\terminal64.exe" /config:"C:\MetaTrader\Terminal 14\base_login.ini"
+start "" "C:\MetaTrader\Terminal 15\terminal64.exe" /config:"C:\MetaTrader\Terminal 15\base_login.ini"
+echo     All 15 terminals launched.
 echo     Waiting 60 seconds for broker connections...
 timeout /t 60 /nobreak >nul
 
@@ -54,7 +59,17 @@ timeout /t 2 /nobreak >nul
 start "VPS Worker 9"  /min py -3.12 vps\worker.py 9  8009
 timeout /t 2 /nobreak >nul
 start "VPS Worker 10" /min py -3.12 vps\worker.py 10 8010
-echo     All 10 workers started.
+timeout /t 2 /nobreak >nul
+start "VPS Worker 11" /min py -3.12 vps\worker.py 11 8011
+timeout /t 2 /nobreak >nul
+start "VPS Worker 12" /min py -3.12 vps\worker.py 12 8012
+timeout /t 2 /nobreak >nul
+start "VPS Worker 13" /min py -3.12 vps\worker.py 13 8013
+timeout /t 2 /nobreak >nul
+start "VPS Worker 14" /min py -3.12 vps\worker.py 14 8014
+timeout /t 2 /nobreak >nul
+start "VPS Worker 15" /min py -3.12 vps\worker.py 15 8015
+echo     All 15 workers started.
 echo     Waiting 10 seconds for workers to initialize...
 timeout /t 10 /nobreak >nul
 
