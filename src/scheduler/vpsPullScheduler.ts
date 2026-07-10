@@ -480,7 +480,7 @@ export class VpsPullScheduler {
       console.log(`📊 VPS Pull: Starting — ${accounts.length} accounts (${priorityCount} priority), ${this.getHealthyTerminalCount()} healthy terminals`);
 
       // Reset per-cycle state
-      this.terminals.forEach(t => { t.totalProcessed = 0; t.totalSuccess = 0; t.totalFailed = 0; });
+      this.terminals.forEach(t => { t.totalProcessed = 0; t.totalSuccess = 0; t.totalFailed = 0; t.isHealthy = true; t.consecutiveFailures = 0; });
       this.credentialFailureCache.clear();
       await this.clearRouterCredentialCache();
 
@@ -492,6 +492,7 @@ export class VpsPullScheduler {
 
       // === STEP 3: Process with shared queue (terminals grab work) ===
       const healthyTerminals = this.terminals.filter(t => t.isHealthy);
+      console.log(`📊 VPS Pull: ${healthyTerminals.length} healthy terminals available: ${healthyTerminals.map(t => `T${t.id}`).join(', ')}`);
       if (healthyTerminals.length === 0) {
         console.error('❌ VPS Pull: ALL terminals unhealthy! Aborting.');
         await this.completePullBatch(batchId, 0, accounts.length, 0, 'all_terminals_unhealthy');
