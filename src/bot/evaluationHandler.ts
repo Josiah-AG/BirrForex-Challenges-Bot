@@ -548,6 +548,24 @@ class EvaluationHandler {
 
         if (slFlagged > 0) {
           result.isQualified = result.adjustedBalance >= evalConfig.targetBalance;
+          // Regenerate short report to include SL check results
+          result.slViolationCount = (result.slViolationCount || 0) + slFlagged;
+          const slStatus = result.isDisqualified ? '🚫 DISQUALIFIED' : result.isQualified ? '✅ QUALIFIES' : '❌ Below Target';
+          let updatedReport = '';
+          updatedReport += '📊 <b>EVALUATION</b> — ' + accountNumber + '\n';
+          updatedReport += '📁 Category: ' + (parsed.account.accountType === 'real' ? 'Real' : 'Demo') + '\n\n';
+          updatedReport += slStatus + '\n\n';
+          updatedReport += '💰 Adjusted Balance: <b>$' + result.adjustedBalance.toFixed(2) + '</b>\n';
+          updatedReport += '💰 Reported Balance: $' + result.reportedBalance.toFixed(2) + '\n';
+          updatedReport += '➖ Profit Removed: $' + result.profitRemoved.toFixed(2) + '\n\n';
+          updatedReport += '📈 Total Trades: ' + result.totalTrades + '\n';
+          updatedReport += '⚠️ Flagged Trades: ' + result.flaggedCount + '\n';
+          if (slFlagged > 0) updatedReport += '🕯️ Max Risk Breached (Fake SL): ' + slFlagged + '\n';
+          if (result.noSlCount > 0) updatedReport += '🛡️ Missing Stop Loss: ' + result.noSlCount + '\n';
+          if (result.slTooWideCount > 0) updatedReport += '🛡️ SL Too Wide: ' + result.slTooWideCount + '\n';
+          if (result.dailyDrawdowns?.some((d: any) => d.breached)) updatedReport += '📉 Drawdown Breaches: ' + result.dailyDrawdowns.filter((d: any) => d.breached).length + ' days\n';
+          updatedReport += '📅 Active Days: ' + result.activeDays + '/' + evalConfig.minActiveDays + '\n';
+          result.shortReport = updatedReport;
         }
       } catch (candleErr) {
         console.warn('⚠️ Legacy eval candle check error (non-fatal):', (candleErr as Error).message);
@@ -734,20 +752,27 @@ class EvaluationHandler {
       try { await ctx.reply(part, { parse_mode: 'HTML' }); } catch { await ctx.reply(part.replace(/<[^>]+>/g, '')); }
     }
 
-    // Show Replace/Keep buttons
-    session.step = 'awaiting_wp_action';
-    await ctx.reply(
-      `🔄 <b>Update WinnerPip?</b>\n\n` +
-      `<b>Replace</b> — Delete current WP trades for this account and insert XLS data, then re-evaluate.\n` +
-      `<b>Keep</b> — Discard XLS, keep WinnerPip data as is.`,
-      {
-        parse_mode: 'HTML',
-        ...Markup.inlineKeyboard([
-          [Markup.button.callback('✅ Replace WinnerPip', `eval_wp_replace_${registrationId}`)],
-          [Markup.button.callback('❌ Keep WinnerPip', 'eval_wp_keep')],
-        ]),
-      }
-    );
+    const hasDifferences = onlyInXls.length > 0 || onlyInDb.length > 0 || different.length > 0;
+
+    if (hasDifferences) {
+      // Show Replace/Keep buttons only when there are differences
+      session.step = 'awaiting_wp_action';
+      await ctx.reply(
+        `🔄 <b>Update WinnerPip?</b>\n\n` +
+        `<b>Replace</b> — Delete current WP trades for this account and insert XLS data, then re-evaluate.\n` +
+        `<b>Keep</b> — Discard XLS, keep WinnerPip data as is.`,
+        {
+          parse_mode: 'HTML',
+          ...Markup.inlineKeyboard([
+            [Markup.button.callback('✅ Replace WinnerPip', `eval_wp_replace_${registrationId}`)],
+            [Markup.button.callback('❌ Keep WinnerPip', 'eval_wp_keep')],
+          ]),
+        }
+      );
+    } else {
+      // No differences — just clear the session
+      this.evalSessions.delete(ctx.from!.id);
+    }
   }
 
   private compareTradeSets(xlsRows: any[], dbRows: any[]): string[] {
