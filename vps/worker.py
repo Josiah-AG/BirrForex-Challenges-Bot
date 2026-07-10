@@ -1467,7 +1467,7 @@ def pull(req: PullRequest):
     if _is_credential_cached(account_number):
         print(f"  [W{TERMINAL_ID}] /pull: account {account_number} in credential cache — instant reject")
         return {"success": False, "error_type": "credential_failure", "message": f"Credential failure cached for account {account_number}"}
-    print(f"  [W{TERMINAL_ID}] ── PULL ── account={account_number}")
+    print(f"  [W{TERMINAL_ID}] ── PULL + RECONCILE ── account={account_number}")
     with _lock:
         result = do_pull(account_number, req.server, req.password, req.from_date, req.orders_from_date, extended_sync=req.extended_sync)
     _schedule_idle_restore()
