@@ -22,15 +22,22 @@ export interface MT5Position {
 }
 
 export interface MT5Deal {
+  ticket: number;
   time: string;
   symbol: string;
   dealType: string;
   direction: string;
+  entry: number; // 0 = in (open), 1 = out (close)
   volume: number;
   price: number;
+  order: number;
+  commission: number;
+  fee: number;
+  swap: number;
   profit: number;
   balance: number;
   comment: string;
+  positionId: number;
 }
 
 export interface MT5AccountInfo {
@@ -298,21 +305,40 @@ function parseDeals(data: any[][], startIdx: number): MT5Deal[] {
       if (row.some((cell: any) => cleanString(cell).includes('Balance:'))) break;
       continue;
     }
+
+    const direction = cleanString(row[colMap['Direction']]).toLowerCase();
+    const symbol = cleanString(row[colMap['Symbol']]);
+    const dealTypeStr = cleanString(row[colMap['Type']]).toLowerCase();
+
+    // Determine entry: "in" = open (0), "out" = close (1), "out by" = close (1)
+    let entry = -1;
+    if (direction === 'in') entry = 0;
+    else if (direction === 'out' || direction === 'out by') entry = 1;
+
+    // Position ID: MT5 XLS has "Position" column OR can be derived from "Order" on entry=0
+    const positionId = cleanNumber(row[colMap['Position']]) || cleanNumber(row[colMap['Order']]) || 0;
     
     const deal: MT5Deal = {
+      ticket: cleanNumber(row[colMap['Deal']]),
       time: parseDateTime(row[colMap['Time']]),
-      symbol: cleanString(row[colMap['Symbol']]),
-      dealType: cleanString(row[colMap['Type']]).toLowerCase(),
-      direction: cleanString(row[colMap['Direction']]).toLowerCase(),
+      symbol,
+      dealType: dealTypeStr,
+      direction,
+      entry,
       volume: cleanNumber(row[colMap['Volume']]),
       price: cleanNumber(row[colMap['Price']]),
+      order: cleanNumber(row[colMap['Order']]),
+      commission: cleanNumber(row[colMap['Commission']]),
+      fee: cleanNumber(row[colMap['Fee']]),
+      swap: cleanNumber(row[colMap['Swap']]),
       profit: cleanNumber(row[colMap['Profit']]),
       balance: cleanNumber(row[colMap['Balance']]),
       comment: cleanString(row[colMap['Comment']]),
+      positionId,
     };
     
     // Balance deals have no symbol
-    if (!deal.symbol && deal.profit !== 0) {
+    if (!deal.symbol && deal.profit !== 0 && entry === -1) {
       deal.dealType = 'balance';
     }
     
