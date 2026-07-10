@@ -1995,7 +1995,6 @@ export class VpsPullScheduler {
         )
       `);
       for (const t of this.terminals) {
-        if (t.totalProcessed === 0 && t.isHealthy) continue; // skip idle healthy terminals — not useful
         await db.query(
           `INSERT INTO wp_terminal_stats (pull_batch_id, terminal_id, total_processed, total_success, total_failed, is_healthy)
            VALUES ($1, $2, $3, $4, $5, $6)`,
