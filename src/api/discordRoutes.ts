@@ -208,11 +208,15 @@ router.post('/challenges/:id/register', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    // Validate nickname (brand protection)
+    // Validate nickname (brand protection + sanitization)
     if (nickname) {
       const { isBlockedNickname } = require('../utils/helpers');
       if (isBlockedNickname(nickname)) {
         return res.status(400).json({ error: 'That nickname is too similar to our brand. Please choose a different nickname.' });
+      }
+      // Same alphanumeric validation as Telegram — prevents HTML injection
+      if (!/^[a-zA-Z0-9_]+$/.test(nickname) || nickname.length < 3 || nickname.length > 20) {
+        return res.status(400).json({ error: 'Nickname must be 3-20 characters, letters/numbers/underscores only.' });
       }
     }
 

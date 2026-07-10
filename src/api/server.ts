@@ -2224,8 +2224,18 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/user-trades-xlsx`, adminI
     wsData.push(['Largest profit trade:', '', largestProfit.toFixed(2), '', 'Largest loss trade:', '', largestLoss.toFixed(2)]);
     wsData.push(['Average profit trade:', '', avgProfit.toFixed(2), '', 'Average loss trade:', '', avgLoss.toFixed(2)]);
 
+    // Sanitize string cells to prevent Excel formula injection
+    // Cells starting with =, +, -, @ could execute as formulas when opened in Excel
+    const sanitizeCell = (val: any): any => {
+      if (typeof val === 'string' && val.length > 0 && /^[=+\-@]/.test(val)) {
+        return "'" + val;
+      }
+      return val;
+    };
+    const sanitizedData = wsData.map(row => row.map(sanitizeCell));
+
     // Create worksheet and set column widths
-    const ws = XLSX.utils.aoa_to_sheet(wsData);
+    const ws = XLSX.utils.aoa_to_sheet(sanitizedData);
     ws['!cols'] = [
       { wch: 20 }, { wch: 12 }, { wch: 12 }, { wch: 8 }, { wch: 8 }, { wch: 10 },
       { wch: 10 }, { wch: 10 }, { wch: 20 }, { wch: 10 }, { wch: 12 }, { wch: 8 },
