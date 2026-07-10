@@ -1001,7 +1001,8 @@ export class WpEvaluationEngine {
       layerBBreach: boolean; layerBViolation: string | null;
       slAllowedPrice: number | null; slMaxAdversePrice: number | null; slCheckResult: string;
     }
-    const positionSlOutcomes = new Map<number, PositionSlOutcome>();
+    // Per-TICKET SL outcome (not per-position) — allows different results for each partial close
+    const ticketSlOutcomes = new Map<number, PositionSlOutcome>();
 
     if (rules.stop_loss_required && rules.max_risk_dollars) {
       const currency = reg.is_cent ? '¢' : '$';
@@ -1013,10 +1014,7 @@ export class WpEvaluationEngine {
         const entryTrade = siblings[0];
         const totalLot = siblings.reduce((s, t) => s + parseFloat(String(t.volume)), 0);
 
-        // Layer A: declared SL placed wider than the max allowed risk — disqualifies
-        // the trade on its own (profit removed only, no extra penalty — see "Apply"
-        // below). Evaluated against the FULL original lot, since the SL governs the
-        // whole position regardless of how it's later closed.
+        // Layer A: declared SL too wide — applies to ALL closes of this position
         let layerABreach = false;
         let layerAViolation: string | null = null;
         const sl = parseFloat(String(entryTrade.stop_loss));
@@ -1035,38 +1033,95 @@ export class WpEvaluationEngine {
           }
         }
 
-        // Layer B: candle-based Window 0 check (open → first close, full lot) —
-        // confirms whether price actually moved past the max-risk level for real
-        // ("fake SL"), independent of what the trader declared. Runs regardless of
-        // the Layer A outcome above — the two are independent and can stack; only
-        // Layer B carries the extra max-allowed-loss penalty. For single
-        // (non-partial) trades, only matters when profitable — a losing single trade
-        // already realized its loss, nothing to "remove". For partial-close
-        // positions, the full-lot Window 0 risk applies regardless of which
-        // individual close ended up profitable, since the riskiest exposure happened
-        // before any partial was taken off.
-        let layerBBreach = false;
-        let layerBViolation: string | null = null;
-        let slAllowedPrice: number | null = null;
-        let slMaxAdversePrice: number | null = null;
-        let slCheckResult = 'skipped';
+        // Layer B: Multi-window candle check for partial closes
+        // Window 0: open → first close (full lot) — if breached, ALL closes fail
+        // Window N: prev_close → this_close (remaining lot) — if breached, this + subsequent fail
         const anyProfitable = siblings.some(t => (parseFloat(String(t.profit)) + parseFloat(String(t.commission || 0)) + parseFloat(String(t.swap || 0))) > 0);
-        if (isPartialClose || anyProfitable) {
-          const w0 = await runSlCheckForTrade(entryTrade, siblings, rules.max_hold_hours || null, rules.max_risk_dollars);
+        if (anyProfitable || isPartialClose) {
+          let windowBreachedFrom = -1; // index from which all subsequent are flagged
+
+          // Window 0: full lot
+          const w0 = await validateSlWithCandles(entryTrade, rules.max_hold_hours || null, rules.max_risk_dollars, {
+            windowStart: new Date(entryTrade.open_time),
+            windowEnd: new Date(siblings[0].close_time),
+            effectiveVolume: totalLot,
+          });
+
           if (w0.violation && w0.violation !== 'FAILED') {
-            layerBBreach = true;
-            layerBViolation = w0.violation;
-            slAllowedPrice = w0.slAllowedPrice ?? null;
-            slMaxAdversePrice = w0.slMaxAdversePrice ?? null;
-            slCheckResult = 'fake_sl';
+            windowBreachedFrom = 0; // all closes fail
+            for (const sib of siblings) {
+              ticketSlOutcomes.set(sib.ticket, {
+                layerABreach, layerAViolation,
+                layerBBreach: true, layerBViolation: w0.violation,
+                slAllowedPrice: w0.slAllowedPrice ?? null,
+                slMaxAdversePrice: w0.slMaxAdversePrice ?? null,
+                slCheckResult: 'fake_sl',
+              });
+            }
+          } else if (w0.violation === 'FAILED') {
+            // No candle data for window 0 — mark all as pending (don't store outcome)
+          } else {
+            // Window 0 passed — check subsequent windows for partial closes
+            for (let i = 1; i < siblings.length; i++) {
+              const windowStart = new Date(siblings[i - 1].close_time);
+              const remainingLot = siblings.slice(i).reduce((s, t) => s + parseFloat(String(t.volume)), 0);
+              const wN = await validateSlWithCandles(siblings[i], rules.max_hold_hours || null, rules.max_risk_dollars, {
+                windowStart,
+                effectiveVolume: remainingLot,
+              });
+
+              if (wN.violation && wN.violation !== 'FAILED') {
+                // This window breached — this and all subsequent closes fail
+                for (let j = i; j < siblings.length; j++) {
+                  ticketSlOutcomes.set(siblings[j].ticket, {
+                    layerABreach, layerAViolation,
+                    layerBBreach: true, layerBViolation: wN.violation,
+                    slAllowedPrice: wN.slAllowedPrice ?? null,
+                    slMaxAdversePrice: wN.slMaxAdversePrice ?? null,
+                    slCheckResult: 'fake_sl',
+                  });
+                }
+                break; // no need to check further windows
+              } else if (wN.violation === 'FAILED') {
+                // No candle data — leave as pending for this ticket
+              } else {
+                // Window passed — mark this ticket as passed (if not already set by layer A)
+                if (!ticketSlOutcomes.has(siblings[i].ticket)) {
+                  ticketSlOutcomes.set(siblings[i].ticket, {
+                    layerABreach, layerAViolation,
+                    layerBBreach: false, layerBViolation: null,
+                    slAllowedPrice: wN.slAllowedPrice ?? null,
+                    slMaxAdversePrice: wN.slMaxAdversePrice ?? null,
+                    slCheckResult: 'passed',
+                  });
+                }
+              }
+            }
+
+            // Mark first partial as passed if not already set
+            if (!ticketSlOutcomes.has(siblings[0].ticket)) {
+              ticketSlOutcomes.set(siblings[0].ticket, {
+                layerABreach, layerAViolation,
+                layerBBreach: false, layerBViolation: null,
+                slAllowedPrice: w0.slAllowedPrice ?? null,
+                slMaxAdversePrice: w0.slMaxAdversePrice ?? null,
+                slCheckResult: 'passed',
+              });
+            }
           }
-          // Window 0 passed, or no candle data — layerBBreach stays false; per-trade
-          // loop below falls back to its existing individual-window check +
-          // escalation logic.
         }
 
-        if (layerABreach || layerBBreach) {
-          positionSlOutcomes.set(posId, { layerABreach, layerAViolation, layerBBreach, layerBViolation, slAllowedPrice, slMaxAdversePrice, slCheckResult });
+        // If only Layer A breached (no Layer B run or passed), store for all tickets
+        if (layerABreach) {
+          for (const sib of siblings) {
+            if (!ticketSlOutcomes.has(sib.ticket)) {
+              ticketSlOutcomes.set(sib.ticket, {
+                layerABreach, layerAViolation,
+                layerBBreach: false, layerBViolation: null,
+                slAllowedPrice: null, slMaxAdversePrice: null, slCheckResult: 'skipped',
+              });
+            }
+          }
         }
       }
     }
@@ -1137,23 +1192,28 @@ export class WpEvaluationEngine {
         const MAX_SL_CHECK_ATTEMPTS = 5;
         const MAX_CONFLICTS = 3;
         const isDefinitive = isDefinitiveSl;
-        const posId = ticketToPosition.get(trade.ticket) ?? trade.ticket;
-        const posOutcome = positionSlOutcomes.get(posId);
+        const ticketOutcome = ticketSlOutcomes.get(trade.ticket);
 
         // Layer A — declared SL too wide
-        if (posOutcome?.layerABreach) {
-          violations.push(posOutcome.layerAViolation!);
+        if (ticketOutcome?.layerABreach) {
+          violations.push(ticketOutcome.layerAViolation!);
         }
 
-        if (posOutcome?.layerBBreach) {
-          // Layer B (fake SL) confirmed at position level
-          violations.push(posOutcome.layerBViolation!);
+        if (ticketOutcome?.layerBBreach) {
+          // Layer B (fake SL) confirmed for this specific ticket
+          violations.push(ticketOutcome.layerBViolation!);
           if (rules.max_risk_dollars) slPenaltyDollars = rules.max_risk_dollars;
           await db.query(
             `UPDATE wp_trades SET sl_allowed_price = $1, sl_max_adverse_price = $2, sl_check_result = $3, sl_check_pending = false, sl_check_attempts = 0, sl_conflict_count = 0 WHERE id = $4`,
-            [posOutcome.slAllowedPrice, posOutcome.slMaxAdversePrice, posOutcome.slCheckResult, trade.id]
+            [ticketOutcome.slAllowedPrice, ticketOutcome.slMaxAdversePrice, ticketOutcome.slCheckResult, trade.id]
           ).catch(() => {});
-        } else if (rules.max_risk_dollars) {
+        } else if (ticketOutcome && ticketOutcome.slCheckResult === 'passed') {
+          // Pre-pass confirmed this ticket passed — mark as passed
+          await db.query(
+            `UPDATE wp_trades SET sl_allowed_price = $1, sl_max_adverse_price = $2, sl_check_result = 'passed', sl_check_pending = false WHERE id = $3`,
+            [ticketOutcome.slAllowedPrice, ticketOutcome.slMaxAdversePrice, trade.id]
+          ).catch(() => {});
+        } else if (rules.max_risk_dollars && !ticketOutcome) {
           const existingResult = trade.sl_check_result;
           const attempts = (trade.sl_check_attempts ?? 0);
           const conflicts = (trade.sl_conflict_count ?? 0);
