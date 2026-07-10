@@ -2814,7 +2814,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold text-white flex items-center gap-2">
               <Loader2 size={16} className="text-royal animate-spin" />
-              {pullProgress.phase === 'resolving' ? 'Resolving Missing Data' : pullProgress.phase === 'resolving_nulls' ? 'Resolving Open Times' : pullProgress.phase === 'ohlc' ? 'Updating OHLC Candles' : pullProgress.phase === 'evaluating' ? 'Evaluating Accounts' : 'Pulling Accounts'}
+              {pullProgress.phase === 'resolving' ? 'Resolving Missing Data' : pullProgress.phase === 'resolving_nulls' ? 'Resolving Open Times' : pullProgress.phase === 'settling' ? 'Settling (30s wait)' : pullProgress.phase === 'ohlc' ? 'Updating OHLC Candles' : pullProgress.phase === 'evaluating' ? 'Evaluating Accounts' : 'Pulling Accounts'}
             </h3>
             <div className="flex items-center gap-3">
               <span className="text-xs text-gray-400">{pullProgress.elapsedSeconds}s elapsed</span>
@@ -2838,10 +2838,11 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
 
           {/* Phase steps indicator */}
           <div className="flex items-center gap-1 mb-3">
-            {['pulling', 'resolving', 'ohlc', 'evaluating'].map((p, i) => {
-              const labels = ['Pull', 'Resolve', 'OHLC', 'Evaluate'];
-              const phases = ['pulling', 'resolving', 'ohlc', 'evaluating'];
-              const currentIdx = phases.indexOf(pullProgress.phase === 'resolving_nulls' ? 'resolving' : pullProgress.phase);
+            {['pulling', 'resolving', 'settling', 'ohlc', 'evaluating'].map((p, i) => {
+              const labels = ['Pull', 'Resolve', 'Settle', 'OHLC', 'Evaluate'];
+              const phases = ['pulling', 'resolving', 'settling', 'ohlc', 'evaluating'];
+              const currentPhase = pullProgress.phase === 'resolving_nulls' ? 'resolving' : pullProgress.phase;
+              const currentIdx = phases.indexOf(currentPhase);
               const isDone = i < currentIdx;
               const isCurrent = i === currentIdx;
               return (
@@ -2863,8 +2864,10 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
               <><span>{pullProgress.processed || 0} / {pullProgress.totalAccounts || 0} accounts</span><span className="text-royal font-semibold">{pullProgress.percent || 0}%</span></>
             ) : pullProgress.phase === 'evaluating' || pullProgress.phase === 'resolving' || pullProgress.phase === 'resolving_nulls' ? (
               <><span>{pullProgress.phase2Processed || 0} / {pullProgress.phase2Total || 0} accounts</span><span className="text-royal font-semibold">{pullProgress.phase2Percent || 0}%</span></>
+            ) : pullProgress.phase === 'settling' ? (
+              <><span>Waiting for terminals to return to base...</span><span className="text-gray-500">30s</span></>
             ) : (
-              <><span>Processing...</span><span className="text-royal font-semibold">—</span></>
+              <><span>Processing candle data...</span><span className="text-royal font-semibold">—</span></>
             )}
           </div>
         </div>
@@ -2889,6 +2892,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
             <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1.5">
               <span className="text-[10px] text-gray-500">⏱ Pull: <span className="text-white font-semibold">{lb.phaseTimes.pull}s</span></span>
               <span className="text-[10px] text-gray-500">Resolve: <span className="text-white font-semibold">{lb.phaseTimes.resolve}s</span></span>
+              <span className="text-[10px] text-gray-500">Settle: <span className="text-white font-semibold">{lb.phaseTimes.settle}s</span></span>
               <span className="text-[10px] text-gray-500">OHLC: <span className="text-white font-semibold">{lb.phaseTimes.ohlc}s</span></span>
               <span className="text-[10px] text-gray-500">Evaluate: <span className="text-white font-semibold">{lb.phaseTimes.evaluate}s</span></span>
             </div>

@@ -3366,7 +3366,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/pull-status`, adminIpCheck, async (req,
       const elapsed = Math.round((Date.now() - new Date(batch.started_at).getTime()) / 1000);
       const phase = batch.phase || 'pulling';
 
-      if (phase === 'resolving' || phase === 'resolving_nulls' || phase === 'reconciling' || phase === 'ohlc' || phase === 'evaluating') {
+      if (phase === 'resolving' || phase === 'resolving_nulls' || phase === 'reconciling' || phase === 'settling' || phase === 'ohlc' || phase === 'evaluating') {
         // Phase 2+ progress is driven explicitly by the scheduler
         const phase2Percent = batch.phase2_total > 0
           ? Math.min(100, Math.round((batch.phase2_processed / batch.phase2_total) * 100))

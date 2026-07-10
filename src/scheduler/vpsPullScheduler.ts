@@ -551,7 +551,7 @@ export class VpsPullScheduler {
       }
 
       // === PHASES 2-5 with timing ===
-      const phaseTimes: { pull: number; resolve: number; ohlc: number; evaluate: number } = { pull: 0, resolve: 0, ohlc: 0, evaluate: 0 };
+      const phaseTimes: { pull: number; resolve: number; settle: number; ohlc: number; evaluate: number } = { pull: 0, resolve: 0, settle: 0, ohlc: 0, evaluate: 0 };
       phaseTimes.pull = Math.round((Date.now() - startTime) / 1000); // Phase 1 just finished
 
       const successfulAccounts = accountsWithPriority.filter(a => successful.some(r => r.registrationId === a.registrationId));
@@ -563,11 +563,14 @@ export class VpsPullScheduler {
       await this.resolveNullOpenTimes(challengeToPull.id, batchId, successfulAccounts, healthyTerminals, challengeToPull);
       phaseTimes.resolve = Math.round((Date.now() - resolveStart) / 1000);
 
-      // === DELAY: Let terminals return to base + wp_trades settle ===
+      // Phase 3: 30s settle delay
+      const settleStart = Date.now();
+      await db.query(`UPDATE wp_pull_batches SET phase = 'settling' WHERE id = $1`, [batchId]).catch(() => {});
       console.log('📊 VPS Pull: Waiting 30s for terminals to settle before OHLC...');
       await this.delay(30000);
+      phaseTimes.settle = Math.round((Date.now() - settleStart) / 1000);
 
-      // Phase 3: OHLC UPDATE
+      // Phase 4: OHLC UPDATE
       const ohlcStart = Date.now();
       await db.query(`UPDATE wp_pull_batches SET phase = 'ohlc' WHERE id = $1`, [batchId]).catch(() => {});
       await this.updateOhlcCandles(challengeToPull).catch(e =>
@@ -575,8 +578,9 @@ export class VpsPullScheduler {
       );
       phaseTimes.ohlc = Math.round((Date.now() - ohlcStart) / 1000);
 
-      // Phase 4: Evaluate
+      // Phase 5: Evaluate
       const evalStart = Date.now();
+      await db.query(`UPDATE wp_pull_batches SET phase = 'evaluating' WHERE id = $1`, [batchId]).catch(() => {});
       await this.evaluateAllAccounts(challengeToPull.id, successfulAccounts, batchId, successful);
       phaseTimes.evaluate = Math.round((Date.now() - evalStart) / 1000);
 
@@ -591,6 +595,9 @@ export class VpsPullScheduler {
         [JSON.stringify(phaseTimes), batchId]
       ).catch(() => {});
       await this.savePullTerminalStats(batchId);
+
+      // Log phase breakdown
+      console.log(`📊 Phase timing: Pull=${phaseTimes.pull}s | Resolve=${phaseTimes.resolve}s | Settle=${phaseTimes.settle}s | OHLC=${phaseTimes.ohlc}s | Evaluate=${phaseTimes.evaluate}s | Total=${phaseTimes.pull + phaseTimes.resolve + phaseTimes.settle + phaseTimes.ohlc + phaseTimes.evaluate}s`);
 
       // === STEP 6: Flush staging → live + update rankings after every cycle ===
       // Runs immediately after pull+evaluation so users always see current data,
@@ -762,30 +769,52 @@ export class VpsPullScheduler {
       const successful = allResults.filter(r => r.success);
       const failed = allResults.filter(r => !r.success);
 
-      // === PHASE 2 + 3: resolve any NULL open_time trades, UPDATE OHLC, then evaluate ===
+      // === PHASES 2-5 with timing ===
+      const phaseTimes: { pull: number; resolve: number; settle: number; ohlc: number; evaluate: number } = { pull: 0, resolve: 0, settle: 0, ohlc: 0, evaluate: 0 };
+      phaseTimes.pull = Math.round((Date.now() - startTime) / 1000);
+
       const successfulAccounts = accounts.filter(a => successful.some(r => r.registrationId === a.registrationId));
+
+      // Phase 2: Resolve
+      const resolveStart = Date.now();
+      await db.query(`UPDATE wp_pull_batches SET phase = 'resolving' WHERE id = $1`, [batchId]).catch(() => {});
       await this.inlineReconcile(challengeId, batchId, successfulAccounts, successful, healthyTerminals);
       await this.resolveNullOpenTimes(challengeId, batchId, successfulAccounts, healthyTerminals, challengeToPull);
+      phaseTimes.resolve = Math.round((Date.now() - resolveStart) / 1000);
 
-      // === DELAY: Let terminals settle ===
+      // Phase 3: Settle
+      const settleStart = Date.now();
+      await db.query(`UPDATE wp_pull_batches SET phase = 'settling' WHERE id = $1`, [batchId]).catch(() => {});
       console.log('📊 VPS Pull: Waiting 30s for terminals to settle before OHLC...');
       await this.delay(30000);
+      phaseTimes.settle = Math.round((Date.now() - settleStart) / 1000);
 
-      // === OHLC UPDATE (before evaluation) ===
+      // Phase 4: OHLC
+      const ohlcStart = Date.now();
+      await db.query(`UPDATE wp_pull_batches SET phase = 'ohlc' WHERE id = $1`, [batchId]).catch(() => {});
       await this.updateOhlcCandles(challengeToPull).catch(e =>
         console.error('⚠️ OHLC update error (non-fatal):', e)
       );
+      phaseTimes.ohlc = Math.round((Date.now() - ohlcStart) / 1000);
 
+      // Phase 5: Evaluate
+      const evalStart = Date.now();
+      await db.query(`UPDATE wp_pull_batches SET phase = 'evaluating' WHERE id = $1`, [batchId]).catch(() => {});
       await this.evaluateAllAccounts(challengeId, successfulAccounts, batchId);
+      phaseTimes.evaluate = Math.round((Date.now() - evalStart) / 1000);
 
       // === POST-EVAL: Retry SL checks for trades still pending (missing OHLC) ===
       await this.postEvalSlRetry(challengeToPull);
 
       const newTrades = successful.reduce((sum, r) => sum + (r.tradesCount || 0), 0);
       await this.completePullBatch(batchId, successful.length, failed.length, newTrades, 'completed');
+      await db.query(`UPDATE wp_pull_batches SET phase_times = $1 WHERE id = $2`, [JSON.stringify(phaseTimes), batchId]).catch(() => {});
       const completedBatchId = batchId;
       batchId = null;
       await this.savePullTerminalStats(completedBatchId);
+
+      // Log phase breakdown
+      console.log(`📊 Phase timing: Pull=${phaseTimes.pull}s | Resolve=${phaseTimes.resolve}s | Settle=${phaseTimes.settle}s | OHLC=${phaseTimes.ohlc}s | Evaluate=${phaseTimes.evaluate}s | Total=${phaseTimes.pull + phaseTimes.resolve + phaseTimes.settle + phaseTimes.ohlc + phaseTimes.evaluate}s`);
 
       // Handle credential failures — set pull_status='password_changed' and notify users.
       // NOTE: terminalWorker already calls handleCredentialFailure() immediately the
