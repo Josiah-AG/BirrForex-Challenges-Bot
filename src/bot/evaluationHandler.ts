@@ -561,11 +561,21 @@ class EvaluationHandler {
           updatedReport += '📈 Total Trades: ' + result.totalTrades + '\n';
           updatedReport += '⚠️ Flagged Trades: ' + result.flaggedCount + '\n';
           if (slFlagged > 0) updatedReport += '🕯️ Max Risk Breached (Fake SL): ' + slFlagged + '\n';
-          if (result.noSlCount > 0) updatedReport += '🛡️ Missing Stop Loss: ' + result.noSlCount + '\n';
-          if (result.slTooWideCount > 0) updatedReport += '🛡️ SL Too Wide: ' + result.slTooWideCount + '\n';
           if (result.dailyDrawdowns?.some((d: any) => d.breached)) updatedReport += '📉 Drawdown Breaches: ' + result.dailyDrawdowns.filter((d: any) => d.breached).length + ' days\n';
           updatedReport += '📅 Active Days: ' + result.activeDays + '/' + evalConfig.minActiveDays + '\n';
           result.shortReport = updatedReport;
+
+          // Regenerate full report to include SL-breached trades in the flagged section
+          let slSection = '\n────────────────────────────\n';
+          slSection += '    🕯️ MAX RISK BREACHED (' + slFlagged + ')\n';
+          slSection += '────────────────────────────\n\n';
+          for (const f of result.flaggedTrades.filter((ft: any) => ft.reasons.some((r: string) => r.includes('maximum allowed risk')))) {
+            const dateStr = f.openTime ? f.openTime.substring(5, 10).replace('-', '/') : '??/??';
+            slSection += '• #' + f.positionId + ' | ' + dateStr + ' | ' + f.symbol + ' | +$' + f.profit.toFixed(2) + '\n';
+            slSection += '  ' + f.reasons[0] + '\n';
+            slSection += '  → Profit $' + f.profit.toFixed(2) + ' + max risk $' + maxRisk.toFixed(2) + ' = $' + (f.profit + maxRisk).toFixed(2) + ' deducted\n\n';
+          }
+          result.fullReport += slSection;
         }
       } catch (candleErr) {
         console.warn('⚠️ Legacy eval candle check error (non-fatal):', (candleErr as Error).message);
@@ -665,6 +675,16 @@ class EvaluationHandler {
     const xlsPositions: any[] = session.pendingXlsPositions!;
     const challengeId = session.challengeId;
 
+    // Fetch WinnerPip leaderboard data for this account
+    let wpLeaderboard: any = null;
+    try {
+      const lbResult = await db.query(
+        `SELECT * FROM wp_leaderboard WHERE challenge_id = $1 AND registration_id = $2`,
+        [challengeId, registrationId]
+      );
+      wpLeaderboard = lbResult.rows[0] || null;
+    } catch {}
+
     // Fetch current WP trades from DB
     let dbTrades: any[] = [];
     try {
@@ -710,11 +730,44 @@ class EvaluationHandler {
     }
 
     // Build diff message
-    let diffMsg = `📊 <b>WinnerPip vs XLS Diff</b>\n`;
-    diffMsg += `WP trades: ${dbTrades.length} rows | XLS positions: ${xlsPositions.length}\n\n`;
+    let diffMsg = `📊 <b>WinnerPip vs Telegram Evaluation Comparison</b>\n\n`;
+
+    // Evaluation metrics comparison
+    if (wpLeaderboard) {
+      const wpAdjBal = parseFloat(wpLeaderboard.adjusted_balance || 0);
+      const wpFlagged = parseInt(wpLeaderboard.flagged_trades || 0);
+      const wpTotal = parseInt(wpLeaderboard.total_trades || 0);
+      const wpQualified = wpLeaderboard.is_qualified;
+      const tgAdjBal = evalResult.adjustedBalance;
+      const tgFlagged = evalResult.flaggedCount;
+      const tgTotal = evalResult.totalTrades;
+      const tgQualified = evalResult.isQualified;
+
+      const balMatch = Math.abs(wpAdjBal - tgAdjBal) < 0.02;
+      const flagMatch = wpFlagged === tgFlagged;
+      const totalMatch = wpTotal === tgTotal;
+      const qualMatch = wpQualified === tgQualified;
+      const allMatch = balMatch && flagMatch && totalMatch && qualMatch;
+
+      if (allMatch) {
+        diffMsg += `✅ <b>Evaluations are identical.</b>\n`;
+        diffMsg += `   Adj Balance: $${tgAdjBal.toFixed(2)} | Flagged: ${tgFlagged}/${tgTotal} | ${tgQualified ? '✓ Qualified' : '✗ Not qualified'}\n\n`;
+      } else {
+        diffMsg += `⚠️ <b>Evaluation differences:</b>\n`;
+        diffMsg += `   <b>Adj Balance:</b> WP=$${wpAdjBal.toFixed(2)} vs TG=$${tgAdjBal.toFixed(2)} ${balMatch ? '✓' : '⚡'}\n`;
+        diffMsg += `   <b>Flagged:</b> WP=${wpFlagged} vs TG=${tgFlagged} ${flagMatch ? '✓' : '⚡'}\n`;
+        diffMsg += `   <b>Total Trades:</b> WP=${wpTotal} vs TG=${tgTotal} ${totalMatch ? '✓' : '⚡'}\n`;
+        diffMsg += `   <b>Qualified:</b> WP=${wpQualified ? 'Yes' : 'No'} vs TG=${tgQualified ? 'Yes' : 'No'} ${qualMatch ? '✓' : '⚡'}\n\n`;
+      }
+    } else {
+      diffMsg += `⚠️ No WinnerPip leaderboard entry found for this account.\n\n`;
+    }
+
+    // Trade data diff
+    diffMsg += `<b>Trade Data:</b> WP ${dbTrades.length} rows | XLS ${xlsPositions.length} positions\n`;
 
     if (onlyInXls.length === 0 && onlyInDb.length === 0 && different.length === 0) {
-      diffMsg += `✅ <b>No differences found.</b> XLS matches WinnerPip data exactly.\n`;
+      diffMsg += `✅ Trade data matches.\n`;
     } else {
       if (onlyInXls.length > 0) {
         diffMsg += `➕ <b>In XLS only (${onlyInXls.length}):</b>\n`;
@@ -754,7 +807,15 @@ class EvaluationHandler {
 
     const hasDifferences = onlyInXls.length > 0 || onlyInDb.length > 0 || different.length > 0;
 
-    if (hasDifferences) {
+    // Also check if evaluation metrics differ (even if trade data matches, evaluation could differ due to candle data)
+    let evalDiffers = false;
+    if (wpLeaderboard) {
+      const wpAdjBal = parseFloat(wpLeaderboard.adjusted_balance || 0);
+      const wpFlagged = parseInt(wpLeaderboard.flagged_trades || 0);
+      evalDiffers = Math.abs(wpAdjBal - evalResult.adjustedBalance) >= 0.02 || wpFlagged !== evalResult.flaggedCount;
+    }
+
+    if (hasDifferences || evalDiffers) {
       // Show Replace/Keep buttons only when there are differences
       session.step = 'awaiting_wp_action';
       await ctx.reply(
