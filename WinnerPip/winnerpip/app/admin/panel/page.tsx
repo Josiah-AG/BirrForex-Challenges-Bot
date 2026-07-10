@@ -3296,22 +3296,24 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
         </div>
       )}
 
-      {/* Terminal Status Grid */}
+      {/* Terminal Status Grid — always show all 15 */}
       <div className="glass rounded-2xl border border-white/10 p-5">
         <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
           <Activity size={16} className="text-royal" /> Terminal Status (Last Cycle)
         </h3>
         <div className="grid grid-cols-5 gap-2">
-          {terminalStatus.map((t: any) => {
+          {Array.from({ length: 15 }, (_, i) => {
+            const tid = i + 1;
+            const t = terminalStatus.find((ts: any) => ts.id === tid) || { id: tid, processed: 0, success: 0, failed: 0, healthy: true };
             const hasData = t.processed > 0;
             const failed = t.failed || 0;
             const isUnhealthy = !t.healthy;
             const color = isUnhealthy ? "border-loss/40 bg-loss/5" : hasData && failed > 0 ? "border-gold/30 bg-gold/5" : hasData ? "border-profit/30 bg-profit/5" : "border-white/10 bg-white/5";
             const dot = isUnhealthy ? "bg-loss" : hasData && failed > 0 ? "bg-gold" : "bg-profit";
             return (
-              <div key={t.id} className={`rounded-xl border p-3 ${color}`}>
+              <div key={tid} className={`rounded-xl border p-3 ${color}`}>
                 <div className="flex items-center justify-between mb-1">
-                  <span className="text-xs font-bold text-white">T{t.id}</span>
+                  <span className="text-xs font-bold text-white">T{tid}</span>
                   <span className={`w-2 h-2 rounded-full ${dot}`} />
                 </div>
                 {hasData ? (
