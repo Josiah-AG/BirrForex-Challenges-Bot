@@ -363,29 +363,11 @@ export function evaluateAccount(
     if (p && p.profit > 0) addFlag(id, 'Same pair 3+ open (' + p.symbol + ')');
   });
 
-  // Step 9: Stop loss
-  let noSlCount = 0;
-  let slTooWideCount = 0;
-  challengePositions.forEach(p => {
-    if (p.sl === null || p.sl === 0) {
-      noSlCount++;
-      if (p.profit > 0) addFlag(p.positionId, 'No stop loss');
-    } else {
-      // Check if SL is on the loss side (correct placement)
-      const isBuy = p.type === 'buy';
-      const slOnLossSide = isBuy ? p.sl < p.entryPrice : p.sl > p.entryPrice;
-
-      if (slOnLossSide) {
-        // SL is correctly placed — check distance
-        const slDollars = calculateSlDollars(p.symbol, p.volume, p.entryPrice, p.sl);
-        if (slDollars > config.maxSlDollars) {
-          slTooWideCount++;
-          if (p.profit > 0) addFlag(p.positionId, 'SL too wide: $' + slDollars.toFixed(2));
-        }
-      }
-      // SL on profit side = trailing stop, not a violation
-    }
-  });
+  // Step 9: Stop loss — DISABLED (now handled by candle-based fake SL check post-evaluation)
+  // The WinnerPip engine uses OHLC candle data to verify max risk, not declared SL values.
+  // This check runs in evaluationHandler.ts after this function returns.
+  const noSlCount = 0;
+  const slTooWideCount = 0;
 
   // Step 10: Daily drawdown
   const sortedByClose = [...challengePositions].sort((a, b) =>

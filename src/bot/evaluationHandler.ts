@@ -771,6 +771,7 @@ class EvaluationHandler {
       );
     } else {
       // No differences — just clear the session
+      await ctx.reply('✅ <b>Both evaluations are identical.</b> WinnerPip data matches XLS exactly — no action needed.', { parse_mode: 'HTML' });
       this.evalSessions.delete(ctx.from!.id);
     }
   }
