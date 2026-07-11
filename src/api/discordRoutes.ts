@@ -826,6 +826,27 @@ router.get('/challenges/:id/check-registration/:userId', async (req: Request, re
   }
 });
 
+/**
+ * GET /api/discord/challenges/:id/check-nickname/:nickname
+ * Check if a nickname is already taken for a challenge.
+ */
+router.get('/challenges/:id/check-nickname/:nickname', async (req: Request, res: Response) => {
+  try {
+    const challengeId = parseInt(param(req, 'id'));
+    const nickname = param(req, 'nickname').trim();
+
+    const result = await db.query(
+      'SELECT 1 FROM trading_registrations WHERE challenge_id = $1 AND LOWER(nickname) = LOWER($2)',
+      [challengeId, nickname]
+    );
+
+    return res.json({ taken: result.rows.length > 0 });
+  } catch (error) {
+    console.error('Discord check-nickname error:', error);
+    return res.status(500).json({ error: 'Internal server error', taken: false });
+  }
+});
+
 // ==================== PENDING ANNOUNCEMENTS (for Discord bot polling) ====================
 
 /**
