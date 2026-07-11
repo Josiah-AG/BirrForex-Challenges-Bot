@@ -207,6 +207,10 @@ export function isBlockedNickname(nickname: string): boolean {
     'birrforexadmin',
     'birrfxadmin',
     'winnerpipadmin',
+    'bfxteam',
+    'bfxtrading',
+    'bfxchallenge',
+    'bfxtrader',
   ];
 
   for (const blocked of blockedSubstrings) {
@@ -229,15 +233,11 @@ export function isBlockedNickname(nickname: string): boolean {
     }
   }
 
-  // Step 6: Standalone "bfx" as prefix/suffix with authority words
-  if (normalized.startsWith('bfx') || normalized.endsWith('bfx')) {
-    for (const auth of authorityWords) {
-      if (normalized.includes(auth)) return true;
-    }
-  }
+  // Step 6: Block any nickname starting with "bfx" (brand prefix)
+  if (normalized.startsWith('bfx')) return true;
 
-  // Step 7: Exact matches for short brand terms (block "bfx" alone only if combined)
-  const exactBlocked = ['birrforex', 'birrfx', 'winnerpip', 'bfxadmin', 'bfxofficial', 'bfxsupport', 'bfxmod'];
+  // Step 7: Exact matches for short brand terms
+  const exactBlocked = ['birrforex', 'birrfx', 'winnerpip', 'bfx', 'bfxadmin', 'bfxofficial', 'bfxsupport', 'bfxmod'];
   if (exactBlocked.includes(normalized)) return true;
 
   return false;
