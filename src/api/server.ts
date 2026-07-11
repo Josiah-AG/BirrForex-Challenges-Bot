@@ -1278,12 +1278,12 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
 
       const mostPair = await db.query(
         `SELECT symbol, COUNT(*) as trade_count, COALESCE(SUM(volume), 0) as total_lots
-         FROM wp_trades WHERE challenge_id = $1${catWhere}${tradeFilter}
+         FROM wp_trades t WHERE challenge_id = $1${catWhere}${tradeFilter}
          GROUP BY symbol ORDER BY trade_count DESC LIMIT 1`, tradeParams.length > 1 ? tradeParams : [challengeId]);
 
       const leastPair = await db.query(
         `SELECT symbol, COUNT(*) as trade_count, COALESCE(SUM(volume), 0) as total_lots
-         FROM wp_trades WHERE challenge_id = $1${catWhere}${tradeFilter}
+         FROM wp_trades t WHERE challenge_id = $1${catWhere}${tradeFilter}
          GROUP BY symbol ORDER BY trade_count ASC LIMIT 1`, tradeParams.length > 1 ? tradeParams : [challengeId]);
 
       const blown = await db.query(
@@ -1295,12 +1295,12 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
 
       const mostDay = await db.query(
         `SELECT DATE(close_time) as day, COUNT(*) as trade_count
-         FROM wp_trades WHERE challenge_id = $1${catWhere}${tradeFilter}${weekendFilter}
+         FROM wp_trades t WHERE challenge_id = $1${catWhere}${tradeFilter}${weekendFilter}
          GROUP BY DATE(close_time) ORDER BY trade_count DESC LIMIT 1`, tradeParams.length > 1 ? tradeParams : [challengeId]);
 
       const leastDay = await db.query(
         `SELECT DATE(close_time) as day, COUNT(*) as trade_count
-         FROM wp_trades WHERE challenge_id = $1${catWhere}${tradeFilter}${weekendFilter}
+         FROM wp_trades t WHERE challenge_id = $1${catWhere}${tradeFilter}${weekendFilter}
          GROUP BY DATE(close_time) ORDER BY trade_count ASC LIMIT 1`, tradeParams.length > 1 ? tradeParams : [challengeId]);
 
       const avgTrades = await db.query(
