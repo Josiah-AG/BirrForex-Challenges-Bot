@@ -66,8 +66,8 @@ export default function DemoDashboard() {
     qualifiedProfit: 213.00,   // gross minus removed
     grossProfit: 503.00,       // raw sum of all closed trade P&L
     profitRemoved: 290.00,     // profits stripped from flagged trades
-    totalTrades: 12,
-    qualifiedTrades: 3,
+    totalTrades: 13,
+    qualifiedTrades: 4,
     flaggedTrades: 9,
     activeDays: 4,
     accountType: "real",
@@ -86,6 +86,16 @@ export default function DemoDashboard() {
       profit: 88.00, commission: 0, swap: 0,
       duration: "2h 26m", isQualified: true, violations: [],
     },
+
+    // ── SL CHECK CONFLICTING (under investigation — result may change) ──────
+    {
+      ticket: 2847674, date: "Jun 4, 07:15", openTime: "Jun 4, 07:15 EAT", closeTime: "Jun 4, 09:00 EAT",
+      symbol: "GBPUSDc", type: "Buy", volume: 0.01,
+      openPrice: 1.34100, closePrice: 1.34350, stopLoss: 1.33900, takeProfit: 1.34600,
+      profit: 125.00, commission: 0, swap: 0,
+      duration: "1h 45m", isQualified: true, violations: [], slCheckResult: "conflicting",
+    },
+
     {
       ticket: 2847662, date: "May 30, 10:15", openTime: "May 30, 10:15 EAT", closeTime: "May 30, 12:40 EAT",
       symbol: "EURUSDc", type: "Sell", volume: 0.01,
@@ -515,9 +525,11 @@ export default function DemoDashboard() {
   };
 
   // Win Rate & Avg RR — computed from trades (same as production)
-  const winningTrades = recentTrades.filter(t => t.profit > 0);
+  // Win Rate & Avg RR — exclude breakeven trades from denominator; only qualified wins count (matches production)
+  const winningTrades = recentTrades.filter(t => t.profit > 0 && t.isQualified !== false);
   const losingTrades  = recentTrades.filter(t => t.profit < 0);
-  const winRate = recentTrades.length > 0 ? Math.round((winningTrades.length / recentTrades.length) * 100) : 0;
+  const decidedTrades = winningTrades.length + losingTrades.length;
+  const winRate = decidedTrades > 0 ? Math.round((winningTrades.length / decidedTrades) * 100) : 0;
   const avgWin  = winningTrades.length > 0 ? winningTrades.reduce((s, t) => s + t.profit, 0) / winningTrades.length : 0;
   const avgLoss = losingTrades.length  > 0 ? Math.abs(losingTrades.reduce((s, t) => s + t.profit, 0) / losingTrades.length) : 0;
   const avgRR   = avgLoss > 0 ? avgWin / avgLoss : 0;
@@ -596,12 +608,12 @@ export default function DemoDashboard() {
         <div className="grid grid-cols-3 md:grid-cols-6 gap-3 mb-6">
           <MiniStat label="Trades" value={myStats.totalTrades.toString()} icon={<Activity size={14} />} />
           <MiniStat label="Qualified" value={myStats.qualifiedTrades.toString()} icon={<Award size={14} />} color="text-profit" />
-          <MiniStat label="Removed" value={`${currency}${myStats.profitRemoved.toFixed(2)}`} icon={<Target size={14} />} color="text-royal" />
+          <MiniStat label="Removed" value={`${formatBalance(myStats.profitRemoved, isCent)}`} icon={<Target size={14} />} color="text-royal" />
           <button onClick={() => setShowViolationsModal(true)} className="glass rounded-xl p-3 border border-white/10 text-center hover:border-loss/30 transition-all">
             <div className="flex items-center justify-center gap-1 mb-1 text-loss"><AlertTriangle size={14} /><p className="text-[9px] uppercase tracking-wider font-medium">Flagged</p></div>
             <p className="text-lg font-bold text-loss">{myStats.flaggedTrades}</p>
           </button>
-          <MiniStat label="Win Rate" value={`${winRate}%`} icon={<ChevronUp size={14} />} color={winRate >= 50 ? "text-profit" : "text-loss"} />
+          <MiniStat label="Win Rate (Qualified)" value={`${winRate}%`} icon={<ChevronUp size={14} />} color={winRate >= 50 ? "text-profit" : "text-loss"} />
           <MiniStat label="Avg RR" value={avgRR > 0 ? avgRR.toFixed(2) : "—"} icon={<ChevronDown size={14} />} color="text-royal" />
         </div>
 
@@ -630,14 +642,16 @@ export default function DemoDashboard() {
                 <th className="text-center py-3 px-4 text-[10px] text-gray-400 font-medium uppercase">Status</th>
               </tr></thead>
               <tbody>{recentTrades.map((t) => (
-                <tr key={t.ticket} onClick={() => setSelectedTrade(t)} className={`border-b border-white/5 hover:bg-white/5 cursor-pointer transition-colors ${t.slCheckPending ? "bg-gold/5" : !t.isQualified ? "bg-loss/5" : ""} ${t.isPartialClose ? "opacity-75" : ""}`}>
+                <tr key={t.ticket} onClick={() => setSelectedTrade(t)} className={`border-b border-white/5 hover:bg-white/5 cursor-pointer transition-colors ${t.slCheckResult === 'conflicting' ? "bg-amber-500/5" : t.slCheckPending ? "bg-gold/5" : !t.isQualified ? "bg-loss/5" : ""} ${t.isPartialClose ? "opacity-75" : ""}`}>
                   <td className="py-3 px-4 text-xs text-gray-400">{t.date}</td>
                   <td className="py-3 px-4 text-sm text-white font-semibold">{t.isPartialClose ? '' : t.symbol}{t.closesCount ? <span className="text-[10px] text-gray-500 ml-1">({t.closesCount} closes)</span> : ''}</td>
                   <td className="py-3 px-4"><span className={`px-2 py-1 rounded-md text-[10px] font-semibold ${t.type === "Buy" ? "bg-profit/10 text-profit" : "bg-loss/10 text-loss"}`}>{t.type}</span></td>
                   <td className={`py-3 px-4 text-right text-sm font-bold ${t.profit >= 0 ? "text-profit" : "text-loss"}`}>{t.profit >= 0 ? "+" : ""}{formatBalance(t.profit, isCent)}</td>
                   <td className="py-3 px-4 text-center text-xs text-gray-400">{t.volume} lot</td>
                   <td className="py-3 px-4 text-center">
-                    {t.slCheckPending
+                    {t.slCheckResult === 'conflicting'
+                      ? <span title="Under investigation. Result may change." className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-amber-500/20 border border-amber-400/50 text-amber-400 text-[10px] font-bold cursor-help">?</span>
+                      : t.slCheckPending
                       ? <span title="Max risk check pending" className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-gold/20 border border-gold/40 text-gold text-[10px] font-bold cursor-help">⏳</span>
                       : t.isQualified
                         ? <span className="text-profit">✓</span>
@@ -733,17 +747,26 @@ export default function DemoDashboard() {
                 <DRow label="Duration" value={selectedTrade.duration} />
                 <DRow label="Net P&L" value={`${selectedTrade.profit >= 0 ? "+" : ""}${formatBalance(selectedTrade.profit, isCent)}`} color={selectedTrade.profit >= 0 ? "text-profit" : "text-loss"} />
               </div>
-              <div className={`p-4 rounded-xl border ${selectedTrade.slCheckPending ? "bg-gold/10 border-gold/30" : selectedTrade.isQualified ? "bg-profit/10 border-profit/20" : "bg-loss/10 border-loss/20"}`}>
-                {selectedTrade.slCheckPending ? (
+              <div className={`p-4 rounded-xl border ${selectedTrade.slCheckResult === 'conflicting' ? "bg-amber-500/10 border-amber-400/30" : selectedTrade.slCheckPending ? "bg-gold/10 border-gold/30" : selectedTrade.isQualified ? "bg-profit/10 border-profit/20" : "bg-loss/10 border-loss/20"}`}>
+                {selectedTrade.slCheckResult === 'conflicting' ? (
                   <div>
-                    <p className="text-sm text-gold font-semibold flex items-center gap-2 mb-2">
-                      <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-gold/30 border border-gold/50 text-[10px] font-bold">?</span>
-                      SL Check Pending
+                    <p className="text-sm text-amber-400 font-semibold flex items-center gap-2 mb-2">
+                      <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-amber-500/30 border border-amber-400/50 text-[10px] font-bold">?</span>
+                      Under Investigation
                     </p>
                     <p className="text-xs text-gray-300">
-                      The stop loss candle check for this trade could not be completed due to a data fetch issue.
-                      This trade may be disqualified if it is found against the rules in the next check.
-                      Benefit of doubt is applied until then — this trade is currently treated as qualified.
+                      This trade is under investigation. Our system has received conflicting results across checks and is re-verifying.
+                      This trade is currently treated as qualified. Result may change after the next check.
+                    </p>
+                  </div>
+                ) : selectedTrade.slCheckPending ? (
+                  <div>
+                    <p className="text-sm text-gold font-semibold flex items-center gap-2 mb-2">
+                      <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-gold/30 border border-gold/50 text-[10px] font-bold">⏳</span>
+                      Max Risk Check In Progress
+                    </p>
+                    <p className="text-xs text-gray-300">
+                      The max risk candle check for this trade could not be completed yet. Benefit of doubt is applied — this trade is currently treated as qualified.
                     </p>
                   </div>
                 ) : selectedTrade.isQualified ? (
@@ -818,15 +841,16 @@ export default function DemoDashboard() {
 
                   {/* Win Rate + Avg RR — computed from trades (matches production) */}
                   {selectedUser.recentTrades.length > 0 && (() => {
-                    const wins   = selectedUser.recentTrades.filter(t => t.profit > 0);
+                    const wins   = selectedUser.recentTrades.filter(t => t.profit > 0 && !t.flagged);
                     const losses = selectedUser.recentTrades.filter(t => t.profit < 0);
-                    const wr  = Math.round((wins.length / selectedUser.recentTrades.length) * 100);
+                    const decided = wins.length + losses.length;
+                    const wr  = decided > 0 ? Math.round((wins.length / decided) * 100) : 0;
                     const aw  = wins.length   > 0 ? wins.reduce((s, t) => s + t.profit, 0)   / wins.length   : 0;
                     const al  = losses.length > 0 ? Math.abs(losses.reduce((s, t) => s + t.profit, 0) / losses.length) : 0;
                     const rr  = al > 0 ? aw / al : 0;
                     return (
                       <div className="grid grid-cols-2 gap-3 mb-4">
-                        <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500 mb-1">Win Rate</p><p className={`text-lg font-bold ${wr >= 50 ? "text-profit" : "text-loss"}`}>{wr}%</p></div>
+                        <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500 mb-1">Win Rate (Qualified)</p><p className={`text-lg font-bold ${wr >= 50 ? "text-profit" : "text-loss"}`}>{wr}%</p></div>
                         <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500 mb-1">Avg RR</p><p className="text-lg font-bold text-royal">{rr > 0 ? rr.toFixed(2) : "—"}</p></div>
                       </div>
                     );
@@ -942,25 +966,26 @@ export default function DemoDashboard() {
 
 function LeaderboardRow({ entry, formatBalance, formatSubtype, onClick, realWinnersCount, demoWinnersCount }: { entry: LeaderboardEntry; formatBalance: (n: number, c?: boolean) => string; formatSubtype: (s: string | undefined, t: string) => string; onClick: () => void; realWinnersCount?: number; demoWinnersCount?: number }) {
   const winnersCount = entry.accountType === 'demo' ? (demoWinnersCount || 0) : (realWinnersCount || 0);
-  const winner = !entry.isDisqualified && entry.isQualified && winnersCount > 0 && entry.rank <= winnersCount;
+  const winner = !entry.isDisqualified && !entry.isBlown && !entry.isWithdrawn && entry.isQualified && winnersCount > 0 && entry.rank <= winnersCount;
+  const rankIcon = entry.isDisqualified ? "🚫" : entry.isBlown && !entry.isWithdrawn ? "💀" : entry.isWithdrawn ? "🚪" : winner ? "🏆" : entry.rank;
   return (
-    <button onClick={onClick} className={`w-full flex items-center gap-4 px-4 py-3 text-left transition-colors ${winner ? "bg-profit/10 border-l-2 border-profit hover:bg-profit/15" : entry.isMe ? "bg-royal/10 border-l-2 border-royal hover:bg-royal/15" : "hover:bg-white/5"} ${entry.isDisqualified ? "opacity-60" : ""} ${(entry.isBlown || entry.isWithdrawn) && !entry.isDisqualified ? "opacity-40" : ""}`}>
-      <div className={`flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center text-sm font-bold ${entry.isDisqualified ? "bg-loss/20 text-loss" : winner ? "bg-profit/20 text-profit" : "bg-white/5 text-gray-500"}`}>
-        {winner ? "🏆" : entry.rank}
+    <button onClick={onClick} className={`w-full flex items-center gap-4 px-4 py-3 text-left transition-colors ${winner ? "bg-profit/15 border-l-2 border-profit hover:bg-profit/20" : entry.isMe ? "bg-royal/10 border-l-2 border-royal hover:bg-royal/15" : "hover:bg-white/5"} ${entry.isDisqualified ? "opacity-60 bg-loss/10" : ""} ${(entry.isBlown || entry.isWithdrawn) && !entry.isDisqualified ? "opacity-40 bg-loss/5" : ""}`}>
+      <div className={`flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center text-sm font-bold ${entry.isDisqualified ? "bg-loss/20 text-loss" : (entry.isBlown || entry.isWithdrawn) ? "bg-white/5 text-gray-500" : winner ? "bg-profit/20 text-profit" : "bg-white/5 text-gray-500"}`}>
+        {rankIcon}
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
-          <p className={`text-sm font-semibold truncate ${winner ? "text-profit" : entry.isMe ? "text-royal" : entry.isDisqualified ? "text-gray-500" : "text-white"}`}>{entry.nickname}</p>
+          <p className={`text-sm font-semibold truncate ${winner ? "text-profit font-bold" : entry.isMe ? "text-royal" : entry.isDisqualified ? "text-gray-500" : "text-white"}`}>{entry.nickname}</p>
           {winner && <span className="px-1.5 py-0.5 bg-profit/20 text-profit text-[10px] rounded font-bold">#{entry.rank}</span>}
           {entry.isMe && !winner && <span className="px-1.5 py-0.5 bg-royal/20 text-royal text-[10px] rounded font-bold">YOU</span>}
           {entry.isDisqualified && <span className="px-1.5 py-0.5 bg-loss/20 text-loss text-[10px] rounded font-bold">DQ</span>}
-          {entry.isBlown && !entry.isDisqualified && <span className="px-1.5 py-0.5 bg-gray-500/20 text-gray-400 text-[10px] rounded font-bold">💀</span>}
-          {entry.isWithdrawn && !entry.isDisqualified && <span className="px-1.5 py-0.5 bg-gray-500/20 text-gray-400 text-[10px] rounded font-bold">🚪</span>}
+          {entry.isWithdrawn && !entry.isDisqualified && <span className="px-1.5 py-0.5 bg-gray-500/20 text-gray-400 text-[10px] rounded font-bold">🚪 Exited</span>}
+          {entry.isBlown && !entry.isDisqualified && !entry.isWithdrawn && <span className="px-1.5 py-0.5 bg-gray-500/20 text-gray-400 text-[10px] rounded font-bold">💀</span>}
         </div>
         <p className="text-[10px] text-gray-500">{entry.trades} trades • {entry.qualifiedTrades} qualified • {formatSubtype(entry.accountSubtype, entry.accountType)}</p>
       </div>
-      <p className={`text-sm font-bold ${winner ? "text-profit" : "text-white"}`}>
-        {entry.isDisqualified ? <span className="text-loss">DQ</span> : entry.isBlown ? <span className="text-gray-500">💀 Blown</span> : entry.isWithdrawn ? <span className="text-gray-500">🚪 Exited</span> : formatBalance(entry.balance, entry.isCent)}
+      <p className={`text-sm font-bold ${entry.isDisqualified ? "text-loss" : winner ? "text-profit" : "text-white"}`}>
+        {entry.isDisqualified ? "DQ" : entry.isBlown ? <span className="text-gray-500">💀 Blown</span> : entry.isWithdrawn ? <span className="text-gray-400">Exited</span> : formatBalance(entry.balance, entry.isCent)}
       </p>
     </button>
   );
