@@ -11,6 +11,8 @@ interface Trade {
   openPrice: number; closePrice: number; stopLoss: number; takeProfit: number;
   profit: number; commission: number; swap: number;
   duration: string; isQualified: boolean; violations: string[]; slCheckPending?: boolean;
+  slCheckResult?: string; slAllowedPrice?: number; slMaxAdverse?: number;
+  isPartialClose?: boolean; parentTicket?: number; closesCount?: number;
 }
 interface LeaderboardEntry {
   rank: number; nickname: string; balance: number; trades: number;
@@ -18,7 +20,7 @@ interface LeaderboardEntry {
   qualifiedProfit: number; grossProfit: number; profitRemoved: number;
   accountType: string; accountSubtype?: string; isCent: boolean;
   isMe?: boolean; isDisqualified?: boolean; disqualifyReason?: string; isBlown?: boolean;
-  isQualified?: boolean;
+  isQualified?: boolean; isWithdrawn?: boolean;
   recentTrades: { symbol: string; type: string; profit: number; volume: number; date: string; flagged?: boolean; violations?: string[] }[];
 }
 
@@ -99,6 +101,34 @@ export default function DemoDashboard() {
       duration: "1h 45m", isQualified: true, violations: [],
     },
 
+    // ── PARTIAL CLOSE (grouped position with 2 closes) ──────────────────────
+    {
+      ticket: 2847670, date: "Jun 4, 10:30", openTime: "Jun 4, 10:30 EAT", closeTime: "Jun 4, 12:15 EAT",
+      symbol: "XAUUSDc", type: "Sell", volume: 0.02,
+      openPrice: 4520.000, closePrice: 4515.000, stopLoss: 4525.000, takeProfit: 4500.000,
+      profit: 60.00, commission: 0, swap: 0,
+      duration: "1h 45m", isQualified: true, violations: [],
+      closesCount: 2, slCheckResult: "passed", slAllowedPrice: 4525.100, slMaxAdverse: 4521.800,
+    },
+    // First partial close
+    {
+      ticket: 2847671, date: "  └ Jun 4, 11:20", openTime: "Jun 4, 10:30 EAT", closeTime: "Jun 4, 11:20 EAT",
+      symbol: "XAUUSDc", type: "Sell", volume: 0.01,
+      openPrice: 4520.000, closePrice: 4516.500, stopLoss: 4525.000, takeProfit: 4500.000,
+      profit: 35.00, commission: 0, swap: 0,
+      duration: "50m", isQualified: true, violations: [],
+      isPartialClose: true, parentTicket: 2847670, slCheckResult: "passed",
+    },
+    // Second partial close
+    {
+      ticket: 2847672, date: "  └ Jun 4, 12:15", openTime: "Jun 4, 10:30 EAT", closeTime: "Jun 4, 12:15 EAT",
+      symbol: "XAUUSDc", type: "Sell", volume: 0.01,
+      openPrice: 4520.000, closePrice: 4513.500, stopLoss: 4525.000, takeProfit: 4500.000,
+      profit: 25.00, commission: 0, swap: 0,
+      duration: "1h 45m", isQualified: true, violations: [],
+      isPartialClose: true, parentTicket: 2847670, slCheckResult: "passed",
+    },
+
     // ── FLAG: No stop loss set on entry ────────────────────────────────────
     {
       ticket: 2847651, date: "Jun 4, 11:05", openTime: "Jun 4, 11:05 EAT", closeTime: "Jun 4, 13:30 EAT",
@@ -123,10 +153,11 @@ export default function DemoDashboard() {
     {
       ticket: 2847653, date: "Jun 3, 15:10", openTime: "Jun 3, 15:10 EAT", closeTime: "Jun 3, 17:45 EAT",
       symbol: "XAUUSDc", type: "Buy", volume: 0.01,
-      openPrice: 4490.000, closePrice: 4510.000, stopLoss: 4485.000, takeProfit: 4515.000,
+      openPrice: 4490.000, closePrice: 4510.000, stopLoss: 0, takeProfit: 4515.000,
       profit: 200.00, commission: 0, swap: 0,
       duration: "2h 35m", isQualified: false,
-      violations: ["SL violated. Price exceeded the maximum allowed risk (¢500, SL should be @ 4484.95000) on the M15 candle formed at 15:45 EAT. Trade should have been closed at that point"],
+      violations: ["Max risk breached — price reached 4484.200 (allowed SL: 4484.950, max risk: ¢500). Trade profit ¢200.00 + max risk ¢500.00 = ¢700.00 deducted"],
+      slCheckResult: "fake_sl", slAllowedPrice: 4484.950, slMaxAdverse: 4484.200,
     },
 
     // ── FLAG: Simultaneous trades + same-pair limit (two violations) ─────────
@@ -453,6 +484,16 @@ export default function DemoDashboard() {
         { symbol: "XAUUSDm", type: "Sell", volume: 0.01, profit: -0.85, date: "Jun 3, 09:00 → 10:10", violations: [] },
       ],
     },
+    // ── Withdrawn / Exited ────────────────────────────────────────────────────
+    {
+      rank: 21, nickname: "EarlyExit", balance: 850.00, trades: 5, qualifiedTrades: 4, flaggedTrades: 1,
+      qualifiedProfit: -150.00, grossProfit: -100.00, profitRemoved: 50.00,
+      accountType: "real", isCent: true, isWithdrawn: true,
+      recentTrades: [
+        { symbol: "XAUUSDc", type: "Buy",  volume: 0.01, profit: -65.00, date: "Jun 3, 10:00 → 11:20", violations: [] },
+        { symbol: "EURUSDc", type: "Sell", volume: 0.01, profit:  45.00, date: "Jun 2, 14:00 → 15:30", violations: [] },
+      ],
+    },
   ];
 
   // ── Helpers (identical to production) ──────────────────────────────────
@@ -538,24 +579,6 @@ export default function DemoDashboard() {
           </div>
         </div>
 
-        {/* BALANCE WARNING BANNER — shown when balance exceeds allowed limit before challenge start */}
-        <div className="glass rounded-2xl p-4 md:p-5 border border-amber-500/30 bg-amber-500/5 mb-6">
-          <div className="flex items-start gap-3">
-            <div className="w-10 h-10 rounded-xl bg-amber-500/20 flex items-center justify-center flex-shrink-0">
-              <span className="text-xl">⚠️</span>
-            </div>
-            <div>
-              <p className="text-sm font-bold text-amber-400 mb-1">Balance Too High</p>
-              <p className="text-xs text-gray-300">
-                Your account balance (<b>{formatBalance(1500, isCent)}</b>) exceeds the challenge starting limit of <b>{formatBalance(challenge.startingBalance, isCent)}</b>.
-              </p>
-              <p className="text-xs text-gray-400 mt-2">
-                Please withdraw or transfer the excess amount ({formatBalance(500, isCent)}) before the challenge starts. If your balance is still above the limit at challenge start, you will be <span className="text-amber-400 font-semibold">automatically disqualified</span>.
-              </p>
-            </div>
-          </div>
-        </div>
-
         {/* PROGRESS BAR — only when user has trades and is not blown */}
         {showProgressBar ? (
           <div className="glass rounded-2xl p-4 md:p-5 border border-white/10 mb-6">
@@ -607,15 +630,15 @@ export default function DemoDashboard() {
                 <th className="text-center py-3 px-4 text-[10px] text-gray-400 font-medium uppercase">Status</th>
               </tr></thead>
               <tbody>{recentTrades.map((t) => (
-                <tr key={t.ticket} onClick={() => setSelectedTrade(t)} className={`border-b border-white/5 hover:bg-white/5 cursor-pointer transition-colors ${t.slCheckPending ? "bg-gold/5" : !t.isQualified ? "bg-loss/5" : ""}`}>
+                <tr key={t.ticket} onClick={() => setSelectedTrade(t)} className={`border-b border-white/5 hover:bg-white/5 cursor-pointer transition-colors ${t.slCheckPending ? "bg-gold/5" : !t.isQualified ? "bg-loss/5" : ""} ${t.isPartialClose ? "opacity-75" : ""}`}>
                   <td className="py-3 px-4 text-xs text-gray-400">{t.date}</td>
-                  <td className="py-3 px-4 text-sm text-white font-semibold">{t.symbol}</td>
+                  <td className="py-3 px-4 text-sm text-white font-semibold">{t.isPartialClose ? '' : t.symbol}{t.closesCount ? <span className="text-[10px] text-gray-500 ml-1">({t.closesCount} closes)</span> : ''}</td>
                   <td className="py-3 px-4"><span className={`px-2 py-1 rounded-md text-[10px] font-semibold ${t.type === "Buy" ? "bg-profit/10 text-profit" : "bg-loss/10 text-loss"}`}>{t.type}</span></td>
                   <td className={`py-3 px-4 text-right text-sm font-bold ${t.profit >= 0 ? "text-profit" : "text-loss"}`}>{t.profit >= 0 ? "+" : ""}{formatBalance(t.profit, isCent)}</td>
                   <td className="py-3 px-4 text-center text-xs text-gray-400">{t.volume} lot</td>
                   <td className="py-3 px-4 text-center">
                     {t.slCheckPending
-                      ? <span title="SL check pending" className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-gold/20 border border-gold/40 text-gold text-[10px] font-bold cursor-help">?</span>
+                      ? <span title="Max risk check pending" className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-gold/20 border border-gold/40 text-gold text-[10px] font-bold cursor-help">⏳</span>
                       : t.isQualified
                         ? <span className="text-profit">✓</span>
                         : <span className="text-loss">🚩</span>
@@ -926,11 +949,12 @@ function LeaderboardRow({ entry, formatBalance, formatSubtype, onClick, realWinn
           {entry.isMe && !winner && <span className="px-1.5 py-0.5 bg-royal/20 text-royal text-[10px] rounded font-bold">YOU</span>}
           {entry.isDisqualified && <span className="px-1.5 py-0.5 bg-loss/20 text-loss text-[10px] rounded font-bold">DQ</span>}
           {entry.isBlown && !entry.isDisqualified && <span className="px-1.5 py-0.5 bg-gray-500/20 text-gray-400 text-[10px] rounded font-bold">💀</span>}
+          {entry.isWithdrawn && !entry.isDisqualified && <span className="px-1.5 py-0.5 bg-gray-500/20 text-gray-400 text-[10px] rounded font-bold">🚪</span>}
         </div>
         <p className="text-[10px] text-gray-500">{entry.trades} trades • {entry.qualifiedTrades} qualified • {formatSubtype(entry.accountSubtype, entry.accountType)}</p>
       </div>
       <p className={`text-sm font-bold ${winner ? "text-profit" : "text-white"}`}>
-        {entry.isDisqualified ? <span className="text-loss">DQ</span> : formatBalance(entry.balance, entry.isCent)}
+        {entry.isDisqualified ? <span className="text-loss">DQ</span> : entry.isBlown ? <span className="text-gray-500">💀 Blown</span> : entry.isWithdrawn ? <span className="text-gray-500">🚪 Exited</span> : formatBalance(entry.balance, entry.isCent)}
       </p>
     </button>
   );
