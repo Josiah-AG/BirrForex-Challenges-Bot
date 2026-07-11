@@ -21,7 +21,7 @@ interface LeaderboardEntry {
   accountType: string; accountSubtype?: string; isCent: boolean;
   isMe?: boolean; isDisqualified?: boolean; disqualifyReason?: string; isBlown?: boolean;
   isQualified?: boolean; isWithdrawn?: boolean;
-  recentTrades: { symbol: string; type: string; profit: number; volume: number; date: string; flagged?: boolean; violations?: string[] }[];
+  recentTrades: { symbol: string; type: string; profit: number; volume: number; date: string; flagged?: boolean; violations?: string[]; slCheckPending?: boolean; slCheckResult?: string }[];
 }
 
 export default function DemoDashboard() {
@@ -308,9 +308,9 @@ export default function DemoDashboard() {
       accountType: "real", isCent: true,
       // 2W 1L → 67% win rate, avgWin≈73.5, avgLoss≈35, RR≈2.10
       recentTrades: [
-        { symbol: "XAUUSDc", type: "Buy",  volume: 0.01, profit:  82.00, date: "Jun 3, 09:00 → 11:20", violations: [] },
+        { symbol: "XAUUSDc", type: "Buy",  volume: 0.01, profit:  82.00, date: "Jun 3, 09:00 → 11:20", violations: [], slCheckPending: true },
         { symbol: "EURUSDc", type: "Sell", volume: 0.01, profit: -35.00, date: "Jun 3, 07:15 → 08:40", violations: [] },
-        { symbol: "XAUUSDc", type: "Sell", volume: 0.01, profit:  65.00, date: "Jun 2, 14:30 → 16:00", violations: [] },
+        { symbol: "XAUUSDc", type: "Sell", volume: 0.01, profit:  65.00, date: "Jun 2, 14:30 → 16:00", violations: [], slCheckResult: "conflicting" },
       ],
     },
     {
@@ -490,7 +490,7 @@ export default function DemoDashboard() {
       qualifiedProfit: -150.00, grossProfit: -100.00, profitRemoved: 50.00,
       accountType: "real", isCent: true, isWithdrawn: true,
       recentTrades: [
-        { symbol: "XAUUSDc", type: "Buy",  volume: 0.01, profit: -65.00, date: "Jun 3, 10:00 → 11:20", violations: [] },
+        { symbol: "XAUUSDc", type: "Buy",  volume: 0.01, profit: -65.00, date: "Jun 3, 10:00 → 11:20", violations: [], slCheckPending: true },
         { symbol: "EURUSDc", type: "Sell", volume: 0.01, profit:  45.00, date: "Jun 2, 14:00 → 15:30", violations: [] },
       ],
     },
@@ -784,12 +784,16 @@ export default function DemoDashboard() {
               <div className="p-5">
                 <button onClick={() => setSelectedUser(null)} className="text-gray-400 hover:text-white mb-4 flex items-center gap-1 text-sm"><ArrowLeft size={14} /> Back to leaderboard</button>
                 <div className="flex items-center gap-4 mb-6">
-                  {(() => { const wc = selectedUser.accountType === 'demo' ? challenge.demoWinnersCount : challenge.realWinnersCount; const win = !selectedUser.isDisqualified && selectedUser.isQualified && wc > 0 && selectedUser.rank <= wc; return <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-lg font-bold ${selectedUser.isDisqualified ? "bg-loss/20 text-loss" : win ? "bg-profit/20 text-profit" : "bg-white/10 text-gray-400"}`}>{win ? "🏆" : `#${selectedUser.rank}`}</div>; })()}
+                  {(() => { const wc = selectedUser.accountType === 'demo' ? challenge.demoWinnersCount : challenge.realWinnersCount; const win = !selectedUser.isDisqualified && !selectedUser.isBlown && !selectedUser.isWithdrawn && selectedUser.isQualified && wc > 0 && selectedUser.rank <= wc; return <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-lg font-bold ${selectedUser.isDisqualified ? "bg-loss/20 text-loss" : (selectedUser.isBlown || selectedUser.isWithdrawn) ? "bg-white/5 text-gray-500" : win ? "bg-profit/20 text-profit" : "bg-white/10 text-gray-400"}`}>{win ? "🏆" : `#${selectedUser.rank}`}</div>; })()}
                   <div>
                     <p className="text-xl font-bold text-white">{selectedUser.nickname}</p>
                     <p className="text-sm text-gray-400">
                       {selectedUser.isDisqualified
                         ? <span className="text-loss font-semibold">Disqualified</span>
+                        : selectedUser.isWithdrawn
+                        ? <span className="text-gray-400 font-semibold">🚪 User exited the challenge</span>
+                        : selectedUser.isBlown
+                        ? <span className="text-gray-400 font-semibold">💀 Balance is zero from trading</span>
                         : <>Balance: <span className="text-white font-semibold">{formatBalance(selectedUser.balance, selectedUser.isCent)}</span></>
                       }
                     </p>
@@ -841,7 +845,7 @@ export default function DemoDashboard() {
                       <p className="text-xs font-semibold text-gray-400 mb-2">Trades ({selectedUser.recentTrades.length})</p>
                       <div className="space-y-2 max-h-[300px] overflow-y-auto">
                         {selectedUser.recentTrades.map((t, i) => (
-                          <div key={i} className={`py-2 px-3 rounded-lg ${t.flagged ? "bg-loss/10 border border-loss/20" : "bg-white/5"}`}>
+                          <div key={i} className={`py-2 px-3 rounded-lg ${t.slCheckResult === 'conflicting' ? 'bg-amber-500/5 border border-amber-400/20' : t.slCheckPending ? 'bg-gold/5 border border-gold/20' : t.flagged ? "bg-loss/10 border border-loss/20" : "bg-white/5"}`}>
                             <div className="flex items-center justify-between">
                               <div className="flex items-center gap-2">
                                 <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${t.type === "Buy" ? "bg-profit/20 text-profit" : "bg-loss/20 text-loss"}`}>{t.type}</span>
@@ -852,9 +856,11 @@ export default function DemoDashboard() {
                               </div>
                               <div className="text-right">
                                 <p className={`text-xs font-bold ${t.profit >= 0 ? "text-profit" : "text-loss"}`}>{formatBalance(t.profit, selectedUser.isCent)}</p>
-                                <p className="text-[10px] text-gray-500">{t.volume} lot {t.flagged && <span className="text-loss">🚩</span>}</p>
+                                <p className="text-[10px] text-gray-500">{t.volume} lot {t.slCheckResult === 'conflicting' ? <span title="Under investigation." className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-amber-500/20 border border-amber-400/50 text-amber-400 text-[9px] font-bold cursor-help ml-1">?</span> : t.slCheckPending ? <span title="Max risk check pending — result may change" className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-gold/20 border border-gold/40 text-gold text-[9px] font-bold cursor-help ml-1">?</span> : t.flagged ? <span className="text-loss">🚩</span> : null}</p>
                               </div>
                             </div>
+                            {t.slCheckResult === 'conflicting' && <p className="text-[10px] text-amber-400 mt-1 pl-7">⚠ Under investigation. Result may change after the next check.</p>}
+                            {t.slCheckPending && <p className="text-[10px] text-gold mt-1 pl-7">⚠ Max risk check pending — benefit of doubt applied. Result may change.</p>}
                             {t.flagged && t.violations && t.violations.length > 0 && (
                               <p className="text-[10px] text-loss mt-1 pl-7">⚠️ {t.violations[0]}</p>
                             )}
@@ -938,7 +944,7 @@ function LeaderboardRow({ entry, formatBalance, formatSubtype, onClick, realWinn
   const winnersCount = entry.accountType === 'demo' ? (demoWinnersCount || 0) : (realWinnersCount || 0);
   const winner = !entry.isDisqualified && entry.isQualified && winnersCount > 0 && entry.rank <= winnersCount;
   return (
-    <button onClick={onClick} className={`w-full flex items-center gap-4 px-4 py-3 text-left transition-colors ${winner ? "bg-profit/10 border-l-2 border-profit hover:bg-profit/15" : entry.isMe ? "bg-royal/10 border-l-2 border-royal hover:bg-royal/15" : "hover:bg-white/5"} ${entry.isDisqualified ? "opacity-60" : ""}`}>
+    <button onClick={onClick} className={`w-full flex items-center gap-4 px-4 py-3 text-left transition-colors ${winner ? "bg-profit/10 border-l-2 border-profit hover:bg-profit/15" : entry.isMe ? "bg-royal/10 border-l-2 border-royal hover:bg-royal/15" : "hover:bg-white/5"} ${entry.isDisqualified ? "opacity-60" : ""} ${(entry.isBlown || entry.isWithdrawn) && !entry.isDisqualified ? "opacity-40" : ""}`}>
       <div className={`flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center text-sm font-bold ${entry.isDisqualified ? "bg-loss/20 text-loss" : winner ? "bg-profit/20 text-profit" : "bg-white/5 text-gray-500"}`}>
         {winner ? "🏆" : entry.rank}
       </div>
