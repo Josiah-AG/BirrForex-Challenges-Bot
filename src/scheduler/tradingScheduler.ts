@@ -105,6 +105,7 @@ export class TradingScheduler {
         await this.checkAutoEngagement(challenge, dateStr, timeStr, eatTime);
         await this.checkAbandonedSessions(challenge, eatTime);
         await this.checkPartnerScreening(challenge, dateStr, timeStr);
+        await this.checkPreStartBalanceWarning(challenge, timeStr);
         // Discord messages
         await this.checkDiscordFirstDay(challenge, dateStr, timeStr);
         await this.checkDiscordLastDay(challenge, dateStr, timeStr);
@@ -1608,5 +1609,168 @@ export class TradingScheduler {
     };
 
     await this.postToDiscord(challenge, '@everyone', embed);
+  }
+
+  // ==================== PRE-START DAILY BALANCE CHECK (2:00 AM EAT) ====================
+
+  private balanceCheckRunning = false;
+  private balanceCheckRanToday = new Set<string>();
+
+  private async checkPreStartBalanceWarning(challenge: TradingChallenge, timeStr: string) {
+    if (challenge.status !== 'registration_open') return;
+    // Only real/hybrid — demo balance is fixed
+    if (challenge.type === 'demo') return;
+    // Only at 02:00 EAT (5 min window for resilience)
+    if (!timeStr.startsWith('02:0')) return;
+    // Only once per day per challenge
+    const today = new Date().toISOString().split('T')[0];
+    const key = `${challenge.id}_${today}`;
+    if (this.balanceCheckRanToday.has(key)) return;
+    if (this.balanceCheckRunning) return;
+
+    this.balanceCheckRunning = true;
+    this.balanceCheckRanToday.add(key);
+
+    try {
+      console.log(`💰 Pre-start balance check: starting for "${challenge.title}" (ID: ${challenge.id})`);
+
+      const startingBalance = Number(challenge.starting_balance || 30);
+
+      // Get all real-account registrations with investor passwords
+      const regs = await db.query(
+        `SELECT id, account_number, mt5_server, investor_password, user_id, username, nickname, is_cent, source, account_type
+         FROM trading_registrations
+         WHERE challenge_id = $1
+           AND disqualified = false
+           AND investor_password IS NOT NULL
+           AND account_type = 'real'`,
+        [challenge.id]
+      );
+
+      if (regs.rows.length === 0) {
+        console.log(`💰 Pre-start balance check: no real accounts to check`);
+        this.balanceCheckRunning = false;
+        return;
+      }
+
+      let checked = 0, warned = 0, cleared = 0, failed = 0;
+
+      for (const reg of regs.rows) {
+        try {
+          const result = await vpsService.verifyConnection(reg.account_number, reg.mt5_server, reg.investor_password);
+          if (!result.success || result.balance === undefined || result.balance === null) {
+            failed++;
+            continue;
+          }
+
+          const balance = result.balance as number;
+          const limit = reg.is_cent ? startingBalance * 100 : startingBalance;
+          const tolerance = limit * 0.01;
+          const currency = reg.is_cent ? '¢' : '$';
+
+          // Update last known balance
+          await db.query(
+            `UPDATE trading_registrations SET last_known_balance = $1 WHERE id = $2`,
+            [balance, reg.id]
+          );
+          checked++;
+
+          if (balance > limit + tolerance) {
+            // Balance exceeds — set warning flag and notify
+            const excess = balance - limit;
+            await db.query(
+              `UPDATE trading_registrations SET balance_warning = true WHERE id = $1`,
+              [reg.id]
+            );
+            warned++;
+
+            // DM user (Telegram only, max 1 per day — check if already warned today)
+            if (reg.source !== 'discord') {
+              const alreadyWarned = await db.query(
+                `SELECT 1 FROM wp_pull_errors
+                 WHERE registration_id = $1 AND error_code = 'balance_warning' AND created_at::date = $2::date`,
+                [reg.id, today]
+              );
+              if (alreadyWarned.rows.length === 0) {
+                // Record warning
+                await db.query(
+                  `INSERT INTO wp_pull_errors (registration_id, account_number, error_code, error_message)
+                   VALUES ($1, $2, 'balance_warning', $3)`,
+                  [reg.id, reg.account_number, `Balance ${currency}${balance.toFixed(2)} exceeds limit ${currency}${limit.toFixed(2)}`]
+                );
+                // Send Telegram DM
+                try {
+                  const startDate = toEAT(challenge.start_date);
+                  const startStr = startDate.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                  await this.bot.bot.telegram.sendMessage(
+                    reg.user_id,
+                    `⚠️ <b>Balance Too High</b>\n\n` +
+                    `Your account <b>${reg.account_number}</b> currently has <b>${currency}${balance.toFixed(2)}</b> but the challenge starting limit is <b>${currency}${limit.toFixed(2)}</b>.\n\n` +
+                    `Please reduce your balance to <b>${currency}${limit.toFixed(2)}</b> or below before the challenge starts.\n\n` +
+                    `💸 <b>Excess:</b> ${currency}${excess.toFixed(2)}\n` +
+                    `📋 <b>Challenge:</b> ${challenge.title}\n` +
+                    `📅 <b>Starts:</b> ${startStr}\n\n` +
+                    `🚫 If your balance is still above <b>${currency}${limit.toFixed(2)}</b> at challenge start, you will be <b>automatically disqualified</b>.`,
+                    { parse_mode: 'HTML' }
+                  );
+                } catch (dmErr) {
+                  console.warn(`⚠️ Could not DM user ${reg.user_id} about balance warning:`, (dmErr as Error).message);
+                }
+              }
+            }
+          } else {
+            // Balance is OK — clear warning if it was set
+            const wasWarned = await db.query(
+              `SELECT balance_warning FROM trading_registrations WHERE id = $1`,
+              [reg.id]
+            );
+            if (wasWarned.rows[0]?.balance_warning) {
+              await db.query(
+                `UPDATE trading_registrations SET balance_warning = false WHERE id = $1`,
+                [reg.id]
+              );
+              cleared++;
+              // DM user that they're good now
+              if (reg.source !== 'discord') {
+                try {
+                  await this.bot.bot.telegram.sendMessage(
+                    reg.user_id,
+                    `✅ <b>Balance OK</b>\n\nYour account <b>${reg.account_number}</b> balance is now within the allowed limit. You're all set for the challenge! 👍`,
+                    { parse_mode: 'HTML' }
+                  );
+                } catch {}
+              }
+            }
+          }
+
+          // Small delay between VPS calls
+          await new Promise(r => setTimeout(r, 2000));
+        } catch (e) {
+          failed++;
+          console.warn(`⚠️ Pre-start balance check failed for reg ${reg.id}:`, (e as Error).message);
+        }
+      }
+
+      console.log(`💰 Pre-start balance check done: ${checked} checked, ${warned} warned, ${cleared} cleared, ${failed} failed`);
+
+      // Admin summary
+      if (warned > 0) {
+        await this.bot.bot.telegram.sendMessage(
+          config.adminUserId,
+          `💰 <b>Pre-Start Balance Check</b>\n\n` +
+          `<b>${challenge.title}</b>\n\n` +
+          `✅ Checked: ${checked}\n` +
+          `⚠️ Over limit: ${warned}\n` +
+          `✓ Cleared: ${cleared}\n` +
+          `❌ VPS failed: ${failed}\n\n` +
+          `<i>Users over the limit have been notified to reduce their balance.</i>`,
+          { parse_mode: 'HTML' }
+        ).catch(() => {});
+      }
+    } catch (error) {
+      console.error('Pre-start balance check error:', error);
+    } finally {
+      this.balanceCheckRunning = false;
+    }
   }
 }

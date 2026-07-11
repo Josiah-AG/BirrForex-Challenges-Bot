@@ -685,7 +685,7 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
     const reg = await db.query(
       `SELECT r.id, r.nickname, r.account_number, r.account_type, r.account_subtype, r.mt5_server, r.challenge_id, r.pull_status,
               r.actual_starting_balance, r.registration_balance, r.last_known_balance, r.disqualified, r.disqualified_reason, r.is_cent,
-              r.last_pull_at,
+              r.last_pull_at, r.balance_warning,
               c.title, c.status, c.start_date, c.end_date, c.starting_balance, c.target_balance, c.leaderboard_updated_at,
               c.real_winners_count, c.demo_winners_count, c.type as challenge_type,
               COALESCE((SELECT (parameters->>'only_cent_account')::boolean FROM wp_challenge_rules WHERE challenge_id = c.id AND rule_code = 'config'), false) as only_cent_account
@@ -736,6 +736,7 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
         isCent: registration.is_cent || (registration.only_cent_account && registration.challenge_type !== 'demo') || false,
         actualStartingBalance: actualStartingBalance,
         lastPullAt: registration.last_pull_at || null,
+        balanceWarning: registration.balance_warning || false,
         rank: leaderboard?.rank || null,
         currentBalance: leaderboard ? parseFloat(leaderboard.current_balance) : (actualStartingBalance ?? 0),
         adjustedBalance: leaderboard ? parseFloat(leaderboard.adjusted_balance) : (actualStartingBalance ?? 0),

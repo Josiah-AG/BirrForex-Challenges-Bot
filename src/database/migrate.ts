@@ -391,7 +391,8 @@ async function migrate() {
 
     // Equity-based blown detection — store last VPS equity separately from balance
     await db.query(`ALTER TABLE trading_registrations ADD COLUMN IF NOT EXISTS last_known_equity NUMERIC(15,2);`).catch(() => {});
-    console.log('✅ last_known_equity column migration OK');
+    await db.query(`ALTER TABLE trading_registrations ADD COLUMN IF NOT EXISTS balance_warning BOOLEAN DEFAULT false;`).catch(() => {});
+    console.log('✅ last_known_equity + balance_warning columns migration OK');
 
     // Withdrawal tracking
     await db.query(`

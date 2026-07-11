@@ -40,6 +40,7 @@ interface MyStats {
   isQualified: boolean; lastUpdated: string | null; pullStatus: string | null;
   disqualified: boolean; disqualifiedReason: string | null;
   isCent: boolean; lastPullAt: string | null;
+  balanceWarning?: boolean;
 }
 
 export default function ChallengeDashboard() {
@@ -153,6 +154,7 @@ export default function ChallengeDashboard() {
         disqualifiedReason: data.me.disqualifiedReason || null,
         isCent: data.me.isCent || false,
         lastPullAt: data.me.lastPullAt || null,
+        balanceWarning: data.me.balanceWarning || false,
       };
       myStatsRef.current = statsObj;
       setMyStats(statsObj);
@@ -854,6 +856,26 @@ export default function ChallengeDashboard() {
                 <p className="text-xs text-gray-500 mt-1">days remaining</p>
               </div>
             </div>
+
+            {/* BALANCE WARNING BANNER — shown when balance exceeds allowed limit before challenge start */}
+            {myStats.balanceWarning && isNotStarted && (
+              <div className="glass rounded-2xl p-4 md:p-5 border border-amber-500/30 bg-amber-500/5 mb-6">
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-amber-500/20 flex items-center justify-center flex-shrink-0">
+                    <span className="text-xl">⚠️</span>
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-amber-400 mb-1">Balance Too High</p>
+                    <p className="text-xs text-gray-300">
+                      Your account balance exceeds the challenge starting limit of <b>{formatBalance(challenge.startingBalance, myStats.accountType, effectiveIsCent)}</b>.
+                    </p>
+                    <p className="text-xs text-gray-400 mt-2">
+                      Please withdraw or transfer the excess amount before the challenge starts. If your balance is still above the limit at challenge start, you will be <span className="text-amber-400 font-semibold">automatically disqualified</span>.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* PROGRESS BAR — only show when user has trades and is active */}
             {showProgressBar ? (
