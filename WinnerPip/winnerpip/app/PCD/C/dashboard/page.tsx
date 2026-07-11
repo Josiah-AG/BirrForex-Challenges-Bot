@@ -538,6 +538,24 @@ export default function DemoDashboard() {
           </div>
         </div>
 
+        {/* BALANCE WARNING BANNER — shown when balance exceeds allowed limit before challenge start */}
+        <div className="glass rounded-2xl p-4 md:p-5 border border-amber-500/30 bg-amber-500/5 mb-6">
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-500/20 flex items-center justify-center flex-shrink-0">
+              <span className="text-xl">⚠️</span>
+            </div>
+            <div>
+              <p className="text-sm font-bold text-amber-400 mb-1">Balance Too High</p>
+              <p className="text-xs text-gray-300">
+                Your account balance (<b>{formatBalance(1500, isCent)}</b>) exceeds the challenge starting limit of <b>{formatBalance(challenge.startingBalance, isCent)}</b>.
+              </p>
+              <p className="text-xs text-gray-400 mt-2">
+                Please withdraw or transfer the excess amount ({formatBalance(500, isCent)}) before the challenge starts. If your balance is still above the limit at challenge start, you will be <span className="text-amber-400 font-semibold">automatically disqualified</span>.
+              </p>
+            </div>
+          </div>
+        </div>
+
         {/* PROGRESS BAR — only when user has trades and is not blown */}
         {showProgressBar ? (
           <div className="glass rounded-2xl p-4 md:p-5 border border-white/10 mb-6">
