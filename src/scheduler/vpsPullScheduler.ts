@@ -323,14 +323,47 @@ export class VpsPullScheduler {
   }
 
   /**
+   * Pull queue — when a pull is triggered while another is running,
+   * it's queued here and executed once the current one finishes.
+   */
+  private pullQueue: Array<{ type: 'scheduled' | 'force' | 'forceChallenge'; challengeId?: number }> = [];
+
+  private queuePull(entry: { type: 'scheduled' | 'force' | 'forceChallenge'; challengeId?: number }) {
+    // Don't queue duplicates
+    const isDuplicate = this.pullQueue.some(q => q.type === entry.type && q.challengeId === entry.challengeId);
+    if (!isDuplicate) {
+      this.pullQueue.push(entry);
+      console.log(`📋 VPS Pull: Queued ${entry.type}${entry.challengeId ? ` (challenge ${entry.challengeId})` : ''} — ${this.pullQueue.length} in queue`);
+    }
+  }
+
+  private async drainQueue() {
+    if (this.pullQueue.length === 0) return;
+    const next = this.pullQueue.shift()!;
+    console.log(`📋 VPS Pull: Draining queue — running ${next.type}${next.challengeId ? ` (challenge ${next.challengeId})` : ''} — ${this.pullQueue.length} remaining`);
+    if (next.type === 'forceChallenge' && next.challengeId) {
+      await this.runPullCycleForChallenge(next.challengeId);
+    } else {
+      await this.runPullCycle();
+    }
+  }
+
+  /** Release the running lock and drain the queue if anything is waiting */
+  private releaseLock() {
+    this.releaseLock();
+    // Drain queue after a short delay (let current stack unwind)
+    if (this.pullQueue.length > 0) {
+      setTimeout(() => this.drainQueue(), 2000);
+    }
+  }
+
+  /**
    * Per-minute check: compare current EAT time against each challenge's pull_times.
    * If a match is found, trigger runPullCycle(). Queues if already running.
    */
   private pullScheduleTriggered = new Set<string>();
 
   private async checkPullSchedule() {
-    if (this.isRunning) return;
-
     try {
       const now = new Date();
       const eatTime = new Date(now.getTime() + 3 * 60 * 60 * 1000);
@@ -354,7 +387,11 @@ export class VpsPullScheduler {
             if (!key.includes(dateKey)) this.pullScheduleTriggered.delete(key);
           }
           console.log(`⏰ VPS Pull: Scheduled pull triggered for challenge ${challenge.id} at ${currentHHMM} EAT`);
-          this.runPullCycle();
+          if (this.isRunning) {
+            this.queuePull({ type: 'scheduled' });
+          } else {
+            this.runPullCycle();
+          }
           return;
         }
       }
@@ -401,12 +438,12 @@ export class VpsPullScheduler {
 
       const challenge = await this.resolveChallengeForPull();
       if (!challenge || challenge.id !== challengeId) {
-        this.isRunning = false;
+        this.releaseLock();
         return;
       }
 
       const healthyTerminals = this.terminals.filter(t => t.isHealthy);
-      if (healthyTerminals.length === 0) { this.isRunning = false; return; }
+      if (healthyTerminals.length === 0) { this.releaseLock(); return; }
 
       // Load remaining into shared queue and process
       this.sharedQueue.load(remaining.map(a => ({ ...a, isPriority: false })));
@@ -424,10 +461,10 @@ export class VpsPullScheduler {
 
       console.log(`✅ VPS Pull: Resumed cycle complete — ${remaining.length} accounts processed`);
 
-      this.isRunning = false;
+      this.releaseLock();
     } catch (error) {
       console.error('⚠️ VPS Pull: Resume interrupted cycle error:', error);
-      this.isRunning = false;
+      this.releaseLock();
     }
   }
 
@@ -436,7 +473,7 @@ export class VpsPullScheduler {
    */
   async runPullCycle() {
     if (this.isRunning) {
-      console.log('⚠️ VPS Pull: Already running, skipping');
+      this.queuePull({ type: 'scheduled' });
       return;
     }
     this.isRunning = true;
@@ -447,13 +484,13 @@ export class VpsPullScheduler {
     try {
       const challengeToPull = await this.resolveChallengeForPull();
       if (!challengeToPull) {
-        this.isRunning = false;
+        this.releaseLock();
         return;
       }
 
       // Weekend logic
       if (await this.shouldSkipWeekend(challengeToPull)) {
-        this.isRunning = false;
+        this.releaseLock();
         return;
       }
 
@@ -465,7 +502,7 @@ export class VpsPullScheduler {
       const accounts = await this.getAccountsToPull(challengeToPull.id);
       if (accounts.length === 0) {
         console.log('📊 VPS Pull: No accounts to pull');
-        this.isRunning = false;
+        this.releaseLock();
         return;
       }
 
@@ -498,7 +535,7 @@ export class VpsPullScheduler {
         console.error('❌ VPS Pull: ALL terminals unhealthy! Aborting.');
         await this.completePullBatch(batchId, 0, accounts.length, 0, 'all_terminals_unhealthy');
         await this.reportCriticalFailure(challengeToPull, 'All 10 terminals are unhealthy.');
-        this.isRunning = false;
+        this.releaseLock();
         return;
       }
 
@@ -508,7 +545,7 @@ export class VpsPullScheduler {
       // If admin cancelled — skip retry, leaderboard, and reporting; just clean up
       if (this.cancelRequested) {
         console.log('🛑 VPS Pull: Cancelled — skipping retry/leaderboard steps');
-        this.isRunning = false;
+        this.releaseLock();
         this.cancelRequested = false;
         return;
       }
@@ -681,7 +718,7 @@ export class VpsPullScheduler {
           { parse_mode: 'HTML' });
       } catch (e) {}
     } finally {
-      this.isRunning = false;
+      this.releaseLock();
       this.cancelRequested = false;
       this.abortController = null;
     }
@@ -699,7 +736,7 @@ export class VpsPullScheduler {
       const waited = await this.waitForIdle(60000);
       if (!waited) {
         console.error('❌ VPS Pull: Running cycle did not release within 60s — forcing lock reset');
-        this.isRunning = false;
+        this.releaseLock();
         this.cancelRequested = false;
         this.abortController = null;
       }
@@ -849,7 +886,7 @@ export class VpsPullScheduler {
         await this.completePullBatch(batchId, 0, accounts.length, 0, 'failed').catch(() => {});
       }
     } finally {
-      this.isRunning = false;
+      this.releaseLock();
       this.cancelRequested = false;
       this.abortController = null;
     }
