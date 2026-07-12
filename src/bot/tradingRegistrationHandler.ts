@@ -197,15 +197,13 @@ export class TradingRegistrationHandler {
       }
 
       await ctx.reply(
-        `<b>🎯 BIRRFOREX TRADING CHALLENGE</b>\n<b>${challenge.title}</b>\n\n` +
-        `This is a <b>Hybrid Challenge</b> — you can participate\n` +
-        `with either a <b>Demo</b> or <b>Real</b> account.\n\n` +
-        `⚠️ <i>You can only compete in one category.</i>\n` +
+        t(lang, 'hybrid_title', { title: challenge.title }) + '\n\n' +
+        t(lang, 'hybrid_body') + '\n' +
         prizesText +
-        `\nChoose your category:`,
+        '\n' + t(lang, 'hybrid_choose'),
         { parse_mode: 'HTML', ...Markup.inlineKeyboard([
-          [Markup.button.callback('🏦 Demo Account Challenge', `tc_reg_demo_${challengeId}`)],
-          [Markup.button.callback('💰 Real Account Challenge', `tc_reg_real_${challengeId}`)],
+          [Markup.button.callback(t(lang, 'hybrid_demo_btn'), `tc_reg_demo_${challengeId}`)],
+          [Markup.button.callback(t(lang, 'hybrid_real_btn'), `tc_reg_real_${challengeId}`)],
         ]) }
       );
     } else {
@@ -306,16 +304,19 @@ export class TradingRegistrationHandler {
     const telegramId = ctx.from!.id;
     const challenge = await tradingChallengeService.getChallengeById(challengeId);
     if (!challenge) { await ctx.reply('❌ Challenge not found.'); return; }
+    // Get user's language preference from their registration
+    const langResult = await db.query('SELECT lang FROM trading_registrations WHERE challenge_id = $1 AND user_id = $2', [challengeId, telegramId]);
+    const lang: Lang = (langResult.rows[0]?.lang as Lang) || 'en';
     if (challenge.status !== 'submission_open') {
       if (challenge.status === 'reviewing' || challenge.status === 'completed') {
-        await ctx.reply('❌ <b>Submission deadline has passed.</b>\n<i>Late submissions are not accepted.</i>', { parse_mode: 'HTML' });
+        await ctx.reply(t(lang, 'error_submission_deadline'), { parse_mode: 'HTML' });
       } else {
-        await ctx.reply('❌ This challenge is not accepting submissions yet.');
+        await ctx.reply(t(lang, 'error_not_accepting'), { parse_mode: 'HTML' });
       }
       return;
     }
     if (challenge.submission_deadline && new Date() > new Date(challenge.submission_deadline)) {
-      await ctx.reply('❌ <b>Submission deadline has passed.</b>\n<i>Late submissions are not accepted.</i>', { parse_mode: 'HTML' });
+      await ctx.reply(t(lang, 'error_submission_deadline'), { parse_mode: 'HTML' });
       return;
     }
     const reg = await tradingChallengeService.getRegistration(challengeId, telegramId);
@@ -338,8 +339,8 @@ export class TradingRegistrationHandler {
         return;
       }
     }
-    userSessions.set(telegramId, { step: 'tc_submit_email', data: { challenge_id: challengeId, target_balance: challenge.target_balance } });
-    await ctx.reply('📧 Please enter your <b>Exness email</b> to verify your identity:', { parse_mode: 'HTML' });
+    userSessions.set(telegramId, { step: 'tc_submit_email', data: { challenge_id: challengeId, target_balance: challenge.target_balance, lang } });
+    await ctx.reply(t(lang, 'submit_email_prompt'), { parse_mode: 'HTML' });
   }
 
   async startForcedSubmission(ctx: Context, challengeId: number, allowedTelegramId: number) {
@@ -874,9 +875,10 @@ export class TradingRegistrationHandler {
       }
 
       case 'tc_change_acct_confirm_investor_password': {
+        const lang: Lang = session.data.lang || 'en';
         if (text.trim() !== session.data.new_investor_password) {
           session.step = 'tc_change_acct_investor_password';
-          await ctx.reply('❌ <b>Passwords don\'t match.</b> Enter the investor password again:', { parse_mode: 'HTML' });
+          await ctx.reply(t(lang, 'change_acct_password_mismatch'), { parse_mode: 'HTML' });
           return;
         }
         session.step = 'tc_verifying_change_real';
@@ -903,15 +905,16 @@ export class TradingRegistrationHandler {
 
       // ==================== SUBMISSION STEPS ====================
       case 'tc_submit_email': {
+        const lang: Lang = session.data.lang || 'en';
         const email = text.trim().toLowerCase();
         const reg = await tradingChallengeService.getRegistrationByEmail(session.data.challenge_id, email);
         if (!reg) {
-          await ctx.reply('❌ <b>This email is not registered for this challenge.</b>\n\nPlease check your email and try again.',
+          await ctx.reply(t(lang, 'submit_email_not_found'),
             { parse_mode: 'HTML', ...Markup.inlineKeyboard([[Markup.button.callback('📧 Submit Email Again', `tc_submit_retry_email_${session.data.challenge_id}`)]]) });
           return;
         }
         if (String(reg.user_id) !== String(telegramId)) {
-          await ctx.reply('❌ <b>This email is registered under a different account.</b>\n\nUse the Telegram account you registered with.',
+          await ctx.reply(t(lang, 'submit_email_wrong_user'),
             { parse_mode: 'HTML', ...Markup.inlineKeyboard([[Markup.button.callback('📧 Submit Email Again', `tc_submit_retry_email_${session.data.challenge_id}`)]]) });
           return;
         }
@@ -921,21 +924,22 @@ export class TradingRegistrationHandler {
         session.data.account_number = reg.account_number;
         session.data.mt5_server = reg.mt5_server;
         session.step = 'tc_submit_balance';
-        await ctx.reply('✅ <b>Identity verified!</b>\n\n💰 What is your final account balance?\n<i>(Enter the number only, e.g., 67.50)</i>', { parse_mode: 'HTML' });
+        await ctx.reply(t(lang, 'submit_email_verified') + '\n\n' + t(lang, 'submit_balance_prompt'), { parse_mode: 'HTML' });
         break;
       }
 
       case 'tc_submit_balance': {
+        const lang: Lang = session.data.lang || 'en';
         const balance = parseFloat(text.trim());
-        if (isNaN(balance) || balance <= 0) { await ctx.reply('❌ Please enter a valid number.'); return; }
+        if (isNaN(balance) || balance <= 0) { await ctx.reply(t(lang, 'submit_balance_invalid')); return; }
         if (balance < session.data.target_balance) {
           userSessions.delete(telegramId);
-          await ctx.reply(`❌ The target is <b>$${session.data.target_balance}</b>. Your balance of <b>$${balance.toFixed(2)}</b> has not reached the target.\n\n<i>Better luck next time!</i> 💪`, { parse_mode: 'HTML' });
+          await ctx.reply(t(lang, 'submit_balance_below_target', { target: String(session.data.target_balance), balance: balance.toFixed(2) }), { parse_mode: 'HTML' });
           return;
         }
         session.data.final_balance = balance;
         session.step = 'tc_submit_screenshot';
-        await ctx.reply('📸 Upload a <b>screenshot</b> of your final balance.\n\nMake sure it clearly shows:\n➡️ Account number\n➡️ Final balance/equity', { parse_mode: 'HTML' });
+        await ctx.reply(t(lang, 'submit_screenshot_prompt'), { parse_mode: 'HTML' });
         break;
       }
 
@@ -1691,19 +1695,18 @@ export class TradingRegistrationHandler {
       userSessions.delete(telegramId);
       saveSessionsToDisk();
 
+      const lang: Lang = session.data.lang || 'en';
       const acctLabel = session.data.account_type === 'demo' ? 'Demo' : 'Real';
       const startStr = toEAT(challenge.start_date).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
 
-      let switchText = '';
       let buttons: any[][] = [
-        [Markup.button.callback('🔄 Change Account Number', `tc_change_acct_${challenge.id}`)],
+        [Markup.button.callback(t(lang, 'reg_change_account_btn'), `tc_change_acct_${challenge.id}`)],
       ];
       if (challenge.type === 'hybrid') {
         if (session.data.account_type === 'demo') {
-          switchText = '\n💡 Want to compete in the <b>Real Account</b> category instead? Use the switch button below.\n';
-          buttons.push([Markup.button.callback('🔀 Switch to Real Account', `tc_switch_cat_${challenge.id}`)]);
+          buttons.push([Markup.button.callback(t(lang, 'reg_switch_real_btn'), `tc_switch_cat_${challenge.id}`)]);
         } else {
-          buttons.push([Markup.button.callback('🔀 Switch to Demo Account', `tc_switch_cat_${challenge.id}`)]);
+          buttons.push([Markup.button.callback(t(lang, 'reg_switch_demo_btn'), `tc_switch_cat_${challenge.id}`)]);
         }
       }
 
@@ -1712,33 +1715,29 @@ export class TradingRegistrationHandler {
       if (challenge.video_url) linksText += `\n🎥 Challenge Guide: <a href="${challenge.video_url}">Watch Video</a>`;
 
       await ctx.reply(
-        `✅ <b>Registration Complete!</b>\n\n` +
-        `📋 <b>Your Registration:</b>\n` +
-        `🏷️ <b>Nickname:</b> ${session.data.nickname || 'N/A'}\n` +
-        `📧 <b>Email:</b> ${session.data.email}\n` +
-        `🏦 <b>${acctLabel} Account:</b> ${session.data.account_number}\n` +
-        `🖥️ <b>Server:</b> ${session.data.mt5_server || 'N/A'}\n` +
-        `📊 <b>Type:</b> ${acctLabel}\n` +
-        `🔑 <b>Investor Password:</b> ✅ Saved\n\n` +
-        `⏳ <b>Challenge starts:</b> ${startStr}\n\n` +
-        `⚠️ <b>IMPORTANT:</b> Do NOT change your investor password until the challenge ends and winners are announced. We pull your trade data automatically — if we can't access your account, you risk disqualification.\n\n` +
-        `⚠️ <i>Please read the rules before starting the challenge!</i>\n\n` +
-        `You can change your account number before the challenge starts.\n` +
-        switchText + linksText,
+        t(lang, 'reg_complete', {
+          nick: session.data.nickname || 'N/A',
+          email: session.data.email,
+          type: acctLabel,
+          number: session.data.account_number,
+          server: session.data.mt5_server || 'N/A',
+          startDate: startStr,
+        }) + linksText,
         { parse_mode: 'HTML', link_preview_options: { is_disabled: true }, ...Markup.inlineKeyboard(buttons) }
       );
     } catch (error: any) {
+      const lang: Lang = session?.data?.lang || 'en';
       if (error.code === '23505') {
         // Check if it's the nickname constraint
         if (error.constraint && error.constraint.includes('nickname')) {
           const session2 = userSessions.get(telegramId);
           if (session2) {
             session2.step = 'tc_enter_nickname';
-            await ctx.reply(`❌ <b>Nickname "${session2.data.nickname}" was just taken!</b> Choose a different one:`, { parse_mode: 'HTML' });
+            await ctx.reply(t(lang, 'nickname_taken', { name: session2.data.nickname }), { parse_mode: 'HTML' });
             return;
           }
         }
-        await ctx.reply('⚠️ You are already registered for this challenge.');
+        await ctx.reply(t(lang, 'error_already_registered'), { parse_mode: 'HTML' });
       } else {
         console.error('Registration error:', error);
         await ctx.reply('❌ Error completing registration. Please try again.');
@@ -1806,11 +1805,17 @@ export class TradingRegistrationHandler {
         });
       }
 
+      const lang: Lang = session.data.lang || 'en';
       const acctLabel = session.data.account_type === 'demo' ? 'Demo' : 'Real';
       userSessions.delete(telegramId);
       await ctx.reply(
-        `✅ <b>Results Submitted Successfully!</b>\n\n` +
-        `📋 <b>Your Submission:</b>\n📧 <b>Email:</b> ${session.data.email}\n🏦 <b>Account:</b> ${session.data.account_number}\n🖥️ <b>Server:</b> ${session.data.mt5_server || 'N/A'}\n📊 <b>Type:</b> ${acctLabel}\n💰 <b>Final Balance:</b> $${session.data.final_balance.toFixed(2)}\n📸 <b>Screenshot:</b> ✅\n\n⏳ Our team will review and announce results.\n<i>Thank you for participating!</i> 🎉`,
+        t(lang, 'submit_complete', {
+          email: session.data.email,
+          number: session.data.account_number,
+          server: session.data.mt5_server || 'N/A',
+          type: acctLabel,
+          balance: session.data.final_balance.toFixed(2),
+        }),
         { parse_mode: 'HTML' }
       );
     } catch (error: any) {
