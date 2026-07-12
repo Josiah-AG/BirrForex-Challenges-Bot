@@ -35,6 +35,9 @@ async function main() {
     // Make vpsPullScheduler accessible globally for the API force-pull endpoint
     (global as any).__vpsPullScheduler = vpsPullScheduler;
 
+    // Make bot accessible globally for the API gatekeeper and DM notifications
+    (global as any).__bot = bot;
+
     // Pass bot to evaluation engine for notifications
     const { evaluationEngine } = require('./services/wpEvaluationEngine');
     evaluationEngine.setBot(bot);

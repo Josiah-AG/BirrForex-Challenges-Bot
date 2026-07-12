@@ -10,6 +10,12 @@ import * as XLSX from 'xlsx';
 
 const app = express();
 
+/** Get the running bot's Telegram instance (set in index.ts via global) */
+function getTelegram(): any | null {
+  const bot = (global as any).__bot;
+  return bot?.bot?.telegram || null;
+}
+
 // ==================== SECURITY: RATE LIMITING & DDOS PROTECTION ====================
 
 // Global rate limit: 100 requests per minute per IP
@@ -1026,10 +1032,9 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/unverify`, adminIpCheck,
     let dmSent = false;
     if (!isDiscordChallenge && user.user_id) {
       try {
-        const botModule = require('../bot/bot');
-        const botInstance = botModule.bot || botModule.default;
-        if (botInstance && botInstance.bot) {
-          await botInstance.bot.telegram.sendMessage(
+        const telegram = getTelegram();
+        if (telegram) {
+          await telegram.sendMessage(
             user.user_id,
             `⚠️ <b>Registration Removed</b>\n<b>${user.title}</b>\n\n` +
             `Your registration (account ${user.account_number}) has been removed by the admin.\n\n` +
@@ -1095,10 +1100,9 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/disqualify`, adminIpChec
     const isDiscordUser = user.source === 'discord';
     if (!isDiscordUser && user.user_id) {
       try {
-        const botModule = require('../bot/bot');
-        const botInstance = botModule.bot || botModule.default;
-        if (botInstance && botInstance.bot) {
-          await botInstance.bot.telegram.sendMessage(
+        const telegram = getTelegram();
+        if (telegram) {
+          await telegram.sendMessage(
             user.user_id,
             `🚫 <b>Disqualified</b>\n<b>${user.title}</b>\n\n` +
             `Your account ${user.account_number} has been disqualified from the challenge.\n\n` +
@@ -1795,11 +1799,11 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenges`, adminIpCheck, async (req,
 
     // Send confirmation to admin Telegram
     try {
-      const botModule = require('../bot/bot');
-      const botInstance = botModule.bot || botModule.default;
-      if (botInstance && botInstance.bot) {
+      
+      
+      const telegram = getTelegram(); if (telegram) {
         const { Markup } = require('telegraf');
-        const msg = await botInstance.bot.telegram.sendMessage(
+        const msg = await telegram.sendMessage(
           config.adminUserId,
           gatekeeper.buildCreateMessage(data),
           {
@@ -1845,11 +1849,11 @@ app.patch(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/status`, adminIpCheck, 
     const token = gatekeeper.queueStatusChange(challengeId, title, currentStatus, status);
 
     try {
-      const botModule = require('../bot/bot');
-      const botInstance = botModule.bot || botModule.default;
-      if (botInstance && botInstance.bot) {
+      
+      
+      const telegram = getTelegram(); if (telegram) {
         const { Markup } = require('telegraf');
-        const msg = await botInstance.bot.telegram.sendMessage(
+        const msg = await telegram.sendMessage(
           config.adminUserId,
           gatekeeper.buildStatusChangeMessage(challengeId, title, currentStatus, status),
           {
@@ -1889,11 +1893,11 @@ app.delete(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id`, adminIpCheck, async 
 
     // Send confirmation to admin Telegram
     try {
-      const botModule = require('../bot/bot');
-      const botInstance = botModule.bot || botModule.default;
-      if (botInstance && botInstance.bot) {
+      
+      
+      const telegram = getTelegram(); if (telegram) {
         const { Markup } = require('telegraf');
-        const msg = await botInstance.bot.telegram.sendMessage(
+        const msg = await telegram.sendMessage(
           config.adminUserId,
           gatekeeper.buildDeleteMessage(challengeId, title),
           {

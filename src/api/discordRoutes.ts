@@ -5,6 +5,12 @@ import rateLimit from 'express-rate-limit';
 
 const router = Router();
 
+/** Get the running bot's Telegram instance (set in index.ts via global) */
+function getTelegram(): any | null {
+  const bot = (global as any).__bot;
+  return bot?.bot?.telegram || null;
+}
+
 // Helper to safely get route param as string
 function param(req: Request, name: string): string {
   return req.params[name] as string;
@@ -91,11 +97,11 @@ router.post('/challenges', async (req: Request, res: Response) => {
 
     // Send confirmation to admin Telegram
     try {
-      const botModule = require('../bot/bot');
-      const botInstance = botModule.bot || botModule.default;
-      if (botInstance && botInstance.bot) {
+      
+      
+      const telegram = getTelegram(); if (telegram) {
         const { Markup } = require('telegraf');
-        const msg = await botInstance.bot.telegram.sendMessage(
+        const msg = await telegram.sendMessage(
           process.env.ADMIN_USER_ID || '',
           gatekeeper.buildCreateMessage(data),
           {
@@ -762,11 +768,11 @@ router.delete('/challenges/:id', async (req: Request, res: Response) => {
 
     // Send confirmation to admin Telegram
     try {
-      const botModule = require('../bot/bot');
-      const botInstance = botModule.bot || botModule.default;
-      if (botInstance && botInstance.bot) {
+      
+      
+      const telegram = getTelegram(); if (telegram) {
         const { Markup } = require('telegraf');
-        const msg = await botInstance.bot.telegram.sendMessage(
+        const msg = await telegram.sendMessage(
           process.env.ADMIN_USER_ID || '',
           gatekeeper.buildDeleteMessage(challengeId, title),
           {
