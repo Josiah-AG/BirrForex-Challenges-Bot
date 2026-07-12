@@ -91,6 +91,7 @@ interface AccountToPull {
   nickname: string | null;
   isPriority: boolean; // Failed in last cycle
   lastPullAt: string | null; // null = never pulled before (first pull uses full range)
+  lastKnownBalance?: number | null; // for smart zero-trade detection
   attempts?: number; // non-credential retry attempts so far this cycle (max MAX_ACCOUNT_ATTEMPTS)
   excludedTerminalId?: number; // set after a -6 — this account must NOT go back to this terminal
   excludedSince?: number; // Date.now() when excludedTerminalId was set (starvation guard)
@@ -1155,6 +1156,22 @@ export class VpsPullScheduler {
         if (data.success) {
           const tradesCount = data.trades?.length || 0;
           const dealsCount = data.deals?.length || 0;
+          const balanceOpsCount = data.balance_ops?.length || 0;
+
+          // Smart zero-trade detection: if VPS returned 0 trades AND 0 balance ops,
+          // but the balance differs from what we last knew, the broker cache may not
+          // have loaded yet (false 0). Retry instead of accepting — unless this is
+          // the last attempt, in which case accept what we got.
+          if (tradesCount === 0 && balanceOpsCount === 0 && attempt < MAX_RETRIES_PER_ACCOUNT) {
+            const pulledBalance = data.balance ?? null;
+            const lastBalance = account.lastKnownBalance ?? null;
+            if (lastBalance !== null && pulledBalance !== null && Math.abs(pulledBalance - lastBalance) > 0.01) {
+              console.log(`⚠️ VPS Pull: ${account.accountNumber} returned 0 trades but balance changed (${lastBalance} → ${pulledBalance}) — retrying (attempt ${attempt}/${MAX_RETRIES_PER_ACCOUNT})`);
+              await this.delay(RETRY_DELAY_MS * attempt);
+              continue;
+            }
+          }
+
           if (tradesCount > 0) await this.saveTrades(account, data.trades);
           if (dealsCount > 0) await this.saveDeals(account, data.deals);
 
@@ -1676,7 +1693,7 @@ export class VpsPullScheduler {
     const passwordChangedFilter = "AND (r.pull_status IS NULL OR r.pull_status != 'password_changed')";
 
     const result = await db.query(
-      `SELECT r.id, r.account_number, r.mt5_server, r.investor_password, r.user_id, r.username, r.nickname, r.last_pull_at
+      `SELECT r.id, r.account_number, r.mt5_server, r.investor_password, r.user_id, r.username, r.nickname, r.last_pull_at, r.last_known_balance
        FROM trading_registrations r
        LEFT JOIN wp_leaderboard l ON r.id = l.registration_id
        WHERE r.challenge_id = $1
@@ -1703,6 +1720,7 @@ export class VpsPullScheduler {
       username: r.username,
       nickname: r.nickname,
       isPriority: false,
+      lastKnownBalance: r.last_known_balance != null ? parseFloat(r.last_known_balance) : null,
       // forceAll=true (admin full pull): set lastPullAt=null so pullSingleAccount
       // always does a full pull from challenge start, not a 5h incremental window
       lastPullAt: forceAll ? null : (r.last_pull_at ? new Date(r.last_pull_at).toISOString() : null),

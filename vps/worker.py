@@ -763,8 +763,10 @@ def do_pull(account: int, server: str, password: str, from_date: str = None, ord
 
     # ── Stabilization loop — wait until deal history is fully streamed ────────
     # Rules:
-    #   1. Never accept count=0 as "stable" — broker just hasn't started streaming
-    #   2. Require count>0 AND same value 3 consecutive reads before accepting
+    #   1. Treat count=0 the same as any other count — 0 is a valid stable result
+    #      (accounts with no trades should not spin for 20s waiting for data that
+    #      will never come). The scheduler's balance check handles false-0 detection.
+    #   2. Require same value 3 consecutive reads before accepting
     #   3. Max 20 iterations × 1s = 20s maximum wait
     prev_count = -1
     stable_streak = 0
@@ -773,21 +775,15 @@ def do_pull(account: int, server: str, password: str, from_date: str = None, ord
         trades_raw = mt5.history_deals_get(date_from, date_to)
         current_count = len(trades_raw) if trades_raw is not None else 0
 
-        if current_count == 0:
-            # Broker hasn't started streaming yet — reset and keep waiting
-            stable_streak = 0
-            prev_count = 0
-            time.sleep(1)
-            continue
-
         if current_count == prev_count:
             stable_streak += 1
-            if stable_streak >= 2:  # same count 3 times in a row AND > 0 — done
+            if stable_streak >= 2:  # same count 3 times in a row — done
                 break
         else:
-            stable_streak = 0  # count still growing — keep waiting
+            stable_streak = 0  # count changed — keep waiting
 
         prev_count = current_count
+        time.sleep(1)
         time.sleep(1)
 
     trades_list = []
@@ -968,12 +964,6 @@ def _wait_history_cache(term_info) -> None:
         deals = mt5.history_deals_get(datetime(2020, 1, 1, tzinfo=timezone.utc), date_to)
         current_count = len(deals) if deals is not None else 0
 
-        if current_count == 0:
-            stable_streak = 0
-            prev_count = 0
-            time.sleep(1)
-            continue
-
         if current_count == prev_count:
             stable_streak += 1
             if stable_streak >= 2:
@@ -1105,12 +1095,6 @@ def do_list_positions(account: int, server: str, password: str, from_date: str, 
     for _ in range(20):
         deals = mt5.history_deals_get(date_from, date_to)
         current_count = len(deals) if deals is not None else 0
-
-        if current_count == 0:
-            stable_streak = 0
-            prev_count = 0
-            time.sleep(1)
-            continue
 
         if current_count == prev_count:
             stable_streak += 1
