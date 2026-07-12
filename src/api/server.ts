@@ -1882,12 +1882,12 @@ app.patch(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/status`, adminIpCheck, 
 app.delete(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id`, adminIpCheck, async (req, res) => {
   try {
     const challengeId = parseInt(req.params.id);
-    const existing = await db.query(`SELECT title FROM trading_challenges WHERE id = $1`, [challengeId]);
+    const existing = await db.query(`SELECT title, status FROM trading_challenges WHERE id = $1`, [challengeId]);
     if (existing.rows.length === 0) return res.status(404).json({ error: 'Challenge not found' });
 
     const title = existing.rows[0].title;
 
-    // Queue for Telegram admin confirmation instead of immediate execution
+    // Queue for Telegram admin confirmation — only deletes on confirm
     const gatekeeper = require('../services/challengeGatekeeper');
     const token = gatekeeper.queueDelete(challengeId, title);
 
@@ -1912,7 +1912,7 @@ app.delete(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id`, adminIpCheck, async 
       }
     } catch (_e) { /* silent */ }
 
-    // Return fake success — challenge won't actually be deleted until confirmed
+    // Return fake success — challenge won't actually be deleted until confirmed on Telegram
     return res.json({ success: true, message: `"${title}" deleted` });
   } catch (error) {
     return res.status(500).json({ error: 'Internal server error' });

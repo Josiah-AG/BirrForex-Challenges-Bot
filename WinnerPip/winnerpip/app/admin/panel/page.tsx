@@ -2102,9 +2102,13 @@ function ChallengeSettingsPanel({ challengeId, challenges, onRefresh }: { challe
 
   const handleDelete = async () => {
     try {
-      await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}`, { method: "DELETE" });
-      setMsg("✅ Challenge deleted");
-      onRefresh();
+      const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}`, { method: "DELETE" });
+      if (res.ok) {
+        setMsg("✅ Challenge deleted");
+        setConfirmDelete(false);
+      } else {
+        setMsg("❌ Failed to delete");
+      }
     } catch { setMsg("❌ Failed"); }
   };
 
