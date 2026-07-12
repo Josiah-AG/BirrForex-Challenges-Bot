@@ -3412,6 +3412,8 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/full-pull`, adminIpCheck
  */
 app.get(`/api/admin/${ADMIN_SECRET_PATH}/pull-status`, adminIpCheck, async (req, res) => {
   try {
+    const filterChallengeId = req.query.challengeId ? parseInt(req.query.challengeId as string) : null;
+
     // Check if there's a currently running batch
     const running = await db.query(
       `SELECT id, challenge_id, total_accounts, started_at, phase, phase2_total, phase2_processed, phase2_round, phase_times
@@ -3420,6 +3422,10 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/pull-status`, adminIpCheck, async (req,
 
     if (running.rows.length > 0) {
       const batch = running.rows[0];
+      // If filtering by challenge and this batch is for a different challenge, report as not running
+      if (filterChallengeId && batch.challenge_id !== filterChallengeId) {
+        // Fall through to "not running" section below
+      } else {
       const elapsed = Math.round((Date.now() - new Date(batch.started_at).getTime()) / 1000);
       const phase = batch.phase || 'pulling';
 
@@ -3431,6 +3437,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/pull-status`, adminIpCheck, async (req,
         return res.json({
           isRunning: true,
           batchId: batch.id,
+          challengeId: batch.challenge_id,
           totalAccounts: batch.total_accounts,
           processed: batch.total_accounts,
           percent: 100,
@@ -3454,13 +3461,10 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/pull-status`, adminIpCheck, async (req,
       const processedCount = Math.min(parseInt(processed.rows[0].cnt), batch.total_accounts);
       const percent = batch.total_accounts > 0 ? Math.min(100, Math.round((processedCount / batch.total_accounts) * 100)) : 0;
 
-      // Phase 1 (pulling) is done when all accounts processed, but the batch row only
-      // flips to status='completed' once the scheduler finishes phase 2 + evaluation
-      // (completePullBatch()). Until then, just report phase 1 as 100% — no auto-complete
-      // here, that would hide the bar before phase 2 has a chance to start.
       return res.json({
         isRunning: true,
         batchId: batch.id,
+        challengeId: batch.challenge_id,
         totalAccounts: batch.total_accounts,
         processed: processedCount,
         percent,
@@ -3468,13 +3472,17 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/pull-status`, adminIpCheck, async (req,
         elapsedSeconds: elapsed,
         startedAt: batch.started_at,
       });
+      }
     }
 
-    // Not running — get last completed batch
-    const last = await db.query(
-      `SELECT id, challenge_id, total_accounts, successful, failed, new_trades_found, status, started_at, completed_at, phase, phase2_total, phase2_processed, phase2_round, phase_times
-       FROM wp_pull_batches ORDER BY started_at DESC LIMIT 1`
-    );
+    // Not running — get last completed batch (filtered by challenge if specified)
+    const lastQuery = filterChallengeId
+      ? `SELECT id, challenge_id, total_accounts, successful, failed, new_trades_found, status, started_at, completed_at, phase, phase2_total, phase2_processed, phase2_round, phase_times
+         FROM wp_pull_batches WHERE challenge_id = $1 ORDER BY started_at DESC LIMIT 1`
+      : `SELECT id, challenge_id, total_accounts, successful, failed, new_trades_found, status, started_at, completed_at, phase, phase2_total, phase2_processed, phase2_round, phase_times
+         FROM wp_pull_batches ORDER BY started_at DESC LIMIT 1`;
+    const lastParams = filterChallengeId ? [filterChallengeId] : [];
+    const last = await db.query(lastQuery, lastParams);
 
     if (last.rows.length > 0) {
       const b = last.rows[0];

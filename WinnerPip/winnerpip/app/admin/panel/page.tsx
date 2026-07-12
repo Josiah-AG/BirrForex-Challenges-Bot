@@ -2650,7 +2650,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
     setPolling(true);
     pollIntervalRef.current = window.setInterval(async () => {
       try {
-        const r = await fetch(`${apiUrl}/api/admin/${secretPath}/pull-status`);
+        const r = await fetch(`${apiUrl}/api/admin/${secretPath}/pull-status?challengeId=${challengeId}`);
         const d = await r.json();
         setPullProgress(d);
         if (!d.isRunning) {
@@ -2666,7 +2666,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
   useEffect(() => {
     async function check() {
       try {
-        const r = await fetch(`${apiUrl}/api/admin/${secretPath}/pull-status`);
+        const r = await fetch(`${apiUrl}/api/admin/${secretPath}/pull-status?challengeId=${challengeId}`);
         const d = await r.json();
         setPullProgress(d);
         if (d.isRunning) { startPolling(); }
@@ -3383,7 +3383,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
       {pullHistory.length === 0 && failedAccounts.length === 0 && (
         <div className="glass rounded-2xl border border-white/10 p-8 text-center">
           <Activity className="w-12 h-12 text-gray-600 mx-auto mb-3" />
-          <p className="text-gray-400 text-sm">No pull data yet. Pull cycles run every 4 hours (06:00, 10:00, 14:00, 18:00, 22:00, 02:00 EAT)</p>
+          <p className="text-gray-400 text-sm">No pull data yet. Pull cycles run every 4 hours (00:00, 04:00, 08:00, 12:00, 16:00, 20:00 EAT)</p>
         </div>
       )}
     </div>
