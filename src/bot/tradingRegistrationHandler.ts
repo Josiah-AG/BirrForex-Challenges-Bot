@@ -4,6 +4,7 @@ import { exnessService } from '../services/exnessService';
 import { vpsService, MT5_SERVERS, fuzzyMatchServer } from '../services/vpsService';
 import { config } from '../config';
 import { db } from '../database/db';
+import { t, Lang } from '../i18n';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -158,9 +159,26 @@ export class TradingRegistrationHandler {
       return;
     }
 
+    // === LANGUAGE SELECTION (first step) ===
+    userSessions.set(telegramId, { step: 'tc_select_lang', data: { challenge_id: challengeId } });
+    saveSessionsToDisk();
+    await ctx.reply(
+      t('en', 'lang_prompt'),
+      { parse_mode: 'HTML', ...Markup.inlineKeyboard([
+        [Markup.button.callback('🇬🇧 English', `tc_lang_en_${challengeId}`)],
+        [Markup.button.callback('🇪🇹 አማርኛ', `tc_lang_am_${challengeId}`)],
+      ]) }
+    );
+  }
+
+  /** Continue registration after language is selected */
+  private async continueRegistrationAfterLang(ctx: Context, telegramId: number, challengeId: number, lang: Lang) {
+    const challenge = await tradingChallengeService.getChallengeById(challengeId);
+    if (!challenge) { await ctx.reply(t(lang, 'error_challenge_not_found'), { parse_mode: 'HTML' }); return; }
+
     // Start registration flow
     if (challenge.type === 'hybrid') {
-      userSessions.set(telegramId, { step: 'tc_select_type', data: { challenge_id: challengeId } });
+      userSessions.set(telegramId, { step: 'tc_select_type', data: { challenge_id: challengeId, lang } });
       saveSessionsToDisk();
 
       const medals = ['🥇', '🥈', '🥉', '4️⃣', '5️⃣'];
@@ -192,9 +210,9 @@ export class TradingRegistrationHandler {
       );
     } else {
       const accountType = challenge.type as 'demo' | 'real';
-      userSessions.set(telegramId, { step: 'tc_enter_email', data: { challenge_id: challengeId, account_type: accountType } });
+      userSessions.set(telegramId, { step: 'tc_enter_email', data: { challenge_id: challengeId, account_type: accountType, lang } });
       saveSessionsToDisk();
-      await ctx.reply('📧 Please send your <b>Exness email address:</b>', { parse_mode: 'HTML' });
+      await ctx.reply(t(lang, 'email_prompt'), { parse_mode: 'HTML' });
     }
   }
 
@@ -368,6 +386,20 @@ export class TradingRegistrationHandler {
   async handleCallback(ctx: Context, data: string): Promise<boolean> {
     const telegramId = ctx.from!.id;
 
+    // Language selection callback
+    if (data.startsWith('tc_lang_')) {
+      const parts = data.split('_');
+      const lang = parts[2] as Lang; // 'en' or 'am'
+      const challengeId = parseInt(parts[3]);
+      await ctx.answerCbQuery();
+      const session = userSessions.get(telegramId);
+      if (session) {
+        session.data.lang = lang;
+      }
+      await this.continueRegistrationAfterLang(ctx, telegramId, challengeId, lang);
+      return true;
+    }
+
     // Account type selection for hybrid — then ask for email
     if (data.startsWith('tc_reg_demo_') || data.startsWith('tc_reg_real_')) {
       const parts = data.split('_');
@@ -377,8 +409,9 @@ export class TradingRegistrationHandler {
       if (!session) return true;
       session.data.account_type = accountType;
       session.step = 'tc_enter_email';
+      const lang: Lang = session.data.lang || 'en';
       await ctx.answerCbQuery();
-      await ctx.reply('📧 Please send your <b>Exness email address:</b>', { parse_mode: 'HTML' });
+      await ctx.reply(t(lang, 'email_prompt'), { parse_mode: 'HTML' });
       return true;
     }
 
@@ -653,25 +686,26 @@ export class TradingRegistrationHandler {
       // === NICKNAME STEP (after VPS verification) ===
       case 'tc_enter_nickname': {
         const nickname = text.trim();
+        const lang: Lang = session.data.lang || 'en';
         // Validate: 3-20 chars, alphanumeric + underscore
         if (nickname.length < 3 || nickname.length > 20) {
-          await ctx.reply('❌ Nickname must be 3-20 characters. Try again:');
+          await ctx.reply(t(lang, 'nickname_too_short'));
           return;
         }
         if (!/^[a-zA-Z0-9_]+$/.test(nickname)) {
-          await ctx.reply('❌ Only letters, numbers, and underscores allowed. Try again:');
+          await ctx.reply(t(lang, 'nickname_invalid_chars'));
           return;
         }
         // Check brand impersonation
         const { isBlockedNickname } = require('../utils/helpers');
         if (isBlockedNickname(nickname)) {
-          await ctx.reply('❌ You cannot use that nickname — it\'s too similar to our brand. Please choose a different nickname:');
+          await ctx.reply(t(lang, 'nickname_blocked'));
           return;
         }
         // Check uniqueness
         const taken = await tradingChallengeService.isNicknameTaken(session.data.challenge_id, nickname);
         if (taken) {
-          await ctx.reply(`❌ <b>"${nickname}"</b> is already taken. Choose a different nickname:`, { parse_mode: 'HTML' });
+          await ctx.reply(t(lang, 'nickname_taken', { name: nickname }), { parse_mode: 'HTML' });
           return;
         }
         session.data.nickname = nickname;
@@ -681,25 +715,27 @@ export class TradingRegistrationHandler {
       }
 
       case 'tc_enter_email': {
+        const lang: Lang = session.data.lang || 'en';
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        if (!emailRegex.test(text.trim())) { await ctx.reply('❌ Invalid email format. Please send a valid email address.'); return; }
+        if (!emailRegex.test(text.trim())) { await ctx.reply(t(lang, 'email_invalid')); return; }
         session.data.email = text.trim().toLowerCase();
         session.data.retry_count = 0;
         const existing = await tradingChallengeService.getRegistrationByEmail(session.data.challenge_id, session.data.email);
         if (existing) {
-          await ctx.reply('⚠️ <b>This email is already registered for this challenge.</b>\n\nIf you have another email, submit it below.\n<i>Contact @birrFXadmin if this is an error.</i>',
+          await ctx.reply(t(lang, 'email_already_registered'),
             { parse_mode: 'HTML', ...Markup.inlineKeyboard([[Markup.button.callback('📧 Submit Another Email', `tc_retry_email_${session.data.challenge_id}`)]]) });
           return;
         }
         session.step = 'tc_verifying_email';
-        await ctx.reply('⏳ <b>Verifying your account...</b>', { parse_mode: 'HTML' });
+        await ctx.reply(t(lang, 'email_verifying'), { parse_mode: 'HTML' });
         await this.verifyEmail(ctx, telegramId);
         break;
       }
 
       case 'tc_enter_account_number': {
         const acctNum = text.trim();
-        if (!/^\d+$/.test(acctNum)) { await ctx.reply('❌ Account number must be numeric. Try again:'); return; }
+        const lang: Lang = session.data.lang || 'en';
+        if (!/^\d+$/.test(acctNum)) { await ctx.reply(t(lang, 'account_number_invalid')); return; }
         session.data.account_number = acctNum;
 
         // For real accounts: verify allocation BEFORE asking for server/password
@@ -755,22 +791,24 @@ export class TradingRegistrationHandler {
       // === INVESTOR PASSWORD (NEW) ===
       case 'tc_enter_investor_password': {
         const password = text.trim();
-        if (password.length < 3) { await ctx.reply('❌ Password seems too short. Please enter your investor password:'); return; }
+        const lang: Lang = session.data.lang || 'en';
+        if (password.length < 3) { await ctx.reply(t(lang, 'password_too_short')); return; }
         session.data.investor_password = password;
         session.step = 'tc_confirm_investor_password';
-        await ctx.reply('🔑 Enter the investor password <b>again</b> to confirm:', { parse_mode: 'HTML' });
+        await ctx.reply(t(lang, 'password_confirm_prompt'), { parse_mode: 'HTML' });
         break;
       }
 
       case 'tc_confirm_investor_password': {
+        const lang: Lang = session.data.lang || 'en';
         if (text.trim() !== session.data.investor_password) {
           session.step = 'tc_enter_investor_password';
-          await ctx.reply('❌ <b>Passwords don\'t match.</b> Please enter your investor password again:', { parse_mode: 'HTML' });
+          await ctx.reply(t(lang, 'password_mismatch'), { parse_mode: 'HTML' });
           return;
         }
         // VPS Verification
         session.step = 'tc_verifying_vps';
-        await ctx.reply('⏳ <b>Verifying MT5 connection...</b>\n<i>This may take up to 30 seconds.</i>', { parse_mode: 'HTML' });
+        await ctx.reply(t(lang, 'vps_verifying'), { parse_mode: 'HTML' });
         await this.verifyVpsConnection(ctx, telegramId);
         break;
       }
@@ -1604,17 +1642,10 @@ export class TradingRegistrationHandler {
   private async askForNickname(ctx: Context, telegramId: number) {
     const session = userSessions.get(telegramId);
     if (!session) return;
+    const lang: Lang = session.data.lang || 'en';
 
     session.step = 'tc_enter_nickname';
-    await ctx.reply(
-      '🏷️ Almost done! Choose a <b>Challenge Nickname</b>\n\n' +
-      'This will be displayed on the leaderboard instead of your real name.\n' +
-      '• 3-20 characters\n' +
-      '• Letters, numbers, underscores only\n' +
-      '• Must be unique\n\n' +
-      'Send your nickname:',
-      { parse_mode: 'HTML' }
-    );
+    await ctx.reply(t(lang, 'nickname_prompt'), { parse_mode: 'HTML' });
   }
 
   // ==================== COMPLETE REGISTRATION ====================
