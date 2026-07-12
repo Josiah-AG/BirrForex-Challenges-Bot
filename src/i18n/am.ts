@@ -80,6 +80,27 @@ export const am: Record<string, string> = {
   password_update_prompt: '⚠️ Investor ፓስዎርድዎ መዘመን አለበት።\n\nአዲሱን investor ፓስዎርድዎን ያስገቡ:',
   password_update_success: '✅ <b>ፓስዎርድ በተሳካ ሁኔታ ተዘምኗል!</b>\n\nአካውንትዎ አሁን ተደራሽ ነው። የትሬድ ታሪክዎን እየወሰድን ነው።\n\n⚠️ <b>ያስታውሱ:</b> ቻሌንጁ እስኪጠናቀቅ ድረስ investor ፓስዎርድዎን እንደገና አይቀይሩ።',
 
+  // Change account flow
+  change_acct_title: '🔄 <b>አካውንት ቁጥር ቀይር</b>\n\n📋 አሁን ያለው: {number} ({server})\n\nአዲሱን <b>MT5 {type} አካውንት ቁጥር</b> ያስገቡ:\n⚠️ <i>MT5 ትሬዲንግ አካውንት መሆን አለበት።</i>',
+  change_acct_number_invalid: '❌ የአካውንት ቁጥር ቁጥር ብቻ መሆን አለበት። እንደገና ሞክሩ:',
+  change_acct_password_prompt: '🖥️ ሰርቨር: <b>{server}</b>\n\n🔑 ለአዲሱ አካውንት የ<b>Investor (Read-Only) ፓስዎርድ</b> ያስገቡ:\n⚠️ <i>ዋና የአካውንቶ ፓስዎርድዎ አይደለም።</i>',
+  change_acct_password_too_short: '❌ ፓስዎርድ አጭር ይመስላል። Investor ፓስዎርድዎን ያስገቡ:',
+  change_acct_password_confirm: '🔑 ለማረጋገጥ Investor ፓስዎርድዎን <b>እንደገና</b> ያስገቡ:',
+  change_acct_password_mismatch: '❌ <b>ፓስዎርዶች አይዛመዱም።</b> Investor ፓስዎርድዎን እንደገና ያስገቡ:',
+  change_acct_success: '✅ <b>አካውንት በተሳካ ሁኔታ ተቀይሯል!</b>\n\n🏦 አዲስ አካውንት: <b>{number}</b>\n🖥️ ሰርቨር: <b>{server}</b>\n\n⚠️ ቻሌንጁ እስኪጠናቀቅ ድረስ investor ፓስዎርድዎን አይቀይሩ።',
+
+  // Verification errors
+  email_verified: '✅ <b>ኢሜል ተረጋግጧል!</b>\n\nአሁን የ<b>MT5 {type} አካውንት ቁጥርዎን</b> ያስገቡ:\n⚠️ MT5 ትሬዲንግ አካውንት መሆን አለበት።\n<i>ቁጥር ብቻ ይቀበላል።</i>',
+  not_allocated: '⚠️ የExness አካውንትዎ በBirrForex ስር አልተመዘገበም።\n\nበመጀመሪያ ኢሜልዎን በትክክል መጻፍዎን ያረጋግጡ።\n\n✨ <b>አማራጭ 1: አዲስ Exness አካውንት ይፍጠሩ</b>\n🔗 {signupLink}\n\n🔄 <b>አማራጭ 2: ፓርትነርዎን ወደ BirrForex ይቀይሩ</b>\n➡️ ወደ Exness ይግቡ → Live Chat → "Change Partner"\n➡️ ሊንክ: {partnerLink}\n\nካጠናቀቁ በኋላ እንደገና ይሞክሩ:',
+  kyc_failed: '❌ የExness አካውንትዎ ሙሉ በሙሉ ቬሪፋይድ አይደለም።\n\nእባክዎ KYC ያጠናቅቁ:\n➡️ Exness → Settings → Verification\n\nቬሪፊኬሽን ሲጨርሱ እንደገና ይሞክሩ:',
+  real_acct_not_mt5: '⚠️ <b>ይህ አካውንት MT5 አይደለም።</b> MT5 አካውንት ብቻ ነው ሚፈቀደው።\nአዲስ MT5 Real አካውንት ይክፈቱ እና እንደገና ይሞክሩ።',
+  real_acct_not_allocated: '⚠️ <b>ይህ real አካውንት በBirrForex ስር አይደለም።</b>\nበExness ውስጥ አዲስ Real አካውንት ይክፈቱ እና ገንዘብዎን ወደዚያ ያስተላልፉ።',
+  real_acct_not_allocated_retry: '⚠️ <b>አካውንት አሁንም በBirrForex ስር አይደለም።</b>\nጥቂት ደቂቃዎች ሊወስድ ይችላል። ከ15 ደቂቃ በኋላ ይመለሱ።',
+  acct_ownership_mismatch: '⚠️ <b>ይህ አካውንት ከተመዘገቡበት ኢሜል ጋር አይዛመድም።</b>\n\nትክክለኛውን MT5 Real አካውንት ቁጥር ያስገቡ:',
+  system_busy_retry: '⚠️ ሲስተም ተጨናንቋል። ከ3 ሰከንድ በኋላ እንደገና ይሞክራል...',
+  system_busy_later: '⚠️ ሲስተም ተጨናንቋል። ከ30 ደቂቃ በኋላ እንደገና ይሞክሩ።',
+  manual_verification: '⚠️ አውቶማቲክ ማረጋገጫ እየሰራ አይደለም። ማኗል እናረጋግጣለን።\n\n📧 ኢሜል: {email}\n\nየ<b>MT5 አካውንት ቁጥርዎን</b> ያስገቡ:',
+
   // Errors
   error_challenge_not_found: '❌ ቻሌንጅ አልተገኘም።',
   error_registration_closed: '❌ <b>ምዝገባ ተዘግቷል።</b>\nይህ ቻሌንጅ ቀድሞ ጀምሯል።\n\nለሚቀጥለው ቻሌንጅ ይጠብቁ <b>@BirrForex!</b>',

@@ -216,6 +216,100 @@ If they choose Amharic, all DM interactions (registration + submission + DM noti
 
 ---
 
+## Change Account Flow
+
+### Change Account Start
+
+| English | አማርኛ |
+|---------|-------|
+| 🔄 **Change Account Number** | 🔄 **አካውንት ቁጥር ቀይር** |
+| 📋 Current: {number} ({server}) | 📋 አሁን ያለው: {number} ({server}) |
+| Send your new **MT5 {type} Account Number:** | አዲሱን **MT5 {type} አካውንት ቁጥር** ያስገቡ: |
+| ⚠️ Must be an MT5 trading account. | ⚠️ MT5 ትሬዲንግ አካውንት መሆን አለበት። |
+| ❌ Account number must be numeric. Try again: | ❌ የአካውንት ቁጥር ቁጥር ብቻ መሆን አለበት። እንደገና ሞክሩ: |
+
+### Change Account — Server & Password
+
+| English | አማርኛ |
+|---------|-------|
+| 🖥️ Server: **{name}** | 🖥️ ሰርቨር: **{name}** |
+| 🔑 Enter the **Investor (Read-Only) Password** for the new account: | 🔑 ለአዲሱ አካውንት የ**Investor (Read-Only) ፓስዎርድ** ያስገቡ: |
+| ⚠️ NOT your master/trading password. | ⚠️ ዋና የአካውንቶ ፓስዎርድዎ አይደለም። |
+| ❌ Password seems too short. Please enter the investor password: | ❌ ፓስዎርድ አጭር ይመስላል። Investor ፓስዎርድዎን ያስገቡ: |
+| 🔑 Enter the investor password **again** to confirm: | 🔑 ለማረጋገጥ Investor ፓስዎርድዎን **እንደገና** ያስገቡ: |
+| ❌ **Passwords don't match.** | ❌ **ፓስዎርዶች አይዛመዱም።** |
+
+### Change Account — Success
+
+| English | አማርኛ |
+|---------|-------|
+| ✅ **Account Changed Successfully!** | ✅ **አካውንት በተሳካ ሁኔታ ተቀይሯል!** |
+| New account: **{number}** | አዲስ አካውንት: **{number}** |
+| Server: **{server}** | ሰርቨር: **{server}** |
+| ⚠️ Do NOT change your investor password until the challenge ends. | ⚠️ ቻሌንጁ እስኪጠናቀቅ ድረስ investor ፓስዎርድዎን አይቀይሩ። |
+
+---
+
+## Verification Errors (Email, Allocation, KYC)
+
+### Email Verified
+
+| English | አማርኛ |
+|---------|-------|
+| ✅ **Email verified!** Now send your **MT5 {type} Account Number:** | ✅ **ኢሜል ተረጋግጧል!** አሁን የ**MT5 {type} አካውንት ቁጥርዎን** ያስገቡ: |
+| ⚠️ Must be an MT5 trading account. Only numeric account numbers accepted. | ⚠️ MT5 ትሬዲንግ አካውንት መሆን አለበት። ቁጥር ብቻ ይቀበላል። |
+
+### Not Allocated (Not under BirrForex)
+
+| English | አማርኛ |
+|---------|-------|
+| ⚠️ Your Exness account is not registered under BirrForex. | ⚠️ የExness አካውንትዎ በBirrForex ስር አልተመዘገበም። |
+| First, make sure you spelled your email correctly. | በመጀመሪያ ኢሜልዎን በትክክል መጻፍዎን ያረጋግጡ። |
+| ✨ **Option 1: Create a New Exness Account** | ✨ **አማራጭ 1: አዲስ Exness አካውንት ይፍጠሩ** |
+| 🔄 **Option 2: Change Your Partner to BirrForex** | 🔄 **አማራጭ 2: ፓርትነርዎን ወደ BirrForex ይቀይሩ** |
+| ➡️ Log in → Live Chat → "Change Partner" | ➡️ ወደ Exness ይግቡ → Live Chat → "Change Partner" |
+| After completing, try again: | ካጠናቀቁ በኋላ እንደገና ይሞክሩ: |
+
+### KYC Failed
+
+| English | አማርኛ |
+|---------|-------|
+| ❌ Your Exness account is not fully verified. | ❌ የExness አካውንትዎ ሙሉ በሙሉ ቬሪፋይድ አይደለም። |
+| Please complete KYC: ➡️ Exness → Settings → Verification | እባክዎ KYC ያጠናቅቁ: ➡️ Exness → Settings → Verification |
+| Once verified, try again: | ቬሪፊኬሽን ሲጨርሱ እንደገና ይሞክሩ: |
+
+### Real Account Not MT5
+
+| English | አማርኛ |
+|---------|-------|
+| ⚠️ **This account is not MT5.** Only MT5 accounts allowed. | ⚠️ **ይህ አካውንት MT5 አይደለም።** MT5 አካውንት ብቻ ነው ሚፈቀደው። |
+| Create a new MT5 Real account and try again. | አዲስ MT5 Real አካውንት ይክፈቱ እና እንደገና ይሞክሩ። |
+
+### Real Account Not Under BirrForex
+
+| English | አማርኛ |
+|---------|-------|
+| ⚠️ **This real account is not under BirrForex.** | ⚠️ **ይህ real አካውንት በBirrForex ስር አይደለም።** |
+| Create a new Real Account within your Exness and transfer funds there. | በExness ውስጥ አዲስ Real አካውንት ይክፈቱ እና ገንዘብዎን ወደዚያ ያስተላልፉ። |
+| ⚠️ **Account not yet under BirrForex.** It may take a few minutes. Come back after 15 minutes. | ⚠️ **አካውንት አሁንም በBirrForex ስር አይደለም።** ጥቂት ደቂቃዎች ሊወስድ ይችላል። ከ15 ደቂቃ በኋላ ይመለሱ። |
+
+### Account Ownership Mismatch
+
+| English | አማርኛ |
+|---------|-------|
+| ⚠️ **This account does not belong to the email you registered with.** | ⚠️ **ይህ አካውንት ከተመዘገቡበት ኢሜል ጋር አይዛመድም።** |
+| Send your correct MT5 Real Account Number: | ትክክለኛውን MT5 Real አካውንት ቁጥር ያስገቡ: |
+
+### System Errors
+
+| English | አማርኛ |
+|---------|-------|
+| ⚠️ System busy. Trying again in 3 seconds... | ⚠️ ሲስተም ተጨናንቋል። ከ3 ሰከንድ በኋላ እንደገና ይሞክራል... |
+| ⚠️ System busy. Please try again after 30 minutes. | ⚠️ ሲስተም ተጨናንቋል። ከ30 ደቂቃ በኋላ እንደገና ይሞክሩ። |
+| ⚠️ Automatic verification unavailable. We'll verify manually. | ⚠️ አውቶማቲክ ማረጋገጫ እየሰራ አይደለም። ማኗል እናረጋግጣለን። |
+
+---
+
 ## Implementation Notes
 
 - Store language preference in session: `session.data.lang = 'am' | 'en'`

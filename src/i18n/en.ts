@@ -80,6 +80,27 @@ export const en: Record<string, string> = {
   password_update_prompt: '⚠️ Your investor password needs to be updated.\n\nEnter your new investor password:',
   password_update_success: '✅ <b>Password updated successfully!</b>\n\nYour account is now accessible again. We\'re pulling your full trade history now.\n\n⚠️ <b>Remember:</b> Do NOT change your investor password again until the challenge ends.',
 
+  // Change account flow
+  change_acct_title: '🔄 <b>Change Account Number</b>\n\n📋 Current: {number} ({server})\n\nSend your new <b>MT5 {type} Account Number:</b>\n⚠️ <i>Must be an MT5 trading account.</i>',
+  change_acct_number_invalid: '❌ Account number must be numeric. Try again:',
+  change_acct_password_prompt: '🖥️ Server: <b>{server}</b>\n\n🔑 Enter the <b>Investor (Read-Only) Password</b> for the new account:\n⚠️ <i>NOT your master/trading password.</i>',
+  change_acct_password_too_short: '❌ Password seems too short. Please enter the investor password:',
+  change_acct_password_confirm: '🔑 Enter the investor password <b>again</b> to confirm:',
+  change_acct_password_mismatch: '❌ <b>Passwords don\'t match.</b> Please enter the investor password again:',
+  change_acct_success: '✅ <b>Account Changed Successfully!</b>\n\n🏦 New account: <b>{number}</b>\n🖥️ Server: <b>{server}</b>\n\n⚠️ Do NOT change your investor password until the challenge ends.',
+
+  // Verification errors
+  email_verified: '✅ <b>Email verified!</b>\n\nNow send your <b>MT5 {type} Account Number:</b>\n⚠️ Must be an MT5 trading account.\n<i>Only numeric account numbers accepted.</i>',
+  not_allocated: '⚠️ Your Exness account is not registered under BirrForex.\n\nFirst, make sure you spelled your email correctly.\n\n✨ <b>Option 1: Create a New Exness Account</b>\n🔗 {signupLink}\n\n🔄 <b>Option 2: Change Your Partner to BirrForex</b>\n➡️ Log in → Live Chat → "Change Partner"\n➡️ Paste: {partnerLink}\n\nAfter completing, try again:',
+  kyc_failed: '❌ Your Exness account is not fully verified.\n\nPlease complete KYC:\n➡️ Exness → Settings → Verification\n\nOnce verified, try again:',
+  real_acct_not_mt5: '⚠️ <b>This account is not MT5.</b> Only MT5 accounts allowed.\nCreate a new MT5 Real account and try again.',
+  real_acct_not_allocated: '⚠️ <b>This real account is not under BirrForex.</b>\nCreate a new Real Account within your Exness and transfer funds there.',
+  real_acct_not_allocated_retry: '⚠️ <b>Account not yet under BirrForex.</b>\nIt may take a few minutes. Come back after 15 minutes.',
+  acct_ownership_mismatch: '⚠️ <b>This account does not belong to the email you registered with.</b>\n\nSend your correct MT5 Real Account Number:',
+  system_busy_retry: '⚠️ System busy. Trying again in 3 seconds...',
+  system_busy_later: '⚠️ System busy. Please try again after 30 minutes.',
+  manual_verification: '⚠️ Automatic verification unavailable. We\'ll verify manually.\n\n📧 Email: {email}\n\nPlease send your <b>MT5 account number:</b>',
+
   // Errors
   error_challenge_not_found: '❌ Challenge not found.',
   error_registration_closed: '❌ <b>Registration is closed.</b>\nThis challenge has already started.\n\nStay tuned for the next challenge on <b>@BirrForex!</b>',

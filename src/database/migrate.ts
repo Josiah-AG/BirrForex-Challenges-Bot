@@ -437,6 +437,10 @@ async function migrate() {
     await db.query(`ALTER TABLE trading_challenges ADD COLUMN IF NOT EXISTS first_pull_time VARCHAR(5) DEFAULT '00:00';`).catch(() => {});
     console.log('✅ pull_times column migration OK');
 
+    // Language preference for registration DM flow
+    await db.query(`ALTER TABLE trading_registrations ADD COLUMN IF NOT EXISTS lang VARCHAR(2) DEFAULT 'en';`).catch(() => {});
+    console.log('✅ lang column migration OK');
+
     console.log('✅ Database migration completed successfully!');
     process.exit(0);
   } catch (error) {

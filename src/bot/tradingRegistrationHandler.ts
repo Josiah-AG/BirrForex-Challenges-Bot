@@ -528,9 +528,13 @@ export class TradingRegistrationHandler {
       }
       const reg = await tradingChallengeService.getRegistration(challengeId, telegramId);
       if (!reg) return true;
-      userSessions.set(telegramId, { step: 'tc_change_acct_number', data: { challenge_id: challengeId, registration_id: reg.id, account_type: reg.account_type } });
+      // Get lang from registration if stored, otherwise default to 'en'
+      const langResult = await db.query('SELECT lang FROM trading_registrations WHERE id = $1', [reg.id]);
+      const lang: Lang = (langResult.rows[0]?.lang as Lang) || 'en';
+      userSessions.set(telegramId, { step: 'tc_change_acct_number', data: { challenge_id: challengeId, registration_id: reg.id, account_type: reg.account_type, lang } });
       await ctx.answerCbQuery();
-      await ctx.reply(`Send your new <b>MT5 ${reg.account_type === 'demo' ? 'Demo' : 'Real'} Account Number:</b>\n⚠️ <i>Must be an MT5 trading account.</i>`, { parse_mode: 'HTML' });
+      const typeLabel = reg.account_type === 'demo' ? 'Demo' : 'Real';
+      await ctx.reply(t(lang, 'change_acct_title', { number: reg.account_number, server: reg.mt5_server || 'N/A', type: typeLabel }), { parse_mode: 'HTML' });
       return true;
     }
 
@@ -816,7 +820,8 @@ export class TradingRegistrationHandler {
       // === CHANGE ACCOUNT FLOW ===
       case 'tc_change_acct_number': {
         const newAcct = text.trim();
-        if (!/^\d+$/.test(newAcct)) { await ctx.reply('❌ Account number must be numeric. Try again:'); return; }
+        const lang: Lang = session.data.lang || 'en';
+        if (!/^\d+$/.test(newAcct)) { await ctx.reply(t(lang, 'change_acct_number_invalid')); return; }
         session.data.new_account_number = newAcct;
         // Show server buttons (same as registration flow)
         await this.showServerButtons(ctx, telegramId);
@@ -860,10 +865,11 @@ export class TradingRegistrationHandler {
 
       case 'tc_change_acct_investor_password': {
         const password = text.trim();
-        if (password.length < 3) { await ctx.reply('❌ Password seems too short. Please enter the investor password:'); return; }
+        const lang: Lang = session.data.lang || 'en';
+        if (password.length < 3) { await ctx.reply(t(lang, 'change_acct_password_too_short')); return; }
         session.data.new_investor_password = password;
         session.step = 'tc_change_acct_confirm_investor_password';
-        await ctx.reply('🔑 Enter the investor password <b>again</b> to confirm:', { parse_mode: 'HTML' });
+        await ctx.reply(t(lang, 'change_acct_password_confirm'), { parse_mode: 'HTML' });
         break;
       }
 
@@ -1339,6 +1345,7 @@ export class TradingRegistrationHandler {
 
     const maxRetries = 3;
     const retryDelay = 3000;
+    const lang: Lang = session.data.lang || 'en';
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       const result = await exnessService.verifyEmail(session.data.email, session.data.account_type);
@@ -1347,10 +1354,7 @@ export class TradingRegistrationHandler {
         session.data.client_uid = result.clientUid;
         session.step = 'tc_enter_account_number';
         const acctType = session.data.account_type === 'demo' ? 'Demo' : 'Real';
-        await ctx.reply(
-          `✅ <b>Email verified!</b>\n\nNow send your <b>MT5 ${acctType} Account Number:</b>\n⚠️ Must be an MT5 trading account.\n<i>Only numeric account numbers accepted.</i>`,
-          { parse_mode: 'HTML' }
-        );
+        await ctx.reply(t(lang, 'email_verified', { type: acctType }), { parse_mode: 'HTML' });
         return;
       }
 
@@ -1361,12 +1365,7 @@ export class TradingRegistrationHandler {
         const challengeId = session.data.challenge_id;
         const contactAdmin = session.data.allocation_fail_count >= 2 ? `\n\n<b>Contact @birrFXadmin with a screenshot if you believe this is a mistake.</b>` : '';
         await ctx.reply(
-          `⚠️ Your Exness account is not registered under BirrForex.\n\n` +
-          `First, make sure you spelled your email correctly.\n\n` +
-          `✨ <b>Option 1: Create a New Exness Account</b>\n🔗 ${config.exnessPartnerSignupLink}\n\n` +
-          `🔄 <b>Option 2: Change Your Partner to BirrForex</b>\n➡️ Log in → Live Chat → "Change Partner"\n➡️ Paste: ${config.exnessPartnerChangeLink}\n` +
-          (config.partnerChangeGuideLink ? `📋 <a href="${config.partnerChangeGuideLink}">Full guide</a>\n` : '') +
-          `\nAfter completing, try again:` + contactAdmin,
+          t(lang, 'not_allocated', { signupLink: config.exnessPartnerSignupLink, partnerLink: config.exnessPartnerChangeLink }) + contactAdmin,
           { parse_mode: 'HTML', link_preview_options: { is_disabled: true }, ...Markup.inlineKeyboard([[Markup.button.callback('📧 Submit Email Again', `tc_retry_email_${challengeId}`)]]) }
         );
         return;
@@ -1376,8 +1375,7 @@ export class TradingRegistrationHandler {
         await tradingChallengeService.updateDailyStat(session.data.challenge_id, 'kyc_failures');
         await tradingChallengeService.logFailedAttempt(session.data.challenge_id, telegramId, ctx.from!.username || null, session.data.email, 'kyc');
         const challengeId = session.data.challenge_id;
-        await ctx.reply(
-          `❌ Your Exness account is not fully verified.\n\nPlease complete KYC:\n➡️ Exness → Settings → Verification\n\nOnce verified, try again:`,
+        await ctx.reply(t(lang, 'kyc_failed'),
           { parse_mode: 'HTML', ...Markup.inlineKeyboard([[Markup.button.callback('📧 Submit Email Again', `tc_retry_email_${challengeId}`)]]) }
         );
         return;
@@ -1393,7 +1391,7 @@ export class TradingRegistrationHandler {
 
       // API error — retry
       if (attempt < maxRetries) {
-        await ctx.reply(attempt === 1 ? '⚠️ System busy. Trying again in 3 seconds...' : '⚠️ Trying one more time...');
+        await ctx.reply(attempt === 1 ? t(lang, 'system_busy_retry') : t(lang, 'system_busy_retry'));
         await new Promise(r => setTimeout(r, retryDelay));
       }
     }
@@ -1403,9 +1401,9 @@ export class TradingRegistrationHandler {
     session.data.retry_count = (session.data.retry_count || 0) + 1;
     if (session.data.retry_count >= 2) {
       session.step = 'tc_manual_account';
-      await ctx.reply(`⚠️ Automatic verification unavailable. We'll verify manually.\n\n📧 Email: ${session.data.email}\n\nPlease send your <b>MT5 account number:</b>`, { parse_mode: 'HTML' });
+      await ctx.reply(t(lang, 'manual_verification', { email: session.data.email }), { parse_mode: 'HTML' });
     } else {
-      await ctx.reply('⚠️ System busy. Please try again after 30 minutes.',
+      await ctx.reply(t(lang, 'system_busy_later'),
         Markup.inlineKeyboard([[Markup.button.callback('🔄 Try Again', `tc_try_again_${challengeId}`)]]));
     }
   }
@@ -1460,11 +1458,12 @@ export class TradingRegistrationHandler {
 
     const result = await exnessService.verifyRealAccount(session.data.account_number);
     const challengeId = session.data.challenge_id;
+    const lang: Lang = session.data.lang || 'en';
 
     if (result.status === 'allocated_mt5') {
       if (result.data?.client_uid && session.data.client_uid && result.data.client_uid !== session.data.client_uid) {
         session.step = 'tc_enter_account_number';
-        await ctx.reply('⚠️ <b>This account does not belong to the email you registered with.</b>\n\nSend your correct MT5 Real Account Number:',
+        await ctx.reply(t(lang, 'acct_ownership_mismatch'),
           { parse_mode: 'HTML', ...Markup.inlineKeyboard([[Markup.button.callback('📝 Submit New Real Account', `tc_new_real_acct_${challengeId}`)]]) });
         return;
       }
@@ -1475,7 +1474,7 @@ export class TradingRegistrationHandler {
 
     if (result.status === 'allocated_not_mt5') {
       session.step = 'tc_enter_account_number';
-      await ctx.reply('⚠️ <b>This account is not MT5.</b> Only MT5 accounts allowed.\nCreate a new MT5 Real account and try again.',
+      await ctx.reply(t(lang, 'real_acct_not_mt5'),
         { parse_mode: 'HTML', ...Markup.inlineKeyboard([[Markup.button.callback('📝 Submit New Real Account', `tc_new_real_acct_${challengeId}`)]]) });
       return;
     }
@@ -1486,8 +1485,8 @@ export class TradingRegistrationHandler {
       await tradingChallengeService.updateDailyStat(session.data.challenge_id, 'real_acct_failures');
       await tradingChallengeService.logFailedAttempt(session.data.challenge_id, telegramId, ctx.from!.username || null, session.data.email, 'real_acct');
       const msg = session.data.real_acct_retry >= 2
-        ? '⚠️ <b>Account not yet under BirrForex.</b>\nIt may take a few minutes. Come back after 15 minutes.'
-        : '⚠️ <b>This real account is not under BirrForex.</b>\nCreate a new Real Account within your Exness and transfer funds there.';
+        ? t(lang, 'real_acct_not_allocated_retry')
+        : t(lang, 'real_acct_not_allocated');
       await ctx.reply(msg, { parse_mode: 'HTML', ...Markup.inlineKeyboard([[Markup.button.callback('📝 Submit New Real Account', `tc_new_real_acct_${challengeId}`)]]) });
       return;
     }
@@ -1670,10 +1669,10 @@ export class TradingRegistrationHandler {
         client_uid: session.data.client_uid || null,
       });
 
-      // Save investor password, cent flag, account_subtype, and registration balance
+      // Save investor password, cent flag, account_subtype, registration balance, and lang
       if (session.data.investor_password) {
-        await db.query('UPDATE trading_registrations SET investor_password = $1, connection_verified = true, connection_verified_at = NOW(), is_cent = $3, account_subtype = $4, registration_balance = $5, last_known_balance = $5 WHERE id = $2',
-          [session.data.investor_password, reg.id, session.data.is_cent || false, session.data.account_subtype || 'standard', session.data.registration_balance ?? null]);
+        await db.query('UPDATE trading_registrations SET investor_password = $1, connection_verified = true, connection_verified_at = NOW(), is_cent = $3, account_subtype = $4, registration_balance = $5, last_known_balance = $5, lang = $6 WHERE id = $2',
+          [session.data.investor_password, reg.id, session.data.is_cent || false, session.data.account_subtype || 'standard', session.data.registration_balance ?? null, session.data.lang || 'en']);
       }
 
       // Remove from failed attempts if they were there
