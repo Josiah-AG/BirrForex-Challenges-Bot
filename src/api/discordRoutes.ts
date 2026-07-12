@@ -78,36 +78,50 @@ router.post('/challenges', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Type must be demo, real, or hybrid' });
     }
 
-    const result = await db.query(
-      `INSERT INTO trading_challenges 
-       (title, type, status, start_date, end_date, registration_deadline, starting_balance, target_balance,
-        prize_pool_text, real_winners_count, demo_winners_count, real_prizes, demo_prizes,
-        source, team_only, announcement_posted)
-       VALUES ($1, $2, 'draft', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'discord', true, false)
-       RETURNING *`,
-      [
-        title, type, start_date, end_date,
-        registration_deadline || end_date,
-        starting_balance, target_balance || 0,
-        prize_pool_text || '',
-        real_winners_count || 0, demo_winners_count || 0,
-        JSON.stringify(real_prizes || []), JSON.stringify(demo_prizes || []),
-      ]
-    );
+    // Queue for Telegram admin confirmation instead of immediate execution
+    const gatekeeper = require('../services/challengeGatekeeper');
+    const data = {
+      title, type, source: 'discord', team_only: true,
+      start_date, end_date, registration_deadline,
+      starting_balance, target_balance,
+      prize_pool_text, real_winners_count, demo_winners_count,
+      real_prizes, demo_prizes,
+    };
+    const token = gatekeeper.queueCreate(data);
 
-    const challenge = result.rows[0];
+    // Send confirmation to admin Telegram
+    try {
+      const botModule = require('../bot/bot');
+      const botInstance = botModule.bot || botModule.default;
+      if (botInstance && botInstance.bot) {
+        const { Markup } = require('telegraf');
+        const msg = await botInstance.bot.telegram.sendMessage(
+          process.env.ADMIN_USER_ID || '',
+          gatekeeper.buildCreateMessage(data),
+          {
+            parse_mode: 'HTML',
+            ...Markup.inlineKeyboard([
+              [Markup.button.callback('✅ Confirm Create', `gate_approve_${token}`)],
+              [Markup.button.callback('❌ Reject', `gate_reject_${token}`)],
+            ]),
+          }
+        );
+        gatekeeper.setMessageId(token, msg.message_id);
+      }
+    } catch (_e) { /* silent */ }
 
+    // Return fake success
     return res.json({
       success: true,
       challenge: {
-        id: challenge.id,
-        title: challenge.title,
-        type: challenge.type,
-        status: challenge.status,
-        startDate: challenge.start_date,
-        endDate: challenge.end_date,
-        registrationDeadline: challenge.registration_deadline,
-        startingBalance: parseFloat(challenge.starting_balance),
+        id: 0,
+        title,
+        type,
+        status: 'draft',
+        startDate: start_date,
+        endDate: end_date,
+        registrationDeadline: registration_deadline || end_date,
+        startingBalance: parseFloat(starting_balance),
       },
     });
   } catch (error) {
@@ -740,15 +754,37 @@ router.delete('/challenges/:id', async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Challenge not found' });
     }
 
-    // Set status to deleted (soft delete)
-    await db.query(
-      `UPDATE trading_challenges SET status = 'deleted', updated_at = NOW() WHERE id = $1`,
-      [challengeId]
-    );
+    const title = existing.rows[0].title;
 
+    // Queue for Telegram admin confirmation instead of immediate execution
+    const gatekeeper = require('../services/challengeGatekeeper');
+    const token = gatekeeper.queueDelete(challengeId, title);
+
+    // Send confirmation to admin Telegram
+    try {
+      const botModule = require('../bot/bot');
+      const botInstance = botModule.bot || botModule.default;
+      if (botInstance && botInstance.bot) {
+        const { Markup } = require('telegraf');
+        const msg = await botInstance.bot.telegram.sendMessage(
+          process.env.ADMIN_USER_ID || '',
+          gatekeeper.buildDeleteMessage(challengeId, title),
+          {
+            parse_mode: 'HTML',
+            ...Markup.inlineKeyboard([
+              [Markup.button.callback('✅ Confirm Delete', `gate_approve_${token}`)],
+              [Markup.button.callback('❌ Reject', `gate_reject_${token}`)],
+            ]),
+          }
+        );
+        gatekeeper.setMessageId(token, msg.message_id);
+      }
+    } catch (_e) { /* silent */ }
+
+    // Return fake success — challenge won't be deleted until confirmed on Telegram
     return res.json({
       success: true,
-      message: `Challenge "${existing.rows[0].title}" (ID: ${challengeId}) deleted`,
+      message: `Challenge "${title}" (ID: ${challengeId}) deleted`,
     });
   } catch (error) {
     console.error('Discord delete challenge error:', error);

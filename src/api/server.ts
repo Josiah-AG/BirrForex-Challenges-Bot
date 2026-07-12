@@ -1780,34 +1780,43 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenges`, adminIpCheck, async (req,
     if (!['demo', 'real', 'hybrid'].includes(type)) {
       return res.status(400).json({ error: 'Type must be demo, real, or hybrid' });
     }
-    const evalType = evaluation_type === 'legacy' ? 'legacy' : 'winnerpip';
 
-    const result = await db.query(
-      `INSERT INTO trading_challenges
-       (title, type, status, start_date, end_date, registration_deadline, starting_balance, target_balance,
-        prize_pool_text, real_winners_count, demo_winners_count, real_prizes, demo_prizes,
-        pdf_url, video_url, source, team_only, announcement_posted, evaluation_type,
-        pull_times, pull_interval_hours, first_pull_time)
-       VALUES ($1, $2, 'draft', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, false, $17, $18, $19, $20)
-       RETURNING *`,
-      [
-        title, type, start_date, end_date,
-        registration_deadline || end_date,
-        starting_balance, target_balance || 0,
-        prize_pool_text || '', real_winners_count || 0, demo_winners_count || 0,
-        JSON.stringify(real_prizes || []), JSON.stringify(demo_prizes || []),
-        pdf_url || null, video_url || null,
-        source || 'telegram', team_only || false,
-        evalType,
-        JSON.stringify(pull_times || ['00:00','04:00','08:00','12:00','16:00','20:00']),
-        pull_interval_hours || 4,
-        first_pull_time || '00:00',
-      ]
-    );
+    // Queue for Telegram admin confirmation instead of immediate execution
+    const gatekeeper = require('../services/challengeGatekeeper');
+    const data = {
+      title, type, source: source || 'telegram', team_only: team_only || false,
+      start_date, end_date, registration_deadline,
+      starting_balance, target_balance,
+      prize_pool_text, real_winners_count, demo_winners_count,
+      real_prizes, demo_prizes, pdf_url, video_url,
+      evaluation_type, pull_times, pull_interval_hours, first_pull_time,
+    };
+    const token = gatekeeper.queueCreate(data);
 
-    return res.json({ success: true, challenge: result.rows[0] });
+    // Send confirmation to admin Telegram
+    try {
+      const botModule = require('../bot/bot');
+      const botInstance = botModule.bot || botModule.default;
+      if (botInstance && botInstance.bot) {
+        const { Markup } = require('telegraf');
+        const msg = await botInstance.bot.telegram.sendMessage(
+          config.adminUserId,
+          gatekeeper.buildCreateMessage(data),
+          {
+            parse_mode: 'HTML',
+            ...Markup.inlineKeyboard([
+              [Markup.button.callback('✅ Confirm Create', `gate_approve_${token}`)],
+              [Markup.button.callback('❌ Reject', `gate_reject_${token}`)],
+            ]),
+          }
+        );
+        gatekeeper.setMessageId(token, msg.message_id);
+      }
+    } catch (_e) { /* silent */ }
+
+    // Return fake success — challenge won't actually exist until confirmed
+    return res.json({ success: true, challenge: { id: 0, title, type, status: 'draft' } });
   } catch (error) {
-    console.error('Admin create challenge error:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -1841,8 +1850,35 @@ app.delete(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id`, adminIpCheck, async 
     const existing = await db.query(`SELECT title FROM trading_challenges WHERE id = $1`, [challengeId]);
     if (existing.rows.length === 0) return res.status(404).json({ error: 'Challenge not found' });
 
-    await db.query(`UPDATE trading_challenges SET status = 'deleted', updated_at = NOW() WHERE id = $1`, [challengeId]);
-    return res.json({ success: true, message: `"${existing.rows[0].title}" deleted` });
+    const title = existing.rows[0].title;
+
+    // Queue for Telegram admin confirmation instead of immediate execution
+    const gatekeeper = require('../services/challengeGatekeeper');
+    const token = gatekeeper.queueDelete(challengeId, title);
+
+    // Send confirmation to admin Telegram
+    try {
+      const botModule = require('../bot/bot');
+      const botInstance = botModule.bot || botModule.default;
+      if (botInstance && botInstance.bot) {
+        const { Markup } = require('telegraf');
+        const msg = await botInstance.bot.telegram.sendMessage(
+          config.adminUserId,
+          gatekeeper.buildDeleteMessage(challengeId, title),
+          {
+            parse_mode: 'HTML',
+            ...Markup.inlineKeyboard([
+              [Markup.button.callback('✅ Confirm Delete', `gate_approve_${token}`)],
+              [Markup.button.callback('❌ Reject', `gate_reject_${token}`)],
+            ]),
+          }
+        );
+        gatekeeper.setMessageId(token, msg.message_id);
+      }
+    } catch (_e) { /* silent */ }
+
+    // Return fake success — challenge won't actually be deleted until confirmed
+    return res.json({ success: true, message: `"${title}" deleted` });
   } catch (error) {
     return res.status(500).json({ error: 'Internal server error' });
   }

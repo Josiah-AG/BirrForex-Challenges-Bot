@@ -507,6 +507,59 @@ export class Bot {
         return;
       }
 
+      // Challenge Gatekeeper callbacks (create/delete confirmation)
+      if (data && data.startsWith('gate_')) {
+        if (!isAdmin(ctx.from!.id)) { await ctx.answerCbQuery('Not authorized'); return; }
+
+        const gatekeeper = require('../services/challengeGatekeeper');
+        const token = data.replace('gate_approve_', '').replace('gate_reject_', '');
+        const pending = gatekeeper.getPending(token);
+
+        if (!pending) {
+          await ctx.answerCbQuery('Expired or already handled');
+          await ctx.editMessageText('⏰ This request has expired or was already handled.');
+          return;
+        }
+
+        if (data.startsWith('gate_approve_')) {
+          await ctx.answerCbQuery('Confirmed');
+          if (pending.type === 'create') {
+            const result = await gatekeeper.executeCreate(pending.data);
+            if (result.success) {
+              await ctx.editMessageText(
+                `✅ <b>Challenge Created</b>\n\n<b>${pending.data.title}</b> (${pending.data.type})\nID: ${result.challenge.id}`,
+                { parse_mode: 'HTML' }
+              );
+            } else {
+              await ctx.editMessageText(`❌ Create failed: ${result.error}`, { parse_mode: 'HTML' });
+            }
+          } else if (pending.type === 'delete') {
+            const result = await gatekeeper.executeDelete(pending.data.challengeId);
+            if (result.success) {
+              await ctx.editMessageText(
+                `✅ <b>Challenge Deleted</b>\n\n<b>${pending.data.title}</b> (ID: ${pending.data.challengeId})`,
+                { parse_mode: 'HTML' }
+              );
+            } else {
+              await ctx.editMessageText(`❌ Delete failed: ${result.error}`, { parse_mode: 'HTML' });
+            }
+          }
+          gatekeeper.removePending(token);
+          return;
+        }
+
+        if (data.startsWith('gate_reject_')) {
+          await ctx.answerCbQuery('Rejected');
+          gatekeeper.removePending(token);
+          await ctx.editMessageText(
+            `🚫 <b>Rejected</b>\n\n${pending.type === 'create' ? `Create "${pending.data.title}"` : `Delete "${pending.data.title}"`} — blocked.`,
+            { parse_mode: 'HTML' }
+          );
+          return;
+        }
+        return;
+      }
+
       // WP Leaderboard update callbacks
       if (data && data.startsWith('wp_lb_')) {
         if (!isAdmin(ctx.from!.id)) { await ctx.answerCbQuery('Not authorized'); return; }
