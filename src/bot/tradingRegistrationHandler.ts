@@ -1032,12 +1032,8 @@ export class TradingRegistrationHandler {
 
     if (session.step === 'tc_submit_screenshot') {
       session.data.screenshot_file_id = fileId;
-      session.step = 'tc_submit_password';
-      let guideText = '';
-      if (config.investorPasswordGuideLink) {
-        guideText = `\n\n📋 <a href="${config.investorPasswordGuideLink}">How to Get Investor Password</a>`;
-      }
-      await ctx.reply(`🔑 Enter your Investor (Read-Only) password:\nThis allows view-only access to your trading account.${guideText}`, { parse_mode: 'HTML', link_preview_options: { is_disabled: true } });
+      // No need to ask for password — we already have it from registration
+      await this.saveSubmission(ctx, telegramId);
     }
   }
 
@@ -1732,6 +1728,13 @@ export class TradingRegistrationHandler {
       let screenshotMessageId: number | null = null;
       const isOverride = session.data.is_override === true;
 
+      // Pull investor password from registration record (already collected during signup)
+      const regRecord = await db.query(
+        'SELECT investor_password FROM trading_registrations WHERE id = $1',
+        [session.data.registration_id]
+      );
+      const investorPassword = regRecord.rows[0]?.investor_password || session.data.investor_password || '';
+
       if (isOverride && config.submissionChannelId) {
         try {
           const oldSub = await tradingChallengeService.getSubmissionByRegistration(session.data.registration_id);
@@ -1745,7 +1748,7 @@ export class TradingRegistrationHandler {
         try {
           const acctLabel = session.data.account_type === 'demo' ? 'Demo' : 'Real';
           const overrideTag = isOverride ? ' (UPDATED)' : '';
-          const caption = `<b>📋 Submission${overrideTag}</b>\n\n👤 @${ctx.from!.username || 'unknown'}\n📧 ${session.data.email}\n🏦 ${acctLabel}: ${session.data.account_number}\n🖥️ Server: ${session.data.mt5_server || 'N/A'}\n💰 Balance: $${session.data.final_balance.toFixed(2)}\n🔑 Password: <code>${session.data.investor_password}</code>`;
+          const caption = `<b>📋 Submission${overrideTag}</b>\n\n👤 @${ctx.from!.username || 'unknown'}\n📧 ${session.data.email}\n🏦 ${acctLabel}: ${session.data.account_number}\n🖥️ Server: ${session.data.mt5_server || 'N/A'}\n💰 Balance: $${session.data.final_balance.toFixed(2)}\n🔑 Password: <code>${investorPassword}</code>`;
           const sent = await ctx.telegram.sendPhoto(config.submissionChannelId, session.data.screenshot_file_id, { caption, parse_mode: 'HTML' });
           const channelIdStr = String(config.submissionChannelId).replace('-100', '');
           screenshotLink = `https://t.me/c/${channelIdStr}/${sent.message_id}`;
@@ -1759,7 +1762,7 @@ export class TradingRegistrationHandler {
           balance_screenshot_file_id: session.data.screenshot_file_id || null,
           screenshot_link: screenshotLink,
           screenshot_message_id: screenshotMessageId,
-          investor_password: session.data.investor_password,
+          investor_password: investorPassword,
         });
       } else {
         await tradingChallengeService.createSubmission({
@@ -1769,7 +1772,7 @@ export class TradingRegistrationHandler {
           balance_screenshot_file_id: session.data.screenshot_file_id || null,
           screenshot_link: screenshotLink,
           screenshot_message_id: screenshotMessageId,
-          investor_password: session.data.investor_password,
+          investor_password: investorPassword,
         });
       }
 
@@ -1777,7 +1780,7 @@ export class TradingRegistrationHandler {
       userSessions.delete(telegramId);
       await ctx.reply(
         `✅ <b>Results Submitted Successfully!</b>\n\n` +
-        `📋 <b>Your Submission:</b>\n📧 <b>Email:</b> ${session.data.email}\n🏦 <b>Account:</b> ${session.data.account_number}\n🖥️ <b>Server:</b> ${session.data.mt5_server || 'N/A'}\n📊 <b>Type:</b> ${acctLabel}\n💰 <b>Final Balance:</b> $${session.data.final_balance.toFixed(2)}\n📸 <b>Screenshot:</b> ✅\n🔑 <b>Password:</b> ✅\n\n⏳ Our team will review and announce results.\n<i>Thank you for participating!</i> 🎉`,
+        `📋 <b>Your Submission:</b>\n📧 <b>Email:</b> ${session.data.email}\n🏦 <b>Account:</b> ${session.data.account_number}\n🖥️ <b>Server:</b> ${session.data.mt5_server || 'N/A'}\n📊 <b>Type:</b> ${acctLabel}\n💰 <b>Final Balance:</b> $${session.data.final_balance.toFixed(2)}\n📸 <b>Screenshot:</b> ✅\n\n⏳ Our team will review and announce results.\n<i>Thank you for participating!</i> 🎉`,
         { parse_mode: 'HTML' }
       );
     } catch (error: any) {
