@@ -543,6 +543,16 @@ export class Bot {
             } else {
               await ctx.editMessageText(`❌ Delete failed: ${result.error}`, { parse_mode: 'HTML' });
             }
+          } else if (pending.type === 'status_change') {
+            const result = await gatekeeper.executeStatusChange(pending.data.challengeId, pending.data.toStatus);
+            if (result.success) {
+              await ctx.editMessageText(
+                `✅ <b>Status Changed</b>\n\n<b>${pending.data.title}</b>\n${pending.data.fromStatus} → ${pending.data.toStatus}`,
+                { parse_mode: 'HTML' }
+              );
+            } else {
+              await ctx.editMessageText(`❌ Status change failed: ${result.error}`, { parse_mode: 'HTML' });
+            }
           }
           gatekeeper.removePending(token);
           return;
@@ -551,8 +561,11 @@ export class Bot {
         if (data.startsWith('gate_reject_')) {
           await ctx.answerCbQuery('Rejected');
           gatekeeper.removePending(token);
+          const label = pending.type === 'create' ? `Create "${pending.data.title}"`
+            : pending.type === 'delete' ? `Delete "${pending.data.title}"`
+            : `Status change "${pending.data.title}" → ${pending.data.toStatus}`;
           await ctx.editMessageText(
-            `🚫 <b>Rejected</b>\n\n${pending.type === 'create' ? `Create "${pending.data.title}"` : `Delete "${pending.data.title}"`} — blocked.`,
+            `🚫 <b>Rejected</b>\n\n${label} — blocked.`,
             { parse_mode: 'HTML' }
           );
           return;

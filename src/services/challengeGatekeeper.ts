@@ -17,10 +17,10 @@ import crypto from 'crypto';
 
 interface PendingAction {
   token: string;
-  type: 'create' | 'delete';
-  data: any; // create payload or { challengeId, title }
+  type: 'create' | 'delete' | 'status_change';
+  data: any;
   createdAt: number;
-  messageId?: number; // Telegram message ID for editing after action
+  messageId?: number;
 }
 
 // In-memory store of pending actions (survives until process restarts — fine for 30min window)
@@ -172,5 +172,45 @@ export function buildDeleteMessage(challengeId: number, title: string): string {
     `<b>ID:</b> ${challengeId}\n` +
     `<b>Title:</b> ${title}\n\n` +
     `⚠️ Confirm to permanently delete this challenge.`
+  );
+}
+
+/**
+ * Queue a challenge status change for admin approval.
+ */
+export function queueStatusChange(challengeId: number, title: string, fromStatus: string, toStatus: string): string {
+  cleanExpired();
+  const token = generateToken();
+  pendingActions.set(token, {
+    token,
+    type: 'status_change',
+    data: { challengeId, title, fromStatus, toStatus },
+    createdAt: Date.now(),
+  });
+  return token;
+}
+
+/**
+ * Execute the actual status change in DB.
+ */
+export async function executeStatusChange(challengeId: number, status: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    await db.query(`UPDATE trading_challenges SET status = $1, updated_at = NOW() WHERE id = $2`, [status, challengeId]);
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: (error as Error).message };
+  }
+}
+
+/**
+ * Build the Telegram message for a status change confirmation.
+ */
+export function buildStatusChangeMessage(challengeId: number, title: string, fromStatus: string, toStatus: string): string {
+  return (
+    `🔐 <b>Status Change Request</b>\n\n` +
+    `<b>Challenge:</b> ${title} (ID: ${challengeId})\n` +
+    `<b>From:</b> ${fromStatus}\n` +
+    `<b>To:</b> ${toStatus}\n\n` +
+    `⚠️ Confirm to change status.`
   );
 }

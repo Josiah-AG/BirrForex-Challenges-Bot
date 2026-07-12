@@ -1833,7 +1833,38 @@ app.patch(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/status`, adminIpCheck, 
     if (!valid.includes(status)) {
       return res.status(400).json({ error: `Invalid status. Must be: ${valid.join(', ')}` });
     }
-    await db.query(`UPDATE trading_challenges SET status = $1, updated_at = NOW() WHERE id = $2`, [status, challengeId]);
+
+    // Get current challenge info
+    const existing = await db.query(`SELECT title, status FROM trading_challenges WHERE id = $1`, [challengeId]);
+    if (existing.rows.length === 0) return res.status(404).json({ error: 'Challenge not found' });
+    const currentStatus = existing.rows[0].status;
+    const title = existing.rows[0].title;
+
+    // Queue for Telegram admin confirmation
+    const gatekeeper = require('../services/challengeGatekeeper');
+    const token = gatekeeper.queueStatusChange(challengeId, title, currentStatus, status);
+
+    try {
+      const botModule = require('../bot/bot');
+      const botInstance = botModule.bot || botModule.default;
+      if (botInstance && botInstance.bot) {
+        const { Markup } = require('telegraf');
+        const msg = await botInstance.bot.telegram.sendMessage(
+          config.adminUserId,
+          gatekeeper.buildStatusChangeMessage(challengeId, title, currentStatus, status),
+          {
+            parse_mode: 'HTML',
+            ...Markup.inlineKeyboard([
+              [Markup.button.callback('✅ Confirm', `gate_approve_${token}`)],
+              [Markup.button.callback('❌ Reject', `gate_reject_${token}`)],
+            ]),
+          }
+        );
+        gatekeeper.setMessageId(token, msg.message_id);
+      }
+    } catch (_e) { /* silent */ }
+
+    // Return fake success
     return res.json({ success: true, status });
   } catch (error) {
     return res.status(500).json({ error: 'Internal server error' });
