@@ -413,6 +413,7 @@ export default function AdminDashboard() {
               duration: duration ? `${duration}s` : "...",
               status: p.status,
               isPreStart: p.error_log === 'pre_start_check',
+              isBalanceCheck: p.error_log === 'balance_check',
             };
           });
           setPullHistory(pulls);
@@ -3368,10 +3369,11 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
                   <td className="py-3 px-4 text-sm text-white font-semibold">
                     <span>{p.time}</span>
                     {p.isPreStart && <span className="ml-2 px-1.5 py-0.5 rounded text-[9px] font-bold bg-royal/20 text-royal border border-royal/30">📸 Pre-start</span>}
+                    {p.isBalanceCheck && <span className="ml-2 px-1.5 py-0.5 rounded text-[9px] font-bold bg-gold/20 text-gold border border-gold/30">💰 Balance Check</span>}
                   </td>
                   <td className="py-3 px-4 text-center text-sm text-profit">{p.success}</td>
                   <td className="py-3 px-4 text-center text-sm text-loss">{p.failed}</td>
-                  <td className="py-3 px-4 text-center text-sm text-gray-300">{p.isPreStart ? "—" : p.newTrades}</td>
+                  <td className="py-3 px-4 text-center text-sm text-gray-300">{p.isPreStart ? "—" : p.isBalanceCheck ? `${p.newTrades} ⚠️` : p.newTrades}</td>
                   <td className="py-3 px-4 text-right text-sm text-gray-400">{p.duration}</td>
                 </tr>
               ))}</tbody>

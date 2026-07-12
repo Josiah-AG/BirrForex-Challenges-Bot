@@ -1653,6 +1653,19 @@ export class TradingScheduler {
         return;
       }
 
+      // Create batch record so it shows in Pulls tab
+      let batchId: number | null = null;
+      try {
+        const batchRes = await db.query(
+          `INSERT INTO wp_pull_batches (challenge_id, total_accounts, status, error_log)
+           VALUES ($1, $2, 'running', 'balance_check') RETURNING id`,
+          [challenge.id, regs.rows.length]
+        );
+        batchId = batchRes.rows[0].id;
+      } catch (e) {
+        console.error('Balance check: failed to create batch record:', e);
+      }
+
       let checked = 0, warned = 0, cleared = 0, failed = 0;
 
       for (const reg of regs.rows) {
@@ -1752,6 +1765,14 @@ export class TradingScheduler {
       }
 
       console.log(`💰 Pre-start balance check done: ${checked} checked, ${warned} warned, ${cleared} cleared, ${failed} failed`);
+
+      // Complete batch record
+      if (batchId !== null) {
+        await db.query(
+          `UPDATE wp_pull_batches SET completed_at = NOW(), successful = $1, failed = $2, new_trades_found = $3, status = 'completed' WHERE id = $4`,
+          [checked, failed, warned, batchId]
+        ).catch(() => {});
+      }
 
       // Admin summary
       if (warned > 0) {
