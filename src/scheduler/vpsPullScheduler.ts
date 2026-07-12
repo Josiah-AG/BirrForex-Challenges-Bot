@@ -350,9 +350,9 @@ export class VpsPullScheduler {
 
   /** Release the running lock and drain the queue if anything is waiting */
   private releaseLock() {
-    this.releaseLock();
-    // Drain queue after a short delay (let current stack unwind)
-    if (this.pullQueue.length > 0) {
+    this.isRunning = false;
+    // Only drain queue if this was a natural completion (not a cancel)
+    if (!this.cancelRequested && this.pullQueue.length > 0) {
       setTimeout(() => this.drainQueue(), 2000);
     }
   }
@@ -736,12 +736,14 @@ export class VpsPullScheduler {
       const waited = await this.waitForIdle(60000);
       if (!waited) {
         console.error('❌ VPS Pull: Running cycle did not release within 60s — forcing lock reset');
-        this.releaseLock();
+        this.isRunning = false;
         this.cancelRequested = false;
         this.abortController = null;
       }
       console.log('✅ VPS Pull: Previous cycle cleared — starting admin force pull');
     }
+    // Clear any queued pulls — admin force pull takes priority
+    this.pullQueue = [];
     this.isRunning = true;
     this.cancelRequested = false;
     this.abortController = new AbortController();
