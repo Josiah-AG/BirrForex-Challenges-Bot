@@ -323,13 +323,41 @@ export class VpsPullScheduler {
   }
 
   /**
+   * Pull queue — when a pull is triggered while another is running,
+   * it's queued here and executed once the current one finishes.
+   */
+  private pullQueue: Array<{ type: 'scheduled' | 'forceChallenge'; challengeId?: number }> = [];
+
+  private queuePull(entry: { type: 'scheduled' | 'forceChallenge'; challengeId?: number }) {
+    const isDuplicate = this.pullQueue.some(q => q.type === entry.type && q.challengeId === entry.challengeId);
+    if (!isDuplicate) {
+      this.pullQueue.push(entry);
+      console.log(`📋 VPS Pull: Queued ${entry.type}${entry.challengeId ? ` (challenge ${entry.challengeId})` : ''} — ${this.pullQueue.length} in queue`);
+    }
+  }
+
+  private async drainQueue() {
+    if (this.pullQueue.length === 0 || this.isRunning) return;
+    const next = this.pullQueue.shift()!;
+    console.log(`📋 VPS Pull: Draining queue — running ${next.type}${next.challengeId ? ` (challenge ${next.challengeId})` : ''}`);
+    if (next.type === 'forceChallenge' && next.challengeId) {
+      await this.runPullCycleForChallenge(next.challengeId);
+    } else {
+      await this.runPullCycle();
+    }
+  }
+
+  /**
    * Per-minute check: compare current EAT time against each challenge's pull_times.
    * If a match is found, trigger runPullCycle(). Queues if already running.
    */
   private pullScheduleTriggered = new Set<string>();
 
   private async checkPullSchedule() {
-    if (this.isRunning) return;
+    if (this.isRunning) {
+      // Don't queue from the scheduler — it runs every minute and would flood the queue
+      return;
+    }
 
     try {
       const now = new Date();
@@ -436,7 +464,7 @@ export class VpsPullScheduler {
    */
   async runPullCycle() {
     if (this.isRunning) {
-      console.log('⚠️ VPS Pull: Already running, skipping');
+      this.queuePull({ type: 'scheduled' });
       return;
     }
     this.isRunning = true;
@@ -448,6 +476,7 @@ export class VpsPullScheduler {
       const challengeToPull = await this.resolveChallengeForPull();
       if (!challengeToPull) {
         this.isRunning = false;
+        this.drainQueue();
         return;
       }
 
@@ -684,6 +713,7 @@ export class VpsPullScheduler {
       this.isRunning = false;
       this.cancelRequested = false;
       this.abortController = null;
+      setTimeout(() => this.drainQueue(), 2000);
     }
   }
 
@@ -705,6 +735,8 @@ export class VpsPullScheduler {
       }
       console.log('✅ VPS Pull: Previous cycle cleared — starting admin force pull');
     }
+    // Admin force pull takes priority — clear any queued scheduled pulls
+    this.pullQueue = [];
     this.isRunning = true;
     this.cancelRequested = false;
     this.abortController = new AbortController();
@@ -852,6 +884,7 @@ export class VpsPullScheduler {
       this.isRunning = false;
       this.cancelRequested = false;
       this.abortController = null;
+      setTimeout(() => this.drainQueue(), 2000);
     }
   }
 
