@@ -3536,6 +3536,58 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/full-pull`, adminIpCheck
   }
 });
 
+
+/**
+ * POST /api/admin/:secretPath/challenge/:id/full-pull-replace
+ * Full Pull (REPLACE) — deletes ALL existing trades, deals, and balance ops for this challenge,
+ * then pulls fresh from VPS. Guarantees clean data with no stale/corrupt values.
+ * Use when regular full-pull can't fix data issues due to upsert guards.
+ */
+app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/full-pull-replace`, adminIpCheck, async (req, res) => {
+  try {
+    const challengeId = parseInt(req.params.id as string);
+    const globalScheduler = (global as any).__vpsPullScheduler;
+    if (!globalScheduler) {
+      return res.json({ success: false, message: 'Pull scheduler not initialized yet' });
+    }
+
+    // DELETE all existing trade data for this challenge
+    const delTrades = await db.query(`DELETE FROM wp_trades WHERE challenge_id = $1`, [challengeId]);
+    const delDeals = await db.query(`DELETE FROM wp_deals WHERE challenge_id = $1`, [challengeId]);
+    const delOps = await db.query(`DELETE FROM wp_balance_ops WHERE challenge_id = $1`, [challengeId]);
+    console.log(`🗑️ Full Pull Replace: Deleted ${delTrades.rowCount} trades, ${delDeals.rowCount} deals, ${delOps.rowCount} balance ops for challenge ${challengeId}`);
+
+    // Clear leaderboard staging (will be rebuilt by evaluation)
+    await db.query(`DELETE FROM wp_leaderboard_staging WHERE challenge_id = $1`, [challengeId]).catch(() => {});
+
+    // Reset last_pull_at for ALL accounts (forces full history pull)
+    await db.query(
+      `UPDATE trading_registrations SET last_pull_at = NULL WHERE challenge_id = $1 AND investor_password IS NOT NULL`,
+      [challengeId]
+    );
+
+    // Run pull cycle for this challenge (forceAll — bypasses DQ/blown filters)
+    globalScheduler.runPullCycleForChallenge(challengeId).then(async () => {
+      try {
+        const { leaderboardService } = require('../services/leaderboardService');
+        await leaderboardService.flushStagingToLive(challengeId);
+        await leaderboardService.ensureAllParticipantsHaveEntries(challengeId);
+        await leaderboardService.updateRankings(challengeId);
+        console.log(`✅ Full Pull Replace: Complete for challenge ${challengeId}`);
+      } catch (e) {
+        console.error('Full pull replace rank update error:', e);
+      }
+    }).catch((e: any) => console.error('Full pull replace error:', e));
+
+    return res.json({
+      success: true,
+      message: `All data wiped (${delTrades.rowCount} trades, ${delDeals.rowCount} deals, ${delOps.rowCount} ops). Fresh full pull started — will evaluate + rank after completion.`,
+    });
+  } catch (error) {
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 /**
  * GET /api/admin/:secretPath/pull-status
  * Get current pull cycle status (is it running, progress)
