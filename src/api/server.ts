@@ -612,24 +612,42 @@ app.get('/api/challenges/:id/user-trades', async (req, res) => {
       [challengeId, registrationId]
     ).catch(() => ({ rows: [] }));
 
-    const tradeRows = trades.rows.map((t: any) => ({
-      ticket: t.ticket,
-      positionId: t.position_id,
-      symbol: t.symbol,
-      type: t.trade_type,
-      volume: parseFloat(t.volume),
-      profit: parseFloat(t.profit) + parseFloat(t.commission || 0) + parseFloat(t.swap || 0),
-      closeTime: t.close_time,
-      openTime: t.open_time,
-      openPrice: parseFloat(t.open_price) || 0,
-      closePrice: parseFloat(t.close_price) || 0,
-      stopLoss: t.stop_loss ? parseFloat(t.stop_loss) : null,
-      takeProfit: t.take_profit ? parseFloat(t.take_profit) : null,
-      isQualified: t.is_qualified,
-      violations: t.violations || [],
-      slCheckPending: t.sl_check_pending || false,
-      slCheckResult: t.sl_check_result || null,
-    }));
+    // Batch lookup opening volumes for partial close display
+    const tradePositionIds = [...new Set(trades.rows.map((t: any) => t.position_id).filter(Boolean))];
+    const openingVolsMap = new Map<number, number>();
+    if (tradePositionIds.length > 0) {
+      try {
+        const volRes = await db.query(
+          `SELECT position_id, volume FROM wp_deals WHERE challenge_id = $1 AND registration_id = $2 AND position_id = ANY($3) AND entry = 0`,
+          [challengeId, registrationId, tradePositionIds]
+        );
+        volRes.rows.forEach((r: any) => openingVolsMap.set(Number(r.position_id), parseFloat(r.volume)));
+      } catch {}
+    }
+
+    const tradeRows = trades.rows.map((t: any) => {
+      const posId = t.position_id || t.ticket;
+      const openVol = openingVolsMap.get(posId);
+      return {
+        ticket: t.ticket,
+        positionId: t.position_id,
+        symbol: t.symbol,
+        type: t.trade_type,
+        volume: parseFloat(t.volume),
+        openingVolume: openVol && openVol > parseFloat(t.volume) ? openVol : null,
+        profit: parseFloat(t.profit) + parseFloat(t.commission || 0) + parseFloat(t.swap || 0),
+        closeTime: t.close_time,
+        openTime: t.open_time,
+        openPrice: parseFloat(t.open_price) || 0,
+        closePrice: parseFloat(t.close_price) || 0,
+        stopLoss: t.stop_loss ? parseFloat(t.stop_loss) : null,
+        takeProfit: t.take_profit ? parseFloat(t.take_profit) : null,
+        isQualified: t.is_qualified,
+        violations: t.violations || [],
+        slCheckPending: t.sl_check_pending || false,
+        slCheckResult: t.sl_check_result || null,
+      };
+    });
 
     const balanceOpRows = balanceOps.rows.map((b: any) => ({
       _isBalanceOp: true,

@@ -1387,7 +1387,7 @@ export default function AdminDashboard() {
               </div>
               <div className="grid grid-cols-2 gap-2 text-xs">
                 <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Direction</p><span className={`px-2 py-0.5 rounded font-bold text-[10px] ${t.type?.toLowerCase()==='buy' ? 'bg-profit/20 text-profit' : 'bg-loss/20 text-loss'}`}>{t.type?.toUpperCase()}</span></div>
-                <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">{isGroup ? 'Total Lots' : 'Lots'}</p><p className="text-white font-semibold">{Number(t.volume).toFixed(2)}</p></div>
+                <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">{isGroup ? 'Total Lots' : 'Lots'}</p><p className="text-white font-semibold">{t.openingVolume && t.openingVolume > Number(t.volume) ? `${Number(t.volume).toFixed(2)} / ${Number(t.openingVolume).toFixed(2)}` : Number(t.volume).toFixed(2)}</p></div>
                 <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Open</p><p className="text-white">{t.openPrice}</p><p className="text-[10px] text-gray-500">{fmtEAT(t.openTime)}</p></div>
                 {!isGroup && <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Close</p><p className="text-white">{t.closePrice}</p><p className="text-[10px] text-gray-500">{fmtEAT(t.closeTime)}</p></div>}
                 <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Stop Loss</p>{t.stopLoss ? <p className="text-white">{t.stopLoss}</p> : <><p className="text-gray-500">—</p><p className="text-[9px] text-gray-600">not detected at entry</p></>}</div>
