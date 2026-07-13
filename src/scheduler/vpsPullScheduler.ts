@@ -3026,6 +3026,50 @@ export class VpsPullScheduler {
       `SELECT COUNT(*) as total FROM ohlc_candles WHERE challenge_id = $1`, [challenge.id]
     );
     console.log(`✅ OHLC: Total candles stored for challenge ${challenge.id}: ${totalResult.rows[0].total}`);
+
+    // === COVERAGE CHECK: Retry any symbol below 80% coverage (max 3 retries) ===
+    const MIN_COVERAGE = 0.80;
+    const MAX_COVERAGE_RETRIES = 3;
+    const challengeStartMs = new Date(challengeStart).getTime();
+    const nowMs = new Date(now).getTime();
+
+    for (let retry = 1; retry <= MAX_COVERAGE_RETRIES; retry++) {
+      const lowCoverageRanges: Array<{ symbol: string; from_time: string; to_time: string }> = [];
+
+      for (const fetchSymbol of seenFetchSymbols) {
+        const countResult = await db.query(
+          `SELECT COUNT(*) as cnt FROM ohlc_candles WHERE challenge_id = $1 AND symbol = $2`,
+          [challenge.id, fetchSymbol]
+        );
+        const actualCandles = parseInt(countResult.rows[0].cnt);
+        // Expected = total minutes in the challenge period (M1 candles)
+        // Only count market hours: ~5 days/week × ~24h for forex. Use raw minutes as upper bound.
+        const totalMinutes = Math.floor((nowMs - challengeStartMs) / 60000);
+        const coverage = totalMinutes > 0 ? actualCandles / totalMinutes : 1;
+
+        if (coverage < MIN_COVERAGE && totalMinutes > 60) {
+          // Find the gap: fetch from last stored candle to now (forward-fill catch-up)
+          const lastRow = await db.query(
+            `SELECT MAX(time) as last_time FROM ohlc_candles WHERE challenge_id = $1 AND symbol = $2`,
+            [challenge.id, fetchSymbol]
+          );
+          const lastTime = lastRow.rows[0]?.last_time;
+          const fromTime = lastTime
+            ? new Date(new Date(lastTime).getTime() + 60 * 1000).toISOString()
+            : challengeStart;
+          if (new Date(fromTime) < new Date(now)) {
+            lowCoverageRanges.push({ symbol: fetchSymbol, from_time: fromTime, to_time: now });
+          }
+          console.log(`⚠️ OHLC: ${fetchSymbol} coverage ${(coverage * 100).toFixed(1)}% < 80% (${actualCandles}/${totalMinutes} candles) — retry ${retry}/${MAX_COVERAGE_RETRIES}`);
+        }
+      }
+
+      if (lowCoverageRanges.length === 0) break; // All symbols >= 80%
+
+      // Wait before retry — let terminal chart data load
+      await this.delay(5000);
+      await this.fetchAndStoreCandles(challenge.id, lowCoverageRanges);
+    }
   }
 
   /**
