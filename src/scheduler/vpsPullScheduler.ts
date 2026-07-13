@@ -1757,10 +1757,6 @@ export class VpsPullScheduler {
              close_time = EXCLUDED.close_time,
              open_price = CASE
                           WHEN EXCLUDED.open_price IS NULL OR EXCLUDED.open_price = 0 THEN wp_trades.open_price
-                          WHEN wp_trades.open_price IS NOT NULL AND wp_trades.open_price != 0
-                               AND EXCLUDED.open_price = EXCLUDED.close_price
-                               AND wp_trades.open_price != EXCLUDED.close_price
-                               THEN wp_trades.open_price
                           ELSE EXCLUDED.open_price END,
              close_price = EXCLUDED.close_price,
              stop_loss = CASE WHEN EXCLUDED.stop_loss IS NULL OR EXCLUDED.stop_loss = 0
