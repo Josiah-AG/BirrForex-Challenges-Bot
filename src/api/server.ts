@@ -672,7 +672,7 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
     const cStartDate = cDates.rows[0]?.start_date;
     const cEndDate   = cDates.rows[0]?.end_date;
     let tradesQuery = `SELECT ticket, symbol, trade_type, volume, open_time, close_time,
-              open_price, close_price, profit, commission, swap, is_qualified, violations, sl_check_pending, sl_check_result
+              open_price, close_price, stop_loss, take_profit, profit, commission, swap, is_qualified, violations, sl_check_pending, sl_check_result, position_id
        FROM wp_trades
        WHERE challenge_id = $1 AND registration_id = $2`;
     const tradesParams: any[] = [cId, registrationId];
@@ -759,6 +759,7 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
       },
       recentTrades: trades.rows.map(t => ({
         ticket: t.ticket,
+        positionId: t.position_id || t.ticket,
         symbol: t.symbol,
         type: t.trade_type,
         volume: parseFloat(t.volume),
@@ -766,6 +767,8 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
         closeTime: t.close_time,
         openPrice: parseFloat(t.open_price),
         closePrice: parseFloat(t.close_price),
+        stopLoss: t.stop_loss ? parseFloat(t.stop_loss) : null,
+        takeProfit: t.take_profit ? parseFloat(t.take_profit) : null,
         profit: parseFloat(t.profit),
         commission: parseFloat(t.commission),
         swap: parseFloat(t.swap),

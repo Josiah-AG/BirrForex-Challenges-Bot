@@ -1012,7 +1012,21 @@ export class WpEvaluationEngine {
           .sort((a, b) => new Date(a.close_time).getTime() - new Date(b.close_time).getTime());
         const isPartialClose = siblings.length > 1;
         const entryTrade = siblings[0];
-        const totalLot = siblings.reduce((s, t) => s + parseFloat(String(t.volume)), 0);
+        const closedLot = siblings.reduce((s, t) => s + parseFloat(String(t.volume)), 0);
+
+        // Use the true opening volume from wp_deals if available (handles partial closes
+        // where not all parts are closed yet — closedLot < true position size).
+        let totalLot = closedLot;
+        try {
+          const openDeal = await db.query(
+            `SELECT volume FROM wp_deals WHERE challenge_id = $1 AND registration_id = $2 AND position_id = $3 AND entry = 0 LIMIT 1`,
+            [challengeId, registrationId, posId]
+          );
+          if (openDeal.rows.length > 0 && openDeal.rows[0].volume) {
+            const openingVol = parseFloat(openDeal.rows[0].volume);
+            if (openingVol > closedLot) totalLot = openingVol;
+          }
+        } catch {}
 
         // Layer A: declared SL too wide — applies to ALL closes of this position
         let layerABreach = false;
