@@ -13,6 +13,7 @@ interface Trade {
   ticket: number; positionId?: number; symbol: string; type: string; volume: number;
   openPrice: number; closePrice: number; openTime: string; closeTime: string;
   profit: number; commission: number; swap: number;
+  stopLoss?: number | null; takeProfit?: number | null;
   isQualified: boolean; violations: string[]; slCheckPending?: boolean; slCheckResult?: string | null;
 }
 interface LeaderboardEntry {
@@ -1137,8 +1138,8 @@ export default function ChallengeDashboard() {
                 <DRow label="Opened" value={formatDate(selectedTrade.openTime)} />
                 <DRow label="Entry" value={selectedTrade.openPrice.toString()} />
                 <DRow label="Exit" value={selectedTrade.closePrice.toString()} />
-                <DRow label="Commission" value={`$${selectedTrade.commission.toFixed(2)}`} />
-                <DRow label="Swap" value={`$${selectedTrade.swap.toFixed(2)}`} />
+                <div className="bg-white/5 rounded-lg p-3"><p className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">Stop Loss</p>{selectedTrade.stopLoss ? <p className="text-sm font-semibold text-loss">{selectedTrade.stopLoss}</p> : <><p className="text-sm font-semibold text-gray-500">—</p><p className="text-[9px] text-gray-600">not detected at entry</p></>}</div>
+                <div className="bg-white/5 rounded-lg p-3"><p className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">Take Profit</p>{selectedTrade.takeProfit ? <p className="text-sm font-semibold text-profit">{selectedTrade.takeProfit}</p> : <><p className="text-sm font-semibold text-gray-500">—</p><p className="text-[9px] text-gray-600">not detected at entry</p></>}</div>
               </div>
               <div className="bg-white/5 rounded-lg p-4 flex items-center justify-between">
                 <span className="text-sm text-gray-400">Net Profit/Loss</span>

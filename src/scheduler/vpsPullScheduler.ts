@@ -1763,8 +1763,12 @@ export class VpsPullScheduler {
                                THEN wp_trades.open_price
                           ELSE EXCLUDED.open_price END,
              close_price = EXCLUDED.close_price,
-             stop_loss = EXCLUDED.stop_loss,
-             take_profit = EXCLUDED.take_profit,
+             stop_loss = CASE WHEN EXCLUDED.stop_loss IS NULL OR EXCLUDED.stop_loss = 0
+                              THEN COALESCE(wp_trades.stop_loss, EXCLUDED.stop_loss)
+                              ELSE EXCLUDED.stop_loss END,
+             take_profit = CASE WHEN EXCLUDED.take_profit IS NULL OR EXCLUDED.take_profit = 0
+                                THEN COALESCE(wp_trades.take_profit, EXCLUDED.take_profit)
+                                ELSE EXCLUDED.take_profit END,
              profit = EXCLUDED.profit,
              commission = EXCLUDED.commission,
              swap = EXCLUDED.swap,

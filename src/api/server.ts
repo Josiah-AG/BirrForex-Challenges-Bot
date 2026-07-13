@@ -597,7 +597,7 @@ app.get('/api/challenges/:id/user-trades', async (req, res) => {
 
     // Get trades with pagination
     const trades = await db.query(
-      `SELECT ticket, position_id, symbol, trade_type, volume, profit, commission, swap, close_time, open_time, open_price, close_price, is_qualified, violations, sl_check_pending, sl_check_result
+      `SELECT ticket, position_id, symbol, trade_type, volume, profit, commission, swap, close_time, open_time, open_price, close_price, stop_loss, take_profit, is_qualified, violations, sl_check_pending, sl_check_result
        FROM wp_trades WHERE challenge_id = $1 AND registration_id = $2${dateFilter}
        ORDER BY close_time DESC LIMIT ${limit} OFFSET ${offset}`,
       baseParams
@@ -623,6 +623,8 @@ app.get('/api/challenges/:id/user-trades', async (req, res) => {
       openTime: t.open_time,
       openPrice: parseFloat(t.open_price) || 0,
       closePrice: parseFloat(t.close_price) || 0,
+      stopLoss: t.stop_loss ? parseFloat(t.stop_loss) : null,
+      takeProfit: t.take_profit ? parseFloat(t.take_profit) : null,
       isQualified: t.is_qualified,
       violations: t.violations || [],
       slCheckPending: t.sl_check_pending || false,
