@@ -1178,10 +1178,14 @@ export class WpEvaluationEngine {
         }
       }
 
-      // Weekend trading
+      // Weekend trading — only flag crypto pairs.
+      // Non-crypto forex/commodity markets are closed on weekends; any weekend
+      // timestamp on a non-crypto pair is just server time overlap at market open/close.
       if (!rules.weekend_trading) {
         if (this.isWeekend(new Date(trade.open_time)) || this.isWeekend(new Date(trade.close_time))) {
-          violations.push(`Weekend trading`);
+          if (this.isCryptoPair(trade.symbol)) {
+            violations.push(`Weekend trading`);
+          }
         }
       }
 
@@ -1456,6 +1460,12 @@ export class WpEvaluationEngine {
     if (day === 0 && hour < 22) return true;
     if (day === 5 && hour >= 22) return true;
     return false;
+  }
+
+  private isCryptoPair(symbol: string): boolean {
+    const sym = symbol.replace(/[cm]$/, '').replace(/_x\d+m?$/, '').toUpperCase();
+    const cryptos = ['BTC', 'ETH', 'LTC', 'XRP', 'BCH', 'DOGE', 'SOL', 'ADA', 'DOT', 'AVAX', 'MATIC', 'LINK', 'UNI', 'SHIB', 'BNB'];
+    return cryptos.some(c => sym.includes(c));
   }
 
   private async upsertLeaderboard(challengeId: number, reg: any, startingBalance: number, data: any) {

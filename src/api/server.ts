@@ -3797,6 +3797,15 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/retry-account`, adminIpC
     }
 
     // All terminals failed
+    const isCredentialFailure = pullError.toLowerCase().includes('credential') || pullError.toLowerCase().includes('authorization') || pullError.toLowerCase().includes('password');
+    if (isCredentialFailure) {
+      // Keep in credential failure list — don't move to "failed pulls"
+      await db.query(
+        `UPDATE trading_registrations SET pull_status = 'password_changed', pull_error = $1 WHERE id = $2`,
+        [pullError, registrationId]
+      );
+      return res.json({ success: false, message: `Credential failure confirmed: ${pullError}`, immediate: true, credentialFailure: true });
+    }
     await db.query(
       `UPDATE trading_registrations SET pull_status = 'retry_failed', pull_error = $1, last_pull_at = NOW() WHERE id = $2`,
       [pullError, registrationId]
