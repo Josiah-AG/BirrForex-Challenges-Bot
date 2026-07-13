@@ -2202,7 +2202,7 @@ function ChallengeSettingsPanel({ challengeId, challenges, onRefresh }: { challe
               </>) : (
                 <button onClick={async () => { try { const r = await fetch(`${apiUrl}/api/challenges/${challengeId}/leaderboard?limit=10`); const d = await r.json(); downloadLeaderboardHTML({ ...editForm, real_winners_count: challenge?.realWinnersCount ?? 3, demo_winners_count: challenge?.demoWinnersCount ?? 3 }, d.leaderboard || []); } catch { downloadLeaderboardHTML(editForm, []); } }} className="p-2.5 rounded-lg bg-gold/10 border border-gold/30 text-gold text-xs font-semibold hover:bg-gold/20 transition-all">🏆 Leaderboard Image</button>
               )}
-              <button onClick={async () => { try { const r = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/overview`); const d = await r.json(); const metrics = d.metrics || {}; const m = metrics.real || metrics.combined || {}; const md = metrics.demo || {}; downloadStatsHTML(editForm, { totalParticipants: d.totalParticipants || 0, realParticipants: d.participants?.real || 0, demoParticipants: d.participants?.demo || 0, realAboveTarget: d.aboveTarget || 0, demoAboveTarget: d.demoAboveTarget || 0, totalTrades: d.totalTrades || 0, mostTradedPair: m.mostTradedPair?.symbol || md.mostTradedPair?.symbol || '—', realHighestProfit: m.maxProfitTrade ? { nickname: m.maxProfitTrade.nickname, profit: `${m.maxProfitTrade.profit?.toFixed(2)}` } : null, demoHighestProfit: md.maxProfitTrade ? { nickname: md.maxProfitTrade.nickname, profit: `${md.maxProfitTrade.profit?.toFixed(2)}` } : null, realBestWinRate: m.bestQualifiedWinRate ? { nickname: m.bestQualifiedWinRate.nickname, rate: `${m.bestQualifiedWinRate.winRate}%` } : null, demoBestWinRate: md.bestQualifiedWinRate ? { nickname: md.bestQualifiedWinRate.nickname, rate: `${md.bestQualifiedWinRate.winRate}%` } : null, mostBrokenRule: d.mostBrokenRule || null }); } catch { downloadStatsHTML(editForm, {}); } }} className="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-semibold hover:bg-amber-500/20 transition-all">📊 Challenge Stats</button>
+              <button onClick={async () => { try { const r = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/overview`); const d = await r.json(); const metrics = d.metrics || {}; const m = metrics.real || metrics.combined || {}; const md = metrics.demo || {}; const lb = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/admin-leaderboard?category=all`).then(r2 => r2.json()).catch(() => ({ leaderboard: [] })); const realTop = (lb.leaderboard || []).filter((e: any) => e.accountType === 'real' && !e.isDisqualified).sort((a: any, b: any) => (b.adjustedBalance || 0) - (a.adjustedBalance || 0))[0]; const demoTop = (lb.leaderboard || []).filter((e: any) => e.accountType === 'demo' && !e.isDisqualified).sort((a: any, b: any) => (b.adjustedBalance || 0) - (a.adjustedBalance || 0))[0]; downloadStatsHTML(editForm, { totalParticipants: d.totalParticipants || 0, realParticipants: d.participants?.real || 0, demoParticipants: d.participants?.demo || 0, realAboveTarget: d.aboveTarget || 0, demoAboveTarget: d.demoAboveTarget || 0, totalTrades: d.totalTrades || 0, mostTradedPair: m.mostTradedPair?.symbol || md.mostTradedPair?.symbol || '—', realHighestProfit: m.maxProfitTrade ? { nickname: m.maxProfitTrade.nickname, profit: `${m.maxProfitTrade.profit?.toFixed(2)}` } : null, demoHighestProfit: md.maxProfitTrade ? { nickname: md.maxProfitTrade.nickname, profit: `${md.maxProfitTrade.profit?.toFixed(2)}` } : null, realBestWinRate: m.bestQualifiedWinRate ? { nickname: m.bestQualifiedWinRate.nickname, rate: `${m.bestQualifiedWinRate.winRate}%` } : null, demoBestWinRate: md.bestQualifiedWinRate ? { nickname: md.bestQualifiedWinRate.nickname, rate: `${md.bestQualifiedWinRate.winRate}%` } : null, realTopBalance: realTop ? { nickname: realTop.nickname, balance: `${Number(realTop.adjustedBalance).toFixed(realTop.isCent ? 0 : 2)}${realTop.isCent ? '¢' : '$'}` } : null, demoTopBalance: demoTop ? { nickname: demoTop.nickname, balance: `$${Number(demoTop.adjustedBalance).toFixed(2)}` } : null, mostBrokenRule: d.mostBrokenRule || null }); } catch { downloadStatsHTML(editForm, {}); } }} className="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-semibold hover:bg-amber-500/20 transition-all">📊 Challenge Stats</button>
             </div>
           </div>
         </div>
@@ -2484,47 +2484,97 @@ function downloadLeaderboardHTML(challenge: any, lb: any[], categoryLabel?: stri
 
 function downloadStatsHTML(challenge: any, stats: any) {
   const s = stats;
-  const statRow = (label: string, realVal: string, demoVal?: string) =>
-    demoVal !== undefined
-      ? `<div class="stat-row dual"><div class="stat-label">${label}</div><div class="stat-values"><div class="stat-val real"><span class="tag">Real</span>${realVal}</div><div class="stat-val demo"><span class="tag">Demo</span>${demoVal}</div></div></div>`
-      : `<div class="stat-row"><div class="stat-label">${label}</div><div class="stat-value">${realVal}</div></div>`;
-
-  const statsHTML = [
-    statRow('Total Participants', `${s.totalParticipants || 0}`, undefined),
-    statRow('Participants', `${s.realParticipants || 0}`, `${s.demoParticipants || 0}`),
-    statRow('Above Target', `${s.realAboveTarget || 0}`, `${s.demoAboveTarget || 0}`),
-    statRow('Total Trades', `${s.totalTrades || 0}`, undefined),
-    statRow('Most Traded Pair', `${s.mostTradedPair || '—'}`, undefined),
-    statRow('Highest Profit', `${s.realHighestProfit?.nickname || '—'} (${s.realHighestProfit?.profit || '—'})`, `${s.demoHighestProfit?.nickname || '—'} (${s.demoHighestProfit?.profit || '—'})`),
-    statRow('Best Win Rate (Qualified)', `${s.realBestWinRate?.nickname || '—'} (${s.realBestWinRate?.rate || '—'})`, `${s.demoBestWinRate?.nickname || '—'} (${s.demoBestWinRate?.rate || '—'})`),
-    statRow('Most Broken Rule', `${s.mostBrokenRule?.rule || '—'} (${s.mostBrokenRule?.count || 0}×)`, undefined),
-  ].join('');
 
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${challenge.title} - Stats</title><style>
-*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Inter',system-ui,sans-serif;background:#0a0e1a}
-.page{width:1080px;min-height:1920px;padding:80px;display:flex;flex-direction:column;background:linear-gradient(135deg,#0a0e1a 0%,#111827 50%,#0a0e1a 100%);position:relative;overflow:hidden}
-.glow{position:absolute;width:600px;height:600px;border-radius:50%;filter:blur(150px);opacity:0.15}
-.glow1{top:-200px;right:-100px;background:#F5B400}.glow2{bottom:-200px;left:-100px;background:#16C784}
-.header{text-align:center;margin-bottom:60px}
-.title{font-size:40px;font-weight:800;color:#fff;margin-bottom:8px}
-.subtitle{font-size:18px;color:#94a3b8}
-.icon{font-size:56px;margin-bottom:16px}
-.stats-container{flex:1;display:flex;flex-direction:column;gap:16px;max-width:900px;margin:0 auto;width:100%}
-.stat-row{display:flex;align-items:center;justify-content:space-between;padding:24px 32px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:16px}
-.stat-row.dual{flex-direction:column;align-items:stretch;gap:12px;padding:20px 32px}
-.stat-label{font-size:16px;color:#94a3b8;font-weight:500}
-.stat-value{font-size:24px;font-weight:700;color:#fff}
-.stat-values{display:flex;gap:24px}
-.stat-val{flex:1;display:flex;align-items:center;gap:12px;font-size:20px;font-weight:700;color:#fff}
-.stat-val.real .tag{background:rgba(31,111,235,0.15);color:#1F6FEB;padding:4px 10px;border-radius:8px;font-size:11px;font-weight:600}
-.stat-val.demo .tag{background:rgba(139,92,246,0.15);color:#8B5CF6;padding:4px 10px;border-radius:8px;font-size:11px;font-weight:600}
-.footer{text-align:center;margin-top:auto;padding-top:40px}
-.brand{font-size:16px;font-weight:700;color:#475569}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Inter',system-ui,-apple-system,sans-serif;background:#0a0e1a}
+.page{width:1080px;min-height:1920px;padding:80px 60px;display:flex;flex-direction:column;background:linear-gradient(160deg,#0a0e1a 0%,#0f172a 40%,#0a0e1a 100%);position:relative;overflow:hidden}
+.glow{position:absolute;width:700px;height:700px;border-radius:50%;filter:blur(180px);opacity:0.12}
+.glow1{top:-300px;right:-200px;background:#F5B400}
+.glow2{bottom:-300px;left:-200px;background:#16C784}
+.glow3{top:50%;left:50%;transform:translate(-50%,-50%);background:#1F6FEB;opacity:0.05;width:900px;height:900px}
+.header{text-align:center;margin-bottom:50px}
+.logo{font-size:52px;margin-bottom:12px}
+.title{font-size:38px;font-weight:800;color:#fff;margin-bottom:6px;letter-spacing:-0.5px}
+.subtitle{font-size:15px;color:#64748b;font-weight:500;letter-spacing:1px;text-transform:uppercase}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;max-width:920px;margin:0 auto;width:100%}
+.card{padding:28px 30px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);border-radius:20px;backdrop-filter:blur(10px)}
+.card.full{grid-column:span 2}
+.card.highlight{border-color:rgba(22,199,132,0.25);background:rgba(22,199,132,0.03)}
+.card-label{font-size:12px;color:#64748b;font-weight:600;text-transform:uppercase;letter-spacing:1.2px;margin-bottom:10px}
+.card-value{font-size:32px;font-weight:800;color:#fff}
+.card-value.green{color:#16C784}
+.card-value.gold{color:#F5B400}
+.card-value.small{font-size:20px;font-weight:700}
+.dual{display:flex;gap:40px;align-items:center}
+.dual-item{flex:1}
+.tag{display:inline-block;padding:3px 10px;border-radius:6px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-right:8px}
+.tag.real{background:rgba(31,111,235,0.15);color:#60a5fa}
+.tag.demo{background:rgba(139,92,246,0.15);color:#a78bfa}
+.pair-icon{font-size:18px;margin-right:6px}
+.footer{text-align:center;margin-top:auto;padding-top:50px}
+.brand{font-size:14px;font-weight:600;color:#334155;letter-spacing:2px;text-transform:uppercase}
 </style></head><body>
 <div class="page">
-<div class="glow glow1"></div><div class="glow glow2"></div>
-<div class="header"><div class="icon">📊</div><div class="title">${challenge.title || 'Trading Challenge'}</div><div class="subtitle">Challenge Statistics</div></div>
-<div class="stats-container">${statsHTML}</div>
+<div class="glow glow1"></div><div class="glow glow2"></div><div class="glow glow3"></div>
+<div class="header">
+  <div class="logo">📊</div>
+  <div class="title">${challenge.title || 'Trading Challenge'}</div>
+  <div class="subtitle">Challenge Statistics</div>
+</div>
+<div class="grid">
+  <div class="card highlight">
+    <div class="card-label">Total Participants</div>
+    <div class="card-value green">${s.totalParticipants || 0}</div>
+  </div>
+  <div class="card">
+    <div class="card-label">Total Trades</div>
+    <div class="card-value">${s.totalTrades || 0}</div>
+  </div>
+  <div class="card">
+    <div class="card-label">Participants</div>
+    <div class="dual">
+      <div class="dual-item"><span class="tag real">Real</span><span class="card-value small">${s.realParticipants || 0}</span></div>
+      <div class="dual-item"><span class="tag demo">Demo</span><span class="card-value small">${s.demoParticipants || 0}</span></div>
+    </div>
+  </div>
+  <div class="card highlight">
+    <div class="card-label">Above Target 🎯</div>
+    <div class="dual">
+      <div class="dual-item"><span class="tag real">Real</span><span class="card-value small green">${s.realAboveTarget || 0}</span></div>
+      <div class="dual-item"><span class="tag demo">Demo</span><span class="card-value small green">${s.demoAboveTarget || 0}</span></div>
+    </div>
+  </div>
+  <div class="card full">
+    <div class="card-label">Top Qualified Balance 💰</div>
+    <div class="dual">
+      <div class="dual-item"><span class="tag real">Real</span><span class="card-value small">${s.realTopBalance?.nickname || '—'} <span style="color:#16C784">(${s.realTopBalance?.balance || '—'})</span></span></div>
+      <div class="dual-item"><span class="tag demo">Demo</span><span class="card-value small">${s.demoTopBalance?.nickname || '—'} <span style="color:#16C784">(${s.demoTopBalance?.balance || '—'})</span></span></div>
+    </div>
+  </div>
+  <div class="card full">
+    <div class="card-label">Highest Single Trade Profit 🔥</div>
+    <div class="dual">
+      <div class="dual-item"><span class="tag real">Real</span><span class="card-value small">${s.realHighestProfit?.nickname || '—'} <span style="color:#16C784">(${s.realHighestProfit?.profit || '—'})</span></span></div>
+      <div class="dual-item"><span class="tag demo">Demo</span><span class="card-value small">${s.demoHighestProfit?.nickname || '—'} <span style="color:#16C784">(${s.demoHighestProfit?.profit || '—'})</span></span></div>
+    </div>
+  </div>
+  <div class="card full">
+    <div class="card-label">Best Win Rate (Qualified) 🏹</div>
+    <div class="dual">
+      <div class="dual-item"><span class="tag real">Real</span><span class="card-value small">${s.realBestWinRate?.nickname || '—'} <span style="color:#F5B400">(${s.realBestWinRate?.rate || '—'})</span></span></div>
+      <div class="dual-item"><span class="tag demo">Demo</span><span class="card-value small">${s.demoBestWinRate?.nickname || '—'} <span style="color:#F5B400">(${s.demoBestWinRate?.rate || '—'})</span></span></div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-label">Most Traded Pair</div>
+    <div class="card-value small"><span class="pair-icon">📈</span>${s.mostTradedPair || '—'}</div>
+  </div>
+  <div class="card">
+    <div class="card-label">Most Broken Rule ⚠️</div>
+    <div class="card-value small" style="color:#f87171;font-size:16px">${s.mostBrokenRule?.rule || '—'} <span style="color:#64748b">(${s.mostBrokenRule?.count || 0}×)</span></div>
+  </div>
+</div>
 <div class="footer"><div class="brand">BirrForex • WinnerPip</div></div>
 </div>
 </body></html>`;
