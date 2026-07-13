@@ -2578,7 +2578,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
   const [loadingFailed, setLoadingFailed] = useState(false);
   const [actionMsg, setActionMsg] = useState("");
   const [retrying, setRetrying] = useState<string | null>(null);
-  const [showFilter, setShowFilter] = useState<"credential" | "failed" | "skipped" | "sl" | "all" | "individual" | "pulltrade">("credential");
+  const [showFilter, setShowFilter] = useState<"credential" | "failed" | "skipped" | "sl" | "all" | "individual" | "pulltrade" | "incomplete">("credential");
 
   // Pull Trade state
   const [ptAccountId, setPtAccountId] = useState("");
@@ -2598,6 +2598,11 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
   const [polling, setPolling] = useState(false);
   const pollIntervalRef = useRef<number | null>(null);
 
+  // Incomplete trades state
+  const [incompleteTrades, setIncompleteTrades] = useState<any[]>([]);
+  const [incompleteLoading, setIncompleteLoading] = useState(false);
+  const [incompleteResolving, setIncompleteResolving] = useState<string | null>(null);
+
   const formatEAT = (dateStr: string) => {
     const d = new Date(new Date(dateStr).getTime() + 3 * 60 * 60 * 1000);
     return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,"0")}-${String(d.getUTCDate()).padStart(2,"0")} ${String(d.getUTCHours()).padStart(2,"0")}:${String(d.getUTCMinutes()).padStart(2,"0")} EAT`;
@@ -2613,6 +2618,30 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
       if (res.ok) { const data = await res.json(); setFailedAccounts(data.failed || []); setCredentialFailures(data.credentialFailures || []); setSkippedAccounts(data.skipped || []); }
     } catch (_e) {}
     setLoadingFailed(false);
+  };
+
+  const fetchIncomplete = async () => {
+    setIncompleteLoading(true);
+    try {
+      const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/incomplete-trades`);
+      if (res.ok) { const data = await res.json(); setIncompleteTrades(data.trades || []); }
+    } catch (_e) {}
+    setIncompleteLoading(false);
+  };
+
+  const handleResolveIncomplete = async (positionIds: number[]) => {
+    setIncompleteResolving(positionIds.length === 1 ? String(positionIds[0]) : "all");
+    try {
+      const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/resolve-incomplete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(positionIds.length === incompleteTrades.length ? { all: true } : { positionIds }),
+      });
+      const data = await res.json();
+      if (res.ok) { setActionMsg(`✅ ${data.message}`); await fetchIncomplete(); }
+      else setActionMsg(`❌ ${data.error || "Resolve failed"}`);
+    } catch (_e) { setActionMsg("❌ Connection error"); }
+    setIncompleteResolving(null);
   };
 
   const handleForcePull = async () => {
@@ -2794,7 +2823,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
     setIndivPulling(false);
   };
 
-  useEffect(() => { fetchFailed(); }, [challengeId]);
+  useEffect(() => { fetchFailed(); fetchIncomplete(); }, [challengeId]);
 
   return (
     <div className="space-y-6">
@@ -2949,6 +2978,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
         <button onClick={() => setShowFilter("all")} className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${showFilter === "all" ? "bg-royal/20 text-royal border border-royal/30" : "bg-white/5 text-gray-400 hover:text-white"}`}>All</button>
         <button onClick={() => { setShowFilter("individual"); setIndivResult(null); }} className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${showFilter === "individual" ? "bg-purple-500/20 text-purple-400 border border-purple-500/30" : "bg-white/5 text-gray-400 hover:text-white"}`}>🎯 Pull Individual Account</button>
         <button onClick={() => { setShowFilter("pulltrade"); setPtResult(null); }} className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${showFilter === "pulltrade" ? "bg-amber-500/20 text-amber-400 border border-amber-500/30" : "bg-white/5 text-gray-400 hover:text-white"}`}>🔍 Pull Trade</button>
+        <button onClick={() => setShowFilter("incomplete")} className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${showFilter === "incomplete" ? "bg-orange-500/20 text-orange-400 border border-orange-500/30" : "bg-white/5 text-gray-400 hover:text-white"}`}>⚠️ Incomplete ({incompleteTrades.length})</button>
       </div>
 
       {/* Credential Failures List — only password_changed / invalid_credentials accounts */}
@@ -3311,6 +3341,55 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
               </div>
             );
           })()}
+        </div>
+      )}
+
+      {/* Incomplete Trades Panel */}
+      {(showFilter === "incomplete" || showFilter === "all") && (
+        <div className="glass rounded-2xl border border-orange-500/20 p-5">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-semibold text-orange-400">⚠️ Incomplete Trades ({incompleteTrades.length})</h3>
+            {incompleteTrades.length > 0 && (
+              <button
+                onClick={() => handleResolveIncomplete(incompleteTrades.map((t: any) => t.positionId))}
+                disabled={incompleteResolving === "all"}
+                className="px-3 py-1.5 rounded-lg bg-orange-500/20 border border-orange-500/30 text-orange-400 text-[10px] font-bold hover:bg-orange-500/30 transition-all disabled:opacity-50"
+              >
+                {incompleteResolving === "all" ? "Resolving..." : "🔄 Retry All"}
+              </button>
+            )}
+          </div>
+          {incompleteLoading ? (
+            <p className="text-[11px] text-gray-400 text-center py-2">Loading...</p>
+          ) : incompleteTrades.length === 0 ? (
+            <p className="text-[11px] text-profit text-center py-2">✅ All trades have complete data.</p>
+          ) : (
+            <div className="space-y-2 max-h-[400px] overflow-y-auto">
+              {incompleteTrades.map((t: any) => (
+                <div key={t.id} className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-white font-semibold">
+                      #{t.ticket} <span className="text-gray-400 font-normal">{t.symbol || "?"}</span>
+                      <span className="text-gray-500 text-xs ml-2">@{t.nickname || t.username || t.accountNumber}</span>
+                    </p>
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {t.missing.map((m: string) => (
+                        <span key={m} className="px-1.5 py-0.5 rounded bg-orange-500/10 text-orange-400 text-[9px] font-semibold">{m}</span>
+                      ))}
+                    </div>
+                    <p className="text-[10px] text-gray-500 mt-1">Account: {t.accountNumber} • Position: {t.positionId} • Synced: {t.syncedAt ? formatEAT(t.syncedAt) : "—"}</p>
+                  </div>
+                  <button
+                    onClick={() => handleResolveIncomplete([t.positionId])}
+                    disabled={incompleteResolving === String(t.positionId)}
+                    className="px-3 py-1.5 rounded-lg bg-orange-500/20 border border-orange-500/30 text-orange-400 text-[10px] font-bold hover:bg-orange-500/30 transition-all disabled:opacity-50 ml-2 flex-shrink-0"
+                  >
+                    {incompleteResolving === String(t.positionId) ? "..." : "🔄 Retry"}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
