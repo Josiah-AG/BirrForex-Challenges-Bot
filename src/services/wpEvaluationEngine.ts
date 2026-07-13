@@ -51,21 +51,10 @@ function getInstrumentInfo(symbol: string): { pipSize: number; contractSize: num
 function calculateSlDollars(symbol: string, volume: number, entryPrice: number, slPrice: number, closePrice?: number, actualProfit?: number, isPartialPosition?: boolean): number {
   if (!slPrice || slPrice === 0) return 0;
 
-  const slDistance = Math.abs(entryPrice - slPrice);
-  const closeDistance = closePrice ? Math.abs(entryPrice - closePrice) : 0;
-
-  // Ratio method: if we have actual profit and meaningful price movement
-  // Skip ratio method for partial positions — profit is only for a portion of the lots,
-  // but SL risk applies to the full position volume.
-  if (!isPartialPosition && actualProfit !== undefined && closePrice && closeDistance > 0) {
-    // actualProfit is what happened with entry→close movement
-    // SL risk is what would happen with entry→SL movement
-    const ratio = slDistance / closeDistance;
-    return Math.abs(actualProfit) * ratio;
-  }
-
-  // Pip-based calculation (uses volume param — must be the FULL position volume)
+  // Always use pip-based calculation — it's more reliable than the ratio method
+  // which breaks for partial closes (profit is for a portion, SL risk is for full lot).
   const { pipSize, contractSize } = getInstrumentInfo(symbol);
+  const slDistance = Math.abs(entryPrice - slPrice);
   const pips = slDistance / pipSize;
   const pipValue = volume * contractSize * pipSize;
   return pips * pipValue;
@@ -1016,19 +1005,10 @@ export class WpEvaluationEngine {
         const entryTrade = siblings[0];
         const closedLot = siblings.reduce((s, t) => s + parseFloat(String(t.volume)), 0);
 
-        // Use the true opening volume from wp_deals if available (handles partial closes
-        // where not all parts are closed yet — closedLot < true position size).
+        // Use the true opening volume: sum ALL closed trades for this position_id
+        // (handles the case where some partials were closed in previous cycles).
+        // If only one partial is closed so far, totalLot = closedLot (the current DB state).
         let totalLot = closedLot;
-        try {
-          const openDeal = await db.query(
-            `SELECT volume FROM wp_deals WHERE challenge_id = $1 AND registration_id = $2 AND position_id = $3 AND entry = 0 LIMIT 1`,
-            [challengeId, reg.id, posId]
-          );
-          if (openDeal.rows.length > 0 && openDeal.rows[0].volume) {
-            const openingVol = parseFloat(openDeal.rows[0].volume);
-            if (openingVol > closedLot) totalLot = openingVol;
-          }
-        } catch {}
 
         // Layer A: declared SL too wide — applies to ALL closes of this position
         let layerABreach = false;

@@ -616,13 +616,15 @@ app.get('/api/challenges/:id/user-trades', async (req, res) => {
     const tradePositionIds = [...new Set(trades.rows.map((t: any) => t.position_id).filter(Boolean))];
     const openingVolsMap = new Map<number, number>();
     if (tradePositionIds.length > 0) {
-      try {
-        const volRes = await db.query(
-          `SELECT position_id, volume FROM wp_deals WHERE challenge_id = $1 AND registration_id = $2 AND position_id = ANY($3) AND entry = 0`,
-          [challengeId, registrationId, tradePositionIds]
-        );
-        volRes.rows.forEach((r: any) => openingVolsMap.set(Number(r.position_id), parseFloat(r.volume)));
-      } catch {}
+      // Group trades by position_id and find positions where multiple tickets share the same position
+      // (partial closes). Use the sum of all closed volumes as the "full" volume.
+      const volResult = await db.query(
+        `SELECT position_id, SUM(volume) as total_vol, COUNT(*) as cnt FROM wp_trades
+         WHERE challenge_id = $1 AND registration_id = $2 AND position_id = ANY($3)
+         GROUP BY position_id HAVING COUNT(*) > 1`,
+        [challengeId, registrationId, tradePositionIds]
+      ).catch(() => ({ rows: [] }));
+      volResult.rows.forEach((r: any) => openingVolsMap.set(Number(r.position_id), parseFloat(r.total_vol)));
     }
 
     const tradeRows = trades.rows.map((t: any) => {
@@ -713,10 +715,12 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
     if (positionIds.length > 0) {
       try {
         const volResult = await db.query(
-          `SELECT position_id, volume FROM wp_deals WHERE challenge_id = $1 AND registration_id = $2 AND position_id = ANY($3) AND entry = 0`,
+          `SELECT position_id, SUM(volume) as total_vol FROM wp_trades
+           WHERE challenge_id = $1 AND registration_id = $2 AND position_id = ANY($3)
+           GROUP BY position_id HAVING COUNT(*) > 1`,
           [cId, registrationId, positionIds]
         );
-        volResult.rows.forEach((r: any) => openingVolumes.set(Number(r.position_id), parseFloat(r.volume)));
+        volResult.rows.forEach((r: any) => openingVolumes.set(Number(r.position_id), parseFloat(r.total_vol)));
       } catch {}
     }
 
