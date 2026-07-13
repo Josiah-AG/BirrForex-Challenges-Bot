@@ -646,7 +646,7 @@ export default function AdminDashboard() {
                   <th className="text-center py-3 px-4 text-[10px] text-gray-400 uppercase">Violations</th></>}
                 </tr></thead>
                 <tbody>{leaderboard.length === 0 ? <tr><td colSpan={leaderboardPreStart ? 5 : 9} className="py-8 text-center text-gray-500">No leaderboard data yet — will populate after VPS pulls and evaluation</td></tr> : leaderboard.map((e: any) => {
-                  const eWinnersCount = e.accountType === 'demo' ? parseInt(selectedChall?.demoWinnersCount || 3) : parseInt(selectedChall?.realWinnersCount || 3);
+                  const eWinnersCount = e.accountType === 'demo' ? parseInt(selectedChall?.demoWinnersCount || 0) : parseInt(selectedChall?.realWinnersCount || 0);
                   const eIsWinner = !e.isDisqualified && !e.isWithdrawn && !e.isBlown && e.rank && e.rank <= eWinnersCount && Number(e.adjustedBalance) >= Number(selectedChall?.targetBalance || 0);
                   const eIsAboveTarget = !e.isDisqualified && !e.isWithdrawn && !e.isBlown && !leaderboardPreStart && Number(e.adjustedBalance) >= Number(selectedChall?.targetBalance || 0);
                   return (
@@ -2397,13 +2397,21 @@ function downloadRulesHTML(challenge: any, rulesList: string[], isCent: boolean)
 
 function downloadLeaderboardHTML(challenge: any, lb: any[], categoryLabel?: string) {
   const top10 = lb.slice(0, 10);
-  const realWinners = parseInt(challenge.real_winners_count || challenge.realWinnersCount || 3);
-  const demoWinners = parseInt(challenge.demo_winners_count || challenge.demoWinnersCount || 3);
+  const realWinners = parseInt(challenge.real_winners_count || challenge.realWinnersCount || 0);
+  const demoWinners = parseInt(challenge.demo_winners_count || challenge.demoWinnersCount || 0);
+  const targetBalance = parseFloat(challenge.target_balance || challenge.targetBalance || 0);
 
   const isWinnerEntry = (e: any) => {
-    if (e.isDisqualified || !e.isQualified) return false;
+    if (e.isDisqualified || e.isWithdrawn || e.isBlown) return false;
     const count = e.accountType === 'demo' ? demoWinners : realWinners;
-    return count > 0 && e.rank <= count;
+    const bal = Number(e.adjustedBalance || 0) - Number(e.totalWithdrawn || 0);
+    return count > 0 && e.rank <= count && bal >= targetBalance;
+  };
+
+  const isAboveTarget = (e: any) => {
+    if (e.isDisqualified || e.isWithdrawn || e.isBlown) return false;
+    const bal = Number(e.adjustedBalance || 0) - Number(e.totalWithdrawn || 0);
+    return bal >= targetBalance && targetBalance > 0;
   };
 
   const isCent = top10.some((e: any) => e.isCent);
@@ -2415,7 +2423,8 @@ function downloadLeaderboardHTML(challenge: any, lb: any[], categoryLabel?: stri
 
   const rowsHTML = top10.map((e) => {
     const winner = isWinnerEntry(e);
-    const rowClass = winner ? 'winner' : '';
+    const aboveTarget = !winner && isAboveTarget(e);
+    const rowClass = winner ? 'winner' : aboveTarget ? 'above-target' : '';
     const rankLabel = winner ? '🏆' : `${e.rank}`;
     const bal = formatBal(e);
     return `<div class="lb-row ${rowClass}"><div class="lb-rank">${rankLabel}</div><div class="lb-name">${e.nickname || '—'}</div><div class="lb-type">${e.accountType}</div><div class="lb-balance">${bal}</div><div class="lb-trades">${e.totalTrades} trades</div></div>`;
@@ -2435,6 +2444,9 @@ function downloadLeaderboardHTML(challenge: any, lb: any[], categoryLabel?: stri
 .page.landscape .lb-container{max-width:1400px}
 .lb-row{display:flex;align-items:center;gap:20px;padding:20px 28px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:16px;transition:all 0.2s}
 .lb-row.winner{background:rgba(22,199,132,0.08);border-color:rgba(22,199,132,0.35)}
+.lb-row.above-target{background:rgba(22,199,132,0.04);border-color:rgba(22,199,132,0.15)}
+.lb-row.above-target .lb-name{color:rgba(22,199,132,0.8)}
+.lb-row.above-target .lb-balance{color:rgba(22,199,132,0.8)}
 .lb-rank{font-size:28px;width:50px;text-align:center;font-weight:700;color:#64748b}
 .lb-row.winner .lb-rank{color:#16C784;font-size:32px}
 .lb-row.winner .lb-name{color:#16C784}
