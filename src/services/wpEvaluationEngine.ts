@@ -1543,7 +1543,12 @@ export class WpEvaluationEngine {
   }
 
   async getRulesForDisplay(challengeId: number): Promise<{ rules: string[]; isCent: boolean }> {
-    const cfg = await this.loadRules(challengeId);
+    let cfg = await this.loadRules(challengeId);
+    if (!cfg) {
+      // Auto-seed defaults so users always see rules
+      await this.seedDefaultRules(challengeId);
+      cfg = await this.loadRules(challengeId);
+    }
     if (!cfg) return { rules: ['Rules not yet configured'], isCent: false };
     const isCent = cfg.only_cent_account || false;
     const rules: string[] = [];
