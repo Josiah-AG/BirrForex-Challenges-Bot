@@ -1381,14 +1381,44 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
       metrics.combined = await buildMetricsForCategory(null);
     }
 
+    // Rule violation stats — most and least broken rules
+    let mostBrokenRule = null;
+    let leastBrokenRule = null;
+    try {
+      const violationRows = await db.query(
+        `SELECT unnest(string_to_array(
+           regexp_replace(violations::text, '\\[|\\]|"', '', 'g'), ','
+         )) as rule, COUNT(*) as cnt
+         FROM wp_trades
+         WHERE challenge_id = $1 AND violations IS NOT NULL AND violations != '[]' AND is_qualified = false
+         GROUP BY rule
+         HAVING COUNT(*) > 0
+         ORDER BY cnt DESC`,
+        [challengeId]
+      );
+      if (violationRows.rows.length > 0) {
+        // Clean up rule names (trim whitespace)
+        const cleaned = violationRows.rows.map((r: any) => ({ rule: (r.rule || '').trim().split(' — ')[0].split(' (')[0].substring(0, 40), count: parseInt(r.cnt) })).filter((r: any) => r.rule.length > 2);
+        if (cleaned.length > 0) {
+          mostBrokenRule = cleaned[0];
+          leastBrokenRule = cleaned[cleaned.length - 1];
+        }
+      }
+    } catch {}
+
     return res.json({
       participants: { total: parseInt(c.total), demo: parseInt(c.demo), real: parseInt(c.real), disqualified: parseInt(c.disqualified) },
       trades: { total: parseInt(t.total_trades), totalVolume: parseFloat(t.total_volume), violations: parseInt(t.violations) },
       pulls: { today: parseInt(p.pulls_today), success: parseInt(p.total_success), failed: parseInt(p.total_failed), newTrades: parseInt(p.new_trades), passwordChanged: parseInt(pwChanged.rows[0].cnt), lastPullAt: lastPull.rows[0]?.completed_at || null },
       balance: { total: totalBalance, real: realBalance, demo: demoBalance },
       qualified: parseInt(aboveTarget.rows[0].cnt),
+      totalParticipants: parseInt(c.total),
+      totalTrades: parseInt(t.total_trades),
+      aboveTarget: parseInt(aboveTarget.rows[0].cnt),
       latestScreening: latestScreening.rows[0] || null,
       metrics,
+      mostBrokenRule,
+      leastBrokenRule,
     });
   } catch (error) {
     console.error('Admin overview error:', error);

@@ -2200,6 +2200,7 @@ function ChallengeSettingsPanel({ challengeId, challenges, onRefresh }: { challe
             ) : (
               <button onClick={async () => { try { const r = await fetch(`${apiUrl}/api/challenges/${challengeId}/leaderboard?limit=10`); const d = await r.json(); downloadLeaderboardHTML({ ...editForm, real_winners_count: challenge?.realWinnersCount ?? 3, demo_winners_count: challenge?.demoWinnersCount ?? 3 }, d.leaderboard || []); } catch { downloadLeaderboardHTML(editForm, []); } }} className="p-2.5 rounded-lg bg-gold/10 border border-gold/30 text-gold text-xs font-semibold hover:bg-gold/20 transition-all">🏆 Leaderboard Image</button>
             )}
+            <button onClick={async () => { try { const r = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/overview`); const d = await r.json(); const metrics = d.metrics || {}; const m = metrics.real || metrics.combined || {}; const md = metrics.demo || {}; downloadStatsHTML(editForm, { totalParticipants: d.totalParticipants || 0, realParticipants: d.participants?.real || 0, demoParticipants: d.participants?.demo || 0, realAboveTarget: d.aboveTarget || 0, demoAboveTarget: d.demoAboveTarget || 0, totalTrades: d.totalTrades || 0, mostTradedPair: m.mostTradedPair?.symbol || md.mostTradedPair?.symbol || '—', realHighestProfit: m.maxProfitTrade ? { nickname: m.maxProfitTrade.nickname, profit: `${m.maxProfitTrade.profit?.toFixed(2)}` } : null, demoHighestProfit: md.maxProfitTrade ? { nickname: md.maxProfitTrade.nickname, profit: `${md.maxProfitTrade.profit?.toFixed(2)}` } : null, realBestWinRate: m.bestQualifiedWinRate ? { nickname: m.bestQualifiedWinRate.nickname, rate: `${m.bestQualifiedWinRate.winRate}%` } : null, demoBestWinRate: md.bestQualifiedWinRate ? { nickname: md.bestQualifiedWinRate.nickname, rate: `${md.bestQualifiedWinRate.winRate}%` } : null, mostBrokenRule: d.mostBrokenRule || null, leastBrokenRule: d.leastBrokenRule || null }); } catch { downloadStatsHTML(editForm, {}); } }} className="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-semibold hover:bg-amber-500/20 transition-all col-span-2">📊 Challenge Stats Image</button>
           </div>
         </div>
 
@@ -2475,6 +2476,60 @@ function downloadLeaderboardHTML(challenge: any, lb: any[], categoryLabel?: stri
   const blob = new Blob([html], { type: 'text/html' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a'); a.href = url; a.download = `${(challenge.title || 'challenge').replace(/\s+/g, '_')}_leaderboard.html`; a.click();
+  URL.revokeObjectURL(url);
+}
+
+function downloadStatsHTML(challenge: any, stats: any) {
+  const s = stats;
+  const statRow = (label: string, realVal: string, demoVal?: string) =>
+    demoVal !== undefined
+      ? `<div class="stat-row dual"><div class="stat-label">${label}</div><div class="stat-values"><div class="stat-val real"><span class="tag">Real</span>${realVal}</div><div class="stat-val demo"><span class="tag">Demo</span>${demoVal}</div></div></div>`
+      : `<div class="stat-row"><div class="stat-label">${label}</div><div class="stat-value">${realVal}</div></div>`;
+
+  const statsHTML = [
+    statRow('Total Participants', `${s.totalParticipants || 0}`, undefined),
+    statRow('Participants', `${s.realParticipants || 0}`, `${s.demoParticipants || 0}`),
+    statRow('Above Target', `${s.realAboveTarget || 0}`, `${s.demoAboveTarget || 0}`),
+    statRow('Total Trades', `${s.totalTrades || 0}`, undefined),
+    statRow('Most Traded Pair', `${s.mostTradedPair || '—'}`, undefined),
+    statRow('Highest Profit', `${s.realHighestProfit?.nickname || '—'} (${s.realHighestProfit?.profit || '—'})`, `${s.demoHighestProfit?.nickname || '—'} (${s.demoHighestProfit?.profit || '—'})`),
+    statRow('Best Win Rate (Qualified)', `${s.realBestWinRate?.nickname || '—'} (${s.realBestWinRate?.rate || '—'})`, `${s.demoBestWinRate?.nickname || '—'} (${s.demoBestWinRate?.rate || '—'})`),
+    statRow('Most Broken Rule', `${s.mostBrokenRule?.rule || '—'} (${s.mostBrokenRule?.count || 0}×)`, undefined),
+    statRow('Least Broken Rule', `${s.leastBrokenRule?.rule || '—'} (${s.leastBrokenRule?.count || 0}×)`, undefined),
+  ].join('');
+
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${challenge.title} - Stats</title><style>
+*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Inter',system-ui,sans-serif;background:#0a0e1a}
+.page{width:1080px;min-height:1920px;padding:80px;display:flex;flex-direction:column;background:linear-gradient(135deg,#0a0e1a 0%,#111827 50%,#0a0e1a 100%);position:relative;overflow:hidden}
+.glow{position:absolute;width:600px;height:600px;border-radius:50%;filter:blur(150px);opacity:0.15}
+.glow1{top:-200px;right:-100px;background:#F5B400}.glow2{bottom:-200px;left:-100px;background:#16C784}
+.header{text-align:center;margin-bottom:60px}
+.title{font-size:40px;font-weight:800;color:#fff;margin-bottom:8px}
+.subtitle{font-size:18px;color:#94a3b8}
+.icon{font-size:56px;margin-bottom:16px}
+.stats-container{flex:1;display:flex;flex-direction:column;gap:16px;max-width:900px;margin:0 auto;width:100%}
+.stat-row{display:flex;align-items:center;justify-content:space-between;padding:24px 32px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:16px}
+.stat-row.dual{flex-direction:column;align-items:stretch;gap:12px;padding:20px 32px}
+.stat-label{font-size:16px;color:#94a3b8;font-weight:500}
+.stat-value{font-size:24px;font-weight:700;color:#fff}
+.stat-values{display:flex;gap:24px}
+.stat-val{flex:1;display:flex;align-items:center;gap:12px;font-size:20px;font-weight:700;color:#fff}
+.stat-val.real .tag{background:rgba(31,111,235,0.15);color:#1F6FEB;padding:4px 10px;border-radius:8px;font-size:11px;font-weight:600}
+.stat-val.demo .tag{background:rgba(139,92,246,0.15);color:#8B5CF6;padding:4px 10px;border-radius:8px;font-size:11px;font-weight:600}
+.footer{text-align:center;margin-top:auto;padding-top:40px}
+.brand{font-size:16px;font-weight:700;color:#475569}
+</style></head><body>
+<div class="page">
+<div class="glow glow1"></div><div class="glow glow2"></div>
+<div class="header"><div class="icon">📊</div><div class="title">${challenge.title || 'Trading Challenge'}</div><div class="subtitle">Challenge Statistics</div></div>
+<div class="stats-container">${statsHTML}</div>
+<div class="footer"><div class="brand">BirrForex • WinnerPip</div></div>
+</div>
+</body></html>`;
+
+  const blob = new Blob([html], { type: 'text/html' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = `${(challenge.title || 'challenge').replace(/\s+/g, '_')}_stats.html`; a.click();
   URL.revokeObjectURL(url);
 }
 
