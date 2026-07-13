@@ -877,7 +877,9 @@ def do_pull(account: int, server: str, password: str, from_date: str = None, ord
                                 orders_by_position[pos_id] = order_info
 
                 open_time  = order_info.get("open_time")  or open_deal.get("time")
-                open_price = order_info.get("open_price") or open_deal.get("price", deal.price)
+                open_price = order_info.get("open_price") or open_deal.get("price") or None
+                # NEVER fall back to deal.price — that's the CLOSING deal's execution price.
+                # If open_price is None, the scheduler's upsert will preserve the existing DB value.
                 final_sl   = order_info.get("sl", 0)
                 final_tp   = order_info.get("tp", 0)
                 if not final_sl and hasattr(deal, "sl") and deal.sl:
