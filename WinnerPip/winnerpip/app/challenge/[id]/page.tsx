@@ -11,6 +11,7 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
 // ==================== TYPES ====================
 interface Trade {
   ticket: number; positionId?: number; symbol: string; type: string; volume: number;
+  openingVolume?: number | null;
   openPrice: number; closePrice: number; openTime: string; closeTime: string;
   profit: number; commission: number; swap: number;
   stopLoss?: number | null; takeProfit?: number | null;
@@ -1134,7 +1135,7 @@ export default function ChallengeDashboard() {
               <div className="grid grid-cols-2 gap-3">
                 <DRow label="Ticket" value={`#${selectedTrade.ticket}`} />
                 <DRow label="Closed" value={formatDate(selectedTrade.closeTime)} />
-                <DRow label="Volume" value={`${selectedTrade.volume} lots`} />
+                <DRow label="Volume" value={selectedTrade.openingVolume ? `${selectedTrade.volume} / ${selectedTrade.openingVolume} lots` : `${selectedTrade.volume} lots`} />
                 <DRow label="Opened" value={formatDate(selectedTrade.openTime)} />
                 <DRow label="Entry" value={selectedTrade.openPrice.toString()} />
                 <DRow label="Exit" value={selectedTrade.closePrice.toString()} />

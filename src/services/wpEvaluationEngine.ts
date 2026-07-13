@@ -48,21 +48,23 @@ function getInstrumentInfo(symbol: string): { pipSize: number; contractSize: num
  * For trades where close ≈ entry (profit ≈ 0), we fall back to the old pip-based method
  * which is accurate for USD-quoted pairs and approximate for others.
  */
-function calculateSlDollars(symbol: string, volume: number, entryPrice: number, slPrice: number, closePrice?: number, actualProfit?: number): number {
+function calculateSlDollars(symbol: string, volume: number, entryPrice: number, slPrice: number, closePrice?: number, actualProfit?: number, isPartialPosition?: boolean): number {
   if (!slPrice || slPrice === 0) return 0;
 
   const slDistance = Math.abs(entryPrice - slPrice);
   const closeDistance = closePrice ? Math.abs(entryPrice - closePrice) : 0;
 
   // Ratio method: if we have actual profit and meaningful price movement
-  if (actualProfit !== undefined && closePrice && closeDistance > 0) {
+  // Skip ratio method for partial positions — profit is only for a portion of the lots,
+  // but SL risk applies to the full position volume.
+  if (!isPartialPosition && actualProfit !== undefined && closePrice && closeDistance > 0) {
     // actualProfit is what happened with entry→close movement
     // SL risk is what would happen with entry→SL movement
     const ratio = slDistance / closeDistance;
     return Math.abs(actualProfit) * ratio;
   }
 
-  // Fallback: pip-based calculation (accurate for USD-quoted pairs)
+  // Pip-based calculation (uses volume param — must be the FULL position volume)
   const { pipSize, contractSize } = getInstrumentInfo(symbol);
   const pips = slDistance / pipSize;
   const pipValue = volume * contractSize * pipSize;
@@ -1035,10 +1037,12 @@ export class WpEvaluationEngine {
         const hasSl = sl !== 0 && !isNaN(sl);
         if (hasSl) {
           const entryNet = parseFloat(String(entryTrade.profit)) + parseFloat(String(entryTrade.commission || 0)) + parseFloat(String(entryTrade.swap || 0));
+          const isPartialPosition = isPartialClose || totalLot > closedLot;
           const slDollars = calculateSlDollars(
             entryTrade.symbol, totalLot,
             parseFloat(String(entryTrade.open_price)), sl,
-            parseFloat(String(entryTrade.close_price)), entryNet
+            parseFloat(String(entryTrade.close_price)), entryNet,
+            isPartialPosition
           );
           const tolerance = rules.max_risk_dollars * 0.10;
           if (slDollars > rules.max_risk_dollars + tolerance) {

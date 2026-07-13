@@ -689,6 +689,19 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
     tradesQuery += ` ORDER BY close_time DESC LIMIT 50`;
     const trades = await db.query(tradesQuery, tradesParams);
 
+    // Batch lookup opening volumes for partial close detection
+    const positionIds = [...new Set(trades.rows.map((t: any) => t.position_id).filter(Boolean))];
+    const openingVolumes = new Map<number, number>();
+    if (positionIds.length > 0) {
+      try {
+        const volResult = await db.query(
+          `SELECT position_id, volume FROM wp_deals WHERE challenge_id = $1 AND registration_id = $2 AND position_id = ANY($3) AND entry = 0`,
+          [cId, registrationId, positionIds]
+        );
+        volResult.rows.forEach((r: any) => openingVolumes.set(Number(r.position_id), parseFloat(r.volume)));
+      } catch {}
+    }
+
     // Get challenge info
     const reg = await db.query(
       `SELECT r.id, r.nickname, r.account_number, r.account_type, r.account_subtype, r.mt5_server, r.challenge_id, r.pull_status,
@@ -757,26 +770,31 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
         isQualified: leaderboard?.is_qualified || false,
         lastUpdated: leaderboard?.last_updated || null,
       },
-      recentTrades: trades.rows.map(t => ({
-        ticket: t.ticket,
-        positionId: t.position_id || t.ticket,
-        symbol: t.symbol,
-        type: t.trade_type,
-        volume: parseFloat(t.volume),
-        openTime: t.open_time,
-        closeTime: t.close_time,
-        openPrice: parseFloat(t.open_price),
-        closePrice: parseFloat(t.close_price),
-        stopLoss: t.stop_loss ? parseFloat(t.stop_loss) : null,
-        takeProfit: t.take_profit ? parseFloat(t.take_profit) : null,
-        profit: parseFloat(t.profit),
-        commission: parseFloat(t.commission),
-        swap: parseFloat(t.swap),
-        isQualified: t.is_qualified,
-        violations: t.violations || [],
-        slCheckPending: t.sl_check_pending || false,
-        slCheckResult: t.sl_check_result || null,
-      })),
+      recentTrades: trades.rows.map((t: any) => {
+        const posId = t.position_id || t.ticket;
+        const openVol = openingVolumes.get(posId);
+        return {
+          ticket: t.ticket,
+          positionId: posId,
+          symbol: t.symbol,
+          type: t.trade_type,
+          volume: parseFloat(t.volume),
+          openingVolume: openVol && openVol > parseFloat(t.volume) ? openVol : null,
+          openTime: t.open_time,
+          closeTime: t.close_time,
+          openPrice: parseFloat(t.open_price),
+          closePrice: parseFloat(t.close_price),
+          stopLoss: t.stop_loss ? parseFloat(t.stop_loss) : null,
+          takeProfit: t.take_profit ? parseFloat(t.take_profit) : null,
+          profit: parseFloat(t.profit),
+          commission: parseFloat(t.commission),
+          swap: parseFloat(t.swap),
+          isQualified: t.is_qualified,
+          violations: t.violations || [],
+          slCheckPending: t.sl_check_pending || false,
+          slCheckResult: t.sl_check_result || null,
+        };
+      }),
     });
   } catch (error) {
     console.error('Dashboard error:', error);
