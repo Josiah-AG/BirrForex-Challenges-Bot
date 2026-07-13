@@ -1020,7 +1020,7 @@ export class WpEvaluationEngine {
         try {
           const openDeal = await db.query(
             `SELECT volume FROM wp_deals WHERE challenge_id = $1 AND registration_id = $2 AND position_id = $3 AND entry = 0 LIMIT 1`,
-            [challengeId, registrationId, posId]
+            [challengeId, reg.id, posId]
           );
           if (openDeal.rows.length > 0 && openDeal.rows[0].volume) {
             const openingVol = parseFloat(openDeal.rows[0].volume);
