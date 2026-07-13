@@ -1573,7 +1573,7 @@ export class WpEvaluationEngine {
 
     if (cfg.max_lot_size) {
       if (showDual) {
-        rules.push(`📊 Maximum lot size: ${cfg.max_lot_size} lots (Standard/Demo) / ${cfg.max_lot_size * 100} lots (Cent/Real)`);
+        rules.push(`📊 Maximum lot size: ${cfg.max_lot_size} lots (Standard) / ${cfg.max_lot_size * 100} lots (Cent)`);
       } else {
         rules.push(`📊 Maximum lot size: ${cfg.max_lot_size} lots`);
       }

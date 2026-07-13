@@ -681,7 +681,7 @@ export default function ChallengeDashboard() {
             {activeTab === "leaderboard" && (
             <div className="glass rounded-2xl border border-white/10 overflow-hidden">
               <div className="p-4 border-b border-white/5 flex items-center justify-between">
-                <div className="flex items-center gap-2"><Trophy size={16} className="text-gold" /><p className="text-sm font-semibold text-white">Final Leaderboard</p></div>
+                <div className="flex items-center gap-2"><Trophy size={16} className="text-gold" /><p className="text-sm font-semibold text-white">Final Leaderboard{myStats?.accountType === 'demo' ? ' — Demo Category' : myStats?.accountType === 'real' ? ' — Real Category' : ''}</p></div>
               </div>
               {leaderboardLoading ? (
                 <div className="p-8 text-center"><Loader2 className="w-6 h-6 text-royal animate-spin mx-auto" /></div>
@@ -1011,7 +1011,7 @@ export default function ChallengeDashboard() {
             {activeTab === "leaderboard" && (
             <div className="glass rounded-2xl border border-white/10 overflow-hidden">
               <div className="p-4 border-b border-white/5 flex items-center justify-between">
-                <div className="flex items-center gap-2"><Trophy size={16} className="text-gold" /><p className="text-sm font-semibold text-white">{leaderboardPreStart ? "Pre-start Ranking" : "Leaderboard"}</p></div>
+                <div className="flex items-center gap-2"><Trophy size={16} className="text-gold" /><p className="text-sm font-semibold text-white">{leaderboardPreStart ? "Pre-start Ranking" : `Leaderboard${myStats?.accountType === 'demo' ? ' — Demo Category' : myStats?.accountType === 'real' ? ' — Real Category' : ''}`}</p></div>
                 {leaderboardPreStart ? <span className="text-[10px] text-gold/70 font-semibold uppercase tracking-wider">Based on account balance</span> : <p className="text-xs text-gray-500">Next update: {getNextPullTime()}</p>}
               </div>
               {leaderboardLoading ? (
