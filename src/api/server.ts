@@ -3383,7 +3383,19 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/failed-accounts`, adminIp
       [challengeId]
     );
 
-    return res.json({ failed, credentialFailures, skipped: skipped.rows });
+    // Count incomplete trades for badge display
+    const incompleteResult = await db.query(
+      `SELECT COUNT(*) as cnt FROM wp_trades
+       WHERE challenge_id = $1
+         AND (open_time IS NULL OR open_price IS NULL OR open_price = 0 OR
+              close_time IS NULL OR close_price IS NULL OR close_price = 0 OR
+              profit IS NULL OR symbol IS NULL OR symbol = '' OR
+              trade_type IS NULL OR trade_type = '' OR volume IS NULL OR volume = 0)`,
+      [challengeId]
+    );
+    const incompleteTrades = parseInt(incompleteResult.rows[0]?.cnt || '0');
+
+    return res.json({ failed, credentialFailures, skipped: skipped.rows, incompleteTrades });
   } catch (error) {
     console.error('Failed accounts error:', error);
     return res.status(500).json({ error: 'Internal server error' });
@@ -3816,6 +3828,206 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/retry-account`, adminIpC
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
+
+
+/**
+ * GET /api/admin/:secretPath/challenge/:id/incomplete-trades
+ * Returns trades with missing critical data (open_price, open_time, close_price, close_time, profit, symbol, trade_type, volume)
+ */
+app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/incomplete-trades`, adminIpCheck, async (req, res) => {
+  try {
+    const challengeId = parseInt(req.params.id);
+    const result = await db.query(
+      `SELECT t.id, t.ticket, t.position_id, t.symbol, t.trade_type, t.volume,
+              t.open_time, t.close_time, t.open_price, t.close_price, t.profit,
+              t.account_number, t.synced_at,
+              r.nickname, r.username, r.user_id
+       FROM wp_trades t
+       JOIN trading_registrations r ON t.registration_id = r.id
+       WHERE t.challenge_id = $1
+         AND (
+           t.open_time IS NULL OR
+           t.open_price IS NULL OR t.open_price = 0 OR
+           t.close_time IS NULL OR
+           t.close_price IS NULL OR t.close_price = 0 OR
+           t.profit IS NULL OR
+           t.symbol IS NULL OR t.symbol = '' OR
+           t.trade_type IS NULL OR t.trade_type = '' OR
+           t.volume IS NULL OR t.volume = 0
+         )
+       ORDER BY t.synced_at DESC`,
+      [challengeId]
+    );
+
+    const trades = result.rows.map((t: any) => {
+      const missing: string[] = [];
+      if (!t.open_time) missing.push('open_time');
+      if (!t.open_price || parseFloat(t.open_price) === 0) missing.push('open_price');
+      if (!t.close_time) missing.push('close_time');
+      if (!t.close_price || parseFloat(t.close_price) === 0) missing.push('close_price');
+      if (t.profit === null || t.profit === undefined) missing.push('profit');
+      if (!t.symbol) missing.push('symbol');
+      if (!t.trade_type) missing.push('trade_type');
+      if (!t.volume || parseFloat(t.volume) === 0) missing.push('volume');
+      return {
+        id: t.id,
+        ticket: t.ticket,
+        positionId: t.position_id,
+        symbol: t.symbol,
+        tradeType: t.trade_type,
+        volume: t.volume,
+        openTime: t.open_time,
+        closeTime: t.close_time,
+        openPrice: t.open_price,
+        closePrice: t.close_price,
+        profit: t.profit,
+        accountNumber: t.account_number,
+        nickname: t.nickname,
+        username: t.username,
+        userId: t.user_id,
+        syncedAt: t.synced_at,
+        missing,
+      };
+    });
+
+    return res.json({ trades, count: trades.length });
+  } catch (error) {
+    console.error('Incomplete trades error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+
+/**
+ * POST /api/admin/:secretPath/challenge/:id/resolve-incomplete
+ * Retry resolving incomplete trades via VPS /resolve-trades endpoint
+ * Body: { positionIds: [123, 456] } or { all: true }
+ */
+app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/resolve-incomplete`, adminIpCheck, async (req, res) => {
+  try {
+    const challengeId = parseInt(req.params.id);
+    const { positionIds, all } = req.body;
+
+    let targetPositionIds: number[] = [];
+
+    if (all) {
+      // Get all incomplete trade position IDs
+      const result = await db.query(
+        `SELECT DISTINCT position_id FROM wp_trades
+         WHERE challenge_id = $1
+           AND (
+             open_time IS NULL OR
+             open_price IS NULL OR open_price = 0 OR
+             close_time IS NULL OR
+             close_price IS NULL OR close_price = 0 OR
+             profit IS NULL OR
+             symbol IS NULL OR symbol = '' OR
+             trade_type IS NULL OR trade_type = '' OR
+             volume IS NULL OR volume = 0
+           )`,
+        [challengeId]
+      );
+      targetPositionIds = result.rows.map((r: any) => Number(r.position_id));
+    } else if (positionIds && positionIds.length > 0) {
+      targetPositionIds = positionIds.map(Number);
+    } else {
+      return res.status(400).json({ error: 'Provide positionIds array or { all: true }' });
+    }
+
+    if (targetPositionIds.length === 0) {
+      return res.json({ success: true, message: 'No incomplete trades to resolve', resolved: 0 });
+    }
+
+    // Group positions by account (need credentials to call VPS)
+    const posWithAccounts = await db.query(
+      `SELECT DISTINCT t.position_id, t.account_number, r.mt5_server, r.investor_password, r.id as registration_id
+       FROM wp_trades t
+       JOIN trading_registrations r ON t.registration_id = r.id
+       WHERE t.challenge_id = $1 AND t.position_id = ANY($2)`,
+      [challengeId, targetPositionIds]
+    );
+
+    // Group by account
+    const byAccount = new Map<string, { server: string; password: string; registrationId: number; positionIds: number[] }>();
+    for (const row of posWithAccounts.rows) {
+      const key = row.account_number;
+      if (!byAccount.has(key)) {
+        byAccount.set(key, { server: row.mt5_server, password: row.investor_password, registrationId: row.registration_id, positionIds: [] });
+      }
+      byAccount.get(key)!.positionIds.push(Number(row.position_id));
+    }
+
+    const vpsUrl = config.vpsApiUrl;
+    const vpsKey = config.vpsApiKey;
+    if (!vpsUrl || !vpsKey) {
+      return res.json({ success: false, message: 'VPS not configured' });
+    }
+
+    const axios = require('axios');
+    let totalResolved = 0;
+    let totalFailed = 0;
+
+    for (const [accountNumber, info] of byAccount) {
+      try {
+        const response = await axios.post(`${vpsUrl}/resolve-trades`, {
+          account: accountNumber,
+          server: info.server,
+          password: info.password,
+          api_key: vpsKey,
+          position_ids: info.positionIds,
+        }, { timeout: 60000 });
+
+        if (response.data?.success && response.data.trades?.length > 0) {
+          for (const trade of response.data.trades) {
+            await db.query(
+              `UPDATE wp_trades SET
+                open_time = COALESCE($1, open_time),
+                open_price = CASE WHEN $2::numeric > 0 THEN $2 ELSE open_price END,
+                close_time = COALESCE($3, close_time),
+                close_price = CASE WHEN $4::numeric > 0 THEN $4 ELSE close_price END,
+                stop_loss = COALESCE($5, stop_loss),
+                take_profit = COALESCE($6, take_profit),
+                symbol = COALESCE(NULLIF($7, ''), symbol),
+                trade_type = COALESCE(NULLIF($8, ''), trade_type),
+                volume = CASE WHEN $9::numeric > 0 THEN $9 ELSE volume END,
+                profit = COALESCE($10, profit),
+                commission = COALESCE($11, commission),
+                swap = COALESCE($12, swap),
+                synced_at = NOW()
+              WHERE challenge_id = $13 AND account_number = $14 AND position_id = $15`,
+              [
+                trade.open_time || null, trade.open_price || 0,
+                trade.close_time || null, trade.close_price || 0,
+                trade.stop_loss || null, trade.take_profit || null,
+                trade.symbol || '', trade.type || '',
+                trade.volume || 0, trade.profit ?? null,
+                trade.commission || 0, trade.swap || 0,
+                challengeId, accountNumber, trade.position_id,
+              ]
+            );
+            totalResolved++;
+          }
+        } else {
+          totalFailed += info.positionIds.length;
+        }
+      } catch (err: any) {
+        console.error(`Resolve incomplete error for ${accountNumber}:`, err.message);
+        totalFailed += info.positionIds.length;
+      }
+    }
+
+    return res.json({
+      success: true,
+      message: `Resolved ${totalResolved} trade(s), ${totalFailed} failed`,
+      resolved: totalResolved,
+      failed: totalFailed,
+    });
+  } catch (error) {
+    console.error('Resolve incomplete error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 
 // In-memory result cache for individual-account pulls, keyed by registrationId.
 // The pull itself can take 1-3 minutes (multiple terminal retries, each with a
