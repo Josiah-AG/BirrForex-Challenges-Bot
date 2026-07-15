@@ -288,11 +288,15 @@ export default function ChallengeDashboard() {
     const effectiveTarget = entry.isCent ? challenge.targetBalance * 100 : challenge.targetBalance;
     return (entry.adjustedBalance - (entry.totalWithdrawn || 0)) >= effectiveTarget;
   };
-  const progressPercent = challenge && myStats ? ((myStats.adjustedBalance - challenge.startingBalance) / (challenge.targetBalance - challenge.startingBalance)) * 100 : 0;
   const totalParticipants = leaderboardTotal || leaderboard.length;
   const isCentAccount = myStats?.accountType === 'real' && myStats.currentBalance > 500; // heuristic for cent
   // isCent: trust registration flag, fallback to challenge onlyCentAccount for real accounts
   const effectiveIsCent = myStats ? (myStats.isCent || (challenge?.onlyCentAccount && myStats.accountType === 'real') || false) : false;
+  const progressPercent = challenge && myStats ? (() => {
+    const effStart = effectiveIsCent ? challenge.startingBalance * 100 : challenge.startingBalance;
+    const effTarget = effectiveIsCent ? challenge.targetBalance * 100 : challenge.targetBalance;
+    return ((myStats.adjustedBalance - effStart) / (effTarget - effStart)) * 100;
+  })() : 0;
   const isBlownAccount = myStats && myStats.totalTrades > 0 && myStats.currentBalance <= 0;
 
   // Win Rate & Avg RR — exclude breakeven trades from denominator; only qualified wins count

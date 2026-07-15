@@ -1234,7 +1234,10 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
        WHERE l.challenge_id=$1
          AND (r.disqualified IS NULL OR r.disqualified = false)
          AND (r.status IS NULL OR r.status != 'removed')
-         AND l.adjusted_balance >= tc.target_balance`, [challengeId]);
+         AND CASE WHEN COALESCE(r.is_cent, false)
+               THEN l.adjusted_balance >= tc.target_balance * 100
+               ELSE l.adjusted_balance >= tc.target_balance
+             END`, [challengeId]);
 
     // Balance stats — gross account balance across ALL participants in USD.
     //

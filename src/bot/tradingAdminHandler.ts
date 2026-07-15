@@ -1770,8 +1770,9 @@ export class TradingAdminHandler {
       const realSubs = await tradingChallengeService.getSubmissionsByCategory(challenge.id, 'real');
       if (realSubs.length > 0) {
         let list = `<b>📊 REAL ACCOUNT SUBMISSIONS (by balance):</b>\n\n`;
-        realSubs.forEach((s, i) => {
-          list += `${i + 1}. @${s.username || 'unknown'} - $${s.final_balance}\n`;
+        realSubs.forEach((s: any, i: number) => {
+          const currency = s.is_cent ? '¢' : '$';
+          list += `${i + 1}. @${s.username || 'unknown'} - ${currency}${s.final_balance}\n`;
         });
         list += `\nEnter Real account winner usernames (comma separated):`;
         await ctx.reply(list, { parse_mode: 'HTML' });
@@ -1789,8 +1790,9 @@ export class TradingAdminHandler {
     const demoSubs = await tradingChallengeService.getSubmissionsByCategory(challengeId, 'demo');
     if (demoSubs.length > 0) {
       let list = `<b>📊 DEMO ACCOUNT SUBMISSIONS (by balance):</b>\n\n`;
-      demoSubs.forEach((s, i) => {
-        list += `${i + 1}. @${s.username || 'unknown'} - $${s.final_balance}\n`;
+      demoSubs.forEach((s: any, i: number) => {
+        const currency = s.is_cent ? '¢' : '$';
+        list += `${i + 1}. @${s.username || 'unknown'} - ${currency}${s.final_balance}\n`;
       });
       list += `\nEnter Demo account winner usernames (comma separated):`;
       await ctx.reply(list, { parse_mode: 'HTML' });

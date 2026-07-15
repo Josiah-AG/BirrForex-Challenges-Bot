@@ -325,11 +325,12 @@ export class TradingRegistrationHandler {
       if (existingSub) {
         userSessions.set(telegramId, {
           step: 'tc_submit_override_confirm',
-          data: { challenge_id: challengeId, target_balance: challenge.target_balance, registration_id: reg.id, challenge_title: challenge.title },
+          data: { challenge_id: challengeId, target_balance: challenge.target_balance, registration_id: reg.id, challenge_title: challenge.title, is_cent: reg.is_cent || false },
         });
+        const balDisplay = reg.is_cent ? `${Number(existingSub.final_balance).toFixed(2)}¢` : `$${Number(existingSub.final_balance).toFixed(2)}`;
         await ctx.reply(
           `⚠️ <b>You have already submitted your results for ${challenge.title}.</b>\n\n` +
-          `📋 <b>Previous Submission:</b>\n💰 <b>Balance:</b> $${Number(existingSub.final_balance).toFixed(2)}\n📸 <b>Screenshot:</b> ✅\n🔑 <b>Password:</b> ✅\n\n` +
+          `📋 <b>Previous Submission:</b>\n💰 <b>Balance:</b> ${balDisplay}\n📸 <b>Screenshot:</b> ✅\n🔑 <b>Password:</b> ✅\n\n` +
           `Do you want to <b>override</b> your previous submission?\n<i>Only do this if there was an error in your previous submission.</i>`,
           { parse_mode: 'HTML', ...Markup.inlineKeyboard([
             [Markup.button.callback('✅ Yes, Submit Again', `tc_submit_override_yes_${challengeId}`)],
@@ -352,8 +353,9 @@ export class TradingRegistrationHandler {
     if (!reg) { await ctx.reply('❌ You are not registered for this challenge.'); return; }
     const existingSub = await tradingChallengeService.getSubmissionByRegistration(reg.id);
     if (existingSub) {
-      userSessions.set(telegramId, { step: 'tc_submit_override_confirm', data: { challenge_id: challengeId, target_balance: challenge.target_balance, registration_id: reg.id, challenge_title: challenge.title } });
-      await ctx.reply('⚠️ <b>You have already submitted your results.</b>\n\n💰 Previous Balance: $' + Number(existingSub.final_balance).toFixed(2) + '\n\nDo you want to submit again and overwrite?',
+      userSessions.set(telegramId, { step: 'tc_submit_override_confirm', data: { challenge_id: challengeId, target_balance: challenge.target_balance, registration_id: reg.id, challenge_title: challenge.title, is_cent: reg.is_cent || false } });
+      const balDisplay = reg.is_cent ? `${Number(existingSub.final_balance).toFixed(2)}¢` : `$${Number(existingSub.final_balance).toFixed(2)}`;
+      await ctx.reply(`⚠️ <b>You have already submitted your results.</b>\n\n💰 Previous Balance: ${balDisplay}\n\nDo you want to submit again and overwrite?`,
         { parse_mode: 'HTML', ...Markup.inlineKeyboard([[Markup.button.callback('✅ Yes, Submit Again', 'tc_submit_override_yes_' + challengeId)], [Markup.button.callback('❌ No, Keep Previous', 'tc_submit_override_no')]]) });
       return;
     }
@@ -922,6 +924,7 @@ export class TradingRegistrationHandler {
         session.data.account_type = reg.account_type;
         session.data.account_number = reg.account_number;
         session.data.mt5_server = reg.mt5_server;
+        session.data.is_cent = reg.is_cent || false;
         session.step = 'tc_submit_balance';
         await ctx.reply(t(lang, 'submit_email_verified') + '\n\n' + t(lang, 'submit_balance_prompt'), { parse_mode: 'HTML' });
         break;
@@ -931,9 +934,13 @@ export class TradingRegistrationHandler {
         const lang: Lang = session.data.lang || 'en';
         const balance = parseFloat(text.trim());
         if (isNaN(balance) || balance <= 0) { await ctx.reply(t(lang, 'submit_balance_invalid')); return; }
-        if (balance < session.data.target_balance) {
+        // For cent accounts, target needs to be ×100 since users enter their cent balance
+        const effectiveTarget = session.data.is_cent ? session.data.target_balance * 100 : session.data.target_balance;
+        if (balance < effectiveTarget) {
           userSessions.delete(telegramId);
-          await ctx.reply(t(lang, 'submit_balance_below_target', { target: String(session.data.target_balance), balance: balance.toFixed(2) }), { parse_mode: 'HTML' });
+          const displayTarget = session.data.is_cent ? `${effectiveTarget}¢` : `$${session.data.target_balance}`;
+          const displayBalance = session.data.is_cent ? `${balance.toFixed(2)}¢` : `$${balance.toFixed(2)}`;
+          await ctx.reply(t(lang, 'submit_balance_below_target', { target: displayTarget, balance: displayBalance }), { parse_mode: 'HTML' });
           return;
         }
         session.data.final_balance = balance;

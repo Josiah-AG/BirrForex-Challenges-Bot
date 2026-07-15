@@ -1505,7 +1505,7 @@ export class WpEvaluationEngine {
     for (const accountType of ['demo', 'real']) {
       await db.query(
         `UPDATE wp_leaderboard SET rank = sub.rn FROM (
-          SELECT id, ROW_NUMBER() OVER (ORDER BY adjusted_balance DESC) as rn
+          SELECT id, ROW_NUMBER() OVER (ORDER BY COALESCE(normalized_balance, adjusted_balance) DESC) as rn
           FROM wp_leaderboard WHERE challenge_id=$1 AND account_type=$2 AND is_disqualified=false
         ) sub WHERE wp_leaderboard.id = sub.id`,
         [challengeId, accountType]

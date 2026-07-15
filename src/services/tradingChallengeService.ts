@@ -38,6 +38,7 @@ export interface TradingRegistration {
   client_uid: string | null;
   source: string;
   status: string;
+  is_cent: boolean;
   partner_status: string | null;
   partner_warned_at: Date | null;
   disqualified: boolean;
@@ -351,7 +352,7 @@ class TradingChallengeService {
 
   async getSubmissionsByCategory(challengeId: number, category: 'demo' | 'real'): Promise<(TradingSubmission & TradingRegistration)[]> {
     const result = await db.query(
-      `SELECT s.*, r.user_id, r.username, r.account_type, r.email, r.account_number, r.mt5_server
+      `SELECT s.*, r.user_id, r.username, r.account_type, r.email, r.account_number, r.mt5_server, r.is_cent
        FROM trading_submissions s
        JOIN trading_registrations r ON s.registration_id = r.id
        WHERE s.challenge_id = $1 AND r.account_type = $2
