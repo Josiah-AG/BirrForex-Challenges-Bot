@@ -1873,6 +1873,14 @@ export class TradingRegistrationHandler {
     }
 
     const reg = result.rows[0];
+
+    // Check challenge status — block changes during active/submission_open challenges
+    const challenge = await tradingChallengeService.getChallengeById(reg.challenge_id);
+    if (challenge && (challenge.status === 'active' || challenge.status === 'submission_open')) {
+      await ctx.reply('❌ Challenge has started. Account changes are no longer allowed.');
+      return;
+    }
+
     const lang: Lang = (reg.lang as Lang) || 'en';
     const typeLabel = reg.account_type === 'demo' ? 'Demo' : 'Real';
 
