@@ -1234,18 +1234,30 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
     );
     const isRealCentOnly = centRuleCheck.rows[0]?.type === 'real' && centRuleCheck.rows[0]?.only_cent;
 
+    // Above target: for cent-only real challenges, compare directly (admin entered in ¢)
+    // For hybrid/flexible, multiply target×100 for cent users
     const aboveTarget = await db.query(
-      `SELECT COUNT(*) as cnt
-       FROM wp_leaderboard l
-       JOIN trading_challenges tc ON tc.id = l.challenge_id
-       JOIN trading_registrations r ON r.id = l.registration_id
-       WHERE l.challenge_id=$1
-         AND (r.disqualified IS NULL OR r.disqualified = false)
-         AND (r.status IS NULL OR r.status != 'removed')
-         AND CASE WHEN COALESCE(r.is_cent, false) AND NOT $2
-               THEN l.adjusted_balance >= tc.target_balance * 100
-               ELSE l.adjusted_balance >= tc.target_balance
-             END`, [challengeId, isRealCentOnly]);
+      isRealCentOnly
+        ? `SELECT COUNT(*) as cnt
+           FROM wp_leaderboard l
+           JOIN trading_challenges tc ON tc.id = l.challenge_id
+           JOIN trading_registrations r ON r.id = l.registration_id
+           WHERE l.challenge_id=$1
+             AND (r.disqualified IS NULL OR r.disqualified = false)
+             AND (r.status IS NULL OR r.status != 'removed')
+             AND l.adjusted_balance >= tc.target_balance`
+        : `SELECT COUNT(*) as cnt
+           FROM wp_leaderboard l
+           JOIN trading_challenges tc ON tc.id = l.challenge_id
+           JOIN trading_registrations r ON r.id = l.registration_id
+           WHERE l.challenge_id=$1
+             AND (r.disqualified IS NULL OR r.disqualified = false)
+             AND (r.status IS NULL OR r.status != 'removed')
+             AND CASE WHEN COALESCE(r.is_cent, false)
+                   THEN l.adjusted_balance >= tc.target_balance * 100
+                   ELSE l.adjusted_balance >= tc.target_balance
+                 END`,
+      [challengeId]);
 
     // Balance stats — gross account balance across ALL participants in USD.
     //
