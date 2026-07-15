@@ -2843,7 +2843,10 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/admin-leaderboard`, admin
        ORDER BY
          CASE WHEN l.is_disqualified = true OR r.disqualified = true THEN 1 ELSE 0 END,
          l.rank ASC NULLS LAST,
-         COALESCE(l.adjusted_balance, r.last_known_balance, r.registration_balance) DESC NULLS LAST`,
+         CASE WHEN COALESCE(r.is_cent, false)
+           THEN COALESCE(l.adjusted_balance, r.last_known_balance, r.registration_balance, 0) / 100.0
+           ELSE COALESCE(l.adjusted_balance, r.last_known_balance, r.registration_balance, 0)
+         END DESC NULLS LAST`,
       [challengeId]
     );
 
