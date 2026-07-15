@@ -2254,11 +2254,12 @@ export class TradingAdminHandler {
 
       for (let i = 0; i < subs.length; i++) {
         const s = subs[i];
+        const cur = (s as any).is_cent ? '¢' : '$';
         const caption = `<b>#${i + 1} — @${s.username || 'unknown'}</b>\n\n` +
           `📧 <b>Email:</b> ${s.email}\n` +
           `🏦 <b>Account:</b> ${s.account_number}\n` +
           `🖥️ <b>Server:</b> ${s.mt5_server || 'N/A'}\n` +
-          `💰 <b>Final Balance:</b> $${Number(s.final_balance).toFixed(2)}\n` +
+          `💰 <b>Final Balance:</b> ${cur}${Number(s.final_balance).toFixed(2)}\n` +
           `🔑 <b>Password:</b> <code>${s.investor_password}</code>`;
 
         try {
@@ -2463,16 +2464,18 @@ export class TradingAdminHandler {
 
     if (realWinners.length > 0) {
       text += `<b>🏆 REAL ACCOUNT WINNERS</b>\n\n`;
-      realWinners.forEach((w, i) => {
-        text += `${medals[i] || (i+1)+'️⃣'} <b>${this.getOrdinal(w.position)} Place:</b> @${w.username} - $${w.final_balance} → <b>Prize: ${w.prize_amount}</b>\n`;
+      realWinners.forEach((w: any, i: number) => {
+        const cur = w.is_cent ? '¢' : '$';
+        text += `${medals[i] || (i+1)+'️⃣'} <b>${this.getOrdinal(w.position)} Place:</b> @${w.username} - ${cur}${w.final_balance} → <b>Prize: ${w.prize_amount}</b>\n`;
       });
       text += '\n';
     }
 
     if (demoWinners.length > 0) {
       text += `<b>🏆 DEMO ACCOUNT WINNERS</b>\n\n`;
-      demoWinners.forEach((w, i) => {
-        text += `${medals[i] || (i+1)+'️⃣'} <b>${this.getOrdinal(w.position)} Place:</b> @${w.username} - $${w.final_balance} → <b>Prize: ${w.prize_amount}</b>\n`;
+      demoWinners.forEach((w: any, i: number) => {
+        const cur = w.is_cent ? '¢' : '$';
+        text += `${medals[i] || (i+1)+'️⃣'} <b>${this.getOrdinal(w.position)} Place:</b> @${w.username} - ${cur}${w.final_balance} → <b>Prize: ${w.prize_amount}</b>\n`;
       });
       text += '\n';
     }
@@ -2507,7 +2510,7 @@ export class TradingAdminHandler {
       const text = `<b>🏆 CONGRATULATIONS! 🏆</b>\n\n` +
         `You won <b>${posLabel} Place</b> in <b>${challenge.title}!</b>\n\n` +
         `📊 <b>Your Results:</b>\n` +
-        `💰 <b>Final Balance:</b> $${winner.final_balance}\n` +
+        `💰 <b>Final Balance:</b> ${(winner as any).is_cent ? '¢' : '$'}${winner.final_balance}\n` +
         `🏦 <b>Account:</b> ${winner.account_number}\n` +
         `📊 <b>Type:</b> ${acctLabel}\n\n` +
         `🎁 <b>Your Prize: ${winner.prize_amount}</b>\n\n` +
@@ -3327,7 +3330,7 @@ export class TradingAdminHandler {
 
     try {
       const result = await db.query(
-        `SELECT l.*, r.email, r.investor_password, r.user_id, r.username, r.nickname, r.account_number, r.mt5_server, r.account_type
+        `SELECT l.*, r.email, r.investor_password, r.user_id, r.username, r.nickname, r.account_number, r.mt5_server, r.account_type, r.is_cent
          FROM wp_leaderboard l
          JOIN trading_registrations r ON l.registration_id = r.id
          WHERE l.challenge_id = $1
@@ -3340,11 +3343,13 @@ export class TradingAdminHandler {
         return;
       }
 
-      // Generate CSV
-      const header = 'Rank,Nickname,Username,Telegram_ID,Email,Account_Number,Server,Account_Type,Investor_Password,Current_Balance,Adjusted_Balance,Qualified_Profit,Gross_Profit,Profit_Removed,Total_Trades,Qualified_Trades,Flagged_Trades,Active_Days,Is_Qualified,Last_Trade_Time\n';
-      const rows = result.rows.map(r =>
-        `${r.rank || 'N/A'},${r.nickname || 'N/A'},@${r.username || 'unknown'},${r.user_id},${r.email},${r.account_number},${r.mt5_server || 'N/A'},${r.account_type},${r.investor_password || 'N/A'},${parseFloat(r.current_balance).toFixed(2)},${parseFloat(r.adjusted_balance).toFixed(2)},${parseFloat(r.qualified_profit).toFixed(2)},${parseFloat(r.gross_profit).toFixed(2)},${parseFloat(r.profit_removed).toFixed(2)},${r.total_trades},${r.qualified_trades},${r.flagged_trades},${r.active_days},${r.is_qualified},${r.last_trade_time || 'N/A'}`
-      ).join('\n');
+      // Generate CSV — include Is_Cent and Currency columns for clarity
+      const header = 'Rank,Nickname,Username,Telegram_ID,Email,Account_Number,Server,Account_Type,Is_Cent,Currency,Investor_Password,Current_Balance,Adjusted_Balance,Normalized_Balance_USD,Qualified_Profit,Gross_Profit,Profit_Removed,Total_Trades,Qualified_Trades,Flagged_Trades,Active_Days,Is_Qualified,Last_Trade_Time\n';
+      const rows = result.rows.map(r => {
+        const isCent = r.is_cent || false;
+        const normalizedBal = isCent ? (parseFloat(r.adjusted_balance) / 100).toFixed(2) : parseFloat(r.adjusted_balance).toFixed(2);
+        return `${r.rank || 'N/A'},${r.nickname || 'N/A'},@${r.username || 'unknown'},${r.user_id},${r.email},${r.account_number},${r.mt5_server || 'N/A'},${r.account_type},${isCent},${isCent ? 'USC' : 'USD'},${r.investor_password || 'N/A'},${parseFloat(r.current_balance).toFixed(2)},${parseFloat(r.adjusted_balance).toFixed(2)},${normalizedBal},${parseFloat(r.qualified_profit).toFixed(2)},${parseFloat(r.gross_profit).toFixed(2)},${parseFloat(r.profit_removed).toFixed(2)},${r.total_trades},${r.qualified_trades},${r.flagged_trades},${r.active_days},${r.is_qualified},${r.last_trade_time || 'N/A'}`;
+      }).join('\n');
 
       const csv = header + rows;
       const filename = `${challenge.title.replace(/\s+/g, '_')}_leaderboard_${new Date().toISOString().split('T')[0]}.csv`;

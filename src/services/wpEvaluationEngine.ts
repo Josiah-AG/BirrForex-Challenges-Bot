@@ -1420,11 +1420,13 @@ export class WpEvaluationEngine {
     );
     if (existing.rows.length > 0) return; // Already notified today
 
+    const currency = reg.is_cent ? '¢' : '$';
+
     // Record notification
     await db.query(
       `INSERT INTO wp_pull_errors (registration_id, account_number, error_code, error_message)
        VALUES ($1, $2, 'drawdown_notified', $3)`,
-      [reg.id, reg.account_number, `Drawdown $${cap} reached at ${time} EAT on ${day}`]
+      [reg.id, reg.account_number, `Drawdown ${currency}${cap} reached at ${time} EAT on ${day}`]
     );
 
     // Send Telegram notification (only for Telegram users — skip Discord users)
@@ -1437,7 +1439,7 @@ export class WpEvaluationEngine {
         await this.bot.bot.telegram.sendMessage(
           reg.user_id,
           `⚠️ <b>Daily Drawdown Reached</b>\n\n` +
-          `You hit your daily loss limit of <b>$${cap}</b> at <b>${time} EAT</b>.\n\n` +
+          `You hit your daily loss limit of <b>${currency}${cap}</b> at <b>${time} EAT</b>.\n\n` +
           `🛑 Cool it down — any profits you make for the rest of today will <b>NOT be counted</b> toward your qualified balance.\n\n` +
           `You can continue trading tomorrow with a fresh start.\n\n` +
           `<i>Losses still count. Take a break and come back stronger tomorrow.</i> 💪`,

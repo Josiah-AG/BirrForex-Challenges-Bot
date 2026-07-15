@@ -340,7 +340,7 @@ class TradingChallengeService {
 
   async getSubmissions(challengeId: number): Promise<(TradingSubmission & TradingRegistration)[]> {
     const result = await db.query(
-      `SELECT s.*, r.user_id, r.username, r.account_type, r.email, r.account_number, r.mt5_server
+      `SELECT s.*, r.user_id, r.username, r.account_type, r.email, r.account_number, r.mt5_server, r.is_cent
        FROM trading_submissions s
        JOIN trading_registrations r ON s.registration_id = r.id
        WHERE s.challenge_id = $1
@@ -394,9 +394,9 @@ class TradingChallengeService {
     return result.rows[0];
   }
 
-  async getWinners(challengeId: number): Promise<(TradingWinner & { username: string; email: string; account_number: string; account_type: string; final_balance: number; user_id: number })[]> {
+  async getWinners(challengeId: number): Promise<(TradingWinner & { username: string; email: string; account_number: string; account_type: string; final_balance: number; user_id: number; is_cent: boolean })[]> {
     const result = await db.query(
-      `SELECT w.*, r.username, r.email, r.account_number, r.account_type, r.user_id, s.final_balance
+      `SELECT w.*, r.username, r.email, r.account_number, r.account_type, r.user_id, r.is_cent, s.final_balance
        FROM trading_winners w
        JOIN trading_registrations r ON w.registration_id = r.id
        LEFT JOIN trading_submissions s ON s.registration_id = r.id
