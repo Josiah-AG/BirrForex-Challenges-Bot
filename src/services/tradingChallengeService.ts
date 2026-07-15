@@ -490,10 +490,28 @@ class TradingChallengeService {
     return result.rows;
   }
 
-  async getDueForEngagement(challengeId: number, isLast3Days: boolean): Promise<any[]> {
-    // Engagement schedule: 1st at 24h, 2nd at 48h after 1st, 3rd at 48h after 2nd
-    // Max 3 engagements total. Never engage converted users.
-    const interval = isLast3Days ? '24 hours' : '48 hours';
+  async getDueForEngagement(challengeId: number, isLastDay: boolean): Promise<any[]> {
+    // Engagement schedule:
+    //   1st DM: 24h after failure
+    //   2nd DM: 48h after 1st DM
+    //   3rd DM: 48h after 2nd DM
+    //   Max 3 engagements in normal mode.
+    //   1 day before challenge start: DM ALL unconverted users (even those already engaged 3 times)
+    if (isLastDay) {
+      // Last day: DM everyone who hasn't converted, regardless of engage_count
+      const result = await db.query(
+        `SELECT fa.* FROM trading_failed_attempts fa
+         LEFT JOIN trading_registrations tr ON fa.challenge_id = tr.challenge_id AND fa.telegram_id = tr.user_id
+         WHERE fa.challenge_id = $1
+         AND tr.id IS NULL
+         AND fa.converted = false
+         ORDER BY fa.attempted_at ASC`,
+        [challengeId]
+      );
+      return result.rows;
+    }
+
+    // Normal mode: max 3 engagements, spaced 24h (first) then 48h (subsequent)
     const result = await db.query(
       `SELECT fa.* FROM trading_failed_attempts fa
        LEFT JOIN trading_registrations tr ON fa.challenge_id = tr.challenge_id AND fa.telegram_id = tr.user_id
@@ -504,7 +522,7 @@ class TradingChallengeService {
        AND (
          (fa.engage_count = 0 AND fa.attempted_at < NOW() - INTERVAL '24 hours')
          OR
-         (fa.engage_count > 0 AND fa.last_engaged_at < NOW() - INTERVAL '${interval}')
+         (fa.engage_count > 0 AND fa.last_engaged_at < NOW() - INTERVAL '48 hours')
        )
        ORDER BY fa.engage_count ASC, fa.attempted_at ASC`,
       [challengeId]

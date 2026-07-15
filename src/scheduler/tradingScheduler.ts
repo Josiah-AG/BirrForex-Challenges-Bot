@@ -899,14 +899,14 @@ export class TradingScheduler {
     // Don't run if already running
     if (this.engagementRunning) return;
 
-    // Check if last 3 days before start
+    // Check if 1 day before start (last chance — DM everyone unconverted)
     const start = this.toEATStrings(challenge.start_date);
     const startMs = new Date(start.dateStr).getTime();
     const nowMs = new Date(dateStr).getTime();
     const daysUntilStart = Math.round((startMs - nowMs) / (1000 * 60 * 60 * 24));
-    const isLast3Days = daysUntilStart >= 0 && daysUntilStart <= 3;
+    const isLastDay = daysUntilStart === 1;
 
-    const dueUsers = await tradingChallengeService.getDueForEngagement(challenge.id, isLast3Days);
+    const dueUsers = await tradingChallengeService.getDueForEngagement(challenge.id, isLastDay);
     if (dueUsers.length === 0) return;
 
     // Run in background — don't block scheduler
