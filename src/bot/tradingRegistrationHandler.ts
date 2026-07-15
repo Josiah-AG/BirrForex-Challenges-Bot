@@ -796,8 +796,14 @@ export class TradingRegistrationHandler {
 
       // === INVESTOR PASSWORD (NEW) ===
       case 'tc_enter_investor_password': {
-        const password = text.trim();
+        let password = text.trim();
         const lang: Lang = session.data.lang || 'en';
+        // Auto-extract password if user pasted full credential block
+        // e.g. "server: Exness-MT5Trial9\nlogin: 436844118\npassword: Abc@1234"
+        if (password.includes('password:') || password.includes('password :')) {
+          const match = password.match(/password\s*:\s*(.+)/i);
+          if (match) password = match[1].trim();
+        }
         if (password.length < 3) { await ctx.reply(t(lang, 'password_too_short')); return; }
         session.data.investor_password = password;
         session.step = 'tc_confirm_investor_password';
@@ -1332,9 +1338,13 @@ export class TradingRegistrationHandler {
 
       case 'api_error':
       default:
-        // VPS API is down — proceed without verification (graceful degradation)
-        console.log('VPS API error during registration, proceeding without verification:', result.message);
-        await this.askForNickname(ctx, telegramId);
+        // VPS API is down — do NOT proceed without verification
+        session.step = 'tc_enter_investor_password';
+        await ctx.reply(
+          '⚠️ <b>System busy.</b> Please try again in a few minutes.\n\n' +
+          '🔑 Send your <b>Investor (Read-Only) Password</b> to try again:',
+          { parse_mode: 'HTML' }
+        );
         break;
     }
   }
