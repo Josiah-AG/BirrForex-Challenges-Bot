@@ -1226,6 +1226,14 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
       `SELECT COUNT(*) as cnt FROM trading_registrations WHERE challenge_id=$1 AND pull_status='password_changed'`, [challengeId]);
 
     // Above target
+    // Get only_cent_account rule for this challenge
+    const centRuleCheck = await db.query(
+      `SELECT COALESCE((SELECT (parameters->>'only_cent_account')::boolean FROM wp_challenge_rules WHERE challenge_id = $1 AND rule_code = 'config'), false) as only_cent,
+              type FROM trading_challenges WHERE id = $1`,
+      [challengeId]
+    );
+    const isRealCentOnly = centRuleCheck.rows[0]?.type === 'real' && centRuleCheck.rows[0]?.only_cent;
+
     const aboveTarget = await db.query(
       `SELECT COUNT(*) as cnt
        FROM wp_leaderboard l
@@ -1234,10 +1242,10 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
        WHERE l.challenge_id=$1
          AND (r.disqualified IS NULL OR r.disqualified = false)
          AND (r.status IS NULL OR r.status != 'removed')
-         AND CASE WHEN COALESCE(r.is_cent, false)
+         AND CASE WHEN COALESCE(r.is_cent, false) AND NOT $2
                THEN l.adjusted_balance >= tc.target_balance * 100
                ELSE l.adjusted_balance >= tc.target_balance
-             END`, [challengeId]);
+             END`, [challengeId, isRealCentOnly]);
 
     // Balance stats — gross account balance across ALL participants in USD.
     //

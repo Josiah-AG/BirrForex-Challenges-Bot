@@ -579,8 +579,8 @@ export default function AdminDashboard() {
                       <div key={cat} className="space-y-3">
                         <p className="text-xs font-bold text-gray-300 uppercase">{label}</p>
                         <div className="grid grid-cols-2 gap-2">
-                          {m.maxProfitTrade && <MetricCard title="Best Trade" value={`$${m.maxProfitTrade.profit.toFixed(2)}`} sub={`${m.maxProfitTrade.symbol}`} user={m.maxProfitTrade.nickname} color="text-profit" />}
-                          {m.maxLossTrade && <MetricCard title="Worst Trade" value={`$${m.maxLossTrade.profit.toFixed(2)}`} sub={m.maxLossTrade.symbol} user={m.maxLossTrade.nickname} color="text-loss" />}
+                          {m.maxProfitTrade && <MetricCard title="Best Trade" value={cur(m.maxProfitTrade.profit)} sub={`${m.maxProfitTrade.symbol}`} user={m.maxProfitTrade.nickname} color="text-profit" />}
+                          {m.maxLossTrade && <MetricCard title="Worst Trade" value={cur(m.maxLossTrade.profit)} sub={m.maxLossTrade.symbol} user={m.maxLossTrade.nickname} color="text-loss" />}
                           {m.bestQualifiedWinRate && <MetricCard title="Best Win Rate (Qual)" value={`${m.bestQualifiedWinRate.winRate}%`} sub={`${m.bestQualifiedWinRate.trades} trades`} user={m.bestQualifiedWinRate.nickname} color="text-royal" />}
                           {m.bestOverallWinRate && <MetricCard title="Best Win Rate (All)" value={`${m.bestOverallWinRate.winRate}%`} sub={`${m.bestOverallWinRate.trades} trades`} user={m.bestOverallWinRate.nickname} color="text-royal" />}
                           {m.mostTradedPair && <MetricCard title="Most Traded" value={m.mostTradedPair.symbol} sub={`${m.mostTradedPair.tradeCount} trades · ${m.mostTradedPair.totalLots.toFixed(2)} lots`} color="text-gold" />}
@@ -600,8 +600,8 @@ export default function AdminDashboard() {
                   if (!m) return null;
                   return (
                     <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                      {m.maxProfitTrade && <MetricCard title="Best Trade" value={`$${m.maxProfitTrade.profit.toFixed(2)}`} sub={m.maxProfitTrade.symbol} user={m.maxProfitTrade.nickname} username={m.maxProfitTrade.username} color="text-profit" />}
-                      {m.maxLossTrade && <MetricCard title="Worst Trade" value={`$${m.maxLossTrade.profit.toFixed(2)}`} sub={m.maxLossTrade.symbol} user={m.maxLossTrade.nickname} username={m.maxLossTrade.username} color="text-loss" />}
+                      {m.maxProfitTrade && <MetricCard title="Best Trade" value={cur(m.maxProfitTrade.profit)} sub={m.maxProfitTrade.symbol} user={m.maxProfitTrade.nickname} username={m.maxProfitTrade.username} color="text-profit" />}
+                      {m.maxLossTrade && <MetricCard title="Worst Trade" value={cur(m.maxLossTrade.profit)} sub={m.maxLossTrade.symbol} user={m.maxLossTrade.nickname} username={m.maxLossTrade.username} color="text-loss" />}
                       {m.bestQualifiedWinRate && <MetricCard title="Best Win Rate (Qualified)" value={`${m.bestQualifiedWinRate.winRate}%`} sub={`${m.bestQualifiedWinRate.trades} trades`} user={m.bestQualifiedWinRate.nickname} username={m.bestQualifiedWinRate.username} color="text-royal" />}
                       {m.bestOverallWinRate && <MetricCard title="Best Win Rate (Overall)" value={`${m.bestOverallWinRate.winRate}%`} sub={`${m.bestOverallWinRate.trades} trades`} user={m.bestOverallWinRate.nickname} username={m.bestOverallWinRate.username} color="text-royal" />}
                       {m.mostTradedPair && <MetricCard title="Most Traded Pair" value={m.mostTradedPair.symbol} sub={`${m.mostTradedPair.tradeCount} trades · ${m.mostTradedPair.totalLots.toFixed(2)} lots`} color="text-gold" />}
@@ -647,7 +647,9 @@ export default function AdminDashboard() {
                 </tr></thead>
                 <tbody>{leaderboard.length === 0 ? <tr><td colSpan={leaderboardPreStart ? 5 : 9} className="py-8 text-center text-gray-500">No leaderboard data yet — will populate after VPS pulls and evaluation</td></tr> : leaderboard.map((e: any) => {
                   const eWinnersCount = e.accountType === 'demo' ? parseInt(selectedChall?.demoWinnersCount || 0) : parseInt(selectedChall?.realWinnersCount || 0);
-                  const eEffectiveTarget = e.isCent ? Number(selectedChall?.targetBalance || 0) * 100 : Number(selectedChall?.targetBalance || 0);
+                  // Only multiply ×100 when user is cent AND challenge is NOT cent-only-real
+                  const isRealCentOnly = selectedChall?.type === 'real' && rulesConfig.only_cent_account;
+                  const eEffectiveTarget = (e.isCent && !isRealCentOnly) ? Number(selectedChall?.targetBalance || 0) * 100 : Number(selectedChall?.targetBalance || 0);
                   const eIsWinner = !e.isDisqualified && !e.isWithdrawn && !e.isBlown && e.rank && e.rank <= eWinnersCount && Number(e.adjustedBalance) >= eEffectiveTarget;
                   const eIsAboveTarget = !e.isDisqualified && !e.isWithdrawn && !e.isBlown && !leaderboardPreStart && Number(e.adjustedBalance) >= eEffectiveTarget;
                   return (

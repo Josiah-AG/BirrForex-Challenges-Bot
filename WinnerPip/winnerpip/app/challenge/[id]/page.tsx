@@ -273,7 +273,11 @@ export default function ChallengeDashboard() {
   const isWinner = (entry: LeaderboardEntry) => {
     if (!challenge || entry.isDisqualified || entry.isWithdrawn || entry.isBlown) return false;
     const count = entry.accountType === 'demo' ? (challenge.demoWinnersCount || 0) : (challenge.realWinnersCount || 0);
-    const effectiveTarget = entry.isCent ? challenge.targetBalance * 100 : challenge.targetBalance;
+    // For cent-only real challenges: target is already in ¢, compare directly
+    // For hybrid/flexible: API already converts target ×100 for cent users via /api/me/dashboard
+    // Leaderboard entries have raw adjustedBalance. Need ×100 only for cent users in NON-cent-only challenges
+    const isRealCentOnly = challenge.onlyCentAccount && effectiveIsCent;
+    const effectiveTarget = (entry.isCent && !isRealCentOnly) ? challenge.targetBalance * 100 : challenge.targetBalance;
     return count > 0 && entry.rank <= count && (entry.adjustedBalance - (entry.totalWithdrawn || 0)) >= effectiveTarget;
   };
   const rankIcon = (entry: LeaderboardEntry) => {
@@ -285,18 +289,15 @@ export default function ChallengeDashboard() {
   };
   const isAboveTarget = (entry: LeaderboardEntry) => {
     if (!challenge || entry.isDisqualified || entry.isWithdrawn || entry.isBlown || leaderboardPreStart) return false;
-    const effectiveTarget = entry.isCent ? challenge.targetBalance * 100 : challenge.targetBalance;
+    const isRealCentOnly = challenge.onlyCentAccount && effectiveIsCent;
+    const effectiveTarget = (entry.isCent && !isRealCentOnly) ? challenge.targetBalance * 100 : challenge.targetBalance;
     return (entry.adjustedBalance - (entry.totalWithdrawn || 0)) >= effectiveTarget;
   };
   const totalParticipants = leaderboardTotal || leaderboard.length;
   const isCentAccount = myStats?.accountType === 'real' && myStats.currentBalance > 500; // heuristic for cent
   // isCent: trust registration flag, fallback to challenge onlyCentAccount for real accounts
   const effectiveIsCent = myStats ? (myStats.isCent || (challenge?.onlyCentAccount && myStats.accountType === 'real') || false) : false;
-  const progressPercent = challenge && myStats ? (() => {
-    const effStart = effectiveIsCent ? challenge.startingBalance * 100 : challenge.startingBalance;
-    const effTarget = effectiveIsCent ? challenge.targetBalance * 100 : challenge.targetBalance;
-    return ((myStats.adjustedBalance - effStart) / (effTarget - effStart)) * 100;
-  })() : 0;
+  const progressPercent = challenge && myStats ? ((myStats.adjustedBalance - challenge.startingBalance) / (challenge.targetBalance - challenge.startingBalance)) * 100 : 0;
   const isBlownAccount = myStats && myStats.totalTrades > 0 && myStats.currentBalance <= 0;
 
   // Win Rate & Avg RR — exclude breakeven trades from denominator; only qualified wins count
