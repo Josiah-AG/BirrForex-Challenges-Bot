@@ -991,7 +991,14 @@ export class TradingRegistrationHandler {
             // No backfill pull/rank update — account stays out of the leaderboard
             // until an admin explicitly reinstates it via the dashboard.
           } else {
-            await ctx.reply('✅ <b>Password updated successfully!</b>\n\nYour account is now accessible again. We\'re pulling your full trade history now to backfill anything missed while access was down.\n\n⚠️ <b>Remember:</b> Do NOT change your investor password again until the challenge ends.', { parse_mode: 'HTML' });
+            // Fetch lang from registration for translated message
+            const langResult = await db.query('SELECT lang FROM trading_registrations WHERE id = $1', [session.data.registration_id]);
+            const lang: Lang = (langResult.rows[0]?.lang as Lang) || 'en';
+            await ctx.reply(
+              '✅ <b>Password updated successfully!</b>\n\nYour account is now accessible again. We\'re pulling your full trade history now to backfill anything missed while access was down.\n\n⚠️ <b>Remember:</b> Do NOT change your investor password again until the challenge ends.' +
+              t(lang, 'winnerpip_login_updated'),
+              { parse_mode: 'HTML' }
+            );
             // Backfill: force a full pull for this account + push to the live leaderboard
             // immediately, instead of waiting for the next scheduled incremental cron
             // (which would only look back 5h and miss the outage window). Fire-and-forget —
@@ -1581,6 +1588,7 @@ export class TradingRegistrationHandler {
       await tradingChallengeService.updateDailyStat(session.data.challenge_id, 'account_changes');
       userSessions.delete(telegramId);
 
+      const lang: Lang = session.data.lang || 'en';
       const balanceDisplay = isCent ? `${vpsBalance}¢` : `$${vpsBalance.toFixed(2)}`;
       await ctx.reply(
         `✅ <b>Account updated successfully!</b>\n\n` +
@@ -1588,7 +1596,8 @@ export class TradingRegistrationHandler {
         `🖥️ <b>Server:</b> ${session.data.mt5_server}\n` +
         `💰 <b>Balance:</b> ${balanceDisplay}\n\n` +
         `⚠️ <b>IMPORTANT:</b> Do NOT change your investor password until the challenge ends and winners are announced. ` +
-        `We pull your trade data automatically — if we can't access your account, you will be disqualified.`,
+        `We pull your trade data automatically — if we can't access your account, you will be disqualified.` +
+        t(lang, 'winnerpip_login_updated'),
         { parse_mode: 'HTML' }
       );
       return;

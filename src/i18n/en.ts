@@ -120,4 +120,17 @@ export const en: Record<string, string> = {
   submit_another_acct_btn: '📝 Submit Another Account',
   submit_cent_acct_btn: '📝 Submit Cent Account',
   new_acct_prompt: 'Send your new <b>MT5 {type} Account Number:</b>\n⚠️ <i>Must be an MT5 trading account.</i>',
+
+  // Pre-start 2AM check — credential failure DMs
+  prestart_credential_fail_demo: '⚠️ <b>Account Access Issue — {title}</b>\n\nWe could not access your Demo account <b>{account}</b>.\n\nThis may happen if:\n• Your demo account was deleted\n• Your investor password was changed\n\nIf your demo account is deleted, submit a new account.\nIf your account is still active, update your investor password.\n\n⏰ <b>Please fix this before the challenge starts or your registration will be disqualified.</b>',
+  prestart_credential_fail_real: '⚠️ <b>Account Access Issue — {title}</b>\n\nWe could not access your MT5 account <b>{account}</b>.\n\nIt appears your investor password has been changed.\nPlease update your investor password.\n\n⏰ <b>Please fix this before the challenge starts or your registration will be disqualified.</b>',
+  btn_change_account: '🔄 Change Account Number',
+  btn_update_password: '🔑 Update Password',
+
+  // Pre-start 2AM check — balance warnings
+  prestart_balance_warning: '⚠️ <b>Balance Too High</b>\n\nYour account <b>{account}</b> currently has <b>{balance}</b> but the challenge starting limit is <b>{limit}</b>.\n\nPlease reduce your balance to <b>{limit}</b> or below before the challenge starts.\n\n💸 <b>Excess:</b> {excess}\n📋 <b>Challenge:</b> {title}\n📅 <b>Starts:</b> {startDate}\n\n🚫 If your balance is still above <b>{limit}</b> when the challenge starts, you will be <b>automatically disqualified</b>.',
+  prestart_balance_ok: '✅ <b>Balance OK</b>\n\nYour account <b>{account}</b> balance is now within the allowed limit. You\'re all set for the challenge! 👍',
+
+  // Post password-update / account-change — WinnerPip login info
+  winnerpip_login_updated: '\n\n📊 <b>WinnerPip:</b> Your WinnerPip login is now your new account number and password.',
 };

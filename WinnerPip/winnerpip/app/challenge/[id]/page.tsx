@@ -806,7 +806,7 @@ export default function ChallengeDashboard() {
 
           {/* PASSWORD UPDATE BANNER */}
           {myStats.pullStatus === "password_changed" && (
-            <PasswordUpdateBanner />
+            <PasswordUpdateBanner accountType={myStats.accountType} />
           )}
 
           {/* DISQUALIFIED BANNER (dismissable) */}
@@ -1556,11 +1556,13 @@ function DRow({ label, value, color }: { label: string; value: string; color?: s
   return (<div className="bg-white/5 rounded-lg p-3"><p className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">{label}</p><p className={`text-sm font-semibold ${color || "text-white"}`}>{value}</p></div>);
 }
 
-function PasswordUpdateBanner() {
+function PasswordUpdateBanner({ accountType }: { accountType?: string }) {
   const [newPw, setNewPw] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState("");
   const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+  const botUsername = "birrforex_challenge_bot";
+  const isDemo = accountType === "demo";
 
   const handleSubmit = async () => {
     if (!newPw || newPw.length < 3) { setResult("Password too short"); return; }
@@ -1590,16 +1592,46 @@ function PasswordUpdateBanner() {
       <div className="flex items-start gap-3 mb-3">
         <span className="text-2xl">⚠️</span>
         <div>
-          <h3 className="text-sm font-bold text-loss">Password Update Required</h3>
-          <p className="text-xs text-gray-400 mt-1">We could not access your MT5 account. Your investor password appears to have been changed. Please enter your new password below.</p>
-          <p className="text-xs text-loss mt-1 font-semibold">⏰ You have 24 hours to update or your registration will be disqualified.</p>
+          <h3 className="text-sm font-bold text-loss">{isDemo ? "Account Access Issue" : "Password Update Required"}</h3>
+          <p className="text-xs text-gray-400 mt-1">
+            {isDemo
+              ? "We could not access your Demo account. This may happen if your demo account was deleted or your investor password was changed."
+              : "We could not access your MT5 account. Your investor password appears to have been changed. Please enter your new password below."}
+          </p>
+          <p className="text-xs text-loss mt-1 font-semibold">⏰ Please fix this before the challenge starts or your registration will be disqualified.</p>
         </div>
       </div>
-      <div className="flex gap-2 mt-3">
+
+      {/* Option 1: Update Password */}
+      {isDemo && <p className="text-xs text-gray-500 font-semibold mt-4 mb-2 border-t border-white/5 pt-3">Option 1: Update Password</p>}
+      {isDemo && <p className="text-xs text-gray-400 mb-2">If your account is still active, enter your new investor password:</p>}
+      <div className="flex gap-2 mt-2">
         <input type="password" value={newPw} onChange={e => setNewPw(e.target.value)} placeholder="New investor password" className="flex-1 p-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none focus:border-royal/50" />
         <button onClick={handleSubmit} disabled={submitting || !newPw} className="px-4 py-2.5 rounded-xl bg-royal/20 border border-royal/30 text-royal text-xs font-bold hover:bg-royal/30 transition-all disabled:opacity-50">{submitting ? "..." : "Update"}</button>
       </div>
       {result && <p className={`text-xs mt-2 font-semibold ${result.startsWith("✅") ? "text-profit" : result.startsWith("⚠️") ? "text-gold" : "text-loss"}`}>{result}</p>}
+
+      {/* Option 2: Change Account (Demo only) */}
+      {isDemo && (
+        <div className="mt-4 pt-3 border-t border-white/5">
+          <p className="text-xs text-gray-500 font-semibold mb-2">Option 2: Change Account Number</p>
+          <p className="text-xs text-gray-400 mb-2">If your demo account was deleted:</p>
+          <ol className="text-xs text-gray-400 list-decimal list-inside space-y-1 mb-3">
+            <li>Open Telegram → <b>@{botUsername}</b></li>
+            <li>Send <code>/start</code> → tap &quot;Change Account Number&quot;</li>
+            <li>Enter your new MT5 account number, server, and investor password</li>
+            <li>Come back here and log in with your new credentials</li>
+          </ol>
+          <a
+            href={`https://t.me/${botUsername}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#2AABEE]/20 border border-[#2AABEE]/30 text-[#2AABEE] text-xs font-semibold hover:bg-[#2AABEE]/30 transition-all"
+          >
+            🔄 Open Telegram Bot →
+          </a>
+        </div>
+      )}
     </div>
   );
 }

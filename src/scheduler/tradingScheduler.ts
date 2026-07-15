@@ -6,6 +6,7 @@ import { vpsService } from '../services/vpsService';
 import { config } from '../config';
 import { db } from '../database/db';
 import { Markup } from 'telegraf';
+import { t, Lang } from '../i18n';
 
 // Convert stored UTC date to EAT for display
 const toEAT = (d: Date) => new Date(new Date(d).getTime() + 3 * 60 * 60 * 1000);
@@ -204,7 +205,7 @@ export class TradingScheduler {
 
   // ==================== CHALLENGE START ====================
 
-  // ==================== PRE-START SNAPSHOT (T-2h, with catch-up) ====================
+  // ==================== PRE-START SNAPSHOT (T-2h or T-3h, with catch-up) ====================
 
   private preStartSnapshotRunning = false;
 
@@ -212,10 +213,19 @@ export class TradingScheduler {
     if (challenge.status !== 'registration_open') return;
     if (this.preStartSnapshotRunning) return;
 
-    // Fire when now >= challenge start - 2 hours (catch-up: runs even if the exact window was missed)
+    // Determine lead time: T-3h if >500 total participants, else T-2h
+    const totalParticipants = await db.query(
+      `SELECT COUNT(*) as cnt FROM trading_registrations
+       WHERE challenge_id = $1 AND investor_password IS NOT NULL AND connection_verified = true`,
+      [challenge.id]
+    );
+    const participantCount = parseInt(totalParticipants.rows[0].cnt);
+    const leadHours = participantCount > 500 ? 3 : 2;
+
+    // Fire when now >= challenge start - leadHours (catch-up: runs even if the exact window was missed)
     const nowMs   = Date.now();
     const startMs = new Date(challenge.start_date).getTime();
-    if (nowMs < startMs - 2 * 60 * 60 * 1000) return; // Still too early
+    if (nowMs < startMs - leadHours * 60 * 60 * 1000) return; // Still too early
 
     // Check how many accounts still need the snapshot (actual_starting_balance IS NULL)
     const pending = await db.query(
@@ -224,9 +234,35 @@ export class TradingScheduler {
        WHERE challenge_id = $1
          AND disqualified = false
          AND investor_password IS NOT NULL
-         AND actual_starting_balance IS NULL`,
+         AND actual_starting_balance IS NULL
+         AND (pull_status IS NULL OR pull_status != 'password_changed')`,
       [challenge.id]
     );
+
+    // DQ any accounts still in password_changed status (unresolved credential issues)
+    const unresolvedCreds = await db.query(
+      `SELECT id, account_number, user_id, source, lang
+       FROM trading_registrations
+       WHERE challenge_id = $1
+         AND disqualified = false
+         AND pull_status = 'password_changed'`,
+      [challenge.id]
+    );
+
+    let credDqd = 0;
+    for (const reg of unresolvedCreds.rows) {
+      await db.query(
+        `UPDATE trading_registrations
+         SET disqualified = true, disqualified_at = NOW(), disqualified_reason = $1
+         WHERE id = $2 AND disqualified = false`,
+        ['Account access issue not resolved before challenge start (investor password changed or account deleted)', reg.id]
+      );
+      credDqd++;
+      console.log(`🚫 Pre-start DQ (credential): reg ${reg.id} (${reg.account_number}) — password_changed not resolved`);
+    }
+    if (credDqd > 0) {
+      console.log(`🚫 Pre-start snapshot: ${credDqd} accounts DQ'd for unresolved credential issues`);
+    }
 
     if (pending.rows.length === 0) {
       // All accounts already snapshotted — ensure a batch record exists for Pulls tab visibility
@@ -235,8 +271,6 @@ export class TradingScheduler {
         [challenge.id]
       );
       if (existing.rows.length === 0) {
-        // First time we've confirmed it's done but no batch record was created (e.g. ran before batch
-        // recording was deployed) — create a retroactive completed entry
         const done = await db.query(
           `SELECT COUNT(*) as cnt FROM trading_registrations
            WHERE challenge_id = $1 AND actual_starting_balance IS NOT NULL AND disqualified = false`,
@@ -245,7 +279,7 @@ export class TradingScheduler {
         const dqd = await db.query(
           `SELECT COUNT(*) as cnt FROM trading_registrations
            WHERE challenge_id = $1 AND disqualified = true
-             AND disqualified_reason ILIKE '%Starting balance%exceeds%'`,
+             AND (disqualified_reason ILIKE '%Starting balance%exceeds%' OR disqualified_reason ILIKE '%credential%' OR disqualified_reason ILIKE '%password%')`,
           [challenge.id]
         );
         const total = parseInt(done.rows[0].cnt) + parseInt(dqd.rows[0].cnt);
@@ -262,7 +296,7 @@ export class TradingScheduler {
 
     this.preStartSnapshotRunning = true;
     const minutesUntilStart = Math.round((startMs - nowMs) / 60000);
-    console.log(`📸 Pre-start snapshot: ${pending.rows.length} accounts pending for challenge ${challenge.id} "${challenge.title}" (${minutesUntilStart > 0 ? `T-${minutesUntilStart}min` : 'PAST start time'})`);
+    console.log(`📸 Pre-start snapshot (T-${leadHours}h, ${participantCount} participants): ${pending.rows.length} accounts pending for challenge ${challenge.id} "${challenge.title}" (${minutesUntilStart > 0 ? `T-${minutesUntilStart}min` : 'PAST start time'})`);
 
     // Create a pull batch entry so the check is visible in the admin Pulls tab
     let batchId: number | null = null;
@@ -324,7 +358,7 @@ export class TradingScheduler {
       ).catch(() => {});
     }
 
-    const dqdNote = dqd > 0 ? `, ${dqd} DQ'd` : '';
+    const dqdNote = (dqd + credDqd) > 0 ? `, ${dqd + credDqd} DQ'd (${dqd} balance + ${credDqd} credential)` : '';
     console.log(`✅ Pre-start snapshot done: ${verified} verified${dqdNote}, ${failed} failed`);
     this.preStartSnapshotRunning = false;
   }
@@ -1574,8 +1608,6 @@ export class TradingScheduler {
 
   private async checkPreStartBalanceWarning(challenge: TradingChallenge, timeStr: string) {
     if (challenge.status !== 'registration_open') return;
-    // Only real/hybrid — demo balance is fixed
-    if (challenge.type === 'demo') return;
     // Only at 02:00 EAT (5 min window for resilience)
     if (!timeStr.startsWith('02:0')) return;
     // Only once per day per challenge
@@ -1592,19 +1624,21 @@ export class TradingScheduler {
 
       const startingBalance = Number(challenge.starting_balance || 30);
 
-      // Get all real-account registrations with investor passwords
+      // Get all registrations (both demo and real) with investor passwords
+      // Skip accounts already flagged with password_changed (they already got a DM)
       const regs = await db.query(
-        `SELECT id, account_number, mt5_server, investor_password, user_id, username, nickname, is_cent, source, account_type
+        `SELECT id, account_number, mt5_server, investor_password, user_id, username, nickname, is_cent, source, account_type, lang
          FROM trading_registrations
          WHERE challenge_id = $1
            AND disqualified = false
            AND investor_password IS NOT NULL
-           AND account_type = 'real'`,
+           AND connection_verified = true
+           AND (pull_status IS NULL OR pull_status NOT IN ('password_changed'))`,
         [challenge.id]
       );
 
       if (regs.rows.length === 0) {
-        console.log(`💰 Pre-start balance check: no real accounts to check`);
+        console.log(`💰 Pre-start balance check: no accounts to check`);
         this.balanceCheckRunning = false;
         return;
       }
@@ -1622,13 +1656,59 @@ export class TradingScheduler {
         console.error('Balance check: failed to create batch record:', e);
       }
 
-      let checked = 0, warned = 0, cleared = 0, failed = 0;
+      let checked = 0, warned = 0, cleared = 0, failed = 0, credentialFailed = 0;
+      const botInfo = await this.bot.bot.telegram.getMe();
 
       for (const reg of regs.rows) {
         try {
           const result = await vpsService.verifyConnection(reg.account_number, reg.mt5_server, reg.investor_password);
+
           if (!result.success || result.balance === undefined || result.balance === null) {
-            failed++;
+            // === CREDENTIAL FAILURE — DM user ===
+            const isCredentialIssue = !result.success;
+            if (isCredentialIssue) {
+              credentialFailed++;
+              // Set pull_status so we skip this account on subsequent checks
+              await db.query(
+                `UPDATE trading_registrations SET pull_status = 'password_changed', pull_error = $1 WHERE id = $2`,
+                [`Pre-start check failed at ${new Date().toISOString()}`, reg.id]
+              );
+
+              // DM user (Telegram only)
+              if (reg.source !== 'discord') {
+                const lang: Lang = (reg.lang as Lang) || 'en';
+                try {
+                  if (reg.account_type === 'demo') {
+                    await this.bot.bot.telegram.sendMessage(
+                      reg.user_id,
+                      t(lang, 'prestart_credential_fail_demo', { title: challenge.title, account: reg.account_number }),
+                      {
+                        parse_mode: 'HTML',
+                        ...Markup.inlineKeyboard([
+                          [Markup.button.url(t(lang, 'btn_change_account'), `https://t.me/${botInfo.username}?start=tc_change_acct_${reg.id}`)],
+                          [Markup.button.url(t(lang, 'btn_update_password'), `https://t.me/${botInfo.username}?start=tc_update_password_${reg.id}`)],
+                        ]),
+                      }
+                    );
+                  } else {
+                    await this.bot.bot.telegram.sendMessage(
+                      reg.user_id,
+                      t(lang, 'prestart_credential_fail_real', { title: challenge.title, account: reg.account_number }),
+                      {
+                        parse_mode: 'HTML',
+                        ...Markup.inlineKeyboard([
+                          [Markup.button.url(t(lang, 'btn_update_password'), `https://t.me/${botInfo.username}?start=tc_update_password_${reg.id}`)],
+                        ]),
+                      }
+                    );
+                  }
+                } catch (dmErr) {
+                  console.warn(`⚠️ Could not DM user ${reg.user_id} about credential failure:`, (dmErr as Error).message);
+                }
+              }
+            } else {
+              failed++;
+            }
             continue;
           }
 
@@ -1669,17 +1749,19 @@ export class TradingScheduler {
                 );
                 // Send Telegram DM
                 try {
+                  const lang: Lang = (reg.lang as Lang) || 'en';
                   const startDate = toEAT(challenge.start_date);
                   const startStr = startDate.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
                   await this.bot.bot.telegram.sendMessage(
                     reg.user_id,
-                    `⚠️ <b>Balance Too High</b>\n\n` +
-                    `Your account <b>${reg.account_number}</b> currently has <b>${currency}${balance.toFixed(2)}</b> but the challenge starting limit is <b>${currency}${limit.toFixed(2)}</b>.\n\n` +
-                    `Please reduce your balance to <b>${currency}${limit.toFixed(2)}</b> or below before the challenge starts.\n\n` +
-                    `💸 <b>Excess:</b> ${currency}${excess.toFixed(2)}\n` +
-                    `📋 <b>Challenge:</b> ${challenge.title}\n` +
-                    `📅 <b>Starts:</b> ${startStr}\n\n` +
-                    `🚫 If your balance is still above <b>${currency}${limit.toFixed(2)}</b> at challenge start, you will be <b>automatically disqualified</b>.`,
+                    t(lang, 'prestart_balance_warning', {
+                      account: reg.account_number,
+                      balance: `${currency}${balance.toFixed(2)}`,
+                      limit: `${currency}${limit.toFixed(2)}`,
+                      excess: `${currency}${excess.toFixed(2)}`,
+                      title: challenge.title,
+                      startDate: startStr,
+                    }),
                     { parse_mode: 'HTML' }
                   );
                 } catch (dmErr) {
@@ -1702,9 +1784,10 @@ export class TradingScheduler {
               // DM user that they're good now
               if (reg.source !== 'discord') {
                 try {
+                  const lang: Lang = (reg.lang as Lang) || 'en';
                   await this.bot.bot.telegram.sendMessage(
                     reg.user_id,
-                    `✅ <b>Balance OK</b>\n\nYour account <b>${reg.account_number}</b> balance is now within the allowed limit. You're all set for the challenge! 👍`,
+                    t(lang, 'prestart_balance_ok', { account: reg.account_number }),
                     { parse_mode: 'HTML' }
                   );
                 } catch {}
@@ -1720,27 +1803,28 @@ export class TradingScheduler {
         }
       }
 
-      console.log(`💰 Pre-start balance check done: ${checked} checked, ${warned} warned, ${cleared} cleared, ${failed} failed`);
+      console.log(`💰 Pre-start balance check done: ${checked} checked, ${warned} warned, ${cleared} cleared, ${credentialFailed} credential issues, ${failed} failed`);
 
       // Complete batch record
       if (batchId !== null) {
         await db.query(
           `UPDATE wp_pull_batches SET completed_at = NOW(), successful = $1, failed = $2, new_trades_found = $3, status = 'completed' WHERE id = $4`,
-          [checked, failed, warned, batchId]
+          [checked, failed + credentialFailed, warned, batchId]
         ).catch(() => {});
       }
 
       // Admin summary
-      if (warned > 0) {
+      if (warned > 0 || credentialFailed > 0) {
         await this.bot.bot.telegram.sendMessage(
           config.adminUserId,
           `💰 <b>Pre-Start Balance Check</b>\n\n` +
           `<b>${challenge.title}</b>\n\n` +
           `✅ Checked: ${checked}\n` +
           `⚠️ Over limit: ${warned}\n` +
+          `🔑 Credential issues: ${credentialFailed}\n` +
           `✓ Cleared: ${cleared}\n` +
           `❌ VPS failed: ${failed}\n\n` +
-          `<i>Users over the limit have been notified to reduce their balance.</i>`,
+          `<i>Users have been notified to fix issues before the challenge starts.</i>`,
           { parse_mode: 'HTML' }
         ).catch(() => {});
       }

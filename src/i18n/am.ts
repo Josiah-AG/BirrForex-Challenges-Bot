@@ -120,4 +120,17 @@ export const am: Record<string, string> = {
   submit_another_acct_btn: '📝 ሌላ አካውንት ያስገቡ',
   submit_cent_acct_btn: '📝 Cent አካውንት ያስገቡ',
   new_acct_prompt: 'አዲስ <b>MT5 {type} አካውንት ቁጥር</b> ያስገቡ:\n⚠️ <i>MT5 ትሬዲንግ አካውንት መሆን አለበት።</i>',
+
+  // Pre-start 2AM check — credential failure DMs
+  prestart_credential_fail_demo: '⚠️ <b>የአካውንት ተደራሽነት ችግር — {title}</b>\n\nየDemo አካውንትዎን <b>{account}</b> ማግኘት አልቻልንም።\n\nይህ ሊሆን ይችላል:\n• Demo አካውንትዎ ተሰርዟል\n• Investor ፓስዎርድዎ ተቀይሯል\n\nDemo አካውንትዎ ከተሰረዘ አዲስ አካውንት ያስገቡ።\nአካውንትዎ ካለ investor ፓስዎርድዎን ያዘምኑ።\n\n⏰ <b>እባክዎ ቻሌንጁ ከመጀመሩ በፊት ያስተካክሉ ያለበለዚያ ከቻሌንጁ ይሰረዛሉ።</b>',
+  prestart_credential_fail_real: '⚠️ <b>የአካውንት ተደራሽነት ችግር — {title}</b>\n\nየMT5 አካውንትዎን <b>{account}</b> ማግኘት አልቻልንም።\n\nInvestor ፓስዎርድዎ የተቀየረ ይመስላል።\nእባክዎ investor ፓስዎርድዎን ያዘምኑ።\n\n⏰ <b>እባክዎ ቻሌንጁ ከመጀመሩ በፊት ያስተካክሉ ያለበለዚያ ከቻሌንጁ ይሰረዛሉ።</b>',
+  btn_change_account: '🔄 አካውንት ቁጥር ቀይር',
+  btn_update_password: '🔑 ፓስዎርድ አዘምን',
+
+  // Pre-start 2AM check — balance warnings
+  prestart_balance_warning: '⚠️ <b>ባላንስ ከፍ ያለ ነው</b>\n\nአካውንትዎ <b>{account}</b> አሁን <b>{balance}</b> አለው ግን የቻሌንጅ መጀመሪያ ገደብ <b>{limit}</b> ነው።\n\nእባክዎ ቻሌንጅ ከመጀመሩ በፊት ባላንስዎን ወደ <b>{limit}</b> ወይም ከዚያ በታች ይቀንሱ።\n\n💸 <b>ትርፍ:</b> {excess}\n📋 <b>ቻሌንጅ:</b> {title}\n📅 <b>ቻሌንጅ ሚጀምረው:</b> {startDate}\n\n🚫 ቻሌንጅ ሲጀምር ባላንስዎ ከ<b>{limit}</b> በላይ ከሆነ <b>ከቻሌንጁ ይሰረዛሉ</b>።',
+  prestart_balance_ok: '✅ <b>ባላንስ ትክክል ነው</b>\n\nየአካውንትዎ <b>{account}</b> ባላንስ አሁን በተፈቀደው ገደብ ውስጥ ነው። ለቻሌንጁ ዝግጁ ነዎት! 👍',
+
+  // Post password-update / account-change — WinnerPip login info
+  winnerpip_login_updated: '\n\n📊 <b>WinnerPip:</b> የWinnerPip መግቢያዎ አሁን አዲሱ አካውንት ቁጥር እና ፓስዎርድ ነው።',
 };
