@@ -51,6 +51,7 @@ export class LeaderboardService {
           JOIN trading_registrations r ON r.id = l.registration_id
           WHERE l.challenge_id=$1 AND l.account_type=$2 AND l.is_disqualified=false
             AND COALESCE(l.is_withdrawn, false) = false
+            AND l.zero_balance_at IS NULL
             AND (COALESCE(l.normalized_balance, l.adjusted_balance) > 0 OR l.adjusted_balance IS NULL)
         ) sub WHERE wp_leaderboard.id = sub.id`,
         [challengeId, accountType]
@@ -60,6 +61,7 @@ export class LeaderboardService {
         `SELECT COUNT(*) as cnt FROM wp_leaderboard
          WHERE challenge_id=$1 AND account_type=$2 AND is_disqualified=false
            AND COALESCE(is_withdrawn, false) = false
+           AND zero_balance_at IS NULL
            AND (COALESCE(normalized_balance, adjusted_balance) > 0 OR adjusted_balance IS NULL)`,
         [challengeId, accountType]
       );
@@ -84,7 +86,9 @@ export class LeaderboardService {
       );
       offset += parseInt(tier2aCount.rows[0].cnt);
 
-      // Tier 2b: blown/negative balance (had trades) — rank by balance DESC (less negative = better)
+      // Tier 2b: blown/negative balance — includes accounts explicitly marked blown
+      // (zero_balance_at IS NOT NULL) OR accounts with negative adjusted_balance.
+      // Rank by balance DESC (less negative = better), then by trades, then blown time.
       await db.query(
         `UPDATE wp_leaderboard SET rank = sub.rn FROM (
           SELECT id, (ROW_NUMBER() OVER (
@@ -95,7 +99,10 @@ export class LeaderboardService {
           FROM wp_leaderboard
           WHERE challenge_id=$1 AND account_type=$2 AND is_disqualified=false
             AND COALESCE(is_withdrawn, false) = false
-            AND COALESCE(normalized_balance, adjusted_balance) <= 0 AND adjusted_balance IS NOT NULL
+            AND (
+              (COALESCE(normalized_balance, adjusted_balance) <= 0 AND adjusted_balance IS NOT NULL)
+              OR zero_balance_at IS NOT NULL
+            )
         ) sub WHERE wp_leaderboard.id = sub.id`,
         [challengeId, accountType, offset]
       );
@@ -104,7 +111,10 @@ export class LeaderboardService {
         `SELECT COUNT(*) as cnt FROM wp_leaderboard
          WHERE challenge_id=$1 AND account_type=$2 AND is_disqualified=false
            AND COALESCE(is_withdrawn, false) = false
-           AND COALESCE(normalized_balance, adjusted_balance) <= 0 AND adjusted_balance IS NOT NULL`,
+           AND (
+             (COALESCE(normalized_balance, adjusted_balance) <= 0 AND adjusted_balance IS NOT NULL)
+             OR zero_balance_at IS NOT NULL
+           )`,
         [challengeId, accountType]
       );
       offset += parseInt(tier2Count.rows[0].cnt);

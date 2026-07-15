@@ -1906,28 +1906,11 @@ function CreateChallengePanel({ onCreated }: { onCreated: (id: number) => void }
               {form.type !== "real" && <div><label className="text-xs text-gray-400 font-medium mb-1 block">Demo Prizes (comma-separated $)</label><input value={form.demo_prizes} onChange={e => setForm({...form, demo_prizes: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" placeholder="300,200,100" /></div>}
               <div><label className="text-xs text-gray-400 font-medium mb-1 block">PDF URL (optional)</label><input value={form.pdf_url} onChange={e => setForm({...form, pdf_url: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
               <div><label className="text-xs text-gray-400 font-medium mb-1 block">Video URL (optional)</label><input value={form.video_url} onChange={e => setForm({...form, video_url: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
-              <div>
-                <label className="text-xs text-gray-400 font-medium mb-1 block">Evaluation Method</label>
-                <div className="grid grid-cols-2 gap-3">
-                  <button type="button" onClick={() => setForm({...form, evaluation_type: "winnerpip"})} className={`p-3 rounded-xl border text-center transition-all ${form.evaluation_type === "winnerpip" ? "border-royal bg-royal/10" : "border-white/20 hover:border-white/30"}`}>
-                    <p className="text-white font-bold text-sm">WinnerPip</p>
-                    <p className="text-[10px] text-gray-500 mt-0.5">Auto VPS pulls</p>
-                  </button>
-                  <button type="button" onClick={() => setForm({...form, evaluation_type: "legacy"})} className={`p-3 rounded-xl border text-center transition-all ${form.evaluation_type === "legacy" ? "border-gold bg-gold/10" : "border-white/20 hover:border-white/30"}`}>
-                    <p className="text-white font-bold text-sm">Legacy</p>
-                    <p className="text-[10px] text-gray-500 mt-0.5">Manual XLS submit</p>
-                  </button>
-                </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div><label className="text-xs text-gray-400 font-medium mb-1 block">Pulls per Day</label><input type="number" min="2" max="12" value={form.pull_count} onChange={e => setForm({...form, pull_count: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
+                <div><label className="text-xs text-gray-400 font-medium mb-1 block">First Pull Time (EAT)</label><input type="time" value={form.first_pull_time} onChange={e => setForm({...form, first_pull_time: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
               </div>
-              {form.evaluation_type === "winnerpip" && (
-                <div className="grid grid-cols-2 gap-3">
-                  <div><label className="text-xs text-gray-400 font-medium mb-1 block">Pulls per Day</label><input type="number" min="2" max="12" value={form.pull_count} onChange={e => setForm({...form, pull_count: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
-                  <div><label className="text-xs text-gray-400 font-medium mb-1 block">First Pull Time (EAT)</label><input type="time" value={form.first_pull_time} onChange={e => setForm({...form, first_pull_time: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
-                </div>
-              )}
-              {form.evaluation_type === "winnerpip" && (
-                <p className="text-[10px] text-gray-500 -mt-2">Schedule: {(() => { const c = parseInt(form.pull_count)||6; const iv = Math.floor(24/c); const [fh,fm] = (form.first_pull_time||"00:00").split(":").map(Number); return Array.from({length:c},(_,i)=>`${String((fh+i*iv)%24).padStart(2,"0")}:${String(fm).padStart(2,"0")}`).join(", "); })()} EAT</p>
-              )}
+              <p className="text-[10px] text-gray-500 -mt-2">Schedule: {(() => { const c = parseInt(form.pull_count)||6; const iv = Math.floor(24/c); const [fh,fm] = (form.first_pull_time||"00:00").split(":").map(Number); return Array.from({length:c},(_,i)=>`${String((fh+i*iv)%24).padStart(2,"0")}:${String(fm).padStart(2,"0")}`).join(", "); })()} EAT</p>
             </div>
             <div className="flex gap-3 mt-6">
               <button onClick={() => setStep(1)} className="flex-1 py-3 rounded-xl bg-white/5 border border-white/10 text-gray-400 font-semibold hover:bg-white/10 transition-all">Back</button>

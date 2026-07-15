@@ -535,7 +535,10 @@ app.get('/api/challenges/:id/leaderboard', async (req, res) => {
         isQualified: r.is_qualified,
         isDisqualified: r.is_disqualified || false,
         disqualifyReason: r.disqualify_reason || null,
-        isBlown: r.total_trades > 0 && parseFloat(r.current_balance) <= 0 && !r.is_withdrawn,
+        isBlown: !r.is_withdrawn && (
+          (r.total_trades > 0 && parseFloat(r.current_balance) <= 0) ||
+          r.zero_balance_at !== null
+        ),
         isWithdrawn: r.is_withdrawn || false,
         totalWithdrawn: parseFloat(r.total_withdrawn) || 0,
         isCent: r.is_cent || false,
@@ -2871,9 +2874,10 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/admin-leaderboard`, admin
           isQualified: r.is_qualified || false,
           isDisqualified: r.is_disqualified || r.disqualified || false,
           disqualifyReason: r.disqualify_reason || r.disqualified_reason || null,
-          isBlown: (r.total_trades > 0) && !r.is_withdrawn && (
-            parseFloat(r.current_balance) <= 0 ||
-            (r.last_known_equity !== null && r.last_known_equity !== undefined && parseFloat(r.last_known_equity) <= 0)
+          isBlown: !r.is_withdrawn && (
+            (r.total_trades > 0 && parseFloat(r.current_balance) <= 0) ||
+            (r.last_known_equity !== null && r.last_known_equity !== undefined && parseFloat(r.last_known_equity) <= 0) ||
+            r.zero_balance_at !== null
           ),
           isWithdrawn: r.is_withdrawn || false,
           totalWithdrawn: parseFloat(r.total_withdrawn) || 0,

@@ -2676,7 +2676,7 @@ export class VpsPullScheduler {
         await this.bot.bot.telegram.sendMessage(config.adminUserId,
           `🚨 <b>HIGH FAILURE RATE: ${failureRate.toFixed(0)}%</b>\n\n` +
           `Healthy terminals: ${this.getHealthyTerminalCount()}/${MAX_TERMINALS}\n` +
-          `<i>Consider switching to Legacy evaluation via /evaluationtype</i>`,
+          `<i>Check VPS connectivity and terminal health.</i>`,
           { parse_mode: 'HTML' });
       } catch (e) {}
     }

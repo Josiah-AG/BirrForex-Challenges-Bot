@@ -129,10 +129,9 @@ export class TradingAdminHandler {
       return true;
     }
 
-    // Evaluation type toggle
-    if (data.startsWith('tc_evaltype_toggle_')) {
-      const challengeId = parseInt(data.replace('tc_evaltype_toggle_', ''));
-      return await this.handleEvalTypeToggle(ctx, challengeId);
+    // Request submission callbacks
+    if (data.startsWith('tc_reqsub_') || data === 'tc_reqsub_cancel') {
+      return await this.handleRequestSubmissionCallback(ctx, data);
     }
 
     // Type selection
@@ -3158,61 +3157,150 @@ export class TradingAdminHandler {
     await ctx.telegram.sendMessage(config.challengeChannelId, post, { parse_mode: 'HTML', ...keyboard, link_preview_options: { is_disabled: true } });
   }
 
-  // ==================== EVALUATION TYPE ====================
+  // ==================== REQUEST SUBMISSION ====================
 
-  async evaluationType(ctx: Context) {
+  async requestSubmission(ctx: Context) {
     if (!this.checkAdmin(ctx)) return;
 
     const challenges = await tradingChallengeService.getAllChallenges();
-    // Only Telegram challenges — Discord challenges always use WinnerPip
-    const active = challenges.filter(c =>
-      !['draft', 'completed', 'deleted'].includes(c.status) &&
+    // Eligible: active or reviewing/ended challenges that haven't had winners posted
+    const eligible = challenges.filter(c =>
+      ['active', 'reviewing'].includes(c.status) &&
+      !c.winners_posted_at &&
       (c as any).source !== 'discord'
     );
 
-    if (active.length === 0) {
-      await ctx.reply('❌ No active Telegram challenges found. (Discord challenges always use WinnerPip and cannot be changed.)');
+    if (eligible.length === 0) {
+      await ctx.reply('❌ No eligible challenges found. Challenge must be active or in review (ended) state.');
       return;
     }
 
-    let text = '<b>📊 EVALUATION TYPE</b>\n\nSelect a challenge to toggle its evaluation mode:\n\n';
-    const buttons: any[][] = [];
-
-    for (const c of active) {
-      const evalType = (c as any).evaluation_type || 'winnerpip';
-      const icon = evalType === 'winnerpip' ? '🤖' : '📋';
-      text += `${icon} <b>${c.title}</b> — ${evalType === 'winnerpip' ? 'WinnerPip (Auto)' : 'Legacy (Manual)'}\n`;
-      buttons.push([Markup.button.callback(
-        `${c.title} → ${evalType === 'winnerpip' ? 'Switch to Legacy' : 'Switch to WinnerPip'}`,
-        `tc_evaltype_toggle_${c.id}`
-      )]);
+    if (eligible.length === 1) {
+      // Single challenge — act directly
+      const challenge = eligible[0];
+      if (challenge.status === 'active') {
+        await ctx.reply(
+          `⚠️ <b>This challenge is still active.</b>\n\n` +
+          `"<b>${challenge.title}</b>" is still ongoing (ends ${toEAT(challenge.end_date).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })}).\n\n` +
+          `Do you want to <b>END</b> it now and open account submissions?`,
+          { parse_mode: 'HTML', ...Markup.inlineKeyboard([
+            [Markup.button.callback('✅ Yes, End & Open Submissions', `tc_reqsub_confirm_${challenge.id}`)],
+            [Markup.button.callback('❌ Cancel', 'tc_reqsub_cancel')],
+          ]) }
+        );
+      } else {
+        // Already ended (reviewing) — post submission directly
+        await this.postSubmissionRequest(ctx, challenge);
+      }
+    } else {
+      // Multiple challenges — let admin pick
+      const buttons = eligible.map(c => [
+        Markup.button.callback(
+          `${c.status === 'active' ? '🟢' : '🏁'} ${c.title}`,
+          `tc_reqsub_pick_${c.id}`
+        )
+      ]);
+      await ctx.reply(
+        '<b>📋 Select a challenge to open submissions:</b>',
+        { parse_mode: 'HTML', ...Markup.inlineKeyboard(buttons) }
+      );
     }
-
-    await ctx.reply(text, { parse_mode: 'HTML', ...Markup.inlineKeyboard(buttons) });
   }
 
-  async handleEvalTypeToggle(ctx: Context, challengeId: number): Promise<boolean> {
-    const challenge = await tradingChallengeService.getChallengeById(challengeId);
-    if (!challenge) { await ctx.reply('❌ Challenge not found.'); return true; }
+  async handleRequestSubmissionCallback(ctx: Context, data: string): Promise<boolean> {
+    if (data === 'tc_reqsub_cancel') {
+      await ctx.answerCbQuery('Cancelled');
+      await ctx.reply('❌ Cancelled.');
+      return true;
+    }
 
-    const currentType = (challenge as any).evaluation_type || 'winnerpip';
-    const newType = currentType === 'winnerpip' ? 'legacy' : 'winnerpip';
+    if (data.startsWith('tc_reqsub_pick_')) {
+      const challengeId = parseInt(data.replace('tc_reqsub_pick_', ''));
+      const challenge = await tradingChallengeService.getChallengeById(challengeId);
+      if (!challenge) { await ctx.answerCbQuery('Challenge not found'); return true; }
 
-    await tradingChallengeService.setEvaluationType(challengeId, newType as 'winnerpip' | 'legacy');
+      if (challenge.status === 'active') {
+        await ctx.answerCbQuery();
+        await ctx.reply(
+          `⚠️ <b>This challenge is still active.</b>\n\n` +
+          `"<b>${challenge.title}</b>" is still ongoing.\n\n` +
+          `Do you want to <b>END</b> it now and open account submissions?`,
+          { parse_mode: 'HTML', ...Markup.inlineKeyboard([
+            [Markup.button.callback('✅ Yes, End & Open Submissions', `tc_reqsub_confirm_${challenge.id}`)],
+            [Markup.button.callback('❌ Cancel', 'tc_reqsub_cancel')],
+          ]) }
+        );
+      } else {
+        await ctx.answerCbQuery('Opening submissions...');
+        await this.postSubmissionRequest(ctx, challenge);
+      }
+      return true;
+    }
 
-    const icon = newType === 'winnerpip' ? '🤖' : '📋';
-    const label = newType === 'winnerpip' ? 'WinnerPip (Automatic)' : 'Legacy (Manual Submission)';
+    if (data.startsWith('tc_reqsub_confirm_')) {
+      const challengeId = parseInt(data.replace('tc_reqsub_confirm_', ''));
+      const challenge = await tradingChallengeService.getChallengeById(challengeId);
+      if (!challenge) { await ctx.answerCbQuery('Challenge not found'); return true; }
 
-    await ctx.answerCbQuery(`Switched to ${label}`);
-    await ctx.reply(
-      `${icon} <b>Evaluation type updated!</b>\n\n` +
-      `<b>${challenge.title}</b> → <b>${label}</b>\n\n` +
-      (newType === 'winnerpip'
-        ? '<i>When challenge ends: No submission window. Final pull + auto-evaluation + winners announced after 24h review.</i>'
-        : '<i>When challenge ends: 48h submission window opens. Manual evaluation via /evaluate. Winners selected manually.</i>'),
-      { parse_mode: 'HTML' }
-    );
-    return true;
+      await ctx.answerCbQuery('Ending challenge & opening submissions...');
+      // End the challenge and open submissions
+      await this.postSubmissionRequest(ctx, challenge);
+      return true;
+    }
+
+    return false;
+  }
+
+  private async postSubmissionRequest(ctx: Context, challenge: TradingChallenge) {
+    const deadline = new Date(Date.now() + 48 * 60 * 60 * 1000);
+    await tradingChallengeService.setSubmissionDeadline(challenge.id, deadline);
+    await tradingChallengeService.updateChallengeStatus(challenge.id, 'submission_open');
+
+    const deadlineStr = toEAT(deadline).toLocaleString('en-US', {
+      weekday: 'long', month: 'short', day: 'numeric', year: 'numeric',
+      hour: 'numeric', minute: '2-digit', hour12: true
+    });
+
+    const botInfo = await ctx.telegram.getMe();
+
+    let guideLink = '';
+    if (config.investorPasswordGuideLink) {
+      guideLink = `\n📋 How to get your Investor Password: <a href="${config.investorPasswordGuideLink}">Guide Link</a>\n`;
+    }
+
+    const text = `<b>🔍 DOUBLE CHECK REQUIRED!</b>\n\n` +
+      `<b>${challenge.title}</b> — Final Verification\n\n` +
+      `Our system has tracked all trades automatically, but we need to verify all accounts with a final check.\n\n` +
+      `🎯 <b>If you hit the target ($${challenge.target_balance}), submit your account for final verification!</b>\n\n` +
+      `⚠️ <b>ONLY</b> participants who reached the target balance should submit.\n\n` +
+      `➡️ You have <b>48 HOURS</b> to submit\n` +
+      `➡️ Click below to start verification\n` +
+      `➡️ Late submissions will <b>NOT</b> be accepted\n\n` +
+      `⏰ <b>Deadline:</b> ${deadlineStr}\n` +
+      guideLink;
+
+    const keyboard = Markup.inlineKeyboard([
+      [Markup.button.url('📋 Submit for Verification', `https://t.me/${botInfo.username}?start=tc_submit_${challenge.id}`)],
+    ]);
+
+    const opts = { parse_mode: 'HTML' as const, ...keyboard, link_preview_options: { is_disabled: true } };
+
+    try {
+      await ctx.telegram.sendMessage(config.mainChannelId, text, opts);
+      await ctx.telegram.sendMessage(config.challengeChannelId, text, opts);
+      await ctx.reply(
+        `✅ <b>Submission request posted!</b>\n\n` +
+        `Challenge: ${challenge.title}\n` +
+        `Status: submission_open\n` +
+        `Deadline: ${deadlineStr}\n\n` +
+        `The 48h countdown has started. After the deadline, submissions will auto-close and you'll receive the admin report.`,
+        { parse_mode: 'HTML' }
+      );
+      console.log(`✅ Submission request posted for "${challenge.title}", deadline: ${deadlineStr}`);
+    } catch (e) {
+      console.error('Error posting submission request:', e);
+      await ctx.reply('❌ Error posting to channels. Check bot permissions.');
+    }
   }
 
   // ==================== EXPORT LEADERBOARD ====================

@@ -558,57 +558,14 @@ export class TradingScheduler {
   }
 
   async endChallenge(challenge: TradingChallenge) {
-    const evaluationType = challenge.evaluation_type || 'winnerpip';
-
     // Skip Telegram posts for Discord-source challenges
     const isDiscord = (challenge as any).source === 'discord';
 
-    if (evaluationType === 'legacy') {
-      // LEGACY MODE: Post submission request with 48h window
-      const deadline = new Date(Date.now() + 48 * 60 * 60 * 1000);
-      await tradingChallengeService.setSubmissionDeadline(challenge.id, deadline);
-      await tradingChallengeService.updateChallengeStatus(challenge.id, 'submission_open');
+    // Always use WinnerPip mode: Post "challenge ended, final check in progress" — no automatic submission window
+    // Admin can manually open submissions later via /requestsubmission if needed
+    await tradingChallengeService.updateChallengeStatus(challenge.id, 'reviewing');
 
-      if (!isDiscord) {
-        const deadlineStr = toEAT(deadline).toLocaleString('en-US', { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
-        const botInfo = await this.bot.bot.telegram.getMe();
-
-        let guideLink = '';
-        if (config.investorPasswordGuideLink) {
-          guideLink = `\n📋 How to get your Investor Password: <a href="${config.investorPasswordGuideLink}">Guide Link</a>\n`;
-        }
-
-        const text = `<b>🏁 CHALLENGE IS OVER!</b>\n\n` +
-          `<b>${challenge.title}</b> has officially ended!\n\n` +
-        `What an exciting race! We hope you all gained valuable experience and sharpened your trading skills throughout this challenge.\n\n` +
-        `<i>Thank you to every participant for your dedication and effort!</i> 💪\n\n` +
-        `🎯 <b>If you hit the target ($${challenge.target_balance}), submit your details for evaluation!</b>\n\n` +
-        `⚠️ <b>ONLY</b> participants who reached the target balance should submit results.\n\n` +
-        `➡️ You have <b>48 HOURS</b> to submit your results\n` +
-        `➡️ Click the button below to start your submission\n` +
-        `➡️ Late submissions will <b>NOT</b> be accepted\n\n` +
-        `⏰ <b>Submission deadline:</b> ${deadlineStr}\n` +
-        guideLink;
-
-      const keyboard = Markup.inlineKeyboard([
-        [Markup.button.url('📋 Submit Results', `https://t.me/${botInfo.username}?start=tc_submit_${challenge.id}`)],
-      ]);
-
-      const opts = { parse_mode: 'HTML' as const, ...keyboard, link_preview_options: { is_disabled: true } };
-
-      try {
-        await this.bot.bot.telegram.sendMessage(config.mainChannelId, text, opts);
-        await this.bot.bot.telegram.sendMessage(config.challengeChannelId, text, opts);
-        console.log(`✅ Trading challenge ${challenge.id} ended (LEGACY mode), submission open until ${deadlineStr}`);
-      } catch (e) {
-        console.error('Error posting challenge end:', e);
-      }
-      } // end if (!isDiscord)
-    } else {
-      // WINNERPIP MODE: Post "challenge ended, final check in progress" — no submission window
-      await tradingChallengeService.updateChallengeStatus(challenge.id, 'reviewing');
-
-      if (!isDiscord) {
+    if (!isDiscord) {
       const text = `<b>🏁 CHALLENGE IS OVER!</b>\n\n` +
         `<b>${challenge.title}</b> has officially ended!\n\n` +
         `What an exciting race! We hope you all gained valuable experience and sharpened your trading skills throughout this challenge.\n\n` +
@@ -623,15 +580,14 @@ export class TradingScheduler {
       try {
         await this.bot.bot.telegram.sendMessage(config.mainChannelId, text, opts);
         await this.bot.bot.telegram.sendMessage(config.challengeChannelId, text, opts);
-        console.log(`✅ Trading challenge ${challenge.id} ended (WINNERPIP mode), final evaluation in progress`);
+        console.log(`✅ Trading challenge ${challenge.id} ended, final evaluation in progress`);
       } catch (e) {
         console.error('Error posting challenge end:', e);
       }
-      } // end if (!isDiscord)
-
-      // Post Discord end message for team challenges
-      await this.postDiscordEndMessage(challenge);
     }
+
+    // Post Discord end message for team challenges
+    await this.postDiscordEndMessage(challenge);
   }
 
   // ==================== LEADERBOARD LOCK (after 2nd pull post-end) ====================
