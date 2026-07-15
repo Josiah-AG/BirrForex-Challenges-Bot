@@ -1466,6 +1466,7 @@ export class TradingRegistrationHandler {
     if (result.status === 'allocated_mt5') {
       if (result.data?.client_uid && session.data.client_uid && result.data.client_uid !== session.data.client_uid) {
         session.step = 'tc_enter_account_number';
+        await tradingChallengeService.logFailedAttempt(challengeId, telegramId, ctx.from!.username || null, session.data.email, 'acct_ownership');
         await ctx.reply(t(lang, 'acct_ownership_mismatch'),
           { parse_mode: 'HTML', ...Markup.inlineKeyboard([[Markup.button.callback('📝 Submit New Real Account', `tc_new_real_acct_${challengeId}`)]]) });
         return;
@@ -1477,6 +1478,7 @@ export class TradingRegistrationHandler {
 
     if (result.status === 'allocated_not_mt5') {
       session.step = 'tc_enter_account_number';
+      await tradingChallengeService.logFailedAttempt(challengeId, telegramId, ctx.from!.username || null, session.data.email, 'real_acct_not_mt5');
       await ctx.reply(t(lang, 'real_acct_not_mt5'),
         { parse_mode: 'HTML', ...Markup.inlineKeyboard([[Markup.button.callback('📝 Submit New Real Account', `tc_new_real_acct_${challengeId}`)]]) });
       return;
@@ -1494,8 +1496,12 @@ export class TradingRegistrationHandler {
       return;
     }
 
-    // API error — proceed to server anyway (graceful degradation)
-    await this.showServerButtons(ctx, telegramId);
+    // API error — do NOT proceed without verification, tell user to try again
+    session.step = 'tc_enter_account_number';
+    await ctx.reply(
+      t(lang, 'system_busy_retry'),
+      { parse_mode: 'HTML' }
+    );
   }
 
   private async verifyRealAccountChange(ctx: Context, telegramId: number) {
