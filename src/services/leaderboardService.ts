@@ -86,9 +86,34 @@ export class LeaderboardService {
       );
       offset += parseInt(tier2aCount.rows[0].cnt);
 
-      // Tier 2b: blown/negative balance — includes accounts explicitly marked blown
-      // (zero_balance_at IS NOT NULL) OR accounts with negative adjusted_balance.
-      // Rank by balance DESC (less negative = better), then by trades, then blown time.
+      // Tier 2b: negative balance but NOT blown — still trading, just losing
+      // These rank above blown accounts regardless of balance value
+      await db.query(
+        `UPDATE wp_leaderboard SET rank = sub.rn FROM (
+          SELECT id, (ROW_NUMBER() OVER (
+            ORDER BY COALESCE(normalized_balance, adjusted_balance) DESC,
+                     total_trades DESC
+          )) + $3 as rn
+          FROM wp_leaderboard
+          WHERE challenge_id=$1 AND account_type=$2 AND is_disqualified=false
+            AND COALESCE(is_withdrawn, false) = false
+            AND zero_balance_at IS NULL
+            AND COALESCE(normalized_balance, adjusted_balance) <= 0 AND adjusted_balance IS NOT NULL
+        ) sub WHERE wp_leaderboard.id = sub.id`,
+        [challengeId, accountType, offset]
+      );
+
+      const tier2bCount = await db.query(
+        `SELECT COUNT(*) as cnt FROM wp_leaderboard
+         WHERE challenge_id=$1 AND account_type=$2 AND is_disqualified=false
+           AND COALESCE(is_withdrawn, false) = false
+           AND zero_balance_at IS NULL
+           AND COALESCE(normalized_balance, adjusted_balance) <= 0 AND adjusted_balance IS NOT NULL`,
+        [challengeId, accountType]
+      );
+      offset += parseInt(tier2bCount.rows[0].cnt);
+
+      // Tier 2c: blown accounts (zero_balance_at IS NOT NULL) — always rank below non-blown
       await db.query(
         `UPDATE wp_leaderboard SET rank = sub.rn FROM (
           SELECT id, (ROW_NUMBER() OVER (
@@ -99,25 +124,19 @@ export class LeaderboardService {
           FROM wp_leaderboard
           WHERE challenge_id=$1 AND account_type=$2 AND is_disqualified=false
             AND COALESCE(is_withdrawn, false) = false
-            AND (
-              (COALESCE(normalized_balance, adjusted_balance) <= 0 AND adjusted_balance IS NOT NULL)
-              OR zero_balance_at IS NOT NULL
-            )
+            AND zero_balance_at IS NOT NULL
         ) sub WHERE wp_leaderboard.id = sub.id`,
         [challengeId, accountType, offset]
       );
 
-      const tier2Count = await db.query(
+      const tier2cCount = await db.query(
         `SELECT COUNT(*) as cnt FROM wp_leaderboard
          WHERE challenge_id=$1 AND account_type=$2 AND is_disqualified=false
            AND COALESCE(is_withdrawn, false) = false
-           AND (
-             (COALESCE(normalized_balance, adjusted_balance) <= 0 AND adjusted_balance IS NOT NULL)
-             OR zero_balance_at IS NOT NULL
-           )`,
+           AND zero_balance_at IS NOT NULL`,
         [challengeId, accountType]
       );
-      offset += parseInt(tier2Count.rows[0].cnt);
+      offset += parseInt(tier2cCount.rows[0].cnt);
 
       // Tier 3: DQ — by disqualified_at DESC (most recent DQ = higher)
       await db.query(
