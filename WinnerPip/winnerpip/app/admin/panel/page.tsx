@@ -2192,7 +2192,7 @@ function ChallengeSettingsPanel({ challengeId, challenges, onRefresh }: { challe
               </>) : (
                 <button onClick={async () => { try { const r = await fetch(`${apiUrl}/api/challenges/${challengeId}/leaderboard?limit=10`); const d = await r.json(); downloadLeaderboardHTML({ ...editForm, real_winners_count: challenge?.realWinnersCount ?? 3, demo_winners_count: challenge?.demoWinnersCount ?? 3 }, d.leaderboard || []); } catch { downloadLeaderboardHTML(editForm, []); } }} className="p-2.5 rounded-lg bg-gold/10 border border-gold/30 text-gold text-xs font-semibold hover:bg-gold/20 transition-all">🏆 Leaderboard Image</button>
               )}
-              <button onClick={async () => { try { const r = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/overview`); const d = await r.json(); const metrics = d.metrics || {}; const m = metrics.real || metrics.combined || {}; const md = metrics.demo || {}; const lb = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/admin-leaderboard?category=all`).then(r2 => r2.json()).catch(() => ({ leaderboard: [] })); const realTop = (lb.leaderboard || []).filter((e: any) => e.accountType === 'real' && !e.isDisqualified).sort((a: any, b: any) => (b.adjustedBalance || 0) - (a.adjustedBalance || 0))[0]; const demoTop = (lb.leaderboard || []).filter((e: any) => e.accountType === 'demo' && !e.isDisqualified).sort((a: any, b: any) => (b.adjustedBalance || 0) - (a.adjustedBalance || 0))[0]; downloadStatsHTML(editForm, { totalParticipants: d.totalParticipants || 0, realParticipants: d.participants?.real || 0, demoParticipants: d.participants?.demo || 0, realAboveTarget: d.aboveTarget || 0, demoAboveTarget: d.demoAboveTarget || 0, totalTrades: d.totalTrades || 0, mostTradedPair: m.mostTradedPair?.symbol || md.mostTradedPair?.symbol || '—', realHighestProfit: m.maxProfitTrade ? { nickname: m.maxProfitTrade.nickname, profit: `${m.maxProfitTrade.profit?.toFixed(2)}` } : null, demoHighestProfit: md.maxProfitTrade ? { nickname: md.maxProfitTrade.nickname, profit: `${md.maxProfitTrade.profit?.toFixed(2)}` } : null, realBestWinRate: m.bestQualifiedWinRate ? { nickname: m.bestQualifiedWinRate.nickname, rate: `${m.bestQualifiedWinRate.winRate}%` } : null, demoBestWinRate: md.bestQualifiedWinRate ? { nickname: md.bestQualifiedWinRate.nickname, rate: `${md.bestQualifiedWinRate.winRate}%` } : null, realTopBalance: realTop ? { nickname: realTop.nickname, balance: `${Number(realTop.adjustedBalance).toFixed(realTop.isCent ? 0 : 2)}${realTop.isCent ? '¢' : '$'}` } : null, demoTopBalance: demoTop ? { nickname: demoTop.nickname, balance: `$${Number(demoTop.adjustedBalance).toFixed(2)}` } : null, mostBrokenRule: d.mostBrokenRule || null }); } catch { downloadStatsHTML(editForm, {}); } }} className="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-semibold hover:bg-amber-500/20 transition-all">📊 Challenge Stats</button>
+              <button onClick={async () => { try { const r = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/overview`); const d = await r.json(); const metrics = d.metrics || {}; const m = metrics.real || metrics.combined || {}; const md = metrics.demo || {}; const lb = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/admin-leaderboard?category=all`).then(r2 => r2.json()).catch(() => ({ leaderboard: [] })); const realTop = (lb.leaderboard || []).filter((e: any) => e.accountType === 'real' && !e.isDisqualified).sort((a: any, b: any) => (b.adjustedBalance || 0) - (a.adjustedBalance || 0))[0]; const demoTop = (lb.leaderboard || []).filter((e: any) => e.accountType === 'demo' && !e.isDisqualified).sort((a: any, b: any) => (b.adjustedBalance || 0) - (a.adjustedBalance || 0))[0]; const blownReal = (lb.leaderboard || []).filter((e: any) => e.accountType === 'real' && e.isBlown).length; const blownDemo = (lb.leaderboard || []).filter((e: any) => e.accountType === 'demo' && e.isBlown).length; const dqReal = (lb.leaderboard || []).filter((e: any) => e.accountType === 'real' && e.isDisqualified).length; const dqDemo = (lb.leaderboard || []).filter((e: any) => e.accountType === 'demo' && e.isDisqualified).length; downloadStatsHTML(editForm, { totalParticipants: d.totalParticipants || 0, realParticipants: d.participants?.real || 0, demoParticipants: d.participants?.demo || 0, realAboveTarget: d.aboveTarget || 0, demoAboveTarget: d.demoAboveTarget || 0, totalTrades: d.totalTrades || 0, mostTradedPair: m.mostTradedPair?.symbol || md.mostTradedPair?.symbol || '—', realHighestProfit: m.maxProfitTrade ? { nickname: m.maxProfitTrade.nickname, profit: `${m.maxProfitTrade.profit?.toFixed(2)}` } : null, demoHighestProfit: md.maxProfitTrade ? { nickname: md.maxProfitTrade.nickname, profit: `${md.maxProfitTrade.profit?.toFixed(2)}` } : null, realBestWinRate: m.bestQualifiedWinRate ? { nickname: m.bestQualifiedWinRate.nickname, rate: `${m.bestQualifiedWinRate.winRate}%` } : null, demoBestWinRate: md.bestQualifiedWinRate ? { nickname: md.bestQualifiedWinRate.nickname, rate: `${md.bestQualifiedWinRate.winRate}%` } : null, realTopBalance: realTop ? { nickname: realTop.nickname, balance: `${Number(realTop.adjustedBalance).toFixed(realTop.isCent ? 0 : 2)}${realTop.isCent ? '¢' : '$'}` } : null, demoTopBalance: demoTop ? { nickname: demoTop.nickname, balance: `$${Number(demoTop.adjustedBalance).toFixed(2)}` } : null, mostBrokenRule: d.mostBrokenRule || null, blownReal, blownDemo, dqReal, dqDemo, challengeType: d.challengeType || challenge?.type || 'hybrid' }); } catch { downloadStatsHTML(editForm, {}); } }} className="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-semibold hover:bg-amber-500/20 transition-all">📊 Challenge Stats</button>
             </div>
           </div>
         </div>
@@ -2521,7 +2521,7 @@ body{font-family:'Inter',system-ui,-apple-system,sans-serif;background:#0a0e1a}
     <div class="card-label">Total Trades</div>
     <div class="card-value">${s.totalTrades || 0}</div>
   </div>
-  <div class="card">
+  ${s.challengeType === 'hybrid' ? `<div class="card">
     <div class="card-label">Participants</div>
     <div class="dual">
       <div class="dual-item"><span class="tag real">Real</span><span class="card-value small">${s.realParticipants || 0}</span></div>
@@ -2534,27 +2534,44 @@ body{font-family:'Inter',system-ui,-apple-system,sans-serif;background:#0a0e1a}
       <div class="dual-item"><span class="tag real">Real</span><span class="card-value small green">${s.realAboveTarget || 0}</span></div>
       <div class="dual-item"><span class="tag demo">Demo</span><span class="card-value small green">${s.demoAboveTarget || 0}</span></div>
     </div>
+  </div>` : `<div class="card highlight">
+    <div class="card-label">Above Target 🎯</div>
+    <div class="card-value green">${s.realAboveTarget || s.demoAboveTarget || 0}</div>
   </div>
+  <div class="card">
+    <div class="card-label">💀 Blown / 🚫 Disqualified</div>
+    <div class="dual">
+      <div class="dual-item"><span class="card-value small" style="color:#f87171">${(s.blownReal || 0) + (s.blownDemo || 0)} 💀</span></div>
+      <div class="dual-item"><span class="card-value small" style="color:#f87171">${(s.dqReal || 0) + (s.dqDemo || 0)} 🚫</span></div>
+    </div>
+  </div>`}
+  ${s.challengeType === 'hybrid' ? `<div class="card">
+    <div class="card-label">💀 Blown / 🚫 Disqualified</div>
+    <div class="dual">
+      <div class="dual-item"><span class="tag real">Real</span><span class="card-value small" style="color:#f87171">${s.blownReal || 0} 💀 / ${s.dqReal || 0} 🚫</span></div>
+      <div class="dual-item"><span class="tag demo">Demo</span><span class="card-value small" style="color:#f87171">${s.blownDemo || 0} 💀 / ${s.dqDemo || 0} 🚫</span></div>
+    </div>
+  </div>` : ''}
   <div class="card full">
     <div class="card-label">Top Qualified Balance 💰</div>
-    <div class="dual">
+    ${s.challengeType === 'hybrid' ? `<div class="dual">
       <div class="dual-item"><span class="tag real">Real</span><span class="card-value small">${s.realTopBalance?.nickname || '—'} <span style="color:#16C784">(${s.realTopBalance?.balance || '—'})</span></span></div>
       <div class="dual-item"><span class="tag demo">Demo</span><span class="card-value small">${s.demoTopBalance?.nickname || '—'} <span style="color:#16C784">(${s.demoTopBalance?.balance || '—'})</span></span></div>
-    </div>
+    </div>` : `<div class="card-value small">${(s.realTopBalance?.nickname || s.demoTopBalance?.nickname || '—')} <span style="color:#16C784">(${s.realTopBalance?.balance || s.demoTopBalance?.balance || '—'})</span></div>`}
   </div>
   <div class="card full">
     <div class="card-label">Highest Single Trade Profit 🔥</div>
-    <div class="dual">
+    ${s.challengeType === 'hybrid' ? `<div class="dual">
       <div class="dual-item"><span class="tag real">Real</span><span class="card-value small">${s.realHighestProfit?.nickname || '—'} <span style="color:#16C784">(${s.realHighestProfit?.profit || '—'})</span></span></div>
       <div class="dual-item"><span class="tag demo">Demo</span><span class="card-value small">${s.demoHighestProfit?.nickname || '—'} <span style="color:#16C784">(${s.demoHighestProfit?.profit || '—'})</span></span></div>
-    </div>
+    </div>` : `<div class="card-value small">${(s.realHighestProfit?.nickname || s.demoHighestProfit?.nickname || '—')} <span style="color:#16C784">(${s.realHighestProfit?.profit || s.demoHighestProfit?.profit || '—'})</span></div>`}
   </div>
   <div class="card full">
     <div class="card-label">Best Win Rate (Qualified) 🏹</div>
-    <div class="dual">
+    ${s.challengeType === 'hybrid' ? `<div class="dual">
       <div class="dual-item"><span class="tag real">Real</span><span class="card-value small">${s.realBestWinRate?.nickname || '—'} <span style="color:#F5B400">(${s.realBestWinRate?.rate || '—'})</span></span></div>
       <div class="dual-item"><span class="tag demo">Demo</span><span class="card-value small">${s.demoBestWinRate?.nickname || '—'} <span style="color:#F5B400">(${s.demoBestWinRate?.rate || '—'})</span></span></div>
-    </div>
+    </div>` : `<div class="card-value small">${(s.realBestWinRate?.nickname || s.demoBestWinRate?.nickname || '—')} <span style="color:#F5B400">(${s.realBestWinRate?.rate || s.demoBestWinRate?.rate || '—'})</span></div>`}
   </div>
   <div class="card">
     <div class="card-label">Most Traded Pair</div>
