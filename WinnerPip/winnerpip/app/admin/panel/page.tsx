@@ -271,7 +271,7 @@ export default function AdminDashboard() {
 
   // Currency helper — shows ¢ for cent-only real challenges, $ otherwise
   const selectedChall = challenges.find(c => String(c.id) === selectedChallengeId);
-  const isCentChallenge = rulesConfig.only_cent_account && selectedChall?.type !== 'demo';
+  const isCentChallenge = (rulesConfig.only_cent_account || overviewData?.onlyCentAccount) && selectedChall?.type !== 'demo';
   const cur = (amount: number | string | null | undefined, userIsCent?: boolean) => {
     if (amount == null) return "—";
     const num = Number(amount);
@@ -308,6 +308,7 @@ export default function AdminDashboard() {
   const [terminalStatus, setTerminalStatus] = useState<any[]>([]);
   const [leaderboard, setLeaderboard] = useState<any[]>([]);
   const [leaderboardPreStart, setLeaderboardPreStart] = useState(false);
+  const [leaderboardCentOnly, setLeaderboardCentOnly] = useState(false);
   const [leaderboardCategory, setLeaderboardCategory] = useState<"all" | "demo" | "real">("all");
   const [flaggedParticipants, setFlaggedParticipants] = useState<any[]>([]);
   const [screeningData, setScreeningData] = useState<any>(null);
@@ -354,6 +355,7 @@ export default function AdminDashboard() {
           const data = await res.json();
           setLeaderboard(data.leaderboard || []);
           setLeaderboardPreStart(data.preStart || false);
+          setLeaderboardCentOnly(data.challengeOnlyCent || false);
         }
       } catch {}
     };
@@ -648,7 +650,7 @@ export default function AdminDashboard() {
                 <tbody>{leaderboard.length === 0 ? <tr><td colSpan={leaderboardPreStart ? 5 : 9} className="py-8 text-center text-gray-500">No leaderboard data yet — will populate after VPS pulls and evaluation</td></tr> : leaderboard.map((e: any) => {
                   const eWinnersCount = e.accountType === 'demo' ? parseInt(selectedChall?.demoWinnersCount || 0) : parseInt(selectedChall?.realWinnersCount || 0);
                   // Only multiply ×100 when user is cent AND challenge is NOT cent-only-real
-                  const isRealCentOnly = selectedChall?.type === 'real' && rulesConfig.only_cent_account;
+                  const isRealCentOnly = selectedChall?.type === 'real' && leaderboardCentOnly;
                   const eEffectiveTarget = (e.isCent && !isRealCentOnly) ? Number(selectedChall?.targetBalance || 0) * 100 : Number(selectedChall?.targetBalance || 0);
                   const eIsWinner = !e.isDisqualified && !e.isWithdrawn && !e.isBlown && e.rank && e.rank <= eWinnersCount && Number(e.adjustedBalance) >= eEffectiveTarget;
                   const eIsAboveTarget = !e.isDisqualified && !e.isWithdrawn && !e.isBlown && !leaderboardPreStart && Number(e.adjustedBalance) >= eEffectiveTarget;

@@ -1446,6 +1446,8 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
       metrics,
       mostBrokenRule,
       leastBrokenRule,
+      onlyCentAccount: isRealCentOnly,
+      challengeType,
     });
   } catch (error) {
     console.error('Admin overview error:', error);
@@ -2867,6 +2869,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/admin-leaderboard`, admin
       dataFrom,
       preStart: isPreStart,
       total: result.rows.length,
+      challengeOnlyCent,
       leaderboard: result.rows.map((r: any) => {
         const hasLeaderboard = r.rank != null;
         const isCent = r.is_cent || (challengeOnlyCent && r.account_type !== 'demo') || false;
