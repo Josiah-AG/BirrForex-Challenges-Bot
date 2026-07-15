@@ -730,11 +730,47 @@ export class TradingScheduler {
     const endStr = toEAT(challenge.end_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
     const typeLabel = challenge.type === 'hybrid' ? 'Hybrid (Demo & Real)' : challenge.type === 'demo' ? 'Demo' : 'Real';
 
+    // Get blown and disqualified counts
+    const blownResult = await db.query(
+      `SELECT COUNT(*) as total,
+              COUNT(CASE WHEN r.account_type = 'real' THEN 1 END) as real,
+              COUNT(CASE WHEN r.account_type = 'demo' THEN 1 END) as demo
+       FROM wp_leaderboard l
+       JOIN trading_registrations r ON l.registration_id = r.id
+       WHERE l.challenge_id = $1 AND l.zero_balance_at IS NOT NULL`,
+      [challenge.id]
+    );
+    const dqResult = await db.query(
+      `SELECT COUNT(*) as total,
+              COUNT(CASE WHEN account_type = 'real' THEN 1 END) as real,
+              COUNT(CASE WHEN account_type = 'demo' THEN 1 END) as demo
+       FROM trading_registrations WHERE challenge_id = $1 AND disqualified = true`,
+      [challenge.id]
+    );
+    const blown = blownResult.rows[0];
+    const dq = dqResult.rows[0];
+
+    let registeredLine: string;
+    let submissionsLine: string;
+    let statsLine: string;
+
+    if (challenge.type === 'hybrid') {
+      registeredLine = `👥 <b>Total Registered:</b> ${counts.total} (Real: ${counts.real} | Demo: ${counts.demo})\n`;
+      submissionsLine = `📋 <b>Total Submissions:</b> ${subCounts.total} (Real: ${subCounts.real} | Demo: ${subCounts.demo})\n`;
+      statsLine = `💀 <b>Blown:</b> ${blown.total} (Real: ${blown.real} | Demo: ${blown.demo})\n` +
+        `🚫 <b>Disqualified:</b> ${dq.total} (Real: ${dq.real} | Demo: ${dq.demo})\n`;
+    } else {
+      registeredLine = `👥 <b>Total Registered:</b> ${counts.total}\n`;
+      submissionsLine = `📋 <b>Total Submissions:</b> ${subCounts.total}\n`;
+      statsLine = `💀 <b>Blown:</b> ${blown.total}\n🚫 <b>Disqualified:</b> ${dq.total}\n`;
+    }
+
     const text = `<b>📊 TRADING CHALLENGE REPORT</b>\n<b>${challenge.title}</b>\n\n` +
       `📅 <b>Period:</b> ${startStr} - ${endStr}\n` +
       `📊 <b>Type:</b> ${typeLabel}\n` +
-      `👥 <b>Total Registered:</b> ${counts.total} (Real: ${counts.real} | Demo: ${counts.demo})\n` +
-      `📋 <b>Total Submissions:</b> ${subCounts.total} (Real: ${subCounts.real} | Demo: ${subCounts.demo})\n\n` +
+      registeredLine +
+      submissionsLine +
+      statsLine + '\n' +
       `📎 <i>Downloadable report attached below</i>\n\n` +
       `⏳ Review accounts and select winners using:\n/selectwinners`;
 

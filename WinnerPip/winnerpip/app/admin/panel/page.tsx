@@ -588,6 +588,7 @@ export default function AdminDashboard() {
                           {m.mostTradedPair && <MetricCard title="Most Traded" value={m.mostTradedPair.symbol} sub={`${m.mostTradedPair.tradeCount} trades · ${m.mostTradedPair.totalLots.toFixed(2)} lots`} color="text-gold" />}
                           {m.leastTradedPair && m.leastTradedPair.symbol !== m.mostTradedPair?.symbol && <MetricCard title="Least Traded" value={m.leastTradedPair.symbol} sub={`${m.leastTradedPair.tradeCount} trades`} color="text-gray-300" />}
                           <MetricCard title="Blown" value={String(m.blownAccounts)} sub="equity = 0" color="text-loss" />
+                          <MetricCard title="Disqualified" value={String(m.disqualifiedAccounts || 0)} sub="rule violations" color="text-loss" />
                           <MetricCard title="Avg Trades/User" value={String(m.avgTradesPerUser)} sub="active traders" color="text-white" />
                           {m.mostActiveDay && <MetricCard title="Most Active Day" value={new Date(m.mostActiveDay.day).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} sub={`${m.mostActiveDay.tradeCount} trades`} color="text-white" />}
                           {m.leastActiveDay && <MetricCard title="Least Active Day" value={new Date(m.leastActiveDay.day).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} sub={`${m.leastActiveDay.tradeCount} trades`} color="text-gray-400" />}
@@ -609,6 +610,7 @@ export default function AdminDashboard() {
                       {m.mostTradedPair && <MetricCard title="Most Traded Pair" value={m.mostTradedPair.symbol} sub={`${m.mostTradedPair.tradeCount} trades · ${m.mostTradedPair.totalLots.toFixed(2)} lots`} color="text-gold" />}
                       {m.leastTradedPair && m.leastTradedPair.symbol !== m.mostTradedPair?.symbol && <MetricCard title="Least Traded Pair" value={m.leastTradedPair.symbol} sub={`${m.leastTradedPair.tradeCount} trades · ${m.leastTradedPair.totalLots.toFixed(2)} lots`} color="text-gray-300" />}
                       <MetricCard title="Blown Accounts" value={String(m.blownAccounts)} sub="equity hit zero" color="text-loss" />
+                      <MetricCard title="Disqualified" value={String(m.disqualifiedAccounts || 0)} sub="rule violations" color="text-loss" />
                       {m.mostActiveDay && <MetricCard title="Most Active Day" value={new Date(m.mostActiveDay.day).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} sub={`${m.mostActiveDay.tradeCount} trades`} color="text-white" />}
                       {m.leastActiveDay && <MetricCard title="Least Active Day" value={new Date(m.leastActiveDay.day).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} sub={`${m.leastActiveDay.tradeCount} trades`} color="text-gray-400" />}
                       <MetricCard title="Avg Trades/User" value={String(m.avgTradesPerUser)} sub="among active traders" color="text-white" />

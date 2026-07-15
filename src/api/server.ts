@@ -1369,6 +1369,10 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
          JOIN trading_registrations r ON l.registration_id = r.id
          WHERE l.challenge_id = $1 AND l.zero_balance_at IS NOT NULL${catJoin}`, [challengeId]);
 
+      const disqualified = await db.query(
+        `SELECT COUNT(*) as cnt FROM trading_registrations r
+         WHERE r.challenge_id = $1 AND r.disqualified = true${catJoin.replace('r.', 'r.')}`, [challengeId]);
+
       const weekendFilter = rules2?.weekend_trading ? '' : ` AND EXTRACT(DOW FROM close_time) NOT IN (0, 6)`;
 
       const mostDay = await db.query(
@@ -1394,6 +1398,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
         mostTradedPair: mostPair.rows[0] ? { symbol: mostPair.rows[0].symbol, tradeCount: parseInt(mostPair.rows[0].trade_count), totalLots: parseFloat(mostPair.rows[0].total_lots) } : null,
         leastTradedPair: leastPair.rows[0] ? { symbol: leastPair.rows[0].symbol, tradeCount: parseInt(leastPair.rows[0].trade_count), totalLots: parseFloat(leastPair.rows[0].total_lots) } : null,
         blownAccounts: parseInt(blown.rows[0]?.cnt || '0'),
+        disqualifiedAccounts: parseInt(disqualified.rows[0]?.cnt || '0'),
         mostActiveDay: mostDay.rows[0] ? { day: mostDay.rows[0].day, tradeCount: parseInt(mostDay.rows[0].trade_count) } : null,
         leastActiveDay: leastDay.rows[0] ? { day: leastDay.rows[0].day, tradeCount: parseInt(leastDay.rows[0].trade_count) } : null,
         avgTradesPerUser: parseFloat(avgTrades.rows[0]?.avg_trades || '0'),
