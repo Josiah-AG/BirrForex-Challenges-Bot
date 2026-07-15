@@ -96,6 +96,22 @@ If they choose Amharic, all DM interactions (registration + submission + DM noti
 | ❌ **Connection failed** — Invalid credentials. | ❌ **ግንኙነት አልተሳካም** — ልክ ያልሆነ ፓስዎርድ። |
 | ❌ **Connection failed** — Could not reach MT5 server. | ❌ **ግንኙነት አልተሳካም** — MT5 ሰርቨር ማግኘት አልተቻለም። |
 
+### VPS Verification — Account Type & Balance Checks (NEW)
+
+| English | አማርኛ |
+|---------|-------|
+| ❌ **Account Type Not Allowed** — Your account is a **{subtype}** account. This challenge only accepts **{accepted}** accounts. | ❌ **የአካውንት ዓይነት አይፈቀድም** — አካውንትዎ **{subtype}** ነው። ይህ ቻሌንጅ **{accepted}** አካውንቶችን ብቻ ይቀበላል። |
+| 📋 **How to create a Standard Account:** 1. Open Exness → My Accounts 2. Create New Account → Choose "Standard" 3. Select MT5 platform | 📋 **Standard አካውንት ለመፍጠር:** 1. Exness → My Accounts ይክፈቱ 2. Create New Account → "Standard" ይምረጡ 3. MT5 ይምረጡ |
+| ❌ **Balance Mismatch** — Your demo account balance is **{actual}** but the challenge requires exactly **{expected}**. Please set your balance to **{expected}** and try again. | ❌ **ባላንስ አይዛመድም** — የDemo አካውንትዎ ባላንስ **{actual}** ነው ግን ቻሌንጁ **{expected}** ይፈልጋል። እባክዎ ባላንስዎን ወደ **{expected}** ያድርጉና እንደገና ይሞክሩ። |
+| ❌ **Only Cent Accounts Allowed** — This challenge requires a **Cent Account** (currency: USC). Your account appears to be Standard (USD). | ❌ **Cent አካውንቶች ብቻ ይፈቀዳሉ** — ይህ ቻሌንጅ **Cent Account** (ምንዛሬ: USC) ይፈልጋል። አካውንትዎ Standard (ምንዛሬ: USD) ይመስላል። |
+| ❌ **Balance Too High** — Your balance is **{balance}** which exceeds the starting balance of **{limit}**. Please withdraw/transfer so balance is at or below **{limit}**. | ❌ **ባላንስ ከፍ ያለ ነው** — የአካውንትዎ ባላንስ **{balance}** ነው ይህም ከመጀመሪያ ባላንስ **{limit}** ይበልጣል። እባክዎ ባላንስዎን ወደ **{limit}** ወይም ከዚያ በታች ያውርዱ። |
+| ✅ **MT5 connection verified!** ⚠️ Balance is **{zero}**. Please deposit before the challenge starts. | ✅ **የMT5 ግንኙነት ተረጋግጧል!** ⚠️ የአካውንትዎ ባላንስ **{zero}** ነው። እባክዎ ቻሌንጁ ከመጀመሩ በፊት ገንዘብ ያስገቡ። |
+| ✅ **MT5 connection verified!** ℹ️ Your balance is **{balance}**. Starting balance is **{start}**. You can still participate. | ✅ **የMT5 ግንኙነት ተረጋግጧል!** ℹ️ ባላንስዎ **{balance}** ነው። የቻሌንጅ መጀመሪያ ባላንስ **{start}** ነው። አሁንም መሳተፍ ይችላሉ። |
+| ✅ **MT5 connection verified!** Balance: **{balance}** ✓ | ✅ **የMT5 ግንኙነት ተረጋግጧል!** ባላንስ: **{balance}** ✓ |
+| 📝 Submit Another Account (button) | 📝 ሌላ አካውንት ያስገቡ |
+| 📝 Submit Cent Account (button) | 📝 Cent አካውንት ያስገቡ |
+| Send your new **MT5 {type} Account Number:** ⚠️ Must be an MT5 trading account. | አዲስ **MT5 {type} አካውንት ቁጥር** ያስገቡ: ⚠️ MT5 ትሬዲንግ አካውንት መሆን አለበት። |
+
 ### Nickname Step
 
 | English | አማርኛ |

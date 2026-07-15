@@ -595,21 +595,24 @@ export class TradingRegistrationHandler {
       return true;
     }
 
-    // New real account
+    // New account (retry after rejection — works for both demo and real)
     if (data.startsWith('tc_new_real_acct_')) {
       const challengeId = parseInt(data.replace('tc_new_real_acct_', ''));
       let session = userSessions.get(telegramId);
       if (!session) {
         // Session was lost (restart) — rebuild minimal session so text input is handled
         const challenge = await tradingChallengeService.getChallengeById(challengeId);
-        const accountType = challenge?.type === 'demo' ? 'demo' : 'real';
+        const accountType = challenge?.type === 'demo' ? 'demo' : challenge?.type === 'real' ? 'real' : 'demo';
         session = { step: 'tc_enter_account_number', data: { challenge_id: challengeId, account_type: accountType } };
         userSessions.set(telegramId, session);
       } else {
         session.step = 'tc_enter_account_number';
       }
+      const acctType = session.data.account_type || 'demo';
+      const typeLabel = acctType === 'demo' ? 'Demo' : 'Real';
+      const lang: Lang = session.data.lang || 'en';
       await ctx.answerCbQuery();
-      await ctx.reply('Send your new <b>MT5 Real Account Number:</b>\n⚠️ <i>Must be an MT5 trading account.</i>', { parse_mode: 'HTML' });
+      await ctx.reply(t(lang, 'new_acct_prompt', { type: typeLabel }), { parse_mode: 'HTML' });
       return true;
     }
 
@@ -1157,18 +1160,13 @@ export class TradingRegistrationHandler {
 
       if (isPro && !allowPro) {
         session.step = 'tc_enter_account_number';
+        const lang: Lang = session.data.lang || 'en';
         const subtypeLabel = vpsAccountSubtype === 'pro' ? 'Pro' : vpsAccountSubtype === 'zero' ? 'Zero' : 'Raw Spread';
+        const acceptedTypes = account_type !== 'demo' ? 'Standard / Standard Cent' : 'Standard';
         await ctx.reply(
-          '❌ <b>Account Type Not Allowed</b>\n\n' +
-          `Your account is a <b>${subtypeLabel}</b> account. This challenge only accepts <b>Standard</b>${account_type !== 'demo' ? ' or <b>Standard Cent</b>' : ''} accounts.\n\n` +
-          '📋 <b>How to create a Standard Account:</b>\n' +
-          '1. Open Exness → My Accounts\n' +
-          '2. Create New Account → Choose "Standard"' + (account_type !== 'demo' ? ' or "Standard Cent"' : '') + '\n' +
-          '3. Select MT5 platform\n' +
-          (account_type !== 'demo' ? '4. Fund the account\n\n' : '\n') +
-          'Once ready, submit your standard account:',
+          t(lang, 'acct_subtype_not_allowed', { subtype: subtypeLabel, accepted: acceptedTypes }),
           { parse_mode: 'HTML', ...Markup.inlineKeyboard([
-            [Markup.button.callback('📝 Submit Another Account', `tc_new_real_acct_${session.data.challenge_id}`)],
+            [Markup.button.callback(t(lang, 'submit_another_acct_btn'), `tc_new_real_acct_${session.data.challenge_id}`)],
           ]) }
         );
         return;
@@ -1200,22 +1198,23 @@ export class TradingRegistrationHandler {
 
         if (Math.abs(vpsBalance - expectedBalance) > tolerance) {
           session.step = 'tc_enter_account_number';
+          const lang: Lang = session.data.lang || 'en';
           const displayExpected = isCentAccount ? `${startingBalance * 100}¢ ($${startingBalance})` : `$${startingBalance}`;
           const displayActual = isCentAccount ? `${vpsBalance}¢ ($${(vpsBalance/100).toFixed(2)})` : `$${vpsBalance.toFixed(2)}`;
           await ctx.reply(
-            `❌ <b>Balance Mismatch</b>\n\n` +
-            `Your demo account balance is <b>${displayActual}</b> but the challenge requires exactly <b>${displayExpected}</b>.\n\n` +
-            `Please set your balance to <b>${displayExpected}</b> and try again.`,
+            t(lang, 'balance_mismatch_demo', { expected: displayExpected, actual: displayActual }),
             { parse_mode: 'HTML', ...Markup.inlineKeyboard([
-              [Markup.button.callback('📝 Submit Another Account', `tc_new_real_acct_${session.data.challenge_id}`)],
+              [Markup.button.callback(t(lang, 'submit_another_acct_btn'), `tc_new_real_acct_${session.data.challenge_id}`)],
             ]) }
           );
           return;
         }
 
         // Demo balance OK
+        const langOk: Lang = session.data.lang || 'en';
         session.data.registration_balance = vpsBalance;
-        await ctx.reply('✅ <b>MT5 connection verified!</b> Balance: ' + (isCentAccount ? `${vpsBalance}¢` : `$${vpsBalance.toFixed(2)}`) + ' ✓', { parse_mode: 'HTML' });
+        const demoBalDisplay = isCentAccount ? `${vpsBalance}¢` : `$${vpsBalance.toFixed(2)}`;
+        await ctx.reply(t(langOk, 'balance_ok_exact', { balance: demoBalDisplay }), { parse_mode: 'HTML' });
         await this.askForNickname(ctx, telegramId);
         return;
       }
@@ -1225,18 +1224,11 @@ export class TradingRegistrationHandler {
       // Check cent account requirement — reject standard accounts in cent-only challenges
       if (onlyCent && account_type === 'real' && !isCentAccount) {
         session.step = 'tc_enter_account_number';
+        const lang: Lang = session.data.lang || 'en';
         await ctx.reply(
-          '❌ <b>Only Cent Accounts Allowed</b>\n\n' +
-          'This challenge requires a <b>Cent Account</b> (currency: USC).\n\n' +
-          'Your account appears to be a Standard account (currency: USD).\n\n' +
-          '📋 <b>How to create a Cent Account:</b>\n' +
-          '1. Open Exness → My Accounts\n' +
-          '2. Create New Account → Choose "Standard Cent"\n' +
-          '3. Select MT5 platform\n' +
-          '4. Fund the account\n\n' +
-          'Once ready, submit your cent account:',
+          t(lang, 'only_cent_allowed'),
           { parse_mode: 'HTML', ...Markup.inlineKeyboard([
-            [Markup.button.callback('📝 Submit Cent Account', `tc_new_real_acct_${session.data.challenge_id}`)],
+            [Markup.button.callback(t(lang, 'submit_cent_acct_btn'), `tc_new_real_acct_${session.data.challenge_id}`)],
           ]) }
         );
         return;
@@ -1253,38 +1245,34 @@ export class TradingRegistrationHandler {
       if (vpsBalance > compareBalance) {
         // Balance exceeds starting balance — reject
         session.step = 'tc_enter_account_number';
+        const lang: Lang = session.data.lang || 'en';
         await ctx.reply(
-          `❌ <b>Balance Too High</b>\n\n` +
-          `Your account balance is <b>${balanceDisplay}</b> which exceeds the starting balance of <b>${startDisplay}</b>.\n\n` +
-          `Please withdraw or transfer funds so your balance is at or below <b>${startDisplay}</b>, then try registering again.\n\n` +
-          `This ensures fair competition for all participants.`,
+          t(lang, 'balance_too_high', { balance: balanceDisplay, limit: startDisplay }),
           { parse_mode: 'HTML' }
         );
         return;
       } else if (vpsBalance === 0) {
         // Zero balance — accept with warning
+        const lang: Lang = session.data.lang || 'en';
         session.data.registration_balance = vpsBalance;
         await ctx.reply(
-          `✅ <b>MT5 connection verified!</b>\n\n` +
-          `⚠️ Your account balance is <b>${isCentAccount ? '¢0.00' : '$0.00'}</b>.\n\n` +
-          `Please deposit before the challenge starts.`,
+          t(lang, 'balance_zero_warning', { zero: isCentAccount ? '¢0.00' : '$0.00' }),
           { parse_mode: 'HTML' }
         );
       } else if (vpsBalance < compareBalance) {
         // Below starting balance — accept with info
+        const lang: Lang = session.data.lang || 'en';
         session.data.registration_balance = vpsBalance;
         await ctx.reply(
-          `✅ <b>MT5 connection verified!</b>\n\n` +
-          `ℹ️ Your balance is <b>${balanceDisplay}</b>. The challenge starting balance is <b>${startDisplay}</b>.\n\n` +
-          `You can still participate — the target remains the same regardless of your starting point.\n\n` +
-          `If you want to deposit more, do it before the challenge starts. After the challenge starts, any additional deposit will result in disqualification.`,
+          t(lang, 'balance_below_start', { balance: balanceDisplay, start: startDisplay }),
           { parse_mode: 'HTML' }
         );
       } else {
         // Exactly starting balance — perfect
+        const lang: Lang = session.data.lang || 'en';
         session.data.registration_balance = vpsBalance;
         await ctx.reply(
-          `✅ <b>MT5 connection verified!</b> Balance: <b>${balanceDisplay}</b> ✓\n\nYou're all set!`,
+          t(lang, 'balance_ok_exact', { balance: balanceDisplay }),
           { parse_mode: 'HTML' }
         );
       }

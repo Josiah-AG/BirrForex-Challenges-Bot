@@ -108,4 +108,16 @@ export const en: Record<string, string> = {
   error_already_registered: '⚠️ You are already registered for this challenge.',
   error_registration_failed: '❌ Error completing registration. Please try again.',
   error_submission_deadline: '❌ <b>Submission deadline has passed.</b>\n<i>Late submissions are not accepted.</i>',
+
+  // VPS verification — account type / balance checks
+  acct_subtype_not_allowed: '❌ <b>Account Type Not Allowed</b>\n\nYour account is a <b>{subtype}</b> account. This challenge only accepts <b>{accepted}</b> accounts.\n\n📋 <b>How to create a Standard Account:</b>\n1. Open Exness → My Accounts\n2. Create New Account → Choose "Standard"\n3. Select MT5 platform\n\nOnce ready, submit your standard account:',
+  balance_mismatch_demo: '❌ <b>Balance Mismatch</b>\n\nYour demo account balance is <b>{actual}</b> but the challenge requires exactly <b>{expected}</b>.\n\nPlease set your balance to <b>{expected}</b> and try again.',
+  only_cent_allowed: '❌ <b>Only Cent Accounts Allowed</b>\n\nThis challenge requires a <b>Cent Account</b> (currency: USC).\n\nYour account appears to be a Standard account (currency: USD).\n\n📋 <b>How to create a Cent Account:</b>\n1. Open Exness → My Accounts\n2. Create New Account → Choose "Standard Cent"\n3. Select MT5 platform\n4. Fund the account\n\nOnce ready, submit your cent account:',
+  balance_too_high: '❌ <b>Balance Too High</b>\n\nYour account balance is <b>{balance}</b> which exceeds the starting balance of <b>{limit}</b>.\n\nPlease withdraw or transfer funds so your balance is at or below <b>{limit}</b>, then try registering again.\n\nThis ensures fair competition for all participants.',
+  balance_zero_warning: '✅ <b>MT5 connection verified!</b>\n\n⚠️ Your account balance is <b>{zero}</b>.\n\nPlease deposit before the challenge starts.',
+  balance_below_start: '✅ <b>MT5 connection verified!</b>\n\nℹ️ Your balance is <b>{balance}</b>. The challenge starting balance is <b>{start}</b>.\n\nYou can still participate — the target remains the same regardless of your starting point.\n\nIf you want to deposit more, do it before the challenge starts. After the challenge starts, any additional deposit will result in disqualification.',
+  balance_ok_exact: '✅ <b>MT5 connection verified!</b> Balance: <b>{balance}</b> ✓',
+  submit_another_acct_btn: '📝 Submit Another Account',
+  submit_cent_acct_btn: '📝 Submit Cent Account',
+  new_acct_prompt: 'Send your new <b>MT5 {type} Account Number:</b>\n⚠️ <i>Must be an MT5 trading account.</i>',
 };

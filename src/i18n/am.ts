@@ -108,4 +108,16 @@ export const am: Record<string, string> = {
   error_already_registered: '⚠️ ለዚህ ቻሌንጅ ቀድመው ተመዝግበዋል።',
   error_registration_failed: '❌ ምዝገባ ማጠናቀቅ አልተቻለም ። እባክዎ እንደገና ይሞክሩ።',
   error_submission_deadline: '❌ <b>የማስገባት ጊዜ አልፏል።</b>\n<i>ዘግይተው ያቀረቡትን አንቀበልም፤፤</i>',
+
+  // VPS verification — account type / balance checks
+  acct_subtype_not_allowed: '❌ <b>የአካውንት ዓይነት አይፈቀድም</b>\n\nአካውንትዎ <b>{subtype}</b> ነው። ይህ ቻሌንጅ <b>{accepted}</b> አካውንቶችን ብቻ ይቀበላል።\n\n📋 <b>Standard አካውንት ለመፍጠር:</b>\n1. Exness → My Accounts ይክፈቱ\n2. Create New Account → "Standard" ይምረጡ\n3. MT5 ይምረጡ\n\nሲዘጋጁ አካውንትዎን ያስገቡ:',
+  balance_mismatch_demo: '❌ <b>ባላንስ አይዛመድም</b>\n\nየDemo አካውንትዎ ባላንስ <b>{actual}</b> ነው ግን ቻሌንጁ <b>{expected}</b> ይፈልጋል።\n\nእባክዎ ባላንስዎን ወደ <b>{expected}</b> ያድርጉና እንደገና ይሞክሩ።',
+  only_cent_allowed: '❌ <b>Cent አካውንቶች ብቻ ይፈቀዳሉ</b>\n\nይህ ቻሌንጅ <b>Cent Account</b> (ምንዛሬ: USC) ይፈልጋል።\n\nአካውንትዎ Standard (ምንዛሬ: USD) ይመስላል።\n\n📋 <b>Cent Account ለመፍጠር:</b>\n1. Exness → My Accounts ይክፈቱ\n2. Create New Account → "Standard Cent" ይምረጡ\n3. MT5 ይምረጡ\n4. ገንዘብ ያስገቡ\n\nሲዘጋጁ Cent አካውንትዎን ያስገቡ:',
+  balance_too_high: '❌ <b>ባላንስ ከፍ ያለ ነው</b>\n\nየአካውንትዎ ባላንስ <b>{balance}</b> ነው ይህም ከመጀመሪያ ባላንስ <b>{limit}</b> ይበልጣል።\n\nእባክዎ ባላንስዎን ወደ <b>{limit}</b> ወይም ከዚያ በታች ያውርዱ ከዚያ እንደገና ይመዝገቡ።',
+  balance_zero_warning: '✅ <b>የMT5 ግንኙነት ተረጋግጧል!</b>\n\n⚠️ የአካውንትዎ ባላንስ <b>{zero}</b> ነው።\n\nእባክዎ ቻሌንጁ ከመጀመሩ በፊት ገንዘብ ያስገቡ።',
+  balance_below_start: '✅ <b>የMT5 ግንኙነት ተረጋግጧል!</b>\n\nℹ️ ባላንስዎ <b>{balance}</b> ነው። የቻሌንጅ መጀመሪያ ባላንስ <b>{start}</b> ነው።\n\nአሁንም መሳተፍ ይችላሉ — ግቡ ምንም ቢጀምሩ አንድ ነው።\n\nተጨማሪ ማስገባት ከፈለጉ ቻሌንጁ ከመጀመሩ በፊት ያድርጉት። ቻሌንጁ ከጀመረ በኋላ ተጨማሪ ገንዘብ ማስገባት ያስወግድዎታል።',
+  balance_ok_exact: '✅ <b>የMT5 ግንኙነት ተረጋግጧል!</b> ባላንስ: <b>{balance}</b> ✓',
+  submit_another_acct_btn: '📝 ሌላ አካውንት ያስገቡ',
+  submit_cent_acct_btn: '📝 Cent አካውንት ያስገቡ',
+  new_acct_prompt: 'አዲስ <b>MT5 {type} አካውንት ቁጥር</b> ያስገቡ:\n⚠️ <i>MT5 ትሬዲንግ አካውንት መሆን አለበት።</i>',
 };
