@@ -51,6 +51,15 @@ export class TradingScheduler {
       const { dateStr, timeStr, eatTime, dayOfWeek } = this.getEATTime();
       const challenges = await tradingChallengeService.getAllChallenges();
 
+      // Daily cleanup at 00:00 EAT — clear all deduplication Sets to prevent memory leaks
+      if (timeStr === '00:00') {
+        this.countdownPostedToday.clear();
+        this.dailyPostsPosted.clear();
+        this.balanceCheckRanToday.clear();
+        this.abandonedChecked.clear();
+        this.screeningStarted.clear();
+      }
+
       // Log once per minute at :00 seconds
       if (eatTime.getUTCSeconds() === 0 && challenges.length > 0) {
         const active = challenges.filter(c => !['draft', 'completed'].includes(c.status));

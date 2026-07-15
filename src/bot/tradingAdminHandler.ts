@@ -3168,15 +3168,15 @@ export class TradingAdminHandler {
     if (!this.checkAdmin(ctx)) return;
 
     const challenges = await tradingChallengeService.getAllChallenges();
-    // Eligible: active or reviewing/ended challenges that haven't had winners posted
+    // Eligible: active, reviewing, or submission_open challenges that haven't had winners posted
     const eligible = challenges.filter(c =>
-      ['active', 'reviewing'].includes(c.status) &&
+      ['active', 'reviewing', 'submission_open'].includes(c.status) &&
       !c.winners_posted_at &&
       (c as any).source !== 'discord'
     );
 
     if (eligible.length === 0) {
-      await ctx.reply('❌ No eligible challenges found. Challenge must be active or in review (ended) state.');
+      await ctx.reply('❌ No eligible challenges found. Challenge must be active, in review, or submission open state.');
       return;
     }
 
@@ -3257,9 +3257,15 @@ export class TradingAdminHandler {
   }
 
   private async postSubmissionRequest(ctx: Context, challenge: TradingChallenge) {
-    const deadline = new Date(Date.now() + 48 * 60 * 60 * 1000);
-    await tradingChallengeService.setSubmissionDeadline(challenge.id, deadline);
-    await tradingChallengeService.updateChallengeStatus(challenge.id, 'submission_open');
+    // If already submission_open, don't reset the deadline — just re-post the message
+    let deadline: Date;
+    if (challenge.status === 'submission_open' && challenge.submission_deadline) {
+      deadline = new Date(challenge.submission_deadline);
+    } else {
+      deadline = new Date(Date.now() + 48 * 60 * 60 * 1000);
+      await tradingChallengeService.setSubmissionDeadline(challenge.id, deadline);
+      await tradingChallengeService.updateChallengeStatus(challenge.id, 'submission_open');
+    }
 
     const deadlineStr = toEAT(deadline).toLocaleString('en-US', {
       weekday: 'long', month: 'short', day: 'numeric', year: 'numeric',

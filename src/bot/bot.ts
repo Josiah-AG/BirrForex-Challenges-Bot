@@ -207,6 +207,14 @@ export class Bot {
             return;
           }
 
+          // Handle change account deep link (from pre-start credential failure DM)
+          if (startParam.startsWith('tc_change_acct_')) {
+            const registrationId = parseInt(startParam.replace('tc_change_acct_', ''));
+            const { tradingRegistrationHandler } = require('./tradingRegistrationHandler');
+            await tradingRegistrationHandler.startChangeAccount(ctx, registrationId);
+            return;
+          }
+
           // Handle forced submission deep link (bypasses deadline, user-specific)
           if (startParam.startsWith('tc_forcesubmit_')) {
             const parts = startParam.replace('tc_forcesubmit_', '').split('_');

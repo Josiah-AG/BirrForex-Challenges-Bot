@@ -1856,6 +1856,34 @@ export class TradingRegistrationHandler {
     );
   }
 
+  // ==================== CHANGE ACCOUNT (from pre-start credential failure DM) ====================
+
+  async startChangeAccount(ctx: Context, registrationId: number) {
+    const telegramId = ctx.from!.id;
+
+    // Verify this registration belongs to the user
+    const result = await db.query(
+      'SELECT * FROM trading_registrations WHERE id = $1 AND user_id = $2',
+      [registrationId, telegramId]
+    );
+
+    if (!result.rows[0]) {
+      await ctx.reply('❌ This link is not for your account.');
+      return;
+    }
+
+    const reg = result.rows[0];
+    const lang: Lang = (reg.lang as Lang) || 'en';
+    const typeLabel = reg.account_type === 'demo' ? 'Demo' : 'Real';
+
+    userSessions.set(telegramId, {
+      step: 'tc_change_acct_number',
+      data: { challenge_id: reg.challenge_id, registration_id: reg.id, account_type: reg.account_type, lang },
+    });
+
+    await ctx.reply(t(lang, 'change_acct_title', { number: reg.account_number, server: reg.mt5_server || 'N/A', type: typeLabel }), { parse_mode: 'HTML' });
+  }
+
   // ==================== MANUAL REVIEW ====================
 
   private async sendManualReview(ctx: Context, telegramId: number) {
