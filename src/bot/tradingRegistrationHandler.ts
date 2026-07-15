@@ -441,13 +441,11 @@ export class TradingRegistrationHandler {
       } else {
         session.data.mt5_server = server;
         session.step = 'tc_enter_investor_password';
+        const lang: Lang = session.data.lang || 'en';
         await ctx.answerCbQuery();
         await ctx.reply(
-          '🔑 Enter your <b>Investor (Read-Only) Password</b>\n\n' +
-          'This is the password that allows view-only access to your MT5 account.\n' +
-          '⚠️ <i>NOT your master/trading password.</i>\n\n' +
-          (config.investorPasswordGuideLink ? `📋 <a href="${config.investorPasswordGuideLink}">How to get your Investor Password</a>\n\n` : '') +
-          'Send your investor password:',
+          t(lang, 'password_prompt') +
+          (config.investorPasswordGuideLink ? `\n\n📋 <a href="${config.investorPasswordGuideLink}">${lang === 'am' ? 'Investor ፓስዎርድ እንዴት ማግኘት ይቻላል' : 'How to get your Investor Password'}</a>` : ''),
           { parse_mode: 'HTML', link_preview_options: { is_disabled: true } }
         );
       }
@@ -498,12 +496,11 @@ export class TradingRegistrationHandler {
       session.data.mt5_server = session.data.pending_server;
       // Detect context: change-account flow vs fresh registration
       session.step = session.data.registration_id ? 'tc_change_acct_investor_password' : 'tc_enter_investor_password';
+      const lang: Lang = session.data.lang || 'en';
       await ctx.answerCbQuery();
       await ctx.reply(
-        '🔑 Enter your <b>Investor (Read-Only) Password</b>\n\n' +
-        'This allows view-only access to your MT5 account.\n⚠️ <i>NOT your master/trading password.</i>\n\n' +
-        (config.investorPasswordGuideLink ? `📋 <a href="${config.investorPasswordGuideLink}">How to get Investor Password</a>\n\n` : '') +
-        'Send your investor password:',
+        t(lang, 'password_prompt') +
+        (config.investorPasswordGuideLink ? `\n\n📋 <a href="${config.investorPasswordGuideLink}">${lang === 'am' ? 'Investor ፓስዎርድ እንዴት ማግኘት ይቻላል' : 'How to get Investor Password'}</a>` : ''),
         { parse_mode: 'HTML', link_preview_options: { is_disabled: true } }
       );
       return true;
@@ -767,11 +764,10 @@ export class TradingRegistrationHandler {
             // Exact match — proceed directly
             session.data.mt5_server = matched;
             session.step = 'tc_enter_investor_password';
+            const lang: Lang = session.data.lang || 'en';
             await ctx.reply(
-              '🔑 Enter your <b>Investor (Read-Only) Password</b>\n\n' +
-              'This allows view-only access to your MT5 account.\n⚠️ <i>NOT your master/trading password.</i>\n\n' +
-              (config.investorPasswordGuideLink ? `📋 <a href="${config.investorPasswordGuideLink}">How to get Investor Password</a>\n\n` : '') +
-              'Send your investor password:',
+              t(lang, 'password_prompt') +
+              (config.investorPasswordGuideLink ? `\n\n📋 <a href="${config.investorPasswordGuideLink}">${lang === 'am' ? 'Investor ፓስዎርድ እንዴት ማግኘት ይቻላል' : 'How to get Investor Password'}</a>` : ''),
               { parse_mode: 'HTML', link_preview_options: { is_disabled: true } }
             );
           } else {
