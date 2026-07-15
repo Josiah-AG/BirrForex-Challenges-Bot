@@ -220,8 +220,9 @@ class VpsService {
           lastResult = data;
 
           // Definitive credential/server failure — don't retry on another terminal
+          // Check error_type field first (preferred), then fall back to message parsing
           const errorMsg = (data.message || '').toLowerCase();
-          if (errorMsg.includes('authorization failed') || errorMsg.includes('invalid') || errorMsg.includes('password')) {
+          if (data.error_type === 'credential_failure' || errorMsg.includes('authorization') || errorMsg.includes('invalid') || errorMsg.includes('password') || errorMsg.includes('credential')) {
             return { success: false, status: 'invalid_credentials', message: data.message || 'Invalid credentials' };
           }
           if (errorMsg.includes('server') || errorMsg.includes('not found')) {
@@ -259,7 +260,7 @@ class VpsService {
 
       // All attempts failed — parse the final error
       const errorMsg = (lastResult?.message || '').toLowerCase();
-      if (errorMsg.includes('authorization failed') || errorMsg.includes('invalid') || errorMsg.includes('password')) {
+      if (lastResult?.error_type === 'credential_failure' || errorMsg.includes('authorization') || errorMsg.includes('invalid') || errorMsg.includes('password') || errorMsg.includes('credential')) {
         return { success: false, status: 'invalid_credentials', message: lastResult?.message || 'Invalid credentials' };
       }
       if (errorMsg.includes('server') || errorMsg.includes('not found')) {

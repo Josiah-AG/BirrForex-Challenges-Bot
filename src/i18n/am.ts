@@ -129,7 +129,7 @@ export const am: Record<string, string> = {
 
   // VPS verification failures (registration flow)
   vps_credential_fail: '❌ <b>ግንኙነት አልተሳካም — ልክ ያልሆነ ፓስዎርድ ወይም አካውንት</b>\n\nInvestor ፓስዎርድ ወይም አካውንት ቁጥር/ሰርቨር ትክክል አይደለም።\n\nእባክዎ አካውንት ቁጥርዎን፣ ሰርቨርዎን እና investor ፓስዎርድዎን ያረጋግጡ።\n\nየ<b>MT5 {type} አካውንት ቁጥርዎን</b> ያስገቡ:',
-  vps_system_busy: '⚠️ <b>ሲስተም ተጨናንቋል።</b> እባክዎ በ@BirrForex ላይ "Join Challenge" ን ተጭነው እንደገና ይመዝገቡ።',
+  vps_system_busy: '⚠️ <b>ሲስተም ተጨናንቋል።</b> እባክዎ እንደገና ይመዝገቡ።',
 
   // Pre-start 2AM check — balance warnings
   prestart_balance_warning: '⚠️ <b>ባላንስ ከፍ ያለ ነው</b>\n\nአካውንትዎ <b>{account}</b> አሁን <b>{balance}</b> አለው ግን የቻሌንጅ መጀመሪያ ገደብ <b>{limit}</b> ነው።\n\nእባክዎ ቻሌንጅ ከመጀመሩ በፊት ባላንስዎን ወደ <b>{limit}</b> ወይም ከዚያ በታች ይቀንሱ።\n\n💸 <b>ትርፍ:</b> {excess}\n📋 <b>ቻሌንጅ:</b> {title}\n📅 <b>ቻሌንጅ ሚጀምረው:</b> {startDate}\n\n🚫 ቻሌንጅ ሲጀምር ባላንስዎ ከ<b>{limit}</b> በላይ ከሆነ <b>ከቻሌንጁ ይሰረዛሉ</b>።',
