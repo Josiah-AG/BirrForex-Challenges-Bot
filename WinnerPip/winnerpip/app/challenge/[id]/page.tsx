@@ -273,7 +273,8 @@ export default function ChallengeDashboard() {
   const isWinner = (entry: LeaderboardEntry) => {
     if (!challenge || entry.isDisqualified || entry.isWithdrawn || entry.isBlown) return false;
     const count = entry.accountType === 'demo' ? (challenge.demoWinnersCount || 0) : (challenge.realWinnersCount || 0);
-    return count > 0 && entry.rank <= count && (entry.adjustedBalance - (entry.totalWithdrawn || 0)) >= challenge.targetBalance;
+    const effectiveTarget = entry.isCent ? challenge.targetBalance * 100 : challenge.targetBalance;
+    return count > 0 && entry.rank <= count && (entry.adjustedBalance - (entry.totalWithdrawn || 0)) >= effectiveTarget;
   };
   const rankIcon = (entry: LeaderboardEntry) => {
     if (entry.isDisqualified) return "🚫";
@@ -284,7 +285,8 @@ export default function ChallengeDashboard() {
   };
   const isAboveTarget = (entry: LeaderboardEntry) => {
     if (!challenge || entry.isDisqualified || entry.isWithdrawn || entry.isBlown || leaderboardPreStart) return false;
-    return (entry.adjustedBalance - (entry.totalWithdrawn || 0)) >= challenge.targetBalance;
+    const effectiveTarget = entry.isCent ? challenge.targetBalance * 100 : challenge.targetBalance;
+    return (entry.adjustedBalance - (entry.totalWithdrawn || 0)) >= effectiveTarget;
   };
   const progressPercent = challenge && myStats ? ((myStats.adjustedBalance - challenge.startingBalance) / (challenge.targetBalance - challenge.startingBalance)) * 100 : 0;
   const totalParticipants = leaderboardTotal || leaderboard.length;
