@@ -1620,21 +1620,13 @@ export class TradingRegistrationHandler {
         { parse_mode: 'HTML' }
       );
     } else {
-      // VPS down — save without verification, pull cycle will retry
-      await db.query(
-        `UPDATE trading_registrations
-         SET account_number = $1, mt5_server = $2, investor_password = $3, updated_at = NOW()
-         WHERE id = $4`,
-        [session.data.new_account_number, session.data.mt5_server, investorPassword, session.data.registration_id]
-      );
-      await tradingChallengeService.updateDailyStat(session.data.challenge_id, 'account_changes');
-      userSessions.delete(telegramId);
+      // VPS down — don't save unverified account, ask user to try again
+      const lang: Lang = session.data.lang || 'en';
+      session.step = 'tc_change_acct_number';
+      session.data.new_investor_password = undefined;
       await ctx.reply(
-        `✅ <b>Account details saved</b> (VPS busy right now).\n\n` +
-        `🏦 <b>New Account:</b> ${session.data.new_account_number}\n` +
-        `🖥️ <b>Server:</b> ${session.data.mt5_server}\n\n` +
-        `Connection will be verified on the next pull cycle.\n\n` +
-        `⚠️ <b>IMPORTANT:</b> Do NOT change your investor password until the challenge ends.`,
+        '⚠️ <b>System busy.</b> Please try changing your account again.\n\n' +
+        `Send your new <b>MT5 ${session.data.account_type === 'demo' ? 'Demo' : 'Real'} Account Number:</b>`,
         { parse_mode: 'HTML' }
       );
     }

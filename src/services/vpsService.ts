@@ -164,7 +164,8 @@ class VpsService {
 
   /**
    * Verify MT5 connection via VPS API.
-   * Attempts to log in with the provided credentials.
+   * Distributes requests across all 15 terminals (random start, round-robin on failure).
+   * Only credential/server errors are definitive. Timeout/terminal errors retry on another terminal.
    */
   async verifyConnection(
     accountNumber: string,
@@ -177,55 +178,86 @@ class VpsService {
     }
 
     try {
-      // Retry up to 3 times to handle terminal rotation issues
+      // Pick a random starting terminal (1-15) and try up to 3 different terminals
+      const maxAttempts = 3;
+      const startTerminal = Math.floor(Math.random() * 15) + 1;
       let lastResult: any = null;
-      for (let attempt = 0; attempt < 3; attempt++) {
-        const response = await axios.post(
-          `${this.baseUrl}/verify`,
-          {
-            account: accountNumber,
-            server: server,
-            password: investorPassword,
-            api_key: this.apiKey,
-          },
-          {
-            headers: {
-              'Content-Type': 'application/json',
+
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        const terminalId = ((startTerminal + attempt - 1) % 15) + 1;
+
+        try {
+          const response = await axios.post(
+            `${this.baseUrl}/verify`,
+            {
+              account: accountNumber,
+              server: server,
+              password: investorPassword,
+              api_key: this.apiKey,
+              terminal_id: terminalId,
             },
-            timeout: 30000,
+            {
+              headers: { 'Content-Type': 'application/json' },
+              timeout: 30000,
+            }
+          );
+
+          const data = response.data;
+
+          if (data.success) {
+            return {
+              success: true,
+              status: 'connected',
+              message: 'Connection verified',
+              balance: data.balance,
+              equity: data.equity,
+              server: data.server || server,
+              currency: data.currency || undefined,
+              account_subtype: data.account_subtype || undefined,
+            };
           }
-        );
 
-        const data = response.data;
+          lastResult = data;
 
-        if (data.success) {
-          return {
-            success: true,
-            status: 'connected',
-            message: 'Connection verified',
-            balance: data.balance,
-            equity: data.equity,
-            server: data.server || server,
-            currency: data.currency || undefined,
-            account_subtype: data.account_subtype || undefined,
-          };
+          // Definitive credential/server failure — don't retry on another terminal
+          const errorMsg = (data.message || '').toLowerCase();
+          if (errorMsg.includes('authorization failed') || errorMsg.includes('invalid') || errorMsg.includes('password')) {
+            return { success: false, status: 'invalid_credentials', message: data.message || 'Invalid credentials' };
+          }
+          if (errorMsg.includes('server') || errorMsg.includes('not found')) {
+            return { success: false, status: 'server_not_found', message: data.message || 'Server not found' };
+          }
+
+          // Terminal/timeout error — retry on next terminal after brief delay
+          if (attempt < maxAttempts - 1) {
+            await new Promise(resolve => setTimeout(resolve, 2000));
+          }
+        } catch (innerErr: any) {
+          // Network/timeout error for this terminal — try next
+          lastResult = { message: innerErr.code === 'ECONNABORTED' ? 'Connection timed out' : (innerErr.response?.data?.message || innerErr.message || 'Connection error') };
+          if (innerErr.response) {
+            const status = innerErr.response.status;
+            const data = innerErr.response.data;
+            if (status === 401 || status === 403) {
+              if (data?.error_code?.includes('credentials') || data?.message?.includes('password')) {
+                return { success: false, status: 'invalid_credentials', message: data.message || 'Invalid credentials' };
+              }
+              return { success: false, status: 'api_error', message: 'API authentication error' };
+            }
+            if (status === 404) {
+              return { success: false, status: 'server_not_found', message: data?.message || 'Server not found' };
+            }
+            if (status === 422) {
+              return { success: false, status: 'invalid_credentials', message: data?.message || 'Invalid account details' };
+            }
+          }
+          if (attempt < maxAttempts - 1) {
+            await new Promise(resolve => setTimeout(resolve, 2000));
+          }
         }
-
-        lastResult = data;
-
-        // If terminal error (not definitively wrong password), retry with delay
-        const errorMsg = (data.message || '').toLowerCase();
-        if (errorMsg.includes('terminal') && attempt < 2) {
-          // Wait 2 seconds before retrying (to hit a different terminal)
-          await new Promise(resolve => setTimeout(resolve, 2000));
-          continue;
-        }
-
-        // Definitive failure — don't retry
-        break;
       }
 
-      // Parse the final error
+      // All attempts failed — parse the final error
       const errorMsg = (lastResult?.message || '').toLowerCase();
       if (errorMsg.includes('authorization failed') || errorMsg.includes('invalid') || errorMsg.includes('password')) {
         return { success: false, status: 'invalid_credentials', message: lastResult?.message || 'Invalid credentials' };
@@ -239,27 +271,6 @@ class VpsService {
 
       return { success: false, status: 'api_error', message: lastResult?.message || 'Verification failed' };
     } catch (error: any) {
-      if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
-        return { success: false, status: 'timeout', message: 'Connection timed out' };
-      }
-      if (error.response) {
-        const status = error.response.status;
-        const data = error.response.data;
-        if (status === 401 || status === 403) {
-          // Could mean invalid credentials or API key issue
-          if (data?.error_code?.includes('credentials') || data?.message?.includes('password')) {
-            return { success: false, status: 'invalid_credentials', message: data.message || 'Invalid credentials' };
-          }
-          return { success: false, status: 'api_error', message: 'API authentication error' };
-        }
-        if (status === 404) {
-          return { success: false, status: 'server_not_found', message: data?.message || 'Server not found' };
-        }
-        if (status === 422) {
-          return { success: false, status: 'invalid_credentials', message: data?.message || 'Invalid account details' };
-        }
-        return { success: false, status: 'api_error', message: data?.message || `API error (${status})` };
-      }
       console.error('VPS verify error:', error.message);
       return { success: false, status: 'api_error', message: 'Could not reach VPS API' };
     }
