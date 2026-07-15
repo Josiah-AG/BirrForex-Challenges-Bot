@@ -1384,7 +1384,8 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
            AND (
              l.zero_balance_at IS NOT NULL
              OR (l.total_trades > 0 AND l.current_balance <= 0)
-             OR (l.total_trades > 0 AND r.last_known_equity IS NOT NULL AND r.last_known_equity <= 0)
+             OR (l.total_trades > 0 AND r.last_known_equity IS NOT NULL AND CAST(r.last_known_equity AS numeric) <= 0)
+             OR (l.total_trades > 0 AND r.last_known_balance IS NOT NULL AND CAST(r.last_known_balance AS numeric) <= 0)
            )${catJoin}`, [challengeId]);
 
       const disqualified = await db.query(
