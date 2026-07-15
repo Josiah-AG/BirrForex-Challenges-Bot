@@ -1367,7 +1367,9 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
       const blown = await db.query(
         `SELECT COUNT(*) as cnt FROM wp_leaderboard l
          JOIN trading_registrations r ON l.registration_id = r.id
-         WHERE l.challenge_id = $1 AND l.zero_balance_at IS NOT NULL${catJoin}`, [challengeId]);
+         WHERE l.challenge_id = $1
+           AND COALESCE(l.is_withdrawn, false) = false
+           AND (l.zero_balance_at IS NOT NULL OR (l.total_trades > 0 AND l.current_balance <= 0))${catJoin}`, [challengeId]);
 
       const disqualified = await db.query(
         `SELECT COUNT(*) as cnt FROM trading_registrations r
