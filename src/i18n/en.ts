@@ -127,6 +127,10 @@ export const en: Record<string, string> = {
   btn_change_account: '🔄 Change Account Number',
   btn_update_password: '🔑 Update Password',
 
+  // VPS verification failures (registration flow)
+  vps_credential_fail: '❌ <b>Connection failed — Invalid credentials</b>\n\nThe investor password or account number/server combination is incorrect.\n\nPlease check your account number, server, and investor password.\n\nSend your <b>MT5 {type} Account Number:</b>',
+  vps_system_busy: '⚠️ <b>System busy.</b> Please register again by tapping "Join Challenge" on @BirrForex.',
+
   // Pre-start 2AM check — balance warnings
   prestart_balance_warning: '⚠️ <b>Balance Too High</b>\n\nYour account <b>{account}</b> currently has <b>{balance}</b> but the challenge starting limit is <b>{limit}</b>.\n\nPlease reduce your balance to <b>{limit}</b> or below before the challenge starts.\n\n💸 <b>Excess:</b> {excess}\n📋 <b>Challenge:</b> {title}\n📅 <b>Starts:</b> {startDate}\n\n🚫 If your balance is still above <b>{limit}</b> when the challenge starts, you will be <b>automatically disqualified</b>.',
   prestart_balance_ok: '✅ <b>Balance OK</b>\n\nYour account <b>{account}</b> balance is now within the allowed limit. You\'re all set for the challenge! 👍',

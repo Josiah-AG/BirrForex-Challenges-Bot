@@ -1302,50 +1302,41 @@ export class TradingRegistrationHandler {
     switch (result.status) {
       case 'invalid_credentials':
         session.step = 'tc_enter_account_number';
+        const langCred: Lang = session.data.lang || 'en';
         await tradingChallengeService.logFailedAttempt(session.data.challenge_id, telegramId, ctx.from!.username || null, session.data.email, 'vps_credential');
         await ctx.reply(
-          '❌ <b>Connection failed — Invalid credentials</b>\n\n' +
-          'The investor password or account number/server combination is incorrect.\n\n' +
-          'Please double-check:\n' +
-          `• Account: <code>${account_number}</code>\n` +
-          `• Server: <code>${mt5_server}</code>\n\n` +
-          `Send your MT5 ${account_type === 'demo' ? 'Demo' : 'Real'} Account Number:`,
+          t(langCred, 'vps_credential_fail', { type: account_type === 'demo' ? 'Demo' : 'Real' }),
           { parse_mode: 'HTML' }
         );
         break;
 
       case 'server_not_found':
+        session.step = 'tc_enter_account_number';
+        const langSrv: Lang = session.data.lang || 'en';
         await tradingChallengeService.logFailedAttempt(session.data.challenge_id, telegramId, ctx.from!.username || null, session.data.email, 'vps_error');
         await ctx.reply(
-          '❌ <b>Server not found</b>\n\n' +
-          `The server "<code>${mt5_server}</code>" could not be reached.\n\n` +
-          'Please select the correct server:',
+          t(langSrv, 'vps_credential_fail', { type: account_type === 'demo' ? 'Demo' : 'Real' }),
           { parse_mode: 'HTML' }
         );
-        await this.showServerButtons(ctx, telegramId);
         break;
 
       case 'timeout':
-        session.step = 'tc_enter_investor_password';
-        await tradingChallengeService.logFailedAttempt(session.data.challenge_id, telegramId, ctx.from!.username || null, session.data.email, 'vps_timeout');
-        await ctx.reply(
-          '⚠️ <b>Connection timed out</b>\n\n' +
-          'The MT5 server took too long to respond. This can happen during high traffic.\n\n' +
-          'Please try entering your investor password again:',
-          { parse_mode: 'HTML' }
-        );
-        break;
-
       case 'api_error':
-      default:
-        // VPS API is down — do NOT proceed without verification
-        session.step = 'tc_enter_investor_password';
+      default: {
+        // VPS busy/down — end session, user must start over
+        const langBusy: Lang = session.data.lang || 'en';
+        const challengeId = session.data.challenge_id;
+        await tradingChallengeService.logFailedAttempt(challengeId, telegramId, ctx.from!.username || null, session.data.email, 'vps_timeout');
+        userSessions.delete(telegramId);
+        const botInfo = await ctx.telegram.getMe();
         await ctx.reply(
-          '⚠️ <b>System busy.</b> Please try again in a few minutes.\n\n' +
-          '🔑 Send your <b>Investor (Read-Only) Password</b> to try again:',
-          { parse_mode: 'HTML' }
+          t(langBusy, 'vps_system_busy'),
+          { parse_mode: 'HTML', ...Markup.inlineKeyboard([
+            [Markup.button.url(langBusy === 'am' ? '🚀 እንደገና ይመዝገቡ' : '🚀 Register Again', `https://t.me/${botInfo.username}?start=tc_register_${challengeId}`)],
+          ]) }
         );
         break;
+      }
     }
   }
 
