@@ -3694,7 +3694,7 @@ function generateTradesHTML(data: any): string {
       const viols = linkifyTickets((t.violations || []).map((v: any) => typeof v === 'string' ? v : v?.detail || 'Rule violation').join('<br>'));
       return `<tr id="trade-${t.ticket}" class="trow" style="background:${bg};border-bottom:1px solid #1f2937">
         <td style="padding:8px 10px;color:#9ca3af;font-size:11px">${rowNum}</td>
-        <td style="padding:8px 10px;color:#d1d5db;font-size:11px">${t.ticket}</td>
+        <td style="padding:8px 10px;color:#d1d5db;font-size:11px">${t.ticket}${t.positionId && t.positionId !== t.ticket ? `<br><span style="color:#4b5563;font-size:9px">pos:${t.positionId}</span>` : ''}</td>
         <td style="padding:8px 10px;color:#f9fafb;font-weight:600;font-size:12px">${t.symbol}</td>
         <td style="padding:8px 10px;font-weight:700;font-size:11px;color:${t.type?.toLowerCase() === 'buy' ? '#22c55e' : '#ef4444'}">${t.type?.toUpperCase()}</td>
         <td style="padding:8px 10px;color:#d1d5db;font-size:11px;white-space:nowrap">${fmtEAT(t.openTime)}</td>
