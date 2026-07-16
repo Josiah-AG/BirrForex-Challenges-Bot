@@ -847,6 +847,13 @@ export class WpEvaluationEngine {
     type TimeEvent = { time: number; posId: number; symbol: string; action: 'open' | 'close' };
     const events: TimeEvent[] = [];
     logicalTrades.forEach(lt => {
+      // Skip 0-duration trades (openMs === closeMs): they open and close instantly,
+      // so they can never truly overlap with anything. Including them causes a
+      // non-transitive sort bug when 3+ events share the same timestamp.
+      if (lt.openMs === lt.closeMs) {
+        debugLog.log('evaluate', `Skipping 0-duration trade from max_open_trades check: pos=${lt.posId} time=${lt.openMs} (${new Date(lt.openMs).toISOString()})`, reg.account_number);
+        return;
+      }
       events.push({ time: lt.openMs,  posId: lt.posId, symbol: lt.symbol, action: 'open' });
       events.push({ time: lt.closeMs, posId: lt.posId, symbol: lt.symbol, action: 'close' });
     });
@@ -909,6 +916,11 @@ export class WpEvaluationEngine {
       bySymbol.forEach(symLogical => {
         const symEvents: TimeEvent[] = [];
         symLogical.forEach(lt => {
+          // Skip 0-duration trades (same fix as global max_open_trades above)
+          if (lt.openMs === lt.closeMs) {
+            debugLog.log('pair_check', `Skipping 0-duration trade from pair check: pos=${lt.posId} symbol=${lt.symbol} time=${lt.openMs} (${new Date(lt.openMs).toISOString()})`, reg.account_number);
+            return;
+          }
           symEvents.push({ time: lt.openMs,  posId: lt.posId, symbol: lt.symbol, action: 'open' });
           symEvents.push({ time: lt.closeMs, posId: lt.posId, symbol: lt.symbol, action: 'close' });
         });
