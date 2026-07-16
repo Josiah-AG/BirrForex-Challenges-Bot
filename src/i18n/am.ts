@@ -91,12 +91,12 @@ export const am: Record<string, string> = {
 
   // Verification errors
   email_verified: '✅ <b>ኢሜል ተረጋግጧል!</b>\n\nአሁን የ<b>MT5 {type} አካውንት ቁጥርዎን</b> ያስገቡ:\n⚠️ MT5 ትሬዲንግ አካውንት መሆን አለበት።\n<i>ቁጥር ብቻ ይቀበላል።</i>',
-  not_allocated: '⚠️ የExness አካውንትዎ በBirrForex ስር አልተመዘገበም።\n\nበመጀመሪያ ኢሜልዎን በትክክል መጻፍዎን ያረጋግጡ።\n\n✨ <b>አማራጭ 1: አዲስ Exness አካውንት ይፍጠሩ</b>\n🔗 {signupLink}\n\n🔄 <b>አማራጭ 2: ፓርትነርዎን ወደ BirrForex ይቀይሩ</b>\n➡️ ወደ Exness ይግቡ → Live Chat → "Change Partner"\n➡️ ሊንክ: {partnerLink}\n\nካጠናቀቁ በኋላ እንደገና ይሞክሩ:',
-  kyc_failed: '❌ የExness አካውንትዎ ሙሉ በሙሉ ቬሪፋይድ አይደለም።\n\nእባክዎ KYC ያጠናቅቁ:\n➡️ Exness → Settings → Verification\n\nቬሪፊኬሽን ሲጨርሱ እንደገና ይሞክሩ:',
-  real_acct_not_mt5: '⚠️ <b>ይህ አካውንት MT5 አይደለም።</b> MT5 አካውንት ብቻ ነው ሚፈቀደው።\nአዲስ MT5 Real አካውንት ይክፈቱ እና እንደገና ይሞክሩ።',
-  real_acct_not_allocated: '⚠️ <b>ይህ real አካውንት በBirrForex ስር አይደለም።</b>\nበExness ውስጥ አዲስ Real አካውንት ይክፈቱ እና ገንዘብዎን ወደዚያ ያስተላልፉ።',
-  real_acct_not_allocated_retry: '⚠️ <b>አካውንት አሁንም በBirrForex ስር አይደለም።</b>\nጥቂት ደቂቃዎች ሊወስድ ይችላል። ከ15 ደቂቃ በኋላ ይመለሱ።',
-  acct_ownership_mismatch: '⚠️ <b>ይህ አካውንት ከተመዘገቡበት ኢሜል ጋር አይዛመድም።</b>\n\nትክክለኛውን MT5 Real አካውንት ቁጥር ያስገቡ:',
+  not_allocated: '⚠️ <b>የExness አካውንትዎ በBirrForex ስር አልተመዘገበም።</b>\n\nበመጀመሪያ ኢሜልዎን በትክክል መጻፍዎን ያረጋግጡ።\nስህተት ከነበረ ከታች እንደገና ማስገባት ይችላሉ።\n\nኢሜልዎ ትክክል ከሆነ ሁለት አማራጮች አሉዎት:\n\n✨ <b>አማራጭ 1: አዲስ Exness አካውንት ይፍጠሩ</b>\n➡️ ከታች ባለው የፓርትነር ሊንክ አዲስ አካውንት ይክፈቱ\n➡️ የተለየ ኢሜል መጠቀም ይችላሉ\n➡️ ያው ስልክ ቁጥር እና ዶክመንቶች ሊጠቀሙ ይችላሉ\n🔗 {signupLink}\n\n🔄 <b>አማራጭ 2: ፓርትነርዎን ወደ BirrForex ይቀይሩ</b>\n➡️ ወደ Exness አካውንትዎ ይግቡ\n➡️ Live Chat ይክፈቱ → "Change Partner" ብለው ይጻፉ\n➡️ ይህን ሊንክ በቅጹ ላይ ይለጥፉ:\n{partnerLink}\n➡️ በSMS ኮድ ያረጋግጡ\n➡️ ማረጋገጫ ይጠብቁ (ብዙውን ጊዜ ከ24 ሰዓት ውስጥ)\n\n{guideLink}\n\nከላይ ካሉት አማራጮች አንዱን ካጠናቀቁ በኋላ እንደገና ይሞክሩ:',
+  kyc_failed: '❌ <b>የExness አካውንትዎ ሙሉ በሙሉ ቬሪፋይድ አይደለም።</b>\n\nእባክዎ በመጀመሪያ KYC ማረጋገጫዎን ያጠናቅቁ:\n➡️ ወደ <b>Exness Personal Area</b> ይግቡ\n➡️ <b>Settings → Verification</b> ይሂዱ\n➡️ መታወቂያዎን እና የአድራሻ ማረጋገጫ ያስገቡ\n➡️ ማጽደቅ ይጠብቁ (ብዙውን ጊዜ ጥቂት ደቂቃዎች)\n\nቬሪፊኬሽን ሲጨርሱ እንደገና ይሞክሩ:',
+  real_acct_not_mt5: '⚠️ <b>ይህ አካውንት MT5 አይደለም።</b>\n\nለዚህ ቻለንጅ MT5 አካውንት ብቻ ነው የሚፈቀደው።\nእባክዎ በExness ውስጥ አዲስ <b>MT5 Real አካውንት</b> ይክፈቱ እና እንደገና ይሞክሩ።',
+  real_acct_not_allocated: '⚠️ <b>ይህ real አካውንት በBirrForex ስር አይደለም።</b>\n\nእባክዎ በExness ውስጥ <b>አዲስ Real Account</b> ይክፈቱ (አዲስ Exness አካውንት ማለት አይደለም — ባለዎት Exness ውስጥ አዲስ Real trading account ይክፈቱ) እና ገንዘብዎን ወደዚያ ያስተላልፉ።\n\nአዲሱ real አካውንት <b>ለመመዝገብ በተጠቀሙት ኢሜል ስር</b> መሆኑን ያረጋግጡ።',
+  real_acct_not_allocated_retry: '⚠️ <b>ይህ አካውንት ገና በBirrForex ስር አልተመዘገበም።</b>\n\nአዲስ የተፈጠረ አካውንት ሊያያዝ ጥቂት ደቂቃዎች ሊወስድ ይችላል።\nእባክዎ ከ<b>15 ደቂቃ</b> በኋላ ተመልሰው ይሞክሩ።\n\nያስገቡት real አካውንት ለመመዝገብ በተጠቀሙት ኢሜል ስር መሆኑን ያረጋግጡ።',
+  acct_ownership_mismatch: '⚠️ <b>ይህ አካውንት ከተመዘገቡበት ኢሜል ጋር አይዛመድም።</b>\n\nእባክዎ ያስገቡት real አካውንት ከኢሜልዎ Exness ፕሮፋይል ስር የተፈጠረ መሆኑን ያረጋግጡ።\n\nትክክለኛውን <b>MT5 Real አካውንት ቁጥር</b> ያስገቡ:',
   system_busy_retry: '⚠️ ሲስተም ተጨናንቋል። ከ3 ሰከንድ በኋላ እንደገና ይሞክራል...',
   system_busy_later: '⚠️ ሲስተም ተጨናንቋል። ከ30 ደቂቃ በኋላ እንደገና ይሞክሩ።',
   manual_verification: '⚠️ አውቶማቲክ ማረጋገጫ እየሰራ አይደለም። ማኗል እናረጋግጣለን።\n\n📧 ኢሜል: {email}\n\nየ<b>MT5 አካውንት ቁጥርዎን</b> ያስገቡ:',
@@ -128,7 +128,7 @@ export const am: Record<string, string> = {
   btn_update_password: '🔑 ፓስዎርድ አዘምን',
 
   // VPS verification failures (registration flow)
-  vps_credential_fail: '❌ <b>ግንኙነት አልተሳካም — ልክ ያልሆነ ፓስዎርድ ወይም አካውንት</b>\n\nInvestor ፓስዎርድ ወይም አካውንት ቁጥር/ሰርቨር ትክክል አይደለም።\n\nእባክዎ አካውንት ቁጥርዎን፣ ሰርቨርዎን እና investor ፓስዎርድዎን ያረጋግጡ።\n\nየ<b>MT5 {type} አካውንት ቁጥርዎን</b> ያስገቡ:',
+  vps_credential_fail: '❌ <b>ግንኙነት አልተሳካም — ልክ ያልሆነ ፓስዎርድ ወይም አካውንት</b>\n\nInvestor ፓስዎርድ ወይም አካውንት ቁጥር/ሰርቨር ትክክል አይደለም።\n\nእባክዎ የሚከተሉትን ያረጋግጡ:\n• <b>አካውንት ቁጥር</b>\n• <b>ሰርቨር</b>\n• <b>Investor (Read-Only) ፓስዎርድ</b>\n\nየ<b>MT5 {type} አካውንት ቁጥርዎን</b> ያስገቡ:',
   vps_system_busy: '⚠️ <b>ሲስተም ተጨናንቋል።</b> እባክዎ እንደገና ይመዝገቡ።',
 
   // Pre-start 2AM check — balance warnings

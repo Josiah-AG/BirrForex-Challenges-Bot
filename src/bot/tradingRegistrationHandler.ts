@@ -1368,7 +1368,7 @@ export class TradingRegistrationHandler {
         const challengeId = session.data.challenge_id;
         const contactAdmin = session.data.allocation_fail_count >= 2 ? `\n\n<b>Contact @birrFXadmin with a screenshot if you believe this is a mistake.</b>` : '';
         await ctx.reply(
-          t(lang, 'not_allocated', { signupLink: config.exnessPartnerSignupLink, partnerLink: config.exnessPartnerChangeLink }) + contactAdmin,
+          t(lang, 'not_allocated', { signupLink: config.exnessPartnerSignupLink, partnerLink: config.exnessPartnerChangeLink, guideLink: config.partnerChangeGuideLink ? `📋 <a href="${config.partnerChangeGuideLink}">${lang === 'am' ? 'ሙሉ መመሪያ: ፓርትነር እንዴት ይቀይሩ' : 'Full guide: How to Change Partner'}</a>` : '' }) + contactAdmin,
           { parse_mode: 'HTML', link_preview_options: { is_disabled: true }, ...Markup.inlineKeyboard([[Markup.button.callback('📧 Submit Email Again', `tc_retry_email_${challengeId}`)]]) }
         );
         return;

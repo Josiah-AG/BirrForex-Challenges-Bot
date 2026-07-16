@@ -91,12 +91,12 @@ export const en: Record<string, string> = {
 
   // Verification errors
   email_verified: '✅ <b>Email verified!</b>\n\nNow send your <b>MT5 {type} Account Number:</b>\n⚠️ Must be an MT5 trading account.\n<i>Only numeric account numbers accepted.</i>',
-  not_allocated: '⚠️ Your Exness account is not registered under BirrForex.\n\nFirst, make sure you spelled your email correctly.\n\n✨ <b>Option 1: Create a New Exness Account</b>\n🔗 {signupLink}\n\n🔄 <b>Option 2: Change Your Partner to BirrForex</b>\n➡️ Log in → Live Chat → "Change Partner"\n➡️ Paste: {partnerLink}\n\nAfter completing, try again:',
-  kyc_failed: '❌ Your Exness account is not fully verified.\n\nPlease complete KYC:\n➡️ Exness → Settings → Verification\n\nOnce verified, try again:',
-  real_acct_not_mt5: '⚠️ <b>This account is not MT5.</b> Only MT5 accounts allowed.\nCreate a new MT5 Real account and try again.',
-  real_acct_not_allocated: '⚠️ <b>This real account is not under BirrForex.</b>\nCreate a new Real Account within your Exness and transfer funds there.',
-  real_acct_not_allocated_retry: '⚠️ <b>Account not yet under BirrForex.</b>\nIt may take a few minutes. Come back after 15 minutes.',
-  acct_ownership_mismatch: '⚠️ <b>This account does not belong to the email you registered with.</b>\n\nSend your correct MT5 Real Account Number:',
+  not_allocated: '⚠️ <b>Your Exness account is not registered under BirrForex.</b>\n\nFirst, please make sure you spelled your email correctly.\nIf it was wrong, you can submit it again below.\n\nIf your email was correct, you have two options:\n\n✨ <b>Option 1: Create a New Exness Account</b>\n➡️ Open a new account using our partner link below\n➡️ You can use a different email\n➡️ Same phone number and documents can be reused\n🔗 {signupLink}\n\n🔄 <b>Option 2: Change Your Partner to BirrForex</b>\n➡️ Log in to your Exness account\n➡️ Open Live Chat → Type "Change Partner"\n➡️ Paste this link in the form:\n{partnerLink}\n➡️ Submit and verify with SMS code\n➡️ Wait for confirmation (usually within 24 hours)\n\n{guideLink}\n\nAfter completing one of the options, try again:',
+  kyc_failed: '❌ <b>Your Exness account is not fully verified.</b>\n\nPlease complete your KYC verification first:\n➡️ Log in to your <b>Exness Personal Area</b>\n➡️ Go to <b>Settings → Verification</b>\n➡️ Upload your ID and proof of address\n➡️ Wait for approval (usually a few minutes)\n\nOnce verified, try again:',
+  real_acct_not_mt5: '⚠️ <b>This account is not MT5.</b>\n\nOnly MT5 accounts are allowed for this challenge.\nPlease create a new <b>MT5 Real account</b> within your Exness and try again.',
+  real_acct_not_allocated: '⚠️ <b>This real account is not under BirrForex.</b>\n\nPlease create a <b>new Real Account</b> within your Exness (not a new Exness account — a new Real trading account within your existing Exness) and transfer your funds there.\n\n<b>Make sure</b> the new real account is under the email you used for registration.',
+  real_acct_not_allocated_retry: '⚠️ <b>This account is not yet under BirrForex.</b>\n\nIt may take a few minutes for a newly created account to be linked.\nPlease come back after <b>15 minutes</b> and try again.\n\nMake sure the real account you submitted is under the email you used for registration.',
+  acct_ownership_mismatch: '⚠️ <b>This account does not belong to the email you registered with.</b>\n\nPlease make sure you\'re entering a real account that was created under the same Exness profile as your registered email.\n\nSend your correct <b>MT5 Real Account Number:</b>',
   system_busy_retry: '⚠️ System busy. Trying again in 3 seconds...',
   system_busy_later: '⚠️ System busy. Please try again after 30 minutes.',
   manual_verification: '⚠️ Automatic verification unavailable. We\'ll verify manually.\n\n📧 Email: {email}\n\nPlease send your <b>MT5 account number:</b>',
@@ -128,7 +128,7 @@ export const en: Record<string, string> = {
   btn_update_password: '🔑 Update Password',
 
   // VPS verification failures (registration flow)
-  vps_credential_fail: '❌ <b>Connection failed — Invalid credentials</b>\n\nThe investor password or account number/server combination is incorrect.\n\nPlease check your account number, server, and investor password.\n\nSend your <b>MT5 {type} Account Number:</b>',
+  vps_credential_fail: '❌ <b>Connection failed — Invalid credentials</b>\n\nThe investor password or account number/server combination is incorrect.\n\nPlease check your:\n• <b>Account number</b>\n• <b>Server</b>\n• <b>Investor (Read-Only) password</b>\n\nSend your <b>MT5 {type} Account Number:</b>',
   vps_system_busy: '⚠️ <b>System busy.</b> Please register again.',
 
   // Pre-start 2AM check — balance warnings
