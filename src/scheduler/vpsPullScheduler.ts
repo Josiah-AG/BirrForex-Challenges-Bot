@@ -1753,11 +1753,7 @@ export class VpsPullScheduler {
              symbol = EXCLUDED.symbol,
              trade_type = EXCLUDED.trade_type,
              volume = EXCLUDED.volume,
-             open_time = CASE
-                          WHEN wp_trades.open_time IS NOT NULL AND wp_trades.open_time != wp_trades.close_time
-                            THEN wp_trades.open_time
-                          ELSE COALESCE(EXCLUDED.open_time, wp_trades.open_time)
-                         END,
+             open_time = COALESCE(EXCLUDED.open_time, wp_trades.open_time),
              close_time = EXCLUDED.close_time,
              open_price = CASE
                           WHEN EXCLUDED.open_price IS NULL OR EXCLUDED.open_price = 0 THEN wp_trades.open_price
@@ -2483,8 +2479,7 @@ export class VpsPullScheduler {
         }
         const rows = await db.query(
           `SELECT DISTINCT position_id FROM wp_trades
-           WHERE challenge_id = $1 AND account_number = $2
-             AND (open_time IS NULL OR open_time = close_time)${dateClause}`,
+           WHERE challenge_id = $1 AND account_number = $2 AND open_time IS NULL${dateClause}`,
           params
         );
         if (rows.rows.length > 0) {
@@ -2532,8 +2527,7 @@ export class VpsPullScheduler {
               if (!data?.open_time) continue;
               await db.query(
                 `UPDATE wp_trades SET open_time = $1, open_price = COALESCE($2, open_price), synced_at = NOW()
-                 WHERE challenge_id = $3 AND account_number = $4 AND position_id = $5
-                   AND (open_time IS NULL OR open_time = close_time)`,
+                 WHERE challenge_id = $3 AND account_number = $4 AND position_id = $5 AND open_time IS NULL`,
                 [data.open_time, data.open_price ?? null, challengeId, task.account.accountNumber, posIdStr]
               ).catch(() => {});
             }
