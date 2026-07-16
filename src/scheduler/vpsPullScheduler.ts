@@ -12,6 +12,7 @@ import { leaderboardService } from '../services/leaderboardService';
 import { config } from '../config';
 import { db } from '../database/db';
 import { Markup } from 'telegraf';
+import { debugLog } from '../utils/debugLog';
 
 /**
  * VPS Pull Scheduler v2 — Shared Queue Architecture
@@ -1742,6 +1743,7 @@ export class VpsPullScheduler {
     // This supports incremental pulls — we only get recent trades but don't lose older ones
     for (const trade of trades) {
       try {
+        debugLog.log('save_trade', `Saving trade: ticket=${trade.ticket} pos=${trade.position_id || trade.ticket} open_time=${trade.open_time} close_time=${trade.close_time}`, account.accountNumber);
         await db.query(
           `INSERT INTO wp_trades
            (challenge_id, registration_id, account_number, ticket, position_id, symbol, trade_type, volume,
@@ -2525,6 +2527,7 @@ export class VpsPullScheduler {
           if (resolved) {
             for (const [posIdStr, data] of Object.entries(resolved)) {
               if (!data?.open_time) continue;
+              debugLog.log('resolve', `Resolved open_time for pos=${posIdStr}: open_time=${(data as any).open_time} open_price=${(data as any).open_price}`, task.account.accountNumber);
               await db.query(
                 `UPDATE wp_trades SET open_time = $1, open_price = COALESCE($2, open_price), synced_at = NOW()
                  WHERE challenge_id = $3 AND account_number = $4 AND position_id = $5 AND open_time IS NULL`,

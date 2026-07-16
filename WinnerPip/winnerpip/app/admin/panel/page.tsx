@@ -2317,6 +2317,16 @@ function ChallengeSettingsPanel({ challengeId, challenges, onRefresh }: { challe
           </div>
         )}
 
+        {/* Debug Log */}
+        <div className="border-t border-white/10 pt-5">
+          <p className="text-xs text-gray-400 font-semibold mb-1 uppercase tracking-wider">Debug Log</p>
+          <p className="text-[10px] text-gray-500 mb-3">In-memory diagnostic log from pull/evaluation cycles. Download after a force pull to diagnose issues.</p>
+          <div className="grid grid-cols-2 gap-2">
+            <button onClick={async () => { try { const res = await fetch(`${apiUrl}/api/admin/${secretPath}/debug-log`); if (res.ok) { const blob = await res.blob(); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `debug_log_${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.txt`; a.click(); setMsg("✅ Debug log downloaded"); } else { setMsg("❌ Failed to download"); } } catch { setMsg("❌ Network error"); } }} className="p-2.5 rounded-lg bg-white/5 border border-white/10 text-gray-300 text-xs font-semibold hover:bg-white/10 transition-all">📥 Download Debug Log</button>
+            <button onClick={async () => { try { await fetch(`${apiUrl}/api/admin/${secretPath}/debug-log/clear`, { method: "POST" }); setMsg("✅ Debug log cleared"); } catch { setMsg("❌ Failed"); } }} className="p-2.5 rounded-lg bg-white/5 border border-white/10 text-gray-300 text-xs font-semibold hover:bg-white/10 transition-all">🗑️ Clear Log</button>
+          </div>
+        </div>
+
         {/* Danger Zone */}
         <div className="border-t border-loss/20 pt-5">
           <p className="text-xs text-loss font-semibold mb-3 uppercase tracking-wider">Danger Zone</p>

@@ -1,6 +1,7 @@
 import { db } from '../database/db';
 import { config } from '../config';
 import axios from 'axios';
+import { debugLog } from '../utils/debugLog';
 
 /**
  * WinnerPip Real-Time Evaluation Engine
@@ -832,6 +833,14 @@ export class WpEvaluationEngine {
       // Max volume = largest single partial (for lot-size check on positions)
       const maxVolume = Math.max(...parts.map(t => parseFloat(String(t.volume))));
       logicalTrades.push({ posId, openMs, closeMs, symbol: parts[0].symbol, maxVolume, tickets });
+
+      // Debug: log each logical trade's open/close times
+      debugLog.log('evaluate', `Logical trade: pos=${posId} tickets=[${tickets}] openMs=${openMs} closeMs=${closeMs} open_time_raw=${parts[0].open_time} close_time_raw=${parts[0].close_time} symbol=${parts[0].symbol}`, reg.account_number, {
+        posId, tickets, openMs, closeMs,
+        openDate: new Date(openMs).toISOString(),
+        closeDate: new Date(closeMs).toISOString(),
+        rawOpenTimes: parts.map(t => ({ ticket: t.ticket, open_time: t.open_time, typeof: typeof t.open_time })),
+      });
     }
 
     // Pre-compute simultaneous trade violations (on logical trades, not partial rows)
@@ -915,6 +924,10 @@ export class WpEvaluationEngine {
         for (const ev of symEvents) {
           if (ev.action === 'open') symOpen.add(ev.posId); else symOpen.delete(ev.posId);
           if (symOpen.size > rules.pair_limit!) {
+            debugLog.log('pair_check', `VIOLATION: symOpen.size=${symOpen.size} > pair_limit=${rules.pair_limit} at time=${ev.time} (${new Date(ev.time).toISOString()}) after ${ev.action} pos=${ev.posId}`, reg.account_number, {
+              symOpenPosIds: [...symOpen],
+              event: ev,
+            });
             symOpen.forEach(pid => {
               const coOffenders = [...symOpen].filter(o => o !== pid);
               if (!symPosViolators.has(pid)) {

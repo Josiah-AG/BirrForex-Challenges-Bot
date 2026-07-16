@@ -4,6 +4,7 @@ import rateLimit from 'express-rate-limit';
 import { db } from '../database/db';
 import { config } from '../config';
 import { vpsService } from '../services/vpsService';
+import { debugLog } from '../utils/debugLog';
 import crypto from 'crypto';
 import { discordRoutes } from './discordRoutes';
 import * as XLSX from 'xlsx';
@@ -1617,6 +1618,29 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/pulls`, adminIpCheck, asy
   } catch (error) {
     return res.status(500).json({ error: 'Internal server error' });
   }
+});
+
+/**
+ * GET /api/admin/:secretPath/debug-log
+ * Download in-memory debug log as text (for diagnostics)
+ */
+app.get(`/api/admin/${ADMIN_SECRET_PATH}/debug-log`, adminIpCheck, async (req, res) => {
+  const format = req.query.format === 'json' ? 'json' : 'text';
+  if (format === 'json') {
+    return res.json({ entries: debugLog.getEntries(), size: debugLog.getSize() });
+  }
+  res.setHeader('Content-Type', 'text/plain');
+  res.setHeader('Content-Disposition', `attachment; filename="debug_log_${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.txt"`);
+  return res.send(debugLog.getEntriesAsText() || '(empty — no log entries since last deploy)');
+});
+
+/**
+ * POST /api/admin/:secretPath/debug-log/clear
+ * Clear the in-memory debug log
+ */
+app.post(`/api/admin/${ADMIN_SECRET_PATH}/debug-log/clear`, adminIpCheck, async (req, res) => {
+  debugLog.clear();
+  return res.json({ success: true, message: 'Debug log cleared' });
 });
 
 /**
