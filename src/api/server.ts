@@ -749,13 +749,17 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
     const leaderboard = lb.rows[0] || null;
 
     // Determine the user's actual starting balance — never fake with challenge starting_balance
+    // For pre-start: prefer last_known_balance (most recent VPS check) over registration_balance (stale)
+    const isPreStart = registration.status !== 'active' && registration.status !== 'reviewing' && registration.status !== 'completed';
     const actualStartingBalance = registration.actual_starting_balance != null
       ? parseFloat(registration.actual_starting_balance)
-      : registration.registration_balance != null
-        ? parseFloat(registration.registration_balance)
-        : registration.last_known_balance != null
-          ? parseFloat(registration.last_known_balance)
-          : null;
+      : isPreStart && registration.last_known_balance != null
+        ? parseFloat(registration.last_known_balance)
+        : registration.registration_balance != null
+          ? parseFloat(registration.registration_balance)
+          : registration.last_known_balance != null
+            ? parseFloat(registration.last_known_balance)
+            : null;
 
     return res.json({
       dataFrom: registration.leaderboard_updated_at || null,
