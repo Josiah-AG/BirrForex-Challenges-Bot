@@ -809,8 +809,13 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
         lastPullAt: registration.last_pull_at || null,
         balanceWarning: registration.balance_warning || false,
         rank: leaderboard?.rank || null,
-        currentBalance: leaderboard ? parseFloat(leaderboard.current_balance) : (actualStartingBalance ?? 0),
-        adjustedBalance: leaderboard ? parseFloat(leaderboard.adjusted_balance) : (actualStartingBalance ?? 0),
+        // Pre-start: use actualStartingBalance (derived from last_known_balance) over stale leaderboard values
+        currentBalance: isPreStart
+          ? (actualStartingBalance ?? (leaderboard ? parseFloat(leaderboard.current_balance) : 0))
+          : (leaderboard ? parseFloat(leaderboard.current_balance) : (actualStartingBalance ?? 0)),
+        adjustedBalance: isPreStart
+          ? (actualStartingBalance ?? (leaderboard ? parseFloat(leaderboard.adjusted_balance) : 0))
+          : (leaderboard ? parseFloat(leaderboard.adjusted_balance) : (actualStartingBalance ?? 0)),
         qualifiedProfit: leaderboard ? parseFloat(leaderboard.qualified_profit) : 0,
         grossProfit: leaderboard ? parseFloat(leaderboard.gross_profit) : 0,
         profitRemoved: leaderboard ? parseFloat(leaderboard.profit_removed) : 0,
