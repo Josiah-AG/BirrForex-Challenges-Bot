@@ -891,12 +891,20 @@ export default function ChallengeDashboard() {
               <div className="glass rounded-2xl p-4 md:p-5 border border-white/10 mb-6">
                 <div className="flex items-center justify-between mb-3">
                   <p className="text-sm font-medium text-gray-300">Progress to Target</p>
-                  <p className={`text-sm font-bold ${progressPercent > 0 ? "text-white" : progressPercent < 0 ? "text-loss" : "text-gray-400"}`}>
-                    {progressPercent === 0 ? "0%" : `${progressPercent > 0 ? "+" : ""}${progressPercent.toFixed(1)}%`}
-                  </p>
+                  {/* Pre-start with balance above starting limit: show warning, not fake progress */}
+                  {isNotStarted && myStats.currentBalance > (challenge?.startingBalance || 0) && myStats.totalTrades === 0 ? (
+                    <p className="text-sm font-bold text-loss">Balance too high</p>
+                  ) : (
+                    <p className={`text-sm font-bold ${progressPercent > 0 ? "text-white" : progressPercent < 0 ? "text-loss" : "text-gray-400"}`}>
+                      {progressPercent === 0 ? "0%" : `${progressPercent > 0 ? "+" : ""}${progressPercent.toFixed(1)}%`}
+                    </p>
+                  )}
                 </div>
                 <div className="relative w-full h-3 bg-white/10 rounded-full overflow-hidden">
-                  {progressPercent >= 0 ? (
+                  {isNotStarted && myStats.currentBalance > (challenge?.startingBalance || 0) && myStats.totalTrades === 0 ? (
+                    /* Pre-start balance too high: red bar */
+                    <div className="h-full rounded-full transition-all duration-500 bg-loss" style={{ width: `${Math.min(100, progressPercent)}%` }} />
+                  ) : progressPercent >= 0 ? (
                     <div className="h-full rounded-full transition-all duration-500 bg-gradient-to-r from-royal to-profit" style={{ width: `${Math.min(100, progressPercent)}%` }} />
                   ) : (
                     /* Negative: red bar from left, width proportional to loss vs required gain */
@@ -905,7 +913,11 @@ export default function ChallengeDashboard() {
                 </div>
                 <div className="flex justify-between mt-2 text-xs">
                   <span className="text-gray-500">{formatBalance(challenge.myStartingBalance ?? challenge.startingBalance, myStats.accountType, effectiveIsCent)}</span>
-                  {progressPercent < 0 && <span className="text-loss text-[10px]">▼ below start</span>}
+                  {isNotStarted && myStats.currentBalance > (challenge?.startingBalance || 0) && myStats.totalTrades === 0 ? (
+                    <span className="text-loss text-[10px]">Balance higher than allowed starting balance</span>
+                  ) : progressPercent < 0 ? (
+                    <span className="text-loss text-[10px]">▼ below start</span>
+                  ) : null}
                   <span className="text-gray-500">{formatBalance(challenge.targetBalance, myStats.accountType, effectiveIsCent)}</span>
                 </div>
               </div>
