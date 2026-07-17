@@ -749,17 +749,24 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
     const leaderboard = lb.rows[0] || null;
 
     // Determine the user's actual starting balance — never fake with challenge starting_balance
-    // For pre-start: prefer last_known_balance (most recent VPS check) over registration_balance (stale)
+    // For pre-start: prefer last_known_balance (most recent VPS check) — it's the real current balance.
+    // actual_starting_balance is only authoritative once the challenge is active (set by pre-start snapshot).
     const isPreStart = registration.status !== 'active' && registration.status !== 'reviewing' && registration.status !== 'completed';
-    const actualStartingBalance = registration.actual_starting_balance != null
-      ? parseFloat(registration.actual_starting_balance)
-      : isPreStart && registration.last_known_balance != null
-        ? parseFloat(registration.last_known_balance)
-        : registration.registration_balance != null
-          ? parseFloat(registration.registration_balance)
-          : registration.last_known_balance != null
-            ? parseFloat(registration.last_known_balance)
-            : null;
+    const actualStartingBalance = isPreStart
+      ? (registration.last_known_balance != null
+          ? parseFloat(registration.last_known_balance)
+          : registration.actual_starting_balance != null
+            ? parseFloat(registration.actual_starting_balance)
+            : registration.registration_balance != null
+              ? parseFloat(registration.registration_balance)
+              : null)
+      : (registration.actual_starting_balance != null
+          ? parseFloat(registration.actual_starting_balance)
+          : registration.registration_balance != null
+            ? parseFloat(registration.registration_balance)
+            : registration.last_known_balance != null
+              ? parseFloat(registration.last_known_balance)
+              : null);
 
     return res.json({
       dataFrom: registration.leaderboard_updated_at || null,
