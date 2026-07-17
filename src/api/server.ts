@@ -2884,6 +2884,71 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/admin-leaderboard`, admin
     );
     const challengeOnlyCent = centCheck.rows[0]?.only_cent || false;
 
+    const isPreStart = status !== 'active' && status !== 'reviewing' && status !== 'completed';
+
+    // PRE-START: rank from trading_registrations directly (same logic as client endpoint)
+    if (isPreStart) {
+      const regResult = await db.query(
+        `SELECT r.id as registration_id, r.nickname, r.account_type, r.is_cent,
+                r.email, r.account_number,
+                r.registration_balance, r.last_known_balance, r.last_known_equity, r.actual_starting_balance,
+                r.disqualified, r.disqualified_reason,
+                ROW_NUMBER() OVER (
+                  PARTITION BY r.account_type
+                  ORDER BY CASE WHEN COALESCE(r.is_cent, false)
+                    THEN COALESCE(r.last_known_balance, r.actual_starting_balance, r.registration_balance, 0) / 100.0
+                    ELSE COALESCE(r.last_known_balance, r.actual_starting_balance, r.registration_balance, 0)
+                  END DESC NULLS LAST, r.registered_at ASC
+                ) as rank
+         FROM trading_registrations r
+         WHERE r.challenge_id = $1
+           AND (r.status IS NULL OR r.status != 'removed')
+           ${catFilter}
+         ORDER BY r.account_type, rank`,
+        [challengeId]
+      );
+
+      return res.json({
+        dataFrom,
+        preStart: true,
+        total: regResult.rows.length,
+        challengeOnlyCent,
+        leaderboard: regResult.rows.map((r: any) => {
+          const isCent = r.is_cent || (challengeOnlyCent && r.account_type !== 'demo') || false;
+          const fallbackBalance = r.last_known_balance != null
+            ? parseFloat(r.last_known_balance)
+            : r.registration_balance != null ? parseFloat(r.registration_balance) : 0;
+          return {
+            registrationId: r.registration_id,
+            nickname: r.nickname,
+            email: r.email || null,
+            accountNumber: r.account_number || null,
+            accountType: r.account_type,
+            rank: parseInt(r.rank),
+            currentBalance: fallbackBalance,
+            adjustedBalance: fallbackBalance,
+            qualifiedProfit: 0,
+            grossProfit: 0,
+            profitRemoved: 0,
+            totalTrades: 0,
+            qualifiedTrades: 0,
+            flaggedTrades: 0,
+            isQualified: false,
+            isDisqualified: r.disqualified || false,
+            disqualifyReason: r.disqualified_reason || null,
+            isBlown: false,
+            isWithdrawn: false,
+            totalWithdrawn: 0,
+            isCent,
+            lastTradeTime: null,
+            lastUpdated: null,
+            notYetEvaluated: true,
+          };
+        }),
+      });
+    }
+
+    // ACTIVE/REVIEWING/COMPLETED: use wp_leaderboard data
     // All participants LEFT JOIN leaderboard — unevaluated accounts still appear
     const result = await db.query(
       `SELECT r.id as registration_id, r.nickname, r.account_type, r.is_cent,
@@ -2911,11 +2976,9 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/admin-leaderboard`, admin
       [challengeId]
     );
 
-    const isPreStart = status !== 'active' && status !== 'reviewing' && status !== 'completed';
-
     return res.json({
       dataFrom,
-      preStart: isPreStart,
+      preStart: false,
       total: result.rows.length,
       challengeOnlyCent,
       leaderboard: result.rows.map((r: any) => {
