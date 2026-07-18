@@ -964,28 +964,28 @@ export default function DemoDashboard() {
   );
 }
 
-function LeaderboardRow({ entry, formatBalance, formatSubtype, onClick, realWinnersCount, demoWinnersCount }: { entry: LeaderboardEntry; formatBalance: (n: number, c?: boolean) => string; formatSubtype: (s: string | undefined, t: string) => string; onClick: () => void; realWinnersCount?: number; demoWinnersCount?: number }) {
+function LeaderboardRow({ entry, formatBalance, formatSubtype, onClick, realWinnersCount, demoWinnersCount, preStart }: { entry: LeaderboardEntry; formatBalance: (n: number, c?: boolean) => string; formatSubtype: (s: string | undefined, t: string) => string; onClick: () => void; realWinnersCount?: number; demoWinnersCount?: number; preStart?: boolean }) {
   const winnersCount = entry.accountType === 'demo' ? (demoWinnersCount || 0) : (realWinnersCount || 0);
-  const winner = !entry.isDisqualified && !entry.isBlown && !entry.isWithdrawn && entry.isQualified && winnersCount > 0 && entry.rank <= winnersCount;
-  const rankIcon = entry.isDisqualified ? "🚫" : entry.isBlown && !entry.isWithdrawn ? "💀" : entry.isWithdrawn ? "🚪" : winner ? "🏆" : entry.rank;
+  const winner = !preStart && !entry.isDisqualified && !entry.isBlown && !entry.isWithdrawn && entry.isQualified && winnersCount > 0 && entry.rank <= winnersCount;
+  const rankIcon = preStart ? entry.rank : entry.isDisqualified ? "🚫" : entry.isBlown && !entry.isWithdrawn ? "💀" : entry.isWithdrawn ? "🚪" : winner ? "🏆" : entry.rank;
   return (
-    <button onClick={onClick} className={`w-full flex items-center gap-4 px-4 py-3 text-left transition-colors ${winner ? "bg-profit/15 border-l-2 border-profit hover:bg-profit/20" : entry.isMe ? "bg-royal/10 border-l-2 border-royal hover:bg-royal/15" : "hover:bg-white/5"} ${entry.isDisqualified ? "opacity-60 bg-loss/10" : ""} ${(entry.isBlown || entry.isWithdrawn) && !entry.isDisqualified ? "opacity-40 bg-loss/5" : ""}`}>
-      <div className={`flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center text-sm font-bold ${entry.isDisqualified ? "bg-loss/20 text-loss" : (entry.isBlown || entry.isWithdrawn) ? "bg-white/5 text-gray-500" : winner ? "bg-profit/20 text-profit" : "bg-white/5 text-gray-500"}`}>
+    <button onClick={onClick} className={`w-full flex items-center gap-4 px-4 py-3 text-left transition-colors ${winner ? "bg-profit/15 border-l-2 border-profit hover:bg-profit/20" : entry.isMe ? "bg-royal/10 border-l-2 border-royal hover:bg-royal/15" : "hover:bg-white/5"} ${!preStart && entry.isDisqualified ? "opacity-60 bg-loss/10" : ""} ${!preStart && (entry.isBlown || entry.isWithdrawn) && !entry.isDisqualified ? "opacity-40 bg-loss/5" : ""}`}>
+      <div className={`flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center text-sm font-bold ${!preStart && entry.isDisqualified ? "bg-loss/20 text-loss" : !preStart && (entry.isBlown || entry.isWithdrawn) ? "bg-white/5 text-gray-500" : winner ? "bg-profit/20 text-profit" : "bg-white/5 text-gray-500"}`}>
         {rankIcon}
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
-          <p className={`text-sm font-semibold truncate ${winner ? "text-profit font-bold" : entry.isMe ? "text-royal" : entry.isDisqualified ? "text-gray-500" : "text-white"}`}>{entry.nickname}</p>
+          <p className={`text-sm font-semibold truncate ${winner ? "text-profit font-bold" : entry.isMe ? "text-royal" : !preStart && entry.isDisqualified ? "text-gray-500" : "text-white"}`}>{entry.nickname}</p>
           {winner && <span className="px-1.5 py-0.5 bg-profit/20 text-profit text-[10px] rounded font-bold">#{entry.rank}</span>}
           {entry.isMe && !winner && <span className="px-1.5 py-0.5 bg-royal/20 text-royal text-[10px] rounded font-bold">YOU</span>}
-          {entry.isDisqualified && <span className="px-1.5 py-0.5 bg-loss/20 text-loss text-[10px] rounded font-bold">DQ</span>}
-          {entry.isWithdrawn && !entry.isDisqualified && <span className="px-1.5 py-0.5 bg-gray-500/20 text-gray-400 text-[10px] rounded font-bold">🚪 Exited</span>}
-          {entry.isBlown && !entry.isDisqualified && !entry.isWithdrawn && <span className="px-1.5 py-0.5 bg-gray-500/20 text-gray-400 text-[10px] rounded font-bold">💀</span>}
+          {!preStart && entry.isDisqualified && <span className="px-1.5 py-0.5 bg-loss/20 text-loss text-[10px] rounded font-bold">DQ</span>}
+          {!preStart && entry.isWithdrawn && !entry.isDisqualified && <span className="px-1.5 py-0.5 bg-gray-500/20 text-gray-400 text-[10px] rounded font-bold">🚪 Exited</span>}
+          {!preStart && entry.isBlown && !entry.isDisqualified && !entry.isWithdrawn && <span className="px-1.5 py-0.5 bg-gray-500/20 text-gray-400 text-[10px] rounded font-bold">💀</span>}
         </div>
         <p className="text-[10px] text-gray-500">{entry.trades} trades • {entry.qualifiedTrades} qualified • {formatSubtype(entry.accountSubtype, entry.accountType)}</p>
       </div>
-      <p className={`text-sm font-bold ${entry.isDisqualified ? "text-loss" : winner ? "text-profit" : "text-white"}`}>
-        {entry.isDisqualified ? "DQ" : entry.isBlown ? <span className="text-gray-500">💀 Blown</span> : entry.isWithdrawn ? <span className="text-gray-400">Exited</span> : formatBalance(entry.balance, entry.isCent)}
+      <p className={`text-sm font-bold ${!preStart && entry.isDisqualified ? "text-loss" : winner ? "text-profit" : "text-white"}`}>
+        {!preStart && entry.isDisqualified ? "DQ" : !preStart && entry.isBlown ? <span className="text-gray-500">💀 Blown</span> : !preStart && entry.isWithdrawn ? <span className="text-gray-400">Exited</span> : formatBalance(entry.balance, entry.isCent)}
       </p>
     </button>
   );

@@ -271,7 +271,7 @@ export default function ChallengeDashboard() {
 
   // Top-N by rank AND above balance target
   const isWinner = (entry: LeaderboardEntry) => {
-    if (!challenge || entry.isDisqualified || entry.isWithdrawn || entry.isBlown) return false;
+    if (!challenge || leaderboardPreStart || entry.isDisqualified || entry.isWithdrawn || entry.isBlown) return false;
     const count = entry.accountType === 'demo' ? (challenge.demoWinnersCount || 0) : (challenge.realWinnersCount || 0);
     // For cent-only real challenges: target is already in ¢, compare directly
     // For hybrid/flexible: API already converts target ×100 for cent users via /api/me/dashboard
@@ -281,6 +281,7 @@ export default function ChallengeDashboard() {
     return count > 0 && entry.rank <= count && (entry.adjustedBalance - (entry.totalWithdrawn || 0)) >= effectiveTarget;
   };
   const rankIcon = (entry: LeaderboardEntry) => {
+    if (leaderboardPreStart) return entry.rank || "—";
     if (entry.isDisqualified) return "🚫";
     if (entry.isBlown && !entry.isWithdrawn) return "💀";
     if (entry.isWithdrawn) return "🚪";
@@ -700,23 +701,23 @@ export default function ChallengeDashboard() {
               ) : (
               <div className="divide-y divide-white/5">
                 {leaderboard.map((entry) => (
-                  <button key={entry.rank || entry.nickname} onClick={() => { setShowLeaderboardModal(true); setSelectedUser(entry); }} className={`w-full flex items-center gap-4 px-4 py-3 text-left transition-colors ${isWinner(entry) ? "bg-profit/15 border-l-2 border-profit hover:bg-profit/20" : isAboveTarget(entry) ? "bg-profit/5 border-l-2 border-profit/30 hover:bg-profit/10" : entry.isMe ? "bg-royal/10 border-l-2 border-royal hover:bg-royal/15" : "hover:bg-white/5"} ${entry.isDisqualified ? "opacity-60 bg-loss/10" : ""} ${(entry.isWithdrawn || entry.isBlown) && !entry.isDisqualified ? "opacity-40 bg-loss/5" : ""}`}>
-                    <div className={`flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center text-sm font-bold ${entry.isDisqualified ? "bg-loss/20 text-loss" : (entry.isBlown || entry.isWithdrawn) ? "bg-white/5 text-gray-500" : isWinner(entry) ? "bg-profit/20 text-profit" : isAboveTarget(entry) ? "bg-profit/10 text-profit/70" : "bg-white/5 text-gray-500"}`}>
+                  <button key={entry.rank || entry.nickname} onClick={() => { setShowLeaderboardModal(true); setSelectedUser(entry); }} className={`w-full flex items-center gap-4 px-4 py-3 text-left transition-colors ${isWinner(entry) ? "bg-profit/15 border-l-2 border-profit hover:bg-profit/20" : isAboveTarget(entry) ? "bg-profit/5 border-l-2 border-profit/30 hover:bg-profit/10" : entry.isMe ? "bg-royal/10 border-l-2 border-royal hover:bg-royal/15" : "hover:bg-white/5"} ${!leaderboardPreStart && entry.isDisqualified ? "opacity-60 bg-loss/10" : ""} ${!leaderboardPreStart && (entry.isWithdrawn || entry.isBlown) && !entry.isDisqualified ? "opacity-40 bg-loss/5" : ""}`}>
+                    <div className={`flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center text-sm font-bold ${!leaderboardPreStart && entry.isDisqualified ? "bg-loss/20 text-loss" : !leaderboardPreStart && (entry.isBlown || entry.isWithdrawn) ? "bg-white/5 text-gray-500" : isWinner(entry) ? "bg-profit/20 text-profit" : isAboveTarget(entry) ? "bg-profit/10 text-profit/70" : "bg-white/5 text-gray-500"}`}>
                       {rankIcon(entry)}
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        <p className={`text-sm font-semibold truncate ${isWinner(entry) ? "text-profit font-bold" : isAboveTarget(entry) ? "text-profit/80" : entry.isMe ? "text-royal" : entry.isDisqualified ? "text-gray-500" : "text-white"}`}>{entry.nickname}</p>
+                        <p className={`text-sm font-semibold truncate ${isWinner(entry) ? "text-profit font-bold" : isAboveTarget(entry) ? "text-profit/80" : entry.isMe ? "text-royal" : !leaderboardPreStart && entry.isDisqualified ? "text-gray-500" : "text-white"}`}>{entry.nickname}</p>
                         {isWinner(entry) && <span className="px-1.5 py-0.5 bg-profit/20 text-profit text-[10px] rounded font-bold">#{entry.rank}</span>}
                         {entry.isMe && !isWinner(entry) && <span className="px-1.5 py-0.5 bg-royal/20 text-royal text-[10px] rounded font-bold">YOU</span>}
-                        {entry.isDisqualified && <span className="px-1.5 py-0.5 bg-loss/20 text-loss text-[10px] rounded font-bold">DQ</span>}
-                        {entry.isWithdrawn && !entry.isDisqualified && <span className="px-1.5 py-0.5 bg-gray-500/20 text-gray-400 text-[10px] rounded font-bold">🚪 Exited</span>}
-                        {entry.isBlown && !entry.isDisqualified && !entry.isWithdrawn && <span className="px-1.5 py-0.5 bg-gray-500/20 text-gray-400 text-[10px] rounded font-bold">💀</span>}
+                        {!leaderboardPreStart && entry.isDisqualified && <span className="px-1.5 py-0.5 bg-loss/20 text-loss text-[10px] rounded font-bold">DQ</span>}
+                        {!leaderboardPreStart && entry.isWithdrawn && !entry.isDisqualified && <span className="px-1.5 py-0.5 bg-gray-500/20 text-gray-400 text-[10px] rounded font-bold">🚪 Exited</span>}
+                        {!leaderboardPreStart && entry.isBlown && !entry.isDisqualified && !entry.isWithdrawn && <span className="px-1.5 py-0.5 bg-gray-500/20 text-gray-400 text-[10px] rounded font-bold">💀</span>}
                       </div>
                       <p className="text-[10px] text-gray-500">{entry.totalTrades} trades • {entry.qualifiedTrades} qualified{entry.isWithdrawn && entry.totalWithdrawn ? ` • withdrew ${formatBalance(entry.totalWithdrawn, entry.accountType, entry.isCent)}` : ""}</p>
                     </div>
                     <p className={`text-sm font-bold ${isWinner(entry) ? "text-profit" : "text-white"}`}>
-                      {entry.isDisqualified ? <span className="text-loss">DQ</span> : entry.isWithdrawn ? <span className="text-gray-400">Exited</span> : formatBalance(entry.adjustedBalance - (entry.totalWithdrawn || 0), entry.accountType, entry.isCent)}
+                      {!leaderboardPreStart && entry.isDisqualified ? <span className="text-loss">DQ</span> : !leaderboardPreStart && entry.isWithdrawn ? <span className="text-gray-400">Exited</span> : formatBalance(entry.adjustedBalance - (entry.totalWithdrawn || 0), entry.accountType, entry.isCent)}
                     </p>
                   </button>
                 ))}
