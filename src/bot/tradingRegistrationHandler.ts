@@ -419,7 +419,7 @@ export class TradingRegistrationHandler {
     }
 
     // Server selection buttons
-    if (data.startsWith('tc_server_')) {
+    if (data.startsWith('tc_server_') && data !== 'tc_server_manual' && !data.startsWith('tc_server_confirm_')) {
       const session = userSessions.get(telegramId);
       if (!session) return true;
       const server = data.replace('tc_server_', '');
