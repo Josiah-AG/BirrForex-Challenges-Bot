@@ -79,6 +79,8 @@ export class TradingRegistrationHandler {
 
   /**
    * Get sessions older than X hours that haven't completed registration (abandoned).
+   * Excludes sessions where the user hit a known failure (allocation, KYC, real_acct)
+   * — those are tracked separately as their specific failure type, not "abandoned."
    */
   getAbandonedSessions(olderThanHours: number): Array<{ telegramId: number; challengeId: number; username: string | null; email: string | null }> {
     const cutoff = Date.now() - olderThanHours * 60 * 60 * 1000;
@@ -86,9 +88,13 @@ export class TradingRegistrationHandler {
     for (const [telegramId, session] of userSessions.entries()) {
       // Check if session is old enough and has a challenge_id
       if (!session.data?.challenge_id) continue;
-      // Use the session creation time approximation from saveSessionsToDisk timestamps
-      // Since we don't store creation time, check if the session exists in the persisted file
-      // For now, we track all active sessions — the scheduler will only log them once (deduped by DB)
+      // Skip sessions where user hit a known failure — those are NOT abandoned,
+      // they are stuck at a failure point and tracked by their specific failure type
+      if (session.data.allocation_fail_count > 0) continue;
+      if (session.data.kyc_fail_count > 0) continue;
+      if (session.data.real_acct_retry > 0) continue;
+      if (session.data.vps_fail_count > 0) continue;
+
       const user = knownUsers.get(telegramId);
       abandoned.push({
         telegramId,

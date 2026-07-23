@@ -1641,14 +1641,23 @@ export class TradingAdminHandler {
 
     if (failedUser) {
       const attemptDate = toEAT(new Date(failedUser.attempted_at)).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-      const failLabel = failedUser.failure_type === 'allocation' ? 'Allocation' : failedUser.failure_type === 'kyc' ? 'KYC' : 'Real Account';
+      const failLabelMap: Record<string, string> = {
+        allocation: '❌ Allocation Failed (not under BirrForex)',
+        kyc: '❌ KYC Verification Failed',
+        real_acct: '❌ No Real Account Found',
+        vps_credential: '❌ VPS Credential Error (wrong password/server)',
+        vps_timeout: '❌ VPS Connection Timeout',
+        vps_error: '❌ VPS Connection Error',
+        abandoned: '⏸️ Abandoned (started but never completed)',
+      };
+      const failLabel = failLabelMap[failedUser.failure_type] || `❌ ${failedUser.failure_type}`;
 
       await ctx.reply(
         `<b>🔍 USER FOUND</b>\n\n❌ <b>Failed Registration</b>\n\n` +
         `👤 <b>Username:</b> @${failedUser.username || 'unknown'}\n` +
         `🆔 <b>Telegram ID:</b> <code>${failedUser.telegram_id}</code>\n` +
         `📧 <b>Email:</b> ${failedUser.email || 'N/A'}\n` +
-        `⚠️ <b>Failed at:</b> ${failLabel}\n` +
+        `⚠️ <b>Failure:</b> ${failLabel}\n` +
         `📅 <b>Attempted:</b> ${attemptDate}\n` +
         `📊 <b>Engaged:</b> ${failedUser.engage_count || 0} times\n` +
         `🔄 <b>Converted:</b> ${failedUser.converted ? 'Yes ✅' : 'No'}\n\n` +

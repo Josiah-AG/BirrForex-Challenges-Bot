@@ -868,9 +868,9 @@ export class TradingScheduler {
         // Check if they already registered (not abandoned — just slow)
         const existing = await tradingChallengeService.getRegistration(challenge.id, session.telegramId);
         if (existing) continue;
-        // Check if already logged
+        // Check if already logged as abandoned OR any other failure type (allocation, kyc, real_acct, vps_*)
         const alreadyLogged = await db.query(
-          `SELECT 1 FROM trading_failed_attempts WHERE challenge_id = $1 AND telegram_id = $2 AND failure_type = 'abandoned'`,
+          `SELECT 1 FROM trading_failed_attempts WHERE challenge_id = $1 AND telegram_id = $2`,
           [challenge.id, session.telegramId]
         );
         if (alreadyLogged.rows.length > 0) continue;
