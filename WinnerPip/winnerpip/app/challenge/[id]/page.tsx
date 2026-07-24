@@ -1080,6 +1080,11 @@ export default function ChallengeDashboard() {
                 <div className="flex items-center gap-2"><Trophy size={16} className="text-gold" /><p className="text-sm font-semibold text-white">{leaderboardPreStart ? "Pre-start Ranking" : `Leaderboard${myStats?.accountType === 'demo' ? ' — Demo Category' : myStats?.accountType === 'real' ? ' — Real Category' : ''}`}</p></div>
                 {leaderboardPreStart ? <span className="text-[10px] text-gold/70 font-semibold uppercase tracking-wider">Based on account balance</span> : <p className="text-xs text-gray-500">Next update: {getNextPullTime()}</p>}
               </div>
+              {leaderboardPreStart && challenge && (
+                <div className="px-4 py-3 bg-amber-500/5 border-b border-amber-500/20">
+                  <p className="text-xs text-amber-300"><span className="font-semibold">⚠️ Balance must be ≤ ${challenge.startingBalance.toLocaleString()}</span> before the challenge starts. Users with balance above the maximum allowed starting balance will be automatically disqualified.</p>
+                </div>
+              )}
               {leaderboardLoading ? (
                 <div className="p-8 text-center"><Loader2 className="w-6 h-6 text-royal animate-spin mx-auto" /></div>
               ) : leaderboard.length === 0 ? (
@@ -1291,6 +1296,11 @@ export default function ChallengeDashboard() {
               <div className="flex items-center gap-3"><Trophy size={20} className="text-gold" /><h3 className="text-lg font-bold text-white">Leaderboard{myStats?.accountType === 'demo' ? ' (Demo Category)' : myStats?.accountType === 'real' ? ' (Real Category)' : ''}</h3></div>
               <button onClick={() => { setShowLeaderboardModal(false); setSelectedUser(null); }} className="p-2 hover:bg-white/10 rounded-lg"><X size={18} className="text-gray-400" /></button>
             </div>
+            {leaderboardPreStart && challenge && (
+              <div className="px-4 py-3 bg-amber-500/5 border-b border-amber-500/20">
+                <p className="text-xs text-amber-300"><span className="font-semibold">⚠️ Balance must be ≤ ${challenge.startingBalance.toLocaleString()}</span> before the challenge starts. Users with balance above the maximum will be disqualified.</p>
+              </div>
+            )}
             {!selectedUser ? (
               <div className="divide-y divide-white/5">
                 {leaderboard.map((entry) => (
