@@ -75,6 +75,7 @@ export default function ChallengeDashboard() {
   const [leaderboardPreStart, setLeaderboardPreStart] = useState(false);
   const leaderboardLengthRef = useRef(0);
   const myStatsRef = useRef<MyStats | null>(null);
+  const [myContext, setMyContext] = useState<LeaderboardEntry[]>([]);
   const [challengeRules, setChallengeRules] = useState<string[]>([]);
 
   // Fetch trades when a user is selected in leaderboard modal
@@ -184,7 +185,9 @@ export default function ChallengeDashboard() {
     try {
       const offset = loadMore ? leaderboardLengthRef.current : 0;
       const category = myStatsRef.current?.accountType || 'all';
-      const res = await fetch(`${API_URL}/api/challenges/${params.id}/leaderboard?limit=50&offset=${offset}&category=${category}`);
+      const nickname = myStatsRef.current?.nickname || '';
+      const nicknameParam = nickname ? `&nickname=${encodeURIComponent(nickname)}` : '';
+      const res = await fetch(`${API_URL}/api/challenges/${params.id}/leaderboard?limit=50&offset=${offset}&category=${category}${nicknameParam}`);
       if (res.ok) {
         const data = await res.json();
         const stats = myStatsRef.current;
@@ -205,6 +208,12 @@ export default function ChallengeDashboard() {
         setLeaderboardPreStart(data.preStart || false);
         setLeaderboardHasMore(data.hasMore || false);
         setLeaderboardTotal(data.total || entries.length);
+        if (data.myContext) {
+          setMyContext(data.myContext.map((entry: LeaderboardEntry) => ({
+            ...entry,
+            isMe: stats ? entry.nickname === stats.nickname : false,
+          })));
+        }
       }
     } catch {
       // Silently fail for leaderboard
@@ -723,6 +732,43 @@ export default function ChallengeDashboard() {
                 ))}
               </div>
               )}
+              {/* Your Position — pinned context when user is not visible in loaded entries */}
+              {myContext.length > 0 && !leaderboardPreStart && (() => {
+                const myRank = myStats?.rank;
+                if (!myRank) return null;
+                const loadedRanks = leaderboard.map(e => e.rank);
+                const userVisibleInList = loadedRanks.includes(myRank);
+                if (userVisibleInList) return null;
+                const lastLoadedRank = leaderboard.length > 0 ? leaderboard[leaderboard.length - 1].rank : 0;
+                const firstLoadedRank = leaderboard.length > 0 ? leaderboard[0].rank : 0;
+                const isBelow = myRank > lastLoadedRank;
+                const isAbove = myRank < firstLoadedRank;
+                if (!isBelow && !isAbove) return null;
+                return (
+                  <div className={`border-white/10 ${isAbove ? 'border-b' : 'border-t'}`}>
+                    <div className="px-4 py-2 bg-royal/5 border-y border-royal/20">
+                      <p className="text-[10px] text-royal font-semibold text-center uppercase tracking-wider">Your Position</p>
+                    </div>
+                    <div className="divide-y divide-white/5">
+                      {myContext.map((entry) => (
+                        <button key={entry.rank || entry.nickname} onClick={() => { setShowLeaderboardModal(true); setSelectedUser(entry); }} className={`w-full flex items-center gap-4 px-4 py-3 text-left transition-colors ${entry.isMe ? "bg-royal/10 border-l-2 border-royal" : "hover:bg-white/5"}`}>
+                          <div className={`flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center text-sm font-bold ${entry.isMe ? "bg-royal/20 text-royal" : "bg-white/5 text-gray-500"}`}>
+                            {entry.rank || "—"}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <p className={`text-sm font-semibold truncate ${entry.isMe ? "text-royal" : "text-white"}`}>{entry.nickname}</p>
+                              {entry.isMe && <span className="px-1.5 py-0.5 bg-royal/20 text-royal text-[10px] rounded font-bold">YOU</span>}
+                            </div>
+                            <p className="text-[10px] text-gray-500">{entry.totalTrades} trades • {entry.qualifiedTrades} qualified</p>
+                          </div>
+                          <p className="text-sm font-bold text-white">{formatBalance(entry.adjustedBalance - (entry.totalWithdrawn || 0), entry.accountType, entry.isCent)}</p>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
               {leaderboardHasMore && (
                 <div className="p-3 border-t border-white/5 text-center">
                   <button onClick={() => fetchLeaderboard(true)} disabled={leaderboardLoadingMore} className="px-4 py-2 rounded-lg bg-white/5 border border-white/10 text-gray-400 text-xs font-semibold hover:bg-white/10 hover:text-white transition-all disabled:opacity-50">
@@ -1064,6 +1110,41 @@ export default function ChallengeDashboard() {
                 ))}
               </div>
               )}
+              {/* Your Position — pinned context (not-started leaderboard) */}
+              {myContext.length > 0 && !leaderboardPreStart && (() => {
+                const myRank = myStats?.rank;
+                if (!myRank) return null;
+                const loadedRanks = leaderboard.map(e => e.rank);
+                const userVisibleInList = loadedRanks.includes(myRank);
+                if (userVisibleInList) return null;
+                const lastLoadedRank = leaderboard.length > 0 ? leaderboard[leaderboard.length - 1].rank : 0;
+                const firstLoadedRank = leaderboard.length > 0 ? leaderboard[0].rank : 0;
+                const isBelow = myRank > lastLoadedRank;
+                const isAbove = myRank < firstLoadedRank;
+                if (!isBelow && !isAbove) return null;
+                return (
+                  <div className={`border-white/10 ${isAbove ? 'border-b' : 'border-t'}`}>
+                    <div className="px-4 py-2 bg-royal/5 border-y border-royal/20">
+                      <p className="text-[10px] text-royal font-semibold text-center uppercase tracking-wider">Your Position</p>
+                    </div>
+                    <div className="divide-y divide-white/5">
+                      {myContext.map((entry) => (
+                        <div key={entry.rank || entry.nickname} className={`w-full flex items-center gap-4 px-4 py-3 text-left ${entry.isMe ? "bg-royal/10 border-l-2 border-royal" : ""}`}>
+                          <div className={`flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center text-sm font-bold ${entry.isMe ? "bg-royal/20 text-royal" : "bg-white/5 text-gray-500"}`}>{entry.rank || "—"}</div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <p className={`text-sm font-semibold truncate ${entry.isMe ? "text-royal" : "text-white"}`}>{entry.nickname}</p>
+                              {entry.isMe && <span className="px-1.5 py-0.5 bg-royal/20 text-royal text-[10px] rounded font-bold">YOU</span>}
+                            </div>
+                            <p className="text-[10px] text-gray-500">{entry.totalTrades} trades • {entry.qualifiedTrades} qualified</p>
+                          </div>
+                          <p className="text-sm font-bold text-white">{formatBalance(entry.adjustedBalance - (entry.totalWithdrawn || 0), entry.accountType, entry.isCent)}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
               {/* Load More button */}
               {leaderboardHasMore && (
                 <div className="p-3 border-t border-white/5 text-center">
@@ -1232,6 +1313,41 @@ export default function ChallengeDashboard() {
                     </p>
                   </button>
                 ))}
+                {/* Your Position — pinned context in modal */}
+                {myContext.length > 0 && !leaderboardPreStart && (() => {
+                  const myRank = myStats?.rank;
+                  if (!myRank) return null;
+                  const loadedRanks = leaderboard.map(e => e.rank);
+                  const userVisibleInList = loadedRanks.includes(myRank);
+                  if (userVisibleInList) return null;
+                  const lastLoadedRank = leaderboard.length > 0 ? leaderboard[leaderboard.length - 1].rank : 0;
+                  const firstLoadedRank = leaderboard.length > 0 ? leaderboard[0].rank : 0;
+                  const isBelow = myRank > lastLoadedRank;
+                  const isAbove = myRank < firstLoadedRank;
+                  if (!isBelow && !isAbove) return null;
+                  return (
+                    <div className={`border-white/10 ${isAbove ? 'border-b' : 'border-t'}`}>
+                      <div className="px-4 py-2 bg-royal/5 border-y border-royal/20">
+                        <p className="text-[10px] text-royal font-semibold text-center uppercase tracking-wider">Your Position</p>
+                      </div>
+                      <div className="divide-y divide-white/5">
+                        {myContext.map((entry) => (
+                          <button key={entry.rank || entry.nickname} onClick={() => setSelectedUser(entry)} className={`w-full flex items-center gap-4 px-4 py-3 text-left transition-colors ${entry.isMe ? "bg-royal/10 border-l-2 border-royal" : "hover:bg-white/5"}`}>
+                            <div className={`flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center text-sm font-bold ${entry.isMe ? "bg-royal/20 text-royal" : "bg-white/5 text-gray-500"}`}>{entry.rank || "—"}</div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <p className={`text-sm font-semibold truncate ${entry.isMe ? "text-royal" : "text-white"}`}>{entry.nickname}</p>
+                                {entry.isMe && <span className="px-1.5 py-0.5 bg-royal/20 text-royal text-[10px] rounded font-bold">YOU</span>}
+                              </div>
+                              <p className="text-[10px] text-gray-500">{entry.totalTrades} trades • {entry.qualifiedTrades} qualified</p>
+                            </div>
+                            <p className="text-sm font-bold text-white">{formatBalance(entry.adjustedBalance - (entry.totalWithdrawn || 0), entry.accountType, entry.isCent)}</p>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
                 {leaderboardHasMore && (
                   <div className="p-3 border-t border-white/5 text-center">
                     <button onClick={() => fetchLeaderboard(true)} disabled={leaderboardLoadingMore} className="px-4 py-2 rounded-lg bg-white/5 border border-white/10 text-gray-400 text-xs font-semibold hover:bg-white/10 hover:text-white transition-all disabled:opacity-50">

@@ -520,10 +520,72 @@ app.get('/api/challenges/:id/leaderboard', async (req, res) => {
     const countResult = await db.query(countQuery, countParams);
     const total = parseInt(countResult.rows[0].total);
 
+    // If nickname provided, fetch user's context (rank-1, rank, rank+1)
+    const myNickname = req.query.nickname as string;
+    let myContext: any[] | undefined;
+    if (myNickname) {
+      let contextQuery = `
+        SELECT l.nickname, l.account_type, l.rank, l.current_balance, l.adjusted_balance,
+               l.qualified_profit, l.gross_profit, l.profit_removed, l.total_trades,
+               l.qualified_trades, l.flagged_trades, l.is_qualified, l.is_disqualified,
+               l.disqualify_reason, l.zero_balance_at,
+               COALESCE(l.is_cent, r.is_cent, false) as is_cent,
+               COALESCE(l.is_withdrawn, false) as is_withdrawn,
+               COALESCE(l.total_withdrawn, 0) as total_withdrawn
+        FROM wp_leaderboard l
+        JOIN trading_registrations r ON l.registration_id = r.id AND (r.status IS NULL OR r.status != 'removed')
+        WHERE l.challenge_id = $1
+      `;
+      const contextParams: any[] = [challengeId];
+      if (category === 'demo' || category === 'real') {
+        contextQuery += ` AND l.account_type = $${contextParams.length + 1}`;
+        contextParams.push(category);
+      }
+      // Find the user's rank first
+      const myRankResult = await db.query(
+        contextQuery + ` AND l.nickname = $${contextParams.length + 1}`,
+        [...contextParams, myNickname]
+      );
+      if (myRankResult.rows.length > 0) {
+        const myRank = myRankResult.rows[0].rank;
+        if (myRank) {
+          // Fetch rank-1, rank, rank+1
+          const neighborResult = await db.query(
+            contextQuery + ` AND l.rank >= $${contextParams.length + 1} AND l.rank <= $${contextParams.length + 2} ORDER BY l.rank ASC`,
+            [...contextParams, Math.max(1, myRank - 1), myRank + 1]
+          );
+          myContext = neighborResult.rows.map((r: any) => ({
+            nickname: r.nickname,
+            accountType: r.account_type,
+            rank: r.rank,
+            currentBalance: parseFloat(r.current_balance),
+            adjustedBalance: parseFloat(r.adjusted_balance),
+            qualifiedProfit: parseFloat(r.qualified_profit),
+            grossProfit: parseFloat(r.gross_profit),
+            profitRemoved: parseFloat(r.profit_removed),
+            totalTrades: r.total_trades,
+            qualifiedTrades: r.qualified_trades,
+            flaggedTrades: r.flagged_trades,
+            isQualified: r.is_qualified,
+            isDisqualified: r.is_disqualified || false,
+            disqualifyReason: r.disqualify_reason || null,
+            isBlown: !r.is_withdrawn && (
+              (r.total_trades > 0 && parseFloat(r.current_balance) <= 0) ||
+              r.zero_balance_at !== null
+            ),
+            isWithdrawn: r.is_withdrawn || false,
+            totalWithdrawn: parseFloat(r.total_withdrawn) || 0,
+            isCent: r.is_cent || false,
+          }));
+        }
+      }
+    }
+
     return res.json({
       dataFrom,
       total,
       hasMore: offset + limit < total,
+      myContext,
       leaderboard: result.rows.map(r => ({
         nickname: r.nickname,
         accountType: r.account_type,
