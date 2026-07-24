@@ -733,8 +733,8 @@ export default function ChallengeDashboard() {
               </div>
               )}
               {/* Your Position — pinned context when user is not visible in loaded entries */}
-              {myContext.length > 0 && !leaderboardPreStart && (() => {
-                const myRank = myStats?.rank;
+              {myContext.length > 0 && (() => {
+                const myRank = myStats?.rank || myContext.find(e => e.isMe)?.rank;
                 if (!myRank) return null;
                 const loadedRanks = leaderboard.map(e => e.rank);
                 const userVisibleInList = loadedRanks.includes(myRank);
@@ -1111,8 +1111,8 @@ export default function ChallengeDashboard() {
               </div>
               )}
               {/* Your Position — pinned context (not-started leaderboard) */}
-              {myContext.length > 0 && !leaderboardPreStart && (() => {
-                const myRank = myStats?.rank;
+              {myContext.length > 0 && (() => {
+                const myRank = myStats?.rank || myContext.find(e => e.isMe)?.rank;
                 if (!myRank) return null;
                 const loadedRanks = leaderboard.map(e => e.rank);
                 const userVisibleInList = loadedRanks.includes(myRank);
@@ -1314,8 +1314,8 @@ export default function ChallengeDashboard() {
                   </button>
                 ))}
                 {/* Your Position — pinned context in modal */}
-                {myContext.length > 0 && !leaderboardPreStart && (() => {
-                  const myRank = myStats?.rank;
+                {myContext.length > 0 && (() => {
+                  const myRank = myStats?.rank || myContext.find(e => e.isMe)?.rank;
                   if (!myRank) return null;
                   const loadedRanks = leaderboard.map(e => e.rank);
                   const userVisibleInList = loadedRanks.includes(myRank);

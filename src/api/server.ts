@@ -447,11 +447,62 @@ app.get('/api/challenges/:id/leaderboard', async (req, res) => {
         `SELECT COUNT(*) as total FROM trading_registrations WHERE challenge_id = $1 AND (status IS NULL OR status != 'removed')${catFilter}`,
         regParams
       );
+
+      // Pre-start myContext: find user's position by nickname
+      const myNickname = req.query.nickname as string;
+      let preStartMyContext: any[] | undefined;
+      if (myNickname) {
+        // Get ALL ranked entries (without limit/offset) to find user's rank
+        const allRanked = await db.query(
+          `SELECT nickname, account_type, is_cent,
+                  COALESCE(last_known_balance, actual_starting_balance, registration_balance) as reg_balance,
+                  ROW_NUMBER() OVER (
+                    PARTITION BY account_type
+                    ORDER BY CASE WHEN is_cent
+                      THEN COALESCE(last_known_balance, actual_starting_balance, registration_balance, 0) / 100.0
+                      ELSE COALESCE(last_known_balance, actual_starting_balance, registration_balance, 0)
+                    END DESC NULLS LAST, registered_at ASC
+                  ) as rank
+           FROM trading_registrations
+           WHERE challenge_id = $1
+             AND (status IS NULL OR status != 'removed')
+             ${catFilter}
+           ORDER BY account_type, rank`,
+          regParams
+        );
+        const myRow = allRanked.rows.find((r: any) => r.nickname === myNickname);
+        if (myRow) {
+          const myRank = parseInt(myRow.rank);
+          const neighbors = allRanked.rows.filter((r: any) => {
+            const rank = parseInt(r.rank);
+            return r.account_type === myRow.account_type && rank >= myRank - 1 && rank <= myRank + 1;
+          });
+          preStartMyContext = neighbors.map((r: any) => ({
+            nickname: r.nickname,
+            accountType: r.account_type,
+            rank: parseInt(r.rank),
+            currentBalance: parseFloat(r.reg_balance) || 0,
+            adjustedBalance: parseFloat(r.reg_balance) || 0,
+            qualifiedProfit: 0,
+            grossProfit: 0,
+            profitRemoved: 0,
+            totalTrades: 0,
+            qualifiedTrades: 0,
+            flaggedTrades: 0,
+            isQualified: false,
+            isDisqualified: false,
+            isBlown: false,
+            isCent: r.is_cent || (challengeOnlyCent && r.account_type !== 'demo') || false,
+          }));
+        }
+      }
+
       return {
         dataFrom: null,
         preStart: true,
         total: parseInt(countResult.rows[0].total),
         hasMore: offset + limit < parseInt(countResult.rows[0].total),
+        myContext: preStartMyContext,
         leaderboard: regResult.rows.map((r: any) => ({
           nickname: r.nickname,
           accountType: r.account_type,
