@@ -29,10 +29,12 @@ const globalLimiter = rateLimit({
   validate: { xForwardedForHeader: false },
 });
 
-// Strict rate limit for auth endpoints: 10 attempts per 15 minutes per IP
+// Strict rate limit for auth endpoints: 30 attempts per 15 minutes per IP
+// Higher than typical because Ethiopian mobile carriers use shared NAT IPs (many users behind one IP)
+// Per-account lockout (5 attempts per account) handles brute-force protection
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 10,
+  max: 30,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many login attempts. Please try again in 15 minutes.' },
