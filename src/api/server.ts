@@ -429,10 +429,11 @@ app.get('/api/challenges/:id/leaderboard', async (req, res) => {
       const regResult = await db.query(
         `SELECT nickname, account_type, is_cent,
                 COALESCE(last_known_balance, actual_starting_balance, registration_balance) as reg_balance,
-                registered_at,
+                registered_at, disqualified,
                 ROW_NUMBER() OVER (
                   PARTITION BY account_type
-                  ORDER BY CASE WHEN is_cent
+                  ORDER BY CASE WHEN disqualified = true THEN 1 ELSE 0 END,
+                    CASE WHEN is_cent
                     THEN COALESCE(last_known_balance, actual_starting_balance, registration_balance, 0) / 100.0
                     ELSE COALESCE(last_known_balance, actual_starting_balance, registration_balance, 0)
                   END DESC NULLS LAST, registered_at ASC
@@ -3026,7 +3027,8 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/admin-leaderboard`, admin
                 r.disqualified, r.disqualified_reason,
                 ROW_NUMBER() OVER (
                   PARTITION BY r.account_type
-                  ORDER BY CASE WHEN COALESCE(r.is_cent, false)
+                  ORDER BY CASE WHEN r.disqualified = true THEN 1 ELSE 0 END,
+                    CASE WHEN COALESCE(r.is_cent, false)
                     THEN COALESCE(r.last_known_balance, r.actual_starting_balance, r.registration_balance, 0) / 100.0
                     ELSE COALESCE(r.last_known_balance, r.actual_starting_balance, r.registration_balance, 0)
                   END DESC NULLS LAST, r.registered_at ASC
