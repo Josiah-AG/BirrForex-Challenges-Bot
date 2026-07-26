@@ -4571,10 +4571,12 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/retry-all-failed`, admin
 
     // Get all accounts with credential failures (password_changed)
     const failedAccounts = await db.query(
-      `SELECT id, account_number, mt5_server, investor_password, nickname
-       FROM trading_registrations
-       WHERE challenge_id = $1 AND disqualified = false AND pull_status = 'password_changed'
-         AND investor_password IS NOT NULL`,
+      `SELECT r.id, r.account_number, r.mt5_server, r.investor_password, r.nickname, r.user_id, r.source, r.lang,
+              c.title as challenge_title
+       FROM trading_registrations r
+       JOIN trading_challenges c ON c.id = r.challenge_id
+       WHERE r.challenge_id = $1 AND r.disqualified = false AND r.pull_status = 'password_changed'
+         AND r.investor_password IS NOT NULL`,
       [challengeId]
     );
 
@@ -4633,6 +4635,22 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/retry-all-failed`, admin
       } else {
         stillFailing++;
         results.push({ nickname: reg.nickname, account: reg.account_number, success: false, error });
+
+        // Send DM to user that their account still can't be accessed
+        if (reg.user_id && reg.source !== 'discord') {
+          try {
+            const telegram = getTelegram();
+            if (telegram) {
+              const lang = reg.lang || 'en';
+              const msg = lang === 'am'
+                ? `⚠️ <b>የመለያ ችግር - ${reg.challenge_title}</b>\n\nአሁንም የእርስዎን MT5 መለያ (${reg.account_number}) ማግኘት አልቻልንም።\n\nInvestor password ተቀይሯል ወይም መለያው ተሰርዟል።\n\n📌 እባክዎ investor password ያስተካክሉ ወይም /start ብለው "Change Account" ይጫኑ።`
+                : `⚠️ <b>Account Access Issue — ${reg.challenge_title}</b>\n\nWe still cannot access your MT5 account (${reg.account_number}).\n\nYour investor password may have been changed or the account may have been deleted.\n\n📌 Please update your investor password on the dashboard or use /start → "Change Account" to fix this.`;
+              await telegram.sendMessage(reg.user_id, msg, { parse_mode: 'HTML' });
+            }
+          } catch (_dmErr) {
+            // Silent — DM failure is not critical
+          }
+        }
       }
     }
 
