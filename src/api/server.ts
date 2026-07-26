@@ -542,7 +542,8 @@ app.get('/api/challenges/:id/leaderboard', async (req, res) => {
              l.disqualify_reason, l.last_trade_time, l.last_updated, l.zero_balance_at,
              COALESCE(l.is_cent, r.is_cent, false) as is_cent, l.normalized_balance,
              COALESCE(l.is_withdrawn, false) as is_withdrawn,
-             COALESCE(l.total_withdrawn, 0) as total_withdrawn
+             COALESCE(l.total_withdrawn, 0) as total_withdrawn,
+             r.disqualified as reg_disqualified, r.disqualified_reason as reg_disqualified_reason
       FROM wp_leaderboard l
       JOIN trading_registrations r ON l.registration_id = r.id AND (r.status IS NULL OR r.status != 'removed')
       WHERE l.challenge_id = $1
@@ -554,7 +555,7 @@ app.get('/api/challenges/:id/leaderboard', async (req, res) => {
       params.push(category);
     }
 
-    query += ` ORDER BY l.rank ASC NULLS LAST, l.qualified_profit DESC`;
+    query += ` ORDER BY CASE WHEN l.is_disqualified = true OR r.disqualified = true THEN 1 ELSE 0 END, l.rank ASC NULLS LAST, l.qualified_profit DESC`;
     query += ` LIMIT ${limit} OFFSET ${offset}`;
 
     const result = await db.query(query, params);
@@ -621,8 +622,8 @@ app.get('/api/challenges/:id/leaderboard', async (req, res) => {
             qualifiedTrades: r.qualified_trades,
             flaggedTrades: r.flagged_trades,
             isQualified: r.is_qualified,
-            isDisqualified: r.is_disqualified || false,
-            disqualifyReason: r.disqualify_reason || null,
+            isDisqualified: r.is_disqualified || r.reg_disqualified || false,
+            disqualifyReason: r.disqualify_reason || r.reg_disqualified_reason || null,
             isBlown: !r.is_withdrawn && (
               (r.total_trades > 0 && parseFloat(r.current_balance) <= 0) ||
               r.zero_balance_at !== null
