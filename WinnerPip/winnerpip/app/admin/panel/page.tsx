@@ -2738,12 +2738,10 @@ function AboveTargetList({ challengeId }: { challengeId: string }) {
           const challengeRes = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/overview`);
           const challengeData = challengeRes.ok ? await challengeRes.json() : null;
           const targetBalance = challengeData?.challenge?.targetBalance || 60;
-          const isPreStart = data.preStart || false;
 
-          // Above Target = above the challenge TARGET balance
+          // Above Target = above the challenge TARGET balance, excludes DQ'd
           const aboveTarget = (data.leaderboard || []).filter((e: any) => {
-            if (e.isWithdrawn || e.isBlown) return false;
-            if (!isPreStart && e.isDisqualified) return false;
+            if (e.isDisqualified || e.isWithdrawn || e.isBlown) return false;
             const limit = e.isCent ? targetBalance * 100 : targetBalance;
             return Number(e.adjustedBalance) >= limit;
           });
