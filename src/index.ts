@@ -34,6 +34,7 @@ async function main() {
 
     // Make vpsPullScheduler accessible globally for the API force-pull endpoint
     (global as any).__vpsPullScheduler = vpsPullScheduler;
+    (global as any).__tradingScheduler = tradingScheduler;
 
     // Make bot accessible globally for the API gatekeeper and DM notifications
     (global as any).__bot = bot;

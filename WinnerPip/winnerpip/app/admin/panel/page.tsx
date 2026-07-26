@@ -2854,6 +2854,26 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
     } catch (_e) { setActionMsg("❌ Connection error"); setRetrying(null); }
   };
 
+  const handleTriggerPreStartSnapshot = async () => {
+    setRetrying("snapshot");
+    setActionMsg("⏳ Triggering pre-start snapshot...");
+    try {
+      const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/trigger-prestart-snapshot`, { method: "POST" });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success) {
+          setActionMsg(`✅ ${data.message}`);
+          startPolling();
+        } else {
+          setActionMsg(`⚠️ ${data.message}`);
+        }
+      } else {
+        setActionMsg("❌ Failed");
+      }
+    } catch (_e) { setActionMsg("❌ Connection error"); }
+    setRetrying(null);
+  };
+
   const stopPoll = () => {
     if (pollIntervalRef.current !== null) {
       window.clearInterval(pollIntervalRef.current);
@@ -3066,6 +3086,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
           <button onClick={fetchFailed} disabled={loadingFailed} className="px-4 py-2.5 rounded-xl bg-loss/10 border border-loss/30 text-loss text-xs font-bold hover:bg-loss/20 transition-all">{loadingFailed ? "Loading..." : "🔍 View Failed Accounts"}</button>
           <button onClick={handleRetryAll} disabled={retrying === "all" || failedAccounts.length === 0} className="px-4 py-2.5 rounded-xl bg-gold/10 border border-gold/30 text-gold text-xs font-bold hover:bg-gold/20 transition-all disabled:opacity-50">{retrying === "all" ? "Retrying..." : "🔄 Retry All Failed"}</button>
           <button onClick={handleCheckPreStartBalances} disabled={retrying === "prestart"} className="px-4 py-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-bold hover:bg-amber-500/20 transition-all disabled:opacity-50">{retrying === "prestart" ? "Checking..." : "🛡️ Check Pre-Start Balances"}</button>
+          <button onClick={handleTriggerPreStartSnapshot} disabled={retrying === "snapshot"} className="px-4 py-2.5 rounded-xl bg-purple-500/10 border border-purple-500/30 text-purple-400 text-xs font-bold hover:bg-purple-500/20 transition-all disabled:opacity-50">{retrying === "snapshot" ? "Triggering..." : "📸 Pre-Start Snapshot"}</button>
         </div>
         {actionMsg && <p className={`text-xs mt-3 font-semibold ${actionMsg.startsWith("✅") ? "text-profit" : actionMsg.startsWith("⏳") ? "text-gold" : "text-loss"}`}>{actionMsg}</p>}
       </div>

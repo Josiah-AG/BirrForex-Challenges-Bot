@@ -4604,6 +4604,70 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/prestart-check-balance`,
 
 
 /**
+ * POST /api/admin/:secretPath/challenge/:id/trigger-prestart-snapshot
+ * Manually trigger the T-2/T-3 pre-start snapshot.
+ * Only works if the time window has been reached (T-3h for >500 participants, T-2h otherwise).
+ * If not yet time, returns an error with how long to wait.
+ */
+app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/trigger-prestart-snapshot`, adminIpCheck, async (req, res) => {
+  try {
+    const challengeId = parseInt(req.params.id);
+
+    const challengeResult = await db.query(
+      `SELECT * FROM trading_challenges WHERE id = $1`, [challengeId]
+    );
+    if (challengeResult.rows.length === 0) return res.status(404).json({ error: 'Challenge not found' });
+    const challenge = challengeResult.rows[0];
+
+    if (challenge.status !== 'registration_open') {
+      return res.json({ success: false, message: `Challenge status is "${challenge.status}" — pre-start snapshot only runs during registration_open.` });
+    }
+
+    // Check participant count and time window
+    const totalParticipants = await db.query(
+      `SELECT COUNT(*) as cnt FROM trading_registrations
+       WHERE challenge_id = $1 AND investor_password IS NOT NULL AND connection_verified = true`,
+      [challengeId]
+    );
+    const participantCount = parseInt(totalParticipants.rows[0].cnt);
+    const leadHours = participantCount > 500 ? 3 : 2;
+
+    const nowMs = Date.now();
+    const startMs = new Date(challenge.start_date).getTime();
+    const windowMs = startMs - leadHours * 60 * 60 * 1000;
+
+    if (nowMs < windowMs) {
+      const minutesLeft = Math.round((windowMs - nowMs) / 60000);
+      const hoursLeft = Math.floor(minutesLeft / 60);
+      const minsLeft = minutesLeft % 60;
+      return res.json({
+        success: false,
+        message: `Not yet time. T-${leadHours}h window opens in ${hoursLeft}h ${minsLeft}m (${participantCount} participants → T-${leadHours}h lead time).`,
+      });
+    }
+
+    // Time window reached — trigger
+    const tradingScheduler = (global as any).__tradingScheduler;
+    if (!tradingScheduler) {
+      return res.status(503).json({ error: 'Trading scheduler not initialized yet' });
+    }
+
+    // Run in background (don't block the response)
+    tradingScheduler.checkPreStartSnapshot(challenge).catch((e: Error) => {
+      console.error('Manual pre-start snapshot error:', e);
+    });
+
+    return res.json({
+      success: true,
+      message: `Pre-start snapshot triggered for ${participantCount} participants (T-${leadHours}h). Check the Pulls tab for progress.`,
+    });
+  } catch (error) {
+    console.error('trigger-prestart-snapshot error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
  * POST /api/admin/:secretPath/challenge/:id/prestart-check-flagged
  * Bulk check all accounts with $0 balance or balance above starting limit
  * Runs in background — poll prestart-check-status for progress

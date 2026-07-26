@@ -218,7 +218,7 @@ export class TradingScheduler {
 
   private preStartSnapshotRunning = false;
 
-  private async checkPreStartSnapshot(challenge: TradingChallenge) {
+  async checkPreStartSnapshot(challenge: TradingChallenge) {
     if (challenge.status !== 'registration_open') return;
     if (this.preStartSnapshotRunning) return;
 
