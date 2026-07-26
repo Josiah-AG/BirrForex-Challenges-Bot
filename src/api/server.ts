@@ -4561,20 +4561,91 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/pull-single-status`, adminIpCheck, asyn
 
 /**
  * POST /api/admin/:secretPath/challenge/:id/retry-all-failed
- * Queue all failed accounts for retry in next cycle
+ * Immediately retry all credential-failed accounts via VPS and report results
  */
 app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/retry-all-failed`, adminIpCheck, async (req, res) => {
   try {
     const challengeId = parseInt(req.params.id);
-    const result = await db.query(
-      `UPDATE trading_registrations SET pull_status = 'retry_requested', pull_error = 'Bulk retry from admin panel'
-       WHERE challenge_id = $1 AND disqualified = false AND pull_status NOT IN ('success', 'password_changed')
-         AND pull_status IS NOT NULL
-       RETURNING id`,
+    const vpsUrl = config.vpsApiUrl;
+    const vpsKey = config.vpsApiKey;
+
+    // Get all accounts with credential failures (password_changed)
+    const failedAccounts = await db.query(
+      `SELECT id, account_number, mt5_server, investor_password, nickname
+       FROM trading_registrations
+       WHERE challenge_id = $1 AND disqualified = false AND pull_status = 'password_changed'
+         AND investor_password IS NOT NULL`,
       [challengeId]
     );
-    return res.json({ success: true, count: result.rowCount, message: `${result.rowCount} accounts queued for priority retry` });
+
+    if (failedAccounts.rows.length === 0) {
+      return res.json({ success: true, total: 0, recovered: 0, stillFailing: 0, message: 'No credential failures to retry' });
+    }
+
+    if (!vpsUrl || !vpsKey) {
+      // Fallback: just queue for next cycle
+      const result = await db.query(
+        `UPDATE trading_registrations SET pull_status = 'retry_requested', pull_error = 'Bulk retry from admin'
+         WHERE challenge_id = $1 AND disqualified = false AND pull_status = 'password_changed'
+         RETURNING id`,
+        [challengeId]
+      );
+      return res.json({ success: true, total: result.rowCount, recovered: 0, stillFailing: 0, message: `${result.rowCount} accounts queued (VPS not configured for immediate retry)` });
+    }
+
+    const axios = require('axios');
+    let recovered = 0;
+    let stillFailing = 0;
+    const results: Array<{ nickname: string; account: string; success: boolean; error?: string }> = [];
+
+    for (const reg of failedAccounts.rows) {
+      let success = false;
+      let error = '';
+
+      for (let terminalId = 1; terminalId <= 3; terminalId++) {
+        try {
+          const response = await axios.post(`${vpsUrl}/pull`, {
+            account: reg.account_number,
+            server: reg.mt5_server,
+            password: reg.investor_password,
+            api_key: vpsKey,
+            terminal_id: terminalId,
+          }, { timeout: 30000 });
+
+          if (response.data?.success) {
+            success = true;
+            await db.query(
+              `UPDATE trading_registrations SET pull_status = 'success', pull_error = NULL WHERE id = $1`,
+              [reg.id]
+            );
+            break;
+          } else {
+            error = response.data?.error || 'Connection failed';
+          }
+        } catch (e: any) {
+          error = e.response?.data?.error || e.message || 'VPS error';
+        }
+      }
+
+      if (success) {
+        recovered++;
+        results.push({ nickname: reg.nickname, account: reg.account_number, success: true });
+      } else {
+        stillFailing++;
+        results.push({ nickname: reg.nickname, account: reg.account_number, success: false, error });
+      }
+    }
+
+    return res.json({
+      success: true,
+      total: failedAccounts.rows.length,
+      recovered,
+      stillFailing,
+      results,
+      message: `Retry complete: ${recovered} recovered, ${stillFailing} still failing (of ${failedAccounts.rows.length} total)`,
+    });
   } catch (error) {
+    console.error('retry-all-failed error:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
 });

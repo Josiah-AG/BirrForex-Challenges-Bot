@@ -2876,10 +2876,20 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
 
   const handleRetryAll = async () => {
     setRetrying("all");
+    setActionMsg("⏳ Retrying all credential failures... This may take a moment.");
     try {
       const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/retry-all-failed`, { method: "POST" });
-      if (res.ok) { const data = await res.json(); setActionMsg(`✅ ${data.count} accounts queued for retry`); fetchFailed(); }
-      else setActionMsg("❌ Failed");
+      if (res.ok) {
+        const data = await res.json();
+        if (data.total === 0) {
+          setActionMsg("✅ No credential failures to retry.");
+        } else {
+          setActionMsg(`✅ Retry complete: ${data.recovered} recovered ✓ / ${data.stillFailing} still failing ✗ (of ${data.total} total)`);
+        }
+        fetchFailed();
+      } else {
+        setActionMsg("❌ Failed");
+      }
     } catch (_e) { setActionMsg("❌ Connection error"); }
     setRetrying(null);
   };
