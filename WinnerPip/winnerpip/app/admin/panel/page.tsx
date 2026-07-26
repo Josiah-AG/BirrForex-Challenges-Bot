@@ -3141,7 +3141,10 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
       {/* Credential Failures List — only password_changed / invalid_credentials accounts */}
       {(showFilter === "credential" || showFilter === "all") && (
         <div className="glass rounded-2xl border border-gold/20 p-5">
-          <h3 className="text-sm font-semibold text-gold mb-4">🔑 Credential Failures ({credentialFailures.length})</h3>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-semibold text-gold">🔑 Credential Failures ({credentialFailures.length})</h3>
+            {credentialFailures.length > 0 && <button onClick={handleRetryAll} disabled={retrying === "all"} className="px-3 py-1.5 rounded-lg bg-gold/10 border border-gold/30 text-gold text-[10px] font-bold hover:bg-gold/20 transition-all disabled:opacity-50">{retrying === "all" ? "Retrying..." : "🔄 Retry All"}</button>}
+          </div>
           {credentialFailures.length === 0 ? (
             <p className="text-[11px] text-profit text-center py-2">✅ No credential failures right now.</p>
           ) : (
