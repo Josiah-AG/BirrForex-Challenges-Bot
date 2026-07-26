@@ -2738,19 +2738,14 @@ function AboveTargetList({ challengeId }: { challengeId: string }) {
           const challengeRes = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/overview`);
           const challengeData = challengeRes.ok ? await challengeRes.json() : null;
           const targetBalance = challengeData?.challenge?.targetBalance || 60;
-          const startingBalance = challengeData?.challenge?.startingBalance || 30;
           const isPreStart = data.preStart || false;
 
-          // Pre-start: show users above STARTING balance (these get DQ'd)
-          // Active: show users above TARGET balance (qualified winners)
-          const threshold = isPreStart ? startingBalance : targetBalance;
-
+          // Above Target = above the challenge TARGET balance
           const aboveTarget = (data.leaderboard || []).filter((e: any) => {
             if (e.isWithdrawn || e.isBlown) return false;
-            // During pre-start, include DQ'd users (they were DQ'd FOR being above limit)
             if (!isPreStart && e.isDisqualified) return false;
-            const limit = e.isCent ? threshold * 100 : threshold;
-            return Number(e.adjustedBalance) > limit * 1.01;
+            const limit = e.isCent ? targetBalance * 100 : targetBalance;
+            return Number(e.adjustedBalance) >= limit;
           });
           setUsers(aboveTarget);
         }
