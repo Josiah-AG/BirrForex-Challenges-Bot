@@ -337,7 +337,7 @@ export class TradingScheduler {
         const tolerance = limit * 0.01;
 
         await db.query(
-          `UPDATE trading_registrations SET actual_starting_balance = $1, last_known_balance = $1 WHERE id = $2`,
+          `UPDATE trading_registrations SET actual_starting_balance = $1, last_known_balance = $1, last_pull_at = NOW() WHERE id = $2`,
           [balance, reg.id]
         );
         verified++;
