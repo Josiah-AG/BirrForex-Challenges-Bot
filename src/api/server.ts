@@ -641,31 +641,38 @@ app.get('/api/challenges/:id/leaderboard', async (req, res) => {
       total,
       hasMore: offset + limit < total,
       myContext,
-      leaderboard: result.rows.map(r => ({
-        nickname: r.nickname,
-        accountType: r.account_type,
-        rank: r.rank,
-        currentBalance: parseFloat(r.current_balance),
-        adjustedBalance: parseFloat(r.adjusted_balance),
-        qualifiedProfit: parseFloat(r.qualified_profit),
-        grossProfit: parseFloat(r.gross_profit),
-        profitRemoved: parseFloat(r.profit_removed),
-        totalTrades: r.total_trades,
-        qualifiedTrades: r.qualified_trades,
-        flaggedTrades: r.flagged_trades,
-        isQualified: r.is_qualified,
-        isDisqualified: r.is_disqualified || false,
-        disqualifyReason: r.disqualify_reason || null,
-        isBlown: !r.is_withdrawn && (
-          (r.total_trades > 0 && parseFloat(r.current_balance) <= 0) ||
-          r.zero_balance_at !== null
-        ),
-        isWithdrawn: r.is_withdrawn || false,
-        totalWithdrawn: parseFloat(r.total_withdrawn) || 0,
-        isCent: r.is_cent || false,
-        lastTradeTime: r.last_trade_time,
-        lastUpdated: r.last_updated,
-      })),
+      leaderboard: (() => {
+        let currentRank = offset; // Start from offset since this is paginated
+        return result.rows.map((r: any) => {
+          const isDq = r.is_disqualified || r.reg_disqualified || false;
+          if (!isDq) currentRank++;
+          return {
+            nickname: r.nickname,
+            accountType: r.account_type,
+            rank: isDq ? null : currentRank,
+            currentBalance: parseFloat(r.current_balance),
+            adjustedBalance: parseFloat(r.adjusted_balance),
+            qualifiedProfit: parseFloat(r.qualified_profit),
+            grossProfit: parseFloat(r.gross_profit),
+            profitRemoved: parseFloat(r.profit_removed),
+            totalTrades: r.total_trades,
+            qualifiedTrades: r.qualified_trades,
+            flaggedTrades: r.flagged_trades,
+            isQualified: r.is_qualified,
+            isDisqualified: isDq,
+            disqualifyReason: r.disqualify_reason || r.reg_disqualified_reason || null,
+            isBlown: !isDq && !r.is_withdrawn && r.total_trades > 0 && (
+              (parseFloat(r.current_balance) <= 0) ||
+              r.zero_balance_at !== null
+            ),
+            isWithdrawn: r.is_withdrawn || false,
+            totalWithdrawn: parseFloat(r.total_withdrawn) || 0,
+            isCent: r.is_cent || false,
+            lastTradeTime: r.last_trade_time,
+            lastUpdated: r.last_updated,
+          };
+        });
+      })(),
     });
   } catch (error) {
     console.error('Leaderboard error:', error);
@@ -3011,6 +3018,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/admin-leaderboard`, admin
     const dataFrom = challengeRow.rows[0]?.leaderboard_updated_at || null;
 
     const catFilter  = (category === 'demo' || category === 'real') ? ` AND r.account_type = '${category}'` : '';
+    const catFilterLeaderboard = (category === 'demo' || category === 'real') ? ` AND l.account_type = '${category}'` : '';
     const centCheck  = await db.query(
       `SELECT COALESCE((SELECT (parameters->>'only_cent_account')::boolean FROM wp_challenge_rules WHERE challenge_id = $1 AND rule_code = 'config'), false) as only_cent FROM trading_challenges WHERE id = $1`,
       [challengeId]
@@ -3131,43 +3139,48 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/admin-leaderboard`, admin
       preStart: false,
       total: result.rows.length,
       challengeOnlyCent,
-      leaderboard: result.rows.map((r: any) => {
-        const hasLeaderboard = r.rank != null;
-        const isCent = r.is_cent || (challengeOnlyCent && r.account_type !== 'demo') || false;
-        const fallbackBalance = r.last_known_balance != null
-          ? parseFloat(r.last_known_balance)
-          : r.registration_balance != null ? parseFloat(r.registration_balance) : 0;
-        return {
-          registrationId: r.registration_id,
-          nickname: r.nickname,
-          email: r.email || null,
-          accountNumber: r.account_number || null,
-          accountType: r.account_type,
-          rank: r.rank || null,
-          currentBalance: hasLeaderboard ? parseFloat(r.current_balance) : fallbackBalance,
-          adjustedBalance: hasLeaderboard ? parseFloat(r.adjusted_balance) : fallbackBalance,
-          qualifiedProfit: hasLeaderboard ? parseFloat(r.qualified_profit) : 0,
-          grossProfit: hasLeaderboard ? parseFloat(r.gross_profit) : 0,
-          profitRemoved: hasLeaderboard ? parseFloat(r.profit_removed) : 0,
-          totalTrades: r.total_trades || 0,
-          qualifiedTrades: r.qualified_trades || 0,
-          flaggedTrades: r.flagged_trades || 0,
-          isQualified: r.is_qualified || false,
-          isDisqualified: r.is_disqualified || r.disqualified || false,
-          disqualifyReason: r.disqualify_reason || r.disqualified_reason || null,
-          isBlown: !r.is_withdrawn && (
-            (r.total_trades > 0 && parseFloat(r.current_balance) <= 0) ||
-            (r.last_known_equity !== null && r.last_known_equity !== undefined && parseFloat(r.last_known_equity) <= 0) ||
-            r.zero_balance_at !== null
-          ),
-          isWithdrawn: r.is_withdrawn || false,
-          totalWithdrawn: parseFloat(r.total_withdrawn) || 0,
-          isCent,
-          lastTradeTime: r.last_trade_time,
-          lastUpdated: r.last_updated,
-          notYetEvaluated: !hasLeaderboard,
-        };
-      }),
+      leaderboard: (() => {
+        // Re-number ranks: DQ'd users don't count in ranking
+        let currentRank = 0;
+        return result.rows.map((r: any) => {
+          const hasLeaderboard = r.rank != null;
+          const isCent = r.is_cent || (challengeOnlyCent && r.account_type !== 'demo') || false;
+          const fallbackBalance = r.last_known_balance != null
+            ? parseFloat(r.last_known_balance)
+            : r.registration_balance != null ? parseFloat(r.registration_balance) : 0;
+          const isDq = r.is_disqualified || r.disqualified || false;
+          if (!isDq) currentRank++;
+          return {
+            registrationId: r.registration_id,
+            nickname: r.nickname,
+            email: r.email || null,
+            accountNumber: r.account_number || null,
+            accountType: r.account_type,
+            rank: isDq ? null : currentRank,
+            currentBalance: hasLeaderboard ? parseFloat(r.current_balance) : fallbackBalance,
+            adjustedBalance: hasLeaderboard ? parseFloat(r.adjusted_balance) : fallbackBalance,
+            qualifiedProfit: hasLeaderboard ? parseFloat(r.qualified_profit) : 0,
+            grossProfit: hasLeaderboard ? parseFloat(r.gross_profit) : 0,
+            profitRemoved: hasLeaderboard ? parseFloat(r.profit_removed) : 0,
+            totalTrades: r.total_trades || 0,
+            qualifiedTrades: r.qualified_trades || 0,
+            flaggedTrades: r.flagged_trades || 0,
+            isQualified: r.is_qualified || false,
+            isDisqualified: isDq,
+            disqualifyReason: r.disqualify_reason || r.disqualified_reason || null,
+            isBlown: !isDq && !r.is_withdrawn && r.total_trades > 0 && (
+              (parseFloat(r.current_balance || '0') <= 0) ||
+              r.zero_balance_at !== null
+            ),
+            isWithdrawn: r.is_withdrawn || false,
+            totalWithdrawn: parseFloat(r.total_withdrawn) || 0,
+            isCent,
+            lastTradeTime: r.last_trade_time,
+            lastUpdated: r.last_updated,
+            notYetEvaluated: !hasLeaderboard,
+          };
+        });
+      })(),
     });
   } catch (error) {
     console.error('Admin leaderboard error:', error);
