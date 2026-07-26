@@ -631,33 +631,7 @@ export default function AdminDashboard() {
                 <div className="flex items-center gap-2"><Trophy size={18} className="text-gold" /><h3 className="text-sm font-bold text-white">Above Target ({overview.aboveTarget})</h3></div>
                 <button onClick={() => setShowAboveTarget(false)} className="p-2 hover:bg-white/10 rounded-lg"><X size={16} className="text-gray-400" /></button>
               </div>
-              <div className="divide-y divide-white/5">
-                {leaderboard.filter(e => {
-                  if (e.isDisqualified || e.isWithdrawn || e.isBlown) return false;
-                  const isRealCentOnly = selectedChall?.type === 'real' && leaderboardCentOnly;
-                  const target = (e.isCent && !isRealCentOnly) ? Number(selectedChall?.targetBalance || 0) * 100 : Number(selectedChall?.targetBalance || 0);
-                  return Number(e.adjustedBalance) >= target;
-                }).map((e: any) => (
-                  <div key={e.nickname} className="flex items-center justify-between px-4 py-3 hover:bg-white/5">
-                    <div className="flex items-center gap-3">
-                      <span className="text-sm font-bold text-gold w-8">#{e.rank}</span>
-                      <div>
-                        <p className="text-sm font-semibold text-white">{e.nickname}</p>
-                        <p className="text-[10px] text-gray-500">{e.accountType} • {e.totalTrades} trades</p>
-                      </div>
-                    </div>
-                    <p className="text-sm font-bold text-profit">{e.isCent ? `${Number(e.adjustedBalance).toFixed(2)}¢` : `$${Number(e.adjustedBalance).toFixed(2)}`}</p>
-                  </div>
-                ))}
-                {leaderboard.filter(e => {
-                  if (e.isDisqualified || e.isWithdrawn || e.isBlown) return false;
-                  const isRealCentOnly = selectedChall?.type === 'real' && leaderboardCentOnly;
-                  const target = (e.isCent && !isRealCentOnly) ? Number(selectedChall?.targetBalance || 0) * 100 : Number(selectedChall?.targetBalance || 0);
-                  return Number(e.adjustedBalance) >= target;
-                }).length === 0 && (
-                  <div className="p-8 text-center"><p className="text-gray-500 text-sm">No users above target yet. Load the leaderboard first.</p></div>
-                )}
-              </div>
+              <AboveTargetList challengeId={selectedChallengeId} />
             </div>
           </div>
         )}
@@ -2745,6 +2719,57 @@ function SlFailuresPanel({ challengeId, slFailures, apiUrl, secretPath }: { chal
           <p className="text-[11px] text-profit text-center py-2">✅ All SL checks resolved!</p>
         )}
       </div>
+    </div>
+  );
+}
+
+function AboveTargetList({ challengeId }: { challengeId: string }) {
+  const [users, setUsers] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchAboveTarget = async () => {
+      try {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
+        const secretPath = process.env.NEXT_PUBLIC_ADMIN_PATH || "";
+        const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/admin-leaderboard?category=all`);
+        if (res.ok) {
+          const data = await res.json();
+          // Get target from challenge info
+          const challengeRes = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/overview`);
+          const challengeData = challengeRes.ok ? await challengeRes.json() : null;
+          const targetBalance = challengeData?.challenge?.targetBalance || 60;
+
+          const aboveTarget = (data.leaderboard || []).filter((e: any) => {
+            if (e.isDisqualified || e.isWithdrawn || e.isBlown) return false;
+            const target = e.isCent ? targetBalance * 100 : targetBalance;
+            return Number(e.adjustedBalance) >= target;
+          });
+          setUsers(aboveTarget);
+        }
+      } catch {}
+      setLoading(false);
+    };
+    fetchAboveTarget();
+  }, [challengeId]);
+
+  if (loading) return <div className="p-8 text-center"><Loader2 className="w-5 h-5 text-gold animate-spin mx-auto" /></div>;
+  if (users.length === 0) return <div className="p-8 text-center"><p className="text-gray-500 text-sm">No users above target.</p></div>;
+
+  return (
+    <div className="divide-y divide-white/5">
+      {users.map((e: any) => (
+        <div key={e.nickname} className="flex items-center justify-between px-4 py-3 hover:bg-white/5">
+          <div className="flex items-center gap-3">
+            <span className="text-sm font-bold text-gold w-8">#{e.rank || "—"}</span>
+            <div>
+              <p className="text-sm font-semibold text-white">{e.nickname}</p>
+              <p className="text-[10px] text-gray-500">{e.accountType} • {e.email || ""}</p>
+            </div>
+          </div>
+          <p className="text-sm font-bold text-profit">{e.isCent ? `${Number(e.adjustedBalance).toFixed(2)}¢` : `$${Number(e.adjustedBalance).toFixed(2)}`}</p>
+        </div>
+      ))}
     </div>
   );
 }
