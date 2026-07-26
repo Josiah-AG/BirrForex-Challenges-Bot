@@ -3021,13 +3021,18 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/admin-leaderboard`, admin
 
     // PRE-START: rank from trading_registrations directly (same logic as client endpoint)
     if (isPreStart) {
+      // For "all": unified ranking across both categories
+      // For "real"/"demo": category-specific ranking (catFilter already filters)
+      const partitionClause = (category === 'demo' || category === 'real') ? 'PARTITION BY r.account_type' : '';
+      const orderByFinal = (category === 'demo' || category === 'real') ? 'ORDER BY r.account_type, rank' : 'ORDER BY rank';
+
       const regResult = await db.query(
         `SELECT r.id as registration_id, r.nickname, r.account_type, r.is_cent,
                 r.email, r.account_number,
                 r.registration_balance, r.last_known_balance, r.last_known_equity, r.actual_starting_balance,
                 r.disqualified, r.disqualified_reason,
                 ROW_NUMBER() OVER (
-                  PARTITION BY r.account_type
+                  ${partitionClause}
                   ORDER BY CASE WHEN r.disqualified = true THEN 1 ELSE 0 END,
                     CASE WHEN COALESCE(r.is_cent, false)
                     THEN COALESCE(r.last_known_balance, r.actual_starting_balance, r.registration_balance, 0) / 100.0
@@ -3038,7 +3043,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/admin-leaderboard`, admin
          WHERE r.challenge_id = $1
            AND (r.status IS NULL OR r.status != 'removed')
            ${catFilter}
-         ORDER BY r.account_type, rank`,
+         ${orderByFinal}`,
         [challengeId]
       );
 
@@ -3084,6 +3089,23 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/admin-leaderboard`, admin
 
     // ACTIVE/REVIEWING/COMPLETED: use wp_leaderboard data
     // All participants LEFT JOIN leaderboard — unevaluated accounts still appear
+    // For "all": unified ordering by balance (ignore per-category l.rank)
+    // For "real"/"demo": use l.rank which is category-specific
+    const orderByActive = (category === 'demo' || category === 'real')
+      ? `ORDER BY
+         CASE WHEN l.is_disqualified = true OR r.disqualified = true THEN 1 ELSE 0 END,
+         l.rank ASC NULLS LAST,
+         CASE WHEN COALESCE(r.is_cent, false)
+           THEN COALESCE(l.adjusted_balance, r.last_known_balance, r.registration_balance, 0) / 100.0
+           ELSE COALESCE(l.adjusted_balance, r.last_known_balance, r.registration_balance, 0)
+         END DESC NULLS LAST`
+      : `ORDER BY
+         CASE WHEN l.is_disqualified = true OR r.disqualified = true THEN 1 ELSE 0 END,
+         CASE WHEN COALESCE(r.is_cent, false)
+           THEN COALESCE(l.adjusted_balance, r.last_known_balance, r.registration_balance, 0) / 100.0
+           ELSE COALESCE(l.adjusted_balance, r.last_known_balance, r.registration_balance, 0)
+         END DESC NULLS LAST`;
+
     const result = await db.query(
       `SELECT r.id as registration_id, r.nickname, r.account_type, r.is_cent,
               r.email, r.account_number,
@@ -3100,13 +3122,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/admin-leaderboard`, admin
        WHERE r.challenge_id = $1
          AND (r.status IS NULL OR r.status != 'removed')
          ${catFilter}
-       ORDER BY
-         CASE WHEN l.is_disqualified = true OR r.disqualified = true THEN 1 ELSE 0 END,
-         l.rank ASC NULLS LAST,
-         CASE WHEN COALESCE(r.is_cent, false)
-           THEN COALESCE(l.adjusted_balance, r.last_known_balance, r.registration_balance, 0) / 100.0
-           ELSE COALESCE(l.adjusted_balance, r.last_known_balance, r.registration_balance, 0)
-         END DESC NULLS LAST`,
+       ${orderByActive}`,
       [challengeId]
     );
 
