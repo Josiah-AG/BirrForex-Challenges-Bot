@@ -4561,7 +4561,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/pull-single-status`, adminIpCheck, asyn
 
 /**
  * POST /api/admin/:secretPath/challenge/:id/retry-all-failed
- * Immediately retry all credential-failed accounts via VPS and report results
+ * Immediately retry all credential-failed accounts via VPS — streams progress via SSE
  */
 app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/retry-all-failed`, adminIpCheck, async (req, res) => {
   try {
@@ -4585,7 +4585,6 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/retry-all-failed`, admin
     }
 
     if (!vpsUrl || !vpsKey) {
-      // Fallback: just queue for next cycle
       const result = await db.query(
         `UPDATE trading_registrations SET pull_status = 'retry_requested', pull_error = 'Bulk retry from admin'
          WHERE challenge_id = $1 AND disqualified = false AND pull_status = 'password_changed'
@@ -4595,12 +4594,23 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/retry-all-failed`, admin
       return res.json({ success: true, total: result.rowCount, recovered: 0, stillFailing: 0, message: `${result.rowCount} accounts queued (VPS not configured for immediate retry)` });
     }
 
+    // Stream progress via SSE
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+    });
+
+    const total = failedAccounts.rows.length;
     const axios = require('axios');
     let recovered = 0;
     let stillFailing = 0;
-    const results: Array<{ nickname: string; account: string; success: boolean; error?: string }> = [];
 
-    for (const reg of failedAccounts.rows) {
+    // Send initial count
+    res.write(`data: ${JSON.stringify({ type: 'start', total })}\n\n`);
+
+    for (let i = 0; i < failedAccounts.rows.length; i++) {
+      const reg = failedAccounts.rows[i];
       let success = false;
       let error = '';
 
@@ -4631,11 +4641,8 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/retry-all-failed`, admin
 
       if (success) {
         recovered++;
-        results.push({ nickname: reg.nickname, account: reg.account_number, success: true });
       } else {
         stillFailing++;
-        results.push({ nickname: reg.nickname, account: reg.account_number, success: false, error });
-
         // Send DM to user that their account still can't be accessed
         if (reg.user_id && reg.source !== 'discord') {
           try {
@@ -4647,24 +4654,24 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/retry-all-failed`, admin
                 : `⚠️ <b>Account Access Issue — ${reg.challenge_title}</b>\n\nWe still cannot access your MT5 account (${reg.account_number}).\n\nYour investor password may have been changed or the account may have been deleted.\n\n📌 Please update your investor password on the dashboard or use /start → "Change Account" to fix this.`;
               await telegram.sendMessage(reg.user_id, msg, { parse_mode: 'HTML' });
             }
-          } catch (_dmErr) {
-            // Silent — DM failure is not critical
-          }
+          } catch (_dmErr) {}
         }
       }
+
+      // Send progress update
+      res.write(`data: ${JSON.stringify({ type: 'progress', current: i + 1, total, recovered, stillFailing, nickname: reg.nickname, success })}\n\n`);
     }
 
-    return res.json({
-      success: true,
-      total: failedAccounts.rows.length,
-      recovered,
-      stillFailing,
-      results,
-      message: `Retry complete: ${recovered} recovered, ${stillFailing} still failing (of ${failedAccounts.rows.length} total)`,
-    });
+    // Send final result
+    res.write(`data: ${JSON.stringify({ type: 'done', total, recovered, stillFailing })}\n\n`);
+    res.end();
   } catch (error) {
     console.error('retry-all-failed error:', error);
-    return res.status(500).json({ error: 'Internal server error' });
+    if (!res.headersSent) {
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+    res.write(`data: ${JSON.stringify({ type: 'error', message: 'Internal server error' })}\n\n`);
+    res.end();
   }
 });
 

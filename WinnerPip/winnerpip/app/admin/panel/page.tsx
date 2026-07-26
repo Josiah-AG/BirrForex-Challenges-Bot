@@ -2874,23 +2874,56 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
     setRetrying(null);
   };
 
+  const [retryProgress, setRetryProgress] = useState<{ current: number; total: number; recovered: number; stillFailing: number } | null>(null);
+  const [retryResult, setRetryResult] = useState<{ total: number; recovered: number; stillFailing: number } | null>(null);
+
   const handleRetryAll = async () => {
     setRetrying("all");
-    setActionMsg("⏳ Retrying all credential failures... This may take a moment.");
+    setActionMsg("");
+    setRetryResult(null);
+    setRetryProgress({ current: 0, total: credentialFailures.length, recovered: 0, stillFailing: 0 });
     try {
       const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/retry-all-failed`, { method: "POST" });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.total === 0) {
-          setActionMsg("✅ No credential failures to retry.");
-        } else {
-          setActionMsg(`✅ Retry complete: ${data.recovered} recovered ✓ / ${data.stillFailing} still failing ✗ (of ${data.total} total)`);
-        }
-        fetchFailed();
-      } else {
-        setActionMsg("❌ Failed");
+      const reader = res.body?.getReader();
+      const decoder = new TextDecoder();
+
+      if (!reader) {
+        setActionMsg("❌ No response stream");
+        setRetrying(null);
+        setRetryProgress(null);
+        return;
       }
-    } catch (_e) { setActionMsg("❌ Connection error"); }
+
+      let buffer = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          try {
+            const data = JSON.parse(line.slice(6));
+            if (data.type === 'start') {
+              setRetryProgress({ current: 0, total: data.total, recovered: 0, stillFailing: 0 });
+            } else if (data.type === 'progress') {
+              setRetryProgress({ current: data.current, total: data.total, recovered: data.recovered, stillFailing: data.stillFailing });
+            } else if (data.type === 'done') {
+              setRetryResult({ total: data.total, recovered: data.recovered, stillFailing: data.stillFailing });
+              setRetryProgress(null);
+              fetchFailed();
+            } else if (data.type === 'error') {
+              setActionMsg(`❌ ${data.message}`);
+              setRetryProgress(null);
+            }
+          } catch {}
+        }
+      }
+    } catch (_e) {
+      setActionMsg("❌ Connection error");
+      setRetryProgress(null);
+    }
     setRetrying(null);
   };
 
@@ -3145,6 +3178,33 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
             <h3 className="text-sm font-semibold text-gold">🔑 Credential Failures ({credentialFailures.length})</h3>
             {credentialFailures.length > 0 && <button onClick={handleRetryAll} disabled={retrying === "all"} className="px-3 py-1.5 rounded-lg bg-gold/10 border border-gold/30 text-gold text-[10px] font-bold hover:bg-gold/20 transition-all disabled:opacity-50">{retrying === "all" ? "Retrying..." : "🔄 Retry All"}</button>}
           </div>
+          {/* Progress bar during retry */}
+          {retryProgress && (
+            <div className="mb-4 p-3 rounded-xl bg-white/5 border border-white/10">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs text-gray-300">Retrying... {retryProgress.current}/{retryProgress.total}</p>
+                <p className="text-[10px] text-gray-500">{Math.round((retryProgress.current / retryProgress.total) * 100)}%</p>
+              </div>
+              <div className="w-full h-2 bg-white/10 rounded-full overflow-hidden">
+                <div className="h-full rounded-full bg-gradient-to-r from-gold to-profit transition-all duration-300" style={{ width: `${(retryProgress.current / retryProgress.total) * 100}%` }} />
+              </div>
+              <div className="flex gap-4 mt-2 text-[10px]">
+                <span className="text-profit">✓ {retryProgress.recovered} recovered</span>
+                <span className="text-loss">✗ {retryProgress.stillFailing} still failing</span>
+              </div>
+            </div>
+          )}
+          {/* Final result report */}
+          {retryResult && !retryProgress && (
+            <div className="mb-4 p-3 rounded-xl bg-white/5 border border-profit/20">
+              <p className="text-xs font-semibold text-white mb-1">Retry Complete</p>
+              <div className="flex gap-4 text-xs">
+                <span className="text-profit font-bold">✓ {retryResult.recovered} recovered</span>
+                <span className="text-loss font-bold">✗ {retryResult.stillFailing} still failing</span>
+                <span className="text-gray-400">of {retryResult.total} total</span>
+              </div>
+            </div>
+          )}
           {credentialFailures.length === 0 ? (
             <p className="text-[11px] text-profit text-center py-2">✅ No credential failures right now.</p>
           ) : (
