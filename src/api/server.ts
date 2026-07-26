@@ -4560,6 +4560,170 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/pull-single-status`, adminIpCheck, asyn
 });
 
 /**
+ * POST /api/admin/:secretPath/challenge/:id/prestart-check-balance
+ * Check balance for a single account (pre-start) — updates last_known_balance
+ * Body: { registrationId }
+ */
+app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/prestart-check-balance`, adminIpCheck, async (req, res) => {
+  try {
+    const challengeId = parseInt(req.params.id);
+    const { registrationId } = req.body;
+    if (!registrationId) return res.status(400).json({ error: 'registrationId required' });
+
+    const regResult = await db.query(
+      `SELECT id, account_number, mt5_server, investor_password, is_cent, nickname
+       FROM trading_registrations WHERE id = $1 AND challenge_id = $2`,
+      [registrationId, challengeId]
+    );
+    if (regResult.rows.length === 0) return res.status(404).json({ error: 'Registration not found' });
+    const reg = regResult.rows[0];
+
+    if (!reg.investor_password) return res.json({ success: false, message: 'No investor password stored' });
+
+    const { vpsService } = require('../services/vpsService');
+    const result = await vpsService.verifyConnection(reg.account_number, reg.mt5_server, reg.investor_password);
+
+    if (!result.success || result.balance === undefined || result.balance === null) {
+      return res.json({ success: false, message: result.error || 'Could not connect to account', credential_fail: true });
+    }
+
+    const balance = result.balance as number;
+    await db.query(
+      `UPDATE trading_registrations SET last_known_balance = $1 WHERE id = $2`,
+      [balance, reg.id]
+    );
+
+    return res.json({ success: true, balance, nickname: reg.nickname, isCent: reg.is_cent });
+  } catch (error) {
+    console.error('prestart-check-balance error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * POST /api/admin/:secretPath/challenge/:id/prestart-check-flagged
+ * Bulk check all accounts with $0 balance or balance above starting limit
+ * Returns results with success/failure counts
+ */
+app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/prestart-check-flagged`, adminIpCheck, async (req, res) => {
+  try {
+    const challengeId = parseInt(req.params.id);
+
+    const challengeInfo = await db.query(
+      `SELECT starting_balance, title FROM trading_challenges WHERE id = $1`, [challengeId]
+    );
+    if (challengeInfo.rows.length === 0) return res.status(404).json({ error: 'Challenge not found' });
+    const startingBalance = Number(challengeInfo.rows[0].starting_balance);
+    const challengeTitle = challengeInfo.rows[0].title;
+
+    // Get accounts with $0 balance or balance above starting balance (with 1% tolerance)
+    const accounts = await db.query(
+      `SELECT id, account_number, mt5_server, investor_password, is_cent, nickname, user_id, source, lang,
+              COALESCE(last_known_balance, registration_balance, 0) as current_balance
+       FROM trading_registrations
+       WHERE challenge_id = $1
+         AND disqualified = false
+         AND investor_password IS NOT NULL
+         AND connection_verified = true
+         AND (pull_status IS NULL OR pull_status NOT IN ('password_changed'))
+         AND (
+           COALESCE(last_known_balance, registration_balance, 0) = 0
+           OR CASE WHEN is_cent
+                THEN COALESCE(last_known_balance, registration_balance, 0) > ($2 * 100 * 1.01)
+                ELSE COALESCE(last_known_balance, registration_balance, 0) > ($2 * 1.01)
+              END
+         )`,
+      [challengeId, startingBalance]
+    );
+
+    if (accounts.rows.length === 0) {
+      return res.json({ success: true, total: 0, updated: 0, failed: 0, dmsSent: 0, message: 'No accounts need checking' });
+    }
+
+    const { vpsService } = require('../services/vpsService');
+    const telegram = getTelegram();
+    let updated = 0, failed = 0, credentialFailed = 0, dmsSent = 0;
+    const results: Array<{ nickname: string; account: string; oldBalance: number; newBalance?: number; success: boolean; error?: string; dmSent?: boolean }> = [];
+
+    for (const reg of accounts.rows) {
+      try {
+        const result = await vpsService.verifyConnection(reg.account_number, reg.mt5_server, reg.investor_password);
+
+        if (!result.success || result.balance === undefined || result.balance === null) {
+          failed++;
+          if (!result.success) credentialFailed++;
+          results.push({ nickname: reg.nickname, account: reg.account_number, oldBalance: parseFloat(reg.current_balance), success: false, error: result.error || 'Connection failed' });
+          continue;
+        }
+
+        const balance = result.balance as number;
+        await db.query(
+          `UPDATE trading_registrations SET last_known_balance = $1 WHERE id = $2`,
+          [balance, reg.id]
+        );
+
+        // Update balance_warning flag
+        const limit = reg.is_cent ? startingBalance * 100 : startingBalance;
+        const tolerance = limit * 0.01;
+        const currency = reg.is_cent ? '¢' : '$';
+        let sentDm = false;
+
+        if (balance > limit + tolerance) {
+          await db.query(`UPDATE trading_registrations SET balance_warning = true WHERE id = $1`, [reg.id]);
+          // DM: balance too high
+          if (reg.user_id && reg.source !== 'discord' && telegram) {
+            try {
+              const excess = balance - limit;
+              const lang = reg.lang || 'en';
+              const msg = lang === 'am'
+                ? `⚠️ <b>ባላንስ ከፍ ያለ ነው — ${challengeTitle}</b>\n\nየእርስዎ MT5 መለያ (${reg.account_number}) ባላንስ <b>${currency}${balance.toFixed(2)}</b> ሲሆን ከተፈቀደው <b>${currency}${limit.toFixed(2)}</b> በላይ ነው።\n\n📌 ቻሌንጅ ከመጀመሩ በፊት <b>${currency}${excess.toFixed(2)}</b> ያውጡ ወይም ያስተላልፉ። ካልተስተካከለ በራስ-ሰር ይወጣሉ።`
+                : `⚠️ <b>Balance Too High — ${challengeTitle}</b>\n\nYour MT5 account (${reg.account_number}) balance is <b>${currency}${balance.toFixed(2)}</b>, which exceeds the allowed limit of <b>${currency}${limit.toFixed(2)}</b>.\n\n📌 Please withdraw or transfer <b>${currency}${excess.toFixed(2)}</b> before the challenge starts or you will be automatically disqualified.`;
+              await telegram.sendMessage(reg.user_id, msg, { parse_mode: 'HTML' });
+              sentDm = true; dmsSent++;
+            } catch (_e) {}
+          }
+        } else if (balance === 0) {
+          await db.query(`UPDATE trading_registrations SET balance_warning = false WHERE id = $1`, [reg.id]);
+          // DM: balance is $0
+          if (reg.user_id && reg.source !== 'discord' && telegram) {
+            try {
+              const lang = reg.lang || 'en';
+              const msg = lang === 'am'
+                ? `⚠️ <b>ባላንስ $0 — ${challengeTitle}</b>\n\nየእርስዎ MT5 አካውንት (${reg.account_number}) ባላንስ <b>${currency}0.00</b> ነው።\n\n📌 ቻሌንጅ ከመጀመሩ በፊት እባክዎ ወደ አካውንቶ ገንዘብ ያስገቡ። ያለ ባላንስ ቻሌንጁን መጀመር አይችሉም።`
+                : `⚠️ <b>Deposit Required — ${challengeTitle}</b>\n\nYour MT5 account (${reg.account_number}) currently has a <b>${currency}0.00</b> balance.\n\n📌 Please deposit funds to your account before the challenge starts. You cannot participate with zero balance.`;
+              await telegram.sendMessage(reg.user_id, msg, { parse_mode: 'HTML' });
+              sentDm = true; dmsSent++;
+            } catch (_e) {}
+          }
+        } else {
+          await db.query(`UPDATE trading_registrations SET balance_warning = false WHERE id = $1`, [reg.id]);
+        }
+
+        updated++;
+        results.push({ nickname: reg.nickname, account: reg.account_number, oldBalance: parseFloat(reg.current_balance), newBalance: balance, success: true, dmSent: sentDm });
+      } catch (e) {
+        failed++;
+        results.push({ nickname: reg.nickname, account: reg.account_number, oldBalance: parseFloat(reg.current_balance), success: false, error: 'VPS error' });
+      }
+    }
+
+    return res.json({
+      success: true,
+      total: accounts.rows.length,
+      updated,
+      failed,
+      credentialFailed,
+      dmsSent,
+      results,
+      message: `Checked ${accounts.rows.length}: ${updated} updated, ${failed} failed${credentialFailed > 0 ? ` (${credentialFailed} credential)` : ''}, ${dmsSent} DMs sent`,
+    });
+  } catch (error) {
+    console.error('prestart-check-flagged error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
  * POST /api/admin/:secretPath/challenge/:id/retry-all-failed
  * Immediately retry all credential-failed accounts via VPS — streams progress via SSE
  */
