@@ -312,6 +312,7 @@ export default function AdminDashboard() {
   const [leaderboardCategory, setLeaderboardCategory] = useState<"all" | "demo" | "real">("all");
   const [flaggedParticipants, setFlaggedParticipants] = useState<any[]>([]);
   const [screeningData, setScreeningData] = useState<any>(null);
+  const [showAboveTarget, setShowAboveTarget] = useState(false);
 
   const categorizeViolation = (rule: string): string => {
     if (/daily.*drawdown breach/i.test(rule)) return 'Daily drawdown breach';
@@ -532,7 +533,7 @@ export default function AdminDashboard() {
             <StatCard icon={<Users size={16} />} label="Participants" value={overview.totalParticipants.toLocaleString()} sub={`Demo: ${overview.demoParticipants} | Real: ${overview.realParticipants}`} color="text-royal" />
             <StatCard icon={<Activity size={16} />} label="Total Trades" value={overview.totalTrades.toLocaleString()} sub={`Avg ${overview.avgTradesPerUser}/user • ${overview.totalVolume} lots`} color="text-white" />
             <StatCard icon={<AlertTriangle size={16} />} label="Violations" value={overview.totalViolations.toString()} sub={`${overview.violationRate}% violation rate`} color="text-loss" />
-            <StatCard icon={<Trophy size={16} />} label="Above Target" value={overview.aboveTarget.toString()} sub={`${((overview.aboveTarget / overview.totalParticipants) * 100).toFixed(1)}% qualified`} color="text-gold" />
+            <StatCard icon={<Trophy size={16} />} label="Above Target" value={overview.aboveTarget.toString()} sub={`${((overview.aboveTarget / overview.totalParticipants) * 100).toFixed(1)}% qualified`} color="text-gold" onClick={() => setShowAboveTarget(true)} />
           </div>
 
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 mb-6">
@@ -621,6 +622,45 @@ export default function AdminDashboard() {
             </div>
           )}
         </>)}
+
+        {/* Above Target Modal */}
+        {showAboveTarget && (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setShowAboveTarget(false)}>
+            <div className="glass rounded-2xl max-w-lg w-full max-h-[80vh] overflow-y-auto border border-gold/30" onClick={(e) => e.stopPropagation()}>
+              <div className="sticky top-0 glass p-4 border-b border-white/10 flex items-center justify-between z-10 rounded-t-2xl">
+                <div className="flex items-center gap-2"><Trophy size={18} className="text-gold" /><h3 className="text-sm font-bold text-white">Above Target ({overview.aboveTarget})</h3></div>
+                <button onClick={() => setShowAboveTarget(false)} className="p-2 hover:bg-white/10 rounded-lg"><X size={16} className="text-gray-400" /></button>
+              </div>
+              <div className="divide-y divide-white/5">
+                {leaderboard.filter(e => {
+                  if (e.isDisqualified || e.isWithdrawn || e.isBlown) return false;
+                  const isRealCentOnly = selectedChall?.type === 'real' && leaderboardCentOnly;
+                  const target = (e.isCent && !isRealCentOnly) ? Number(selectedChall?.targetBalance || 0) * 100 : Number(selectedChall?.targetBalance || 0);
+                  return Number(e.adjustedBalance) >= target;
+                }).map((e: any) => (
+                  <div key={e.nickname} className="flex items-center justify-between px-4 py-3 hover:bg-white/5">
+                    <div className="flex items-center gap-3">
+                      <span className="text-sm font-bold text-gold w-8">#{e.rank}</span>
+                      <div>
+                        <p className="text-sm font-semibold text-white">{e.nickname}</p>
+                        <p className="text-[10px] text-gray-500">{e.accountType} • {e.totalTrades} trades</p>
+                      </div>
+                    </div>
+                    <p className="text-sm font-bold text-profit">{e.isCent ? `${Number(e.adjustedBalance).toFixed(2)}¢` : `$${Number(e.adjustedBalance).toFixed(2)}`}</p>
+                  </div>
+                ))}
+                {leaderboard.filter(e => {
+                  if (e.isDisqualified || e.isWithdrawn || e.isBlown) return false;
+                  const isRealCentOnly = selectedChall?.type === 'real' && leaderboardCentOnly;
+                  const target = (e.isCent && !isRealCentOnly) ? Number(selectedChall?.targetBalance || 0) * 100 : Number(selectedChall?.targetBalance || 0);
+                  return Number(e.adjustedBalance) >= target;
+                }).length === 0 && (
+                  <div className="p-8 text-center"><p className="text-gray-500 text-sm">No users above target yet. Load the leaderboard first.</p></div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* ==================== LEADERBOARD ==================== */}
         {activeSection === "leaderboard" && (
@@ -1487,13 +1527,14 @@ export default function AdminDashboard() {
   );
 }
 
-function StatCard({ icon, label, value, sub, color }: { icon: React.ReactNode; label: string; value: string; sub: string; color: string }) {
+function StatCard({ icon, label, value, sub, color, onClick }: { icon: React.ReactNode; label: string; value: string; sub: string; color: string; onClick?: () => void }) {
+  const Wrapper = onClick ? 'button' : 'div';
   return (
-    <div className="glass rounded-xl sm:rounded-2xl p-3 sm:p-4 border border-white/10">
+    <Wrapper onClick={onClick} className={`glass rounded-xl sm:rounded-2xl p-3 sm:p-4 border border-white/10 text-left ${onClick ? 'hover:border-gold/30 cursor-pointer transition-all' : ''}`}>
       <div className={`flex items-center gap-1.5 mb-1.5 ${color}`}>{icon}<p className="text-[9px] sm:text-[10px] text-gray-400 uppercase tracking-wider font-medium">{label}</p></div>
       <p className={`text-lg sm:text-2xl md:text-3xl font-bold ${color} truncate`}>{value}</p>
       <p className="text-[9px] sm:text-[10px] text-gray-500 mt-1 truncate">{sub}</p>
-    </div>
+    </Wrapper>
   );
 }
 
