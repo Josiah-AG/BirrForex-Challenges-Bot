@@ -4600,127 +4600,114 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/prestart-check-balance`,
   }
 });
 
+
 /**
  * POST /api/admin/:secretPath/challenge/:id/prestart-check-flagged
  * Bulk check all accounts with $0 balance or balance above starting limit
- * Returns results with success/failure counts
+ * Runs in background — poll prestart-check-status for progress
  */
+const prestartCheckProgress = new Map<number, { running: boolean; total: number; checked: number; updated: number; failed: number; credentialFailed: number; dmsSent: number; message: string }>();
+
 app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/prestart-check-flagged`, adminIpCheck, async (req, res) => {
   try {
     const challengeId = parseInt(req.params.id);
+    const existing = prestartCheckProgress.get(challengeId);
+    if (existing?.running) return res.json({ success: true, alreadyRunning: true, ...existing });
 
-    const challengeInfo = await db.query(
-      `SELECT starting_balance, title FROM trading_challenges WHERE id = $1`, [challengeId]
-    );
+    const challengeInfo = await db.query(`SELECT starting_balance, title FROM trading_challenges WHERE id = $1`, [challengeId]);
     if (challengeInfo.rows.length === 0) return res.status(404).json({ error: 'Challenge not found' });
     const startingBalance = Number(challengeInfo.rows[0].starting_balance);
     const challengeTitle = challengeInfo.rows[0].title;
 
-    // Get accounts with $0 balance or balance above starting balance (with 1% tolerance)
     const accounts = await db.query(
       `SELECT id, account_number, mt5_server, investor_password, is_cent, nickname, user_id, source, lang,
               COALESCE(last_known_balance, registration_balance, 0) as current_balance
        FROM trading_registrations
-       WHERE challenge_id = $1
-         AND disqualified = false
-         AND investor_password IS NOT NULL
-         AND connection_verified = true
+       WHERE challenge_id = $1 AND disqualified = false AND investor_password IS NOT NULL AND connection_verified = true
          AND (pull_status IS NULL OR pull_status NOT IN ('password_changed'))
-         AND (
-           COALESCE(last_known_balance, registration_balance, 0) = 0
-           OR CASE WHEN is_cent
-                THEN COALESCE(last_known_balance, registration_balance, 0) > ($2 * 100 * 1.01)
-                ELSE COALESCE(last_known_balance, registration_balance, 0) > ($2 * 1.01)
-              END
-         )`,
+         AND (COALESCE(last_known_balance, registration_balance, 0) = 0
+           OR CASE WHEN is_cent THEN COALESCE(last_known_balance, registration_balance, 0) > ($2 * 100 * 1.01)
+              ELSE COALESCE(last_known_balance, registration_balance, 0) > ($2 * 1.01) END)`,
       [challengeId, startingBalance]
     );
 
     if (accounts.rows.length === 0) {
-      return res.json({ success: true, total: 0, updated: 0, failed: 0, dmsSent: 0, message: 'No accounts need checking' });
+      return res.json({ success: true, running: false, total: 0, updated: 0, failed: 0, dmsSent: 0, message: 'No accounts need checking' });
     }
 
-    const { vpsService } = require('../services/vpsService');
-    const telegram = getTelegram();
-    let updated = 0, failed = 0, credentialFailed = 0, dmsSent = 0;
-    const results: Array<{ nickname: string; account: string; oldBalance: number; newBalance?: number; success: boolean; error?: string; dmSent?: boolean }> = [];
+    prestartCheckProgress.set(challengeId, { running: true, total: accounts.rows.length, checked: 0, updated: 0, failed: 0, credentialFailed: 0, dmsSent: 0, message: 'Starting...' });
+    res.json({ success: true, started: true, total: accounts.rows.length, message: `Checking ${accounts.rows.length} accounts...` });
 
-    for (const reg of accounts.rows) {
-      try {
-        const result = await vpsService.verifyConnection(reg.account_number, reg.mt5_server, reg.investor_password);
+    (async () => {
+      const { vpsService } = require('../services/vpsService');
+      const telegram = getTelegram();
+      const progress = prestartCheckProgress.get(challengeId)!;
 
-        if (!result.success || result.balance === undefined || result.balance === null) {
-          failed++;
-          if (!result.success) credentialFailed++;
-          results.push({ nickname: reg.nickname, account: reg.account_number, oldBalance: parseFloat(reg.current_balance), success: false, error: result.error || 'Connection failed' });
-          continue;
-        }
-
-        const balance = result.balance as number;
-        await db.query(
-          `UPDATE trading_registrations SET last_known_balance = $1 WHERE id = $2`,
-          [balance, reg.id]
-        );
-
-        // Update balance_warning flag
-        const limit = reg.is_cent ? startingBalance * 100 : startingBalance;
-        const tolerance = limit * 0.01;
-        const currency = reg.is_cent ? '¢' : '$';
-        let sentDm = false;
-
-        if (balance > limit + tolerance) {
-          await db.query(`UPDATE trading_registrations SET balance_warning = true WHERE id = $1`, [reg.id]);
-          // DM: balance too high
-          if (reg.user_id && reg.source !== 'discord' && telegram) {
-            try {
-              const excess = balance - limit;
-              const lang = reg.lang || 'en';
-              const msg = lang === 'am'
-                ? `⚠️ <b>ባላንስ ከፍ ያለ ነው — ${challengeTitle}</b>\n\nየእርስዎ MT5 መለያ (${reg.account_number}) ባላንስ <b>${currency}${balance.toFixed(2)}</b> ሲሆን ከተፈቀደው <b>${currency}${limit.toFixed(2)}</b> በላይ ነው።\n\n📌 ቻሌንጅ ከመጀመሩ በፊት <b>${currency}${excess.toFixed(2)}</b> ያውጡ ወይም ያስተላልፉ። ካልተስተካከለ በራስ-ሰር ይወጣሉ።`
-                : `⚠️ <b>Balance Too High — ${challengeTitle}</b>\n\nYour MT5 account (${reg.account_number}) balance is <b>${currency}${balance.toFixed(2)}</b>, which exceeds the allowed limit of <b>${currency}${limit.toFixed(2)}</b>.\n\n📌 Please withdraw or transfer <b>${currency}${excess.toFixed(2)}</b> before the challenge starts or you will be automatically disqualified.`;
-              await telegram.sendMessage(reg.user_id, msg, { parse_mode: 'HTML' });
-              sentDm = true; dmsSent++;
-            } catch (_e) {}
+      for (const reg of accounts.rows) {
+        try {
+          const result = await vpsService.verifyConnection(reg.account_number, reg.mt5_server, reg.investor_password);
+          if (!result.success || result.balance === undefined || result.balance === null) {
+            progress.failed++;
+            if (!result.success) progress.credentialFailed++;
+            progress.checked++;
+            progress.message = `Checking... ${progress.checked}/${progress.total}`;
+            continue;
           }
-        } else if (balance === 0) {
-          await db.query(`UPDATE trading_registrations SET balance_warning = false WHERE id = $1`, [reg.id]);
-          // DM: balance is $0
-          if (reg.user_id && reg.source !== 'discord' && telegram) {
-            try {
-              const lang = reg.lang || 'en';
-              const msg = lang === 'am'
-                ? `⚠️ <b>ባላንስ $0 — ${challengeTitle}</b>\n\nየእርስዎ MT5 አካውንት (${reg.account_number}) ባላንስ <b>${currency}0.00</b> ነው።\n\n📌 ቻሌንጅ ከመጀመሩ በፊት እባክዎ ወደ አካውንቶ ገንዘብ ያስገቡ። ያለ ባላንስ ቻሌንጁን መጀመር አይችሉም።`
-                : `⚠️ <b>Deposit Required — ${challengeTitle}</b>\n\nYour MT5 account (${reg.account_number}) currently has a <b>${currency}0.00</b> balance.\n\n📌 Please deposit funds to your account before the challenge starts. You cannot participate with zero balance.`;
-              await telegram.sendMessage(reg.user_id, msg, { parse_mode: 'HTML' });
-              sentDm = true; dmsSent++;
-            } catch (_e) {}
-          }
-        } else {
-          await db.query(`UPDATE trading_registrations SET balance_warning = false WHERE id = $1`, [reg.id]);
-        }
+          const balance = result.balance as number;
+          await db.query(`UPDATE trading_registrations SET last_known_balance = $1 WHERE id = $2`, [balance, reg.id]);
+          const limit = reg.is_cent ? startingBalance * 100 : startingBalance;
+          const tolerance = limit * 0.01;
+          const currency = reg.is_cent ? '\u00a2' : '$';
 
-        updated++;
-        results.push({ nickname: reg.nickname, account: reg.account_number, oldBalance: parseFloat(reg.current_balance), newBalance: balance, success: true, dmSent: sentDm });
-      } catch (e) {
-        failed++;
-        results.push({ nickname: reg.nickname, account: reg.account_number, oldBalance: parseFloat(reg.current_balance), success: false, error: 'VPS error' });
+          if (balance > limit + tolerance) {
+            await db.query(`UPDATE trading_registrations SET balance_warning = true WHERE id = $1`, [reg.id]);
+            if (reg.user_id && reg.source !== 'discord' && telegram) {
+              try {
+                const excess = balance - limit;
+                const lang = reg.lang || 'en';
+                const msg = lang === 'am'
+                  ? `\u26a0\ufe0f <b>\u1263\u120b\u1295\u1235 \u12a8\u134d \u12eb\u1208 \u1290\u12cd \u2014 ${challengeTitle}</b>\n\n\u12e8\u12a5\u122d\u1235\u12ee MT5 \u12a0\u12ab\u12cd\u1295\u1275 (${reg.account_number}) \u1263\u120b\u1295\u1235 <b>${currency}${balance.toFixed(2)}</b> \u1232\u1206\u1295 \u12a8\u1270\u1348\u1240\u12f0\u12cd <b>${currency}${limit.toFixed(2)}</b> \u1260\u120b\u12ed \u1290\u12cd\u1362\n\n\ud83d\udccc \u127b\u120c\u1295\u1305 \u12a8\u1218\u1300\u1218\u1229 \u1260\u134a\u1275 <b>${currency}${excess.toFixed(2)}</b> \u12eb\u12cd\u1321 \u12c8\u12ed\u121d \u12eb\u1235\u1270\u120b\u120d\u1349\u1362 \u12ab\u120d\u1270\u1235\u1270\u12ab\u12a8\u1208 \u1260\u122b\u1235-\u1230\u122d \u12ed\u12c8\u1323\u1209\u1362`
+                  : `\u26a0\ufe0f <b>Balance Too High \u2014 ${challengeTitle}</b>\n\nYour MT5 account (${reg.account_number}) balance is <b>${currency}${balance.toFixed(2)}</b>, which exceeds the allowed limit of <b>${currency}${limit.toFixed(2)}</b>.\n\n\ud83d\udccc Please withdraw or transfer <b>${currency}${excess.toFixed(2)}</b> before the challenge starts or you will be automatically disqualified.`;
+                await telegram.sendMessage(reg.user_id, msg, { parse_mode: 'HTML' });
+                progress.dmsSent++;
+              } catch (_e) {}
+            }
+          } else if (balance === 0) {
+            await db.query(`UPDATE trading_registrations SET balance_warning = false WHERE id = $1`, [reg.id]);
+            if (reg.user_id && reg.source !== 'discord' && telegram) {
+              try {
+                const lang = reg.lang || 'en';
+                const msg = lang === 'am'
+                  ? `\u26a0\ufe0f <b>\u1263\u120b\u1295\u1235 $0 \u2014 ${challengeTitle}</b>\n\n\u12e8\u12a5\u122d\u1235\u12ee MT5 \u12a0\u12ab\u12cd\u1295\u1275 (${reg.account_number}) \u1263\u120b\u1295\u1235 <b>${currency}0.00</b> \u1290\u12cd\u1362\n\n\ud83d\udccc \u127b\u120c\u1295\u1305 \u12a8\u1218\u1300\u1218\u1229 \u1260\u134a\u1275 \u12a5\u1263\u12ad\u12ee \u12c8\u12f0 \u12a0\u12ab\u12cd\u1295\u1276 \u1308\u1295\u12d8\u1265 \u12eb\u1235\u1308\u1261\u1362 \u12eb\u1208 \u1263\u120b\u1295\u1235 \u127b\u120c\u1295\u1301\u1295 \u1218\u1300\u1218\u122d \u12a0\u12ed\u127d\u1209\u121d\u1362`
+                  : `\u26a0\ufe0f <b>Deposit Required \u2014 ${challengeTitle}</b>\n\nYour MT5 account (${reg.account_number}) currently has a <b>${currency}0.00</b> balance.\n\n\ud83d\udccc Please deposit funds to your account before the challenge starts. You cannot participate with zero balance.`;
+                await telegram.sendMessage(reg.user_id, msg, { parse_mode: 'HTML' });
+                progress.dmsSent++;
+              } catch (_e) {}
+            }
+          } else {
+            await db.query(`UPDATE trading_registrations SET balance_warning = false WHERE id = $1`, [reg.id]);
+          }
+          progress.updated++;
+        } catch (e) {
+          progress.failed++;
+        }
+        progress.checked++;
+        progress.message = `Checking... ${progress.checked}/${progress.total}`;
       }
-    }
-
-    return res.json({
-      success: true,
-      total: accounts.rows.length,
-      updated,
-      failed,
-      credentialFailed,
-      dmsSent,
-      results,
-      message: `Checked ${accounts.rows.length}: ${updated} updated, ${failed} failed${credentialFailed > 0 ? ` (${credentialFailed} credential)` : ''}, ${dmsSent} DMs sent`,
-    });
+      progress.running = false;
+      progress.message = `Done: ${progress.updated} updated, ${progress.failed} failed${progress.credentialFailed > 0 ? ` (${progress.credentialFailed} credential)` : ''}, ${progress.dmsSent} DMs sent`;
+    })();
   } catch (error) {
     console.error('prestart-check-flagged error:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
+});
+
+app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/prestart-check-status`, adminIpCheck, async (req, res) => {
+  const challengeId = parseInt(req.params.id);
+  const progress = prestartCheckProgress.get(challengeId);
+  if (!progress) return res.json({ running: false, total: 0, checked: 0, message: 'Not started' });
+  return res.json(progress);
 });
 
 /**

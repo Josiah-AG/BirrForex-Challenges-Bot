@@ -2820,21 +2820,38 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
 
   const handleCheckPreStartBalances = async () => {
     setRetrying("prestart");
-    setActionMsg("⏳ Checking balances for $0 and over-limit accounts...");
+    setActionMsg("⏳ Starting pre-start balance check...");
     try {
       const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/prestart-check-flagged`, { method: "POST" });
       if (res.ok) {
         const data = await res.json();
         if (data.total === 0) {
           setActionMsg("✅ No accounts need checking (all balances are normal).");
-        } else {
-          setActionMsg(`✅ ${data.message}`);
+          setRetrying(null);
+          return;
         }
+        setActionMsg(`⏳ Checking ${data.total} accounts... (0/${data.total})`);
+        // Poll for progress
+        const pollInterval = setInterval(async () => {
+          try {
+            const statusRes = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/prestart-check-status`);
+            if (statusRes.ok) {
+              const progress = await statusRes.json();
+              if (!progress.running) {
+                clearInterval(pollInterval);
+                setActionMsg(`✅ ${progress.message}`);
+                setRetrying(null);
+              } else {
+                setActionMsg(`⏳ ${progress.message} | ✓${progress.updated} ✗${progress.failed} 📩${progress.dmsSent}`);
+              }
+            }
+          } catch (_e) {}
+        }, 2000);
       } else {
         setActionMsg("❌ Failed");
+        setRetrying(null);
       }
-    } catch (_e) { setActionMsg("❌ Connection error"); }
-    setRetrying(null);
+    } catch (_e) { setActionMsg("❌ Connection error"); setRetrying(null); }
   };
 
   const stopPoll = () => {
