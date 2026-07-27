@@ -641,38 +641,34 @@ app.get('/api/challenges/:id/leaderboard', async (req, res) => {
       total,
       hasMore: offset + limit < total,
       myContext,
-      leaderboard: (() => {
-        let currentRank = offset; // Start from offset since this is paginated
-        return result.rows.map((r: any) => {
-          const isDq = r.is_disqualified || r.reg_disqualified || false;
-          if (!isDq) currentRank++;
-          return {
-            nickname: r.nickname,
-            accountType: r.account_type,
-            rank: isDq ? null : currentRank,
-            currentBalance: parseFloat(r.current_balance),
-            adjustedBalance: parseFloat(r.adjusted_balance),
-            qualifiedProfit: parseFloat(r.qualified_profit),
-            grossProfit: parseFloat(r.gross_profit),
-            profitRemoved: parseFloat(r.profit_removed),
-            totalTrades: r.total_trades,
-            qualifiedTrades: r.qualified_trades,
-            flaggedTrades: r.flagged_trades,
-            isQualified: r.is_qualified,
-            isDisqualified: isDq,
-            disqualifyReason: r.disqualify_reason || r.reg_disqualified_reason || null,
-            isBlown: !isDq && !r.is_withdrawn && r.total_trades > 0 && (
-              (parseFloat(r.current_balance) <= 0) ||
-              r.zero_balance_at !== null
-            ),
-            isWithdrawn: r.is_withdrawn || false,
-            totalWithdrawn: parseFloat(r.total_withdrawn) || 0,
-            isCent: r.is_cent || false,
-            lastTradeTime: r.last_trade_time,
-            lastUpdated: r.last_updated,
-          };
-        });
-      })(),
+      leaderboard: result.rows.map((r: any) => {
+        const isDq = r.is_disqualified || r.reg_disqualified || false;
+        return {
+          nickname: r.nickname,
+          accountType: r.account_type,
+          rank: isDq ? null : r.rank,
+          currentBalance: parseFloat(r.current_balance),
+          adjustedBalance: parseFloat(r.adjusted_balance),
+          qualifiedProfit: parseFloat(r.qualified_profit),
+          grossProfit: parseFloat(r.gross_profit),
+          profitRemoved: parseFloat(r.profit_removed),
+          totalTrades: r.total_trades,
+          qualifiedTrades: r.qualified_trades,
+          flaggedTrades: r.flagged_trades,
+          isQualified: r.is_qualified,
+          isDisqualified: isDq,
+          disqualifyReason: r.disqualify_reason || r.reg_disqualified_reason || null,
+          isBlown: !isDq && !r.is_withdrawn && r.total_trades > 0 && (
+            (parseFloat(r.current_balance) <= 0) ||
+            r.zero_balance_at !== null
+          ),
+          isWithdrawn: r.is_withdrawn || false,
+          totalWithdrawn: parseFloat(r.total_withdrawn) || 0,
+          isCent: r.is_cent || false,
+          lastTradeTime: r.last_trade_time,
+          lastUpdated: r.last_updated,
+        };
+      }),
     });
   } catch (error) {
     console.error('Leaderboard error:', error);
@@ -872,6 +868,20 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
     const registration = reg.rows[0];
     const leaderboard = lb.rows[0] || null;
 
+    // Compute actual rank excluding DQ'd users (matches what leaderboard API shows)
+    let computedRank: number | null = null;
+    if (leaderboard && !registration.disqualified) {
+      const rankResult = await db.query(
+        `SELECT COUNT(*) + 1 as rank FROM wp_leaderboard l
+         JOIN trading_registrations r ON l.registration_id = r.id
+         WHERE l.challenge_id = $1 AND l.account_type = $2
+           AND r.disqualified = false AND (r.status IS NULL OR r.status != 'removed')
+           AND l.adjusted_balance > $3`,
+        [registration.challenge_id, registration.account_type, parseFloat(leaderboard.adjusted_balance)]
+      );
+      computedRank = parseInt(rankResult.rows[0]?.rank || '0') || null;
+    }
+
     // Determine the user's actual starting balance — never fake with challenge starting_balance
     // For pre-start: prefer last_known_balance (most recent VPS check) — it's the real current balance.
     // actual_starting_balance is only authoritative once the challenge is active (set by pre-start snapshot).
@@ -932,7 +942,7 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
         actualStartingBalance: actualStartingBalance,
         lastPullAt: registration.last_pull_at || null,
         balanceWarning: registration.balance_warning || false,
-        rank: leaderboard?.rank || null,
+        rank: computedRank || leaderboard?.rank || null,
         // Pre-start: use actualStartingBalance (derived from last_known_balance) over stale leaderboard values
         currentBalance: isPreStart
           ? (actualStartingBalance ?? (leaderboard ? parseFloat(leaderboard.current_balance) : 0))
