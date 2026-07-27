@@ -287,8 +287,12 @@ export default function AdminDashboard() {
     demoParticipants: od?.participants?.demo || 0,
     realParticipants: od?.participants?.real || 0,
     totalTrades: od?.trades?.total || 0,
+    demoTrades: od?.trades?.demoTrades || 0,
+    realTrades: od?.trades?.realTrades || 0,
     avgTradesPerUser: od?.participants?.total ? Math.round((od?.trades?.total || 0) / od.participants.total) : 0,
-    totalVolume: od?.trades?.totalVolume || 0,
+    totalVolume: od?.trades?.totalVolume ? parseFloat(od.trades.totalVolume).toFixed(2) : "0",
+    demoVolume: od?.trades?.demoVolume ? parseFloat(od.trades.demoVolume).toFixed(2) : "0",
+    realVolume: od?.trades?.realVolume ? parseFloat(od.trades.realVolume).toFixed(2) : "0",
     totalViolations: od?.trades?.violations || 0,
     violationRate: od?.trades?.total ? ((od?.trades?.violations || 0) / od.trades.total * 100).toFixed(1) : "0",
     pullsToday: od?.pulls?.today || 0,
@@ -531,7 +535,7 @@ export default function AdminDashboard() {
         {activeSection === "overview" && (<>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 mb-6">
             <StatCard icon={<Users size={16} />} label="Participants" value={overview.totalParticipants.toLocaleString()} sub={`Demo: ${overview.demoParticipants} | Real: ${overview.realParticipants}`} color="text-royal" />
-            <StatCard icon={<Activity size={16} />} label="Total Trades" value={overview.totalTrades.toLocaleString()} sub={`Avg ${overview.avgTradesPerUser}/user • ${overview.totalVolume} lots`} color="text-white" />
+            <StatCard icon={<Activity size={16} />} label="Total Trades" value={overview.totalTrades.toLocaleString()} sub={`Demo: ${overview.demoTrades} (${overview.demoVolume} lots) | Real: ${overview.realTrades} (${overview.realVolume} lots)`} color="text-white" />
             <StatCard icon={<AlertTriangle size={16} />} label="Violations" value={overview.totalViolations.toString()} sub={`${overview.violationRate}% violation rate`} color="text-loss" />
             <StatCard icon={<Trophy size={16} />} label="Above Target" value={overview.aboveTarget.toString()} sub={`${((overview.aboveTarget / overview.totalParticipants) * 100).toFixed(1)}% qualified`} color="text-gold" onClick={() => setShowAboveTarget(true)} />
           </div>
