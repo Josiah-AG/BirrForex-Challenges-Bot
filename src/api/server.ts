@@ -1356,7 +1356,21 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
       tradeParams.push(new Date(cEnd).toISOString());
     }
     const tradeStats = await db.query(
-      `SELECT COUNT(*) as total_trades, COALESCE(SUM(volume),0) as total_volume, COUNT(CASE WHEN is_qualified=false THEN 1 END) as violations FROM wp_trades WHERE challenge_id=$1${tradeFilter}`, tradeParams);
+      `SELECT
+        COUNT(*) as total_trades,
+        COALESCE(SUM(t.volume),0) as total_volume,
+        COUNT(CASE WHEN t.is_qualified=false THEN 1 END) as violations,
+        COUNT(CASE WHEN r.account_type='demo' THEN 1 END) as demo_trades,
+        COUNT(CASE WHEN r.account_type='real' THEN 1 END) as real_trades,
+        COALESCE(SUM(CASE WHEN r.account_type='demo' THEN CASE WHEN r.is_cent THEN t.volume/100.0 ELSE t.volume END END),0) as demo_volume,
+        COALESCE(SUM(CASE WHEN r.account_type='real' THEN CASE WHEN r.is_cent THEN t.volume/100.0 ELSE t.volume END END),0) as real_volume
+       FROM wp_trades t
+       JOIN trading_registrations r ON t.registration_id = r.id
+       WHERE t.challenge_id=$1${tradeFilter}`, tradeParams);
+    if (tradeStats.rows[0]) {
+      const ts = tradeStats.rows[0];
+      console.log(`📊 Overview trade stats: total=${ts.total_trades} demo=${ts.demo_trades} real=${ts.real_trades} demoVol=${ts.demo_volume} realVol=${ts.real_volume}`);
+    }
 
     // Pull stats (today)
     const pullStats = await db.query(
@@ -1600,7 +1614,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
 
     return res.json({
       participants: { total: parseInt(c.total), demo: parseInt(c.demo), real: parseInt(c.real), disqualified: parseInt(c.disqualified) },
-      trades: { total: parseInt(t.total_trades), totalVolume: parseFloat(t.total_volume), violations: parseInt(t.violations) },
+      trades: { total: parseInt(t.total_trades) || 0, totalVolume: (parseFloat(t.demo_volume) || 0) + (parseFloat(t.real_volume) || 0), violations: parseInt(t.violations) || 0, demoTrades: parseInt(t.demo_trades) || 0, realTrades: parseInt(t.real_trades) || 0, demoVolume: parseFloat(t.demo_volume) || 0, realVolume: parseFloat(t.real_volume) || 0 },
       pulls: { today: parseInt(p.pulls_today), success: parseInt(p.total_success), failed: parseInt(p.total_failed), newTrades: parseInt(p.new_trades), passwordChanged: parseInt(pwChanged.rows[0].cnt), lastPullAt: lastPull.rows[0]?.completed_at || null },
       balance: { total: totalBalance, real: realBalance, demo: demoBalance },
       qualified: parseInt(aboveTarget.rows[0].cnt),
