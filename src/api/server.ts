@@ -4032,9 +4032,27 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/re-evaluate-user`, admin
     // Re-evaluate
     const { evaluationEngine: wpEngine } = require('../services/wpEvaluationEngine');
     const { leaderboardService } = require('../services/leaderboardService');
-    await wpEngine.evaluateSingleAccount(challengeId, registrationId);
-    await wpEngine.flushSingleAccountToLive(challengeId, registrationId);
-    await leaderboardService.updateRankings(challengeId);
+
+    try {
+      await wpEngine.evaluateSingleAccount(challengeId, registrationId);
+    } catch (evalErr) {
+      console.error('re-evaluate-user: evaluateSingleAccount failed:', evalErr);
+      return res.status(500).json({ error: `Evaluation failed: ${(evalErr as Error).message}` });
+    }
+
+    try {
+      await wpEngine.flushSingleAccountToLive(challengeId, registrationId);
+    } catch (flushErr) {
+      console.error('re-evaluate-user: flushSingleAccountToLive failed:', flushErr);
+      return res.status(500).json({ error: `Flush to live failed: ${(flushErr as Error).message}` });
+    }
+
+    try {
+      await leaderboardService.updateRankings(challengeId);
+    } catch (rankErr) {
+      console.error('re-evaluate-user: updateRankings failed:', rankErr);
+      // Non-fatal — evaluation and flush succeeded, ranking just didn't update
+    }
 
     // Get after state
     const afterResult = await db.query(
