@@ -1479,12 +1479,11 @@ export class WpEvaluationEngine {
   // ==================== HELPERS ====================
 
   private isWeekend(d: Date): boolean {
-    const day = d.getUTCDay();
-    const hour = d.getUTCHours();
-    if (day === 6) return true;
-    if (day === 0 && hour < 22) return true;
-    if (day === 5 && hour >= 22) return true;
-    return false;
+    // Weekend in EAT (UTC+3): Saturday 00:00 EAT to Sunday 23:59 EAT
+    // Convert to EAT by adding 3 hours
+    const eatTime = new Date(d.getTime() + 3 * 60 * 60 * 1000);
+    const day = eatTime.getUTCDay(); // Day in EAT
+    return day === 6 || day === 0; // Saturday or Sunday in EAT
   }
 
   private isCryptoPair(symbol: string): boolean {

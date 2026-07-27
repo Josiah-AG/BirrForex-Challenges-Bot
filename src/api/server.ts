@@ -4010,6 +4010,63 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/evaluate-only`, adminIpC
 });
 
 /**
+ * POST /api/admin/:secretPath/challenge/:id/re-evaluate-user
+ * Re-evaluate a single user's trades and update rankings.
+ * Body: { registrationId }
+ * Returns before/after comparison.
+ */
+app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/re-evaluate-user`, adminIpCheck, async (req, res) => {
+  try {
+    const challengeId = parseInt(req.params.id);
+    const { registrationId } = req.body;
+    if (!registrationId) return res.status(400).json({ error: 'registrationId required' });
+
+    // Get before state
+    const beforeResult = await db.query(
+      `SELECT l.rank, l.qualified_profit, l.flagged_trades, l.qualified_trades, l.total_trades, l.adjusted_balance
+       FROM wp_leaderboard l WHERE l.challenge_id = $1 AND l.registration_id = $2`,
+      [challengeId, registrationId]
+    );
+    const before = beforeResult.rows[0] || { rank: null, qualified_profit: 0, flagged_trades: 0, qualified_trades: 0, total_trades: 0, adjusted_balance: 0 };
+
+    // Re-evaluate
+    const { evaluationEngine: wpEngine, leaderboardService } = require('../services/wpEvaluationEngine');
+    await wpEngine.evaluateSingleAccount(challengeId, registrationId);
+    await leaderboardService.flushSingleAccountToLive(challengeId, registrationId);
+    await leaderboardService.updateRankings(challengeId);
+
+    // Get after state
+    const afterResult = await db.query(
+      `SELECT l.rank, l.qualified_profit, l.flagged_trades, l.qualified_trades, l.total_trades, l.adjusted_balance
+       FROM wp_leaderboard l WHERE l.challenge_id = $1 AND l.registration_id = $2`,
+      [challengeId, registrationId]
+    );
+    const after = afterResult.rows[0] || { rank: null, qualified_profit: 0, flagged_trades: 0, qualified_trades: 0, total_trades: 0, adjusted_balance: 0 };
+
+    return res.json({
+      success: true,
+      before: {
+        rank: before.rank,
+        qualifiedProfit: parseFloat(before.qualified_profit || '0'),
+        flaggedTrades: before.flagged_trades || 0,
+        qualifiedTrades: before.qualified_trades || 0,
+        adjustedBalance: parseFloat(before.adjusted_balance || '0'),
+      },
+      after: {
+        rank: after.rank,
+        qualifiedProfit: parseFloat(after.qualified_profit || '0'),
+        flaggedTrades: after.flagged_trades || 0,
+        qualifiedTrades: after.qualified_trades || 0,
+        adjustedBalance: parseFloat(after.adjusted_balance || '0'),
+      },
+    });
+  } catch (error) {
+    console.error('re-evaluate-user error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
  * GET /api/admin/:secretPath/pull-status
  * Get current pull cycle status (is it running, progress)
  */
