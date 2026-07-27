@@ -3686,14 +3686,21 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/export-user-trades`, admi
     const reg       = regRes.rows[0];
     if (!reg) return res.status(404).json({ error: 'Registration not found' });
 
-    // Only export trades that actually fall within the challenge period (the same
-    // trades the evaluator scores) — not the full raw MT5 history for the account,
-    // which can include trades placed after the challenge ended/before it started.
     const challengeStart = challenge?.start_date ? new Date(challenge.start_date) : null;
     const challengeEnd   = challenge?.end_date ? new Date(challenge.end_date) : null;
-    const filteredTrades = (challengeStart && challengeEnd)
-      ? tradesRes.rows.filter((t: any) => isTradeInChallengeWindow(t, challengeStart, challengeEnd))
-      : tradesRes.rows;
+
+    // Only export trades that actually fall within the challenge period — use the same
+    // filter as the evaluation engine (close_time based with grace windows) so the export
+    // shows exactly the same trades that were scored.
+    const filteredTrades = (() => {
+      if (!challengeStart || !challengeEnd) return tradesRes.rows;
+      const graceStart = new Date(challengeStart.getTime() - 3 * 60 * 60 * 1000);
+      const graceEnd = new Date(challengeEnd.getTime() + 27 * 60 * 60 * 1000);
+      return tradesRes.rows.filter((t: any) => {
+        const closeMs = new Date(t.close_time).getTime();
+        return closeMs >= graceStart.getTime() && closeMs <= graceEnd.getTime();
+      });
+    })();
 
     return res.json({
       challenge: { title: challenge?.title, startDate: challenge?.start_date, endDate: challenge?.end_date },
