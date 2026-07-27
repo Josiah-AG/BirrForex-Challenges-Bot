@@ -1829,7 +1829,7 @@ export class WpEvaluationEngine {
    * Flush a single account's staging row directly to the live leaderboard
    * without waiting for the next full cycle.
    */
-  private async flushSingleAccountToLive(challengeId: number, registrationId: number) {
+  async flushSingleAccountToLive(challengeId: number, registrationId: number) {
     await db.query(
       `INSERT INTO wp_leaderboard
        (challenge_id, registration_id, account_number, user_id, username, nickname, account_type, is_cent,

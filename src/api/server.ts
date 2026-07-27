@@ -3980,7 +3980,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/evaluate-only`, adminIpC
       try {
         await globalScheduler.evaluateAllAccounts(challengeId, accountList, batchId);
         // Update rankings after evaluation
-        const { leaderboardService } = require('../services/wpEvaluationEngine');
+        const { leaderboardService } = require('../services/leaderboardService');
         await leaderboardService.flushStagingToLive(challengeId);
         await leaderboardService.ensureAllParticipantsHaveEntries(challengeId);
         await leaderboardService.updateRankings(challengeId);
@@ -4030,9 +4030,10 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/re-evaluate-user`, admin
     const before = beforeResult.rows[0] || { rank: null, qualified_profit: 0, flagged_trades: 0, qualified_trades: 0, total_trades: 0, adjusted_balance: 0 };
 
     // Re-evaluate
-    const { evaluationEngine: wpEngine, leaderboardService } = require('../services/wpEvaluationEngine');
+    const { evaluationEngine: wpEngine } = require('../services/wpEvaluationEngine');
+    const { leaderboardService } = require('../services/leaderboardService');
     await wpEngine.evaluateSingleAccount(challengeId, registrationId);
-    await leaderboardService.flushSingleAccountToLive(challengeId, registrationId);
+    await wpEngine.flushSingleAccountToLive(challengeId, registrationId);
     await leaderboardService.updateRankings(challengeId);
 
     // Get after state
