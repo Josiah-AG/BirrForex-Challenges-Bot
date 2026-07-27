@@ -1486,13 +1486,13 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
       const rules2 = rulesForMetrics.rows[0]?.parameters;
 
       const maxProfit = await db.query(
-        `SELECT t.profit, t.symbol, t.ticket, r.nickname, r.username, r.email
+        `SELECT t.profit, t.symbol, t.ticket, r.nickname, r.username, r.email, r.is_cent
          FROM wp_trades t JOIN trading_registrations r ON t.registration_id = r.id
          WHERE t.challenge_id = $1 AND t.is_qualified = true${catWhere}${tradeFilter}
          ORDER BY t.profit DESC LIMIT 1`, tradeParams.length > 1 ? tradeParams : [challengeId]);
 
       const maxLoss = await db.query(
-        `SELECT t.profit, t.symbol, r.nickname, r.username
+        `SELECT t.profit, t.symbol, r.nickname, r.username, r.is_cent
          FROM wp_trades t JOIN trading_registrations r ON t.registration_id = r.id
          WHERE t.challenge_id = $1${catWhere}${tradeFilter}
          ORDER BY t.profit ASC LIMIT 1`, tradeParams.length > 1 ? tradeParams : [challengeId]);
@@ -1565,8 +1565,8 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
          WHERE l.challenge_id = $1 AND l.total_trades > 0${catJoin}`, [challengeId]);
 
       return {
-        maxProfitTrade: maxProfit.rows[0] ? { profit: parseFloat(maxProfit.rows[0].profit), symbol: maxProfit.rows[0].symbol, nickname: maxProfit.rows[0].nickname, username: maxProfit.rows[0].username, email: maxProfit.rows[0].email } : null,
-        maxLossTrade: maxLoss.rows[0] ? { profit: parseFloat(maxLoss.rows[0].profit), symbol: maxLoss.rows[0].symbol, nickname: maxLoss.rows[0].nickname, username: maxLoss.rows[0].username } : null,
+        maxProfitTrade: maxProfit.rows[0] ? { profit: parseFloat(maxProfit.rows[0].profit), symbol: maxProfit.rows[0].symbol, nickname: maxProfit.rows[0].nickname, username: maxProfit.rows[0].username, email: maxProfit.rows[0].email, isCent: maxProfit.rows[0].is_cent || false } : null,
+        maxLossTrade: maxLoss.rows[0] ? { profit: parseFloat(maxLoss.rows[0].profit), symbol: maxLoss.rows[0].symbol, nickname: maxLoss.rows[0].nickname, username: maxLoss.rows[0].username, isCent: maxLoss.rows[0].is_cent || false } : null,
         bestQualifiedWinRate: bestQualWin.rows[0] ? { winRate: parseInt(bestQualWin.rows[0].qualified_win_rate || '0'), nickname: bestQualWin.rows[0].nickname, username: bestQualWin.rows[0].username, email: bestQualWin.rows[0].email, trades: parseInt(bestQualWin.rows[0].total_trades) } : null,
         bestOverallWinRate: bestOverallWin.rows[0] ? { winRate: parseInt(bestOverallWin.rows[0].overall_win_rate || '0'), nickname: bestOverallWin.rows[0].nickname, username: bestOverallWin.rows[0].username, email: bestOverallWin.rows[0].email, trades: parseInt(bestOverallWin.rows[0].total_trades) } : null,
         mostTradedPair: mostPair.rows[0] ? { symbol: mostPair.rows[0].symbol, tradeCount: parseInt(mostPair.rows[0].trade_count), totalLots: parseFloat(mostPair.rows[0].total_lots) } : null,

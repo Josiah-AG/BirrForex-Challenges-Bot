@@ -586,8 +586,8 @@ export default function AdminDashboard() {
                       <div key={cat} className="space-y-3">
                         <p className="text-xs font-bold text-gray-300 uppercase">{label}</p>
                         <div className="grid grid-cols-2 gap-2">
-                          {m.maxProfitTrade && <MetricCard title="Best Trade" value={cur(m.maxProfitTrade.profit)} sub={`${m.maxProfitTrade.symbol}`} user={m.maxProfitTrade.nickname} color="text-profit" />}
-                          {m.maxLossTrade && <MetricCard title="Worst Trade" value={cur(m.maxLossTrade.profit)} sub={m.maxLossTrade.symbol} user={m.maxLossTrade.nickname} color="text-loss" />}
+                          {m.maxProfitTrade && <MetricCard title="Best Trade" value={cur(m.maxProfitTrade.profit, m.maxProfitTrade.isCent)} sub={`${m.maxProfitTrade.symbol}`} user={m.maxProfitTrade.nickname} color="text-profit" />}
+                          {m.maxLossTrade && <MetricCard title="Worst Trade" value={cur(m.maxLossTrade.profit, m.maxLossTrade.isCent)} sub={m.maxLossTrade.symbol} user={m.maxLossTrade.nickname} color="text-loss" />}
                           {m.bestQualifiedWinRate && <MetricCard title="Best Win Rate (Qual)" value={`${m.bestQualifiedWinRate.winRate}%`} sub={`${m.bestQualifiedWinRate.trades} trades`} user={m.bestQualifiedWinRate.nickname} color="text-royal" />}
                           {m.bestOverallWinRate && <MetricCard title="Best Win Rate (All)" value={`${m.bestOverallWinRate.winRate}%`} sub={`${m.bestOverallWinRate.trades} trades`} user={m.bestOverallWinRate.nickname} color="text-royal" />}
                           {m.mostTradedPair && <MetricCard title="Most Traded" value={m.mostTradedPair.symbol} sub={`${m.mostTradedPair.tradeCount} trades · ${m.mostTradedPair.totalLots.toFixed(2)} lots`} color="text-gold" />}
@@ -608,8 +608,8 @@ export default function AdminDashboard() {
                   if (!m) return null;
                   return (
                     <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                      {m.maxProfitTrade && <MetricCard title="Best Trade" value={cur(m.maxProfitTrade.profit)} sub={m.maxProfitTrade.symbol} user={m.maxProfitTrade.nickname} username={m.maxProfitTrade.username} color="text-profit" />}
-                      {m.maxLossTrade && <MetricCard title="Worst Trade" value={cur(m.maxLossTrade.profit)} sub={m.maxLossTrade.symbol} user={m.maxLossTrade.nickname} username={m.maxLossTrade.username} color="text-loss" />}
+                      {m.maxProfitTrade && <MetricCard title="Best Trade" value={cur(m.maxProfitTrade.profit, m.maxProfitTrade.isCent)} sub={m.maxProfitTrade.symbol} user={m.maxProfitTrade.nickname} username={m.maxProfitTrade.username} color="text-profit" />}
+                      {m.maxLossTrade && <MetricCard title="Worst Trade" value={cur(m.maxLossTrade.profit, m.maxLossTrade.isCent)} sub={m.maxLossTrade.symbol} user={m.maxLossTrade.nickname} username={m.maxLossTrade.username} color="text-loss" />}
                       {m.bestQualifiedWinRate && <MetricCard title="Best Win Rate (Qualified)" value={`${m.bestQualifiedWinRate.winRate}%`} sub={`${m.bestQualifiedWinRate.trades} trades`} user={m.bestQualifiedWinRate.nickname} username={m.bestQualifiedWinRate.username} color="text-royal" />}
                       {m.bestOverallWinRate && <MetricCard title="Best Win Rate (Overall)" value={`${m.bestOverallWinRate.winRate}%`} sub={`${m.bestOverallWinRate.trades} trades`} user={m.bestOverallWinRate.nickname} username={m.bestOverallWinRate.username} color="text-royal" />}
                       {m.mostTradedPair && <MetricCard title="Most Traded Pair" value={m.mostTradedPair.symbol} sub={`${m.mostTradedPair.tradeCount} trades · ${m.mostTradedPair.totalLots.toFixed(2)} lots`} color="text-gold" />}
