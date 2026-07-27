@@ -2552,7 +2552,7 @@ export class VpsPullScheduler {
    * finished (or had nothing to do). Replaces the old per-account streaming
    * evaluate call that used to run inside terminalWorker immediately after pull.
    */
-  private async evaluateAllAccounts(challengeId: number, accounts: AccountToPull[], batchId: number | null = null, pullResults?: PullResult[]): Promise<void> {
+  async evaluateAllAccounts(challengeId: number, accounts: AccountToPull[], batchId: number | null = null, pullResults?: PullResult[]): Promise<void> {
     // On scheduled (incremental) pulls: skip accounts that got 0 new trades
     let accountsToEval = accounts;
     if (pullResults && pullResults.length > 0) {

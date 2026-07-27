@@ -2949,6 +2949,26 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
     setRetrying(null);
   };
 
+  const handleEvaluateOnly = async () => {
+    setRetrying("evaluate");
+    setActionMsg("⏳ Starting evaluation (no pull)...");
+    try {
+      const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/evaluate-only`, { method: "POST" });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success) {
+          setActionMsg(`✅ ${data.message}`);
+          startPolling();
+        } else {
+          setActionMsg(`⚠️ ${data.message}`);
+        }
+      } else {
+        setActionMsg("❌ Failed");
+      }
+    } catch (_e) { setActionMsg("❌ Connection error"); }
+    setRetrying(null);
+  };
+
   const stopPoll = () => {
     if (pollIntervalRef.current !== null) {
       window.clearInterval(pollIntervalRef.current);
@@ -3162,6 +3182,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
           <button onClick={handleRetryAll} disabled={retrying === "all" || failedAccounts.length === 0} className="px-4 py-2.5 rounded-xl bg-gold/10 border border-gold/30 text-gold text-xs font-bold hover:bg-gold/20 transition-all disabled:opacity-50">{retrying === "all" ? "Retrying..." : "🔄 Retry All Failed"}</button>
           <button onClick={handleCheckPreStartBalances} disabled={retrying === "prestart"} className="px-4 py-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-bold hover:bg-amber-500/20 transition-all disabled:opacity-50">{retrying === "prestart" ? "Checking..." : "🛡️ Check Pre-Start Balances"}</button>
           <button onClick={handleTriggerPreStartSnapshot} disabled={retrying === "snapshot"} className="px-4 py-2.5 rounded-xl bg-purple-500/10 border border-purple-500/30 text-purple-400 text-xs font-bold hover:bg-purple-500/20 transition-all disabled:opacity-50">{retrying === "snapshot" ? "Triggering..." : "📸 Pre-Start Snapshot"}</button>
+          <button onClick={handleEvaluateOnly} disabled={retrying === "evaluate"} className="px-4 py-2.5 rounded-xl bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 text-xs font-bold hover:bg-cyan-500/20 transition-all disabled:opacity-50">{retrying === "evaluate" ? "Evaluating..." : "📊 Evaluate Only"}</button>
         </div>
         {actionMsg && <p className={`text-xs mt-3 font-semibold ${actionMsg.startsWith("✅") ? "text-profit" : actionMsg.startsWith("⏳") ? "text-gold" : "text-loss"}`}>{actionMsg}</p>}
       </div>

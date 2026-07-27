@@ -3927,6 +3927,82 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/full-pull-replace`, admi
 });
 
 /**
+ * POST /api/admin/:secretPath/challenge/:id/evaluate-only
+ * Re-evaluate all accounts using existing DB data (no VPS pull).
+ * Useful for testing evaluation engine changes without waiting for a full pull.
+ */
+app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/evaluate-only`, adminIpCheck, async (req, res) => {
+  try {
+    const challengeId = parseInt(req.params.id);
+
+    const globalScheduler = (global as any).__vpsPullScheduler;
+    if (!globalScheduler) return res.status(503).json({ error: 'VPS scheduler not initialized' });
+
+    // Get all non-DQ'd accounts with trades
+    const accounts = await db.query(
+      `SELECT r.id as registration_id, r.account_number, r.mt5_server, r.investor_password
+       FROM trading_registrations r
+       WHERE r.challenge_id = $1
+         AND r.disqualified = false
+         AND r.investor_password IS NOT NULL
+         AND (r.status IS NULL OR r.status != 'removed')`,
+      [challengeId]
+    );
+
+    if (accounts.rows.length === 0) {
+      return res.json({ success: false, message: 'No accounts to evaluate' });
+    }
+
+    // Create a batch record for progress tracking
+    const batchRes = await db.query(
+      `INSERT INTO wp_pull_batches (challenge_id, total_accounts, status, phase, phase2_total, phase2_processed, error_log)
+       VALUES ($1, $2, 'running', 'evaluating', $2, 0, 'evaluate_only') RETURNING id`,
+      [challengeId, accounts.rows.length]
+    );
+    const batchId = batchRes.rows[0].id;
+
+    // Run evaluation in background
+    const accountList = accounts.rows.map((r: any) => ({
+      registrationId: r.registration_id,
+      accountNumber: r.account_number,
+      server: r.mt5_server,
+      password: r.investor_password,
+    }));
+
+    (async () => {
+      try {
+        await globalScheduler.evaluateAllAccounts(challengeId, accountList, batchId);
+        // Update rankings after evaluation
+        const { leaderboardService } = require('../services/wpEvaluationEngine');
+        await leaderboardService.flushStagingToLive(challengeId);
+        await leaderboardService.ensureAllParticipantsHaveEntries(challengeId);
+        await leaderboardService.updateRankings(challengeId);
+        await db.query(
+          `UPDATE wp_pull_batches SET status = 'completed', completed_at = NOW() WHERE id = $1`,
+          [batchId]
+        );
+        console.log(`✅ Evaluate-only complete for challenge ${challengeId}: ${accountList.length} accounts`);
+      } catch (e) {
+        console.error('Evaluate-only error:', e);
+        await db.query(
+          `UPDATE wp_pull_batches SET status = 'failed', completed_at = NOW() WHERE id = $1`,
+          [batchId]
+        ).catch(() => {});
+      }
+    })();
+
+    return res.json({
+      success: true,
+      message: `Evaluating ${accountList.length} accounts (no pull). Check progress bar.`,
+      batchId,
+    });
+  } catch (error) {
+    console.error('evaluate-only error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
  * GET /api/admin/:secretPath/pull-status
  * Get current pull cycle status (is it running, progress)
  */
