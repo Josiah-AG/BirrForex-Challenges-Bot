@@ -4010,6 +4010,54 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/evaluate-only`, adminIpC
 });
 
 /**
+ * GET /api/admin/:secretPath/challenge/:id/raw-trades-csv?registration_id=X
+ * Download ALL raw trade data from wp_trades for this account as CSV (no filtering)
+ */
+app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/raw-trades-csv`, adminIpCheck, async (req, res) => {
+  try {
+    const challengeId = parseInt(req.params.id);
+    const registrationId = parseInt(req.query.registration_id as string);
+    if (!registrationId) return res.status(400).json({ error: 'registration_id required' });
+
+    const trades = await db.query(
+      `SELECT ticket, position_id, symbol, trade_type, volume, open_time, close_time,
+              open_price, close_price, stop_loss, take_profit, profit, commission, swap,
+              comment, is_qualified, violations, sl_check_result, sl_check_pending,
+              sl_allowed_price, sl_max_adverse_price, sl_check_attempts, sl_conflict_count
+       FROM wp_trades
+       WHERE challenge_id = $1 AND registration_id = $2
+       ORDER BY open_time ASC`,
+      [challengeId, registrationId]
+    );
+
+    const header = 'ticket,position_id,symbol,type,volume,open_time,close_time,open_price,close_price,stop_loss,take_profit,profit,commission,swap,comment,is_qualified,violations,sl_check_result,sl_check_pending,sl_allowed_price,sl_max_adverse_price,sl_check_attempts,sl_conflict_count\n';
+    const rows = trades.rows.map((t: any) => {
+      const viols = Array.isArray(t.violations) ? t.violations.join('; ') : (t.violations || '');
+      return [
+        t.ticket, t.position_id || '', t.symbol, t.trade_type, t.volume,
+        t.open_time ? new Date(t.open_time).toISOString() : '',
+        t.close_time ? new Date(t.close_time).toISOString() : '',
+        t.open_price, t.close_price, t.stop_loss || '', t.take_profit || '',
+        t.profit, t.commission || 0, t.swap || 0,
+        `"${(t.comment || '').replace(/"/g, '""')}"`,
+        t.is_qualified ? 'true' : 'false',
+        `"${viols.replace(/"/g, '""')}"`,
+        t.sl_check_result || '', t.sl_check_pending ? 'true' : 'false',
+        t.sl_allowed_price || '', t.sl_max_adverse_price || '',
+        t.sl_check_attempts || 0, t.sl_conflict_count || 0
+      ].join(',');
+    }).join('\n');
+
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="raw_trades_${registrationId}.csv"`);
+    return res.send(header + rows);
+  } catch (error) {
+    console.error('raw-trades-csv error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
  * POST /api/admin/:secretPath/challenge/:id/re-evaluate-user
  * Re-evaluate a single user's trades and update rankings.
  * Body: { registrationId }
