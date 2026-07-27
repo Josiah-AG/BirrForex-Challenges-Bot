@@ -1835,11 +1835,11 @@ export class WpEvaluationEngine {
        (challenge_id, registration_id, account_number, user_id, username, nickname, account_type, is_cent,
         starting_balance, current_balance, adjusted_balance, normalized_balance, qualified_profit, gross_profit,
         profit_removed, total_trades, qualified_trades, flagged_trades, active_days, is_qualified,
-        last_trade_time, zero_balance_at, evaluated_at, rank)
+        last_trade_time, zero_balance_at, rank)
        SELECT challenge_id, registration_id, account_number, user_id, username, nickname, account_type, is_cent,
               starting_balance, current_balance, adjusted_balance, normalized_balance, qualified_profit, gross_profit,
               profit_removed, total_trades, qualified_trades, flagged_trades, active_days, is_qualified,
-              last_trade_time, zero_balance_at, NOW(),
+              last_trade_time, zero_balance_at,
               (SELECT COALESCE(rank, 999) FROM wp_leaderboard WHERE challenge_id = $1 AND registration_id = $2)
        FROM wp_leaderboard_staging
        WHERE challenge_id = $1 AND registration_id = $2
@@ -1850,7 +1850,7 @@ export class WpEvaluationEngine {
          total_trades=EXCLUDED.total_trades, qualified_trades=EXCLUDED.qualified_trades,
          flagged_trades=EXCLUDED.flagged_trades, active_days=EXCLUDED.active_days,
          is_qualified=EXCLUDED.is_qualified, last_trade_time=EXCLUDED.last_trade_time,
-         zero_balance_at=EXCLUDED.zero_balance_at, evaluated_at=NOW()`,
+         zero_balance_at=EXCLUDED.zero_balance_at`,
       [challengeId, registrationId]
     );
   }
