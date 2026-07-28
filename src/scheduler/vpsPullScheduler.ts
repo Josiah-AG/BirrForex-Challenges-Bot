@@ -1534,9 +1534,16 @@ export class VpsPullScheduler {
 
   // ==================== TERMINAL HEALTH ====================
 
+  // Terminal alert state
+  private hadTerminalDown = false;
+  private lastCriticalDmAt = 0;
+  private readonly CRITICAL_DM_INTERVAL_MS = 2 * 60 * 60 * 1000; // 2 hours
+
   private async recheckUnhealthyTerminals() {
     const unhealthy = this.terminals.filter(t => !t.isHealthy && t.unhealthySince);
     if (unhealthy.length === 0) return;
+
+    this.hadTerminalDown = true;
 
     for (const terminal of unhealthy) {
       const elapsed = Date.now() - (terminal.unhealthySince?.getTime() || 0);
@@ -1560,6 +1567,37 @@ export class VpsPullScheduler {
             { parse_mode: 'HTML' });
         } catch (e) {}
         terminal.unhealthySince = new Date();
+      }
+    }
+
+    // Check if ALL terminals recovered
+    const healthyCount = this.getHealthyTerminalCount();
+    if (this.hadTerminalDown && healthyCount === MAX_TERMINALS) {
+      this.hadTerminalDown = false;
+      this.lastCriticalDmAt = 0;
+      try {
+        await this.bot.bot.telegram.sendMessage(config.adminUserId,
+          `✅ <b>All VPS Terminals Recovered</b>\n\n` +
+          `All ${MAX_TERMINALS}/${MAX_TERMINALS} terminals are healthy and operational.`,
+          { parse_mode: 'HTML' });
+      } catch (e) {}
+    }
+
+    // Critical alert: half or more terminals down (≤7 healthy)
+    if (healthyCount <= Math.floor(MAX_TERMINALS / 2)) {
+      const now = Date.now();
+      if (now - this.lastCriticalDmAt >= this.CRITICAL_DM_INTERVAL_MS) {
+        this.lastCriticalDmAt = now;
+        const downCount = MAX_TERMINALS - healthyCount;
+        try {
+          await this.bot.bot.telegram.sendMessage(config.adminUserId,
+            `🚨 <b>CRITICAL: ${downCount} VPS Terminals Down</b>\n\n` +
+            `Only <b>${healthyCount}/${MAX_TERMINALS}</b> terminals are healthy.\n` +
+            `Pull performance is severely degraded.\n\n` +
+            `⚠️ Please check the VPS immediately.\n` +
+            `<i>This alert repeats every 2 hours until recovery.</i>`,
+            { parse_mode: 'HTML' });
+        } catch (e) {}
       }
     }
   }
