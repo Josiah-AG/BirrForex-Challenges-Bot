@@ -590,6 +590,18 @@ export class WpEvaluationEngine {
         else if (currentBalance < startingBalance) actualStartBalance = currentBalance; // They haven't deposited yet
       } catch {}
 
+      // === OVER-BALANCE DQ (0-trade accounts) ===
+      // If their registration/current balance exceeds the allowed starting balance,
+      // DQ immediately — same logic as the has-trades path below.
+      const tolerance0 = startingBalance * 0.01;
+      if (actualStartBalance > startingBalance + tolerance0) {
+        const currency0 = reg.is_cent ? '¢' : '$';
+        await db.query(
+          `UPDATE trading_registrations SET disqualified = true, disqualified_at = NOW(), disqualified_reason = $1 WHERE id = $2 AND disqualified = false`,
+          [`Starting balance ${currency0}${actualStartBalance.toFixed(2)} exceeds allowed starting balance of ${currency0}${startingBalance.toFixed(2)}`, reg.id]
+        );
+      }
+
       // === 0-TRADES ACTIVE-DAYS DQ / UNDO ===
       if (rules.min_active_days) {
         const challengeEndResult = await db.query(`SELECT end_date FROM trading_challenges WHERE id = $1`, [challengeId]);
