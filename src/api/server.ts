@@ -536,7 +536,7 @@ app.get('/api/challenges/:id/leaderboard', async (req, res) => {
     // Get leaderboard data freshness
 
     let query = `
-      SELECT l.nickname, l.account_type, l.rank, l.current_balance, l.adjusted_balance,
+      SELECT l.nickname, l.account_type, l.rank, l.previous_rank, l.current_balance, l.adjusted_balance,
              l.qualified_profit, l.gross_profit, l.profit_removed, l.total_trades,
              l.qualified_trades, l.flagged_trades, l.is_qualified, l.is_disqualified,
              l.disqualify_reason, l.last_trade_time, l.last_updated, l.zero_balance_at,
@@ -580,7 +580,7 @@ app.get('/api/challenges/:id/leaderboard', async (req, res) => {
     let myContext: any[] | undefined;
     if (myNickname) {
       let contextQuery = `
-        SELECT l.nickname, l.account_type, l.rank, l.current_balance, l.adjusted_balance,
+        SELECT l.nickname, l.account_type, l.rank, l.previous_rank, l.current_balance, l.adjusted_balance,
                l.qualified_profit, l.gross_profit, l.profit_removed, l.total_trades,
                l.qualified_trades, l.flagged_trades, l.is_qualified, l.is_disqualified,
                l.disqualify_reason, l.zero_balance_at,
@@ -650,6 +650,7 @@ app.get('/api/challenges/:id/leaderboard', async (req, res) => {
             nickname: r.nickname,
             accountType: r.account_type,
             rank: isDq ? null : currentRank,
+            rankChange: (!isDq && r.previous_rank && r.rank) ? (r.previous_rank - r.rank) : null,
             currentBalance: parseFloat(r.current_balance),
             adjustedBalance: parseFloat(r.adjusted_balance),
             qualifiedProfit: parseFloat(r.qualified_profit),
@@ -947,6 +948,7 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
         lastPullAt: registration.last_pull_at || null,
         balanceWarning: registration.balance_warning || false,
         rank: computedRank || leaderboard?.rank || null,
+        rankChange: (leaderboard?.previous_rank && leaderboard?.rank) ? (leaderboard.previous_rank - leaderboard.rank) : null,
         // Pre-start: use actualStartingBalance (derived from last_known_balance) over stale leaderboard values
         currentBalance: isPreStart
           ? (actualStartingBalance ?? (leaderboard ? parseFloat(leaderboard.current_balance) : 0))
@@ -3147,7 +3149,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/admin-leaderboard`, admin
               r.email, r.account_number,
               r.registration_balance, r.last_known_balance, r.last_known_equity, r.actual_starting_balance,
               r.disqualified, r.disqualified_reason,
-              l.rank, l.current_balance, l.adjusted_balance, l.qualified_profit,
+              l.rank, l.previous_rank, l.current_balance, l.adjusted_balance, l.qualified_profit,
               l.gross_profit, l.profit_removed, l.total_trades, l.qualified_trades,
               l.flagged_trades, l.is_qualified, l.is_disqualified, l.disqualify_reason,
               l.last_trade_time, l.last_updated, l.zero_balance_at,
@@ -3185,6 +3187,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/admin-leaderboard`, admin
             accountNumber: r.account_number || null,
             accountType: r.account_type,
             rank: isDq ? null : currentRank,
+            rankChange: (!isDq && r.previous_rank && r.rank) ? (r.previous_rank - r.rank) : null,
             currentBalance: hasLeaderboard ? parseFloat(r.current_balance) : fallbackBalance,
             adjustedBalance: hasLeaderboard ? parseFloat(r.adjusted_balance) : fallbackBalance,
             qualifiedProfit: hasLeaderboard ? parseFloat(r.qualified_profit) : 0,
@@ -5612,6 +5615,150 @@ app.get('/api/vps/next-account', async (req, res) => {
   } catch (error) {
     console.error('VPS next-account error:', error);
     return res.status(500).json({ found: false, error: 'Internal server error' });
+  }
+});
+
+// ==================== BALANCE HISTORY (Chart Data) ====================
+
+/**
+ * GET /api/me/balance-history
+ * Returns balance-over-time series for the logged-in user's account.
+ * Used by the client dashboard chart.
+ */
+app.get('/api/me/balance-history', authMiddleware, async (req: any, res) => {
+  try {
+    const { registrationId } = req.user;
+
+    const regInfo = await db.query(
+      `SELECT r.challenge_id, r.actual_starting_balance, r.registration_balance, r.is_cent,
+              c.starting_balance, c.start_date, c.end_date
+       FROM trading_registrations r
+       JOIN trading_challenges c ON c.id = r.challenge_id
+       WHERE r.id = $1`,
+      [registrationId]
+    );
+    if (regInfo.rows.length === 0) return res.status(404).json({ error: 'Registration not found' });
+
+    const reg = regInfo.rows[0];
+    const challengeId = reg.challenge_id;
+    const startingBalance = parseFloat(reg.actual_starting_balance || reg.registration_balance || reg.starting_balance || 30);
+
+    // Get all trades ordered by close_time
+    const tradesParams: any[] = [challengeId, registrationId];
+    let dateFilter = '';
+    if (reg.start_date) {
+      const graceStart = new Date(new Date(reg.start_date).getTime() - 3 * 60 * 60 * 1000);
+      dateFilter += ` AND close_time >= $3`;
+      tradesParams.push(graceStart.toISOString());
+    }
+    if (reg.end_date) {
+      const graceEnd = new Date(new Date(reg.end_date).getTime() + 27 * 60 * 60 * 1000);
+      dateFilter += ` AND close_time <= $${tradesParams.length + 1}`;
+      tradesParams.push(graceEnd.toISOString());
+    }
+
+    const trades = await db.query(
+      `SELECT close_time, profit, commission, swap, is_qualified
+       FROM wp_trades
+       WHERE challenge_id = $1 AND registration_id = $2${dateFilter}
+       ORDER BY close_time ASC`,
+      tradesParams
+    );
+
+    // Build balance series
+    let grossBalance = startingBalance;
+    let adjustedBalance = startingBalance;
+    const series: { time: string; gross: number; adjusted: number }[] = [
+      { time: reg.start_date || new Date().toISOString(), gross: startingBalance, adjusted: startingBalance }
+    ];
+
+    for (const t of trades.rows) {
+      const net = parseFloat(t.profit) + parseFloat(t.commission || 0) + parseFloat(t.swap || 0);
+      grossBalance += net;
+      if (t.is_qualified) {
+        adjustedBalance += net;
+      }
+      series.push({
+        time: t.close_time,
+        gross: Math.round(grossBalance * 100) / 100,
+        adjusted: Math.round(adjustedBalance * 100) / 100,
+      });
+    }
+
+    return res.json({ startingBalance, series, isCent: reg.is_cent || false });
+  } catch (error) {
+    console.error('Balance history error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * GET /api/admin/:secretPath/challenge/:id/balance-history?registration_id=X
+ * Admin version — returns balance-over-time for any registration.
+ */
+app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/balance-history`, adminIpCheck, async (req, res) => {
+  try {
+    const challengeId = parseInt(req.params.id);
+    const registrationId = parseInt(req.query.registration_id as string);
+    if (!registrationId) return res.status(400).json({ error: 'registration_id required' });
+
+    const regInfo = await db.query(
+      `SELECT r.actual_starting_balance, r.registration_balance, r.is_cent,
+              c.starting_balance, c.start_date, c.end_date
+       FROM trading_registrations r
+       JOIN trading_challenges c ON c.id = r.challenge_id
+       WHERE r.id = $1 AND r.challenge_id = $2`,
+      [registrationId, challengeId]
+    );
+    if (regInfo.rows.length === 0) return res.status(404).json({ error: 'Registration not found' });
+
+    const reg = regInfo.rows[0];
+    const startingBalance = parseFloat(reg.actual_starting_balance || reg.registration_balance || reg.starting_balance || 30);
+
+    const tradesParams: any[] = [challengeId, registrationId];
+    let dateFilter = '';
+    if (reg.start_date) {
+      const graceStart = new Date(new Date(reg.start_date).getTime() - 3 * 60 * 60 * 1000);
+      dateFilter += ` AND close_time >= $3`;
+      tradesParams.push(graceStart.toISOString());
+    }
+    if (reg.end_date) {
+      const graceEnd = new Date(new Date(reg.end_date).getTime() + 27 * 60 * 60 * 1000);
+      dateFilter += ` AND close_time <= $${tradesParams.length + 1}`;
+      tradesParams.push(graceEnd.toISOString());
+    }
+
+    const trades = await db.query(
+      `SELECT close_time, profit, commission, swap, is_qualified
+       FROM wp_trades
+       WHERE challenge_id = $1 AND registration_id = $2${dateFilter}
+       ORDER BY close_time ASC`,
+      tradesParams
+    );
+
+    let grossBalance = startingBalance;
+    let adjustedBalance = startingBalance;
+    const series: { time: string; gross: number; adjusted: number }[] = [
+      { time: reg.start_date || new Date().toISOString(), gross: startingBalance, adjusted: startingBalance }
+    ];
+
+    for (const t of trades.rows) {
+      const net = parseFloat(t.profit) + parseFloat(t.commission || 0) + parseFloat(t.swap || 0);
+      grossBalance += net;
+      if (t.is_qualified) {
+        adjustedBalance += net;
+      }
+      series.push({
+        time: t.close_time,
+        gross: Math.round(grossBalance * 100) / 100,
+        adjusted: Math.round(adjustedBalance * 100) / 100,
+      });
+    }
+
+    return res.json({ startingBalance, series, isCent: reg.is_cent || false });
+  } catch (error) {
+    console.error('Admin balance history error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
   }
 });
 

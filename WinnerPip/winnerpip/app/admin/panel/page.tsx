@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { Input } from "@/components/ui/input";
+import BalanceChart from "@/components/BalanceChart";
 import { Trophy, Users, AlertTriangle, Activity, TrendingUp, Target, Shield, Clock, BarChart3, FileText, X, Key, Loader2, ArrowRight, ChevronDown, ChevronUp, Zap, MessageSquare, UserMinus, Ban, LogOut } from "lucide-react";
 
 export default function AdminDashboard() {
@@ -658,6 +659,7 @@ export default function AdminDashboard() {
               <table className="w-full min-w-[700px]">
                 <thead><tr className="border-b border-white/5">
                   <th className="text-left py-3 px-4 text-[10px] text-gray-400 uppercase">#</th>
+                  {!leaderboardPreStart && <th className="text-center py-3 px-1 text-[10px] text-gray-400 uppercase w-8">Δ</th>}
                   <th className="text-left py-3 px-4 text-[10px] text-gray-400 uppercase">Nickname</th>
                   <th className="text-left py-3 px-4 text-[10px] text-gray-400 uppercase">Account</th>
                   <th className="text-left py-3 px-4 text-[10px] text-gray-400 uppercase">Type</th>
@@ -677,6 +679,7 @@ export default function AdminDashboard() {
                   return (
                   <tr key={e.rank || e.nickname} className={`border-b border-white/5 hover:bg-white/5 cursor-pointer ${!leaderboardPreStart && e.isDisqualified ? "opacity-50 bg-loss/10" : !leaderboardPreStart && (e.isWithdrawn || e.isBlown) ? "opacity-40 bg-loss/5" : eIsWinner ? "bg-profit/15" : eIsAboveTarget ? "bg-profit/5" : ""}`} onClick={() => setSelectedParticipant(e)}>
                     <td className="py-3 px-4"><span className={`text-sm font-bold ${!leaderboardPreStart && e.isDisqualified ? "text-loss" : eIsWinner ? "text-profit" : eIsAboveTarget ? "text-profit/70" : e.rank && e.rank <= 3 ? "text-gold" : "text-gray-400"}`}>{e.isDisqualified ? <span className="text-[10px]">DQ</span> : eIsWinner ? "🏆" : (e.rank || (e.notYetEvaluated ? <span className="text-[10px] text-gray-600">—</span> : "—"))}</span></td>
+                    {!leaderboardPreStart && <td className="py-3 px-1 text-center w-8">{e.rankChange > 0 ? <span className="text-[10px] text-profit font-semibold">▲{e.rankChange}</span> : e.rankChange < 0 ? <span className="text-[10px] text-loss font-semibold">▼{Math.abs(e.rankChange)}</span> : e.rankChange === 0 ? <span className="text-[10px] text-gray-600">—</span> : <span className="text-[10px] text-gray-700">·</span>}</td>}
                     <td className="py-3 px-4"><p className={`text-sm font-semibold ${eIsWinner ? "text-profit font-bold" : eIsAboveTarget ? "text-profit/80" : "text-white"}`}>{e.nickname}{!leaderboardPreStart && e.isDisqualified ? <span className="ml-2 text-[10px] text-loss">DQ</span> : !leaderboardPreStart && e.isWithdrawn ? <span className="ml-2 text-[10px] text-gray-400" title="User withdrew all funds — out of challenge">🚪 Exited</span> : !leaderboardPreStart && e.isBlown ? <span className="ml-2 text-[10px] text-amber-400" title="Account blown">💀 Blown</span> : ""}</p><p className="text-[10px] text-gray-500 mt-0.5">{e.email || ""}</p></td>
                     <td className="py-3 px-4"><p className="text-xs text-gray-300 font-mono">{e.accountNumber || "—"}</p></td>
                     <td className="py-3 px-4"><span className={`px-2 py-1 rounded text-[10px] font-semibold ${e.accountType === "real" ? "bg-gold/10 text-gold" : "bg-royal/10 text-royal"}`}>{e.accountType}</span></td>
@@ -1241,6 +1244,16 @@ export default function AdminDashboard() {
                   <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Trades</p><p className="text-lg font-bold text-white">{selectedParticipant.totalTrades || 0}</p></div>
                   <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Flagged</p><p className={`text-lg font-bold ${(selectedParticipant.flaggedTrades || 0) > 0 ? "text-loss" : "text-profit"}`}>{selectedParticipant.flaggedTrades || 0}</p></div>
                 </div>
+              )}
+              {/* ACCOUNT GROWTH CHART */}
+              {selectedParticipant.totalTrades > 0 && selectedParticipant.registrationId && (
+                <BalanceChart
+                  registrationId={selectedParticipant.registrationId}
+                  challengeId={parseInt(selectedChallengeId)}
+                  adminSecretPath={process.env.NEXT_PUBLIC_ADMIN_PATH || ""}
+                  isCent={selectedParticipant.isCent || false}
+                  height={160}
+                />
               )}
               <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Account Type</p><span className={`px-3 py-1 rounded text-xs font-semibold ${selectedParticipant.accountType === "real" ? "bg-gold/10 text-gold" : "bg-royal/10 text-royal"}`}>{selectedParticipant.accountType}</span></div>
               {selectedParticipantTrades.length > 0 && (() => {

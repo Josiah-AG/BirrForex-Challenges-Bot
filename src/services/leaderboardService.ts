@@ -16,8 +16,21 @@ export class LeaderboardService {
    * Called at the START of a new pull cycle (using data from the PREVIOUS cycle).
    * Exception: Final Saturday sync → called immediately after pull completes.
    */
-  async updateRankings(challengeId: number): Promise<void> {
-    console.log(`📊 Leaderboard: Updating rankings for challenge ${challengeId}`);
+  async updateRankings(challengeId: number, saveSnapshot = false): Promise<void> {
+    console.log(`📊 Leaderboard: Updating rankings for challenge ${challengeId}${saveSnapshot ? ' (saving previous_rank snapshot)' : ''}`);
+
+    // Ensure previous_rank column exists (safe to call multiple times)
+    await db.query(`ALTER TABLE wp_leaderboard ADD COLUMN IF NOT EXISTS previous_rank INTEGER`).catch(() => {});
+
+    // Only save previous_rank on scheduled pull cycles — not on admin re-evaluations/fixes.
+    // This way rank_change always compares to the last scheduled pull, and admin corrections
+    // get folded into the current rank naturally (showing up in the NEXT pull's comparison).
+    if (saveSnapshot) {
+      await db.query(
+        `UPDATE wp_leaderboard SET previous_rank = rank WHERE challenge_id = $1 AND rank IS NOT NULL`,
+        [challengeId]
+      );
+    }
 
     // Clean up: remove leaderboard entries for removed/deleted registrations
     await db.query(

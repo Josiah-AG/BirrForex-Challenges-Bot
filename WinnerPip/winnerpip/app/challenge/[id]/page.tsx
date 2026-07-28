@@ -5,6 +5,7 @@ import Image from "next/image";
 import { useParams } from "next/navigation";
 import { Input } from "@/components/ui/input";
 import { TrendingUp, Trophy, AlertTriangle, Target, Activity, ArrowLeft, FileText, Clock, ChevronDown, ChevronUp, Shield, Award, Hash, Key, Loader2, MessageCircle, ArrowRight, X, RefreshCw, LogOut } from "lucide-react";
+import BalanceChart from "@/components/BalanceChart";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
 
@@ -18,7 +19,7 @@ interface Trade {
   isQualified: boolean; violations: string[]; slCheckPending?: boolean; slCheckResult?: string | null;
 }
 interface LeaderboardEntry {
-  nickname: string; accountType: string; rank: number;
+  nickname: string; accountType: string; rank: number; rankChange?: number | null;
   currentBalance: number; adjustedBalance: number;
   qualifiedProfit: number; grossProfit: number; profitRemoved: number;
   totalTrades: number; qualifiedTrades: number; flaggedTrades: number;
@@ -576,7 +577,7 @@ export default function ChallengeDashboard() {
           {/* FULL DASHBOARD (same as active) */}
           <>
             {/* TOP STATS */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 mb-6">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 mb-3">
               <button onClick={() => setShowLeaderboardModal(true)} className="glass rounded-2xl p-4 md:p-5 border border-white/10 text-left hover:border-gold/30 transition-all">
                 <div className="flex items-center gap-2 mb-2"><Trophy size={16} className="text-gold" /><p className="text-[10px] text-gray-400 uppercase tracking-wider font-medium">Final Rank</p></div>
                 <p className="text-3xl md:text-4xl font-bold gradient-text">{myStats.rank ? `#${myStats.rank}` : "—"}</p>
@@ -598,17 +599,26 @@ export default function ChallengeDashboard() {
               </div>
             </div>
 
-            {/* MINI STATS */}
-            <div className="grid grid-cols-3 md:grid-cols-6 gap-3 mb-6">
-              <MiniStat label="Trades" value={myStats.totalTrades.toString()} icon={<Activity size={14} />} />
-              <MiniStat label="Qualified" value={myStats.qualifiedTrades.toString()} icon={<Award size={14} />} />
-              <MiniStat label="Removed" value={`${formatBalance(myStats.profitRemoved, myStats.accountType, effectiveIsCent)}`} icon={<Target size={14} />} color="text-royal" />
-              <button onClick={() => setShowViolationsModal(true)} className="glass rounded-xl p-3 border border-white/10 text-center hover:border-loss/30 transition-all">
-                <div className="flex items-center justify-center gap-1 mb-1 text-loss"><AlertTriangle size={14} /><p className="text-[9px] uppercase tracking-wider font-medium">Flagged</p></div>
-                <p className="text-lg font-bold text-loss">{myStats.flaggedTrades}</p>
-              </button>
-              <MiniStat label="Win Rate (Qualified)" value={`${winRate}%`} icon={<ChevronUp size={14} />} color={winRate >= 50 ? "text-profit" : "text-loss"} />
-              <MiniStat label="Avg RR" value={avgRR > 0 ? avgRR.toFixed(2) : "—"} icon={<ChevronDown size={14} />} color="text-royal" />
+            {/* MINI STATS + CHART */}
+            <div className="grid grid-cols-1 md:grid-cols-[1fr_2fr] gap-3 mb-4">
+              <div className="grid grid-cols-3 md:grid-cols-2 gap-2">
+                <MiniStat label="Qualified" value={myStats.qualifiedTrades.toString()} icon={<Award size={14} />} />
+                <button onClick={() => setShowViolationsModal(true)} className="glass rounded-xl p-2.5 border border-white/10 text-center hover:border-loss/30 transition-all">
+                  <div className="flex items-center justify-center gap-1 mb-0.5 text-loss"><AlertTriangle size={12} /><p className="text-[8px] uppercase tracking-wider font-medium">Flagged</p></div>
+                  <p className="text-base font-bold text-loss">{myStats.flaggedTrades}</p>
+                </button>
+                <MiniStat label="Win Rate" value={`${winRate}%`} icon={<ChevronUp size={14} />} color={winRate >= 50 ? "text-profit" : "text-loss"} />
+                <MiniStat label="Avg RR" value={avgRR > 0 ? avgRR.toFixed(2) : "—"} icon={<ChevronDown size={14} />} color="text-royal" />
+                <MiniStat label="Removed" value={`${formatBalance(myStats.profitRemoved, myStats.accountType, effectiveIsCent)}`} icon={<Target size={14} />} color="text-royal" />
+                <MiniStat label="Pass%" value={myStats.totalTrades > 0 ? `${Math.round((myStats.qualifiedTrades / myStats.totalTrades) * 100)}%` : "—"} icon={<Shield size={14} />} color="text-profit" />
+              </div>
+              {myStats.totalTrades > 0 ? (
+                <BalanceChart authToken={typeof window !== "undefined" ? localStorage.getItem("wp_token") || undefined : undefined} isCent={effectiveIsCent} height={130} />
+              ) : (
+                <div className="glass rounded-xl border border-white/10 flex items-center justify-center p-4">
+                  <p className="text-xs text-gray-500">Chart appears after first trade</p>
+                </div>
+              )}
             </div>
 
             {/* TAB NAVIGATION */}
@@ -725,9 +735,14 @@ export default function ChallengeDashboard() {
                       </div>
                       <p className="text-[10px] text-gray-500">{entry.totalTrades} trades • {entry.qualifiedTrades} qualified{entry.isWithdrawn && entry.totalWithdrawn ? ` • withdrew ${formatBalance(entry.totalWithdrawn, entry.accountType, entry.isCent)}` : ""}</p>
                     </div>
-                    <p className={`text-sm font-bold ${isWinner(entry) ? "text-profit" : "text-white"}`}>
+                    <div className="text-right flex-shrink-0">
+                      <p className={`text-sm font-bold ${isWinner(entry) ? "text-profit" : "text-white"}`}>
                       {!leaderboardPreStart && entry.isDisqualified ? <span className="text-loss">DQ</span> : !leaderboardPreStart && entry.isWithdrawn ? <span className="text-gray-400">Exited</span> : formatBalance(entry.adjustedBalance - (entry.totalWithdrawn || 0), entry.accountType, entry.isCent)}
                     </p>
+                    {!leaderboardPreStart && entry.rankChange != null && entry.rankChange !== 0 && (
+                      <p className={`text-[9px] font-semibold ${entry.rankChange > 0 ? "text-profit" : "text-loss"}`}>{entry.rankChange > 0 ? `▲${entry.rankChange}` : `▼${Math.abs(entry.rankChange)}`}</p>
+                    )}
+                    </div>
                   </button>
                 ))}
               </div>
@@ -890,7 +905,7 @@ export default function ChallengeDashboard() {
           {/* FULL DASHBOARD */}
           <>
             {/* TOP STATS */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 mb-6">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 mb-3">
               <button onClick={() => setShowLeaderboardModal(true)} className="glass rounded-2xl p-4 md:p-5 border border-white/10 text-left hover:border-gold/30 transition-all">
                 <div className="flex items-center gap-2 mb-2"><Trophy size={16} className="text-gold" /><p className="text-[10px] text-gray-400 uppercase tracking-wider font-medium">Rank</p></div>
                 <p className="text-3xl md:text-4xl font-bold gradient-text">{!isNotStarted && myStats.rank ? `#${myStats.rank}` : "—"}</p>
@@ -974,17 +989,26 @@ export default function ChallengeDashboard() {
               </div>
             )}
 
-            {/* MINI STATS */}
-            <div className="grid grid-cols-3 md:grid-cols-6 gap-3 mb-6">
-              <MiniStat label="Trades" value={myStats.totalTrades.toString()} icon={<Activity size={14} />} />
-              <MiniStat label="Qualified" value={myStats.qualifiedTrades.toString()} icon={<Award size={14} />} />
-              <MiniStat label="Removed" value={`${formatBalance(myStats.profitRemoved, myStats.accountType, effectiveIsCent)}`} icon={<Target size={14} />} color="text-royal" />
-              <button onClick={() => setShowViolationsModal(true)} className="glass rounded-xl p-3 border border-white/10 text-center hover:border-loss/30 transition-all">
-                <div className="flex items-center justify-center gap-1 mb-1 text-loss"><AlertTriangle size={14} /><p className="text-[9px] uppercase tracking-wider font-medium">Flagged</p></div>
-                <p className="text-lg font-bold text-loss">{myStats.flaggedTrades}</p>
-              </button>
-              <MiniStat label="Win Rate (Qualified)" value={`${winRate}%`} icon={<ChevronUp size={14} />} color={winRate >= 50 ? "text-profit" : "text-loss"} />
-              <MiniStat label="Avg RR" value={avgRR > 0 ? avgRR.toFixed(2) : "—"} icon={<ChevronDown size={14} />} color="text-royal" />
+            {/* MINI STATS + CHART */}
+            <div className="grid grid-cols-1 md:grid-cols-[1fr_2fr] gap-3 mb-4">
+              <div className="grid grid-cols-3 md:grid-cols-2 gap-2">
+                <MiniStat label="Qualified" value={myStats.qualifiedTrades.toString()} icon={<Award size={14} />} />
+                <button onClick={() => setShowViolationsModal(true)} className="glass rounded-xl p-2.5 border border-white/10 text-center hover:border-loss/30 transition-all">
+                  <div className="flex items-center justify-center gap-1 mb-0.5 text-loss"><AlertTriangle size={12} /><p className="text-[8px] uppercase tracking-wider font-medium">Flagged</p></div>
+                  <p className="text-base font-bold text-loss">{myStats.flaggedTrades}</p>
+                </button>
+                <MiniStat label="Win Rate" value={`${winRate}%`} icon={<ChevronUp size={14} />} color={winRate >= 50 ? "text-profit" : "text-loss"} />
+                <MiniStat label="Avg RR" value={avgRR > 0 ? avgRR.toFixed(2) : "—"} icon={<ChevronDown size={14} />} color="text-royal" />
+                <MiniStat label="Removed" value={`${formatBalance(myStats.profitRemoved, myStats.accountType, effectiveIsCent)}`} icon={<Target size={14} />} color="text-royal" />
+                <MiniStat label="Pass%" value={myStats.totalTrades > 0 ? `${Math.round((myStats.qualifiedTrades / myStats.totalTrades) * 100)}%` : "—"} icon={<Shield size={14} />} color="text-profit" />
+              </div>
+              {myStats.totalTrades > 0 ? (
+                <BalanceChart authToken={typeof window !== "undefined" ? localStorage.getItem("wp_token") || undefined : undefined} isCent={effectiveIsCent} height={130} />
+              ) : (
+                <div className="glass rounded-xl border border-white/10 flex items-center justify-center p-4">
+                  <p className="text-xs text-gray-500">Chart appears after first trade</p>
+                </div>
+              )}
             </div>
 
             {/* TAB NAVIGATION */}

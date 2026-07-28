@@ -664,7 +664,7 @@ export class TradingScheduler {
       // Final leaderboard ranking update
       try {
         const { leaderboardService } = require('../services/leaderboardService');
-        await leaderboardService.updateRankings(challenge.id);
+        await leaderboardService.updateRankings(challenge.id, true);
       } catch (e) {
         console.error('Error updating final rankings:', e);
       }

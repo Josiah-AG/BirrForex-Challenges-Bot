@@ -639,7 +639,7 @@ export class VpsPullScheduler {
         console.log(`📊 VPS Pull: ${flushLabel} — flushing staging + updating leaderboard`);
         await leaderboardService.flushStagingToLive(challengeToPull.id);
         await leaderboardService.ensureAllParticipantsHaveEntries(challengeToPull.id);
-        await leaderboardService.updateRankings(challengeToPull.id);
+        await leaderboardService.updateRankings(challengeToPull.id, true);
       }
 
       // === STEP 7: Auto-DQ users who can't meet min_active_days (challenge ended) ===
@@ -677,7 +677,7 @@ export class VpsPullScheduler {
               console.log(`📊 VPS Pull: Auto-DQ'd ${underperformers.rows.length} users for insufficient active days`);
 
               // Re-rank after DQs
-              await leaderboardService.updateRankings(challengeToPull.id);
+              await leaderboardService.updateRankings(challengeToPull.id, true);
             }
           }
         } catch (e) {
@@ -870,7 +870,7 @@ export class VpsPullScheduler {
       // Force pull flushes right now so the admin sees correct stats instantly.
       await leaderboardService.flushStagingToLive(challengeToPull.id);
       await leaderboardService.ensureAllParticipantsHaveEntries(challengeToPull.id);
-      await leaderboardService.updateRankings(challengeToPull.id);
+      await leaderboardService.updateRankings(challengeToPull.id, true);
       console.log(`📊 VPS Pull: Staging flushed to live — leaderboard updated`);
 
       const duration = Math.round((Date.now() - startTime) / 1000);
