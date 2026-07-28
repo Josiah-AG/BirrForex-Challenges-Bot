@@ -2481,7 +2481,7 @@ export class VpsPullScheduler {
         }
         const rows = await db.query(
           `SELECT DISTINCT position_id FROM wp_trades
-           WHERE challenge_id = $1 AND account_number = $2 AND open_time IS NULL${dateClause}`,
+           WHERE challenge_id = $1 AND account_number = $2 AND (open_time IS NULL OR open_price IS NULL OR open_price = 0)${dateClause}`,
           params
         );
         if (rows.rows.length > 0) {
@@ -2529,9 +2529,9 @@ export class VpsPullScheduler {
               if (!data?.open_time) continue;
               debugLog.log('resolve', `Resolved open_time for pos=${posIdStr}: open_time=${(data as any).open_time} open_price=${(data as any).open_price}`, task.account.accountNumber);
               await db.query(
-                `UPDATE wp_trades SET open_time = $1, open_price = COALESCE($2, open_price), synced_at = NOW()
-                 WHERE challenge_id = $3 AND account_number = $4 AND position_id = $5 AND open_time IS NULL`,
-                [data.open_time, data.open_price ?? null, challengeId, task.account.accountNumber, posIdStr]
+                `UPDATE wp_trades SET open_time = COALESCE($1, open_time), open_price = CASE WHEN $2::numeric > 0 THEN $2 ELSE open_price END, synced_at = NOW()
+                 WHERE challenge_id = $3 AND account_number = $4 AND position_id = $5 AND (open_time IS NULL OR open_price IS NULL OR open_price = 0)`,
+                [data.open_time ?? null, data.open_price ?? null, challengeId, task.account.accountNumber, posIdStr]
               ).catch(() => {});
             }
           }
