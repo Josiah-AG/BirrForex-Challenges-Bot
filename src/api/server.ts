@@ -4623,12 +4623,56 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/resolve-incomplete`, adm
     const terminalCount = 15;
     const healthyTerminals = Array.from({ length: terminalCount }, (_, i) => ({ id: i + 1 }));
 
-    // Run in background using the same parallel resolve logic
+    // Run in background — uses full /pull (no date filter) to recover open_price
+    // from opening deals. The /pull endpoint's trade-building prefers open_deal.price
+    // over order.price_open, so this fixes positions where /resolve-opens fails
+    // (because resolve-opens skips deals when orders gave open_time).
     (async () => {
       try {
-        await globalScheduler.resolveNullOpenTimes(challengeId, batchId, accounts, healthyTerminals, challenge);
+        // Phase: full pull for open_price recovery
+        await db.query(
+          `UPDATE wp_pull_batches SET phase = 'full_pull_open_price', phase2_total = $1, phase2_processed = 0 WHERE id = $2`,
+          [accounts.length, batchId]
+        );
+
+        const queue = [...accounts];
+        let processed = 0;
+        let totalFixed = 0;
+
+        const workers = healthyTerminals.map(async (terminal: any) => {
+          while (true) {
+            const account = queue.shift();
+            if (!account) return;
+
+            const fixed = await globalScheduler.fullPullForOpenPrice(
+              { ...account, investorPassword: account.password },
+              terminal.id,
+              challengeId
+            );
+            totalFixed += fixed;
+
+            processed++;
+            await db.query(`UPDATE wp_pull_batches SET phase2_processed = $1 WHERE id = $2`, [processed, batchId]).catch(() => {});
+          }
+        });
+        await Promise.all(workers);
+
+        // After full pulls, run standard resolve-opens as a second pass for any remaining
+        // (handles open_time issues that full pull might not catch)
+        const stillIncomplete = await db.query(
+          `SELECT COUNT(*) as cnt FROM wp_trades
+           WHERE challenge_id = $1 AND (open_time IS NULL OR open_price IS NULL OR open_price = 0)`,
+          [challengeId]
+        );
+        const remaining = parseInt(stillIncomplete.rows[0]?.cnt || '0');
+
+        if (remaining > 0) {
+          console.log(`🔧 Manual resolve: ${totalFixed} fixed by full pull, ${remaining} still incomplete — running resolve-opens fallback`);
+          await globalScheduler.resolveNullOpenTimes(challengeId, batchId, accounts, healthyTerminals, challenge);
+        }
+
         await db.query(`UPDATE wp_pull_batches SET status = 'completed', completed_at = NOW() WHERE id = $1`, [batchId]);
-        console.log(`✅ Manual resolve-incomplete done for challenge ${challengeId}`);
+        console.log(`✅ Manual resolve-incomplete done for challenge ${challengeId} — ${totalFixed} open_price fixed by full pull`);
       } catch (e) {
         console.error('Manual resolve-incomplete error:', e);
         await db.query(`UPDATE wp_pull_batches SET status = 'failed', completed_at = NOW() WHERE id = $1`, [batchId]).catch(() => {});

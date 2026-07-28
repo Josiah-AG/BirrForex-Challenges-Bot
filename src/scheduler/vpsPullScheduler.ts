@@ -2171,6 +2171,84 @@ export class VpsPullScheduler {
   }
 
   /**
+   * Full /pull with no date filter for an account — forces VPS to return ALL deals
+   * including "in" (entry=0) deals which carry the actual execution open_price.
+   * The /pull endpoint's trade-building logic prefers open_deal.price over order.price_open,
+   * so this recovers open_price that /resolve-opens cannot (because resolve-opens only
+   * checks orders first and skips deals if orders gave an open_time).
+   * Returns count of trades that got their open_price fixed.
+   */
+  async fullPullForOpenPrice(
+    account: AccountToPull,
+    terminalId: number,
+    challengeId: number,
+    abortSignal?: AbortSignal
+  ): Promise<number> {
+    try {
+      const response = await axios.post(
+        `${this.baseUrl}/pull`,
+        {
+          account: account.accountNumber,
+          server: account.server,
+          password: account.investorPassword,
+          api_key: this.apiKey,
+          terminal_id: terminalId,
+          // No from_date = full history from 2020 (VPS default). This ensures
+          // opening deals that happened before any incremental window are included.
+          from_date: null,
+          orders_from_date: null,
+        },
+        { headers: { 'Content-Type': 'application/json' }, timeout: HISTORY_RESOLVE_TIMEOUT_MS, signal: abortSignal }
+      );
+
+      if (!response.data?.success) {
+        console.warn(`⚠️ VPS Pull: fullPullForOpenPrice ${account.accountNumber} on terminal ${terminalId} — VPS returned success=false`);
+        return 0;
+      }
+
+      const trades: any[] = response.data.trades || [];
+      if (trades.length === 0) return 0;
+
+      // Only update trades that currently have open_price = 0 or NULL in the DB
+      const nullRows = await db.query(
+        `SELECT position_id FROM wp_trades
+         WHERE challenge_id = $1 AND account_number = $2 AND (open_price IS NULL OR open_price = 0)`,
+        [challengeId, account.accountNumber]
+      );
+      const needsFix = new Set(nullRows.rows.map((r: any) => String(r.position_id)));
+      if (needsFix.size === 0) return 0;
+
+      let fixed = 0;
+      for (const trade of trades) {
+        const posId = String(trade.position_id || trade.ticket);
+        if (!needsFix.has(posId)) continue;
+        const openPrice = trade.open_price;
+        if (!openPrice || openPrice === 0) continue;
+
+        // Update only the open_price (and open_time if also missing)
+        const result = await db.query(
+          `UPDATE wp_trades
+           SET open_price = $1,
+               open_time = COALESCE($2, open_time),
+               synced_at = NOW()
+           WHERE challenge_id = $3 AND account_number = $4 AND position_id = $5
+             AND (open_price IS NULL OR open_price = 0)`,
+          [openPrice, trade.open_time || null, challengeId, account.accountNumber, posId]
+        ).catch(() => null);
+        if (result && result.rowCount && result.rowCount > 0) {
+          fixed++;
+          debugLog.log('resolve', `fullPullForOpenPrice fixed pos=${posId}: open_price=${openPrice}`, account.accountNumber);
+        }
+      }
+
+      return fixed;
+    } catch (e: any) {
+      console.warn(`⚠️ VPS Pull: fullPullForOpenPrice ${account.accountNumber} threw: status=${e?.response?.status} code=${e?.code} message=${e?.message}`);
+      return 0;
+    }
+  }
+
+  /**
    * Targeted /resolve-opens call for one account — one login session resolves
    * every still-null position passed in. Returns a map of position_id -> {open_time, open_price}.
    */
@@ -2599,6 +2677,55 @@ export class VpsPullScheduler {
         }
       });
       await Promise.all(workers);
+    }
+
+    // ── Phase 2.5: Full-pull fallback for open_price still stuck at 0 ──────
+    // /resolve-opens has a known limitation: it checks orders first, and if orders
+    // provide open_time it skips deals entirely. Some brokers return order.price_open=0
+    // for market orders (the actual price is only on the opening deal). A full /pull
+    // will include the opening deal and extract the correct price.
+    if (this.cancelRequested) return;
+    const stillStuck = await db.query(
+      `SELECT DISTINCT t.account_number FROM wp_trades t
+       WHERE t.challenge_id = $1 AND (t.open_price IS NULL OR t.open_price = 0)
+         AND t.open_time IS NOT NULL`,
+      [challengeId]
+    );
+    if (stillStuck.rows.length > 0) {
+      const stuckAccountNumbers = new Set(stillStuck.rows.map((r: any) => r.account_number));
+      const stuckAccounts = accounts.filter(a => stuckAccountNumbers.has(a.accountNumber));
+      if (stuckAccounts.length > 0) {
+        console.log(`🔧 VPS Pull: Phase 2.5 — ${stuckAccounts.length} account(s) still have open_price=0 after resolve-opens, doing full /pull fallback`);
+        if (batchId) {
+          await db.query(
+            `UPDATE wp_pull_batches SET phase = 'full_pull_open_price', phase2_total = $1, phase2_processed = 0 WHERE id = $2`,
+            [stuckAccounts.length, batchId]
+          ).catch(() => {});
+        }
+
+        const fpQueue = [...stuckAccounts];
+        let fpProcessed = 0;
+        let fpFixed = 0;
+        const fpWorkers = healthyTerminals.map(async terminal => {
+          while (true) {
+            if (this.cancelRequested) return;
+            const account = fpQueue.shift();
+            if (!account) return;
+
+            const fixed = await this.fullPullForOpenPrice(account, terminal.id, challengeId, this.abortController?.signal);
+            fpFixed += fixed;
+            fpProcessed++;
+            if (batchId) {
+              await db.query(`UPDATE wp_pull_batches SET phase2_processed = $1 WHERE id = $2`, [fpProcessed, batchId]).catch(() => {});
+            }
+            await this.delay(BATCH_DELAY_MS);
+          }
+        });
+        await Promise.all(fpWorkers);
+        if (fpFixed > 0) {
+          console.log(`✅ VPS Pull: Phase 2.5 full-pull fallback fixed ${fpFixed} open_price value(s)`);
+        }
+      }
     }
   }
 
