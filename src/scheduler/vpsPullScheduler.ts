@@ -1538,6 +1538,7 @@ export class VpsPullScheduler {
   private hadTerminalDown = false;
   private lastCriticalDmAt = 0;
   private readonly CRITICAL_DM_INTERVAL_MS = 2 * 60 * 60 * 1000; // 2 hours
+  private terminalUnhealthyMsgIds = new Map<number, number>(); // terminalId → message_id
 
   private async recheckUnhealthyTerminals() {
     const unhealthy = this.terminals.filter(t => !t.isHealthy && t.unhealthySince);
@@ -1557,15 +1558,31 @@ export class VpsPullScheduler {
         terminal.consecutiveFailures = 0;
         terminal.unhealthySince = null;
         console.log(`✅ Terminal ${terminal.id} recovered`);
-      } else {
-        console.log(`❌ Terminal ${terminal.id} still unhealthy`);
+
+        // Delete the unhealthy DM and send recovered DM
+        const oldMsgId = this.terminalUnhealthyMsgIds.get(terminal.id);
+        if (oldMsgId) {
+          try { await this.bot.bot.telegram.deleteMessage(config.adminUserId, oldMsgId); } catch (e) {}
+          this.terminalUnhealthyMsgIds.delete(terminal.id);
+        }
         try {
           await this.bot.bot.telegram.sendMessage(config.adminUserId,
-            `⚠️ <b>VPS Terminal ${terminal.id} Unhealthy</b>\n\n` +
-            `Down since ${terminal.unhealthySince?.toISOString()}\n` +
-            `Healthy terminals: ${this.getHealthyTerminalCount()}/${MAX_TERMINALS}`,
+            `✅ <b>Terminal ${terminal.id} Recovered</b>\n\nHealthy: ${this.getHealthyTerminalCount()}/${MAX_TERMINALS}`,
             { parse_mode: 'HTML' });
         } catch (e) {}
+      } else {
+        console.log(`❌ Terminal ${terminal.id} still unhealthy`);
+        // Only send DM if we don't already have one for this terminal
+        if (!this.terminalUnhealthyMsgIds.has(terminal.id)) {
+          try {
+            const msg = await this.bot.bot.telegram.sendMessage(config.adminUserId,
+              `⚠️ <b>VPS Terminal ${terminal.id} Unhealthy</b>\n\n` +
+              `Down since ${terminal.unhealthySince?.toISOString()}\n` +
+              `Healthy terminals: ${this.getHealthyTerminalCount()}/${MAX_TERMINALS}`,
+              { parse_mode: 'HTML' });
+            this.terminalUnhealthyMsgIds.set(terminal.id, msg.message_id);
+          } catch (e) {}
+        }
         terminal.unhealthySince = new Date();
       }
     }
