@@ -631,9 +631,12 @@ export default function ChallengeDashboard() {
             {/* TRADES TAB */}
             {activeTab === "trades" && (
             <div className="glass rounded-2xl border border-white/10 overflow-hidden">
-              <div className="p-4 border-b border-white/5 flex items-center justify-between">
-                <p className="text-sm font-semibold text-white">All Trades</p>
-                <p className="text-xs text-gray-500">Tap a trade for details</p>
+              <div className="p-4 border-b border-white/5">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-semibold text-white">All Trades</p>
+                  <p className="text-xs text-gray-500">Tap a trade for details</p>
+                </div>
+                <p className="text-[10px] text-gray-600 mt-1">Trades closed before {myStats.lastPullAt ? formatRelativeTime(myStats.lastPullAt) : "last sync"} • Next sync: {getNextPullTime()}</p>
               </div>
               {recentTrades.length === 0 ? (
                 <div className="p-8 text-center">
@@ -741,6 +744,9 @@ export default function ChallengeDashboard() {
                     </p>
                     {!leaderboardPreStart && entry.rankChange != null && entry.rankChange !== 0 && (
                       <p className={`text-[9px] font-semibold ${entry.rankChange > 0 ? "text-profit" : "text-loss"}`}>{entry.rankChange > 0 ? `▲${entry.rankChange}` : `▼${Math.abs(entry.rankChange)}`}</p>
+                    )}
+                    {!leaderboardPreStart && (entry.rankChange == null || entry.rankChange === 0) && (
+                      <p className="text-[9px] text-gray-600">—</p>
                     )}
                     </div>
                   </button>
@@ -1021,9 +1027,12 @@ export default function ChallengeDashboard() {
             {/* TRADES TAB */}
             {activeTab === "trades" && (
             <div className="glass rounded-2xl border border-white/10 overflow-hidden">
-              <div className="p-4 border-b border-white/5 flex items-center justify-between">
-                <p className="text-sm font-semibold text-white">Recent Trades</p>
-                <p className="text-xs text-gray-500">Tap a trade for details</p>
+              <div className="p-4 border-b border-white/5">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-semibold text-white">Recent Trades</p>
+                  <p className="text-xs text-gray-500">Tap a trade for details</p>
+                </div>
+                <p className="text-[10px] text-gray-600 mt-1">Trades closed before {myStats.lastPullAt ? formatRelativeTime(myStats.lastPullAt) : "last sync"} • Next sync: {getNextPullTime()}</p>
               </div>
               {recentTrades.length === 0 ? (
                 <div className="p-8 text-center">
@@ -1353,6 +1362,9 @@ export default function ChallengeDashboard() {
                       </p>
                       {entry.rankChange != null && entry.rankChange !== 0 && (
                         <p className={`text-[9px] font-semibold ${entry.rankChange > 0 ? "text-profit" : "text-loss"}`}>{entry.rankChange > 0 ? `▲${entry.rankChange}` : `▼${Math.abs(entry.rankChange)}`}</p>
+                      )}
+                      {(entry.rankChange == null || entry.rankChange === 0) && (
+                        <p className="text-[9px] text-gray-600">—</p>
                       )}
                     </div>
                   </button>
