@@ -4759,6 +4759,34 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/pull-single-account`, ad
       try {
         const pullResult = await scheduler.retrySingleAccount(registrationId, challengeId);
 
+        // After a successful full pull, clear data-based DQs (over-balance, active-days)
+        // so the re-evaluation can run fresh with the new complete data.
+        // Administrative DQs (partnership, manual) are NOT cleared.
+        if (pullResult.success) {
+          const dqCheck = await db.query(
+            `SELECT disqualified, disqualified_reason FROM trading_registrations WHERE id = $1`,
+            [registrationId]
+          );
+          const dqReason = dqCheck.rows[0]?.disqualified_reason || '';
+          const isDataDQ = dqCheck.rows[0]?.disqualified && (
+            dqReason.toLowerCase().includes('starting balance') ||
+            dqReason.toLowerCase().includes('exceeds allowed') ||
+            dqReason.toLowerCase().includes('active trading days') ||
+            dqReason.toLowerCase().includes('cannot meet minimum')
+          );
+          if (isDataDQ) {
+            await db.query(
+              `UPDATE trading_registrations SET disqualified = false, disqualified_at = NULL, disqualified_reason = NULL WHERE id = $1`,
+              [registrationId]
+            );
+            await db.query(
+              `UPDATE wp_leaderboard SET is_disqualified = false, disqualify_reason = NULL WHERE registration_id = $1`,
+              [registrationId]
+            ).catch(() => {});
+            console.log(`✅ Pull Individual: Cleared data-based DQ for reg ${registrationId} (was: "${dqReason}") — re-evaluating with fresh data`);
+          }
+        }
+
         let flaggedCount = 0;
         let totalTrades = 0;
         try {
