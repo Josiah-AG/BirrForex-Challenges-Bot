@@ -3130,16 +3130,18 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/admin-leaderboard`, admin
     const orderByActive = (category === 'demo' || category === 'real')
       ? `ORDER BY
          CASE WHEN l.is_disqualified = true OR r.disqualified = true THEN 1 ELSE 0 END,
+         CASE WHEN COALESCE(l.zero_balance_at::text, '') != '' THEN 1 ELSE 0 END,
          l.rank ASC NULLS LAST,
          CASE WHEN COALESCE(r.is_cent, false)
-           THEN COALESCE(l.adjusted_balance, r.last_known_balance, r.registration_balance, 0) / 100.0
-           ELSE COALESCE(l.adjusted_balance, r.last_known_balance, r.registration_balance, 0)
+           THEN COALESCE(l.normalized_balance, l.adjusted_balance, r.last_known_balance, r.registration_balance, 0) / 100.0
+           ELSE COALESCE(l.normalized_balance, l.adjusted_balance, r.last_known_balance, r.registration_balance, 0)
          END DESC NULLS LAST`
       : `ORDER BY
          CASE WHEN l.is_disqualified = true OR r.disqualified = true THEN 1 ELSE 0 END,
+         CASE WHEN COALESCE(l.zero_balance_at::text, '') != '' THEN 1 ELSE 0 END,
          CASE WHEN COALESCE(r.is_cent, false)
-           THEN COALESCE(l.adjusted_balance, r.last_known_balance, r.registration_balance, 0) / 100.0
-           ELSE COALESCE(l.adjusted_balance, r.last_known_balance, r.registration_balance, 0)
+           THEN COALESCE(l.normalized_balance, l.adjusted_balance, r.last_known_balance, r.registration_balance, 0) / 100.0
+           ELSE COALESCE(l.normalized_balance, l.adjusted_balance, r.last_known_balance, r.registration_balance, 0)
          END DESC NULLS LAST`;
 
     const result = await db.query(
