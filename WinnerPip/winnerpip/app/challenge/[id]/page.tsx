@@ -1132,9 +1132,14 @@ export default function ChallengeDashboard() {
                       <p className="text-[10px] text-gray-500">{leaderboardPreStart ? entry.accountType : `${entry.totalTrades} trades • ${entry.qualifiedTrades} qualified • ${entry.accountType}${entry.isWithdrawn && entry.totalWithdrawn ? ` • withdrew ${formatBalance(entry.totalWithdrawn, entry.accountType, entry.isCent)}` : ""}`}</p>
 
                     </div>
-                    <p className={`text-sm font-bold ${isWinner(entry) ? "text-profit" : isAboveTarget(entry) ? "text-profit/80" : "text-white"}`}>
-                      {entry.isDisqualified ? <span className="text-loss">DQ</span> : entry.isWithdrawn ? <span className="text-gray-400">Exited</span> : formatBalance(entry.adjustedBalance - (entry.totalWithdrawn || 0), entry.accountType, entry.isCent)}
-                    </p>
+                    <div className="text-right flex-shrink-0">
+                      <p className={`text-sm font-bold ${isWinner(entry) ? "text-profit" : isAboveTarget(entry) ? "text-profit/80" : "text-white"}`}>
+                        {entry.isDisqualified ? <span className="text-loss">DQ</span> : entry.isWithdrawn ? <span className="text-gray-400">Exited</span> : formatBalance(entry.adjustedBalance - (entry.totalWithdrawn || 0), entry.accountType, entry.isCent)}
+                      </p>
+                      {!leaderboardPreStart && entry.rankChange != null && entry.rankChange !== 0 && (
+                        <p className={`text-[9px] font-semibold ${entry.rankChange > 0 ? "text-profit" : "text-loss"}`}>{entry.rankChange > 0 ? `▲${entry.rankChange}` : `▼${Math.abs(entry.rankChange)}`}</p>
+                      )}
+                    </div>
                   </button>
                 ))}
               </div>
@@ -1342,9 +1347,14 @@ export default function ChallengeDashboard() {
                       </div>
                       <p className="text-[10px] text-gray-500">{entry.totalTrades} trades • {entry.qualifiedTrades} qualified{entry.isWithdrawn && entry.totalWithdrawn ? ` • withdrew ${formatBalance(entry.totalWithdrawn, entry.accountType, entry.isCent)}` : ""}</p>
                     </div>
-                    <p className={`text-sm font-bold ${entry.isDisqualified ? "text-loss" : isWinner(entry) ? "text-profit" : isAboveTarget(entry) ? "text-profit/80" : "text-white"}`}>
-                      {entry.isDisqualified ? "DQ" : entry.isWithdrawn ? <span className="text-gray-400">Exited</span> : formatBalance(entry.adjustedBalance - (entry.totalWithdrawn || 0), entry.accountType, entry.isCent)}
-                    </p>
+                    <div className="text-right flex-shrink-0">
+                      <p className={`text-sm font-bold ${entry.isDisqualified ? "text-loss" : isWinner(entry) ? "text-profit" : isAboveTarget(entry) ? "text-profit/80" : "text-white"}`}>
+                        {entry.isDisqualified ? "DQ" : entry.isWithdrawn ? <span className="text-gray-400">Exited</span> : formatBalance(entry.adjustedBalance - (entry.totalWithdrawn || 0), entry.accountType, entry.isCent)}
+                      </p>
+                      {entry.rankChange != null && entry.rankChange !== 0 && (
+                        <p className={`text-[9px] font-semibold ${entry.rankChange > 0 ? "text-profit" : "text-loss"}`}>{entry.rankChange > 0 ? `▲${entry.rankChange}` : `▼${Math.abs(entry.rankChange)}`}</p>
+                      )}
+                    </div>
                   </button>
                 ))}
                 {/* Your Position — pinned context in modal */}
