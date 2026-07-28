@@ -4572,127 +4572,73 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/incomplete-trades`, admin
 
 /**
  * POST /api/admin/:secretPath/challenge/:id/resolve-incomplete
- * Retry resolving incomplete trades via VPS /resolve-trades endpoint
- * Body: { positionIds: [123, 456] } or { all: true }
+ * Retry resolving incomplete trades using all healthy VPS terminals in parallel.
+ * Uses the same resolveNullOpenTimes function as the normal pull cycle.
+ * Progress tracked via pull-status (creates a batch record).
+ * Body: { all: true }
  */
 app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/resolve-incomplete`, adminIpCheck, async (req, res) => {
   try {
     const challengeId = parseInt(req.params.id);
-    const { positionIds, all } = req.body;
 
-    let targetPositionIds: number[] = [];
+    const globalScheduler = (global as any).__vpsPullScheduler;
+    if (!globalScheduler) return res.status(503).json({ error: 'VPS scheduler not initialized' });
 
-    if (all) {
-      // Get all incomplete trade position IDs
-      const result = await db.query(
-        `SELECT DISTINCT position_id FROM wp_trades
-         WHERE challenge_id = $1
-           AND (
-             open_time IS NULL OR
-             open_price IS NULL OR open_price = 0 OR
-             close_time IS NULL OR
-             close_price IS NULL OR close_price = 0 OR
-             profit IS NULL OR
-             symbol IS NULL OR symbol = '' OR
-             trade_type IS NULL OR trade_type = '' OR
-             volume IS NULL OR volume = 0
-           )`,
-        [challengeId]
-      );
-      targetPositionIds = result.rows.map((r: any) => Number(r.position_id));
-    } else if (positionIds && positionIds.length > 0) {
-      targetPositionIds = positionIds.map(Number);
-    } else {
-      return res.status(400).json({ error: 'Provide positionIds array or { all: true }' });
-    }
-
-    if (targetPositionIds.length === 0) {
-      return res.json({ success: true, message: 'No incomplete trades to resolve', resolved: 0 });
-    }
-
-    // Group positions by account (need credentials to call VPS)
-    const posWithAccounts = await db.query(
-      `SELECT DISTINCT t.position_id, t.account_number, r.mt5_server, r.investor_password, r.id as registration_id
+    // Get all accounts that have incomplete trades
+    const accountsResult = await db.query(
+      `SELECT DISTINCT t.account_number, r.id as registration_id, r.mt5_server, r.investor_password, r.user_id, r.username
        FROM wp_trades t
        JOIN trading_registrations r ON t.registration_id = r.id
-       WHERE t.challenge_id = $1 AND t.position_id = ANY($2)`,
-      [challengeId, targetPositionIds]
+       WHERE t.challenge_id = $1
+         AND (open_time IS NULL OR open_price IS NULL OR open_price = 0)`,
+      [challengeId]
     );
 
-    // Group by account
-    const byAccount = new Map<string, { server: string; password: string; registrationId: number; positionIds: number[] }>();
-    for (const row of posWithAccounts.rows) {
-      const key = row.account_number;
-      if (!byAccount.has(key)) {
-        byAccount.set(key, { server: row.mt5_server, password: row.investor_password, registrationId: row.registration_id, positionIds: [] });
-      }
-      byAccount.get(key)!.positionIds.push(Number(row.position_id));
+    if (accountsResult.rows.length === 0) {
+      return res.json({ success: true, message: 'No incomplete trades to resolve' });
     }
 
-    const vpsUrl = config.vpsApiUrl;
-    const vpsKey = config.vpsApiKey;
-    if (!vpsUrl || !vpsKey) {
-      return res.json({ success: false, message: 'VPS not configured' });
-    }
+    const accounts = accountsResult.rows.map((r: any) => ({
+      registrationId: r.registration_id,
+      accountNumber: r.account_number,
+      server: r.mt5_server,
+      password: r.investor_password,
+      userId: r.user_id,
+      username: r.username,
+    }));
 
-    const axios = require('axios');
-    let totalResolved = 0;
-    let totalFailed = 0;
+    // Create batch record for progress bar
+    const batchRes = await db.query(
+      `INSERT INTO wp_pull_batches (challenge_id, total_accounts, status, phase, error_log)
+       VALUES ($1, $2, 'running', 'resolving_nulls', 'resolve_incomplete_manual') RETURNING id`,
+      [challengeId, accounts.length]
+    );
+    const batchId = batchRes.rows[0].id;
 
-    for (const [accountNumber, info] of byAccount) {
+    // Get challenge data
+    const challengeData = await db.query(`SELECT * FROM trading_challenges WHERE id = $1`, [challengeId]);
+    const challenge = challengeData.rows[0];
+
+    // Get healthy terminals
+    const terminalCount = 15;
+    const healthyTerminals = Array.from({ length: terminalCount }, (_, i) => ({ id: i + 1 }));
+
+    // Run in background using the same parallel resolve logic
+    (async () => {
       try {
-        const response = await axios.post(`${vpsUrl}/resolve-trades`, {
-          account: accountNumber,
-          server: info.server,
-          password: info.password,
-          api_key: vpsKey,
-          position_ids: info.positionIds,
-        }, { timeout: 60000 });
-
-        if (response.data?.success && response.data.trades?.length > 0) {
-          for (const trade of response.data.trades) {
-            await db.query(
-              `UPDATE wp_trades SET
-                open_time = COALESCE($1, open_time),
-                open_price = CASE WHEN $2::numeric > 0 THEN $2 ELSE open_price END,
-                close_time = COALESCE($3, close_time),
-                close_price = CASE WHEN $4::numeric > 0 THEN $4 ELSE close_price END,
-                stop_loss = COALESCE($5, stop_loss),
-                take_profit = COALESCE($6, take_profit),
-                symbol = COALESCE(NULLIF($7, ''), symbol),
-                trade_type = COALESCE(NULLIF($8, ''), trade_type),
-                volume = CASE WHEN $9::numeric > 0 THEN $9 ELSE volume END,
-                profit = COALESCE($10, profit),
-                commission = COALESCE($11, commission),
-                swap = COALESCE($12, swap),
-                synced_at = NOW()
-              WHERE challenge_id = $13 AND account_number = $14 AND position_id = $15`,
-              [
-                trade.open_time || null, trade.open_price || 0,
-                trade.close_time || null, trade.close_price || 0,
-                trade.stop_loss || null, trade.take_profit || null,
-                trade.symbol || '', trade.type || '',
-                trade.volume || 0, trade.profit ?? null,
-                trade.commission || 0, trade.swap || 0,
-                challengeId, accountNumber, trade.position_id,
-              ]
-            );
-            totalResolved++;
-          }
-        } else {
-          totalFailed += info.positionIds.length;
-        }
-      } catch (err: any) {
-        console.error(`Resolve incomplete error for ${accountNumber}:`, err.message);
-        totalFailed += info.positionIds.length;
+        await globalScheduler.resolveNullOpenTimes(challengeId, batchId, accounts, healthyTerminals, challenge);
+        await db.query(`UPDATE wp_pull_batches SET status = 'completed', completed_at = NOW() WHERE id = $1`, [batchId]);
+        console.log(`✅ Manual resolve-incomplete done for challenge ${challengeId}`);
+      } catch (e) {
+        console.error('Manual resolve-incomplete error:', e);
+        await db.query(`UPDATE wp_pull_batches SET status = 'failed', completed_at = NOW() WHERE id = $1`, [batchId]).catch(() => {});
       }
-    }
+    })();
 
     return res.json({
       success: true,
-      message: `Resolved ${totalResolved} trade(s), ${totalFailed} failed`,
-      resolved: totalResolved,
-      failed: totalFailed,
+      message: `Resolving ${accounts.length} accounts using all terminals in parallel. Check progress bar.`,
+      batchId,
     });
   } catch (error) {
     console.error('Resolve incomplete error:', error);

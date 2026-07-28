@@ -2456,7 +2456,7 @@ export class VpsPullScheduler {
    * still null and requeues unresolved ones for the next round.
    * No-op (and leaves wp_pull_batches.phase untouched) if there's nothing to fix.
    */
-  private async resolveNullOpenTimes(
+  async resolveNullOpenTimes(
     challengeId: number,
     batchId: number | null,
     accounts: AccountToPull[],
