@@ -598,15 +598,20 @@ export class WpEvaluationEngine {
       } catch {}
 
       // === OVER-BALANCE DQ (0-trade accounts) ===
-      // If their registration/current balance exceeds the allowed starting balance,
-      // DQ immediately — same logic as the has-trades path below.
+      // Two checks:
+      // 1. If their registration balance at sign-up exceeded the allowed limit
+      // 2. If their current VPS balance exceeds the allowed limit (deposit after registration)
+      // Since they have 0 trades, any balance increase MUST be from deposits.
       const tolerance0 = startingBalance * 0.01;
-      if (actualStartBalance > startingBalance + tolerance0) {
+      const effectiveBalance0 = Math.max(actualStartBalance, currentBalance);
+      if (effectiveBalance0 > startingBalance + tolerance0) {
         const currency0 = reg.is_cent ? '¢' : '$';
         await db.query(
           `UPDATE trading_registrations SET disqualified = true, disqualified_at = NOW(), disqualified_reason = $1 WHERE id = $2 AND disqualified = false`,
-          [`Starting balance ${currency0}${actualStartBalance.toFixed(2)} exceeds allowed starting balance of ${currency0}${startingBalance.toFixed(2)}`, reg.id]
+          [`Starting balance ${currency0}${effectiveBalance0.toFixed(2)} exceeds allowed starting balance of ${currency0}${startingBalance.toFixed(2)}`, reg.id]
         );
+        // Update actualStartBalance for leaderboard entry
+        actualStartBalance = effectiveBalance0;
       }
 
       // === 0-TRADES ACTIVE-DAYS DQ / UNDO ===
