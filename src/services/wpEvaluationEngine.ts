@@ -586,8 +586,15 @@ export class WpEvaluationEngine {
         const regBalance = regData.rows[0]?.registration_balance;
         if (vpsBalance !== null && vpsBalance !== undefined) currentBalance = parseFloat(vpsBalance);
         // Use person's actual registration balance (or 0 if they registered with $0)
-        if (regBalance !== null && regBalance !== undefined) actualStartBalance = parseFloat(regBalance);
-        else if (currentBalance < startingBalance) actualStartBalance = currentBalance; // They haven't deposited yet
+        if (regBalance !== null && regBalance !== undefined) {
+          actualStartBalance = parseFloat(regBalance);
+        } else if (currentBalance > startingBalance) {
+          // registration_balance not captured, but VPS shows more than allowed —
+          // they deposited above limit. Use VPS balance as their actual start.
+          actualStartBalance = currentBalance;
+        } else if (currentBalance < startingBalance) {
+          actualStartBalance = currentBalance; // They haven't deposited yet
+        }
       } catch {}
 
       // === OVER-BALANCE DQ (0-trade accounts) ===

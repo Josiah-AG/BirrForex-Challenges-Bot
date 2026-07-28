@@ -3973,7 +3973,10 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/evaluate-only`, adminIpC
     const globalScheduler = (global as any).__vpsPullScheduler;
     if (!globalScheduler) return res.status(503).json({ error: 'VPS scheduler not initialized' });
 
-    // Get all non-DQ'd accounts with trades
+    // Get all non-DQ'd accounts for evaluation.
+    // Accounts DQ'd for external reasons (password, partnership, manual) stay DQ'd —
+    // they are not re-evaluated. Their leaderboard entries get DQ flag via
+    // ensureAllParticipantsHaveEntries which runs after evaluation.
     const accounts = await db.query(
       `SELECT r.id as registration_id, r.account_number, r.mt5_server, r.investor_password
        FROM trading_registrations r
