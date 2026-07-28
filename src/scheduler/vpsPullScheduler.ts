@@ -2197,6 +2197,9 @@ export class VpsPullScheduler {
           // opening deals that happened before any incremental window are included.
           from_date: null,
           orders_from_date: null,
+          // Extended sync = double wait time for broker history to stream.
+          // Critical for full-history pulls where the broker needs to send years of data.
+          extended_sync: true,
         },
         { headers: { 'Content-Type': 'application/json' }, timeout: HISTORY_RESOLVE_TIMEOUT_MS, signal: abortSignal }
       );

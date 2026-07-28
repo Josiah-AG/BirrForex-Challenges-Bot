@@ -49,7 +49,7 @@ export class LeaderboardService {
           ) as rn
           FROM wp_leaderboard l
           JOIN trading_registrations r ON r.id = l.registration_id
-          WHERE l.challenge_id=$1 AND l.account_type=$2 AND l.is_disqualified=false
+          WHERE l.challenge_id=$1 AND l.account_type=$2 AND l.is_disqualified=false AND r.disqualified=false
             AND COALESCE(l.is_withdrawn, false) = false
             AND l.zero_balance_at IS NULL
             AND (COALESCE(l.normalized_balance, l.adjusted_balance) > 0 OR l.adjusted_balance IS NULL)
@@ -58,11 +58,12 @@ export class LeaderboardService {
       );
 
       const tier1Count = await db.query(
-        `SELECT COUNT(*) as cnt FROM wp_leaderboard
-         WHERE challenge_id=$1 AND account_type=$2 AND is_disqualified=false
-           AND COALESCE(is_withdrawn, false) = false
-           AND zero_balance_at IS NULL
-           AND (COALESCE(normalized_balance, adjusted_balance) > 0 OR adjusted_balance IS NULL)`,
+        `SELECT COUNT(*) as cnt FROM wp_leaderboard l
+         JOIN trading_registrations r ON r.id = l.registration_id
+         WHERE l.challenge_id=$1 AND l.account_type=$2 AND l.is_disqualified=false AND r.disqualified=false
+           AND COALESCE(l.is_withdrawn, false) = false
+           AND l.zero_balance_at IS NULL
+           AND (COALESCE(l.normalized_balance, l.adjusted_balance) > 0 OR l.adjusted_balance IS NULL)`,
         [challengeId, accountType]
       );
       offset = parseInt(tier1Count.rows[0].cnt);

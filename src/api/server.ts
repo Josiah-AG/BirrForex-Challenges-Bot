@@ -4673,6 +4673,17 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/resolve-incomplete`, adm
 
         await db.query(`UPDATE wp_pull_batches SET status = 'completed', completed_at = NOW() WHERE id = $1`, [batchId]);
         console.log(`✅ Manual resolve-incomplete done for challenge ${challengeId} — ${totalFixed} open_price fixed by full pull`);
+
+        // Re-evaluate all affected accounts so rankings/qualification reflect the fixed data
+        if (totalFixed > 0 || remaining === 0) {
+          console.log(`📊 Manual resolve: re-evaluating ${accounts.length} account(s) after open_price recovery`);
+          await db.query(
+            `UPDATE wp_pull_batches SET phase = 'evaluating', phase2_total = $1, phase2_processed = 0 WHERE id = $2`,
+            [accounts.length, batchId]
+          ).catch(() => {});
+          await globalScheduler.evaluateAllAccounts(challengeId, accounts, batchId);
+          console.log(`✅ Re-evaluation complete after resolve-incomplete for challenge ${challengeId}`);
+        }
       } catch (e) {
         console.error('Manual resolve-incomplete error:', e);
         await db.query(`UPDATE wp_pull_batches SET status = 'failed', completed_at = NOW() WHERE id = $1`, [batchId]).catch(() => {});
