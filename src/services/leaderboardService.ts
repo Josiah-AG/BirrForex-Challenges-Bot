@@ -165,6 +165,7 @@ export class LeaderboardService {
    * Called before ranking to guarantee everyone gets a rank.
    */
   async ensureAllParticipantsHaveEntries(challengeId: number): Promise<void> {
+    // Insert entries for NON-DQ'd participants that don't already have a leaderboard entry
     await db.query(
       `INSERT INTO wp_leaderboard
        (challenge_id, registration_id, account_number, user_id, username, nickname, account_type,
@@ -188,12 +189,53 @@ export class LeaderboardService {
        WHERE r.challenge_id = $1
          AND r.investor_password IS NOT NULL
          AND r.connection_verified = true
+         AND r.disqualified = false
          AND NOT EXISTS (SELECT 1 FROM wp_leaderboard l WHERE l.registration_id = r.id)`,
       [challengeId]
     );
 
+    // Also ensure DQ'd participants have entries (for DQ tier ranking), but mark them DQ'd
+    await db.query(
+      `INSERT INTO wp_leaderboard
+       (challenge_id, registration_id, account_number, user_id, username, nickname, account_type,
+        is_cent, is_disqualified, disqualify_reason,
+        starting_balance, current_balance, adjusted_balance, normalized_balance,
+        qualified_profit, gross_profit, profit_removed,
+        total_trades, qualified_trades, flagged_trades, active_days, is_qualified, last_updated)
+       SELECT r.challenge_id, r.id, r.account_number, r.user_id, r.username, r.nickname, r.account_type,
+              r.is_cent, true, r.disqualified_reason,
+              COALESCE(r.actual_starting_balance, r.registration_balance, c.starting_balance),
+              COALESCE(r.last_known_balance, r.registration_balance, 0),
+              COALESCE(r.actual_starting_balance, r.registration_balance, c.starting_balance),
+              CASE WHEN r.is_cent
+                THEN COALESCE(r.actual_starting_balance, r.registration_balance, c.starting_balance) / 100.0
+                ELSE COALESCE(r.actual_starting_balance, r.registration_balance, c.starting_balance)
+              END,
+              0, 0, 0, 0, 0, 0, 0, false, NOW()
+       FROM trading_registrations r
+       JOIN trading_challenges c ON r.challenge_id = c.id
+       WHERE r.challenge_id = $1
+         AND r.investor_password IS NOT NULL
+         AND r.connection_verified = true
+         AND r.disqualified = true
+         AND NOT EXISTS (SELECT 1 FROM wp_leaderboard l WHERE l.registration_id = r.id)`,
+      [challengeId]
+    );
+
+    // Sync DQ status for any existing entries where registration became DQ'd
+    await db.query(
+      `UPDATE wp_leaderboard l
+       SET is_disqualified = true,
+           disqualify_reason = COALESCE(r.disqualified_reason, l.disqualify_reason)
+       FROM trading_registrations r
+       WHERE l.registration_id = r.id
+         AND l.challenge_id = $1
+         AND r.disqualified = true
+         AND l.is_disqualified = false`,
+      [challengeId]
+    );
+
     // Backfill is_cent and normalized_balance for any existing entries that are missing them
-    // (created before this fix or by old code paths that didn't set these fields)
     await db.query(
       `UPDATE wp_leaderboard l
        SET is_cent = r.is_cent,
@@ -247,6 +289,22 @@ export class LeaderboardService {
 
     // Clear staging after flush
     await db.query(`DELETE FROM wp_leaderboard_staging WHERE challenge_id = $1`, [challengeId]);
+
+    // Sync is_disqualified flag from trading_registrations → wp_leaderboard.
+    // The evaluation engine DQs accounts (over-balance, recharge, etc.) by setting
+    // trading_registrations.disqualified = true, but staging doesn't carry that flag.
+    // This ensures DQ'd users are properly excluded from active rankings.
+    await db.query(
+      `UPDATE wp_leaderboard l
+       SET is_disqualified = true,
+           disqualify_reason = COALESCE(r.disqualified_reason, l.disqualify_reason)
+       FROM trading_registrations r
+       WHERE l.registration_id = r.id
+         AND l.challenge_id = $1
+         AND r.disqualified = true
+         AND l.is_disqualified = false`,
+      [challengeId]
+    );
 
     console.log(`✅ Leaderboard: Staging flushed to live for challenge ${challengeId}`);
   }
