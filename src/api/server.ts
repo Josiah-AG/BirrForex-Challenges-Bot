@@ -4178,9 +4178,12 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/pull-status`, adminIpCheck, async (req,
   try {
     const filterChallengeId = req.query.challengeId ? parseInt(req.query.challengeId as string) : null;
 
+    // Ensure phase_started_at column exists
+    await db.query(`ALTER TABLE wp_pull_batches ADD COLUMN IF NOT EXISTS phase_started_at TIMESTAMPTZ`).catch(() => {});
+
     // Check if there's a currently running batch
     const running = await db.query(
-      `SELECT id, challenge_id, total_accounts, started_at, phase, phase2_total, phase2_processed, phase2_round, phase_times
+      `SELECT id, challenge_id, total_accounts, started_at, phase, phase2_total, phase2_processed, phase2_round, phase_times, phase_started_at
        FROM wp_pull_batches WHERE status = 'running' ORDER BY started_at DESC LIMIT 1`
     );
 
@@ -4193,11 +4196,20 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/pull-status`, adminIpCheck, async (req,
       const elapsed = Math.round((Date.now() - new Date(batch.started_at).getTime()) / 1000);
       const phase = batch.phase || 'pulling';
 
-      if (phase === 'resolving' || phase === 'resolving_nulls' || phase === 'reconciling' || phase === 'settling' || phase === 'ohlc' || phase === 'evaluating') {
+      if (phase === 'resolving' || phase === 'resolving_nulls' || phase === 'reconciling' || phase === 'balance_reconcile' || phase === 'full_pull_open_price' || phase === 'settling' || phase === 'ohlc' || phase === 'evaluating') {
         // Phase 2+ progress is driven explicitly by the scheduler
         const phase2Percent = batch.phase2_total > 0
           ? Math.min(100, Math.round((batch.phase2_processed / batch.phase2_total) * 100))
           : 0;
+        // ETA: calculate based on phase_started_at and current progress
+        const phaseStartedAt = batch.phase_started_at ? new Date(batch.phase_started_at).toISOString() : null;
+        const phaseElapsedMs = batch.phase_started_at ? Date.now() - new Date(batch.phase_started_at).getTime() : 0;
+        let etaSeconds: number | null = null;
+        if (batch.phase2_processed > 0 && batch.phase2_total > 0) {
+          const msPerItem = phaseElapsedMs / batch.phase2_processed;
+          const remaining = batch.phase2_total - batch.phase2_processed;
+          etaSeconds = Math.round((msPerItem * remaining) / 1000);
+        }
         return res.json({
           isRunning: true,
           batchId: batch.id,
@@ -4213,6 +4225,8 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/pull-status`, adminIpCheck, async (req,
           phase2Percent,
           elapsedSeconds: elapsed,
           startedAt: batch.started_at,
+          phaseStartedAt,
+          etaSeconds,
           phaseTimes: batch.phase_times || null,
         });
       }
@@ -4224,6 +4238,14 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/pull-status`, adminIpCheck, async (req,
       );
       const processedCount = Math.min(parseInt(processed.rows[0].cnt), batch.total_accounts);
       const percent = batch.total_accounts > 0 ? Math.min(100, Math.round((processedCount / batch.total_accounts) * 100)) : 0;
+      // ETA for pull phase
+      const pullElapsedMs = Date.now() - new Date(batch.started_at).getTime();
+      let pullEta: number | null = null;
+      if (processedCount > 0) {
+        const msPerAccount = pullElapsedMs / processedCount;
+        const remaining = batch.total_accounts - processedCount;
+        pullEta = Math.round((msPerAccount * remaining) / 1000);
+      }
 
       return res.json({
         isRunning: true,
@@ -4235,6 +4257,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/pull-status`, adminIpCheck, async (req,
         phase: 'pulling',
         elapsedSeconds: elapsed,
         startedAt: batch.started_at,
+        etaSeconds: pullEta,
       });
       }
     }

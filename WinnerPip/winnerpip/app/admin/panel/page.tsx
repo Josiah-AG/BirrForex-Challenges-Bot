@@ -3212,10 +3212,13 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold text-white flex items-center gap-2">
               <Loader2 size={16} className="text-royal animate-spin" />
-              {pullProgress.phase === 'resolving' ? 'Resolving Missing Data' : pullProgress.phase === 'resolving_nulls' ? 'Resolving Open Times' : pullProgress.phase === 'settling' ? 'Settling (30s wait)' : pullProgress.phase === 'ohlc' ? 'Updating OHLC Candles' : pullProgress.phase === 'evaluating' ? 'Evaluating Accounts' : 'Pulling Accounts'}
+              {pullProgress.phase === 'reconciling' ? 'Reconciling Trades' : pullProgress.phase === 'resolving' ? 'Resolving Missing Data' : pullProgress.phase === 'resolving_nulls' ? 'Resolving Open Times' : pullProgress.phase === 'full_pull_open_price' ? 'Fixing Open Prices' : pullProgress.phase === 'balance_reconcile' ? 'Balance Reconciliation' : pullProgress.phase === 'settling' ? 'Settling (30s wait)' : pullProgress.phase === 'ohlc' ? 'Updating OHLC Candles' : pullProgress.phase === 'evaluating' ? 'Evaluating Accounts' : 'Pulling Accounts'}
             </h3>
             <div className="flex items-center gap-3">
               <span className="text-xs text-gray-400">{pullProgress.elapsedSeconds}s elapsed</span>
+              {pullProgress.etaSeconds != null && pullProgress.etaSeconds > 0 && (
+                <span className="text-xs text-royal font-semibold">~{pullProgress.etaSeconds < 60 ? `${pullProgress.etaSeconds}s` : `${Math.round(pullProgress.etaSeconds / 60)}m`} left</span>
+              )}
               <button
                 onClick={async () => {
                   try {
@@ -3239,7 +3242,9 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
             {['pulling', 'resolving', 'settling', 'ohlc', 'evaluating'].map((p, i) => {
               const labels = ['Pull', 'Resolve', 'Settle', 'OHLC', 'Evaluate'];
               const phases = ['pulling', 'resolving', 'settling', 'ohlc', 'evaluating'];
-              const currentPhase = pullProgress.phase === 'resolving_nulls' ? 'resolving' : pullProgress.phase;
+              // Map sub-phases to their parent phase for the step indicator
+              const phaseMap: Record<string, string> = { 'resolving_nulls': 'resolving', 'reconciling': 'resolving', 'balance_reconcile': 'resolving', 'full_pull_open_price': 'resolving' };
+              const currentPhase = phaseMap[pullProgress.phase] || pullProgress.phase;
               const currentIdx = phases.indexOf(currentPhase);
               const isDone = i < currentIdx;
               const isCurrent = i === currentIdx;
@@ -3254,13 +3259,13 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
           {/* Main progress bar */}
           <div className="flex items-center gap-2 mb-1">
             <div className="flex-1 h-3 bg-white/10 rounded-full overflow-hidden">
-              <div className="h-full rounded-full bg-gradient-to-r from-royal to-profit transition-all duration-1000" style={{ width: `${pullProgress.phase === 'pulling' ? (pullProgress.percent || 0) : 100}%` }} />
+              <div className="h-full rounded-full bg-gradient-to-r from-royal to-profit transition-all duration-1000" style={{ width: `${pullProgress.phase === 'pulling' ? (pullProgress.percent || 0) : (pullProgress.phase2Total > 0 ? (pullProgress.phase2Percent || 0) : 100)}%` }} />
             </div>
           </div>
           <div className="flex items-center justify-between text-xs text-gray-400 mb-1">
             {pullProgress.phase === 'pulling' ? (
               <><span>{pullProgress.processed || 0} / {pullProgress.totalAccounts || 0} accounts</span><span className="text-royal font-semibold">{pullProgress.percent || 0}%</span></>
-            ) : pullProgress.phase === 'evaluating' || pullProgress.phase === 'resolving' || pullProgress.phase === 'resolving_nulls' ? (
+            ) : pullProgress.phase === 'evaluating' || pullProgress.phase === 'resolving' || pullProgress.phase === 'resolving_nulls' || pullProgress.phase === 'reconciling' || pullProgress.phase === 'balance_reconcile' || pullProgress.phase === 'full_pull_open_price' ? (
               <><span>{pullProgress.phase2Processed || 0} / {pullProgress.phase2Total || 0} accounts</span><span className="text-royal font-semibold">{pullProgress.phase2Percent || 0}%</span></>
             ) : pullProgress.phase === 'settling' ? (
               <><span>Waiting for terminals to return to base...</span><span className="text-gray-500">30s</span></>

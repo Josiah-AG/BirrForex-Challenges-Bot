@@ -614,7 +614,7 @@ export class VpsPullScheduler {
 
       // Phase 2: Inline reconcile + resolve null open times
       const resolveStart = Date.now();
-      await db.query(`UPDATE wp_pull_batches SET phase = 'resolving' WHERE id = $1`, [batchId]).catch(() => {});
+      await db.query(`UPDATE wp_pull_batches SET phase = 'resolving', phase_started_at = NOW() WHERE id = $1`, [batchId]).catch(() => {});
       await this.inlineReconcile(challengeToPull.id, batchId, successfulAccounts, successful, healthyTerminals);
       await this.resolveNullOpenTimes(challengeToPull.id, batchId, successfulAccounts, healthyTerminals, challengeToPull);
       phaseTimes.resolve = Math.round((Date.now() - resolveStart) / 1000);
@@ -628,14 +628,14 @@ export class VpsPullScheduler {
 
       // Phase 3: 30s settle delay
       const settleStart = Date.now();
-      await db.query(`UPDATE wp_pull_batches SET phase = 'settling' WHERE id = $1`, [batchId]).catch(() => {});
+      await db.query(`UPDATE wp_pull_batches SET phase = 'settling', phase_started_at = NOW() WHERE id = $1`, [batchId]).catch(() => {});
       console.log('📊 VPS Pull: Waiting 30s for terminals to settle before OHLC...');
       await this.delay(30000);
       phaseTimes.settle = Math.round((Date.now() - settleStart) / 1000);
 
       // Phase 4: OHLC UPDATE
       const ohlcStart = Date.now();
-      await db.query(`UPDATE wp_pull_batches SET phase = 'ohlc' WHERE id = $1`, [batchId]).catch(() => {});
+      await db.query(`UPDATE wp_pull_batches SET phase = 'ohlc', phase_started_at = NOW() WHERE id = $1`, [batchId]).catch(() => {});
       await this.updateOhlcCandles(challengeToPull).catch(e =>
         console.error('⚠️ OHLC update error (non-fatal):', e)
       );
@@ -643,7 +643,7 @@ export class VpsPullScheduler {
 
       // Phase 5: Evaluate
       const evalStart = Date.now();
-      await db.query(`UPDATE wp_pull_batches SET phase = 'evaluating' WHERE id = $1`, [batchId]).catch(() => {});
+      await db.query(`UPDATE wp_pull_batches SET phase = 'evaluating', phase_started_at = NOW() WHERE id = $1`, [batchId]).catch(() => {});
       await this.evaluateAllAccounts(challengeToPull.id, successfulAccounts, batchId, successful);
       phaseTimes.evaluate = Math.round((Date.now() - evalStart) / 1000);
 
@@ -843,7 +843,7 @@ export class VpsPullScheduler {
 
       // Phase 2: Resolve
       const resolveStart = Date.now();
-      await db.query(`UPDATE wp_pull_batches SET phase = 'resolving' WHERE id = $1`, [batchId]).catch(() => {});
+      await db.query(`UPDATE wp_pull_batches SET phase = 'resolving', phase_started_at = NOW() WHERE id = $1`, [batchId]).catch(() => {});
       await this.inlineReconcile(challengeId, batchId, successfulAccounts, successful, healthyTerminals);
       await this.resolveNullOpenTimes(challengeId, batchId, successfulAccounts, healthyTerminals, challengeToPull);
       phaseTimes.resolve = Math.round((Date.now() - resolveStart) / 1000);
@@ -855,14 +855,14 @@ export class VpsPullScheduler {
 
       // Phase 3: Settle
       const settleStart = Date.now();
-      await db.query(`UPDATE wp_pull_batches SET phase = 'settling' WHERE id = $1`, [batchId]).catch(() => {});
+      await db.query(`UPDATE wp_pull_batches SET phase = 'settling', phase_started_at = NOW() WHERE id = $1`, [batchId]).catch(() => {});
       console.log('📊 VPS Pull: Waiting 30s for terminals to settle before OHLC...');
       await this.delay(30000);
       phaseTimes.settle = Math.round((Date.now() - settleStart) / 1000);
 
       // Phase 4: OHLC
       const ohlcStart = Date.now();
-      await db.query(`UPDATE wp_pull_batches SET phase = 'ohlc' WHERE id = $1`, [batchId]).catch(() => {});
+      await db.query(`UPDATE wp_pull_batches SET phase = 'ohlc', phase_started_at = NOW() WHERE id = $1`, [batchId]).catch(() => {});
       await this.updateOhlcCandles(challengeToPull).catch(e =>
         console.error('⚠️ OHLC update error (non-fatal):', e)
       );
@@ -870,7 +870,7 @@ export class VpsPullScheduler {
 
       // Phase 5: Evaluate
       const evalStart = Date.now();
-      await db.query(`UPDATE wp_pull_batches SET phase = 'evaluating' WHERE id = $1`, [batchId]).catch(() => {});
+      await db.query(`UPDATE wp_pull_batches SET phase = 'evaluating', phase_started_at = NOW() WHERE id = $1`, [batchId]).catch(() => {});
       await this.evaluateAllAccounts(challengeId, successfulAccounts, batchId);
       phaseTimes.evaluate = Math.round((Date.now() - evalStart) / 1000);
 
@@ -2495,8 +2495,17 @@ export class VpsPullScheduler {
 
     console.log(`🔧 VPS Pull: Inline reconcile — resolving ${tasks.length} account(s) with missing trades`);
 
+    // Update batch phase for progress bar visibility
+    if (batchId) {
+      await db.query(
+        `UPDATE wp_pull_batches SET phase = 'reconciling', phase2_total = $1, phase2_processed = 0, phase_started_at = NOW() WHERE id = $2`,
+        [tasks.length, batchId]
+      ).catch(() => {});
+    }
+
     // Resolve missing trades in parallel across healthy terminals
     let totalRecovered = 0;
+    let processed = 0;
     const queue = [...tasks];
     const workers = healthyTerminals.map(async terminal => {
       while (true) {
@@ -2508,6 +2517,10 @@ export class VpsPullScheduler {
         if (trades && trades.length > 0) {
           await this.saveTrades(task.account, trades);
           totalRecovered += trades.length;
+        }
+        processed++;
+        if (batchId) {
+          await db.query(`UPDATE wp_pull_batches SET phase2_processed = $1 WHERE id = $2`, [processed, batchId]).catch(() => {});
         }
         await this.delay(BATCH_DELAY_MS);
       }
@@ -2671,7 +2684,7 @@ export class VpsPullScheduler {
       if (batchId) {
         if (round === 1) {
           await db.query(
-            `UPDATE wp_pull_batches SET phase = 'resolving_nulls', phase2_total = $1, phase2_processed = 0, phase2_round = 1 WHERE id = $2`,
+            `UPDATE wp_pull_batches SET phase = 'resolving_nulls', phase_started_at = NOW(), phase2_total = $1, phase2_processed = 0, phase2_round = 1 WHERE id = $2`,
             [tasks.length, batchId]
           );
         } else {
@@ -2739,7 +2752,7 @@ export class VpsPullScheduler {
         console.log(`🔧 VPS Pull: Phase 2.5 — ${stuckAccounts.length} account(s) still have open_price=0 after resolve-opens, doing full /pull fallback`);
         if (batchId) {
           await db.query(
-            `UPDATE wp_pull_batches SET phase = 'full_pull_open_price', phase2_total = $1, phase2_processed = 0 WHERE id = $2`,
+            `UPDATE wp_pull_batches SET phase = 'full_pull_open_price', phase_started_at = NOW(), phase2_total = $1, phase2_processed = 0 WHERE id = $2`,
             [stuckAccounts.length, batchId]
           ).catch(() => {});
         }
@@ -2838,7 +2851,7 @@ export class VpsPullScheduler {
 
     if (batchId) {
       await db.query(
-        `UPDATE wp_pull_batches SET phase = 'balance_reconcile', phase2_total = $1, phase2_processed = 0 WHERE id = $2`,
+        `UPDATE wp_pull_batches SET phase = 'balance_reconcile', phase_started_at = NOW(), phase2_total = $1, phase2_processed = 0 WHERE id = $2`,
         [mismatched.length, batchId]
       ).catch(() => {});
     }
@@ -2957,7 +2970,7 @@ export class VpsPullScheduler {
 
   private async createPullBatch(challengeId: number, totalAccounts: number): Promise<number> {
     const result = await db.query(
-      `INSERT INTO wp_pull_batches (challenge_id, total_accounts, status) VALUES ($1, $2, 'running') RETURNING id`,
+      `INSERT INTO wp_pull_batches (challenge_id, total_accounts, status, phase_started_at) VALUES ($1, $2, 'running', NOW()) RETURNING id`,
       [challengeId, totalAccounts]
     );
     return result.rows[0].id;
