@@ -93,11 +93,21 @@ API_KEY = os.environ.get("VPS_API_KEY", "")
 # Lock — one operation at a time per terminal
 _lock = threading.Lock()
 
+# Recovery lock — prevents concurrent heal/recovery threads from racing
+_recovery_lock = threading.Lock()
+
 # IPC state
 _ipc_connected = False
 _last_request_time = time.time()
 _consecutive_failures = 0
 MAX_FAILURES_BEFORE_HEAL = 3
+
+# Dead mode — after too many consecutive heal failures, stop accepting requests
+_dead_mode = False
+_dead_since: float = 0
+_dead_consecutive_heals = 0
+MAX_HEAL_FAILURES_BEFORE_DEAD = 5
+DEAD_RETRY_INTERVAL = 300  # 5 minutes — try one recovery periodically
 
 # Credential error codes — -6 is "Terminal: Authorization failed" from Exness/MT5.
 # This is a BROKER rejection (wrong account/password), never an IPC/terminal failure.
@@ -129,7 +139,11 @@ def _is_credential_cached(account: int) -> bool:
 
 
 def _cache_credential_failure(account: int):
-    """Record a confirmed -6 credential failure for this account."""
+    """Record a confirmed -6 credential failure for this account.
+    NEVER caches the base account — it's always valid."""
+    if account == BASE_ACCOUNT:
+        print(f"  [W{TERMINAL_ID}] ⚠️ Refusing to cache base account {account} — always valid")
+        return
     _credential_cache[account] = time.time()
     print(f"  [W{TERMINAL_ID}] Credential cached for account {account} — will skip for {CREDENTIAL_CACHE_TTL}s")
 
@@ -194,8 +208,8 @@ def _kill_and_restart_terminal() -> bool:
             [TERMINAL_PATH, f"/config:{config_path}"],
             creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
         )
-        print(f"{tag}    terminal relaunched with /config — waiting 35s for broker...")
-        time.sleep(35)
+        print(f"{tag}    terminal relaunched with /config — waiting 45s for broker...")
+        time.sleep(45)
         return True
     except Exception as e:
         print(f"{tag}    relaunch error: {e}")
@@ -323,8 +337,8 @@ def relaunch_terminal() -> bool:
         print(f"  [W{TERMINAL_ID}] Relaunch failed: {e}")
         return False
 
-    print(f"  [W{TERMINAL_ID}] Waiting 35s for terminal to connect...")
-    time.sleep(35)
+    print(f"  [W{TERMINAL_ID}] Waiting 45s for terminal to connect...")
+    time.sleep(45)
 
     for attempt in range(5):
         if mt5.initialize(TERMINAL_PATH, timeout=15000):
@@ -342,17 +356,57 @@ def relaunch_terminal() -> bool:
 
 
 def self_heal():
-    global _consecutive_failures, _ipc_connected
+    global _consecutive_failures, _ipc_connected, _dead_mode, _dead_since, _dead_consecutive_heals
     print(f"  [W{TERMINAL_ID}] === SELF-HEALING ===")
-    kill_terminal()
-    time.sleep(3)
-    if relaunch_terminal():
-        _consecutive_failures = 0
-        print(f"  [W{TERMINAL_ID}] === HEALED ===")
-        return True
-    else:
-        print(f"  [W{TERMINAL_ID}] === HEAL FAILED ===")
+
+    # Use recovery lock to prevent concurrent heal attempts
+    if not _recovery_lock.acquire(blocking=False):
+        print(f"  [W{TERMINAL_ID}] === HEAL SKIPPED (recovery lock held) ===")
         return False
+
+    try:
+        kill_terminal()
+        time.sleep(3)
+        if relaunch_terminal():
+            _consecutive_failures = 0
+            _dead_consecutive_heals = 0
+            print(f"  [W{TERMINAL_ID}] === HEALED ===")
+            return True
+        else:
+            _dead_consecutive_heals += 1
+            if _dead_consecutive_heals >= MAX_HEAL_FAILURES_BEFORE_DEAD:
+                _dead_mode = True
+                _dead_since = time.time()
+                print(f"  [W{TERMINAL_ID}] === ENTERING DEAD MODE ({_dead_consecutive_heals} consecutive heal failures) ===")
+                print(f"  [W{TERMINAL_ID}] === Will retry recovery every {DEAD_RETRY_INTERVAL}s ===")
+                # Start periodic recovery thread
+                threading.Thread(target=_dead_mode_recovery_loop, daemon=True).start()
+            print(f"  [W{TERMINAL_ID}] === HEAL FAILED ({_dead_consecutive_heals}/{MAX_HEAL_FAILURES_BEFORE_DEAD}) ===")
+            return False
+    finally:
+        _recovery_lock.release()
+
+
+def _dead_mode_recovery_loop():
+    """Periodically attempt recovery when in dead mode."""
+    global _dead_mode, _dead_consecutive_heals, _consecutive_failures
+    tag = f"  [W{TERMINAL_ID}]"
+    while _dead_mode:
+        time.sleep(DEAD_RETRY_INTERVAL)
+        if not _dead_mode:
+            break
+        print(f"{tag} [dead mode] Attempting periodic recovery...")
+        with _recovery_lock:
+            kill_terminal()
+            time.sleep(3)
+            if relaunch_terminal():
+                _dead_mode = False
+                _dead_consecutive_heals = 0
+                _consecutive_failures = 0
+                print(f"{tag} [dead mode] ✓ RECOVERED — resuming normal operation")
+                break
+            else:
+                print(f"{tag} [dead mode] ✗ Still dead — will retry in {DEAD_RETRY_INTERVAL}s")
 
 
 # ==================== IPC MANAGEMENT ====================
@@ -449,6 +503,12 @@ def login_user(account: int, password: str, server: str) -> bool:
     global _consecutive_failures, _current_account_str, _last_login_was_credential_error
     _last_login_was_credential_error = False
     tag = f"  [W{TERMINAL_ID}]"
+
+    # Dead mode — instant reject, don't waste time attempting login
+    if _dead_mode:
+        print(f"{tag} login_user: DEAD MODE — instant reject for account={account}")
+        return False
+
     print(f"{tag} login_user: account={account} server={server} _ipc_connected={_ipc_connected}")
 
     # ── Direct login attempt (IPC already connected) ──────────────────────────
@@ -557,18 +617,27 @@ def init_terminal() -> bool:
 def _async_stage2_recovery(reason: str):
     """
     Run Stage 2 recovery (kill + /config restart) in a background thread.
-    The 35s broker wait happens WITHOUT holding the main lock so pull
+    The 45s broker wait happens WITHOUT holding the main lock so pull
     requests during recovery fail fast (IPC dead = instant error) rather
     than blocking for 45s and timing out the pull cycle.
 
-    _recovery_in_progress flag prevents multiple simultaneous recovery threads
+    _recovery_lock prevents multiple simultaneous recovery threads
     from killing the terminal repeatedly (the cascade that caused 3-min restarts).
     """
-    global _recovery_in_progress, _ipc_connected
+    global _recovery_in_progress, _ipc_connected, _dead_mode, _dead_since, _dead_consecutive_heals
     tag = f"  [W{TERMINAL_ID}]"
+
+    # If in dead mode, don't attempt recovery here — the periodic retry handles it
+    if _dead_mode:
+        print(f"{tag} [async recovery] Worker is DEAD — skipping ({reason})")
+        return
 
     if _recovery_in_progress:
         print(f"{tag} [async recovery] Already in progress — skipping ({reason})")
+        return
+
+    if not _recovery_lock.acquire(blocking=False):
+        print(f"{tag} [async recovery] Recovery lock held — skipping ({reason})")
         return
 
     _recovery_in_progress = True
@@ -578,6 +647,7 @@ def _async_stage2_recovery(reason: str):
         _async_stage2_recovery_impl()
     finally:
         _recovery_in_progress = False
+        _recovery_lock.release()
 
 
 def _async_stage2_recovery_impl():
@@ -610,8 +680,8 @@ def _async_stage2_recovery_impl():
             [TERMINAL_PATH, f"/config:{config_path}"],
             creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
         )
-        print(f"{tag} [async recovery] Terminal relaunched — waiting 35s for broker...")
-        time.sleep(35)
+        print(f"{tag} [async recovery] Terminal relaunched — waiting 45s for broker...")
+        time.sleep(45)
     except Exception as e:
         print(f"{tag} [async recovery] Relaunch error: {e}")
         return
@@ -1415,13 +1485,15 @@ class ResolveTradesRequest(BaseModel):
 @app.get("/health")
 def health():
     return {
-        "status":               "ok",
+        "status":               "dead" if _dead_mode else "ok",
         "git_commit":           GIT_COMMIT,
         "git_commit_time":      GIT_COMMIT_TIME,
         "terminal_id":          TERMINAL_ID,
         "port":                 PORT,
         "ipc_connected":        _ipc_connected,
         "consecutive_failures": _consecutive_failures,
+        "dead_mode":            _dead_mode,
+        "dead_since":           _dead_since if _dead_mode else None,
         "home_account":         str(BASE_ACCOUNT),
         "current_account":      _current_account_str,
     }
