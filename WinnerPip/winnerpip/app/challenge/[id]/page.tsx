@@ -914,9 +914,11 @@ export default function ChallengeDashboard() {
               <div className={`absolute inset-0 opacity-[0.03] ${progressPercent >= 100 ? 'bg-gradient-to-br from-profit to-gold' : progressPercent > 0 ? 'bg-gradient-to-br from-royal to-profit' : 'bg-gradient-to-br from-loss to-transparent'}`} />
               <div className="relative z-10">
                 <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-3">
-                    <button onClick={() => setShowLeaderboardModal(true)} className="w-12 h-12 rounded-xl bg-gradient-to-br from-gold/20 to-gold/5 border border-gold/20 flex items-center justify-center hover:border-gold/40 transition-all">
-                      <p className="text-lg font-black gradient-text">{!isNotStarted && myStats.rank ? `#${myStats.rank}` : "—"}</p>
+                  <div className="flex items-center gap-4">
+                    <button onClick={() => setShowLeaderboardModal(true)} className="w-14 h-14 md:w-16 md:h-16 rounded-xl bg-gradient-to-br from-gold/20 to-gold/5 border border-gold/20 flex flex-col items-center justify-center hover:border-gold/40 transition-all">
+                      <p className="text-[8px] text-gray-500 uppercase tracking-wider">Rank</p>
+                      <p className="text-xl md:text-2xl font-black gradient-text">{!isNotStarted && myStats.rank ? `#${myStats.rank}` : "—"}</p>
+                      <p className="text-[8px] text-gray-500">of {totalParticipants || "—"}</p>
                     </button>
                     <div>
                       <p className="text-2xl md:text-3xl font-bold text-white">{formatBalance(myStats.adjustedBalance, myStats.accountType, effectiveIsCent)}</p>
@@ -933,9 +935,7 @@ export default function ChallengeDashboard() {
                   <span className="text-gray-600">•</span>
                   <span className="text-gray-400">{myStats.totalTrades} trades</span>
                   <span className="text-gray-600">•</span>
-                  <span className="text-gray-400">{winRate}% win</span>
-                  <span className="text-gray-600">•</span>
-                  <span className="text-gray-400">of {totalParticipants || "—"}</span>
+                  <span className="text-gray-400">{myStats.qualifiedTrades} qualified</span>
                 </div>
               </div>
             </div>
