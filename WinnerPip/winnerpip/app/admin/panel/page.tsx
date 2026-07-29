@@ -1664,7 +1664,7 @@ function HealthCheckPanel() {
             {(() => {
               const results = healthData.deepCheck?.results || [];
               const vpsOnline = healthData.vps?.reachable;
-              const numTerminals = healthData.vps?.terminals || 12;
+              const numTerminals = healthData.vps?.configuredTerminals || healthData.vps?.terminals || 12;
               const passedCount = results.filter((t: any) => t.success).length;
               const totalTested = results.length;
               const summary = !vpsOnline

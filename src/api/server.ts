@@ -1840,6 +1840,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/vps-health`, adminIpCheck, async (req, 
         reachable: true,
         status: healthRes.data?.status || 'unknown',
         terminals: healthRes.data?.terminals || null,
+        configuredTerminals: parseInt(process.env.VPS_TERMINAL_COUNT || '12'),
         workers: healthRes.data?.workers || null,
         uptime: healthRes.data?.uptime || null,
         version: healthRes.data?.version || null,
@@ -1851,6 +1852,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/vps-health`, adminIpCheck, async (req, 
     } catch (vpsErr: any) {
       vpsStatus = {
         reachable: false,
+        configuredTerminals: parseInt(process.env.VPS_TERMINAL_COUNT || '12'),
         error: vpsErr.code === 'ECONNABORTED' ? 'Timeout (10s)' : (vpsErr.message || 'Connection failed'),
       };
     }
