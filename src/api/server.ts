@@ -4626,7 +4626,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/resolve-incomplete`, adm
     const challenge = challengeData.rows[0];
 
     // Get healthy terminals
-    const terminalCount = 15;
+    const terminalCount = parseInt(process.env.VPS_TERMINAL_COUNT || '12');
     const healthyTerminals = Array.from({ length: terminalCount }, (_, i) => ({ id: i + 1 }));
 
     // Run in background — uses full /pull (no date filter) to recover open_price

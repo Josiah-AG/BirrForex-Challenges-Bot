@@ -164,7 +164,7 @@ class VpsService {
 
   /**
    * Verify MT5 connection via VPS API.
-   * Distributes requests across all 15 terminals (random start, round-robin on failure).
+   * Distributes requests across all terminals (random start, round-robin on failure).
    * Only credential/server errors are definitive. Timeout/terminal errors retry on another terminal.
    */
   async verifyConnection(
@@ -178,9 +178,10 @@ class VpsService {
     }
 
     try {
-      // Pick a random starting terminal (1-15) and try up to 3 different terminals
+      // Pick a random starting terminal and try up to 3 different terminals
+      const terminalCount = parseInt(process.env.VPS_TERMINAL_COUNT || '12');
       const maxAttempts = 3;
-      const startTerminal = Math.floor(Math.random() * 15) + 1;
+      const startTerminal = Math.floor(Math.random() * terminalCount) + 1;
       let lastResult: any = null;
 
       for (let attempt = 0; attempt < maxAttempts; attempt++) {

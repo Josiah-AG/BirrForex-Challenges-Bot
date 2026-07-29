@@ -1,75 +1,47 @@
 @echo off
+setlocal enabledelayedexpansion
 echo ==================================================
-echo   WinnerPip VPS v6.0 — Starting System
+echo   WinnerPip VPS v6.1 — Starting System
 echo   Python 3.12 + Official MT5 Terminals
+echo   Terminals: 12 (configurable via VPS_TERMINAL_COUNT)
 echo ==================================================
 echo.
 
 cd /d C:\BirrForex
 
+REM ──────────────────────────────────────────────────────────────────
+REM  TERMINAL COUNT CONFIG
+REM  To change: update NUM_TERMINALS below AND set env var:
+REM    set VPS_TERMINAL_COUNT=15
+REM  Then re-run this bat. The router reads VPS_TERMINAL_COUNT at start.
+REM ──────────────────────────────────────────────────────────────────
+set NUM_TERMINALS=12
+
 REM Step 1: Write base account config for all terminals, then launch with /config
-REM         This ensures every terminal starts on the base account regardless of
-REM         any corrupted saved state from previous credential failures.
-echo [1/3] Launching MT5 terminals...
-for /L %%i in (1,1,15) do (
+echo [1/3] Launching %NUM_TERMINALS% MT5 terminals...
+for /L %%i in (1,1,%NUM_TERMINALS%) do (
     echo [Common]> "C:\MetaTrader\Terminal %%i\base_login.ini"
     echo Login=435924397>> "C:\MetaTrader\Terminal %%i\base_login.ini"
     echo Password=Abc@1234>> "C:\MetaTrader\Terminal %%i\base_login.ini"
     echo Server=Exness-MT5Trial9>> "C:\MetaTrader\Terminal %%i\base_login.ini"
     echo KeepPrivate=1>> "C:\MetaTrader\Terminal %%i\base_login.ini"
 )
-start "" "C:\MetaTrader\Terminal 1\terminal64.exe"  /config:"C:\MetaTrader\Terminal 1\base_login.ini"
-start "" "C:\MetaTrader\Terminal 2\terminal64.exe"  /config:"C:\MetaTrader\Terminal 2\base_login.ini"
-start "" "C:\MetaTrader\Terminal 3\terminal64.exe"  /config:"C:\MetaTrader\Terminal 3\base_login.ini"
-start "" "C:\MetaTrader\Terminal 4\terminal64.exe"  /config:"C:\MetaTrader\Terminal 4\base_login.ini"
-start "" "C:\MetaTrader\Terminal 5\terminal64.exe"  /config:"C:\MetaTrader\Terminal 5\base_login.ini"
-start "" "C:\MetaTrader\Terminal 6\terminal64.exe"  /config:"C:\MetaTrader\Terminal 6\base_login.ini"
-start "" "C:\MetaTrader\Terminal 7\terminal64.exe"  /config:"C:\MetaTrader\Terminal 7\base_login.ini"
-start "" "C:\MetaTrader\Terminal 8\terminal64.exe"  /config:"C:\MetaTrader\Terminal 8\base_login.ini"
-start "" "C:\MetaTrader\Terminal 9\terminal64.exe"  /config:"C:\MetaTrader\Terminal 9\base_login.ini"
-start "" "C:\MetaTrader\Terminal 10\terminal64.exe" /config:"C:\MetaTrader\Terminal 10\base_login.ini"
-start "" "C:\MetaTrader\Terminal 11\terminal64.exe" /config:"C:\MetaTrader\Terminal 11\base_login.ini"
-start "" "C:\MetaTrader\Terminal 12\terminal64.exe" /config:"C:\MetaTrader\Terminal 12\base_login.ini"
-start "" "C:\MetaTrader\Terminal 13\terminal64.exe" /config:"C:\MetaTrader\Terminal 13\base_login.ini"
-start "" "C:\MetaTrader\Terminal 14\terminal64.exe" /config:"C:\MetaTrader\Terminal 14\base_login.ini"
-start "" "C:\MetaTrader\Terminal 15\terminal64.exe" /config:"C:\MetaTrader\Terminal 15\base_login.ini"
-echo     All 15 terminals launched.
+for /L %%i in (1,1,%NUM_TERMINALS%) do (
+    start "" "C:\MetaTrader\Terminal %%i\terminal64.exe" /config:"C:\MetaTrader\Terminal %%i\base_login.ini"
+)
+echo     All %NUM_TERMINALS% terminals launched.
 echo     Waiting 60 seconds for broker connections...
 timeout /t 60 /nobreak >nul
 
 REM Step 2: Start workers (each owns one terminal, 2s apart)
 echo.
-echo [2/3] Starting workers (py -3.12)...
-start "VPS Worker 1"  /min py -3.12 vps\worker.py 1  8001
-timeout /t 2 /nobreak >nul
-start "VPS Worker 2"  /min py -3.12 vps\worker.py 2  8002
-timeout /t 2 /nobreak >nul
-start "VPS Worker 3"  /min py -3.12 vps\worker.py 3  8003
-timeout /t 2 /nobreak >nul
-start "VPS Worker 4"  /min py -3.12 vps\worker.py 4  8004
-timeout /t 2 /nobreak >nul
-start "VPS Worker 5"  /min py -3.12 vps\worker.py 5  8005
-timeout /t 2 /nobreak >nul
-start "VPS Worker 6"  /min py -3.12 vps\worker.py 6  8006
-timeout /t 2 /nobreak >nul
-start "VPS Worker 7"  /min py -3.12 vps\worker.py 7  8007
-timeout /t 2 /nobreak >nul
-start "VPS Worker 8"  /min py -3.12 vps\worker.py 8  8008
-timeout /t 2 /nobreak >nul
-start "VPS Worker 9"  /min py -3.12 vps\worker.py 9  8009
-timeout /t 2 /nobreak >nul
-start "VPS Worker 10" /min py -3.12 vps\worker.py 10 8010
-timeout /t 2 /nobreak >nul
-start "VPS Worker 11" /min py -3.12 vps\worker.py 11 8011
-timeout /t 2 /nobreak >nul
-start "VPS Worker 12" /min py -3.12 vps\worker.py 12 8012
-timeout /t 2 /nobreak >nul
-start "VPS Worker 13" /min py -3.12 vps\worker.py 13 8013
-timeout /t 2 /nobreak >nul
-start "VPS Worker 14" /min py -3.12 vps\worker.py 14 8014
-timeout /t 2 /nobreak >nul
-start "VPS Worker 15" /min py -3.12 vps\worker.py 15 8015
-echo     All 15 workers started.
+echo [2/3] Starting %NUM_TERMINALS% workers (py -3.12)...
+for /L %%i in (1,1,%NUM_TERMINALS%) do (
+    set /a PORT=8000+%%i
+    start "VPS Worker %%i" /min py -3.12 vps\worker.py %%i !PORT!
+    timeout /t 2 /nobreak >nul
+)
+echo     All %NUM_TERMINALS% workers started.
 echo     Waiting 10 seconds for workers to initialize...
 timeout /t 10 /nobreak >nul
 
@@ -77,4 +49,5 @@ REM Step 3: Start router (foreground — keeps batch window alive)
 echo.
 echo [3/3] Starting router on port 8000...
 echo ==================================================
+set VPS_TERMINAL_COUNT=%NUM_TERMINALS%
 py -3.12 vps\router.py

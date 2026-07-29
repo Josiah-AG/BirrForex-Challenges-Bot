@@ -30,7 +30,7 @@ import { debugLog } from '../utils/debugLog';
  * Schedule: 06:00, 10:00, 14:00, 18:00, 22:00, 02:00 EAT
  */
 
-const MAX_TERMINALS = 15;
+const MAX_TERMINALS = parseInt(process.env.VPS_TERMINAL_COUNT || '12');
 const MAX_RETRIES_PER_ACCOUNT = 3;
 const RETRY_DELAY_MS = 3000;
 const ACCOUNT_TIMEOUT_MS = 30000;

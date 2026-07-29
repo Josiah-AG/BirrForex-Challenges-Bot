@@ -54,7 +54,7 @@ GIT_COMMIT_TIME = _get_git_commit_time()
 
 app = FastAPI(title="WinnerPip VPS Router", version="7.0.0")
 
-NUM_WORKERS      = 15
+NUM_WORKERS      = int(os.environ.get("VPS_TERMINAL_COUNT", "12"))
 WORKER_BASE_PORT = 8001
 WORKER_TIMEOUT   = 120.0
 RETRY_DELAY      = 2.0
