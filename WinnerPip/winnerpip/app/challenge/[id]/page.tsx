@@ -909,34 +909,27 @@ export default function ChallengeDashboard() {
 
           {/* FULL DASHBOARD */}
           <>
-            {/* HERO CARD */}
-            <div className="glass rounded-2xl border border-white/10 p-4 md:p-5 mb-3 relative overflow-hidden">
-              <div className={`absolute inset-0 opacity-[0.03] ${progressPercent >= 100 ? 'bg-gradient-to-br from-profit to-gold' : progressPercent > 0 ? 'bg-gradient-to-br from-royal to-profit' : 'bg-gradient-to-br from-loss to-transparent'}`} />
-              <div className="relative z-10">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-4">
-                    <button onClick={() => setShowLeaderboardModal(true)} className="w-14 h-14 md:w-16 md:h-16 rounded-xl bg-gradient-to-br from-gold/20 to-gold/5 border border-gold/20 flex flex-col items-center justify-center hover:border-gold/40 transition-all">
-                      <p className="text-[8px] text-gray-500 uppercase tracking-wider">Rank</p>
-                      <p className="text-xl md:text-2xl font-black gradient-text">{!isNotStarted && myStats.rank ? `#${myStats.rank}` : "—"}</p>
-                      <p className="text-[8px] text-gray-500">of {totalParticipants || "—"}</p>
-                    </button>
-                    <div>
-                      <p className="text-2xl md:text-3xl font-bold text-white">{formatBalance(myStats.adjustedBalance, myStats.accountType, effectiveIsCent)}</p>
-                      <p className="text-[10px] text-gray-500">Qualified Balance • Gross: {formatBalance(myStats.currentBalance, myStats.accountType, effectiveIsCent)}</p>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-[10px] text-gray-500">{daysLeftLabel}</p>
-                    <p className="text-lg font-bold text-gold">{daysLeft}d</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3 md:gap-4 text-xs flex-wrap">
-                  <span className={`font-semibold ${myStats.qualifiedProfit >= 0 ? "text-profit" : "text-loss"}`}>{myStats.qualifiedProfit >= 0 ? "▲" : "▼"} {formatBalance(myStats.qualifiedProfit, myStats.accountType, effectiveIsCent)}</span>
-                  <span className="text-gray-600">•</span>
-                  <span className="text-gray-400">{myStats.totalTrades} trades</span>
-                  <span className="text-gray-600">•</span>
-                  <span className="text-gray-400">{myStats.qualifiedTrades} qualified</span>
-                </div>
+            {/* TOP STATS */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 mb-3">
+              <button onClick={() => setShowLeaderboardModal(true)} className="glass rounded-2xl p-4 md:p-5 border border-white/10 text-left hover:border-gold/30 transition-all">
+                <div className="flex items-center gap-2 mb-2"><Trophy size={16} className="text-gold" /><p className="text-[10px] text-gray-400 uppercase tracking-wider font-medium">Rank</p></div>
+                <p className="text-3xl md:text-4xl font-bold gradient-text">{!isNotStarted && myStats.rank ? `#${myStats.rank}` : "—"}</p>
+                <p className="text-xs text-gray-500 mt-1">of {totalParticipants || "—"}</p>
+              </button>
+              <div className="glass rounded-2xl p-4 md:p-5 border border-white/10">
+                <div className="flex items-center gap-2 mb-2"><TrendingUp size={16} className="text-profit" /><p className="text-[10px] text-gray-400 uppercase tracking-wider font-medium">Profit</p></div>
+                <p className={`text-3xl md:text-4xl font-bold ${myStats.qualifiedProfit >= 0 ? "text-profit" : "text-loss"}`}>{formatBalance(myStats.qualifiedProfit, myStats.accountType, effectiveIsCent)}</p>
+                <p className="text-xs text-gray-500 mt-1">Total P&L: {formatBalance(myStats.grossProfit, myStats.accountType, effectiveIsCent)}</p>
+              </div>
+              <div className="glass rounded-2xl p-4 md:p-5 border border-white/10">
+                <div className="flex items-center gap-2 mb-2"><Target size={16} className="text-royal" /><p className="text-[10px] text-gray-400 uppercase tracking-wider font-medium">Balance</p></div>
+                <p className="text-3xl md:text-4xl font-bold text-white">{formatBalance(myStats.adjustedBalance, myStats.accountType, effectiveIsCent)}</p>
+                <p className="text-xs text-gray-500 mt-1">Gross: {formatBalance(myStats.currentBalance, myStats.accountType, effectiveIsCent)}</p>
+              </div>
+              <div className="glass rounded-2xl p-4 md:p-5 border border-white/10">
+                <div className="flex items-center gap-2 mb-2"><Clock size={16} className="text-gold" /><p className="text-[10px] text-gray-400 uppercase tracking-wider font-medium">{daysLeftLabel}</p></div>
+                <p className="text-3xl md:text-4xl font-bold text-gold">{daysLeft}</p>
+                <p className="text-xs text-gray-500 mt-1">days remaining</p>
               </div>
             </div>
 
