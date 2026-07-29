@@ -1857,15 +1857,16 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/vps-health`, adminIpCheck, async (req, 
       };
     }
 
-    // Deep terminal check: verify base account on each terminal (1-10) sequentially
-    // Sequential (not Promise.all) to avoid hammering the VPS with 10 concurrent logins
+    // Deep terminal check: verify base account on each configured terminal
+    // Sequential (not Promise.all) to avoid hammering the VPS with concurrent logins
     let terminalResults: any[] = [];
     if (vpsStatus.reachable && req.query.deep === 'true') {
       const BASE_ACCOUNT = config.vpsBaseAccount || '435924397';
       const BASE_SERVER = config.vpsBaseServer || 'Exness-MT5Trial9';
       const BASE_PASSWORD = config.vpsBasePassword || 'Abc@1234';
+      const configuredCount = parseInt(process.env.VPS_TERMINAL_COUNT || '12');
 
-      for (let tid = 1; tid <= 15; tid++) {
+      for (let tid = 1; tid <= configuredCount; tid++) {
         try {
           const verifyRes = await axios.post(`${vpsUrl}/verify`, {
             account: BASE_ACCOUNT,
