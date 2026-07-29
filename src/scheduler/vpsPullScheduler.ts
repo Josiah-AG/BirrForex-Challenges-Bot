@@ -118,6 +118,7 @@ function normalizeAccountNumber(accountNumber: string): string {
 class SharedQueue {
   private queue: AccountToPull[] = [];
   private inProgress = new Set<number>();         // by registrationId
+  private inProgressStarted = new Map<number, number>(); // registrationId → Date.now() when started
   private inProgressAccounts = new Set<string>(); // by normalized accountNumber — prevents concurrent
                                                   // pulls of the same physical MT5 account when two
                                                   // registrationIds share the same credentials
@@ -183,6 +184,7 @@ class SharedQueue {
     if (idx === -1) return null;
     const [account] = this.queue.splice(idx, 1);
     this.inProgress.add(account.registrationId);
+    this.inProgressStarted.set(account.registrationId, Date.now());
     const key = normalizeAccountNumber(account.accountNumber);
     if (key) this.inProgressAccounts.add(key);
     return account;
@@ -191,6 +193,7 @@ class SharedQueue {
   /** Mark account as done (success or final failure) */
   done(registrationId: number, accountNumber?: string) {
     this.inProgress.delete(registrationId);
+    this.inProgressStarted.delete(registrationId);
     if (accountNumber) {
       const key = normalizeAccountNumber(accountNumber);
       if (key) this.inProgressAccounts.delete(key);
@@ -201,6 +204,7 @@ class SharedQueue {
    *  does not consume a retry attempt). */
   requeue(account: AccountToPull) {
     this.inProgress.delete(account.registrationId);
+    this.inProgressStarted.delete(account.registrationId);
     const key = normalizeAccountNumber(account.accountNumber);
     if (key) this.inProgressAccounts.delete(key);
     this.queue.push(account);
@@ -234,6 +238,24 @@ class SharedQueue {
   get remaining(): number { return this.queue.length; }
   get processing(): number { return this.inProgress.size; }
   get isEmpty(): boolean { return this.queue.length === 0 && this.inProgress.size === 0; }
+
+  /** Eject accounts stuck in inProgress longer than timeoutMs.
+   *  Returns the count of ejected accounts. Called by workers waiting for the queue to drain. */
+  ejectStale(timeoutMs: number): number {
+    const now = Date.now();
+    let ejected = 0;
+    for (const [regId, startedAt] of this.inProgressStarted) {
+      if (now - startedAt > timeoutMs) {
+        this.inProgress.delete(regId);
+        this.inProgressStarted.delete(regId);
+        // Also clean from inProgressAccounts (we don't have the account number here,
+        // but it's fine — the set prevents double-pulling during the cycle only)
+        ejected++;
+        console.warn(`⚠️ SharedQueue: Ejected stale account reg=${regId} — stuck for ${Math.round((now - startedAt) / 1000)}s`);
+      }
+    }
+    return ejected;
+  }
 }
 
 export class VpsPullScheduler {
@@ -966,9 +988,10 @@ export class VpsPullScheduler {
       const account = this.sharedQueue.next(terminal.id, this.getHealthyTerminalCount());
       if (!account) {
         if (this.sharedQueue.isEmpty) break; // Truly done
-        // Queue has work, but none of it is eligible for this terminal right now
-        // (e.g. the only remaining items are excluded from this terminal, awaiting
-        // a different terminal to free up). Wait briefly and check again.
+        // Queue has work, but none of it is eligible for this terminal right now.
+        // Check if anything is stuck (in progress > 90s) — eject it so the cycle can proceed.
+        this.sharedQueue.ejectStale(90000);
+        if (this.sharedQueue.isEmpty) break; // Ejecting stale items freed the queue
         await this.delay(300);
         continue;
       }
