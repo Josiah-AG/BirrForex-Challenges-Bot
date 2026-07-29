@@ -636,7 +636,7 @@ export default function ChallengeDashboard() {
                   <p className="text-sm font-semibold text-white">All Trades</p>
                   <p className="text-xs text-gray-500">Tap a trade for details</p>
                 </div>
-                <p className="text-[10px] text-gray-600 mt-1">Trades closed before {myStats.lastPullAt ? formatRelativeTime(myStats.lastPullAt) : "last sync"} • Next sync: {getNextPullTime()}</p>
+                <p className="text-[10px] text-gray-600 mt-1">Trades closed before {myStats.lastPullAt ? (() => { const d = new Date(new Date(myStats.lastPullAt!).getTime() + 3*60*60*1000); return `${String(d.getUTCHours()).padStart(2,"0")}:${String(d.getUTCMinutes()).padStart(2,"0")} EAT`; })() : "last sync"} • Next sync: {getNextPullTime()}</p>
               </div>
               {recentTrades.length === 0 ? (
                 <div className="p-8 text-center">
@@ -1031,7 +1031,7 @@ export default function ChallengeDashboard() {
                   <p className="text-sm font-semibold text-white">Recent Trades</p>
                   <p className="text-xs text-gray-500">Tap a trade for details</p>
                 </div>
-                <p className="text-[10px] text-gray-600 mt-1">Trades closed before {myStats.lastPullAt ? formatRelativeTime(myStats.lastPullAt) : "last sync"} • Next sync: {getNextPullTime()}</p>
+                <p className="text-[10px] text-gray-600 mt-1">Trades closed before {myStats.lastPullAt ? (() => { const d = new Date(new Date(myStats.lastPullAt!).getTime() + 3*60*60*1000); return `${String(d.getUTCHours()).padStart(2,"0")}:${String(d.getUTCMinutes()).padStart(2,"0")} EAT`; })() : "last sync"} • Next sync: {getNextPullTime()}</p>
               </div>
               {recentTrades.length === 0 ? (
                 <div className="p-8 text-center">
