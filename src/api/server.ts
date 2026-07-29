@@ -838,7 +838,7 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
       tradesQuery += ` AND close_time <= $${tradesParams.length + 1}`;
       tradesParams.push(graceEnd.toISOString());
     }
-    tradesQuery += ` ORDER BY close_time DESC LIMIT 50`;
+    tradesQuery += ` ORDER BY close_time DESC`;
     const trades = await db.query(tradesQuery, tradesParams);
 
     // Batch lookup opening volumes for partial close detection
