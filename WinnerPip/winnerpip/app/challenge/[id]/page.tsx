@@ -966,7 +966,7 @@ export default function ChallengeDashboard() {
                     </p>
                   )}
                 </div>
-                <div className="relative w-full h-4 md:h-5 bg-white/5 rounded-full overflow-hidden border border-white/10">
+                <div className="relative w-full h-4 md:h-5 bg-white/5 rounded-full overflow-hidden border border-white/10" style={{ colorScheme: 'dark' }}>
                   {isNotStarted && myStats.currentBalance > (challenge?.startingBalance || 0) && myStats.totalTrades === 0 ? (
                     <div className="h-full rounded-full transition-all duration-700 bg-gradient-to-r from-loss/80 to-loss" style={{ width: `${Math.min(100, progressPercent)}%` }} />
                   ) : progressPercent >= 100 ? (
