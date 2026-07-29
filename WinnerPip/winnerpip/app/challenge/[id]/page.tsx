@@ -955,35 +955,40 @@ export default function ChallengeDashboard() {
 
             {/* PROGRESS BAR — only show when user has trades and is active */}
             {showProgressBar ? (
-              <div className="glass rounded-2xl p-4 md:p-5 border border-white/10 mb-6">
-                <div className="flex items-center justify-between mb-3">
-                  <p className="text-sm font-medium text-gray-300">Progress to Target</p>
-                  {/* Pre-start with balance above starting limit: show warning, not fake progress */}
+              <div className="glass rounded-2xl p-4 md:p-5 border border-white/10 mb-3">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs md:text-sm font-medium text-gray-300">Progress to Target</p>
                   {isNotStarted && myStats.currentBalance > (challenge?.startingBalance || 0) && myStats.totalTrades === 0 ? (
-                    <p className="text-sm font-bold text-loss">Balance too high</p>
+                    <p className="text-xs md:text-sm font-bold text-loss">Balance too high</p>
                   ) : (
-                    <p className={`text-sm font-bold ${progressPercent > 0 ? "text-white" : progressPercent < 0 ? "text-loss" : "text-gray-400"}`}>
-                      {progressPercent === 0 ? "0%" : `${progressPercent > 0 ? "+" : ""}${progressPercent.toFixed(1)}%`}
+                    <p className={`text-xs md:text-sm font-bold ${progressPercent >= 100 ? "text-profit" : progressPercent > 0 ? "text-white" : progressPercent < 0 ? "text-loss" : "text-gray-400"}`}>
+                      {progressPercent === 0 ? "0%" : progressPercent >= 100 ? `🎯 ${progressPercent.toFixed(1)}%` : `${progressPercent > 0 ? "+" : ""}${progressPercent.toFixed(1)}%`}
                     </p>
                   )}
                 </div>
-                <div className="relative w-full h-3 bg-white/10 rounded-full overflow-hidden">
+                <div className="relative w-full h-4 md:h-5 bg-white/5 rounded-full overflow-hidden border border-white/10">
                   {isNotStarted && myStats.currentBalance > (challenge?.startingBalance || 0) && myStats.totalTrades === 0 ? (
-                    /* Pre-start balance too high: red bar */
-                    <div className="h-full rounded-full transition-all duration-500 bg-loss" style={{ width: `${Math.min(100, progressPercent)}%` }} />
+                    <div className="h-full rounded-full transition-all duration-700 bg-gradient-to-r from-loss/80 to-loss" style={{ width: `${Math.min(100, progressPercent)}%` }} />
+                  ) : progressPercent >= 100 ? (
+                    <div className="h-full rounded-full transition-all duration-700 bg-gradient-to-r from-royal via-profit to-gold shadow-[0_0_12px_rgba(34,197,94,0.4)]" style={{ width: '100%' }} />
                   ) : progressPercent >= 0 ? (
-                    <div className="h-full rounded-full transition-all duration-500 bg-gradient-to-r from-royal to-profit" style={{ width: `${Math.min(100, progressPercent)}%` }} />
+                    <div className="h-full rounded-full transition-all duration-700 bg-gradient-to-r from-royal/80 to-royal" style={{ width: `${Math.min(100, progressPercent)}%` }} />
                   ) : (
-                    /* Negative: red bar from left, width proportional to loss vs required gain */
-                    <div className="h-full rounded-full transition-all duration-500 bg-loss" style={{ width: `${Math.min(50, Math.abs(progressPercent))}%` }} />
+                    <div className="h-full rounded-full transition-all duration-700 bg-gradient-to-r from-loss/60 to-loss" style={{ width: `${Math.min(40, Math.abs(progressPercent) * 0.4)}%` }} />
+                  )}
+                  {/* Target marker at 100% */}
+                  {progressPercent > 10 && progressPercent < 100 && (
+                    <div className="absolute right-0 top-0 h-full w-0.5 bg-profit/50" />
                   )}
                 </div>
-                <div className="flex justify-between mt-2 text-xs">
+                <div className="flex justify-between mt-1.5 text-[10px] md:text-xs">
                   <span className="text-gray-500">{formatBalance(challenge.myStartingBalance ?? challenge.startingBalance, myStats.accountType, effectiveIsCent)}</span>
                   {isNotStarted && myStats.currentBalance > (challenge?.startingBalance || 0) && myStats.totalTrades === 0 ? (
-                    <span className="text-loss text-[10px]">Balance higher than allowed starting balance</span>
+                    <span className="text-loss">Balance above limit</span>
+                  ) : progressPercent >= 100 ? (
+                    <span className="text-profit font-semibold">Target reached!</span>
                   ) : progressPercent < 0 ? (
-                    <span className="text-loss text-[10px]">▼ below start</span>
+                    <span className="text-loss">▼ below start</span>
                   ) : null}
                   <span className="text-gray-500">{formatBalance(challenge.targetBalance, myStats.accountType, effectiveIsCent)}</span>
                 </div>
