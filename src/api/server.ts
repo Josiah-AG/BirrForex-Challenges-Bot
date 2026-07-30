@@ -1430,6 +1430,41 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
                  END`,
       [challengeId]);
 
+    // Separate above-target counts by category (real vs demo)
+    const realAboveTarget = await db.query(
+      `SELECT COUNT(*) as cnt FROM wp_leaderboard l
+       JOIN trading_challenges tc ON tc.id = l.challenge_id
+       JOIN trading_registrations r ON r.id = l.registration_id
+       WHERE l.challenge_id=$1 AND r.account_type = 'real'
+         AND (r.disqualified IS NULL OR r.disqualified = false)
+         AND (r.status IS NULL OR r.status != 'removed')
+         AND CASE WHEN COALESCE(r.is_cent, false)
+               THEN l.adjusted_balance >= tc.target_balance * 100
+               ELSE l.adjusted_balance >= tc.target_balance END`,
+      [challengeId]);
+    const demoAboveTarget = await db.query(
+      `SELECT COUNT(*) as cnt FROM wp_leaderboard l
+       JOIN trading_challenges tc ON tc.id = l.challenge_id
+       JOIN trading_registrations r ON r.id = l.registration_id
+       WHERE l.challenge_id=$1 AND r.account_type = 'demo'
+         AND (r.disqualified IS NULL OR r.disqualified = false)
+         AND (r.status IS NULL OR r.status != 'removed')
+         AND l.adjusted_balance >= tc.target_balance`,
+      [challengeId]);
+
+    // Instruments count + most active day
+    const instrumentsCount = await db.query(
+      `SELECT COUNT(DISTINCT symbol) as cnt FROM wp_trades WHERE challenge_id = $1`,
+      [challengeId]);
+    const mostActiveDay = await db.query(
+      `SELECT TO_CHAR(close_time AT TIME ZONE 'UTC' + INTERVAL '3 hours', 'Dy, Mon DD') as day_label,
+              COUNT(*) as trade_count
+       FROM wp_trades WHERE challenge_id = $1 AND close_time IS NOT NULL
+       GROUP BY DATE(close_time AT TIME ZONE 'UTC' + INTERVAL '3 hours'),
+                TO_CHAR(close_time AT TIME ZONE 'UTC' + INTERVAL '3 hours', 'Dy, Mon DD')
+       ORDER BY trade_count DESC LIMIT 1`,
+      [challengeId]);
+
     // Balance stats — gross account balance across ALL participants in USD.
     //
     // Uses a unified source per participant:
@@ -1513,26 +1548,31 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
          WHERE t.challenge_id = $1${catWhere}${tradeFilter}
          ORDER BY t.profit ASC LIMIT 1`, tradeParams.length > 1 ? tradeParams : [challengeId]);
 
-      // Best qualified win rate
+      // Best qualified win rate — cap at 100%, use actual trade counts from wp_trades
       const bestQualWin = await db.query(
-        `SELECT r.nickname, r.username, r.email, l.qualified_trades, l.total_trades, l.flagged_trades,
-                CASE WHEN l.qualified_trades > 0 THEN ROUND(
+        `SELECT r.nickname, r.username, r.email, l.total_trades,
+                LEAST(100, CASE WHEN (SELECT COUNT(*) FROM wp_trades t2
+                   WHERE t2.registration_id = l.registration_id AND t2.challenge_id = $1
+                     AND t2.is_qualified = true) > 0 THEN ROUND(
                   (SELECT COUNT(*)::numeric FROM wp_trades t2
                    WHERE t2.registration_id = l.registration_id AND t2.challenge_id = $1
-                     AND t2.is_qualified = true AND t2.profit > 0) / NULLIF(l.qualified_trades, 0) * 100)
-                ELSE 0 END as qualified_win_rate
+                     AND t2.is_qualified = true AND t2.profit > 0)
+                  / NULLIF((SELECT COUNT(*) FROM wp_trades t2
+                   WHERE t2.registration_id = l.registration_id AND t2.challenge_id = $1
+                     AND t2.is_qualified = true), 0) * 100)
+                ELSE 0 END) as qualified_win_rate
          FROM wp_leaderboard l JOIN trading_registrations r ON l.registration_id = r.id
          WHERE l.challenge_id = $1 AND l.total_trades >= 5 AND r.disqualified = false${catJoin}
          ORDER BY qualified_win_rate DESC, l.total_trades DESC LIMIT 1`, [challengeId]);
 
-      // Best overall win rate (profitable / total)
+      // Best overall win rate (profitable / total) — cap at 100%
       const bestOverallWin = await db.query(
         `SELECT r.nickname, r.username, r.email, l.total_trades,
-                CASE WHEN l.total_trades > 0 THEN ROUND(
+                LEAST(100, CASE WHEN l.total_trades > 0 THEN ROUND(
                   (SELECT COUNT(*)::numeric FROM wp_trades t2
                    WHERE t2.registration_id = l.registration_id AND t2.challenge_id = $1 AND t2.profit > 0)
                   / l.total_trades * 100)
-                ELSE 0 END as overall_win_rate
+                ELSE 0 END) as overall_win_rate
          FROM wp_leaderboard l JOIN trading_registrations r ON l.registration_id = r.id
          WHERE l.challenge_id = $1 AND l.total_trades >= 5 AND r.disqualified = false${catJoin}
          ORDER BY overall_win_rate DESC, l.total_trades DESC LIMIT 1`, [challengeId]);
@@ -1637,6 +1677,11 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
       totalParticipants: parseInt(c.total),
       totalTrades: parseInt(t.total_trades),
       aboveTarget: parseInt(aboveTarget.rows[0].cnt),
+      // Separate above-target counts per category
+      realAboveTarget: parseInt(realAboveTarget.rows[0]?.cnt || '0'),
+      demoAboveTarget: parseInt(demoAboveTarget.rows[0]?.cnt || '0'),
+      instrumentsCount: parseInt(instrumentsCount.rows[0]?.cnt || '0'),
+      mostActiveDay: mostActiveDay.rows[0] ? { day: mostActiveDay.rows[0].day_label, trades: parseInt(mostActiveDay.rows[0].trade_count) } : null,
       latestScreening: latestScreening.rows[0] || null,
       metrics,
       mostBrokenRule,
