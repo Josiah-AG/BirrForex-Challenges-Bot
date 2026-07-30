@@ -1585,7 +1585,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
       const mostPair = await db.query(
         `SELECT symbol, COUNT(*) as trade_count, COALESCE(SUM(volume), 0) as total_lots
          FROM wp_trades t WHERE challenge_id = $1${catWhere}${tradeFilter}
-         GROUP BY symbol ORDER BY trade_count DESC LIMIT 1`, tradeParams.length > 1 ? tradeParams : [challengeId]);
+         GROUP BY symbol ORDER BY trade_count DESC LIMIT 3`, tradeParams.length > 1 ? tradeParams : [challengeId]);
 
       const leastPair = await db.query(
         `SELECT symbol, COUNT(*) as trade_count, COALESCE(SUM(volume), 0) as total_lots
@@ -1631,6 +1631,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
         bestQualifiedWinRate: bestQualWin.rows[0] ? { winRate: parseInt(bestQualWin.rows[0].qualified_win_rate || '0'), nickname: bestQualWin.rows[0].nickname, username: bestQualWin.rows[0].username, email: bestQualWin.rows[0].email, trades: parseInt(bestQualWin.rows[0].total_trades) } : null,
         bestOverallWinRate: bestOverallWin.rows[0] ? { winRate: parseInt(bestOverallWin.rows[0].overall_win_rate || '0'), nickname: bestOverallWin.rows[0].nickname, username: bestOverallWin.rows[0].username, email: bestOverallWin.rows[0].email, trades: parseInt(bestOverallWin.rows[0].total_trades) } : null,
         mostTradedPair: mostPair.rows[0] ? { symbol: mostPair.rows[0].symbol, tradeCount: parseInt(mostPair.rows[0].trade_count), totalLots: parseFloat(mostPair.rows[0].total_lots) } : null,
+        topInstruments: mostPair.rows.map((r: any) => ({ symbol: r.symbol, tradeCount: parseInt(r.trade_count), totalLots: parseFloat(r.total_lots) })),
         leastTradedPair: leastPair.rows[0] ? { symbol: leastPair.rows[0].symbol, tradeCount: parseInt(leastPair.rows[0].trade_count), totalLots: parseFloat(leastPair.rows[0].total_lots) } : null,
         blownAccounts: parseInt(blown.rows[0]?.cnt || '0'),
         disqualifiedAccounts: parseInt(disqualified.rows[0]?.cnt || '0'),
