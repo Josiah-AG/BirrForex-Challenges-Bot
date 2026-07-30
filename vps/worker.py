@@ -946,7 +946,12 @@ def do_pull(account: int, server: str, password: str, from_date: str = None, ord
                             if order_info.get("sl"):
                                 orders_by_position[pos_id] = order_info
 
-                open_time  = order_info.get("open_time")  or open_deal.get("time")
+                open_time  = open_deal.get("time") or order_info.get("open_time")
+                # Prefer the opening DEAL's time (actual fill/execution time) over order time_setup.
+                # For pending orders (buy stop, sell limit), order.time_setup is when the order was
+                # PLACED, not when it was FILLED. The deal time is always the actual execution moment.
+                # For market orders, deal time ≈ order time_setup (same instant).
+
                 # Prefer the opening DEAL's price (actual execution) over order price (requested).
                 # For market orders with slippage, order.price_open ≠ deal.price.
                 open_price = open_deal.get("price") or order_info.get("open_price") or None
@@ -1086,31 +1091,34 @@ def do_resolve_opens(account: int, server: str, password: str, position_ids: lis
         open_time = None
         open_price = None
 
+        # Check deals FIRST — deal.time is always the actual execution/fill time.
+        # For pending orders, order.time_setup is the placement time, not fill time.
         try:
-            pos_orders = mt5.history_orders_get(position=pos_id)
+            pos_deals = mt5.history_deals_get(position=pos_id)
         except Exception:
-            pos_orders = None
-        if pos_orders:
-            opening_orders = [o for o in pos_orders if o.position_id == pos_id]
-            if opening_orders:
-                opening_orders.sort(key=lambda o: o.time_setup)
-                first = opening_orders[0]
-                if first.time_setup:
-                    open_time = datetime.fromtimestamp(first.time_setup, tz=timezone.utc).isoformat()
-                    open_price = first.price_open
+            pos_deals = None
+        if pos_deals:
+            opening_deals = [d for d in pos_deals if d.position_id == pos_id and d.entry == 0]
+            if opening_deals:
+                opening_deals.sort(key=lambda d: d.time)
+                first = opening_deals[0]
+                open_time = datetime.fromtimestamp(first.time, tz=timezone.utc).isoformat()
+                open_price = first.price
 
+        # Fallback to orders only if deals didn't provide open_time
         if open_time is None:
             try:
-                pos_deals = mt5.history_deals_get(position=pos_id)
+                pos_orders = mt5.history_orders_get(position=pos_id)
             except Exception:
-                pos_deals = None
-            if pos_deals:
-                opening_deals = [d for d in pos_deals if d.position_id == pos_id and d.entry == 0]
-                if opening_deals:
-                    opening_deals.sort(key=lambda d: d.time)
-                    first = opening_deals[0]
-                    open_time = datetime.fromtimestamp(first.time, tz=timezone.utc).isoformat()
-                    open_price = first.price
+                pos_orders = None
+            if pos_orders:
+                opening_orders = [o for o in pos_orders if o.position_id == pos_id]
+                if opening_orders:
+                    opening_orders.sort(key=lambda o: o.time_setup)
+                    first = opening_orders[0]
+                    if first.time_setup:
+                        open_time = datetime.fromtimestamp(first.time_setup, tz=timezone.utc).isoformat()
+                        open_price = first.price_open
 
         if open_time:
             resolved[str(pos_id)] = {"open_time": open_time, "open_price": open_price}

@@ -4827,26 +4827,47 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/pull-single-account`, ad
           flaggedCount = parseInt(tradeCountResult.rows[0]?.flagged || '0');
         } catch {}
 
-        try {
-          const { leaderboardService } = require('../services/leaderboardService');
-          await leaderboardService.flushStagingToLive(challengeId);
-          await leaderboardService.ensureAllParticipantsHaveEntries(challengeId);
-          await leaderboardService.updateRankings(challengeId);
-        } catch {}
-
-        const after = await db.query(
-          `SELECT r.disqualified, r.disqualified_reason, l.rank as new_rank
-           FROM trading_registrations r
-           LEFT JOIN wp_leaderboard l ON l.registration_id = r.id
-           WHERE r.id = $1`,
+        // Get staging data (what evaluation produced) WITHOUT flushing to live
+        const stagingData = await db.query(
+          `SELECT qualified_profit, gross_profit, profit_removed, total_trades, qualified_trades,
+                  flagged_trades, adjusted_balance, current_balance, is_qualified
+           FROM wp_leaderboard_staging WHERE registration_id = $1`,
           [registrationId]
         );
 
-        const newRank = after.rows[0]?.new_rank ?? null;
-        const isDisqualified = after.rows[0]?.disqualified ?? false;
-        const dqReason = after.rows[0]?.disqualified_reason ?? null;
+        // Get current live data for comparison
+        const liveData = await db.query(
+          `SELECT l.rank, l.qualified_profit, l.gross_profit, l.profit_removed,
+                  l.total_trades, l.qualified_trades, l.flagged_trades,
+                  l.adjusted_balance, l.current_balance, l.is_qualified,
+                  r.disqualified, r.disqualified_reason
+           FROM wp_leaderboard l
+           JOIN trading_registrations r ON r.id = l.registration_id
+           WHERE l.registration_id = $1`,
+          [registrationId]
+        );
+
+        const staging = stagingData.rows[0] || {};
+        const live = liveData.rows[0] || {};
         const newTradeCount = totalTrades;
         const tradesAdded = Math.max(0, newTradeCount - prevTradeCount);
+
+        // Build diff for preview
+        const diff: any = {};
+        if (Math.abs((parseFloat(staging.qualified_profit) || 0) - (parseFloat(live.qualified_profit) || 0)) > 0.01)
+          diff.qualifiedProfit = { before: parseFloat(live.qualified_profit) || 0, after: parseFloat(staging.qualified_profit) || 0 };
+        if (Math.abs((parseFloat(staging.adjusted_balance) || 0) - (parseFloat(live.adjusted_balance) || 0)) > 0.01)
+          diff.adjustedBalance = { before: parseFloat(live.adjusted_balance) || 0, after: parseFloat(staging.adjusted_balance) || 0 };
+        if ((parseInt(staging.flagged_trades) || 0) !== (parseInt(live.flagged_trades) || 0))
+          diff.flaggedTrades = { before: parseInt(live.flagged_trades) || 0, after: parseInt(staging.flagged_trades) || 0 };
+        if ((parseInt(staging.qualified_trades) || 0) !== (parseInt(live.qualified_trades) || 0))
+          diff.qualifiedTrades = { before: parseInt(live.qualified_trades) || 0, after: parseInt(staging.qualified_trades) || 0 };
+        if ((parseInt(staging.total_trades) || 0) !== (parseInt(live.total_trades) || 0))
+          diff.totalTrades = { before: parseInt(live.total_trades) || 0, after: parseInt(staging.total_trades) || 0 };
+        if (Math.abs((parseFloat(staging.profit_removed) || 0) - (parseFloat(live.profit_removed) || 0)) > 0.01)
+          diff.profitRemoved = { before: parseFloat(live.profit_removed) || 0, after: parseFloat(staging.profit_removed) || 0 };
+
+        const hasDiff = Object.keys(diff).length > 0 || tradesAdded > 0;
 
         individualPullResults.set(registrationId, {
           done: true,
@@ -4857,9 +4878,12 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/pull-single-account`, ad
           tradesAdded,
           faultsFound: flaggedCount,
           prevRank,
-          newRank,
-          isDisqualified,
-          dqReason,
+          newRank: live.rank ?? null,
+          hasDiff,
+          diff,
+          pendingApproval: hasDiff,
+          isDisqualified: live.disqualified ?? false,
+          dqReason: live.disqualified_reason ?? null,
         });
       } catch (error) {
         console.error('pull-single-account background error:', error);
@@ -4887,6 +4911,79 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/pull-single-status`, adminIpCheck, asyn
   const result = individualPullResults.get(registrationId);
   if (!result) return res.json({ done: false });
   return res.json(result);
+});
+
+/**
+ * POST /api/admin/:secretPath/challenge/:id/approve-pull
+ * Approve a pending individual pull — flushes staging to live + updates rankings.
+ * Body: { registrationId }
+ */
+app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/approve-pull`, adminIpCheck, async (req, res) => {
+  try {
+    const challengeId = parseInt(req.params.id);
+    const { registrationId } = req.body;
+    if (!registrationId) return res.status(400).json({ error: 'registrationId required' });
+
+    const cached = individualPullResults.get(registrationId);
+    if (!cached || !cached.pendingApproval) {
+      return res.status(400).json({ error: 'No pending pull to approve for this account' });
+    }
+
+    // Flush staging to live + update rankings
+    const { leaderboardService } = require('../services/leaderboardService');
+    await leaderboardService.flushStagingToLive(challengeId);
+    await leaderboardService.ensureAllParticipantsHaveEntries(challengeId);
+    await leaderboardService.updateRankings(challengeId);
+
+    // Get new rank after flush
+    const after = await db.query(
+      `SELECT l.rank as new_rank FROM wp_leaderboard l WHERE l.registration_id = $1`,
+      [registrationId]
+    );
+
+    // Update cached result
+    cached.pendingApproval = false;
+    cached.approved = true;
+    cached.newRank = after.rows[0]?.new_rank ?? null;
+    individualPullResults.set(registrationId, cached);
+
+    return res.json({ success: true, newRank: cached.newRank, prevRank: cached.prevRank });
+  } catch (error) {
+    console.error('approve-pull error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * POST /api/admin/:secretPath/challenge/:id/reject-pull
+ * Reject a pending individual pull — discards staging data, keeps live unchanged.
+ * Body: { registrationId }
+ */
+app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/reject-pull`, adminIpCheck, async (req, res) => {
+  try {
+    const challengeId = parseInt(req.params.id);
+    const { registrationId } = req.body;
+    if (!registrationId) return res.status(400).json({ error: 'registrationId required' });
+
+    // Clear staging data for this account
+    await db.query(
+      `DELETE FROM wp_leaderboard_staging WHERE registration_id = $1`,
+      [registrationId]
+    );
+
+    // Clear cached result
+    const cached = individualPullResults.get(registrationId);
+    if (cached) {
+      cached.pendingApproval = false;
+      cached.rejected = true;
+      individualPullResults.set(registrationId, cached);
+    }
+
+    return res.json({ success: true, message: 'Pull rejected — live data unchanged' });
+  } catch (error) {
+    console.error('reject-pull error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 /**

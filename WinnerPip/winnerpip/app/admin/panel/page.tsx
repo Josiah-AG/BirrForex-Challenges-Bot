@@ -3571,11 +3571,56 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
                       </p>
                     </div>
                   </div>
+                  {/* Diff preview — show what changed */}
+                  {indivResult.pendingApproval && indivResult.diff && Object.keys(indivResult.diff).length > 0 && (
+                    <div className="bg-royal/5 border border-royal/20 rounded-xl p-3 space-y-1">
+                      <p className="text-[10px] text-royal font-semibold uppercase tracking-wider mb-2">Changes Detected — Review Before Applying</p>
+                      {indivResult.diff.qualifiedProfit && <div className="flex justify-between text-[11px]"><span className="text-gray-400">Qualified Profit</span><span><span className="text-gray-500">${indivResult.diff.qualifiedProfit.before.toFixed(2)}</span> → <span className="text-white font-semibold">${indivResult.diff.qualifiedProfit.after.toFixed(2)}</span></span></div>}
+                      {indivResult.diff.adjustedBalance && <div className="flex justify-between text-[11px]"><span className="text-gray-400">Adjusted Balance</span><span><span className="text-gray-500">${indivResult.diff.adjustedBalance.before.toFixed(2)}</span> → <span className="text-white font-semibold">${indivResult.diff.adjustedBalance.after.toFixed(2)}</span></span></div>}
+                      {indivResult.diff.flaggedTrades && <div className="flex justify-between text-[11px]"><span className="text-gray-400">Flagged Trades</span><span><span className="text-gray-500">{indivResult.diff.flaggedTrades.before}</span> → <span className={`font-semibold ${indivResult.diff.flaggedTrades.after > indivResult.diff.flaggedTrades.before ? "text-loss" : "text-profit"}`}>{indivResult.diff.flaggedTrades.after}</span></span></div>}
+                      {indivResult.diff.qualifiedTrades && <div className="flex justify-between text-[11px]"><span className="text-gray-400">Qualified Trades</span><span><span className="text-gray-500">{indivResult.diff.qualifiedTrades.before}</span> → <span className="text-white font-semibold">{indivResult.diff.qualifiedTrades.after}</span></span></div>}
+                      {indivResult.diff.totalTrades && <div className="flex justify-between text-[11px]"><span className="text-gray-400">Total Trades</span><span><span className="text-gray-500">{indivResult.diff.totalTrades.before}</span> → <span className="text-white font-semibold">{indivResult.diff.totalTrades.after}</span></span></div>}
+                      {indivResult.diff.profitRemoved && <div className="flex justify-between text-[11px]"><span className="text-gray-400">Profit Removed</span><span><span className="text-gray-500">${indivResult.diff.profitRemoved.before.toFixed(2)}</span> → <span className="text-loss font-semibold">${indivResult.diff.profitRemoved.after.toFixed(2)}</span></span></div>}
+                    </div>
+                  )}
+                  {indivResult.pendingApproval && !indivResult.hasDiff && (
+                    <p className="text-[10px] text-gray-500 text-center">No evaluation changes detected — data is the same.</p>
+                  )}
+                  {/* Approve / Reject buttons */}
+                  {indivResult.pendingApproval && (
+                    <div className="flex gap-2">
+                      <button onClick={async () => {
+                        try {
+                          const r = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/approve-pull`, { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ registrationId: indivUser.id }) });
+                          const d = await r.json();
+                          if (d.success) {
+                            setIndivResult((prev: any) => ({ ...prev, pendingApproval: false, approved: true, newRank: d.newRank }));
+                          } else { alert(d.error || "Approve failed"); }
+                        } catch { alert("Connection error"); }
+                      }} className="flex-1 py-2.5 rounded-xl bg-profit/20 border border-profit/30 text-profit text-xs font-semibold hover:bg-profit/30 transition-all">✓ Approve & Apply</button>
+                      <button onClick={async () => {
+                        try {
+                          const r = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/reject-pull`, { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ registrationId: indivUser.id }) });
+                          const d = await r.json();
+                          if (d.success) {
+                            setIndivResult((prev: any) => ({ ...prev, pendingApproval: false, rejected: true }));
+                          } else { alert(d.error || "Reject failed"); }
+                        } catch { alert("Connection error"); }
+                      }} className="flex-1 py-2.5 rounded-xl bg-loss/20 border border-loss/30 text-loss text-xs font-semibold hover:bg-loss/30 transition-all">✕ Reject</button>
+                    </div>
+                  )}
+                  {/* Post-approval/rejection status */}
+                  {indivResult.approved && (
+                    <p className="text-[10px] text-profit bg-profit/10 rounded-lg px-3 py-2 text-center font-semibold">✓ Changes applied to live leaderboard. New rank: #{indivResult.newRank || "—"}</p>
+                  )}
+                  {indivResult.rejected && (
+                    <p className="text-[10px] text-gray-400 bg-white/5 rounded-lg px-3 py-2 text-center">Changes discarded — live data unchanged.</p>
+                  )}
                   {indivResult.isDisqualified ? (
                     <p className="text-[10px] text-loss bg-loss/10 rounded-lg px-3 py-2 text-center">Account remains disqualified · {indivResult.dqReason}</p>
-                  ) : (
+                  ) : !indivResult.pendingApproval && !indivResult.rejected ? (
                     <p className="text-[10px] text-profit text-center">Account is active and in good standing.</p>
-                  )}
+                  ) : null}
                   <button onClick={() => { setIndivResult(null); setIndivUser(null); setIndivSearched(false); setIndivQuery(""); }} className="w-full py-2 rounded-xl bg-white/5 border border-white/10 text-gray-400 text-xs hover:text-white transition-all">Clear</button>
                 </>
               ) : (

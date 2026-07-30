@@ -154,7 +154,7 @@ export default function DemoLanding() {
               <Step
                 number="1"
                 title="Register & Verify"
-                description="Sign up and connect your Exness trading account. Automatic verification ensures you meet all requirements."
+                description="Sign up and connect your trading account. Automatic verification ensures you meet all requirements."
               />
               <Step
                 number="2"
