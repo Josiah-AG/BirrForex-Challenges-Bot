@@ -1548,34 +1548,39 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
          WHERE t.challenge_id = $1${catWhere}${tradeFilter}
          ORDER BY t.profit ASC LIMIT 1`, tradeParams.length > 1 ? tradeParams : [challengeId]);
 
-      // Best qualified win rate — cap at 100%, use actual trade counts from wp_trades
+      // Best qualified win rate — uses actual counts from wp_trades, cap at 100%
       const bestQualWin = await db.query(
-        `SELECT r.nickname, r.username, r.email, l.total_trades,
-                LEAST(100, CASE WHEN (SELECT COUNT(*) FROM wp_trades t2
-                   WHERE t2.registration_id = l.registration_id AND t2.challenge_id = $1
-                     AND t2.is_qualified = true) > 0 THEN ROUND(
-                  (SELECT COUNT(*)::numeric FROM wp_trades t2
-                   WHERE t2.registration_id = l.registration_id AND t2.challenge_id = $1
-                     AND t2.is_qualified = true AND t2.profit > 0)
-                  / NULLIF((SELECT COUNT(*) FROM wp_trades t2
-                   WHERE t2.registration_id = l.registration_id AND t2.challenge_id = $1
-                     AND t2.is_qualified = true), 0) * 100)
-                ELSE 0 END) as qualified_win_rate
+        `SELECT r.nickname, r.username, r.email,
+                (SELECT COUNT(*) FROM wp_trades t2 WHERE t2.registration_id = l.registration_id AND t2.challenge_id = $1) as total_trades,
+                CASE WHEN (SELECT COUNT(*) FROM wp_trades t2 WHERE t2.registration_id = l.registration_id AND t2.challenge_id = $1 AND t2.is_qualified = true) > 0 THEN
+                  LEAST(100, ROUND(
+                    (SELECT COUNT(*)::numeric FROM wp_trades t2
+                     WHERE t2.registration_id = l.registration_id AND t2.challenge_id = $1
+                       AND t2.is_qualified = true AND t2.profit > 0)
+                    / NULLIF((SELECT COUNT(*) FROM wp_trades t2
+                     WHERE t2.registration_id = l.registration_id AND t2.challenge_id = $1
+                       AND t2.is_qualified = true), 0) * 100))
+                ELSE 0 END as qualified_win_rate
          FROM wp_leaderboard l JOIN trading_registrations r ON l.registration_id = r.id
-         WHERE l.challenge_id = $1 AND l.total_trades >= 5 AND r.disqualified = false${catJoin}
-         ORDER BY qualified_win_rate DESC, l.total_trades DESC LIMIT 1`, [challengeId]);
+         WHERE l.challenge_id = $1 AND r.disqualified = false${catJoin}
+         HAVING (SELECT COUNT(*) FROM wp_trades t2 WHERE t2.registration_id = l.registration_id AND t2.challenge_id = $1) >= 5
+         ORDER BY qualified_win_rate DESC, (SELECT COUNT(*) FROM wp_trades t2 WHERE t2.registration_id = l.registration_id AND t2.challenge_id = $1) DESC LIMIT 1`, [challengeId]);
 
-      // Best overall win rate (profitable / total) — cap at 100%
+      // Best overall win rate — uses actual trade counts from wp_trades (not stale leaderboard)
       const bestOverallWin = await db.query(
-        `SELECT r.nickname, r.username, r.email, l.total_trades,
-                LEAST(100, CASE WHEN l.total_trades > 0 THEN ROUND(
-                  (SELECT COUNT(*)::numeric FROM wp_trades t2
-                   WHERE t2.registration_id = l.registration_id AND t2.challenge_id = $1 AND t2.profit > 0)
-                  / l.total_trades * 100)
-                ELSE 0 END) as overall_win_rate
+        `SELECT r.nickname, r.username, r.email,
+                (SELECT COUNT(*) FROM wp_trades t2 WHERE t2.registration_id = l.registration_id AND t2.challenge_id = $1) as total_trades,
+                CASE WHEN (SELECT COUNT(*) FROM wp_trades t2 WHERE t2.registration_id = l.registration_id AND t2.challenge_id = $1) >= 5 THEN
+                  LEAST(100, ROUND(
+                    (SELECT COUNT(*)::numeric FROM wp_trades t2
+                     WHERE t2.registration_id = l.registration_id AND t2.challenge_id = $1 AND t2.profit > 0)
+                    / NULLIF((SELECT COUNT(*) FROM wp_trades t2
+                     WHERE t2.registration_id = l.registration_id AND t2.challenge_id = $1), 0) * 100))
+                ELSE 0 END as overall_win_rate
          FROM wp_leaderboard l JOIN trading_registrations r ON l.registration_id = r.id
-         WHERE l.challenge_id = $1 AND l.total_trades >= 5 AND r.disqualified = false${catJoin}
-         ORDER BY overall_win_rate DESC, l.total_trades DESC LIMIT 1`, [challengeId]);
+         WHERE l.challenge_id = $1 AND r.disqualified = false${catJoin}
+         HAVING (SELECT COUNT(*) FROM wp_trades t2 WHERE t2.registration_id = l.registration_id AND t2.challenge_id = $1) >= 5
+         ORDER BY overall_win_rate DESC, (SELECT COUNT(*) FROM wp_trades t2 WHERE t2.registration_id = l.registration_id AND t2.challenge_id = $1) DESC LIMIT 1`, [challengeId]);
 
       const mostPair = await db.query(
         `SELECT symbol, COUNT(*) as trade_count, COALESCE(SUM(volume), 0) as total_lots
