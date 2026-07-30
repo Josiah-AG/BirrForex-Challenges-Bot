@@ -4869,16 +4869,18 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/pull-single-account`, ad
           }
           // Compare fields
           const changes: any = {};
-          if (old.open_time?.toISOString?.() !== trade.open_time?.toISOString?.() && String(old.open_time) !== String(trade.open_time))
+          // Open time: compare as epoch ms for reliable comparison
+          const oldOpenMs = old.open_time ? new Date(old.open_time).getTime() : 0;
+          const newOpenMs = trade.open_time ? new Date(trade.open_time).getTime() : 0;
+          if (oldOpenMs !== newOpenMs && Math.abs(oldOpenMs - newOpenMs) > 1000)
             changes.open_time = { before: old.open_time, after: trade.open_time };
           if (Math.abs((parseFloat(old.open_price) || 0) - (parseFloat(trade.open_price) || 0)) > 0.001)
             changes.open_price = { before: parseFloat(old.open_price) || 0, after: parseFloat(trade.open_price) || 0 };
           if (Math.abs((parseFloat(old.close_price) || 0) - (parseFloat(trade.close_price) || 0)) > 0.001)
             changes.close_price = { before: parseFloat(old.close_price) || 0, after: parseFloat(trade.close_price) || 0 };
+          // Only show qualification change (not cosmetic violations text refresh)
           if (old.is_qualified !== trade.is_qualified)
             changes.is_qualified = { before: old.is_qualified, after: trade.is_qualified };
-          if ((old.violations || '') !== (trade.violations || ''))
-            changes.violations = { before: old.violations || null, after: trade.violations || null };
           if (Math.abs((parseFloat(old.stop_loss) || 0) - (parseFloat(trade.stop_loss) || 0)) > 0.001)
             changes.stop_loss = { before: parseFloat(old.stop_loss) || 0, after: parseFloat(trade.stop_loss) || 0 };
 
