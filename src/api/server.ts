@@ -4819,9 +4819,9 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/pull-single-account`, ad
           const { evaluationEngine } = require('../services/wpEvaluationEngine');
           await evaluationEngine.evaluateSingleAccount(challengeId, registrationId);
           const tradeCountResult = await db.query(
-            `SELECT COUNT(*) as total, COUNT(*) FILTER (WHERE NOT is_qualified) as flagged
-             FROM wp_trades WHERE registration_id = $1`,
-            [registrationId]
+            `SELECT COUNT(*) as total, COUNT(*) FILTER (WHERE is_qualified = false) as flagged
+             FROM wp_trades WHERE registration_id = $1 AND challenge_id = $2`,
+            [registrationId, challengeId]
           );
           totalTrades = parseInt(tradeCountResult.rows[0]?.total || '0');
           flaggedCount = parseInt(tradeCountResult.rows[0]?.flagged || '0');
