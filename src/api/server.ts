@@ -1563,7 +1563,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
                 ELSE 0 END as qualified_win_rate
          FROM wp_leaderboard l JOIN trading_registrations r ON l.registration_id = r.id
          WHERE l.challenge_id = $1 AND r.disqualified = false${catJoin}
-         HAVING (SELECT COUNT(*) FROM wp_trades t2 WHERE t2.registration_id = l.registration_id AND t2.challenge_id = $1) >= 5
+         AND (SELECT COUNT(*) FROM wp_trades t2 WHERE t2.registration_id = l.registration_id AND t2.challenge_id = $1) >= 5
          ORDER BY qualified_win_rate DESC, (SELECT COUNT(*) FROM wp_trades t2 WHERE t2.registration_id = l.registration_id AND t2.challenge_id = $1) DESC LIMIT 1`, [challengeId]);
 
       // Best overall win rate — uses actual trade counts from wp_trades (not stale leaderboard)
@@ -1579,7 +1579,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
                 ELSE 0 END as overall_win_rate
          FROM wp_leaderboard l JOIN trading_registrations r ON l.registration_id = r.id
          WHERE l.challenge_id = $1 AND r.disqualified = false${catJoin}
-         HAVING (SELECT COUNT(*) FROM wp_trades t2 WHERE t2.registration_id = l.registration_id AND t2.challenge_id = $1) >= 5
+         AND (SELECT COUNT(*) FROM wp_trades t2 WHERE t2.registration_id = l.registration_id AND t2.challenge_id = $1) >= 5
          ORDER BY overall_win_rate DESC, (SELECT COUNT(*) FROM wp_trades t2 WHERE t2.registration_id = l.registration_id AND t2.challenge_id = $1) DESC LIMIT 1`, [challengeId]);
 
       const mostPair = await db.query(
