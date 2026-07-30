@@ -3572,19 +3572,42 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
                     </div>
                   </div>
                   {/* Diff preview — show what changed */}
-                  {indivResult.pendingApproval && indivResult.diff && Object.keys(indivResult.diff).length > 0 && (
+                  {indivResult.pendingApproval && indivResult.tradeChanges && indivResult.tradeChanges.length > 0 && (
                     <div className="bg-royal/5 border border-royal/20 rounded-xl p-3 space-y-1">
-                      <p className="text-[10px] text-royal font-semibold uppercase tracking-wider mb-2">Changes Detected — Review Before Applying</p>
-                      {indivResult.diff.qualifiedProfit && <div className="flex justify-between text-[11px]"><span className="text-gray-400">Qualified Profit</span><span><span className="text-gray-500">${indivResult.diff.qualifiedProfit.before.toFixed(2)}</span> → <span className="text-white font-semibold">${indivResult.diff.qualifiedProfit.after.toFixed(2)}</span></span></div>}
-                      {indivResult.diff.adjustedBalance && <div className="flex justify-between text-[11px]"><span className="text-gray-400">Adjusted Balance</span><span><span className="text-gray-500">${indivResult.diff.adjustedBalance.before.toFixed(2)}</span> → <span className="text-white font-semibold">${indivResult.diff.adjustedBalance.after.toFixed(2)}</span></span></div>}
-                      {indivResult.diff.flaggedTrades && <div className="flex justify-between text-[11px]"><span className="text-gray-400">Flagged Trades</span><span><span className="text-gray-500">{indivResult.diff.flaggedTrades.before}</span> → <span className={`font-semibold ${indivResult.diff.flaggedTrades.after > indivResult.diff.flaggedTrades.before ? "text-loss" : "text-profit"}`}>{indivResult.diff.flaggedTrades.after}</span></span></div>}
-                      {indivResult.diff.qualifiedTrades && <div className="flex justify-between text-[11px]"><span className="text-gray-400">Qualified Trades</span><span><span className="text-gray-500">{indivResult.diff.qualifiedTrades.before}</span> → <span className="text-white font-semibold">{indivResult.diff.qualifiedTrades.after}</span></span></div>}
-                      {indivResult.diff.totalTrades && <div className="flex justify-between text-[11px]"><span className="text-gray-400">Total Trades</span><span><span className="text-gray-500">{indivResult.diff.totalTrades.before}</span> → <span className="text-white font-semibold">{indivResult.diff.totalTrades.after}</span></span></div>}
-                      {indivResult.diff.profitRemoved && <div className="flex justify-between text-[11px]"><span className="text-gray-400">Profit Removed</span><span><span className="text-gray-500">${indivResult.diff.profitRemoved.before.toFixed(2)}</span> → <span className="text-loss font-semibold">${indivResult.diff.profitRemoved.after.toFixed(2)}</span></span></div>}
+                      <p className="text-[10px] text-royal font-semibold uppercase tracking-wider mb-2">Trade Data Changes ({indivResult.tradeChanges.length})</p>
+                      {indivResult.tradeChanges.slice(0, 10).map((tc: any, i: number) => (
+                        <div key={i} className="bg-white/5 rounded-lg p-2 text-[10px]">
+                          <p className="text-gray-300 font-semibold mb-1">{tc.symbol} · #{tc.ticket}</p>
+                          {tc.changes.open_time && <p className="text-gray-400">Open Time: <span className="text-gray-500 line-through">{new Date(tc.changes.open_time.before).toLocaleString()}</span> → <span className="text-white">{new Date(tc.changes.open_time.after).toLocaleString()}</span></p>}
+                          {tc.changes.open_price && <p className="text-gray-400">Open Price: <span className="text-gray-500">{tc.changes.open_price.before}</span> → <span className="text-white">{tc.changes.open_price.after}</span></p>}
+                          {tc.changes.is_qualified && <p className="text-gray-400">Qualified: <span className={tc.changes.is_qualified.before ? "text-profit" : "text-loss"}>{tc.changes.is_qualified.before ? "✓" : "✗"}</span> → <span className={tc.changes.is_qualified.after ? "text-profit" : "text-loss"}>{tc.changes.is_qualified.after ? "✓" : "✗"}</span></p>}
+                          {tc.changes.violations && <p className="text-gray-400">Violations: <span className="text-loss">{tc.changes.violations.before ? "Had flag" : "None"}</span> → <span className={tc.changes.violations.after ? "text-loss" : "text-profit"}>{tc.changes.violations.after ? "Flagged" : "Cleared"}</span></p>}
+                          {tc.changes.stop_loss && <p className="text-gray-400">SL: {tc.changes.stop_loss.before} → {tc.changes.stop_loss.after}</p>}
+                        </div>
+                      ))}
+                      {indivResult.tradeChanges.length > 10 && <p className="text-[9px] text-gray-500">+{indivResult.tradeChanges.length - 10} more changes...</p>}
+                    </div>
+                  )}
+                  {indivResult.pendingApproval && indivResult.newTrades && indivResult.newTrades.length > 0 && (
+                    <div className="bg-profit/5 border border-profit/20 rounded-xl p-3">
+                      <p className="text-[10px] text-profit font-semibold uppercase tracking-wider mb-2">New Trades Found ({indivResult.newTrades.length})</p>
+                      {indivResult.newTrades.slice(0, 5).map((nt: any, i: number) => (
+                        <p key={i} className="text-[10px] text-gray-300">#{nt.ticket} · {nt.symbol} · {nt.type} · <span className={nt.profit >= 0 ? "text-profit" : "text-loss"}>${nt.profit.toFixed(2)}</span></p>
+                      ))}
+                    </div>
+                  )}
+                  {indivResult.pendingApproval && indivResult.evalDiff && Object.keys(indivResult.evalDiff).length > 0 && (
+                    <div className="bg-gold/5 border border-gold/20 rounded-xl p-3 space-y-1">
+                      <p className="text-[10px] text-gold font-semibold uppercase tracking-wider mb-2">Evaluation Changes</p>
+                      {indivResult.evalDiff.qualifiedProfit && <div className="flex justify-between text-[11px]"><span className="text-gray-400">Qualified Profit</span><span><span className="text-gray-500">${indivResult.evalDiff.qualifiedProfit.before.toFixed(2)}</span> → <span className="text-white font-semibold">${indivResult.evalDiff.qualifiedProfit.after.toFixed(2)}</span></span></div>}
+                      {indivResult.evalDiff.adjustedBalance && <div className="flex justify-between text-[11px]"><span className="text-gray-400">Adjusted Balance</span><span><span className="text-gray-500">${indivResult.evalDiff.adjustedBalance.before.toFixed(2)}</span> → <span className="text-white font-semibold">${indivResult.evalDiff.adjustedBalance.after.toFixed(2)}</span></span></div>}
+                      {indivResult.evalDiff.flaggedTrades && <div className="flex justify-between text-[11px]"><span className="text-gray-400">Flagged Trades</span><span><span className="text-gray-500">{indivResult.evalDiff.flaggedTrades.before}</span> → <span className={`font-semibold ${indivResult.evalDiff.flaggedTrades.after < indivResult.evalDiff.flaggedTrades.before ? "text-profit" : "text-loss"}`}>{indivResult.evalDiff.flaggedTrades.after}</span></span></div>}
+                      {indivResult.evalDiff.qualifiedTrades && <div className="flex justify-between text-[11px]"><span className="text-gray-400">Qualified Trades</span><span><span className="text-gray-500">{indivResult.evalDiff.qualifiedTrades.before}</span> → <span className="text-white font-semibold">{indivResult.evalDiff.qualifiedTrades.after}</span></span></div>}
+                      {indivResult.evalDiff.profitRemoved && <div className="flex justify-between text-[11px]"><span className="text-gray-400">Profit Removed</span><span><span className="text-gray-500">${indivResult.evalDiff.profitRemoved.before.toFixed(2)}</span> → <span className="text-loss font-semibold">${indivResult.evalDiff.profitRemoved.after.toFixed(2)}</span></span></div>}
                     </div>
                   )}
                   {indivResult.pendingApproval && !indivResult.hasDiff && (
-                    <p className="text-[10px] text-gray-500 text-center">No evaluation changes detected — data is the same.</p>
+                    <p className="text-[10px] text-gray-500 bg-white/5 rounded-lg px-3 py-2 text-center">No changes detected — pulled data matches existing records.</p>
                   )}
                   {/* Approve / Reject buttons */}
                   {indivResult.pendingApproval && (

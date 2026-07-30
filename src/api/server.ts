@@ -4774,20 +4774,37 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/pull-single-account`, ad
       [registrationId]
     );
 
+    // Snapshot current trades BEFORE pull — for trade-level diff comparison
+    const tradeSnapshotResult = await db.query(
+      `SELECT id, ticket, position_id, open_time, close_time, open_price, close_price,
+              volume, symbol, trade_type, profit, is_qualified, violations, stop_loss, take_profit
+       FROM wp_trades WHERE challenge_id = $1 AND registration_id = $2
+       ORDER BY close_time DESC`,
+      [challengeId, registrationId]
+    );
+    const tradeSnapshot = tradeSnapshotResult.rows;
+
+    // Snapshot leaderboard state BEFORE
+    const lbSnapshot = await db.query(
+      `SELECT qualified_profit, gross_profit, profit_removed, total_trades, qualified_trades,
+              flagged_trades, adjusted_balance, current_balance, rank
+       FROM wp_leaderboard WHERE registration_id = $1`,
+      [registrationId]
+    );
+    const lbBefore = lbSnapshot.rows[0] || {};
+
     const scheduler = (global as any).__vpsPullScheduler;
     if (!scheduler) return res.status(503).json({ error: 'Pull scheduler not initialised yet — try again in a moment' });
 
     individualPullResults.delete(registrationId);
     res.json({ success: true, started: true });
 
-    // Run the actual pull + evaluate + rank update in the background.
+    // Run the actual pull + evaluate in the background.
     (async () => {
       try {
         const pullResult = await scheduler.retrySingleAccount(registrationId, challengeId);
 
         // After a successful full pull, clear data-based DQs (over-balance, active-days)
-        // so the re-evaluation can run fresh with the new complete data.
-        // Administrative DQs (partnership, manual) are NOT cleared.
         if (pullResult.success) {
           const dqCheck = await db.query(
             `SELECT disqualified, disqualified_reason FROM trading_registrations WHERE id = $1`,
@@ -4809,10 +4826,10 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/pull-single-account`, ad
               `UPDATE wp_leaderboard SET is_disqualified = false, disqualify_reason = NULL WHERE registration_id = $1`,
               [registrationId]
             ).catch(() => {});
-            console.log(`✅ Pull Individual: Cleared data-based DQ for reg ${registrationId} (was: "${dqReason}") — re-evaluating with fresh data`);
           }
         }
 
+        // Evaluate with fresh data
         let flaggedCount = 0;
         let totalTrades = 0;
         try {
@@ -4825,65 +4842,91 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/pull-single-account`, ad
           );
           totalTrades = parseInt(tradeCountResult.rows[0]?.total || '0');
           flaggedCount = parseInt(tradeCountResult.rows[0]?.flagged || '0');
-        } catch {}
+        } catch (evalErr) {
+          console.error('Pull Individual: evaluation error:', evalErr);
+        }
 
-        // Get staging data (what evaluation produced) WITHOUT flushing to live
+        // === TRADE-LEVEL DIFF: compare snapshot vs current DB ===
+        const currentTradesResult = await db.query(
+          `SELECT id, ticket, position_id, open_time, close_time, open_price, close_price,
+                  volume, symbol, trade_type, profit, is_qualified, violations, stop_loss, take_profit
+           FROM wp_trades WHERE challenge_id = $1 AND registration_id = $2
+           ORDER BY close_time DESC`,
+          [challengeId, registrationId]
+        );
+        const currentTrades = currentTradesResult.rows;
+
+        // Build trade-level changes
+        const tradeChanges: any[] = [];
+        const snapshotByTicket = new Map(tradeSnapshot.map((t: any) => [String(t.ticket), t]));
+        const newTrades: any[] = [];
+
+        for (const trade of currentTrades) {
+          const old = snapshotByTicket.get(String(trade.ticket));
+          if (!old) {
+            newTrades.push({ ticket: trade.ticket, symbol: trade.symbol, type: trade.trade_type, profit: parseFloat(trade.profit), isQualified: trade.is_qualified });
+            continue;
+          }
+          // Compare fields
+          const changes: any = {};
+          if (old.open_time?.toISOString?.() !== trade.open_time?.toISOString?.() && String(old.open_time) !== String(trade.open_time))
+            changes.open_time = { before: old.open_time, after: trade.open_time };
+          if (Math.abs((parseFloat(old.open_price) || 0) - (parseFloat(trade.open_price) || 0)) > 0.001)
+            changes.open_price = { before: parseFloat(old.open_price) || 0, after: parseFloat(trade.open_price) || 0 };
+          if (Math.abs((parseFloat(old.close_price) || 0) - (parseFloat(trade.close_price) || 0)) > 0.001)
+            changes.close_price = { before: parseFloat(old.close_price) || 0, after: parseFloat(trade.close_price) || 0 };
+          if (old.is_qualified !== trade.is_qualified)
+            changes.is_qualified = { before: old.is_qualified, after: trade.is_qualified };
+          if ((old.violations || '') !== (trade.violations || ''))
+            changes.violations = { before: old.violations || null, after: trade.violations || null };
+          if (Math.abs((parseFloat(old.stop_loss) || 0) - (parseFloat(trade.stop_loss) || 0)) > 0.001)
+            changes.stop_loss = { before: parseFloat(old.stop_loss) || 0, after: parseFloat(trade.stop_loss) || 0 };
+
+          if (Object.keys(changes).length > 0) {
+            tradeChanges.push({ ticket: trade.ticket, symbol: trade.symbol, positionId: trade.position_id, changes });
+          }
+        }
+
+        // === EVALUATION DIFF: compare leaderboard before vs staging ===
         const stagingData = await db.query(
           `SELECT qualified_profit, gross_profit, profit_removed, total_trades, qualified_trades,
-                  flagged_trades, adjusted_balance, current_balance, is_qualified
+                  flagged_trades, adjusted_balance, current_balance
            FROM wp_leaderboard_staging WHERE registration_id = $1`,
           [registrationId]
         );
-
-        // Get current live data for comparison
-        const liveData = await db.query(
-          `SELECT l.rank, l.qualified_profit, l.gross_profit, l.profit_removed,
-                  l.total_trades, l.qualified_trades, l.flagged_trades,
-                  l.adjusted_balance, l.current_balance, l.is_qualified,
-                  r.disqualified, r.disqualified_reason
-           FROM wp_leaderboard l
-           JOIN trading_registrations r ON r.id = l.registration_id
-           WHERE l.registration_id = $1`,
-          [registrationId]
-        );
-
         const staging = stagingData.rows[0] || {};
-        const live = liveData.rows[0] || {};
-        const newTradeCount = totalTrades;
-        const tradesAdded = Math.max(0, newTradeCount - prevTradeCount);
 
-        // Build diff for preview
-        const diff: any = {};
-        if (Math.abs((parseFloat(staging.qualified_profit) || 0) - (parseFloat(live.qualified_profit) || 0)) > 0.01)
-          diff.qualifiedProfit = { before: parseFloat(live.qualified_profit) || 0, after: parseFloat(staging.qualified_profit) || 0 };
-        if (Math.abs((parseFloat(staging.adjusted_balance) || 0) - (parseFloat(live.adjusted_balance) || 0)) > 0.01)
-          diff.adjustedBalance = { before: parseFloat(live.adjusted_balance) || 0, after: parseFloat(staging.adjusted_balance) || 0 };
-        if ((parseInt(staging.flagged_trades) || 0) !== (parseInt(live.flagged_trades) || 0))
-          diff.flaggedTrades = { before: parseInt(live.flagged_trades) || 0, after: parseInt(staging.flagged_trades) || 0 };
-        if ((parseInt(staging.qualified_trades) || 0) !== (parseInt(live.qualified_trades) || 0))
-          diff.qualifiedTrades = { before: parseInt(live.qualified_trades) || 0, after: parseInt(staging.qualified_trades) || 0 };
-        if ((parseInt(staging.total_trades) || 0) !== (parseInt(live.total_trades) || 0))
-          diff.totalTrades = { before: parseInt(live.total_trades) || 0, after: parseInt(staging.total_trades) || 0 };
-        if (Math.abs((parseFloat(staging.profit_removed) || 0) - (parseFloat(live.profit_removed) || 0)) > 0.01)
-          diff.profitRemoved = { before: parseFloat(live.profit_removed) || 0, after: parseFloat(staging.profit_removed) || 0 };
+        const evalDiff: any = {};
+        if (Math.abs((parseFloat(staging.qualified_profit) || 0) - (parseFloat(lbBefore.qualified_profit) || 0)) > 0.01)
+          evalDiff.qualifiedProfit = { before: parseFloat(lbBefore.qualified_profit) || 0, after: parseFloat(staging.qualified_profit) || 0 };
+        if (Math.abs((parseFloat(staging.adjusted_balance) || 0) - (parseFloat(lbBefore.adjusted_balance) || 0)) > 0.01)
+          evalDiff.adjustedBalance = { before: parseFloat(lbBefore.adjusted_balance) || 0, after: parseFloat(staging.adjusted_balance) || 0 };
+        if ((parseInt(staging.flagged_trades) || 0) !== (parseInt(lbBefore.flagged_trades) || 0))
+          evalDiff.flaggedTrades = { before: parseInt(lbBefore.flagged_trades) || 0, after: parseInt(staging.flagged_trades) || 0 };
+        if ((parseInt(staging.qualified_trades) || 0) !== (parseInt(lbBefore.qualified_trades) || 0))
+          evalDiff.qualifiedTrades = { before: parseInt(lbBefore.qualified_trades) || 0, after: parseInt(staging.qualified_trades) || 0 };
+        if (Math.abs((parseFloat(staging.profit_removed) || 0) - (parseFloat(lbBefore.profit_removed) || 0)) > 0.01)
+          evalDiff.profitRemoved = { before: parseFloat(lbBefore.profit_removed) || 0, after: parseFloat(staging.profit_removed) || 0 };
 
-        const hasDiff = Object.keys(diff).length > 0 || tradesAdded > 0;
+        const hasDiff = tradeChanges.length > 0 || newTrades.length > 0 || Object.keys(evalDiff).length > 0;
 
         individualPullResults.set(registrationId, {
           done: true,
           success: pullResult.success,
           errorMessage: pullResult.success ? null : (pullResult.errorMessage || 'Pull failed'),
           terminalAttempts: pullResult.success ? null : ((pullResult as any).terminalAttempts || null),
-          tradesFound: newTradeCount,
-          tradesAdded,
+          tradesFound: totalTrades,
+          tradesAdded: newTrades.length,
           faultsFound: flaggedCount,
           prevRank,
-          newRank: live.rank ?? null,
+          newRank: parseInt(lbBefore.rank) || null,
           hasDiff,
-          diff,
-          pendingApproval: hasDiff,
-          isDisqualified: live.disqualified ?? false,
-          dqReason: live.disqualified_reason ?? null,
+          tradeChanges,
+          newTrades,
+          evalDiff,
+          pendingApproval: true, // Always show approve/reject
+          isDisqualified: false,
+          dqReason: null,
         });
       } catch (error) {
         console.error('pull-single-account background error:', error);
