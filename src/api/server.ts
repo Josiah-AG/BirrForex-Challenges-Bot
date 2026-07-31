@@ -5297,15 +5297,23 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/prestart-check-status`, a
   return res.json(progress);
 });
 
+// In-memory state for credential retry progress
+let credRetryState: { running: boolean; cancelled: boolean; total: number; current: number; recovered: number; stillFailing: number; startedAt: number; challengeId: number } | null = null;
+
 /**
  * POST /api/admin/:secretPath/challenge/:id/retry-all-failed
- * Immediately retry all credential-failed accounts via VPS — streams progress via SSE
+ * Retry all credential-failed accounts in background using all terminals in parallel.
+ * Returns immediately. Poll /retry-all-status for progress.
  */
 app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/retry-all-failed`, adminIpCheck, async (req, res) => {
   try {
     const challengeId = parseInt(req.params.id);
     const vpsUrl = config.vpsApiUrl;
     const vpsKey = config.vpsApiKey;
+
+    if (credRetryState?.running) {
+      return res.json({ success: false, error: 'Retry already in progress' });
+    }
 
     // Get all accounts with credential failures — most recent first
     const failedAccounts = await db.query(
@@ -5324,106 +5332,113 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/retry-all-failed`, admin
     }
 
     if (!vpsUrl || !vpsKey) {
-      const result = await db.query(
-        `UPDATE trading_registrations SET pull_status = 'retry_requested', pull_error = 'Bulk retry from admin'
-         WHERE challenge_id = $1 AND disqualified = false AND pull_status = 'password_changed'
-         RETURNING id`,
-        [challengeId]
-      );
-      return res.json({ success: true, total: result.rowCount, recovered: 0, stillFailing: 0, message: `${result.rowCount} accounts queued (VPS not configured for immediate retry)` });
+      return res.json({ success: false, error: 'VPS not configured' });
     }
-
-    // Stream progress via SSE
-    res.writeHead(200, {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive',
-    });
 
     const total = failedAccounts.rows.length;
-    const axios = require('axios');
-    let recovered = 0;
-    let stillFailing = 0;
-    const startTime = Date.now();
-
-    // Send initial count
-    res.write(`data: ${JSON.stringify({ type: 'start', total })}\n\n`);
-
     const terminalCount = parseInt(process.env.VPS_TERMINAL_COUNT || '12');
 
-    for (let i = 0; i < failedAccounts.rows.length; i++) {
-      const reg = failedAccounts.rows[i];
-      let success = false;
-      let error = '';
+    // Initialize state
+    credRetryState = { running: true, cancelled: false, total, current: 0, recovered: 0, stillFailing: 0, startedAt: Date.now(), challengeId };
 
-      // Try up to 3 different terminals
-      for (let attempt = 0; attempt < 3; attempt++) {
-        const terminalId = ((i + attempt) % terminalCount) + 1;
-        try {
-          const response = await axios.post(`${vpsUrl}/pull`, {
-            account: reg.account_number,
-            server: reg.mt5_server,
-            password: reg.investor_password,
-            api_key: vpsKey,
-            terminal_id: terminalId,
-          }, { timeout: 30000 });
+    res.json({ success: true, started: true, total });
 
-          if (response.data?.success) {
-            success = true;
-            await db.query(
-              `UPDATE trading_registrations SET pull_status = 'success', pull_error = NULL WHERE id = $1`,
-              [reg.id]
-            );
-            // Send "Account Restored" DM
-            if (reg.user_id && reg.source !== 'discord') {
-              try {
-                const telegram = getTelegram();
-                if (telegram) {
-                  const lang = reg.lang || 'en';
-                  const msg = lang === 'am'
-                    ? `✅ <b>የመለያ ችግር ተስተካክሏል</b>\n\nየእርስዎ MT5 መለያ (${reg.account_number}) ተደረጋዊ ችግር ተፈትቷል።\nTrading data syncing ተጀምሯል።\n\nከእርስዎ ምንም action አያስፈልግም።`
-                    : `✅ <b>Account Access Restored</b>\n\nYour MT5 account (${reg.account_number}) access issue has been resolved.\nYour trades are now being synced and evaluated normally.\n\nNo action needed from your side.`;
-                  await telegram.sendMessage(reg.user_id, msg, { parse_mode: 'HTML' });
-                }
-              } catch (_dmErr) {}
+    // Run in background — parallel across all terminals
+    (async () => {
+      const axios = require('axios');
+      const queue = [...failedAccounts.rows];
+      let processed = 0;
+
+      const workers = Array.from({ length: terminalCount }, (_, idx) => idx + 1).map(terminalId => (async () => {
+        while (true) {
+          if (credRetryState?.cancelled) return;
+          const reg = queue.shift();
+          if (!reg) return;
+
+          let success = false;
+          try {
+            const response = await axios.post(`${vpsUrl}/pull`, {
+              account: reg.account_number,
+              server: reg.mt5_server,
+              password: reg.investor_password,
+              api_key: vpsKey,
+              terminal_id: terminalId,
+            }, { timeout: 30000 });
+
+            if (response.data?.success) {
+              success = true;
+              await db.query(
+                `UPDATE trading_registrations SET pull_status = 'success', pull_error = NULL WHERE id = $1`,
+                [reg.id]
+              );
+              // Send "Account Restored" DM
+              if (reg.user_id && reg.source !== 'discord') {
+                try {
+                  const telegram = getTelegram();
+                  if (telegram) {
+                    const lang = reg.lang || 'en';
+                    const msg = lang === 'am'
+                      ? `✅ <b>የመለያ ችግር ተስተካክሏል</b>\n\nየእርስዎ MT5 መለያ (${reg.account_number}) ተደረጋዊ ችግር ተፈትቷል።\nTrading data syncing ተጀምሯል።\n\nከእርስዎ ምንም action አያስፈልግም።`
+                      : `✅ <b>Account Access Restored</b>\n\nYour MT5 account (${reg.account_number}) access issue has been resolved.\nYour trades are now being synced and evaluated normally.\n\nNo action needed from your side.`;
+                    await telegram.sendMessage(reg.user_id, msg, { parse_mode: 'HTML' });
+                  }
+                } catch (_dmErr) {}
+              }
             }
-            break;
-          } else {
-            error = response.data?.error || 'Connection failed';
-            if (response.data?.error_type === 'credential_failure') break; // Confirmed bad — don't try more terminals
+          } catch (_e) {}
+
+          processed++;
+          if (credRetryState) {
+            credRetryState.current = processed;
+            if (success) credRetryState.recovered++;
+            else credRetryState.stillFailing++;
           }
-        } catch (e: any) {
-          error = e.response?.data?.error || e.message || 'VPS error';
         }
-      }
+      })());
 
-      if (success) {
-        recovered++;
-      } else {
-        stillFailing++;
-      }
+      await Promise.all(workers);
+      if (credRetryState) credRetryState.running = false;
+    })();
 
-      // Calculate ETA
-      const elapsed = Date.now() - startTime;
-      const msPerAccount = elapsed / (i + 1);
-      const remaining = total - (i + 1);
-      const etaSeconds = Math.round((msPerAccount * remaining) / 1000);
-
-      // Send progress update with ETA
-      res.write(`data: ${JSON.stringify({ type: 'progress', current: i + 1, total, recovered, stillFailing, nickname: reg.nickname, success, etaSeconds })}\n\n`);
-    }
-
-    // Send final result
-    res.write(`data: ${JSON.stringify({ type: 'done', total, recovered, stillFailing })}\n\n`);
-    res.end();
   } catch (error) {
     console.error('retry-all-failed error:', error);
-    if (!res.headersSent) {
-      return res.status(500).json({ error: 'Internal server error' });
-    }
-    res.write(`data: ${JSON.stringify({ type: 'error', message: 'Internal server error' })}\n\n`);
-    res.end();
+    if (credRetryState) credRetryState.running = false;
+    return res.status(500).json({ error: 'Internal server error' });
   }
+});
+
+/**
+ * GET /api/admin/:secretPath/retry-all-status
+ * Poll for retry-all-failed progress.
+ */
+app.get(`/api/admin/${ADMIN_SECRET_PATH}/retry-all-status`, adminIpCheck, async (req, res) => {
+  if (!credRetryState) return res.json({ running: false });
+  const elapsed = Date.now() - credRetryState.startedAt;
+  const msPerAccount = credRetryState.current > 0 ? elapsed / credRetryState.current : 0;
+  const remaining = credRetryState.total - credRetryState.current;
+  const etaSeconds = msPerAccount > 0 ? Math.round((msPerAccount * remaining) / 1000) : null;
+  return res.json({
+    running: credRetryState.running,
+    total: credRetryState.total,
+    current: credRetryState.current,
+    recovered: credRetryState.recovered,
+    stillFailing: credRetryState.stillFailing,
+    etaSeconds,
+    elapsed: Math.round(elapsed / 1000),
+  });
+});
+
+/**
+ * POST /api/admin/:secretPath/stop-retry-all
+ * Cancel the running retry-all.
+ */
+app.post(`/api/admin/${ADMIN_SECRET_PATH}/stop-retry-all`, adminIpCheck, async (req, res) => {
+  if (credRetryState?.running) {
+    credRetryState.cancelled = true;
+    credRetryState.running = false;
+    return res.json({ success: true, message: 'Retry cancelled' });
+  }
+  return res.json({ success: false, message: 'No retry running' });
 });
 
 /**

@@ -3062,47 +3062,49 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
     setRetryProgress({ current: 0, total: credentialFailures.length, recovered: 0, stillFailing: 0 });
     try {
       const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/retry-all-failed`, { method: "POST" });
-      const reader = res.body?.getReader();
-      const decoder = new TextDecoder();
-
-      if (!reader) {
-        setActionMsg("❌ No response stream");
+      const data = await res.json();
+      if (!data.success) {
+        setActionMsg(`❌ ${data.error || 'Failed to start retry'}`);
         setRetrying(null);
         setRetryProgress(null);
         return;
       }
-
-      let buffer = '';
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue;
-          try {
-            const data = JSON.parse(line.slice(6));
-            if (data.type === 'start') {
-              setRetryProgress({ current: 0, total: data.total, recovered: 0, stillFailing: 0 });
-            } else if (data.type === 'progress') {
-              setRetryProgress({ current: data.current, total: data.total, recovered: data.recovered, stillFailing: data.stillFailing, etaSeconds: data.etaSeconds });
-            } else if (data.type === 'done') {
-              setRetryResult({ total: data.total, recovered: data.recovered, stillFailing: data.stillFailing });
-              setRetryProgress(null);
-              fetchFailed();
-            } else if (data.type === 'error') {
-              setActionMsg(`❌ ${data.message}`);
-              setRetryProgress(null);
-            }
-          } catch {}
-        }
+      if (data.total === 0) {
+        setActionMsg(data.message || "No failures to retry");
+        setRetrying(null);
+        setRetryProgress(null);
+        return;
       }
+      // Poll for progress
+      const pollInterval = setInterval(async () => {
+        try {
+          const sr = await fetch(`${apiUrl}/api/admin/${secretPath}/retry-all-status`);
+          const status = await sr.json();
+          if (!status.running) {
+            clearInterval(pollInterval);
+            setRetryResult({ total: status.total, recovered: status.recovered, stillFailing: status.stillFailing });
+            setRetryProgress(null);
+            setRetrying(null);
+            fetchFailed();
+            return;
+          }
+          setRetryProgress({ current: status.current, total: status.total, recovered: status.recovered, stillFailing: status.stillFailing, etaSeconds: status.etaSeconds });
+        } catch {}
+      }, 2000);
     } catch (_e) {
       setActionMsg("❌ Connection error");
       setRetryProgress(null);
+      setRetrying(null);
     }
-    setRetrying(null);
+  };
+
+  const handleStopRetry = async () => {
+    try {
+      await fetch(`${apiUrl}/api/admin/${secretPath}/stop-retry-all`, { method: "POST" });
+      setRetrying(null);
+      setRetryProgress(null);
+      setActionMsg("Retry stopped");
+    } catch {}
   };
 
   const handleUpdatePassword = async (regId: number, newPassword: string) => {
@@ -3368,8 +3370,11 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
           {retryProgress && (
             <div className="mb-4 p-3 rounded-xl bg-white/5 border border-white/10">
               <div className="flex items-center justify-between mb-2">
-                <p className="text-xs text-gray-300">Retrying... {retryProgress.current}/{retryProgress.total}</p>
-                <p className="text-[10px] text-gray-500">{Math.round((retryProgress.current / retryProgress.total) * 100)}% {retryProgress.etaSeconds != null && retryProgress.etaSeconds > 0 ? `· ~${retryProgress.etaSeconds < 60 ? `${retryProgress.etaSeconds}s` : `${Math.round(retryProgress.etaSeconds / 60)}m`} left` : ''}</p>
+                <div>
+                  <p className="text-xs text-gray-300">Retrying... {retryProgress.current}/{retryProgress.total}</p>
+                  <p className="text-[10px] text-gray-500">{Math.round((retryProgress.current / retryProgress.total) * 100)}% {retryProgress.etaSeconds != null && retryProgress.etaSeconds > 0 ? `· ~${retryProgress.etaSeconds < 60 ? `${retryProgress.etaSeconds}s` : `${Math.round(retryProgress.etaSeconds / 60)}m`} left` : ''}</p>
+                </div>
+                <button onClick={handleStopRetry} className="px-2 py-1 rounded bg-loss/20 border border-loss/30 text-loss text-[9px] font-bold hover:bg-loss/30">Stop</button>
               </div>
               <div className="w-full h-2 bg-white/10 rounded-full overflow-hidden">
                 <div className="h-full rounded-full bg-gradient-to-r from-gold to-profit transition-all duration-300" style={{ width: `${(retryProgress.current / retryProgress.total) * 100}%` }} />
