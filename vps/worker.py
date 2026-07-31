@@ -538,13 +538,23 @@ def login_user(account: int, password: str, server: str) -> bool:
             _current_account_str = str(account)
             return True
 
-        # IPC is provably alive (reconnect succeeded) — login failure = credentials
-        _last_login_was_credential_error = True
-        if _get_error_code() in CREDENTIAL_ERROR_CODES:
+        # IPC reconnect succeeded but login still failed.
+        # Only treat as credential error if the error is -6 (broker rejection).
+        # IPC errors (-10004, -10002, -10005) mean the terminal is broken, NOT bad credentials.
+        err_code_post = _get_error_code()
+        if err_code_post in CREDENTIAL_ERROR_CODES:
+            _last_login_was_credential_error = True
             print(f"{tag} login_user: -6 after reconnect — restoring base account")
             _restore_base_after_credential_error()
+        elif err_code_post is not None and err_code_post < -10000:
+            # IPC error after reconnect — terminal is unstable, NOT a credential issue
+            print(f"{tag} login_user: IPC error {err_code_post} after reconnect — terminal unstable (NOT credential failure)")
+            _consecutive_failures += 1
+            if _consecutive_failures >= MAX_FAILURES_BEFORE_HEAL:
+                self_heal()
         else:
             print(f"{tag} login_user: IPC alive but login failed — treating as credential error")
+            _last_login_was_credential_error = True
         return False
     else:
         err_code = _get_error_code()
