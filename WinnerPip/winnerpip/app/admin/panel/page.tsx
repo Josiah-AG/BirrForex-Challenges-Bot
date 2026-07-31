@@ -3063,6 +3063,11 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
     try {
       const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/retry-all-failed`, { method: "POST" });
       const data = await res.json();
+      if (!data.success && data.error === 'Retry already in progress') {
+        // Already running — just start polling
+        startRetryPolling();
+        return;
+      }
       if (!data.success) {
         setActionMsg(`❌ ${data.error || 'Failed to start retry'}`);
         setRetrying(null);
@@ -3075,28 +3080,50 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
         setRetryProgress(null);
         return;
       }
-      // Poll for progress
-      const pollInterval = setInterval(async () => {
-        try {
-          const sr = await fetch(`${apiUrl}/api/admin/${secretPath}/retry-all-status`);
-          const status = await sr.json();
-          if (!status.running) {
-            clearInterval(pollInterval);
-            setRetryResult({ total: status.total, recovered: status.recovered, stillFailing: status.stillFailing });
-            setRetryProgress(null);
-            setRetrying(null);
-            fetchFailed();
-            return;
-          }
-          setRetryProgress({ current: status.current, total: status.total, recovered: status.recovered, stillFailing: status.stillFailing, etaSeconds: status.etaSeconds });
-        } catch {}
-      }, 2000);
+      // Start polling
+      startRetryPolling();
     } catch (_e) {
       setActionMsg("❌ Connection error");
       setRetryProgress(null);
       setRetrying(null);
     }
   };
+
+  const startRetryPolling = () => {
+    const pollInterval = setInterval(async () => {
+      try {
+        const sr = await fetch(`${apiUrl}/api/admin/${secretPath}/retry-all-status`);
+        const status = await sr.json();
+        if (!status.running) {
+          clearInterval(pollInterval);
+          if (status.total > 0) {
+            setRetryResult({ total: status.total, recovered: status.recovered, stillFailing: status.stillFailing });
+          }
+          setRetryProgress(null);
+          setRetrying(null);
+          fetchFailed();
+          return;
+        }
+        setRetrying("all");
+        setRetryProgress({ current: status.current, total: status.total, recovered: status.recovered, stillFailing: status.stillFailing, etaSeconds: status.etaSeconds });
+      } catch {}
+    }, 2000);
+  };
+
+  // On mount: check if retry is already running (survives refresh)
+  useEffect(() => {
+    (async () => {
+      try {
+        const sr = await fetch(`${apiUrl}/api/admin/${secretPath}/retry-all-status`);
+        const status = await sr.json();
+        if (status.running) {
+          setRetrying("all");
+          setRetryProgress({ current: status.current, total: status.total, recovered: status.recovered, stillFailing: status.stillFailing, etaSeconds: status.etaSeconds });
+          startRetryPolling();
+        }
+      } catch {}
+    })();
+  }, []);
 
   const handleStopRetry = async () => {
     try {
