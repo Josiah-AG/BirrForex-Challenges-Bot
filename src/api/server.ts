@@ -5307,14 +5307,15 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/retry-all-failed`, admin
     const vpsUrl = config.vpsApiUrl;
     const vpsKey = config.vpsApiKey;
 
-    // Get all accounts with credential failures (password_changed)
+    // Get all accounts with credential failures — most recent first
     const failedAccounts = await db.query(
       `SELECT r.id, r.account_number, r.mt5_server, r.investor_password, r.nickname, r.user_id, r.source, r.lang,
               c.title as challenge_title
        FROM trading_registrations r
        JOIN trading_challenges c ON c.id = r.challenge_id
        WHERE r.challenge_id = $1 AND r.disqualified = false AND r.pull_status = 'password_changed'
-         AND r.investor_password IS NOT NULL`,
+         AND r.investor_password IS NOT NULL
+       ORDER BY r.last_pull_at DESC NULLS LAST, r.registered_at DESC`,
       [challengeId]
     );
 
@@ -5343,16 +5344,21 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/retry-all-failed`, admin
     const axios = require('axios');
     let recovered = 0;
     let stillFailing = 0;
+    const startTime = Date.now();
 
     // Send initial count
     res.write(`data: ${JSON.stringify({ type: 'start', total })}\n\n`);
+
+    const terminalCount = parseInt(process.env.VPS_TERMINAL_COUNT || '12');
 
     for (let i = 0; i < failedAccounts.rows.length; i++) {
       const reg = failedAccounts.rows[i];
       let success = false;
       let error = '';
 
-      for (let terminalId = 1; terminalId <= 3; terminalId++) {
+      // Try up to 3 different terminals
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const terminalId = ((i + attempt) % terminalCount) + 1;
         try {
           const response = await axios.post(`${vpsUrl}/pull`, {
             account: reg.account_number,
@@ -5368,9 +5374,23 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/retry-all-failed`, admin
               `UPDATE trading_registrations SET pull_status = 'success', pull_error = NULL WHERE id = $1`,
               [reg.id]
             );
+            // Send "Account Restored" DM
+            if (reg.user_id && reg.source !== 'discord') {
+              try {
+                const telegram = getTelegram();
+                if (telegram) {
+                  const lang = reg.lang || 'en';
+                  const msg = lang === 'am'
+                    ? `✅ <b>የመለያ ችግር ተስተካክሏል</b>\n\nየእርስዎ MT5 መለያ (${reg.account_number}) ተደረጋዊ ችግር ተፈትቷል።\nTrading data syncing ተጀምሯል።\n\nከእርስዎ ምንም action አያስፈልግም።`
+                    : `✅ <b>Account Access Restored</b>\n\nYour MT5 account (${reg.account_number}) access issue has been resolved.\nYour trades are now being synced and evaluated normally.\n\nNo action needed from your side.`;
+                  await telegram.sendMessage(reg.user_id, msg, { parse_mode: 'HTML' });
+                }
+              } catch (_dmErr) {}
+            }
             break;
           } else {
             error = response.data?.error || 'Connection failed';
+            if (response.data?.error_type === 'credential_failure') break; // Confirmed bad — don't try more terminals
           }
         } catch (e: any) {
           error = e.response?.data?.error || e.message || 'VPS error';
@@ -5381,23 +5401,16 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/retry-all-failed`, admin
         recovered++;
       } else {
         stillFailing++;
-        // Send DM to user that their account still can't be accessed
-        if (reg.user_id && reg.source !== 'discord') {
-          try {
-            const telegram = getTelegram();
-            if (telegram) {
-              const lang = reg.lang || 'en';
-              const msg = lang === 'am'
-                ? `⚠️ <b>የመለያ ችግር - ${reg.challenge_title}</b>\n\nአሁንም የእርስዎን MT5 መለያ (${reg.account_number}) ማግኘት አልቻልንም።\n\nInvestor password ተቀይሯል ወይም መለያው ተሰርዟል።\n\n📌 እባክዎ investor password ያስተካክሉ ወይም /start ብለው "Change Account" ይጫኑ።`
-                : `⚠️ <b>Account Access Issue — ${reg.challenge_title}</b>\n\nWe still cannot access your MT5 account (${reg.account_number}).\n\nYour investor password may have been changed or the account may have been deleted.\n\n📌 Please update your investor password on the dashboard or use /start → "Change Account" to fix this.`;
-              await telegram.sendMessage(reg.user_id, msg, { parse_mode: 'HTML' });
-            }
-          } catch (_dmErr) {}
-        }
       }
 
-      // Send progress update
-      res.write(`data: ${JSON.stringify({ type: 'progress', current: i + 1, total, recovered, stillFailing, nickname: reg.nickname, success })}\n\n`);
+      // Calculate ETA
+      const elapsed = Date.now() - startTime;
+      const msPerAccount = elapsed / (i + 1);
+      const remaining = total - (i + 1);
+      const etaSeconds = Math.round((msPerAccount * remaining) / 1000);
+
+      // Send progress update with ETA
+      res.write(`data: ${JSON.stringify({ type: 'progress', current: i + 1, total, recovered, stillFailing, nickname: reg.nickname, success, etaSeconds })}\n\n`);
     }
 
     // Send final result

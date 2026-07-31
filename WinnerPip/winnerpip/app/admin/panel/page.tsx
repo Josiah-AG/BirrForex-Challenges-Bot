@@ -3052,7 +3052,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
     setRetrying(null);
   };
 
-  const [retryProgress, setRetryProgress] = useState<{ current: number; total: number; recovered: number; stillFailing: number } | null>(null);
+  const [retryProgress, setRetryProgress] = useState<{ current: number; total: number; recovered: number; stillFailing: number; etaSeconds?: number } | null>(null);
   const [retryResult, setRetryResult] = useState<{ total: number; recovered: number; stillFailing: number } | null>(null);
 
   const handleRetryAll = async () => {
@@ -3086,7 +3086,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
             if (data.type === 'start') {
               setRetryProgress({ current: 0, total: data.total, recovered: 0, stillFailing: 0 });
             } else if (data.type === 'progress') {
-              setRetryProgress({ current: data.current, total: data.total, recovered: data.recovered, stillFailing: data.stillFailing });
+              setRetryProgress({ current: data.current, total: data.total, recovered: data.recovered, stillFailing: data.stillFailing, etaSeconds: data.etaSeconds });
             } else if (data.type === 'done') {
               setRetryResult({ total: data.total, recovered: data.recovered, stillFailing: data.stillFailing });
               setRetryProgress(null);
@@ -3369,7 +3369,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
             <div className="mb-4 p-3 rounded-xl bg-white/5 border border-white/10">
               <div className="flex items-center justify-between mb-2">
                 <p className="text-xs text-gray-300">Retrying... {retryProgress.current}/{retryProgress.total}</p>
-                <p className="text-[10px] text-gray-500">{Math.round((retryProgress.current / retryProgress.total) * 100)}%</p>
+                <p className="text-[10px] text-gray-500">{Math.round((retryProgress.current / retryProgress.total) * 100)}% {retryProgress.etaSeconds != null && retryProgress.etaSeconds > 0 ? `· ~${retryProgress.etaSeconds < 60 ? `${retryProgress.etaSeconds}s` : `${Math.round(retryProgress.etaSeconds / 60)}m`} left` : ''}</p>
               </div>
               <div className="w-full h-2 bg-white/10 rounded-full overflow-hidden">
                 <div className="h-full rounded-full bg-gradient-to-r from-gold to-profit transition-all duration-300" style={{ width: `${(retryProgress.current / retryProgress.total) * 100}%` }} />
