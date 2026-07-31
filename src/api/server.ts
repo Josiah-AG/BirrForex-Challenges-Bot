@@ -3920,8 +3920,8 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/force-pull-rank`, adminI
       [challengeId]
     );
 
-    // Run normal pull cycle (not forceAll — respects DQ/credential filters)
-    globalScheduler.runPullCycle().catch((e: any) => console.error('Full pull non-DQ error:', e));
+    // Run force pull for this specific challenge (bypasses weekend check and status filters)
+    globalScheduler.runPullCycleForChallenge(challengeId).catch((e: any) => console.error('Full pull non-DQ error:', e));
     return res.json({ success: true, message: 'Full pull (non-DQ) started — pulling full history for active accounts only.' });
   } catch (error) {
     return res.status(500).json({ error: 'Internal server error' });
