@@ -2553,8 +2553,8 @@ body{font-family:'Inter',system-ui,-apple-system,sans-serif;background:#0a0e1a}
 .dual{display:flex;gap:40px;align-items:center}
 .dual-item{flex:1}
 .tag{display:inline-block;padding:3px 10px;border-radius:6px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-right:8px}
-.tag.real{background:rgba(31,111,235,0.15);color:#60a5fa}
-.tag.demo{background:rgba(139,92,246,0.15);color:#a78bfa}
+.tag.real{background:rgba(249,115,22,0.15);color:#fb923c}
+.tag.demo{background:rgba(59,130,246,0.15);color:#60a5fa}
 .pair-icon{font-size:18px;margin-right:6px}
 .footer{text-align:center;margin-top:auto;padding-top:50px}
 .brand{font-size:14px;font-weight:600;color:#334155;letter-spacing:2px;text-transform:uppercase}

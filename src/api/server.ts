@@ -1454,7 +1454,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
 
     // Instruments count + most active day
     const instrumentsCount = await db.query(
-      `SELECT COUNT(DISTINCT symbol) as cnt FROM wp_trades WHERE challenge_id = $1`,
+      `SELECT COUNT(DISTINCT REGEXP_REPLACE(symbol, '[a-z]$', '')) as cnt FROM wp_trades WHERE challenge_id = $1`,
       [challengeId]);
     const mostActiveDay = await db.query(
       `SELECT TO_CHAR(close_time AT TIME ZONE 'UTC' + INTERVAL '3 hours', 'Dy, Mon DD') as day_label,
@@ -1583,14 +1583,14 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
          ORDER BY overall_win_rate DESC, (SELECT COUNT(*) FROM wp_trades t2 WHERE t2.registration_id = l.registration_id AND t2.challenge_id = $1) DESC LIMIT 1`, [challengeId]);
 
       const mostPair = await db.query(
-        `SELECT symbol, COUNT(*) as trade_count, COALESCE(SUM(volume), 0) as total_lots
+        `SELECT REGEXP_REPLACE(symbol, '[a-z]$', '') as symbol, COUNT(*) as trade_count, COALESCE(SUM(volume), 0) as total_lots
          FROM wp_trades t WHERE challenge_id = $1${catWhere}${tradeFilter}
-         GROUP BY symbol ORDER BY trade_count DESC LIMIT 3`, tradeParams.length > 1 ? tradeParams : [challengeId]);
+         GROUP BY REGEXP_REPLACE(symbol, '[a-z]$', '') ORDER BY trade_count DESC LIMIT 3`, tradeParams.length > 1 ? tradeParams : [challengeId]);
 
       const leastPair = await db.query(
-        `SELECT symbol, COUNT(*) as trade_count, COALESCE(SUM(volume), 0) as total_lots
+        `SELECT REGEXP_REPLACE(symbol, '[a-z]$', '') as symbol, COUNT(*) as trade_count, COALESCE(SUM(volume), 0) as total_lots
          FROM wp_trades t WHERE challenge_id = $1${catWhere}${tradeFilter}
-         GROUP BY symbol ORDER BY trade_count ASC LIMIT 1`, tradeParams.length > 1 ? tradeParams : [challengeId]);
+         GROUP BY REGEXP_REPLACE(symbol, '[a-z]$', '') ORDER BY trade_count ASC LIMIT 1`, tradeParams.length > 1 ? tradeParams : [challengeId]);
 
       const blown = await db.query(
         `SELECT COUNT(*) as cnt FROM wp_leaderboard l
