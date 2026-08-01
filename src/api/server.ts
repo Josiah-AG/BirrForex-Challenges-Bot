@@ -873,16 +873,26 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
     const registration = reg.rows[0];
     const leaderboard = lb.rows[0] || null;
 
-    // Compute actual rank excluding DQ'd users (matches what leaderboard API shows)
+    // Compute actual rank matching the leaderboard's on-the-fly numbering.
+    // Counts non-DQ, non-blown, non-withdrawn, active accounts with higher effective balance.
     let computedRank: number | null = null;
     if (leaderboard && !registration.disqualified) {
+      const myBalance = registration.is_cent
+        ? parseFloat(leaderboard.adjusted_balance) / 100
+        : parseFloat(leaderboard.adjusted_balance);
       const rankResult = await db.query(
         `SELECT COUNT(*) + 1 as rank FROM wp_leaderboard l
          JOIN trading_registrations r ON l.registration_id = r.id
          WHERE l.challenge_id = $1 AND l.account_type = $2
            AND r.disqualified = false AND (r.status IS NULL OR r.status != 'removed')
-           AND l.adjusted_balance > $3`,
-        [registration.challenge_id, registration.account_type, parseFloat(leaderboard.adjusted_balance)]
+           AND l.is_disqualified = false
+           AND COALESCE(l.is_withdrawn, false) = false
+           AND l.zero_balance_at IS NULL
+           AND CASE WHEN COALESCE(r.is_cent, false)
+             THEN COALESCE(l.normalized_balance, l.adjusted_balance / 100.0)
+             ELSE COALESCE(l.normalized_balance, l.adjusted_balance)
+           END > $3`,
+        [registration.challenge_id, registration.account_type, myBalance]
       );
       computedRank = parseInt(rankResult.rows[0]?.rank || '0') || null;
     }
