@@ -2797,7 +2797,7 @@ export class VpsPullScheduler {
   ): Promise<void> {
     if (accounts.length === 0 || healthyTerminals.length === 0) return;
 
-    // Find accounts with unexplained balance gaps
+    // Find accounts (from those pulled this cycle) with unexplained balance gaps
     const mismatchRows = await db.query(
       `SELECT r.id as registration_id, r.account_number, r.mt5_server, r.investor_password,
               r.user_id, r.username,
