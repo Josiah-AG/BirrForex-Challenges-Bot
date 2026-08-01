@@ -5099,6 +5099,44 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/reject-pull`, adminIpChe
 });
 
 /**
+ * GET /api/admin/:secretPath/challenge/:id/reconciliation-failures
+ * Returns accounts where balance reconciliation failed after 3 rounds.
+ */
+app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/reconciliation-failures`, adminIpCheck, async (req, res) => {
+  try {
+    const challengeId = parseInt(req.params.id);
+    const result = await db.query(
+      `SELECT r.id, r.account_number, r.nickname, r.username, r.email, r.is_cent,
+              r.last_known_balance,
+              COALESCE(r.actual_starting_balance, r.registration_balance, 0) as start_bal,
+              COALESCE((SELECT SUM(COALESCE(profit,0)+COALESCE(commission,0)+COALESCE(swap,0)) FROM wp_trades WHERE challenge_id=$1 AND registration_id=r.id), 0) as trade_net,
+              r.reconciliation_status
+       FROM trading_registrations r
+       WHERE r.challenge_id = $1 AND r.reconciliation_status = 'failed'
+       ORDER BY r.last_known_balance DESC`,
+      [challengeId]
+    );
+    return res.json({
+      count: result.rows.length,
+      accounts: result.rows.map((r: any) => ({
+        id: r.id,
+        accountNumber: r.account_number,
+        nickname: r.nickname,
+        username: r.username,
+        email: r.email,
+        isCent: r.is_cent,
+        vpsBalance: parseFloat(r.last_known_balance) || 0,
+        expectedBalance: (parseFloat(r.start_bal) || 0) + (parseFloat(r.trade_net) || 0),
+        gap: Math.abs((parseFloat(r.last_known_balance) || 0) - ((parseFloat(r.start_bal) || 0) + (parseFloat(r.trade_net) || 0))),
+      })),
+    });
+  } catch (error) {
+    console.error('Reconciliation failures error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
  * POST /api/admin/:secretPath/challenge/:id/prestart-check-balance
  * Check balance for a single account (pre-start) — updates last_known_balance
  * Body: { registrationId }

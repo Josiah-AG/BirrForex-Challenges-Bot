@@ -2787,7 +2787,8 @@ export class VpsPullScheduler {
    * Phase 2.5b — Balance reconciliation.
    * Detects accounts where VPS balance can't be explained by:
    *   starting_balance + sum(trade profits + commissions + swaps) + sum(deposits)
-   * These accounts likely have missing trades. Does a full /pull for just those.
+   * These accounts likely have missing trades. Does full re-pulls up to 3 rounds.
+   * Tracks reconciliation_status per account: null → 'resolved' or 'failed'.
    */
   private async reconcileUnexplainedBalances(
     challengeId: number,
@@ -2797,121 +2798,167 @@ export class VpsPullScheduler {
   ): Promise<void> {
     if (accounts.length === 0 || healthyTerminals.length === 0) return;
 
-    // Find accounts (from those pulled this cycle) with unexplained balance gaps
-    const mismatchRows = await db.query(
-      `SELECT r.id as registration_id, r.account_number, r.mt5_server, r.investor_password,
-              r.user_id, r.username,
-              COALESCE(r.actual_starting_balance, r.registration_balance, 0) as start_bal,
-              COALESCE(r.last_known_balance, 0) as vps_balance,
-              COALESCE(trade_sum.net, 0) as trade_net,
-              COALESCE(deposit_sum.total, 0) as deposit_total
-       FROM trading_registrations r
+    // Ensure reconciliation_status column exists
+    await db.query(`ALTER TABLE trading_registrations ADD COLUMN IF NOT EXISTS reconciliation_status TEXT`).catch(() => {});
+
+    const MAX_RECONCILE_ROUNDS = 3;
+    let totalResolved = 0;
+    let totalFailed = 0;
+
+    for (let round = 1; round <= MAX_RECONCILE_ROUNDS; round++) {
+      if (this.cancelRequested) break;
+
+      // Find accounts with unexplained balance gaps (only from those pulled this cycle)
+      const mismatchRows = await db.query(
+        `SELECT r.id as registration_id, r.account_number,
+                COALESCE(r.actual_starting_balance, r.registration_balance, 0) as start_bal,
+                COALESCE(r.last_known_balance, 0) as vps_balance,
+                COALESCE(trade_sum.net, 0) as trade_net,
+                COALESCE(deposit_sum.total, 0) as deposit_total
+         FROM trading_registrations r
+         LEFT JOIN LATERAL (
+           SELECT SUM(COALESCE(profit, 0) + COALESCE(commission, 0) + COALESCE(swap, 0)) as net
+           FROM wp_trades WHERE challenge_id = $1 AND registration_id = r.id
+         ) trade_sum ON true
+         LEFT JOIN LATERAL (
+           SELECT SUM(profit) as total
+           FROM wp_deals WHERE challenge_id = $1 AND registration_id = r.id
+             AND (deal_type ILIKE '%balance%' OR deal_type = '2') AND profit > 0
+         ) deposit_sum ON true
+         WHERE r.challenge_id = $1
+           AND r.disqualified = false
+           AND r.investor_password IS NOT NULL
+           AND (r.status IS NULL OR r.status != 'removed')
+           AND r.last_known_balance IS NOT NULL
+           AND r.last_known_balance > 0
+           AND (r.reconciliation_status IS NULL OR r.reconciliation_status != 'resolved')`,
+        [challengeId]
+      );
+
+      const mismatched: AccountToPull[] = [];
+      for (const row of mismatchRows.rows) {
+        const startBal = parseFloat(row.start_bal) || 0;
+        const vpsBal = parseFloat(row.vps_balance) || 0;
+        const tradeNet = parseFloat(row.trade_net) || 0;
+        const deposits = parseFloat(row.deposit_total) || 0;
+        const expectedBalance = startBal + tradeNet + deposits;
+        const gap = Math.abs(vpsBal - expectedBalance);
+        const threshold = Math.max(1, vpsBal * 0.03);
+
+        if (gap > threshold && vpsBal > startBal) {
+          const account = accounts.find(a => a.registrationId === row.registration_id);
+          if (account) mismatched.push(account);
+        }
+      }
+
+      if (mismatched.length === 0) {
+        if (round === 1) return; // Nothing to reconcile
+        break; // All resolved in previous rounds
+      }
+
+      console.log(`🔧 VPS Pull: Balance reconciliation round ${round}/${MAX_RECONCILE_ROUNDS} — ${mismatched.length} account(s) with gaps`);
+
+      if (batchId) {
+        await db.query(
+          `UPDATE wp_pull_batches SET phase = 'balance_reconcile', phase_started_at = NOW(), phase2_total = $1, phase2_processed = 0, phase2_round = $2 WHERE id = $3`,
+          [mismatched.length, round, batchId]
+        ).catch(() => {});
+      }
+
+      // Full re-pull in parallel
+      const queue = [...mismatched];
+      let processed = 0;
+
+      const workers = healthyTerminals.map(async terminal => {
+        while (true) {
+          if (this.cancelRequested) return;
+          const account = queue.shift();
+          if (!account) return;
+
+          try {
+            const response = await axios.post(
+              `${this.baseUrl}/pull`,
+              {
+                account: account.accountNumber,
+                server: account.server,
+                password: account.investorPassword,
+                api_key: this.apiKey,
+                terminal_id: terminal.id,
+                from_date: null,
+                orders_from_date: null,
+                extended_sync: true,
+              },
+              { headers: { 'Content-Type': 'application/json' }, timeout: HISTORY_RESOLVE_TIMEOUT_MS }
+            );
+
+            if (response.data?.success) {
+              const trades = response.data.trades || [];
+              if (trades.length > 0) await this.saveTrades(account, trades);
+              const deals = response.data.deals || [];
+              if (deals.length > 0) await this.saveDeals(account, deals);
+            }
+          } catch (e: any) {
+            console.warn(`⚠️ Balance reconcile: ${account.accountNumber} pull failed: ${e?.message}`);
+          }
+
+          processed++;
+          if (batchId) {
+            await db.query(`UPDATE wp_pull_batches SET phase2_processed = $1 WHERE id = $2`, [processed, batchId]).catch(() => {});
+          }
+          await this.delay(BATCH_DELAY_MS);
+        }
+      });
+      await Promise.all(workers);
+
+      // After re-pull, check which accounts are now resolved
+      for (const account of mismatched) {
+        const checkResult = await db.query(
+          `SELECT COALESCE(r.actual_starting_balance, r.registration_balance, 0) as start_bal,
+                  COALESCE(r.last_known_balance, 0) as vps_balance,
+                  COALESCE((SELECT SUM(COALESCE(profit,0)+COALESCE(commission,0)+COALESCE(swap,0)) FROM wp_trades WHERE challenge_id=$1 AND registration_id=r.id), 0) as trade_net,
+                  COALESCE((SELECT SUM(profit) FROM wp_deals WHERE challenge_id=$1 AND registration_id=r.id AND (deal_type ILIKE '%balance%' OR deal_type='2') AND profit>0), 0) as deposit_total
+           FROM trading_registrations r WHERE r.id = $2`,
+          [challengeId, account.registrationId]
+        );
+        if (checkResult.rows.length > 0) {
+          const r = checkResult.rows[0];
+          const expected = (parseFloat(r.start_bal)||0) + (parseFloat(r.trade_net)||0) + (parseFloat(r.deposit_total)||0);
+          const gap = Math.abs((parseFloat(r.vps_balance)||0) - expected);
+          const threshold = Math.max(1, (parseFloat(r.vps_balance)||0) * 0.03);
+          if (gap <= threshold) {
+            // Resolved!
+            await db.query(`UPDATE trading_registrations SET reconciliation_status = 'resolved' WHERE id = $1`, [account.registrationId]);
+            totalResolved++;
+          }
+        }
+      }
+    }
+
+    // Mark remaining unresolved as failed (after all rounds)
+    const stillMismatched = await db.query(
+      `SELECT r.id FROM trading_registrations r
        LEFT JOIN LATERAL (
-         SELECT SUM(COALESCE(profit, 0) + COALESCE(commission, 0) + COALESCE(swap, 0)) as net
-         FROM wp_trades WHERE challenge_id = $1 AND registration_id = r.id
-       ) trade_sum ON true
+         SELECT SUM(COALESCE(profit,0)+COALESCE(commission,0)+COALESCE(swap,0)) as net FROM wp_trades WHERE challenge_id=$1 AND registration_id=r.id
+       ) ts ON true
        LEFT JOIN LATERAL (
-         SELECT SUM(profit) as total
-         FROM wp_deals WHERE challenge_id = $1 AND registration_id = r.id
-           AND (deal_type ILIKE '%balance%' OR deal_type = '2') AND profit > 0
-       ) deposit_sum ON true
-       WHERE r.challenge_id = $1
-         AND r.disqualified = false
-         AND r.investor_password IS NOT NULL
+         SELECT SUM(profit) as total FROM wp_deals WHERE challenge_id=$1 AND registration_id=r.id AND (deal_type ILIKE '%balance%' OR deal_type='2') AND profit>0
+       ) ds ON true
+       WHERE r.challenge_id = $1 AND r.disqualified = false AND r.investor_password IS NOT NULL
          AND (r.status IS NULL OR r.status != 'removed')
-         AND r.last_known_balance IS NOT NULL
-         AND r.last_known_balance > 0`,
+         AND r.last_known_balance IS NOT NULL AND r.last_known_balance > 0
+         AND (r.reconciliation_status IS NULL OR r.reconciliation_status NOT IN ('resolved', 'failed'))
+         AND ABS(r.last_known_balance - (COALESCE(r.actual_starting_balance, r.registration_balance, 0) + COALESCE(ts.net, 0) + COALESCE(ds.total, 0)))
+             > GREATEST(1, r.last_known_balance * 0.03)
+         AND r.last_known_balance > COALESCE(r.actual_starting_balance, r.registration_balance, 0)`,
       [challengeId]
     );
-
-    const mismatched: AccountToPull[] = [];
-    for (const row of mismatchRows.rows) {
-      const startBal = parseFloat(row.start_bal) || 0;
-      const vpsBal = parseFloat(row.vps_balance) || 0;
-      const tradeNet = parseFloat(row.trade_net) || 0;
-      const deposits = parseFloat(row.deposit_total) || 0;
-
-      // Expected balance = start + trades + additional deposits
-      const expectedBalance = startBal + tradeNet + deposits;
-      const gap = Math.abs(vpsBal - expectedBalance);
-
-      // Only flag if gap > $1 (or ¢100 for cent) AND gap is significant (>3% of balance)
-      const threshold = Math.max(1, vpsBal * 0.03);
-      if (gap > threshold && vpsBal > startBal) {
-        const account = accounts.find(a => a.registrationId === row.registration_id);
-        if (account) {
-          mismatched.push(account);
-        }
-      }
+    for (const row of stillMismatched.rows) {
+      await db.query(`UPDATE trading_registrations SET reconciliation_status = 'failed' WHERE id = $1`, [row.id]);
+      totalFailed++;
     }
 
-    if (mismatched.length === 0) return;
-
-    console.log(`🔧 VPS Pull: Phase 2.5b — ${mismatched.length} account(s) have unexplained balance gaps, doing full re-pull`);
-
-    if (batchId) {
-      await db.query(
-        `UPDATE wp_pull_batches SET phase = 'balance_reconcile', phase_started_at = NOW(), phase2_total = $1, phase2_processed = 0 WHERE id = $2`,
-        [mismatched.length, batchId]
-      ).catch(() => {});
-    }
-
-    const queue = [...mismatched];
-    let processed = 0;
-    let totalNewTrades = 0;
-
-    const workers = healthyTerminals.map(async terminal => {
-      while (true) {
-        if (this.cancelRequested) return;
-        const account = queue.shift();
-        if (!account) return;
-
-        try {
-          // Full pull with no date filter + extended sync
-          const response = await axios.post(
-            `${this.baseUrl}/pull`,
-            {
-              account: account.accountNumber,
-              server: account.server,
-              password: account.investorPassword,
-              api_key: this.apiKey,
-              terminal_id: terminal.id,
-              from_date: null,
-              orders_from_date: null,
-              extended_sync: true,
-            },
-            { headers: { 'Content-Type': 'application/json' }, timeout: HISTORY_RESOLVE_TIMEOUT_MS }
-          );
-
-          if (response.data?.success) {
-            const trades = response.data.trades || [];
-            if (trades.length > 0) {
-              await this.saveTrades(account, trades);
-              totalNewTrades += trades.length;
-              debugLog.log('balance_reconcile', `Full re-pull found ${trades.length} trades for ${account.accountNumber}`, account.accountNumber);
-            }
-            // Also save deals if returned (for deposit detection)
-            const deals = response.data.deals || [];
-            if (deals.length > 0) {
-              await this.saveDeals(account, deals);
-            }
-          }
-        } catch (e: any) {
-          console.warn(`⚠️ Balance reconcile: ${account.accountNumber} pull failed: ${e?.message}`);
-        }
-
-        processed++;
-        if (batchId) {
-          await db.query(`UPDATE wp_pull_batches SET phase2_processed = $1 WHERE id = $2`, [processed, batchId]).catch(() => {});
-        }
-        await this.delay(BATCH_DELAY_MS);
-      }
-    });
-
-    await Promise.all(workers);
-
-    if (totalNewTrades > 0) {
-      console.log(`✅ VPS Pull: Balance reconciliation found ${totalNewTrades} new trade(s) across ${mismatched.length} account(s)`);
+    if (totalResolved > 0 || totalFailed > 0) {
+      console.log(`✅ VPS Pull: Balance reconciliation complete — ${totalResolved} resolved, ${totalFailed} failed`);
     }
   }
 
