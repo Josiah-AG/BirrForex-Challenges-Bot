@@ -4979,6 +4979,8 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/pull-single-account`, ad
           tradeChanges,
           newTrades,
           evalDiff,
+          adjustedBalance: parseFloat(staging.adjusted_balance || lbBefore.adjusted_balance) || 0,
+          grossBalance: parseFloat(staging.current_balance || lbBefore.current_balance) || 0,
           pendingApproval: true, // Always show approve/reject
           isDisqualified: false,
           dqReason: null,

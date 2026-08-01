@@ -3650,7 +3650,13 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
                     </div>
                   )}
                   {indivResult.pendingApproval && !indivResult.hasDiff && (
-                    <p className="text-[10px] text-gray-500 bg-white/5 rounded-lg px-3 py-2 text-center">No changes detected — pulled data matches existing records.</p>
+                    <div className="bg-white/5 rounded-lg px-3 py-2 text-center space-y-1">
+                      <p className="text-[10px] text-gray-500">No changes detected — pulled data matches existing records.</p>
+                      <div className="grid grid-cols-2 gap-2 text-[10px] mt-2">
+                        <div className="bg-white/5 rounded p-1.5 text-center"><span className="text-gray-500">Adj. Balance: </span><span className="text-white font-semibold">${indivResult.faultsFound != null ? Number(indivResult.adjustedBalance || 0).toFixed(2) : '—'}</span></div>
+                        <div className="bg-white/5 rounded p-1.5 text-center"><span className="text-gray-500">Gross: </span><span className="text-white font-semibold">${indivResult.grossBalance != null ? Number(indivResult.grossBalance || 0).toFixed(2) : '—'}</span></div>
+                      </div>
+                    </div>
                   )}
                   {/* Approve / Reject buttons */}
                   {indivResult.pendingApproval && (
