@@ -2508,13 +2508,13 @@ function downloadLeaderboardHTML(challenge: any, lb: any[], categoryLabel?: stri
 </style></head><body>
 <div class="page">
 <div class="glow glow1"></div><div class="glow glow2"></div>
-<div class="header"><div style="display:flex;align-items:center;justify-content:center;gap:14px;margin-bottom:8px"><img src="https://winnerpip.com/birrforex-logo.png" style="width:44px;height:44px;border-radius:10px" onerror="this.outerHTML='🏆'" /><div class="title">${challenge.title || 'Trading Challenge'}</div><div class="subtitle">Leaderboard — Top 10${categoryLabel ? ` (${categoryLabel} Account)` : ''}</div></div>
+<div class="header"><div style="display:flex;align-items:center;justify-content:center;gap:16px;margin-bottom:14px"><img src="https://winnerpip.com/birrforex-logo.png" style="width:44px;height:44px;border-radius:10px" onerror="this.style.display='none'" /><img src="https://winnerpip.com/winnerpip-icon.png" style="width:44px;height:44px;border-radius:10px" onerror="this.style.display='none'" /></div><div class="title">${challenge.title || 'Trading Challenge'}</div><div class="subtitle">Leaderboard — Top 10${categoryLabel ? ` (${categoryLabel} Account)` : ''}</div></div>
 <div class="lb-container">${rowsHTML}</div>
 <div class="footer"><div class="brand">BirrForex • WinnerPip</div></div>
 </div>
 <div class="page landscape">
 <div class="glow glow1"></div><div class="glow glow2"></div>
-<div class="header" style="margin-bottom:30px"><div style="display:flex;align-items:center;justify-content:center;gap:14px;margin-bottom:8px"><img src="https://winnerpip.com/birrforex-logo.png" style="width:52px;height:52px;border-radius:10px" onerror="this.outerHTML='🏆'" /><div class="title" style="font-size:38px">${challenge.title || 'Trading Challenge'}</div><div class="subtitle">Leaderboard — Top 10${categoryLabel ? ` (${categoryLabel} Account)` : ''}</div></div>
+<div class="header" style="margin-bottom:30px"><div style="display:flex;align-items:center;justify-content:center;gap:16px;margin-bottom:14px"><img src="https://winnerpip.com/birrforex-logo.png" style="width:52px;height:52px;border-radius:10px" onerror="this.style.display='none'" /><img src="https://winnerpip.com/winnerpip-icon.png" style="width:52px;height:52px;border-radius:10px" onerror="this.style.display='none'" /></div><div class="title" style="font-size:38px">${challenge.title || 'Trading Challenge'}</div><div class="subtitle">Leaderboard — Top 10${categoryLabel ? ` (${categoryLabel} Account)` : ''}</div></div>
 <div class="lb-container">${rowsHTML}</div>
 <div class="footer"><div class="brand">BirrForex • WinnerPip</div></div>
 </div>
@@ -2562,13 +2562,12 @@ body{font-family:'Inter',system-ui,-apple-system,sans-serif;background:#0a0e1a}
 <div class="page">
 <div class="glow glow1"></div><div class="glow glow2"></div><div class="glow glow3"></div>
 <div class="header">
-  <div style="display:flex;align-items:center;justify-content:center;gap:16px;margin-bottom:12px">
+  <div style="display:flex;align-items:center;justify-content:center;gap:20px;margin-bottom:16px">
     <img src="https://winnerpip.com/birrforex-logo.png" style="width:52px;height:52px;border-radius:12px" onerror="this.style.display='none'" />
-    <div>
-      <div class="title">${challenge.title || 'Trading Challenge'}</div>
-      <div class="subtitle">Challenge Statistics</div>
-    </div>
+    <img src="https://winnerpip.com/winnerpip-icon.png" style="width:52px;height:52px;border-radius:12px" onerror="this.style.display='none'" />
   </div>
+  <div class="title">${challenge.title || 'Trading Challenge'}</div>
+  <div class="subtitle">Challenge Statistics</div>
 </div>
 <div class="grid">
   <div class="card highlight">
