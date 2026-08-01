@@ -2819,7 +2819,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
   const [loadingFailed, setLoadingFailed] = useState(false);
   const [actionMsg, setActionMsg] = useState("");
   const [retrying, setRetrying] = useState<string | null>(null);
-  const [showFilter, setShowFilter] = useState<"credential" | "failed" | "skipped" | "sl" | "all" | "individual" | "pulltrade" | "incomplete">("credential");
+  const [showFilter, setShowFilter] = useState<"credential" | "failed" | "skipped" | "sl" | "all" | "individual" | "pulltrade" | "incomplete" | "reconcile">("credential");
 
   // Pull Trade state
   const [ptAccountId, setPtAccountId] = useState("");
@@ -2843,6 +2843,22 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
   const [incompleteTrades, setIncompleteTrades] = useState<any[]>([]);
   const [incompleteLoading, setIncompleteLoading] = useState(false);
   const [incompleteResolving, setIncompleteResolving] = useState<string | null>(null);
+
+  // Reconciliation failures state
+  const [reconcileFailures, setReconcileFailures] = useState<any[]>([]);
+  const [reconcileLoading, setReconcileLoading] = useState(false);
+
+  const fetchReconcileFailures = async () => {
+    setReconcileLoading(true);
+    try {
+      const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/reconciliation-failures`);
+      if (res.ok) {
+        const data = await res.json();
+        setReconcileFailures(data.accounts || []);
+      }
+    } catch {}
+    setReconcileLoading(false);
+  };
 
   const formatEAT = (dateStr: string) => {
     const d = new Date(new Date(dateStr).getTime() + 3 * 60 * 60 * 1000);
@@ -3387,6 +3403,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
         <button onClick={() => { setShowFilter("individual"); setIndivResult(null); }} className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${showFilter === "individual" ? "bg-purple-500/20 text-purple-400 border border-purple-500/30" : "bg-white/5 text-gray-400 hover:text-white"}`}>🎯 Pull Individual Account</button>
         <button onClick={() => { setShowFilter("pulltrade"); setPtResult(null); }} className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${showFilter === "pulltrade" ? "bg-amber-500/20 text-amber-400 border border-amber-500/30" : "bg-white/5 text-gray-400 hover:text-white"}`}>🔍 Pull Trade</button>
         <button onClick={() => setShowFilter("incomplete")} className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${showFilter === "incomplete" ? "bg-orange-500/20 text-orange-400 border border-orange-500/30" : "bg-white/5 text-gray-400 hover:text-white"}`}>⚠️ Incomplete ({incompleteTrades.length})</button>
+        <button onClick={() => { setShowFilter("reconcile"); fetchReconcileFailures(); }} className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${showFilter === "reconcile" ? "bg-cyan-500/20 text-cyan-400 border border-cyan-500/30" : "bg-white/5 text-gray-400 hover:text-white"}`}>🔄 Reconcile Failures</button>
       </div>
 
       {/* Credential Failures List — only password_changed / invalid_credentials accounts */}
@@ -3904,6 +3921,31 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
                   >
                     {incompleteResolving === String(t.positionId) ? "..." : "🔄 Retry"}
                   </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Reconciliation Failures */}
+      {showFilter === "reconcile" && (
+        <div className="glass rounded-2xl border border-cyan-500/20 p-5">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-semibold text-cyan-400">🔄 Reconciliation Failures ({reconcileFailures.length})</h3>
+            <button onClick={fetchReconcileFailures} disabled={reconcileLoading} className="px-3 py-1.5 rounded-lg bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 text-[10px] font-bold hover:bg-cyan-500/20 transition-all disabled:opacity-50">{reconcileLoading ? "Loading..." : "🔄 Refresh"}</button>
+          </div>
+          {reconcileFailures.length === 0 ? (
+            <p className="text-sm text-gray-500 text-center py-4">No reconciliation failures — all accounts balanced.</p>
+          ) : (
+            <div className="space-y-2">
+              {reconcileFailures.map((a: any, i: number) => (
+                <div key={i} className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10">
+                  <div>
+                    <p className="text-sm text-white font-semibold">{a.accountNumber} <span className="text-gray-500 text-[10px]">@{a.username || a.nickname}</span></p>
+                    <p className="text-[10px] text-gray-400">VPS: {a.isCent ? `${a.vpsBalance.toFixed(0)}¢` : `$${a.vpsBalance.toFixed(2)}`} · Expected: {a.isCent ? `${a.expectedBalance.toFixed(0)}¢` : `$${a.expectedBalance.toFixed(2)}`} · <span className="text-loss font-semibold">Gap: {a.isCent ? `${a.gap.toFixed(0)}¢` : `$${a.gap.toFixed(2)}`}</span></p>
+                  </div>
+                  <button onClick={async () => { const btn = document.activeElement as HTMLButtonElement; btn.textContent = "⏳"; btn.disabled = true; try { await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/pull-single-account`, { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ registrationId: a.id }) }); btn.textContent = "✅ Queued"; } catch { btn.textContent = "❌"; } setTimeout(() => { btn.textContent = "🔄 Retry"; btn.disabled = false; }, 3000); }} className="px-3 py-1.5 rounded-lg bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 text-[10px] font-bold hover:bg-cyan-500/20 transition-all">🔄 Retry</button>
                 </div>
               ))}
             </div>
