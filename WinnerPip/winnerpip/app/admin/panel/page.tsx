@@ -2475,7 +2475,7 @@ function downloadLeaderboardHTML(challenge: any, lb: any[], categoryLabel?: stri
     const rowClass = winner ? 'winner' : aboveTarget ? 'above-target' : '';
     const rankLabel = winner ? '🏆' : `${e.rank}`;
     const bal = formatBal(e);
-    return `<div class="lb-row ${rowClass}"><div class="lb-rank">${rankLabel}</div><div class="lb-name">${e.nickname || '—'}</div><div class="lb-type">${e.accountType}</div><div class="lb-balance">${bal}</div><div class="lb-trades">${e.totalTrades} trades</div></div>`;
+    return `<div class="lb-row ${rowClass}"><div class="lb-rank">${rankLabel}</div><div class="lb-name">${e.nickname || '—'}</div><div class="lb-type" style="background:${e.accountType === 'real' ? 'rgba(249,115,22,0.15)' : 'rgba(59,130,246,0.15)'};color:${e.accountType === 'real' ? '#fb923c' : '#60a5fa'}">${e.accountType}</div><div class="lb-balance">${bal}</div><div class="lb-trades">${e.totalTrades} trades</div></div>`;
   }).join('');
 
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${challenge.title} - Leaderboard</title><style>
