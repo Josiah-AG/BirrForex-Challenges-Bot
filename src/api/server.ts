@@ -4954,6 +4954,8 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/pull-single-account`, ad
           evalDiff.qualifiedProfit = { before: parseFloat(lbBefore.qualified_profit) || 0, after: parseFloat(staging.qualified_profit) || 0 };
         if (Math.abs((parseFloat(staging.adjusted_balance) || 0) - (parseFloat(lbBefore.adjusted_balance) || 0)) > 0.01)
           evalDiff.adjustedBalance = { before: parseFloat(lbBefore.adjusted_balance) || 0, after: parseFloat(staging.adjusted_balance) || 0 };
+        if (Math.abs((parseFloat(staging.current_balance) || 0) - (parseFloat(lbBefore.current_balance) || 0)) > 0.01)
+          evalDiff.grossBalance = { before: parseFloat(lbBefore.current_balance) || 0, after: parseFloat(staging.current_balance) || 0 };
         if ((parseInt(staging.flagged_trades) || 0) !== (parseInt(lbBefore.flagged_trades) || 0))
           evalDiff.flaggedTrades = { before: parseInt(lbBefore.flagged_trades) || 0, after: parseInt(staging.flagged_trades) || 0 };
         if ((parseInt(staging.qualified_trades) || 0) !== (parseInt(lbBefore.qualified_trades) || 0))
