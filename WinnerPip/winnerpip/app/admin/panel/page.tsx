@@ -1309,7 +1309,11 @@ export default function AdminDashboard() {
                       {feed.map((item, idx) => {
                         if (item.kind === 'op') {
                           const op = item.op;
-                          const meta = opMeta[op.opType] || opMeta.deposit;
+                          const isPostStart = selectedChall?.startDate && new Date(op.closeTime) >= new Date(selectedChall.startDate);
+                          const isDeposit = op.opType === 'deposit';
+                          const meta = (isDeposit && isPostStart)
+                            ? { icon: '⚠️', label: 'Deposit (Post-Start)', bg: 'bg-loss/10', border: 'border-loss/20', textColor: 'text-loss', sign: () => '+' }
+                            : (opMeta[op.opType] || opMeta.deposit);
                           return (
                             <div key={`op-${op.ticket}`} className={`flex items-center justify-between py-2 px-3 rounded-lg border ${meta.bg} ${meta.border}`}>
                               <div>
