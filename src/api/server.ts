@@ -4977,6 +4977,14 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/pull-single-account`, ad
 
         const hasDiff = tradeChanges.length > 0 || newTrades.length > 0 || Object.keys(evalDiff).length > 0;
 
+        // Read actual DQ state after evaluation (deposit detection may have DQ'd)
+        const dqAfterEval = await db.query(
+          `SELECT disqualified, disqualified_reason FROM trading_registrations WHERE id = $1`,
+          [registrationId]
+        );
+        const isDisqualifiedNow = dqAfterEval.rows[0]?.disqualified || false;
+        const dqReasonNow = dqAfterEval.rows[0]?.disqualified_reason || null;
+
         individualPullResults.set(registrationId, {
           done: true,
           success: pullResult.success,
@@ -4994,8 +5002,8 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/pull-single-account`, ad
           adjustedBalance: parseFloat(staging.adjusted_balance || lbBefore.adjusted_balance) || 0,
           grossBalance: parseFloat(staging.current_balance || lbBefore.current_balance) || 0,
           pendingApproval: true, // Always show approve/reject
-          isDisqualified: false,
-          dqReason: null,
+          isDisqualified: isDisqualifiedNow,
+          dqReason: dqReasonNow,
         });
       } catch (error) {
         console.error('pull-single-account background error:', error);
