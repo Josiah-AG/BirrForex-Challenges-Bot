@@ -699,12 +699,12 @@ export class WpEvaluationEngine {
            WHERE challenge_id = $1 AND registration_id = $2
              AND (deal_type ILIKE '%balance%' OR deal_type = '2')
              AND profit > 0
-             AND comment NOT ILIKE 'DIV%'
-             AND comment NOT ILIKE '%DIVIDEND%'
-             AND comment NOT ILIKE '%SWAP%'
-             AND comment NOT ILIKE '%BONUS%'
-             AND comment NOT ILIKE '%CREDIT%'
-             AND comment NOT ILIKE '%CORRECTION%'
+             AND COALESCE(comment, '') NOT ILIKE 'DIV%'
+             AND COALESCE(comment, '') NOT ILIKE '%DIVIDEND%'
+             AND COALESCE(comment, '') NOT ILIKE '%SWAP%'
+             AND COALESCE(comment, '') NOT ILIKE '%BONUS%'
+             AND COALESCE(comment, '') NOT ILIKE '%CREDIT%'
+             AND COALESCE(comment, '') NOT ILIKE '%CORRECTION%'
            ORDER BY time ASC`,
           [challengeId, reg.id]
         );
