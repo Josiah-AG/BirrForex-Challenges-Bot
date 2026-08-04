@@ -1340,6 +1340,18 @@ export class WpEvaluationEngine {
         if (!isDefinitiveSl(trade.sl_check_result) && trade.sl_check_result !== 'check_failed') {
           await db.query(`UPDATE wp_trades SET sl_check_result = 'skipped' WHERE id = $1`, [trade.id]).catch(() => {});
         }
+
+        // === MAX RISK EXCEEDED FLAG (losing trades) ===
+        // If this is a losing trade and the loss exceeds max_risk_dollars + 10% tolerance,
+        // flag it as "Maximum risk exceeded". No profit deduction — losses always count as-is.
+        if (rules.max_risk_dollars && tradeNet < 0 && violations.length === 0) {
+          const absLoss = Math.abs(tradeNet);
+          const riskTolerance = rules.max_risk_dollars * 1.10;
+          if (absLoss > riskTolerance) {
+            const currency = reg.is_cent ? '¢' : '$';
+            violations.push(`Maximum risk exceeded — loss of ${currency}${absLoss.toFixed(2)} exceeds max allowed risk of ${currency}${rules.max_risk_dollars}`);
+          }
+        }
       }
 
       // Apply

@@ -809,7 +809,7 @@ export default function ChallengeDashboard() {
                   <p className="text-sm text-gray-400 mt-1">All your trades followed the rules</p>
                 </div>
               ) : (<>
-                <div className="glass rounded-xl border border-loss/20 p-4"><p className="text-xs text-gray-300"><span className="text-loss font-semibold">{violations.length} flagged trades</span> — Profits removed. Losses still count.</p></div>
+                <div className="glass rounded-xl border border-loss/20 p-4"><p className="text-xs text-gray-300"><span className="text-loss font-semibold">{violations.length} flagged trades</span> — Profits removed. Losses still count.</p><p className="text-[10px] text-gray-500 mt-1">Rule Keeping Rate: <span className="text-white font-semibold">{myStats.totalTrades > 0 ? `${Math.round((myStats.qualifiedTrades / myStats.totalTrades) * 100)}%` : "—"}</span></p></div>
                 {groupTradesByPosition(violations).map(({ positionId, trades: group }) => {
                   if (group.length === 1) {
                     const t = group[0];
@@ -1215,7 +1215,7 @@ export default function ChallengeDashboard() {
                   <p className="text-sm text-gray-400 mt-1">All your trades follow the rules</p>
                 </div>
               ) : (<>
-                <div className="glass rounded-xl border border-loss/20 p-4"><p className="text-xs text-gray-300"><span className="text-loss font-semibold">{violations.length} flagged trades</span> — Profits removed. Losses still count.</p></div>
+                <div className="glass rounded-xl border border-loss/20 p-4"><p className="text-xs text-gray-300"><span className="text-loss font-semibold">{violations.length} flagged trades</span> — Profits removed. Losses still count.</p><p className="text-[10px] text-gray-500 mt-1">Rule Keeping Rate: <span className="text-white font-semibold">{myStats.totalTrades > 0 ? `${Math.round((myStats.qualifiedTrades / myStats.totalTrades) * 100)}%` : "—"}</span></p></div>
                 {groupTradesByPosition(violations).map(({ positionId, trades: group }) => {
                   if (group.length === 1) {
                     const t = group[0];
@@ -1443,7 +1443,7 @@ export default function ChallengeDashboard() {
                   <div className="grid grid-cols-3 gap-3 mb-4">
                     <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500 mb-1">Trades</p><p className="text-lg font-bold text-white">{selectedUser.totalTrades}</p></div>
                     <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500 mb-1">Qualified</p><p className="text-lg font-bold text-white">{selectedUser.qualifiedTrades}</p></div>
-                    <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500 mb-1">Flagged</p><p className="text-lg font-bold text-loss">{selectedUser.flaggedTrades}</p></div>
+                    <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500 mb-1">Flagged</p><p className="text-lg font-bold text-loss">{selectedUser.flaggedTrades}</p><p className="text-[10px] text-gray-500 mt-0.5">RKR: <span className="text-white font-semibold">{selectedUser.totalTrades > 0 ? `${Math.round((selectedUser.qualifiedTrades / selectedUser.totalTrades) * 100)}%` : "—"}</span></p></div>
                   </div>
                   {/* Win Rate & Avg RR */}
                   {selectedUserTrades.length > 0 && (() => {
