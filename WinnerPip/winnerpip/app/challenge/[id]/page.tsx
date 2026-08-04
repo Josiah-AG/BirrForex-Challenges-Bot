@@ -606,6 +606,7 @@ export default function ChallengeDashboard() {
                 <button onClick={() => setShowViolationsModal(true)} className="glass rounded-xl p-2.5 border border-white/10 text-center hover:border-loss/30 transition-all">
                   <div className="flex items-center justify-center gap-1 mb-0.5 text-loss"><AlertTriangle size={12} /><p className="text-[8px] uppercase tracking-wider font-medium">Flagged</p></div>
                   <p className="text-base font-bold text-loss">{myStats.flaggedTrades}</p>
+                  <p className="text-[8px] text-gray-500">RKR: <span className="text-white font-semibold">{myStats.totalTrades > 0 ? `${Math.round((myStats.qualifiedTrades / myStats.totalTrades) * 100)}%` : "—"}</span></p>
                 </button>
                 <MiniStat label="Win Rate" value={`${winRate}%`} icon={<ChevronUp size={14} />} color={winRate >= 50 ? "text-profit" : "text-loss"} />
                 <MiniStat label="Avg RR" value={avgRR > 0 ? avgRR.toFixed(2) : "—"} icon={<ChevronDown size={14} />} color="text-royal" />
@@ -1006,6 +1007,7 @@ export default function ChallengeDashboard() {
                 <button onClick={() => setShowViolationsModal(true)} className="glass rounded-xl p-2.5 border border-white/10 text-center hover:border-loss/30 transition-all">
                   <div className="flex items-center justify-center gap-1 mb-0.5 text-loss"><AlertTriangle size={12} /><p className="text-[8px] uppercase tracking-wider font-medium">Flagged</p></div>
                   <p className="text-base font-bold text-loss">{myStats.flaggedTrades}</p>
+                  <p className="text-[8px] text-gray-500">RKR: <span className="text-white font-semibold">{myStats.totalTrades > 0 ? `${Math.round((myStats.qualifiedTrades / myStats.totalTrades) * 100)}%` : "—"}</span></p>
                 </button>
                 <MiniStat label="Win Rate" value={`${winRate}%`} icon={<ChevronUp size={14} />} color={winRate >= 50 ? "text-profit" : "text-loss"} />
                 <MiniStat label="Avg RR" value={avgRR > 0 ? avgRR.toFixed(2) : "—"} icon={<ChevronDown size={14} />} color="text-royal" />
