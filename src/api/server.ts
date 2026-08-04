@@ -1635,6 +1635,35 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
          JOIN trading_registrations r ON l.registration_id = r.id
          WHERE l.challenge_id = $1 AND l.total_trades > 0${catJoin}`, [challengeId]);
 
+      // Best & Worst Rule Keeping Rate (RKR = qualified_trades / total_trades)
+      // Exclude DQ'd accounts and those with extra deposits detected
+      const rkrQuery = await db.query(
+        `SELECT r.nickname, l.qualified_trades, l.total_trades, l.adjusted_balance,
+                ROUND((l.qualified_trades::numeric / NULLIF(l.total_trades, 0)) * 100) as rkr
+         FROM wp_leaderboard l
+         JOIN trading_registrations r ON l.registration_id = r.id
+         WHERE l.challenge_id = $1 AND l.total_trades > 0
+           AND r.disqualified = false${catJoin}
+         ORDER BY rkr DESC, l.adjusted_balance DESC`, [challengeId]);
+
+      let bestRuleKeeping: any = null;
+      let worstRuleKeeping: any = null;
+      if (rkrQuery.rows.length > 0) {
+        const bestRkr = parseInt(rkrQuery.rows[0].rkr || '0');
+        const bestTied = rkrQuery.rows.filter((r: any) => parseInt(r.rkr || '0') === bestRkr);
+        bestRuleKeeping = { rkr: bestRkr, nickname: bestTied[0].nickname, tiedCount: bestTied.length };
+
+        // Worst: sort ascending by RKR, then ascending by adjusted_balance for tie-break
+        const sortedAsc = [...rkrQuery.rows].sort((a: any, b: any) => {
+          const diff = parseInt(a.rkr || '0') - parseInt(b.rkr || '0');
+          if (diff !== 0) return diff;
+          return parseFloat(a.adjusted_balance || '0') - parseFloat(b.adjusted_balance || '0');
+        });
+        const worstRkr = parseInt(sortedAsc[0].rkr || '0');
+        const worstTied = sortedAsc.filter((r: any) => parseInt(r.rkr || '0') === worstRkr);
+        worstRuleKeeping = { rkr: worstRkr, nickname: worstTied[0].nickname, tiedCount: worstTied.length };
+      }
+
       return {
         maxProfitTrade: maxProfit.rows[0] ? { profit: parseFloat(maxProfit.rows[0].profit), symbol: maxProfit.rows[0].symbol, nickname: maxProfit.rows[0].nickname, username: maxProfit.rows[0].username, email: maxProfit.rows[0].email, isCent: maxProfit.rows[0].is_cent || false } : null,
         maxLossTrade: maxLoss.rows[0] ? { profit: parseFloat(maxLoss.rows[0].profit), symbol: maxLoss.rows[0].symbol, nickname: maxLoss.rows[0].nickname, username: maxLoss.rows[0].username, isCent: maxLoss.rows[0].is_cent || false } : null,
@@ -1648,6 +1677,8 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
         mostActiveDay: mostDay.rows[0] ? { day: mostDay.rows[0].day, tradeCount: parseInt(mostDay.rows[0].trade_count) } : null,
         leastActiveDay: leastDay.rows[0] ? { day: leastDay.rows[0].day, tradeCount: parseInt(leastDay.rows[0].trade_count) } : null,
         avgTradesPerUser: parseFloat(avgTrades.rows[0]?.avg_trades || '0'),
+        bestRuleKeeping,
+        worstRuleKeeping,
       };
     };
 
