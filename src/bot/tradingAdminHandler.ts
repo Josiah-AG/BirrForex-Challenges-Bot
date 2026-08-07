@@ -2502,10 +2502,21 @@ export class TradingAdminHandler {
     const opts = { parse_mode: 'HTML' as const, link_preview_options: { is_disabled: true } };
 
     try {
+      // Winner text often exceeds 1024 char caption limit — send photo first, then full text
+      const photoCaption = `<b>🏆 TRADING CHALLENGE RESULTS 🏆</b>\n<b>${challenge.title}</b>\n\n📅 <b>Period:</b> ${periodStr}`;
+      const photoOpts = { caption: photoCaption, parse_mode: 'HTML' as const };
+      await ctx.telegram.sendPhoto(config.mainChannelId, { source: './assets/Challenge Winner.png' }, photoOpts);
       await ctx.telegram.sendMessage(config.mainChannelId, text, opts);
+      await ctx.telegram.sendPhoto(config.challengeChannelId, { source: './assets/Challenge Winner.png' }, photoOpts);
       await ctx.telegram.sendMessage(config.challengeChannelId, text, opts);
     } catch (e) {
-      console.error('Error posting winner announcement:', e);
+      console.error('Error posting winner announcement with photo, trying text only:', e);
+      try {
+        await ctx.telegram.sendMessage(config.mainChannelId, text, opts);
+        await ctx.telegram.sendMessage(config.challengeChannelId, text, opts);
+      } catch (e2) {
+        console.error('Error posting winner announcement text fallback:', e2);
+      }
     }
   }
 

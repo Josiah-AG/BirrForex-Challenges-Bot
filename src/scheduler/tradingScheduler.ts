@@ -429,8 +429,8 @@ export class TradingScheduler {
     const opts = { caption, parse_mode: 'HTML' as const };
 
     try {
-      await this.bot.bot.telegram.sendPhoto(config.mainChannelId, { source: './assets/challengestart.jpg' }, opts);
-      await this.bot.bot.telegram.sendPhoto(config.challengeChannelId, { source: './assets/challengestart.jpg' }, opts);
+      await this.bot.bot.telegram.sendPhoto(config.mainChannelId, { source: './assets/Challenge Start.png' }, opts);
+      await this.bot.bot.telegram.sendPhoto(config.challengeChannelId, { source: './assets/Challenge Start.png' }, opts);
       console.log(`✅ Challenge start photo posted for ${challenge.title}`);
     } catch (e) {
       console.error('Error posting challenge start photo:', e);
@@ -632,11 +632,18 @@ export class TradingScheduler {
       const opts = { parse_mode: 'HTML' as const, link_preview_options: { is_disabled: true } };
 
       try {
-        await this.bot.bot.telegram.sendMessage(config.mainChannelId, text, opts);
-        await this.bot.bot.telegram.sendMessage(config.challengeChannelId, text, opts);
+        const photoOpts = { caption: text, parse_mode: 'HTML' as const };
+        await this.bot.bot.telegram.sendPhoto(config.mainChannelId, { source: './assets/Challenge END.png' }, photoOpts);
+        await this.bot.bot.telegram.sendPhoto(config.challengeChannelId, { source: './assets/Challenge END.png' }, photoOpts);
         console.log(`✅ Trading challenge ${challenge.id} ended, final evaluation in progress`);
       } catch (e) {
-        console.error('Error posting challenge end:', e);
+        console.error('Error posting challenge end photo, falling back to text:', e);
+        try {
+          await this.bot.bot.telegram.sendMessage(config.mainChannelId, text, opts);
+          await this.bot.bot.telegram.sendMessage(config.challengeChannelId, text, opts);
+        } catch (e2) {
+          console.error('Error posting challenge end text fallback:', e2);
+        }
       }
     }
 
