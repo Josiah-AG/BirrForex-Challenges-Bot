@@ -422,6 +422,14 @@ export class TradingAdminHandler {
       return true;
     }
 
+    // Invite to team challenge selection
+    if (data.startsWith('tc_invite_select_')) {
+      const challengeId = parseInt(data.replace('tc_invite_select_', ''));
+      await ctx.answerCbQuery();
+      await this.processTeamInvites(ctx, challengeId);
+      return true;
+    }
+
     // Winner confirm callbacks
     if (data === 'tc_confirm_winners_yes') {
       await this.saveAndAnnounceWinners(ctx);
@@ -3389,6 +3397,143 @@ export class TradingAdminHandler {
       console.error('Error exporting leaderboard:', error);
       await ctx.reply('❌ Error generating export.');
     }
+  }
+  // ==================== INVITE TO TEAM ====================
+
+  async inviteToTeam(ctx: Context) {
+    if (!this.checkAdmin(ctx)) return;
+
+    // Get recent challenges in reviewing/completed status (ended within 2 weeks)
+    const twoWeeksAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString();
+    const challenges = await db.query(
+      `SELECT id, title, type, status, end_date FROM trading_challenges
+       WHERE status IN ('reviewing', 'completed') AND end_date >= $1
+       ORDER BY end_date DESC LIMIT 5`,
+      [twoWeeksAgo]
+    );
+
+    if (challenges.rows.length === 0) {
+      await ctx.reply('❌ No recent challenges in reviewing/completed status.');
+      return;
+    }
+
+    const buttons = challenges.rows.map((c: any) => [
+      Markup.button.callback(`${c.title} (${c.status})`, `tc_invite_select_${c.id}`)
+    ]);
+
+    await ctx.reply(
+      '<b>🎮 Invite to Team</b>\n\nSelect a challenge to send team invitations:',
+      { parse_mode: 'HTML', ...Markup.inlineKeyboard(buttons) }
+    );
+  }
+
+  private async processTeamInvites(ctx: Context, challengeId: number) {
+    const challenge = await db.query(
+      `SELECT id, title, type, target_balance, starting_balance FROM trading_challenges WHERE id = $1`,
+      [challengeId]
+    );
+    if (challenge.rows.length === 0) {
+      await ctx.reply('❌ Challenge not found.');
+      return;
+    }
+    const ch = challenge.rows[0];
+    const targetBalance = parseFloat(ch.target_balance);
+    const challengeType = ch.type; // 'real', 'demo', 'hybrid'
+
+    // Build eligibility query based on challenge type
+    let eligibleQuery: string;
+    const params: any[] = [challengeId];
+
+    if (challengeType === 'real') {
+      // All real participants (non-DQ, telegram source)
+      eligibleQuery = `SELECT r.user_id, r.nickname, r.account_type
+        FROM trading_registrations r
+        WHERE r.challenge_id = $1 AND r.source = 'telegram' AND r.user_id IS NOT NULL
+          AND r.account_type = 'real'`;
+    } else if (challengeType === 'demo') {
+      // Only demo participants who hit target
+      eligibleQuery = `SELECT r.user_id, r.nickname, r.account_type
+        FROM trading_registrations r
+        JOIN wp_leaderboard l ON l.registration_id = r.id
+        WHERE r.challenge_id = $1 AND r.source = 'telegram' AND r.user_id IS NOT NULL
+          AND r.account_type = 'demo'
+          AND l.adjusted_balance >= $2`;
+      params.push(targetBalance);
+    } else {
+      // Hybrid: all real + demo who hit target
+      eligibleQuery = `SELECT r.user_id, r.nickname, r.account_type
+        FROM trading_registrations r
+        LEFT JOIN wp_leaderboard l ON l.registration_id = r.id
+        WHERE r.challenge_id = $1 AND r.source = 'telegram' AND r.user_id IS NOT NULL
+          AND (
+            r.account_type = 'real'
+            OR (r.account_type = 'demo' AND l.adjusted_balance >= $2)
+          )`;
+      params.push(targetBalance);
+    }
+
+    const eligible = await db.query(eligibleQuery, params);
+
+    if (eligible.rows.length === 0) {
+      await ctx.reply('❌ No eligible participants found for this challenge.');
+      return;
+    }
+
+    // Check who was already invited (avoid double-send)
+    const alreadyInvited = await db.query(
+      `SELECT user_id FROM team_invitations WHERE challenge_id = $1`,
+      [challengeId]
+    );
+    const alreadySet = new Set(alreadyInvited.rows.map((r: any) => String(r.user_id)));
+    const toInvite = eligible.rows.filter((r: any) => !alreadySet.has(String(r.user_id)));
+
+    if (toInvite.length === 0) {
+      await ctx.reply(`✅ All ${eligible.rows.length} eligible participants have already been invited for this challenge.`);
+      return;
+    }
+
+    await ctx.reply(`📤 Sending team invitations to <b>${toInvite.length}</b> participants...\n(${eligible.rows.length} eligible, ${alreadySet.size} already invited)`, { parse_mode: 'HTML' });
+
+    const discordLink = config.discordInviteLink;
+    let sent = 0;
+    let failed = 0;
+
+    for (const user of toInvite) {
+      const inviteText =
+        `<b>🎯 You're Invited!</b>\n\n` +
+        `Your performance in <b>${ch.title}</b> has earned you a spot in the <b>BirrForex Live Trading Team</b>.\n\n` +
+        `Join our private Discord community where serious traders grow together — live sessions, shared insights, and exclusive challenges.\n\n` +
+        `We'd love to have you on the team. 💪`;
+
+      try {
+        await ctx.telegram.sendMessage(user.user_id, inviteText, {
+          parse_mode: 'HTML',
+          ...Markup.inlineKeyboard([
+            [Markup.button.url('🎮 Join BirrForex Team →', discordLink)]
+          ])
+        });
+        sent++;
+
+        // Record invitation
+        await db.query(
+          `INSERT INTO team_invitations (challenge_id, user_id, invited_at) VALUES ($1, $2, NOW()) ON CONFLICT DO NOTHING`,
+          [challengeId, user.user_id]
+        );
+      } catch (e) {
+        failed++;
+      }
+
+      // Rate limit: ~25 messages per second max for Telegram
+      if ((sent + failed) % 25 === 0) await new Promise(r => setTimeout(r, 1100));
+    }
+
+    await ctx.reply(
+      `✅ <b>Team Invitations Complete</b>\n\n` +
+      `📤 Sent: ${sent}\n` +
+      `❌ Failed: ${failed} (user blocked bot or deleted account)\n` +
+      `📊 Total eligible: ${eligible.rows.length}`,
+      { parse_mode: 'HTML' }
+    );
   }
 }
 

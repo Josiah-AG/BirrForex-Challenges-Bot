@@ -57,6 +57,9 @@ export const config = {
   // TG Bot's own public URL — passed to VPS workers so they can call back for account rotation
   tgBotPublicUrl: process.env.TG_BOT_PUBLIC_URL || '',
 
+  // Discord invite link for team invitations
+  discordInviteLink: process.env.DISCORD_INVITE_LINK || 'https://discord.gg/birrforex',
+
   // Schedule
   morningPostTime: process.env.MORNING_POST_TIME || '10:00',
   twoHourReminderTime: process.env.TWO_HOUR_REMINDER_TIME || '18:00',

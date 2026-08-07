@@ -441,6 +441,18 @@ async function migrate() {
     await db.query(`ALTER TABLE trading_registrations ADD COLUMN IF NOT EXISTS lang VARCHAR(2) DEFAULT 'en';`).catch(() => {});
     console.log('✅ lang column migration OK');
 
+    // Team invitations tracking (avoid double-send)
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS team_invitations (
+        id SERIAL PRIMARY KEY,
+        challenge_id INTEGER NOT NULL,
+        user_id VARCHAR(50) NOT NULL,
+        invited_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(challenge_id, user_id)
+      );
+    `).catch(() => {});
+    console.log('✅ team_invitations table OK');
+
     console.log('✅ Database migration completed successfully!');
     process.exit(0);
   } catch (error) {
