@@ -633,8 +633,8 @@ export class TradingScheduler {
 
       try {
         const photoOpts = { caption: text, parse_mode: 'HTML' as const };
-        await this.bot.bot.telegram.sendPhoto(config.mainChannelId, { source: './assets/Challenge END.png' }, photoOpts);
-        await this.bot.bot.telegram.sendPhoto(config.challengeChannelId, { source: './assets/Challenge END.png' }, photoOpts);
+        await this.bot.bot.telegram.sendPhoto(config.mainChannelId, { source: './assets/Challenge Winner.png' }, photoOpts);
+        await this.bot.bot.telegram.sendPhoto(config.challengeChannelId, { source: './assets/Challenge Winner.png' }, photoOpts);
         console.log(`✅ Trading challenge ${challenge.id} ended, final evaluation in progress`);
       } catch (e) {
         console.error('Error posting challenge end photo, falling back to text:', e);
