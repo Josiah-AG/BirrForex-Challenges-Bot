@@ -430,6 +430,33 @@ export class TradingAdminHandler {
       return true;
     }
 
+    // WP Winners callbacks
+    if (data.startsWith('tc_wpwin_post_')) {
+      const challengeId = parseInt(data.replace('tc_wpwin_post_', ''));
+      await ctx.answerCbQuery();
+      await this.showWpWinnerPreview(ctx, challengeId, false);
+      return true;
+    }
+    if (data.startsWith('tc_wpwin_test_')) {
+      const challengeId = parseInt(data.replace('tc_wpwin_test_', ''));
+      await ctx.answerCbQuery();
+      await this.showWpWinnerPreview(ctx, challengeId, true);
+      return true;
+    }
+    if (data.startsWith('tc_wpwin_confirm_')) {
+      const challengeId = parseInt(data.replace('tc_wpwin_confirm_', ''));
+      await ctx.answerCbQuery('Posting...');
+      await this.postWpWinners(ctx, challengeId);
+      return true;
+    }
+    if (data === 'tc_wpwin_cancel') {
+      const telegramId = ctx.from!.id;
+      tradingAdminSessions.delete(telegramId);
+      await ctx.answerCbQuery('Cancelled');
+      await ctx.reply('❌ Winner announcement cancelled.');
+      return true;
+    }
+
     // Winner confirm callbacks
     if (data === 'tc_confirm_winners_yes') {
       await this.saveAndAnnounceWinners(ctx);
@@ -3398,6 +3425,280 @@ export class TradingAdminHandler {
       await ctx.reply('❌ Error generating export.');
     }
   }
+  // ==================== WP WINNERS (from WinnerPip leaderboard) ====================
+
+  async wpWinners(ctx: Context) {
+    if (!this.checkAdmin(ctx)) return;
+    await this.runWpWinners(ctx, false);
+  }
+
+  async testWpWinners(ctx: Context) {
+    if (!this.checkAdmin(ctx)) return;
+    await this.runWpWinners(ctx, true);
+  }
+
+  private async runWpWinners(ctx: Context, testMode: boolean) {
+    const challenges = await tradingChallengeService.getAllChallenges();
+    const reviewable = challenges.filter(c => c.status === 'reviewing' || c.status === 'completed');
+
+    if (reviewable.length === 0) {
+      await ctx.reply('❌ No challenges in reviewing/completed status.');
+      return;
+    }
+
+    const telegramId = ctx.from!.id;
+
+    if (reviewable.length === 1) {
+      // Single challenge — proceed directly
+      tradingAdminSessions.set(telegramId, { step: testMode ? 'tc_wp_winners_test' : 'tc_wp_winners_post', data: { challenge_id: reviewable[0].id } });
+      await this.showWpWinnerPreview(ctx, reviewable[0].id, testMode);
+    } else {
+      // Multiple — let admin choose
+      const buttons = reviewable.slice(0, 5).map(c => [
+        Markup.button.callback(`${c.title} (${c.status})`, `tc_wpwin_${testMode ? 'test' : 'post'}_${c.id}`)
+      ]);
+      await ctx.reply(
+        `<b>🏆 ${testMode ? 'TEST ' : ''}WP Winners</b>\n\nSelect challenge:`,
+        { parse_mode: 'HTML', ...Markup.inlineKeyboard(buttons) }
+      );
+    }
+  }
+
+  private async showWpWinnerPreview(ctx: Context, challengeId: number, testMode: boolean) {
+    const challenge = await tradingChallengeService.getChallengeById(challengeId);
+    if (!challenge) { await ctx.reply('❌ Challenge not found.'); return; }
+
+    const realCount = challenge.real_winners_count || 0;
+    const demoCount = challenge.demo_winners_count || 0;
+    const realPrizes = typeof challenge.real_prizes === 'string' ? JSON.parse(challenge.real_prizes) : (challenge.real_prizes || []);
+    const demoPrizes = typeof challenge.demo_prizes === 'string' ? JSON.parse(challenge.demo_prizes) : (challenge.demo_prizes || []);
+
+    // Query top winners from wp_leaderboard
+    const realWinners = realCount > 0 ? (await db.query(
+      `SELECT l.*, r.username, r.user_id, r.nickname, r.is_cent
+       FROM wp_leaderboard l
+       JOIN trading_registrations r ON l.registration_id = r.id
+       WHERE l.challenge_id = $1 AND l.account_type = 'real'
+         AND l.is_disqualified = false AND l.is_qualified = true
+       ORDER BY l.normalized_balance DESC LIMIT $2`,
+      [challengeId, realCount]
+    )).rows : [];
+
+    const demoWinners = demoCount > 0 ? (await db.query(
+      `SELECT l.*, r.username, r.user_id, r.nickname, r.is_cent
+       FROM wp_leaderboard l
+       JOIN trading_registrations r ON l.registration_id = r.id
+       WHERE l.challenge_id = $1 AND l.account_type = 'demo'
+         AND l.is_disqualified = false AND l.is_qualified = true
+       ORDER BY l.normalized_balance DESC LIMIT $2`,
+      [challengeId, demoCount]
+    )).rows : [];
+
+    if (realWinners.length === 0 && demoWinners.length === 0) {
+      await ctx.reply('❌ No qualified winners found on the WinnerPip leaderboard.');
+      return;
+    }
+
+    // Calculate win rate for each winner from actual trades
+    const allWinnerIds = [...realWinners, ...demoWinners].map(w => w.registration_id);
+    const winRates = new Map<number, number>();
+    if (allWinnerIds.length > 0) {
+      const wrResult = await db.query(
+        `SELECT registration_id,
+                COUNT(*) FILTER (WHERE profit > 0) as wins,
+                COUNT(*) FILTER (WHERE profit < 0) as losses
+         FROM wp_trades WHERE challenge_id = $1 AND registration_id = ANY($2)
+         GROUP BY registration_id`,
+        [challengeId, allWinnerIds]
+      );
+      for (const row of wrResult.rows) {
+        const decided = parseInt(row.wins) + parseInt(row.losses);
+        winRates.set(row.registration_id, decided > 0 ? Math.round((parseInt(row.wins) / decided) * 100) : 0);
+      }
+    }
+
+    // Refresh Telegram usernames
+    for (const w of [...realWinners, ...demoWinners]) {
+      try {
+        const chat = await ctx.telegram.getChat(w.user_id);
+        const freshUsername = (chat as any).username || null;
+        if (freshUsername && freshUsername !== w.username) {
+          w.username = freshUsername;
+          await db.query(`UPDATE trading_registrations SET username = $1 WHERE id = $2`, [freshUsername, w.registration_id]).catch(() => {});
+        }
+      } catch {}
+    }
+
+    // Build announcement text
+    const medals = ['🥇', '🥈', '🥉', '4️⃣', '5️⃣'];
+    const periodStr = `${toEAT(challenge.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${toEAT(challenge.end_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
+
+    let text = `<b>🏆 TRADING CHALLENGE RESULTS 🏆</b>\n<b>${challenge.title}</b>\n\n📅 <b>Period:</b> ${periodStr}\n\n`;
+
+    const formatWinner = (w: any, i: number, prizes: any[]) => {
+      const medal = medals[i] || '🏅';
+      const username = w.username ? `@${w.username}` : w.nickname;
+      const nick = w.nickname || '';
+      const cur = w.is_cent ? '¢' : '$';
+      const adjusted = Number(w.adjusted_balance).toFixed(2);
+      const gross = Number(w.current_balance).toFixed(2);
+      const trades = parseInt(w.total_trades) || 0;
+      const flagged = parseInt(w.flagged_trades) || 0;
+      const wr = winRates.get(w.registration_id) ?? 0;
+      const prize = prizes[i] ? `$${prizes[i]}` : '';
+
+      let line = `${medal} <b>${this.getOrdinal(i + 1)} Place:</b> ${username}`;
+      if (w.username && nick) line += ` (${nick})`;
+      line += `\n`;
+      line += `   💰 Balance: <b>${cur}${adjusted}</b> (Gross: ${cur}${gross})\n`;
+      line += `   📊 Trades: ${trades} | Flagged: ${flagged} | Win Rate: ${wr}%\n`;
+      if (prize) line += `   🎁 Prize: <b>${prize}</b>\n`;
+      line += `\n`;
+      return line;
+    };
+
+    if (realWinners.length > 0) {
+      text += `<b>🏆 REAL ACCOUNT WINNERS</b>\n\n`;
+      realWinners.forEach((w: any, i: number) => { text += formatWinner(w, i, realPrizes); });
+    }
+
+    if (demoWinners.length > 0) {
+      text += `<b>🏆 DEMO ACCOUNT WINNERS</b>\n\n`;
+      demoWinners.forEach((w: any, i: number) => { text += formatWinner(w, i, demoPrizes); });
+    }
+
+    const counts = await tradingChallengeService.getRegistrationCounts(challengeId);
+
+    text += `<b>🎁 BONUS</b>\n` +
+      `➡️ All Real Account participants are invited to join <b>BirrForex Live Trading Team</b>\n` +
+      `➡️ Demo traders who hit the target are invited to join <b>BirrForex Live Trading Team</b>\n\n` +
+      `👥 <b>Total Participants:</b> ${counts.total} (Real: ${counts.real} | Demo: ${counts.demo})\n\n` +
+      `📌 <b>NB:</b> <i>You can view the full stats of every winner by signing in on <b>winnerpip.com</b> and clicking their name on the leaderboard.</i>\n\n` +
+      `<i>Congratulations to all winners!</i> 🎉\n` +
+      `<i>Thank you to everyone who participated!</i>\n\n` +
+      `Stay tuned for the next challenge on <b>@${config.mainChannelUsername}</b>`;
+
+    if (testMode) {
+      // Test mode — just show in admin DM
+      if (text.length <= 4096) {
+        await ctx.reply(text, { parse_mode: 'HTML' });
+      } else {
+        // Split if too long
+        const mid = text.lastIndexOf('\n', 3900);
+        await ctx.reply(text.slice(0, mid), { parse_mode: 'HTML' });
+        await ctx.reply(text.slice(mid), { parse_mode: 'HTML' });
+      }
+      await ctx.reply(`✅ <i>TEST MODE — not posted to channels. Use /wpwinners to post.</i>`, { parse_mode: 'HTML' });
+    } else {
+      // Show preview and ask for confirmation
+      if (text.length <= 4096) {
+        await ctx.reply(text, { parse_mode: 'HTML' });
+      } else {
+        const mid = text.lastIndexOf('\n', 3900);
+        await ctx.reply(text.slice(0, mid), { parse_mode: 'HTML' });
+        await ctx.reply(text.slice(mid), { parse_mode: 'HTML' });
+      }
+
+      const telegramId = ctx.from!.id;
+      tradingAdminSessions.set(telegramId, {
+        step: 'tc_wp_winners_confirm',
+        data: { challenge_id: challengeId, announcement: text, realWinners, demoWinners },
+      });
+
+      await ctx.reply(
+        '👆 Preview above. Post to channels + DM winners?',
+        Markup.inlineKeyboard([
+          [Markup.button.callback('✅ Confirm & Post', `tc_wpwin_confirm_${challengeId}`)],
+          [Markup.button.callback('❌ Cancel', 'tc_wpwin_cancel')],
+        ])
+      );
+    }
+  }
+
+  private async postWpWinners(ctx: Context, challengeId: number) {
+    const telegramId = ctx.from!.id;
+    const session = tradingAdminSessions.get(telegramId);
+    if (!session || !session.data.announcement) {
+      await ctx.reply('❌ Session expired. Run /wpwinners again.');
+      return;
+    }
+
+    const text = session.data.announcement;
+    const realWinners = session.data.realWinners || [];
+    const demoWinners = session.data.demoWinners || [];
+    const challenge = await tradingChallengeService.getChallengeById(challengeId);
+    if (!challenge) { await ctx.reply('❌ Challenge not found.'); return; }
+
+    const realPrizes = typeof challenge.real_prizes === 'string' ? JSON.parse(challenge.real_prizes) : (challenge.real_prizes || []);
+    const demoPrizes = typeof challenge.demo_prizes === 'string' ? JSON.parse(challenge.demo_prizes) : (challenge.demo_prizes || []);
+    const periodStr = `${toEAT(challenge.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${toEAT(challenge.end_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
+
+    // Post to channels — photo + text
+    const opts = { parse_mode: 'HTML' as const, link_preview_options: { is_disabled: true } };
+    try {
+      const photoCaption = `<b>🏆 TRADING CHALLENGE RESULTS 🏆</b>\n<b>${challenge.title}</b>\n\n📅 <b>Period:</b> ${periodStr}`;
+      const photoOpts = { caption: photoCaption, parse_mode: 'HTML' as const };
+      await ctx.telegram.sendPhoto(config.mainChannelId, { source: './assets/Challenge END.png' }, photoOpts);
+      await ctx.telegram.sendMessage(config.mainChannelId, text, opts);
+      await ctx.telegram.sendPhoto(config.challengeChannelId, { source: './assets/Challenge END.png' }, photoOpts);
+      await ctx.telegram.sendMessage(config.challengeChannelId, text, opts);
+    } catch (e) {
+      console.error('Error posting WP winners with photo:', e);
+      try {
+        await ctx.telegram.sendMessage(config.mainChannelId, text, opts);
+        await ctx.telegram.sendMessage(config.challengeChannelId, text, opts);
+      } catch (e2) {
+        console.error('Error posting WP winners text fallback:', e2);
+      }
+    }
+
+    // DM each winner
+    let dmSent = 0;
+    let dmFailed = 0;
+    const allWinners = [
+      ...realWinners.map((w: any, i: number) => ({ ...w, prize: realPrizes[i] ? `$${realPrizes[i]}` : '', position: i + 1, category: 'Real Account' })),
+      ...demoWinners.map((w: any, i: number) => ({ ...w, prize: demoPrizes[i] ? `$${demoPrizes[i]}` : '', position: i + 1, category: 'Demo Account' })),
+    ];
+
+    for (const w of allWinners) {
+      const cur = w.is_cent ? '¢' : '$';
+      const dmText = `<b>🏆 CONGRATULATIONS! 🏆</b>\n\n` +
+        `You won <b>${this.getOrdinal(w.position)} Place</b> in <b>${challenge.title}!</b>\n\n` +
+        `📊 <b>Your Results:</b>\n` +
+        `💰 <b>Qualified Balance:</b> ${cur}${Number(w.adjusted_balance).toFixed(2)}\n` +
+        `💵 <b>Gross Balance:</b> ${cur}${Number(w.current_balance).toFixed(2)}\n` +
+        `🏦 <b>Account:</b> ${w.account_number}\n` +
+        `📊 <b>Type:</b> ${w.category}\n\n` +
+        (w.prize ? `🎁 <b>Your Prize: ${w.prize}</b>\n\n` : '') +
+        `📸 <b>TO CLAIM YOUR PRIZE:</b>\nDM <b>@birrFXadmin</b> with a screenshot of this message within <b>24 HOURS.</b>\n\n` +
+        `⚠️ <i>Prize must be claimed within 24 HOURS</i>\n\n` +
+        `<i>Thank you for participating and congratulations!</i> 🎉`;
+
+      try {
+        await ctx.telegram.sendMessage(w.user_id, dmText, { parse_mode: 'HTML' });
+        dmSent++;
+      } catch {
+        dmFailed++;
+      }
+    }
+
+    // Save winners to DB
+    for (const w of allWinners) {
+      await db.query(
+        `INSERT INTO trading_winners (challenge_id, registration_id, category, position, prize_amount)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT DO NOTHING`,
+        [challengeId, w.registration_id, w.account_type, w.position, w.prize || '']
+      ).catch(() => {});
+    }
+
+    // Update challenge status to completed
+    await tradingChallengeService.updateChallengeStatus(challengeId, 'completed');
+
+    tradingAdminSessions.delete(telegramId);
+    await ctx.reply(`✅ <b>Winners posted!</b>\n\n📤 Channel posts: ✅\n💬 Winner DMs: ${dmSent} sent, ${dmFailed} failed`, { parse_mode: 'HTML' });
+  }
+
   // ==================== INVITE TO TEAM ====================
 
   async inviteToTeam(ctx: Context) {
