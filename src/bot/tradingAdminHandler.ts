@@ -2494,7 +2494,7 @@ export class TradingAdminHandler {
       `➡️ Demo traders who hit the target are invited to join <b>BirrForex Live Trading Team</b>\n\n` +
       `👥 <b>Total Participants:</b> ${counts.total} (Real: ${counts.real} | Demo: ${counts.demo})\n` +
       `📋 <b>Submissions Received:</b> ${subCounts.total} (Real: ${subCounts.real} | Demo: ${subCounts.demo})\n\n` +
-      `📌 <b>NB:</b> <i>The balance shown is the net qualified profit after deducting trades against the rules. Winners' trade history exports and prize delivery proof will be posted at</i> <b>@${config.challengeChannelUsername}</b>\n\n` +
+      `📌 <b>NB:</b> <i>You can view the full stats of every winner by signing in on <b>winnerpip.com</b> and clicking their name on the leaderboard.</i>\n\n` +
       `<i>Congratulations to all winners!</i> 🎉\n` +
       `<i>Thank you to everyone who participated!</i>\n\n` +
       `Stay tuned for the next challenge on <b>@${config.mainChannelUsername}</b>`;

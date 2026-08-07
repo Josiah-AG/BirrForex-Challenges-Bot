@@ -419,6 +419,10 @@ export class TradingScheduler {
       `The race begins NOW!\n\n` +
       `💪 Stay focused, follow the rules, and trade smart.\n` +
       `This is your journey — make every trade count!\n\n` +
+      `━━━━━━━━━━━━━━━━━━━━\n\n` +
+      `📊 <b>TRACK YOUR PROGRESS</b>\n` +
+      `Visit <b>winnerpip.com</b> to monitor your dashboard.\n` +
+      `Sign in with your MT5 account number and the investor password you registered with.\n\n` +
       `<i>Good luck, traders!</i> 🍀\n` +
       links + `\n\n@${config.mainChannelUsername}`;
 
@@ -517,7 +521,7 @@ export class TradingScheduler {
     if (challenge.pdf_url) links += `\n📄 Rules: <a href="${challenge.pdf_url}">Download PDF</a>`;
     if (challenge.video_url) links += `\n🎥 Guide: <a href="${challenge.video_url}">Watch Video</a>`;
 
-    const text = `${header}\n${links}\n\n@${config.mainChannelUsername}`;
+    const text = `${header}\n\n📊 <b>Track your progress</b> on <b>winnerpip.com</b>\nSign in with your MT5 account number and investor password.\n${links}\n\n@${config.mainChannelUsername}`;
     const opts = { parse_mode: 'HTML' as const, link_preview_options: { is_disabled: true } };
 
     const bothChannels = day === 1 || day === 6 || day === 10;
@@ -611,11 +615,18 @@ export class TradingScheduler {
     if (!isDiscord) {
       const text = `<b>🏁 CHALLENGE IS OVER!</b>\n\n` +
         `<b>${challenge.title}</b> has officially ended!\n\n` +
-        `What an exciting race! We hope you all gained valuable experience and sharpened your trading skills throughout this challenge.\n\n` +
+        `What an incredible journey! We hope you all gained valuable experience and sharpened your trading skills throughout this challenge.\n\n` +
         `<i>Thank you to every participant for your dedication and effort!</i> 💪\n\n` +
+        `━━━━━━━━━━━━━━━━━━━━\n\n` +
         `📊 <b>Final evaluation is in progress.</b>\n\n` +
-        `Our system is performing a final check on all trade data. Winners will be announced within <b>24 hours</b> after the final data sync.\n\n` +
-        `⏳ <i>Stay tuned for the results!</i> 🏆\n\n` +
+        `Our system is performing a final sync on all trade data.\n\n` +
+        `🔍 <b>CHECK YOUR STATUS</b>\n` +
+        `Visit <b>winnerpip.com</b> and review your dashboard.\n` +
+        `If you notice any missing trades or incorrect evaluation, report it within <b>24 hours</b>.\n\n` +
+        `⚠️ <i>After 24 hours, results are final — no disputes will be accepted.</i>\n\n` +
+        `━━━━━━━━━━━━━━━━━━━━\n\n` +
+        `🏆 <b>Winners will be announced in 48 hours.</b>\n\n` +
+        `⏳ <i>Stay tuned!</i>\n\n` +
         `@${config.mainChannelUsername}`;
 
       const opts = { parse_mode: 'HTML' as const, link_preview_options: { is_disabled: true } };
