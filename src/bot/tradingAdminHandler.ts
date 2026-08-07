@@ -3538,8 +3538,8 @@ export class TradingAdminHandler {
 
     const formatWinner = (w: any, i: number, prizes: any[]) => {
       const medal = medals[i] || '🏅';
-      const username = w.username ? `@${w.username}` : w.nickname;
-      const nick = w.nickname || '';
+      const nick = w.nickname || 'Unknown';
+      const username = w.username ? `(@${w.username})` : '';
       const cur = w.is_cent ? '¢' : '$';
       const adjusted = Number(w.adjusted_balance).toFixed(2);
       const gross = Number(w.current_balance).toFixed(2);
@@ -3548,12 +3548,11 @@ export class TradingAdminHandler {
       const wr = winRates.get(w.registration_id) ?? 0;
       const prize = prizes[i] ? `$${prizes[i]}` : '';
 
-      let line = `${medal} <b>${this.getOrdinal(i + 1)} Place:</b> ${username}`;
-      if (w.username && nick) line += ` (${nick})`;
-      line += `\n`;
-      line += `   💰 Balance: <b>${cur}${adjusted}</b> (Gross: ${cur}${gross})\n`;
-      line += `   📊 Trades: ${trades} | Flagged: ${flagged} | Win Rate (Qualified): ${wr}%\n`;
-      if (prize) line += `   🎁 Prize: <b>${prize}</b>\n`;
+      let line = `${medal} <b>${this.getOrdinal(i + 1)} Place — ${nick}</b> ${username}\n`;
+      line += `      💰 <b>${cur}${adjusted}</b> <i>(Gross: ${cur}${gross})</i>\n`;
+      line += `      📊 Trades: <b>${trades}</b> | Flagged: <b>${flagged}</b>\n`;
+      line += `      📈 Win Rate (Qualified): <b>${wr}%</b>\n`;
+      if (prize) line += `      🎁 Prize: <b>${prize}</b>\n`;
       line += `\n`;
       return line;
     };
