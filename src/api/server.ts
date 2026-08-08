@@ -1616,7 +1616,14 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
 
       const disqualified = await db.query(
         `SELECT COUNT(*) as cnt FROM trading_registrations r
-         WHERE r.challenge_id = $1 AND r.disqualified = true${catJoin.replace('r.', 'r.')}`, [challengeId]);
+         LEFT JOIN wp_leaderboard l ON l.registration_id = r.id
+         WHERE r.challenge_id = $1 AND r.disqualified = true${catJoin}
+           AND NOT (
+             l.zero_balance_at IS NOT NULL
+             OR (l.total_trades > 0 AND l.current_balance <= 0)
+             OR (l.total_trades > 0 AND r.last_known_equity IS NOT NULL AND CAST(r.last_known_equity AS numeric) <= 0)
+             OR (l.total_trades > 0 AND r.last_known_balance IS NOT NULL AND CAST(r.last_known_balance AS numeric) <= 0)
+           )`, [challengeId]);
 
       const weekendFilter = rules2?.weekend_trading ? '' : ` AND EXTRACT(DOW FROM close_time) NOT IN (0, 6)`;
 
