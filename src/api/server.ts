@@ -882,6 +882,8 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
         : (registration.is_cent
             ? parseFloat(leaderboard.adjusted_balance) / 100
             : parseFloat(leaderboard.adjusted_balance));
+      const myWithdrawn = parseFloat(leaderboard.total_withdrawn || '0') || 0;
+      const myNetBalance = myNormalized - myWithdrawn;
       const rankResult = await db.query(
         `SELECT COUNT(*) + 1 as rank FROM wp_leaderboard l
          JOIN trading_registrations r ON l.registration_id = r.id
@@ -890,9 +892,9 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
            AND l.is_disqualified = false
            AND COALESCE(l.is_withdrawn, false) = false
            AND l.zero_balance_at IS NULL
-           AND COALESCE(l.normalized_balance, CASE WHEN COALESCE(r.is_cent, false) THEN l.adjusted_balance / 100.0 ELSE l.adjusted_balance END) > $3
+           AND COALESCE(l.normalized_balance, CASE WHEN COALESCE(r.is_cent, false) THEN l.adjusted_balance / 100.0 ELSE l.adjusted_balance END) - COALESCE(l.total_withdrawn, 0) > $3
            AND l.registration_id != $4`,
-        [registration.challenge_id, registration.account_type, myNormalized, registrationId]
+        [registration.challenge_id, registration.account_type, myNetBalance, registrationId]
       );
       computedRank = parseInt(rankResult.rows[0]?.rank || '0') || null;
     }

@@ -66,7 +66,7 @@ export class LeaderboardService {
         `UPDATE wp_leaderboard SET rank = sub.rn FROM (
           SELECT l.id, ROW_NUMBER() OVER (
             ORDER BY CASE WHEN COALESCE(l.is_withdrawn, false) THEN 0
-                          ELSE COALESCE(l.normalized_balance, l.adjusted_balance) END DESC,
+                          ELSE COALESCE(l.normalized_balance, l.adjusted_balance) - COALESCE(l.total_withdrawn, 0) END DESC,
                      l.total_trades DESC,
                      l.last_trade_time ASC NULLS LAST,
                      r.registered_at ASC
@@ -76,7 +76,7 @@ export class LeaderboardService {
           WHERE l.challenge_id=$1 AND l.account_type=$2 AND l.is_disqualified=false AND r.disqualified=false
             AND COALESCE(l.is_withdrawn, false) = false
             AND l.zero_balance_at IS NULL
-            AND (COALESCE(l.normalized_balance, l.adjusted_balance) > 0 OR l.adjusted_balance IS NULL)
+            AND (COALESCE(l.normalized_balance, l.adjusted_balance) - COALESCE(l.total_withdrawn, 0) > 0 OR l.adjusted_balance IS NULL)
         ) sub WHERE wp_leaderboard.id = sub.id`,
         [challengeId, accountType]
       );
@@ -87,7 +87,7 @@ export class LeaderboardService {
          WHERE l.challenge_id=$1 AND l.account_type=$2 AND l.is_disqualified=false AND r.disqualified=false
            AND COALESCE(l.is_withdrawn, false) = false
            AND l.zero_balance_at IS NULL
-           AND (COALESCE(l.normalized_balance, l.adjusted_balance) > 0 OR l.adjusted_balance IS NULL)`,
+           AND (COALESCE(l.normalized_balance, l.adjusted_balance) - COALESCE(l.total_withdrawn, 0) > 0 OR l.adjusted_balance IS NULL)`,
         [challengeId, accountType]
       );
       offset = parseInt(tier1Count.rows[0].cnt);
