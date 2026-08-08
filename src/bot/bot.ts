@@ -70,6 +70,7 @@ export class Bot {
       { command: 'invitetoteam', description: 'Invite eligible participants to Discord team' },
       { command: 'wpwinners', description: 'Auto-select & announce winners from WinnerPip' },
       { command: 'testwpwinners', description: 'Preview winner announcement (no post)' },
+      { command: 'sendfeedback', description: 'Send feedback form to participants' },
       { command: 'messageuser', description: 'Message a participant' },
       { command: 'disqualify', description: 'Disqualify a participant' },
       { command: 'manualverify', description: 'Manually register a user' },
@@ -279,6 +280,7 @@ export class Bot {
     this.bot.command('invitetoteam', (ctx) => tradingAdminHandler.inviteToTeam(ctx));
     this.bot.command('wpwinners', (ctx) => tradingAdminHandler.wpWinners(ctx));
     this.bot.command('testwpwinners', (ctx) => tradingAdminHandler.testWpWinners(ctx));
+    this.bot.command('sendfeedback', (ctx) => tradingAdminHandler.sendFeedback(ctx));
     this.bot.command('messageuser', (ctx) => tradingAdminHandler.messageUser(ctx));
     this.bot.command('disqualify', (ctx) => tradingAdminHandler.disqualify(ctx));
     this.bot.command('manualverify', (ctx) => tradingAdminHandler.manualVerify(ctx));

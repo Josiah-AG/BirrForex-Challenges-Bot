@@ -458,6 +458,14 @@ export class TradingAdminHandler {
       return true;
     }
 
+    // Feedback form callbacks
+    if (data.startsWith('tc_feedback_select_')) {
+      const challengeId = parseInt(data.replace('tc_feedback_select_', ''));
+      await ctx.answerCbQuery();
+      await this.processFeedback(ctx, challengeId);
+      return true;
+    }
+
     // Winner confirm callbacks
     if (data === 'tc_confirm_winners_yes') {
       await this.saveAndAnnounceWinners(ctx);
@@ -3700,6 +3708,107 @@ export class TradingAdminHandler {
 
     tradingAdminSessions.delete(telegramId);
     await ctx.reply(`✅ <b>Winners posted!</b>\n\n📤 Channel posts: ✅\n💬 Winner DMs: ${dmSent} sent, ${dmFailed} failed`, { parse_mode: 'HTML' });
+  }
+
+  // ==================== SEND FEEDBACK ====================
+
+  async sendFeedback(ctx: Context) {
+    if (!this.checkAdmin(ctx)) return;
+
+    if (!config.feedbackFormLink) {
+      await ctx.reply('❌ FEEDBACK_FORM_LINK env var not set. Add it to Railway.');
+      return;
+    }
+
+    const challenges = await tradingChallengeService.getAllChallenges();
+    const recent = challenges.filter(c => c.status === 'reviewing' || c.status === 'completed');
+
+    if (recent.length === 0) {
+      await ctx.reply('❌ No recent challenges in reviewing/completed status.');
+      return;
+    }
+
+    const buttons = recent.slice(0, 5).map(c => [
+      Markup.button.callback(`${c.title} (${c.status})`, `tc_feedback_select_${c.id}`)
+    ]);
+
+    await ctx.reply(
+      '<b>📝 Send Feedback Form</b>\n\nSelect challenge to send feedback request:',
+      { parse_mode: 'HTML', ...Markup.inlineKeyboard(buttons) }
+    );
+  }
+
+  private async processFeedback(ctx: Context, challengeId: number) {
+    const challenge = await tradingChallengeService.getChallengeById(challengeId);
+    if (!challenge) { await ctx.reply('❌ Challenge not found.'); return; }
+
+    const formLink = config.feedbackFormLink;
+
+    // Channel post
+    const channelText =
+      `<b>📝 YOUR FEEDBACK MATTERS!</b>\n\n` +
+      `<b>${challenge.title}</b> is complete — and we want to hear from YOU.\n\n` +
+      `Help us make the next challenge even better. It takes just 2 minutes.\n\n` +
+      `🇬🇧 English & 🇪🇹 አማርኛ supported\n\n` +
+      `<i>Your responses are anonymous and directly shape improvements to the system.</i>\n\n` +
+      `@${config.mainChannelUsername}`;
+
+    const channelOpts = {
+      parse_mode: 'HTML' as const,
+      ...Markup.inlineKeyboard([
+        [Markup.button.url('📝 Give Feedback / አስተያየት ስጡ', formLink)]
+      ])
+    };
+
+    try {
+      await ctx.telegram.sendMessage(config.mainChannelId, channelText, channelOpts);
+      await ctx.telegram.sendMessage(config.challengeChannelId, channelText, channelOpts);
+    } catch (e) {
+      console.error('Error posting feedback to channels:', e);
+    }
+
+    // DM to all participants (telegram source only)
+    const participants = await db.query(
+      `SELECT user_id, nickname FROM trading_registrations
+       WHERE challenge_id = $1 AND source = 'telegram' AND user_id IS NOT NULL`,
+      [challengeId]
+    );
+
+    await ctx.reply(`📤 Posted to channels. Now DM'ing <b>${participants.rows.length}</b> participants...`, { parse_mode: 'HTML' });
+
+    const dmText =
+      `<b>📝 We'd love your feedback!</b>\n\n` +
+      `You participated in <b>${challenge.title}</b> — thank you!\n\n` +
+      `Help us improve the next challenge. Takes 2 minutes, and your response is anonymous.\n\n` +
+      `🇬🇧 English & 🇪🇹 አማርኛ`;
+
+    const dmOpts = {
+      parse_mode: 'HTML' as const,
+      ...Markup.inlineKeyboard([
+        [Markup.button.url('📝 Give Feedback / አስተያየት ስጡ', formLink)]
+      ])
+    };
+
+    let sent = 0;
+    let failed = 0;
+
+    for (const p of participants.rows) {
+      try {
+        await ctx.telegram.sendMessage(p.user_id, dmText, dmOpts);
+        sent++;
+      } catch {
+        failed++;
+      }
+      if ((sent + failed) % 25 === 0) await new Promise(r => setTimeout(r, 1100));
+    }
+
+    await ctx.reply(
+      `✅ <b>Feedback Request Complete</b>\n\n` +
+      `📢 Channel posts: ✅\n` +
+      `📤 DMs sent: ${sent}\n` +
+      `❌ Failed: ${failed}`,
+      { parse_mode: 'HTML' }
+    );
   }
 
   // ==================== INVITE TO TEAM ====================

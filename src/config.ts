@@ -60,6 +60,9 @@ export const config = {
   // Discord invite link for team invitations
   discordInviteLink: process.env.DISCORD_INVITE_LINK || 'https://discord.gg/birrforex',
 
+  // Feedback form link (Google Forms)
+  feedbackFormLink: process.env.FEEDBACK_FORM_LINK || '',
+
   // Schedule
   morningPostTime: process.env.MORNING_POST_TIME || '10:00',
   twoHourReminderTime: process.env.TWO_HOUR_REMINDER_TIME || '18:00',
