@@ -22,6 +22,17 @@ export class LeaderboardService {
     // Ensure previous_rank column exists (safe to call multiple times)
     await db.query(`ALTER TABLE wp_leaderboard ADD COLUMN IF NOT EXISTS previous_rank INTEGER`).catch(() => {});
 
+    // Sync DQ flags before ranking — ensures r.disqualified is reflected in l.is_disqualified
+    await db.query(
+      `UPDATE wp_leaderboard l
+       SET is_disqualified = true,
+           disqualify_reason = COALESCE(r.disqualified_reason, l.disqualify_reason)
+       FROM trading_registrations r
+       WHERE l.registration_id = r.id AND l.challenge_id = $1
+         AND r.disqualified = true AND l.is_disqualified = false`,
+      [challengeId]
+    ).catch(() => {});
+
     // Only save previous_rank on scheduled pull cycles — not on admin re-evaluations/fixes.
     // This way rank_change always compares to the last scheduled pull, and admin corrections
     // get folded into the current rank naturally (showing up in the NEXT pull's comparison).
