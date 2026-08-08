@@ -1,4 +1,5 @@
 import { Context, Markup } from 'telegraf';
+import path from 'path';
 import { tradingChallengeService, TradingChallenge } from '../services/tradingChallengeService';
 import { isAdmin } from '../utils/helpers';
 import { config } from '../config';
@@ -2538,11 +2539,12 @@ export class TradingAdminHandler {
 
     try {
       // Winner text often exceeds 1024 char caption limit — send photo first, then full text
+      const winnerImg = path.join(process.cwd(), 'assets', 'Challenge END.png');
       const photoCaption = `<b>🏆 TRADING CHALLENGE RESULTS 🏆</b>\n<b>${challenge.title}</b>\n\n📅 <b>Period:</b> ${periodStr}`;
       const photoOpts = { caption: photoCaption, parse_mode: 'HTML' as const };
-      await ctx.telegram.sendPhoto(config.mainChannelId, { source: './assets/Challenge END.png' }, photoOpts);
+      await ctx.telegram.sendPhoto(config.mainChannelId, { source: winnerImg }, photoOpts);
       await ctx.telegram.sendMessage(config.mainChannelId, text, opts);
-      await ctx.telegram.sendPhoto(config.challengeChannelId, { source: './assets/Challenge END.png' }, photoOpts);
+      await ctx.telegram.sendPhoto(config.challengeChannelId, { source: winnerImg }, photoOpts);
       await ctx.telegram.sendMessage(config.challengeChannelId, text, opts);
     } catch (e) {
       console.error('Error posting winner announcement with photo, trying text only:', e);
@@ -3636,11 +3638,12 @@ export class TradingAdminHandler {
     // Post to channels — photo + text
     const opts = { parse_mode: 'HTML' as const, link_preview_options: { is_disabled: true } };
     try {
+      const winnerImg = path.join(process.cwd(), 'assets', 'Challenge END.png');
       const photoCaption = `<b>🏆 TRADING CHALLENGE RESULTS 🏆</b>\n<b>${challenge.title}</b>\n\n📅 <b>Period:</b> ${periodStr}`;
       const photoOpts = { caption: photoCaption, parse_mode: 'HTML' as const };
-      await ctx.telegram.sendPhoto(config.mainChannelId, { source: './assets/Challenge END.png' }, photoOpts);
+      await ctx.telegram.sendPhoto(config.mainChannelId, { source: winnerImg }, photoOpts);
       await ctx.telegram.sendMessage(config.mainChannelId, text, opts);
-      await ctx.telegram.sendPhoto(config.challengeChannelId, { source: './assets/Challenge END.png' }, photoOpts);
+      await ctx.telegram.sendPhoto(config.challengeChannelId, { source: winnerImg }, photoOpts);
       await ctx.telegram.sendMessage(config.challengeChannelId, text, opts);
     } catch (e) {
       console.error('Error posting WP winners with photo:', e);

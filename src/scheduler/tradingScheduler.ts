@@ -1,4 +1,5 @@
 import cron from 'node-cron';
+import path from 'path';
 import { Bot } from '../bot/bot';
 import { tradingChallengeService, TradingChallenge } from '../services/tradingChallengeService';
 import { exnessService } from '../services/exnessService';
@@ -429,8 +430,9 @@ export class TradingScheduler {
     const opts = { caption, parse_mode: 'HTML' as const };
 
     try {
-      await this.bot.bot.telegram.sendPhoto(config.mainChannelId, { source: './assets/Challenge Start.png' }, opts);
-      await this.bot.bot.telegram.sendPhoto(config.challengeChannelId, { source: './assets/Challenge Start.png' }, opts);
+      const startImg = path.join(process.cwd(), 'assets', 'Challenge Start.png');
+      await this.bot.bot.telegram.sendPhoto(config.mainChannelId, { source: startImg }, opts);
+      await this.bot.bot.telegram.sendPhoto(config.challengeChannelId, { source: startImg }, opts);
       console.log(`✅ Challenge start photo posted for ${challenge.title}`);
     } catch (e) {
       console.error('Error posting challenge start photo:', e);
@@ -632,9 +634,12 @@ export class TradingScheduler {
       const opts = { parse_mode: 'HTML' as const, link_preview_options: { is_disabled: true } };
 
       try {
-        const photoOpts = { caption: text, parse_mode: 'HTML' as const };
-        await this.bot.bot.telegram.sendPhoto(config.mainChannelId, { source: './assets/Challenge Winner.png' }, photoOpts);
-        await this.bot.bot.telegram.sendPhoto(config.challengeChannelId, { source: './assets/Challenge Winner.png' }, photoOpts);
+        const endImg = path.join(process.cwd(), 'assets', 'Challenge Winner.png');
+        const shortCaption = `<b>🏁 CHALLENGE IS OVER!</b>\n\n<b>${challenge.title}</b> has officially ended!`;
+        await this.bot.bot.telegram.sendPhoto(config.mainChannelId, { source: endImg }, { caption: shortCaption, parse_mode: 'HTML' as const });
+        await this.bot.bot.telegram.sendMessage(config.mainChannelId, text, opts);
+        await this.bot.bot.telegram.sendPhoto(config.challengeChannelId, { source: endImg }, { caption: shortCaption, parse_mode: 'HTML' as const });
+        await this.bot.bot.telegram.sendMessage(config.challengeChannelId, text, opts);
         console.log(`✅ Trading challenge ${challenge.id} ended, final evaluation in progress`);
       } catch (e) {
         console.error('Error posting challenge end photo, falling back to text:', e);
