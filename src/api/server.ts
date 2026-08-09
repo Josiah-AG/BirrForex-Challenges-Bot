@@ -662,7 +662,7 @@ app.get('/api/challenges/:id/leaderboard', async (req, res) => {
             isQualified: r.is_qualified,
             isDisqualified: isDq,
             disqualifyReason: r.disqualify_reason || r.reg_disqualified_reason || null,
-            isBlown: !isDq && !r.is_withdrawn && r.total_trades > 0 && (
+            isBlown: !r.is_withdrawn && r.total_trades > 0 && (
               (parseFloat(r.current_balance) <= 0) ||
               r.zero_balance_at !== null
             ),
@@ -3305,7 +3305,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/admin-leaderboard`, admin
             isQualified: r.is_qualified || false,
             isDisqualified: isDq,
             disqualifyReason: r.disqualify_reason || r.disqualified_reason || null,
-            isBlown: !isDq && !r.is_withdrawn && r.total_trades > 0 && (
+            isBlown: !r.is_withdrawn && (r.total_trades || 0) > 0 && (
               (parseFloat(r.current_balance || '0') <= 0) ||
               r.zero_balance_at !== null
             ),
