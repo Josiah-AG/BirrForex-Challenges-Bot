@@ -2462,13 +2462,15 @@ function downloadLeaderboardHTML(challenge: any, lb: any[], categoryLabel?: stri
     if (e.isDisqualified || e.isWithdrawn || e.isBlown) return false;
     const count = e.accountType === 'demo' ? demoWinners : realWinners;
     const bal = Number(e.adjustedBalance || 0) - Number(e.totalWithdrawn || 0);
-    return count > 0 && e.rank <= count && bal >= targetBalance;
+    const effectiveTarget = e.isCent ? targetBalance * 100 : targetBalance;
+    return count > 0 && e.rank <= count && bal >= effectiveTarget;
   };
 
   const isAboveTarget = (e: any) => {
     if (e.isDisqualified || e.isWithdrawn || e.isBlown) return false;
     const bal = Number(e.adjustedBalance || 0) - Number(e.totalWithdrawn || 0);
-    return bal >= targetBalance && targetBalance > 0;
+    const effectiveTarget = e.isCent ? targetBalance * 100 : targetBalance;
+    return bal >= effectiveTarget && effectiveTarget > 0;
   };
 
   const isCent = top10.some((e: any) => e.isCent);
