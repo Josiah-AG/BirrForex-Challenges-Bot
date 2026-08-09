@@ -6052,7 +6052,9 @@ app.get('/api/me/balance-history', authMiddleware, async (req: any, res) => {
     for (const t of trades.rows) {
       const net = parseFloat(t.profit) + parseFloat(t.commission || 0) + parseFloat(t.swap || 0);
       grossBalance += net;
-      if (t.is_qualified) {
+      // Qualified balance: include all losses (flagged or not) + only qualified profits.
+      // Flagged losses are informational only — losses always count as-is.
+      if (t.is_qualified || net <= 0) {
         adjustedBalance += net;
       }
       series.push({
@@ -6122,7 +6124,8 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/balance-history`, adminIp
     for (const t of trades.rows) {
       const net = parseFloat(t.profit) + parseFloat(t.commission || 0) + parseFloat(t.swap || 0);
       grossBalance += net;
-      if (t.is_qualified) {
+      // Qualified balance: include all losses (flagged or not) + only qualified profits.
+      if (t.is_qualified || net <= 0) {
         adjustedBalance += net;
       }
       series.push({
