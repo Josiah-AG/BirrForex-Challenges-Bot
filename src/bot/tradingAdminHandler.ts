@@ -3509,21 +3509,21 @@ export class TradingAdminHandler {
       return;
     }
 
-    // Calculate qualified win rate for each winner from actual trades
-    // Qualified win rate = winning qualified trades / total decided qualified trades
+    // Calculate qualified win rate for each winner — same logic as leaderboard popup:
+    // wins = profitable qualified trades, losses = ALL losing trades (flagged or not)
     const allWinnerIds = [...realWinners, ...demoWinners].map(w => w.registration_id);
     const winRates = new Map<number, number>();
     if (allWinnerIds.length > 0) {
       const wrResult = await db.query(
         `SELECT registration_id,
                 COUNT(*) FILTER (WHERE profit > 0 AND is_qualified = true) as qual_wins,
-                COUNT(*) FILTER (WHERE profit < 0 AND is_qualified = true) as qual_losses
+                COUNT(*) FILTER (WHERE profit < 0) as all_losses
          FROM wp_trades WHERE challenge_id = $1 AND registration_id = ANY($2)
          GROUP BY registration_id`,
         [challengeId, allWinnerIds]
       );
       for (const row of wrResult.rows) {
-        const decided = parseInt(row.qual_wins) + parseInt(row.qual_losses);
+        const decided = parseInt(row.qual_wins) + parseInt(row.all_losses);
         winRates.set(row.registration_id, decided > 0 ? Math.round((parseInt(row.qual_wins) / decided) * 100) : 0);
       }
     }
