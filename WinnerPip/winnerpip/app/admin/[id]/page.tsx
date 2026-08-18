@@ -29,6 +29,16 @@ export default function AdminDashboard() {
     weekend_trading: false,
     min_active_days: 7,
     only_cent_account: false,
+    rules_enabled: {
+      max_lot_size: true,
+      max_open_trades: true,
+      pair_limit: true,
+      stop_loss_required: true,
+      daily_loss_cap: true,
+      max_hold_hours: true,
+      weekend_trading: true,
+      min_active_days: true,
+    } as Record<string, boolean>,
   });
   const [rulesSaved, setRulesSaved] = useState(false);
   const [rulesLocked, setRulesLocked] = useState(false);
@@ -683,66 +693,180 @@ export default function AdminDashboard() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
               {/* Max Lot Size */}
               <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-300">Max Lot Size</label>
-                <Input type="number" step="0.01" placeholder="e.g., 0.02 (empty = unlimited)" value={rulesConfig.max_lot_size || ""} onChange={(e) => setRulesConfig({ ...rulesConfig, max_lot_size: e.target.value ? parseFloat(e.target.value) : 0 })} />
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <label className="text-sm font-medium text-gray-300">Max Lot Size</label>
+                    <div className="relative group">
+                      <span className="cursor-help text-gray-500 hover:text-royal transition-colors">ⓘ</span>
+                      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-[#1a1a2e] border border-white/20 rounded-lg text-xs text-gray-300 w-56 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity z-50 shadow-xl">
+                        Limits the maximum lot size per position. Any trade opened with a lot size exceeding this value will have its profits removed.
+                      </div>
+                    </div>
+                  </div>
+                  <button onClick={() => setRulesConfig({ ...rulesConfig, rules_enabled: { ...rulesConfig.rules_enabled, max_lot_size: !rulesConfig.rules_enabled.max_lot_size } })} className={`w-10 h-5 rounded-full transition-all ${rulesConfig.rules_enabled.max_lot_size ? "bg-profit" : "bg-white/20"}`}>
+                    <div className={`w-4 h-4 bg-white rounded-full transition-transform ${rulesConfig.rules_enabled.max_lot_size ? "translate-x-5" : "translate-x-0.5"}`}></div>
+                  </button>
+                </div>
+                <Input type="number" step="0.01" placeholder="e.g., 0.02 (empty = unlimited)" value={rulesConfig.max_lot_size || ""} onChange={(e) => setRulesConfig({ ...rulesConfig, max_lot_size: e.target.value ? parseFloat(e.target.value) : 0 })} disabled={!rulesConfig.rules_enabled.max_lot_size} className={!rulesConfig.rules_enabled.max_lot_size ? "opacity-40" : ""} />
                 <p className="text-[10px] text-gray-500">Trades exceeding this lot size will have profits removed</p>
               </div>
 
               {/* Max Open Trades */}
               <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-300">Max Open Trades</label>
-                <Input type="number" placeholder="e.g., 3 (empty = unlimited)" value={rulesConfig.max_open_trades || ""} onChange={(e) => setRulesConfig({ ...rulesConfig, max_open_trades: e.target.value ? parseInt(e.target.value) : 0 })} />
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <label className="text-sm font-medium text-gray-300">Max Open Trades</label>
+                    <div className="relative group">
+                      <span className="cursor-help text-gray-500 hover:text-royal transition-colors">ⓘ</span>
+                      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-[#1a1a2e] border border-white/20 rounded-lg text-xs text-gray-300 w-56 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity z-50 shadow-xl">
+                        Limits how many trades can be open simultaneously. If exceeded, all overlapping trades get flagged and profits removed.
+                      </div>
+                    </div>
+                  </div>
+                  <button onClick={() => setRulesConfig({ ...rulesConfig, rules_enabled: { ...rulesConfig.rules_enabled, max_open_trades: !rulesConfig.rules_enabled.max_open_trades } })} className={`w-10 h-5 rounded-full transition-all ${rulesConfig.rules_enabled.max_open_trades ? "bg-profit" : "bg-white/20"}`}>
+                    <div className={`w-4 h-4 bg-white rounded-full transition-transform ${rulesConfig.rules_enabled.max_open_trades ? "translate-x-5" : "translate-x-0.5"}`}></div>
+                  </button>
+                </div>
+                <Input type="number" placeholder="e.g., 3 (empty = unlimited)" value={rulesConfig.max_open_trades || ""} onChange={(e) => setRulesConfig({ ...rulesConfig, max_open_trades: e.target.value ? parseInt(e.target.value) : 0 })} disabled={!rulesConfig.rules_enabled.max_open_trades} className={!rulesConfig.rules_enabled.max_open_trades ? "opacity-40" : ""} />
                 <p className="text-[10px] text-gray-500">Maximum trades open at the same time</p>
               </div>
 
               {/* Pair Limit */}
               <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-300">Pair Limit (Simultaneous)</label>
-                <Input type="number" placeholder="e.g., 2 (empty = unlimited)" value={rulesConfig.pair_limit || ""} onChange={(e) => setRulesConfig({ ...rulesConfig, pair_limit: e.target.value ? parseInt(e.target.value) : 0 })} />
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <label className="text-sm font-medium text-gray-300">Pair Limit (Simultaneous)</label>
+                    <div className="relative group">
+                      <span className="cursor-help text-gray-500 hover:text-royal transition-colors">ⓘ</span>
+                      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-[#1a1a2e] border border-white/20 rounded-lg text-xs text-gray-300 w-56 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity z-50 shadow-xl">
+                        Limits how many trades on the same currency pair can be open at once. Prevents overexposure to a single instrument.
+                      </div>
+                    </div>
+                  </div>
+                  <button onClick={() => setRulesConfig({ ...rulesConfig, rules_enabled: { ...rulesConfig.rules_enabled, pair_limit: !rulesConfig.rules_enabled.pair_limit } })} className={`w-10 h-5 rounded-full transition-all ${rulesConfig.rules_enabled.pair_limit ? "bg-profit" : "bg-white/20"}`}>
+                    <div className={`w-4 h-4 bg-white rounded-full transition-transform ${rulesConfig.rules_enabled.pair_limit ? "translate-x-5" : "translate-x-0.5"}`}></div>
+                  </button>
+                </div>
+                <Input type="number" placeholder="e.g., 2 (empty = unlimited)" value={rulesConfig.pair_limit || ""} onChange={(e) => setRulesConfig({ ...rulesConfig, pair_limit: e.target.value ? parseInt(e.target.value) : 0 })} disabled={!rulesConfig.rules_enabled.pair_limit} className={!rulesConfig.rules_enabled.pair_limit ? "opacity-40" : ""} />
                 <p className="text-[10px] text-gray-500">Max same-pair trades open at the same time</p>
               </div>
 
               {/* Max Risk Dollars */}
               <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-300">Max Risk per Trade ($)</label>
-                <Input type="number" step="0.5" placeholder="e.g., 5 (empty = no limit)" value={rulesConfig.max_risk_dollars || ""} onChange={(e) => setRulesConfig({ ...rulesConfig, max_risk_dollars: e.target.value ? parseFloat(e.target.value) : 0 })} />
-                <p className="text-[10px] text-gray-500">Maximum SL distance in dollars</p>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <label className="text-sm font-medium text-gray-300">Max Risk per Trade ($)</label>
+                    <div className="relative group">
+                      <span className="cursor-help text-gray-500 hover:text-royal transition-colors">ⓘ</span>
+                      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-[#1a1a2e] border border-white/20 rounded-lg text-xs text-gray-300 w-56 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity z-50 shadow-xl">
+                        Maximum dollar risk per trade measured by SL distance. Uses two-layer check: declared SL width + M1 candle verification. Tied to the SL Required toggle.
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <Input type="number" step="0.5" placeholder="e.g., 5 (empty = no limit)" value={rulesConfig.max_risk_dollars || ""} onChange={(e) => setRulesConfig({ ...rulesConfig, max_risk_dollars: e.target.value ? parseFloat(e.target.value) : 0 })} disabled={!rulesConfig.rules_enabled.stop_loss_required} className={!rulesConfig.rules_enabled.stop_loss_required ? "opacity-40" : ""} />
+                <p className="text-[10px] text-gray-500">Maximum SL distance in dollars (controlled by SL Required toggle)</p>
               </div>
 
               {/* Daily Loss Cap */}
               <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-300">Daily Loss Cap ($)</label>
-                <Input type="number" step="1" placeholder="e.g., 10 (empty = no cap)" value={rulesConfig.daily_loss_cap || ""} onChange={(e) => setRulesConfig({ ...rulesConfig, daily_loss_cap: e.target.value ? parseFloat(e.target.value) : 0 })} />
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <label className="text-sm font-medium text-gray-300">Daily Loss Cap ($)</label>
+                    <div className="relative group">
+                      <span className="cursor-help text-gray-500 hover:text-royal transition-colors">ⓘ</span>
+                      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-[#1a1a2e] border border-white/20 rounded-lg text-xs text-gray-300 w-56 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity z-50 shadow-xl">
+                        Maximum drawdown from day&apos;s opening balance. Once breached, profitable trades after that point get profits removed.
+                      </div>
+                    </div>
+                  </div>
+                  <button onClick={() => setRulesConfig({ ...rulesConfig, rules_enabled: { ...rulesConfig.rules_enabled, daily_loss_cap: !rulesConfig.rules_enabled.daily_loss_cap } })} className={`w-10 h-5 rounded-full transition-all ${rulesConfig.rules_enabled.daily_loss_cap ? "bg-profit" : "bg-white/20"}`}>
+                    <div className={`w-4 h-4 bg-white rounded-full transition-transform ${rulesConfig.rules_enabled.daily_loss_cap ? "translate-x-5" : "translate-x-0.5"}`}></div>
+                  </button>
+                </div>
+                <Input type="number" step="1" placeholder="e.g., 10 (empty = no cap)" value={rulesConfig.daily_loss_cap || ""} onChange={(e) => setRulesConfig({ ...rulesConfig, daily_loss_cap: e.target.value ? parseFloat(e.target.value) : 0 })} disabled={!rulesConfig.rules_enabled.daily_loss_cap} className={!rulesConfig.rules_enabled.daily_loss_cap ? "opacity-40" : ""} />
                 <p className="text-[10px] text-gray-500">Max drawdown from day&apos;s opening balance. Profits after breach are removed.</p>
               </div>
 
               {/* Trading Duration */}
               <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-300">Max Trade Duration (hours)</label>
-                <Input type="number" placeholder="e.g., 24 (empty = unlimited)" value={rulesConfig.max_hold_hours || ""} onChange={(e) => setRulesConfig({ ...rulesConfig, max_hold_hours: e.target.value ? parseInt(e.target.value) : 0 })} />
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <label className="text-sm font-medium text-gray-300">Max Trade Duration (hours)</label>
+                    <div className="relative group">
+                      <span className="cursor-help text-gray-500 hover:text-royal transition-colors">ⓘ</span>
+                      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-[#1a1a2e] border border-white/20 rounded-lg text-xs text-gray-300 w-56 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity z-50 shadow-xl">
+                        Maximum time a trade can be held. Exceeding this flags the trade and removes profits. Encourages active trading.
+                      </div>
+                    </div>
+                  </div>
+                  <button onClick={() => setRulesConfig({ ...rulesConfig, rules_enabled: { ...rulesConfig.rules_enabled, max_hold_hours: !rulesConfig.rules_enabled.max_hold_hours } })} className={`w-10 h-5 rounded-full transition-all ${rulesConfig.rules_enabled.max_hold_hours ? "bg-profit" : "bg-white/20"}`}>
+                    <div className={`w-4 h-4 bg-white rounded-full transition-transform ${rulesConfig.rules_enabled.max_hold_hours ? "translate-x-5" : "translate-x-0.5"}`}></div>
+                  </button>
+                </div>
+                <Input type="number" placeholder="e.g., 24 (empty = unlimited)" value={rulesConfig.max_hold_hours || ""} onChange={(e) => setRulesConfig({ ...rulesConfig, max_hold_hours: e.target.value ? parseInt(e.target.value) : 0 })} disabled={!rulesConfig.rules_enabled.max_hold_hours} className={!rulesConfig.rules_enabled.max_hold_hours ? "opacity-40" : ""} />
                 <p className="text-[10px] text-gray-500">Trades held longer will have profits removed</p>
               </div>
 
               {/* Active Trading Days */}
               <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-300">Min Active Trading Days</label>
-                <Input type="number" placeholder="e.g., 7" value={rulesConfig.min_active_days || ""} onChange={(e) => setRulesConfig({ ...rulesConfig, min_active_days: e.target.value ? parseInt(e.target.value) : 0 })} />
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <label className="text-sm font-medium text-gray-300">Min Active Trading Days</label>
+                    <div className="relative group">
+                      <span className="cursor-help text-gray-500 hover:text-royal transition-colors">ⓘ</span>
+                      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-[#1a1a2e] border border-white/20 rounded-lg text-xs text-gray-300 w-56 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity z-50 shadow-xl">
+                        Minimum distinct days the participant must trade to qualify. Users who can&apos;t reach this are disqualified before challenge end.
+                      </div>
+                    </div>
+                  </div>
+                  <button onClick={() => setRulesConfig({ ...rulesConfig, rules_enabled: { ...rulesConfig.rules_enabled, min_active_days: !rulesConfig.rules_enabled.min_active_days } })} className={`w-10 h-5 rounded-full transition-all ${rulesConfig.rules_enabled.min_active_days ? "bg-profit" : "bg-white/20"}`}>
+                    <div className={`w-4 h-4 bg-white rounded-full transition-transform ${rulesConfig.rules_enabled.min_active_days ? "translate-x-5" : "translate-x-0.5"}`}></div>
+                  </button>
+                </div>
+                <Input type="number" placeholder="e.g., 7" value={rulesConfig.min_active_days || ""} onChange={(e) => setRulesConfig({ ...rulesConfig, min_active_days: e.target.value ? parseInt(e.target.value) : 0 })} disabled={!rulesConfig.rules_enabled.min_active_days} className={!rulesConfig.rules_enabled.min_active_days ? "opacity-40" : ""} />
                 <p className="text-[10px] text-gray-500">Minimum days user must trade to qualify for prizes</p>
               </div>
 
               {/* Toggles */}
               <div className="space-y-4">
                 <div className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10">
-                  <div><p className="text-sm text-white font-medium">Stop Loss Required</p><p className="text-[10px] text-gray-500">All trades must have SL</p></div>
-                  <button onClick={() => setRulesConfig({ ...rulesConfig, stop_loss_required: !rulesConfig.stop_loss_required })} className={`w-12 h-6 rounded-full transition-all ${rulesConfig.stop_loss_required ? "bg-profit" : "bg-white/20"}`}>
-                    <div className={`w-5 h-5 bg-white rounded-full transition-transform ${rulesConfig.stop_loss_required ? "translate-x-6" : "translate-x-0.5"}`}></div>
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <div><p className="text-sm text-white font-medium">Stop Loss Required</p><p className="text-[10px] text-gray-500">All trades must have SL within risk limit</p></div>
+                    <div className="relative group">
+                      <span className="cursor-help text-gray-500 hover:text-royal transition-colors text-xs">ⓘ</span>
+                      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-[#1a1a2e] border border-white/20 rounded-lg text-xs text-gray-300 w-56 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity z-50 shadow-xl">
+                        Enforces SL verification using M1 candle data. Detects fake stop losses placed after price moved.
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => setRulesConfig({ ...rulesConfig, rules_enabled: { ...rulesConfig.rules_enabled, stop_loss_required: !rulesConfig.rules_enabled.stop_loss_required } })} className={`w-10 h-5 rounded-full transition-all ${rulesConfig.rules_enabled.stop_loss_required ? "bg-royal" : "bg-white/20"}`} title="Enable/disable this rule">
+                      <div className={`w-4 h-4 bg-white rounded-full transition-transform ${rulesConfig.rules_enabled.stop_loss_required ? "translate-x-5" : "translate-x-0.5"}`}></div>
+                    </button>
+                    <button onClick={() => rulesConfig.rules_enabled.stop_loss_required && setRulesConfig({ ...rulesConfig, stop_loss_required: !rulesConfig.stop_loss_required })} className={`w-12 h-6 rounded-full transition-all ${rulesConfig.stop_loss_required && rulesConfig.rules_enabled.stop_loss_required ? "bg-profit" : "bg-white/20"} ${!rulesConfig.rules_enabled.stop_loss_required ? "opacity-40" : ""}`}>
+                      <div className={`w-5 h-5 bg-white rounded-full transition-transform ${rulesConfig.stop_loss_required && rulesConfig.rules_enabled.stop_loss_required ? "translate-x-6" : "translate-x-0.5"}`}></div>
+                    </button>
+                  </div>
                 </div>
                 <div className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10">
-                  <div><p className="text-sm text-white font-medium">Weekend Trading</p><p className="text-[10px] text-gray-500">Allow trading on weekends</p></div>
-                  <button onClick={() => setRulesConfig({ ...rulesConfig, weekend_trading: !rulesConfig.weekend_trading })} className={`w-12 h-6 rounded-full transition-all ${rulesConfig.weekend_trading ? "bg-profit" : "bg-white/20"}`}>
-                    <div className={`w-5 h-5 bg-white rounded-full transition-transform ${rulesConfig.weekend_trading ? "translate-x-6" : "translate-x-0.5"}`}></div>
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <div><p className="text-sm text-white font-medium">Weekend Trading</p><p className="text-[10px] text-gray-500">Allow crypto trading on weekends</p></div>
+                    <div className="relative group">
+                      <span className="cursor-help text-gray-500 hover:text-royal transition-colors text-xs">ⓘ</span>
+                      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-[#1a1a2e] border border-white/20 rounded-lg text-xs text-gray-300 w-56 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity z-50 shadow-xl">
+                        Controls whether crypto trades on weekends are allowed. Forex/commodities are excluded since those markets are closed.
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => setRulesConfig({ ...rulesConfig, rules_enabled: { ...rulesConfig.rules_enabled, weekend_trading: !rulesConfig.rules_enabled.weekend_trading } })} className={`w-10 h-5 rounded-full transition-all ${rulesConfig.rules_enabled.weekend_trading ? "bg-royal" : "bg-white/20"}`} title="Enable/disable this rule">
+                      <div className={`w-4 h-4 bg-white rounded-full transition-transform ${rulesConfig.rules_enabled.weekend_trading ? "translate-x-5" : "translate-x-0.5"}`}></div>
+                    </button>
+                    <button onClick={() => rulesConfig.rules_enabled.weekend_trading && setRulesConfig({ ...rulesConfig, weekend_trading: !rulesConfig.weekend_trading })} className={`w-12 h-6 rounded-full transition-all ${rulesConfig.weekend_trading && rulesConfig.rules_enabled.weekend_trading ? "bg-profit" : "bg-white/20"} ${!rulesConfig.rules_enabled.weekend_trading ? "opacity-40" : ""}`}>
+                      <div className={`w-5 h-5 bg-white rounded-full transition-transform ${rulesConfig.weekend_trading && rulesConfig.rules_enabled.weekend_trading ? "translate-x-6" : "translate-x-0.5"}`}></div>
+                    </button>
+                  </div>
                 </div>
                 <div className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10">
                   <div><p className="text-sm text-white font-medium">Only Cent Account</p><p className="text-[10px] text-gray-500">Real category requires cent accounts only</p></div>

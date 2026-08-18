@@ -63,6 +63,17 @@ function calculateSlDollars(symbol: string, volume: number, entryPrice: number, 
 
 // ==================== TYPES ====================
 
+interface RulesEnabled {
+  max_lot_size: boolean;
+  max_open_trades: boolean;
+  pair_limit: boolean;
+  stop_loss_required: boolean;
+  daily_loss_cap: boolean;
+  max_hold_hours: boolean;
+  weekend_trading: boolean;
+  min_active_days: boolean;
+}
+
 interface RuleConfig {
   max_lot_size: number | null;
   max_open_trades: number | null;
@@ -75,6 +86,7 @@ interface RuleConfig {
   min_active_days: number;
   only_cent_account: boolean;
   allow_professional: boolean;
+  rules_enabled?: RulesEnabled;
 }
 
 interface TradeRow {
@@ -98,6 +110,17 @@ interface TradeRow {
   sl_check_result?: string | null;
   sl_check_attempts?: number | null;
   sl_conflict_count?: number | null;
+}
+
+// ==================== RULE ENABLED HELPER ====================
+
+/**
+ * Check if a specific rule is enabled. Defaults to true for backward compatibility
+ * with existing challenges that don't have rules_enabled configured.
+ */
+function isRuleEnabled(rules: RuleConfig, ruleKey: keyof RulesEnabled): boolean {
+  if (!rules.rules_enabled) return true; // Legacy: all rules enabled by default
+  return rules.rules_enabled[ruleKey] !== false; // Explicit false = disabled
 }
 
 // ==================== CANDLE TERMINAL MANAGER ====================
@@ -656,7 +679,7 @@ export class WpEvaluationEngine {
       }
 
       // === 0-TRADES ACTIVE-DAYS DQ / UNDO ===
-      if (rules.min_active_days) {
+      if (rules.min_active_days && isRuleEnabled(rules, 'min_active_days')) {
         const challengeEndResult = await db.query(`SELECT end_date FROM trading_challenges WHERE id = $1`, [challengeId]);
         const challengeEnd = challengeEndResult.rows[0]?.end_date;
         if (challengeEnd) {
@@ -897,7 +920,7 @@ export class WpEvaluationEngine {
 
     // positionViolators: posId → [co-offending posIds]
     const positionViolators = new Map<number, number[]>();
-    if (rules.max_open_trades) {
+    if (rules.max_open_trades && isRuleEnabled(rules, 'max_open_trades')) {
       const symbolOf = new Map<number, string>(logicalTrades.map(lt => [lt.posId, lt.symbol]));
       const openSet = new Set<number>();
       for (const ev of events) {
@@ -932,7 +955,7 @@ export class WpEvaluationEngine {
     // pairViolators: ticket → ticket[] of co-offending same-pair trades
     // Same dedup: count by logical position, not partial rows
     const pairViolators = new Map<number, number[]>();
-    if (rules.pair_limit) {
+    if (rules.pair_limit && isRuleEnabled(rules, 'pair_limit')) {
       const bySymbol = new Map<string, LogicalTrade[]>();
       logicalTrades.forEach(lt => {
         if (!bySymbol.has(lt.symbol)) bySymbol.set(lt.symbol, []);
@@ -995,7 +1018,7 @@ export class WpEvaluationEngine {
     let drawdownBreachTime: string | null = null;
     let drawdownBreachDay: string | null = null;
 
-    if (rules.daily_loss_cap) {
+    if (rules.daily_loss_cap && isRuleEnabled(rules, 'daily_loss_cap')) {
       const tradesByDay = new Map<string, TradeRow[]>();
       allTrades.forEach(t => {
         const day = new Date(t.close_time).toISOString().split('T')[0];
@@ -1046,7 +1069,7 @@ export class WpEvaluationEngine {
     // Per-TICKET SL outcome (not per-position) — allows different results for each partial close
     const ticketSlOutcomes = new Map<number, PositionSlOutcome>();
 
-    if (rules.stop_loss_required && rules.max_risk_dollars) {
+    if (rules.stop_loss_required && rules.max_risk_dollars && isRuleEnabled(rules, 'stop_loss_required')) {
       const currency = reg.is_cent ? '¢' : '$';
       for (const [posId, tickets] of positionToTickets) {
         const siblings = allTrades
@@ -1185,7 +1208,7 @@ export class WpEvaluationEngine {
       // Max lot size — check the full position volume (sum of all partials),
       // not just the partial close volume, to catch positions that opened large
       // and were closed in smaller pieces.
-      if (rules.max_lot_size) {
+      if (rules.max_lot_size && isRuleEnabled(rules, 'max_lot_size')) {
         const posId = ticketToPosition.get(trade.ticket) ?? trade.ticket;
         const lt = logicalTrades.find(l => l.posId === posId);
         const positionVolume = lt ? lt.maxVolume : parseFloat(String(trade.volume));
@@ -1216,7 +1239,7 @@ export class WpEvaluationEngine {
       }
 
       // Hold time
-      if (rules.max_hold_hours && trade.open_time && trade.close_time) {
+      if (rules.max_hold_hours && isRuleEnabled(rules, 'max_hold_hours') && trade.open_time && trade.close_time) {
         const openMs  = new Date(trade.open_time).getTime();
         const closeMs = new Date(trade.close_time).getTime();
         if (openMs > 946684800000 && closeMs > openMs) {
@@ -1230,7 +1253,7 @@ export class WpEvaluationEngine {
       // Weekend trading — only flag crypto pairs.
       // Non-crypto forex/commodity markets are closed on weekends; any weekend
       // timestamp on a non-crypto pair is just server time overlap at market open/close.
-      if (!rules.weekend_trading) {
+      if (!rules.weekend_trading && isRuleEnabled(rules, 'weekend_trading')) {
         if (this.isWeekend(new Date(trade.open_time)) || this.isWeekend(new Date(trade.close_time))) {
           if (this.isCryptoPair(trade.symbol)) {
             violations.push(`Weekend trading`);
@@ -1240,7 +1263,7 @@ export class WpEvaluationEngine {
 
       // === SL CHECK — Only runs on profitable trades that pass ALL other rules above ===
       let slPenaltyDollars = 0;
-      if (rules.stop_loss_required && violations.length === 0 && tradeNet > 0) {
+      if (rules.stop_loss_required && isRuleEnabled(rules, 'stop_loss_required') && violations.length === 0 && tradeNet > 0) {
         const currency = reg.is_cent ? '¢' : '$';
         const MAX_SL_CHECK_ATTEMPTS = 5;
         const MAX_CONFLICTS = 3;
@@ -1399,7 +1422,7 @@ export class WpEvaluationEngine {
     const activeDays = tradeDays.size;
 
     // === ACTIVE-DAYS DQ / UNDO — computed once, used for both directions ===
-    if (rules.min_active_days) {
+    if (rules.min_active_days && isRuleEnabled(rules, 'min_active_days')) {
       const challengeEndResult = await db.query(`SELECT end_date FROM trading_challenges WHERE id = $1`, [challengeId]);
       const challengeEnd = challengeEndResult.rows[0]?.end_date;
       if (challengeEnd) {
@@ -1441,7 +1464,8 @@ export class WpEvaluationEngine {
       }
     }
 
-    const isQualified = adjustedBalance >= targetBalance && activeDays >= (rules.min_active_days || 0);
+    const minDaysRequired = isRuleEnabled(rules, 'min_active_days') ? (rules.min_active_days || 0) : 0;
+    const isQualified = adjustedBalance >= targetBalance && activeDays >= minDaysRequired;
     const lastTrade = allTrades[allTrades.length - 1];
 
     await this.upsertLeaderboard(challengeId, reg, effectiveStartBalance, {
@@ -1601,6 +1625,16 @@ export class WpEvaluationEngine {
       stop_loss_required: true, max_risk_dollars: 5, daily_loss_cap: 10,
       max_hold_hours: 24, weekend_trading: false, min_active_days: 7,
       only_cent_account: false, allow_professional: false,
+      rules_enabled: {
+        max_lot_size: true,
+        max_open_trades: true,
+        pair_limit: true,
+        stop_loss_required: true,
+        daily_loss_cap: true,
+        max_hold_hours: true,
+        weekend_trading: true,
+        min_active_days: true,
+      },
     };
     await this.saveRules(challengeId, defaults);
     console.log(`✅ WP Evaluation: Seeded default rules for challenge ${challengeId}`);
@@ -1635,16 +1669,16 @@ export class WpEvaluationEngine {
     const isRealCentOnly = challengeType === 'real' && isCent;
     const showDual = challengeType !== 'demo' && !isRealCentOnly;
 
-    if (cfg.max_lot_size) {
+    if (cfg.max_lot_size && isRuleEnabled(cfg, 'max_lot_size')) {
       if (showDual) {
         rules.push(`📊 Maximum lot size: ${cfg.max_lot_size} lots (Standard) / ${cfg.max_lot_size * 100} lots (Cent)`);
       } else {
         rules.push(`📊 Maximum lot size: ${cfg.max_lot_size} lots`);
       }
     }
-    if (cfg.max_open_trades) rules.push(`📈 Maximum ${cfg.max_open_trades} trades open at the same time`);
-    if (cfg.pair_limit) rules.push(`🔄 Maximum ${cfg.pair_limit} trades on the same pair simultaneously`);
-    if (cfg.stop_loss_required) {
+    if (cfg.max_open_trades && isRuleEnabled(cfg, 'max_open_trades')) rules.push(`📈 Maximum ${cfg.max_open_trades} trades open at the same time`);
+    if (cfg.pair_limit && isRuleEnabled(cfg, 'pair_limit')) rules.push(`🔄 Maximum ${cfg.pair_limit} trades on the same pair simultaneously`);
+    if (cfg.stop_loss_required && isRuleEnabled(cfg, 'stop_loss_required')) {
       let t = '🛡️ Max risk per trade';
       if (cfg.max_risk_dollars) {
         if (showDual) {
@@ -1658,7 +1692,7 @@ export class WpEvaluationEngine {
       t += ' — each trade is checked; profits removed if limit is breached';
       rules.push(t);
     }
-    if (cfg.daily_loss_cap) {
+    if (cfg.daily_loss_cap && isRuleEnabled(cfg, 'daily_loss_cap')) {
       if (showDual) {
         rules.push(`⚠️ Daily loss cap: $${cfg.daily_loss_cap} (Standard) / ${cfg.daily_loss_cap * 100}¢ (Cent) from day's opening balance`);
       } else if (isRealCentOnly) {
@@ -1667,9 +1701,9 @@ export class WpEvaluationEngine {
         rules.push(`⚠️ Daily loss cap: $${cfg.daily_loss_cap} from day's opening balance`);
       }
     }
-    if (cfg.max_hold_hours) rules.push(`⏱️ Maximum trade duration: ${cfg.max_hold_hours} hours`);
-    if (!cfg.weekend_trading) rules.push('🚫 No weekend trading');
-    if (cfg.min_active_days) rules.push(`📅 Minimum ${cfg.min_active_days} active trading days to qualify`);
+    if (cfg.max_hold_hours && isRuleEnabled(cfg, 'max_hold_hours')) rules.push(`⏱️ Maximum trade duration: ${cfg.max_hold_hours} hours`);
+    if (!cfg.weekend_trading && isRuleEnabled(cfg, 'weekend_trading')) rules.push('🚫 No weekend trading');
+    if (cfg.min_active_days && isRuleEnabled(cfg, 'min_active_days')) rules.push(`📅 Minimum ${cfg.min_active_days} active trading days to qualify`);
     rules.push('🚫 No recharging (additional deposits) allowed during the challenge');
     rules.push('✅ Unlimited trades per day — as long as all rules are followed');
     rules.push('✅ No leverage limit');

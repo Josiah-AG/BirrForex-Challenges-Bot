@@ -5904,7 +5904,10 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/rules`, adminIpCheck, asy
 /**
  * PUT /api/admin/:secretPath/challenge/:id/rules
  * Save rules config from admin form
- * Body: { max_lot_size, max_open_trades, pair_limit, stop_loss_required, max_risk_dollars, daily_loss_cap, max_hold_hours, weekend_trading, min_active_days, only_cent_account }
+ * Body: { max_lot_size, max_open_trades, pair_limit, stop_loss_required, max_risk_dollars,
+ *         daily_loss_cap, max_hold_hours, weekend_trading, min_active_days, only_cent_account,
+ *         rules_enabled: { max_lot_size, max_open_trades, pair_limit, stop_loss_required,
+ *                          daily_loss_cap, max_hold_hours, weekend_trading, min_active_days } }
  * Rules can only be changed when challenge is in 'draft' or 'registration_open' status.
  */
 app.put(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/rules`, adminIpCheck, async (req, res) => {

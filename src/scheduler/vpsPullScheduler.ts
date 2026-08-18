@@ -681,9 +681,11 @@ export class VpsPullScheduler {
             `SELECT parameters FROM wp_challenge_rules WHERE challenge_id = $1 AND rule_code = 'config'`,
             [challengeToPull.id]
           );
-          const minActiveDays = rulesResult.rows[0]?.parameters?.min_active_days || 0;
+          const rulesParams = rulesResult.rows[0]?.parameters;
+          const minActiveDays = rulesParams?.min_active_days || 0;
+          const minActiveDaysEnabled = rulesParams?.rules_enabled?.min_active_days !== false; // default true for backward compat
 
-          if (minActiveDays > 0) {
+          if (minActiveDays > 0 && minActiveDaysEnabled) {
             // DQ users with fewer active days than required (including 0 trades)
             const underperformers = await db.query(
               `SELECT r.id, r.account_number, r.username, COALESCE(l.active_days, 0) as active_days
@@ -1562,7 +1564,10 @@ export class VpsPullScheduler {
         [challengeId]
       );
       if (result.rows.length > 0) {
-        return result.rows[0].parameters?.weekend_trading === true;
+        const params = result.rows[0].parameters;
+        // If the weekend_trading rule is disabled entirely, treat as allowed (no restriction)
+        if (params?.rules_enabled?.weekend_trading === false) return true;
+        return params?.weekend_trading === true;
       }
       return false;
     } catch {
@@ -1701,10 +1706,12 @@ export class VpsPullScheduler {
         `SELECT end_date FROM trading_challenges WHERE id = $1`, [challengeId]);
       const rulesInfo = await db.query(
         `SELECT parameters FROM wp_challenge_rules WHERE challenge_id = $1 AND rule_code = 'config'`, [challengeId]);
-      const minActiveDays = rulesInfo.rows[0]?.parameters?.min_active_days || 0;
+      const rulesParams2 = rulesInfo.rows[0]?.parameters;
+      const minActiveDays = rulesParams2?.min_active_days || 0;
+      const minActiveDaysEnabled = rulesParams2?.rules_enabled?.min_active_days !== false; // default true for backward compat
       const endDate = challengeInfo.rows[0]?.end_date;
 
-      if (minActiveDays > 0 && endDate) {
+      if (minActiveDays > 0 && minActiveDaysEnabled && endDate) {
         // Calculate remaining TRADING days (weekdays only)
         const now = new Date();
         const end = new Date(endDate);
