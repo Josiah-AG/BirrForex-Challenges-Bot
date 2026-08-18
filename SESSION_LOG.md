@@ -252,3 +252,25 @@ Full implementation of `max_limit` and `min_limit` deposit modes across the enti
 - All existing challenges have `deposit_mode = 'fixed'` (DB default)
 - Every code path defaults to `'fixed'` when field is null/undefined
 - Fixed mode logic is completely unchanged — no conditional branches affect it
+
+---
+
+## Update #5 — Past Challenges Tab with Winner Popup (IMPLEMENTED)
+
+### What was done
+Added "Past Challenges" tab to the WinnerPip challenges page with winner popup modal.
+
+### Files Modified
+1. `src/api/server.ts`
+   - GET /api/challenges now accepts `?include_past=true` to skip 7/14-day visibility filter
+   - New endpoint: GET /api/challenges/:id/winners — returns winner data for completed challenges
+   - Challenge 15 winners hardcoded (Eyobgere, Therealteme89, Amanxspat, Devaman00, Romeo5121, Bella4x19)
+   - For other challenges: queries wp_leaderboard for top N qualified users by rank
+
+2. `WinnerPip/winnerpip/app/challenges/page.tsx` (full rewrite)
+   - Two tabs: "Current Challenges" (default) and "Past Challenges"
+   - Past challenge cards show "Completed" badge with checkmark
+   - Clicking a past challenge opens winner modal showing rank + nickname + trades/flagged + prize
+   - No winners → "No participant hit the target" message
+   - Team-only challenges: prizes blurred in the modal
+   - Current challenges tab: shows existing active/upcoming cards unchanged
