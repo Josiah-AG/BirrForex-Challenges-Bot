@@ -641,6 +641,14 @@ app.get('/api/challenges/:id/leaderboard', async (req, res) => {
       total,
       hasMore: offset + limit < total,
       myContext,
+      minTotalTrades: await (async () => {
+        try {
+          const r = await db.query(`SELECT parameters FROM wp_challenge_rules WHERE challenge_id = $1 AND rule_code = 'config'`, [challengeId]);
+          const params = r.rows[0]?.parameters;
+          if (params?.min_total_trades && params?.rules_enabled?.min_total_trades !== false) return params.min_total_trades;
+          return null;
+        } catch { return null; }
+      })(),
       leaderboard: (() => {
         let currentRank = offset;
         return result.rows.map((r: any) => {

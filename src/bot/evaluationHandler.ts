@@ -455,6 +455,7 @@ class EvaluationHandler {
           : (wpRules?.daily_loss_cap || 10))
         : 99999,
       maxHoldHours: (wpRules?.rules_enabled?.max_hold_hours !== false) ? (wpRules?.max_hold_hours || 24) : 99999,
+      minTradeDurationMinutes: (wpRules?.rules_enabled?.min_trade_duration !== false) ? (wpRules?.min_trade_duration_minutes || 0) : 0,
       minActiveDays: (wpRules?.rules_enabled?.min_active_days !== false) ? (wpRules?.min_active_days || 7) : 0,
     };
 

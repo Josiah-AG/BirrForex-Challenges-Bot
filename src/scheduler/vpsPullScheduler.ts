@@ -717,6 +717,46 @@ export class VpsPullScheduler {
         } catch (e) {
           console.error('⚠️ Auto-DQ check error:', e);
         }
+
+        // === MIN TOTAL TRADES DQ (challenge ended) ===
+        try {
+          const rulesResult2 = await db.query(
+            `SELECT parameters FROM wp_challenge_rules WHERE challenge_id = $1 AND rule_code = 'config'`,
+            [challengeToPull.id]
+          );
+          const rulesParams2 = rulesResult2.rows[0]?.parameters;
+          const minTotalTrades = rulesParams2?.min_total_trades || 0;
+          const minTotalTradesEnabled = rulesParams2?.rules_enabled?.min_total_trades !== false;
+
+          if (minTotalTrades > 0 && minTotalTradesEnabled) {
+            const underTraders = await db.query(
+              `SELECT r.id, r.account_number, r.username, COALESCE(l.total_trades, 0) as total_trades
+               FROM trading_registrations r
+               LEFT JOIN wp_leaderboard l ON r.id = l.registration_id
+               WHERE r.challenge_id = $1
+                 AND r.disqualified = false
+                 AND (COALESCE(l.total_trades, 0) < $2)`,
+              [challengeToPull.id, minTotalTrades]
+            );
+
+            if (underTraders.rows.length > 0) {
+              for (const u of underTraders.rows) {
+                await db.query(
+                  `UPDATE trading_registrations SET disqualified = true, disqualified_at = NOW(), disqualified_reason = $1 WHERE id = $2 AND disqualified = false`,
+                  [`Did not meet minimum ${minTotalTrades} trades (completed ${u.total_trades} trades)`, u.id]
+                );
+                await db.query(
+                  `UPDATE wp_leaderboard SET is_disqualified = true, disqualify_reason = $1 WHERE registration_id = $2`,
+                  [`Minimum ${minTotalTrades} trades not met (${u.total_trades}/${minTotalTrades})`, u.id]
+                );
+              }
+              console.log(`📊 VPS Pull: Auto-DQ'd ${underTraders.rows.length} users for insufficient total trades`);
+              await leaderboardService.updateRankings(challengeToPull.id, true);
+            }
+          }
+        } catch (e) {
+          console.error('⚠️ Min total trades DQ check error:', e);
+        }
       }
 
       const duration = Math.round((Date.now() - startTime) / 1000);

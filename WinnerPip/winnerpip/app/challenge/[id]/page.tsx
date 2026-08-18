@@ -78,6 +78,7 @@ export default function ChallengeDashboard() {
   const myStatsRef = useRef<MyStats | null>(null);
   const [myContext, setMyContext] = useState<LeaderboardEntry[]>([]);
   const [challengeRules, setChallengeRules] = useState<string[]>([]);
+  const [minTotalTrades, setMinTotalTrades] = useState<number | null>(null);
 
   // Fetch trades when a user is selected in leaderboard modal
   useEffect(() => {
@@ -209,6 +210,7 @@ export default function ChallengeDashboard() {
         setLeaderboardPreStart(data.preStart || false);
         setLeaderboardHasMore(data.hasMore || false);
         setLeaderboardTotal(data.total || entries.length);
+        if (data.minTotalTrades) setMinTotalTrades(data.minTotalTrades);
         if (data.myContext) {
           setMyContext(data.myContext.map((entry: LeaderboardEntry) => ({
             ...entry,
@@ -954,6 +956,26 @@ export default function ChallengeDashboard() {
               </div>
             )}
 
+            {/* MIN TOTAL TRADES BLUE FLAG — shown when user hasn't met minimum trades during active challenge */}
+            {minTotalTrades && myStats.totalTrades < minTotalTrades && !myStats.disqualified && !isNotStarted && (
+              <div className="glass rounded-2xl p-4 md:p-5 border border-royal/30 bg-royal/5 mb-6">
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-royal/20 flex items-center justify-center flex-shrink-0">
+                    <span className="text-xl">📊</span>
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-royal mb-1">Minimum Trades Not Met</p>
+                    <p className="text-xs text-gray-300">
+                      You need at least <b>{minTotalTrades} trades</b> to qualify. You currently have <b>{myStats.totalTrades}</b> trade{myStats.totalTrades !== 1 ? 's' : ''}.
+                    </p>
+                    <p className="text-xs text-gray-400 mt-2">
+                      Keep trading — you won&apos;t be disqualified until the challenge ends.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* PROGRESS BAR — only show when user has trades and is active */}
             {showProgressBar ? (
               <div className="glass rounded-2xl p-4 md:p-5 border border-white/10 mb-3">
@@ -1442,6 +1464,13 @@ export default function ChallengeDashboard() {
                 )}
                 {/* Only show stats for non-DQ users */}
                 {!selectedUser.isDisqualified && (<>
+                  {/* Min total trades blue flag */}
+                  {minTotalTrades && selectedUser.totalTrades < minTotalTrades && (
+                    <div className="flex items-center gap-2 p-3 rounded-xl bg-royal/10 border border-royal/30 mb-4">
+                      <span className="text-sm">📊</span>
+                      <p className="text-xs text-royal font-medium">Minimum trades not met — {selectedUser.totalTrades}/{minTotalTrades} trades</p>
+                    </div>
+                  )}
                   <div className="grid grid-cols-3 gap-3 mb-4">
                     <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500 mb-1">Trades</p><p className="text-lg font-bold text-white">{selectedUser.totalTrades}</p></div>
                     <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500 mb-1">Qualified</p><p className="text-lg font-bold text-white">{selectedUser.qualifiedTrades}</p></div>

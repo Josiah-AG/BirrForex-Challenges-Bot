@@ -16,6 +16,7 @@ export interface EvaluationConfig {
   maxSlDollars: number;        // 6 (internal buffer for $5 rule)
   maxDailyLoss: number;        // 10
   maxHoldHours: number;        // 24
+  minTradeDurationMinutes: number; // 0 = no minimum
   minActiveDays: number;       // 7
 }
 
@@ -429,6 +430,14 @@ export function evaluateAccount(
     if (h > config.maxHoldHours) {
       holdOk = false;
       if (p.profit > 0) addFlag(p.positionId, 'Held ' + h.toFixed(1) + 'h > ' + config.maxHoldHours + 'h');
+    }
+    // Min trade duration
+    if (config.minTradeDurationMinutes > 0) {
+      const mins = h * 60;
+      if (mins < config.minTradeDurationMinutes) {
+        holdOk = false;
+        if (p.profit > 0) addFlag(p.positionId, 'Trade held ' + mins.toFixed(1) + ' min < min ' + config.minTradeDurationMinutes + ' min');
+      }
     }
   });
 

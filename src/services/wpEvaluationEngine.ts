@@ -70,8 +70,10 @@ interface RulesEnabled {
   stop_loss_required: boolean;
   daily_loss_cap: boolean;
   max_hold_hours: boolean;
+  min_trade_duration: boolean;
   weekend_trading: boolean;
   min_active_days: boolean;
+  min_total_trades: boolean;
 }
 
 interface RuleConfig {
@@ -86,8 +88,10 @@ interface RuleConfig {
   daily_loss_mode?: 'fixed' | 'percentage';      // 'fixed' = $ amount, 'percentage' = % of day's opening balance
   daily_loss_percent?: number | null;            // e.g. 20 = 20% of day's opening balance
   max_hold_hours: number | null;
+  min_trade_duration_minutes: number | null;     // Minimum trade hold time in minutes — trades shorter than this are flagged
   weekend_trading: boolean;
   min_active_days: number;
+  min_total_trades: number | null;               // Minimum total trades to qualify — blue flag during challenge, DQ at end
   only_cent_account: boolean;
   allow_professional: boolean;
   rules_enabled?: RulesEnabled;
@@ -1311,6 +1315,18 @@ export class WpEvaluationEngine {
         }
       }
 
+      // Minimum trade duration — trades shorter than this are flagged
+      if (rules.min_trade_duration_minutes && isRuleEnabled(rules, 'min_trade_duration') && trade.open_time && trade.close_time) {
+        const openMs  = new Date(trade.open_time).getTime();
+        const closeMs = new Date(trade.close_time).getTime();
+        if (openMs > 946684800000 && closeMs > openMs) {
+          const holdMinutes = (closeMs - openMs) / (1000 * 60);
+          if (holdMinutes < rules.min_trade_duration_minutes) {
+            violations.push(`Trade held ${holdMinutes.toFixed(1)} min — below minimum ${rules.min_trade_duration_minutes} min`);
+          }
+        }
+      }
+
       // Weekend trading — only flag crypto pairs.
       // Non-crypto forex/commodity markets are closed on weekends; any weekend
       // timestamp on a non-crypto pair is just server time overlap at market open/close.
@@ -1532,6 +1548,41 @@ export class WpEvaluationEngine {
       }
     }
 
+    // === MIN TOTAL TRADES DQ — only DQ at challenge end ===
+    // During the challenge: no DQ (user still has time to trade more).
+    // At challenge end: DQ if total trades < min_total_trades.
+    // Also undo any incorrect min-trades DQ if user now meets the requirement.
+    if (rules.min_total_trades && isRuleEnabled(rules, 'min_total_trades')) {
+      const totalTradeCount = allTrades.length;
+      const challengeEndResult2 = await db.query(`SELECT end_date, status FROM trading_challenges WHERE id = $1`, [challengeId]);
+      const challengeEnd2 = challengeEndResult2.rows[0]?.end_date;
+      const challengeStatus2 = challengeEndResult2.rows[0]?.status;
+      const isChallengeOver = challengeStatus2 === 'completed' || challengeStatus2 === 'reviewing' ||
+        (challengeEnd2 && new Date(challengeEnd2).getTime() < Date.now());
+
+      if (totalTradeCount >= rules.min_total_trades) {
+        // User meets the requirement — clear any incorrect min-trades DQ
+        const currentDq2 = await db.query(
+          `SELECT disqualified, disqualified_reason FROM trading_registrations WHERE id = $1`, [reg.id]
+        );
+        if (currentDq2.rows[0]?.disqualified && currentDq2.rows[0]?.disqualified_reason?.includes('minimum') && currentDq2.rows[0]?.disqualified_reason?.includes('trades')) {
+          await db.query(`UPDATE trading_registrations SET disqualified = false, disqualified_at = NULL, disqualified_reason = NULL WHERE id = $1`, [reg.id]);
+          await db.query(`UPDATE wp_leaderboard SET is_disqualified = false, disqualify_reason = NULL WHERE registration_id = $1`, [reg.id]);
+        }
+      } else if (isChallengeOver) {
+        // Challenge ended and user didn't meet min trades → DQ
+        await db.query(
+          `UPDATE trading_registrations SET disqualified = true, disqualified_at = NOW(), disqualified_reason = $1 WHERE id = $2 AND disqualified = false`,
+          [`Did not meet minimum ${rules.min_total_trades} trades (completed ${totalTradeCount} trades)`, reg.id]
+        );
+        await db.query(
+          `UPDATE wp_leaderboard SET is_disqualified = true, disqualify_reason = $1 WHERE registration_id = $2`,
+          [`Minimum ${rules.min_total_trades} trades not met (${totalTradeCount}/${rules.min_total_trades})`, reg.id]
+        );
+      }
+      // During challenge + not met: no action (blue flag shown on frontend only)
+    }
+
     const minDaysRequired = isRuleEnabled(rules, 'min_active_days') ? (rules.min_active_days || 0) : 0;
     const isQualified = adjustedBalance >= targetBalance && activeDays >= minDaysRequired;
     const lastTrade = allTrades[allTrades.length - 1];
@@ -1694,7 +1745,8 @@ export class WpEvaluationEngine {
       max_risk_mode: 'fixed', max_risk_percent: null,
       daily_loss_cap: 10,
       daily_loss_mode: 'fixed', daily_loss_percent: null,
-      max_hold_hours: 24, weekend_trading: false, min_active_days: 7,
+      max_hold_hours: 24, min_trade_duration_minutes: null,
+      weekend_trading: false, min_active_days: 7, min_total_trades: null,
       only_cent_account: false, allow_professional: false,
       rules_enabled: {
         max_lot_size: true,
@@ -1703,8 +1755,10 @@ export class WpEvaluationEngine {
         stop_loss_required: true,
         daily_loss_cap: true,
         max_hold_hours: true,
+        min_trade_duration: true,
         weekend_trading: true,
         min_active_days: true,
+        min_total_trades: true,
       },
     };
     await this.saveRules(challengeId, defaults);
@@ -1777,8 +1831,10 @@ export class WpEvaluationEngine {
       }
     }
     if (cfg.max_hold_hours && isRuleEnabled(cfg, 'max_hold_hours')) rules.push(`⏱️ Maximum trade duration: ${cfg.max_hold_hours} hours`);
+    if (cfg.min_trade_duration_minutes && isRuleEnabled(cfg, 'min_trade_duration')) rules.push(`⏱️ Minimum trade duration: ${cfg.min_trade_duration_minutes} minutes`);
     if (!cfg.weekend_trading && isRuleEnabled(cfg, 'weekend_trading')) rules.push('🚫 No weekend trading');
     if (cfg.min_active_days && isRuleEnabled(cfg, 'min_active_days')) rules.push(`📅 Minimum ${cfg.min_active_days} active trading days to qualify`);
+    if (cfg.min_total_trades && isRuleEnabled(cfg, 'min_total_trades')) rules.push(`📊 Minimum ${cfg.min_total_trades} total trades to qualify`);
     rules.push('🚫 No recharging (additional deposits) allowed during the challenge');
     rules.push('✅ Unlimited trades per day — as long as all rules are followed');
     rules.push('✅ No leverage limit');

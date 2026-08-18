@@ -42,8 +42,10 @@ export default function AdminDashboard() {
     daily_loss_mode: 'fixed' as 'fixed' | 'percentage',
     daily_loss_percent: 20,
     max_hold_hours: 24,
+    min_trade_duration_minutes: null as number | null,
     weekend_trading: false,
     min_active_days: 7,
+    min_total_trades: null as number | null,
     only_cent_account: false,
     rules_enabled: {
       max_lot_size: true,
@@ -52,8 +54,10 @@ export default function AdminDashboard() {
       stop_loss_required: true,
       daily_loss_cap: true,
       max_hold_hours: true,
+      min_trade_duration: true,
       weekend_trading: true,
       min_active_days: true,
+      min_total_trades: true,
     } as Record<string, boolean>,
   });
   const [rulesSaved, setRulesSaved] = useState(false);
@@ -185,8 +189,10 @@ export default function AdminDashboard() {
               daily_loss_mode: data.rules.daily_loss_mode ?? 'fixed',
               daily_loss_percent: data.rules.daily_loss_percent ?? 20,
               max_hold_hours: data.rules.max_hold_hours ?? 24,
+              min_trade_duration_minutes: data.rules.min_trade_duration_minutes ?? null,
               weekend_trading: data.rules.weekend_trading ?? false,
               min_active_days: data.rules.min_active_days ?? 7,
+              min_total_trades: data.rules.min_total_trades ?? null,
               only_cent_account: data.rules.only_cent_account ?? false,
               rules_enabled: data.rules.rules_enabled ?? {
                 max_lot_size: true,
@@ -195,8 +201,10 @@ export default function AdminDashboard() {
                 stop_loss_required: true,
                 daily_loss_cap: true,
                 max_hold_hours: true,
+                min_trade_duration: true,
                 weekend_trading: true,
                 min_active_days: true,
+                min_total_trades: true,
               },
             };
             setRulesConfig(loaded);
@@ -1223,6 +1231,26 @@ export default function AdminDashboard() {
                   <p className="text-[10px] text-gray-500">Trades held longer will have profits removed</p>
                 </div>
 
+                {/* Min Trade Duration */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <label className="text-sm font-medium text-gray-300">Min Trade Duration (minutes)</label>
+                      <div className="relative group">
+                        <span className="cursor-help text-gray-500 hover:text-royal transition-colors">ⓘ</span>
+                        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-[#1a1a2e] border border-white/20 rounded-lg text-xs text-gray-300 w-56 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity z-50 shadow-xl">
+                          Minimum time a trade must be held. Trades shorter than this are flagged and profits removed. Prevents ultra-short scalping or bot-like behavior.
+                        </div>
+                      </div>
+                    </div>
+                    <button onClick={() => !rulesLocked && setRulesConfig({ ...rulesConfig, rules_enabled: { ...rulesConfig.rules_enabled, min_trade_duration: !rulesConfig.rules_enabled.min_trade_duration } })} className={`w-10 h-5 rounded-full transition-all ${rulesConfig.rules_enabled.min_trade_duration ? "bg-profit" : "bg-white/20"}`}>
+                      <div className={`w-4 h-4 bg-white rounded-full transition-transform ${rulesConfig.rules_enabled.min_trade_duration ? "translate-x-5" : "translate-x-0.5"}`}></div>
+                    </button>
+                  </div>
+                  <Input type="number" placeholder="e.g., 2 (empty = no minimum)" value={rulesConfig.min_trade_duration_minutes || ""} onChange={(e) => setRulesConfig({ ...rulesConfig, min_trade_duration_minutes: e.target.value ? parseInt(e.target.value) : null })} disabled={rulesLocked || !rulesConfig.rules_enabled.min_trade_duration} className={!rulesConfig.rules_enabled.min_trade_duration ? "opacity-40" : ""} />
+                  <p className="text-[10px] text-gray-500">Trades closed faster than this will have profits removed</p>
+                </div>
+
                 {/* Active Trading Days */}
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
@@ -1241,6 +1269,26 @@ export default function AdminDashboard() {
                   </div>
                   <Input type="number" placeholder="e.g., 7" value={rulesConfig.min_active_days || ""} onChange={(e) => setRulesConfig({ ...rulesConfig, min_active_days: e.target.value ? parseInt(e.target.value) : 0 })} disabled={rulesLocked || !rulesConfig.rules_enabled.min_active_days} className={!rulesConfig.rules_enabled.min_active_days ? "opacity-40" : ""} />
                   <p className="text-[10px] text-gray-500">Minimum days user must trade to qualify for prizes</p>
+                </div>
+
+                {/* Min Total Trades */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <label className="text-sm font-medium text-gray-300">Min Total Trades</label>
+                      <div className="relative group">
+                        <span className="cursor-help text-gray-500 hover:text-royal transition-colors">ⓘ</span>
+                        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-[#1a1a2e] border border-white/20 rounded-lg text-xs text-gray-300 w-56 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity z-50 shadow-xl">
+                          Minimum total closed trades to qualify as a winner. Users see a blue notification until met. At challenge end, users who haven&apos;t met this are disqualified.
+                        </div>
+                      </div>
+                    </div>
+                    <button onClick={() => !rulesLocked && setRulesConfig({ ...rulesConfig, rules_enabled: { ...rulesConfig.rules_enabled, min_total_trades: !rulesConfig.rules_enabled.min_total_trades } })} className={`w-10 h-5 rounded-full transition-all ${rulesConfig.rules_enabled.min_total_trades ? "bg-profit" : "bg-white/20"}`}>
+                      <div className={`w-4 h-4 bg-white rounded-full transition-transform ${rulesConfig.rules_enabled.min_total_trades ? "translate-x-5" : "translate-x-0.5"}`}></div>
+                    </button>
+                  </div>
+                  <Input type="number" placeholder="e.g., 10 (empty = no minimum)" value={rulesConfig.min_total_trades || ""} onChange={(e) => setRulesConfig({ ...rulesConfig, min_total_trades: e.target.value ? parseInt(e.target.value) : null })} disabled={rulesLocked || !rulesConfig.rules_enabled.min_total_trades} className={!rulesConfig.rules_enabled.min_total_trades ? "opacity-40" : ""} />
+                  <p className="text-[10px] text-gray-500">Users with fewer trades will be DQ&apos;d at challenge end</p>
                 </div>
 
                 {/* Toggles */}
@@ -2013,8 +2061,10 @@ function CreateChallengePanel({ onCreated }: { onCreated: (id: number) => void }
     daily_loss_mode: 'fixed' as 'fixed' | 'percentage',
     daily_loss_percent: 20,
     max_hold_hours: 24,
+    min_trade_duration_minutes: null as number | null,
     weekend_trading: false,
     min_active_days: 7,
+    min_total_trades: null as number | null,
     only_cent_account: false,
     allow_professional: false,
     rules_enabled: {
@@ -2024,8 +2074,10 @@ function CreateChallengePanel({ onCreated }: { onCreated: (id: number) => void }
       stop_loss_required: true,
       daily_loss_cap: true,
       max_hold_hours: true,
+      min_trade_duration: true,
       weekend_trading: true,
       min_active_days: true,
+      min_total_trades: true,
     } as Record<string, boolean>,
   });
 
@@ -2171,7 +2223,9 @@ function CreateChallengePanel({ onCreated }: { onCreated: (id: number) => void }
               <RuleInputWithMode label="Max Risk" tooltip="Max risk per trade measured by SL distance. Fixed = same $ amount for all trades. Percentage = calculated from account balance at the time each trade is opened." value={rules.max_risk_mode === 'percentage' ? rules.max_risk_percent : rules.max_risk_dollars} enabled={rules.rules_enabled.stop_loss_required} mode={rules.max_risk_mode} onValueChange={v => rules.max_risk_mode === 'percentage' ? setRules({...rules, max_risk_percent: v}) : setRules({...rules, max_risk_dollars: v})} onToggle={() => setRules({...rules, rules_enabled: {...rules.rules_enabled, stop_loss_required: !rules.rules_enabled.stop_loss_required}})} onModeChange={m => setRules({...rules, max_risk_mode: m})} />
               <RuleInputWithMode label="Daily Loss Cap" tooltip="Max drawdown from day's opening balance. Fixed = same $ cap every day. Percentage = calculated from each day's opening balance (scales with account growth)." value={rules.daily_loss_mode === 'percentage' ? rules.daily_loss_percent : rules.daily_loss_cap} enabled={rules.rules_enabled.daily_loss_cap} mode={rules.daily_loss_mode} onValueChange={v => rules.daily_loss_mode === 'percentage' ? setRules({...rules, daily_loss_percent: v}) : setRules({...rules, daily_loss_cap: v})} onToggle={() => setRules({...rules, rules_enabled: {...rules.rules_enabled, daily_loss_cap: !rules.rules_enabled.daily_loss_cap}})} onModeChange={m => setRules({...rules, daily_loss_mode: m})} />
               <RuleInputWithToggle label="Max Hold Hours" tooltip="Max time a trade can be held. Exceeding this flags the trade. Encourages active intraday trading." value={rules.max_hold_hours} enabled={rules.rules_enabled.max_hold_hours} onValueChange={v => setRules({...rules, max_hold_hours: v})} onToggle={() => setRules({...rules, rules_enabled: {...rules.rules_enabled, max_hold_hours: !rules.rules_enabled.max_hold_hours}})} />
+              <RuleInputWithToggle label="Min Trade Duration (min)" tooltip="Minimum time a trade must be held. Trades closed faster than this are flagged and profits removed. Prevents ultra-short scalping." value={rules.min_trade_duration_minutes || 0} enabled={rules.rules_enabled.min_trade_duration} onValueChange={v => setRules({...rules, min_trade_duration_minutes: v})} onToggle={() => setRules({...rules, rules_enabled: {...rules.rules_enabled, min_trade_duration: !rules.rules_enabled.min_trade_duration}})} />
               <RuleInputWithToggle label="Min Active Days" tooltip="Minimum distinct trading days to qualify for prizes. Users who can't reach this are DQ'd before challenge end." value={rules.min_active_days} enabled={rules.rules_enabled.min_active_days} onValueChange={v => setRules({...rules, min_active_days: v})} onToggle={() => setRules({...rules, rules_enabled: {...rules.rules_enabled, min_active_days: !rules.rules_enabled.min_active_days}})} />
+              <RuleInputWithToggle label="Min Total Trades" tooltip="Minimum total number of trades to qualify. Users see a blue flag until met. At challenge end, users who haven't met this are disqualified." value={rules.min_total_trades || 0} enabled={rules.rules_enabled.min_total_trades} onValueChange={v => setRules({...rules, min_total_trades: v})} onToggle={() => setRules({...rules, rules_enabled: {...rules.rules_enabled, min_total_trades: !rules.rules_enabled.min_total_trades}})} />
               <RuleToggleWithTooltip label="Stop Loss Required" tooltip="Enforces SL verification using M1 candle data. Detects fake stop losses placed after price moved." value={rules.stop_loss_required} enabled={rules.rules_enabled.stop_loss_required} onValueChange={v => setRules({...rules, stop_loss_required: v})} onToggle={() => setRules({...rules, rules_enabled: {...rules.rules_enabled, stop_loss_required: !rules.rules_enabled.stop_loss_required}})} />
               <RuleToggleWithTooltip label="Weekend Trading" tooltip="Controls crypto trades on weekends. When OFF (and enabled), weekend crypto trades are flagged. Forex excluded." value={rules.weekend_trading} enabled={rules.rules_enabled.weekend_trading} onValueChange={v => setRules({...rules, weekend_trading: v})} onToggle={() => setRules({...rules, rules_enabled: {...rules.rules_enabled, weekend_trading: !rules.rules_enabled.weekend_trading}})} />
               <RuleToggle label="Only Cent Account (Real)" value={rules.only_cent_account} onChange={v => setRules({...rules, only_cent_account: v, ...(v ? { allow_professional: false } : {})})} />
