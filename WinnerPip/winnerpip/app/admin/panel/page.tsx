@@ -2205,7 +2205,7 @@ function CreateChallengePanel({ onCreated }: { onCreated: (id: number) => void }
                 </div>
                 <div className="mt-2 p-2.5 rounded-lg bg-white/5 border border-white/5">
                   {form.deposit_mode === 'fixed' && (
-                    <p className="text-[11px] text-gray-400"><span className="text-royal font-semibold">Fixed Deposit:</span> All participants start with the same balance. Real accounts can register with lower balance (they deposit before start). Exceeding the limit = DQ. Target is a fixed dollar amount. SL and drawdown rules can be in $ or %. Leaderboard ranked by balance. <span className="text-gray-500 italic">Best for equal-start competitions.</span></p>
+                    <p className="text-[11px] text-gray-400"><span className="text-royal font-semibold">Fixed Deposit:</span> All participants start with the same balance. Real accounts can register with lower balance but the target remains the same for all. Exceeding the limit = DQ. Target is a fixed dollar amount. SL and drawdown rules can be in $ or %. Leaderboard ranked by balance. <span className="text-gray-500 italic">Best for equal-start competitions.</span></p>
                   )}
                   {form.deposit_mode === 'max_limit' && (
                     <p className="text-[11px] text-gray-400"><span className="text-gold font-semibold">Max Limit:</span> Participants can deposit any amount up to a maximum cap. Target is in growth %. SL and drawdown rules must be in % (auto-scales with each user&apos;s balance). Leaderboard ranked by account growth %. <span className="text-gray-500 italic">Best for flexible-entry challenges where fairness comes from % performance.</span></p>
