@@ -140,3 +140,54 @@ Add option to set SL risk and daily loss cap as a percentage of account balance 
 - **Legacy engine**: uses starting balance approximation since it doesn't track per-trade balance
 - **Cent accounts**: percentages auto-scale correctly (10% of 5000¢ = 500¢)
 - **Backward compatible**: `undefined` mode = `'fixed'` behavior, existing challenges unaffected
+
+---
+
+## Update #3 — Minimum Trade Duration & Minimum Total Trades (IMPLEMENTED)
+
+### Requirement
+1. **Min Trade Duration**: Trades held shorter than X minutes are flagged, profits removed (per-trade enforcement)
+2. **Min Total Trades**: Users need X total trades to qualify. Blue flag during challenge, DQ at end if not met.
+
+### Files Modified
+
+**Backend:**
+1. `src/services/wpEvaluationEngine.ts`
+   - Added `min_trade_duration_minutes` and `min_total_trades` to RuleConfig
+   - Added `min_trade_duration` and `min_total_trades` to RulesEnabled
+   - Per-trade min duration check (after max hold hours check)
+   - End-of-challenge min_total_trades DQ logic (only DQs when challenge over)
+   - Undo incorrect DQ if user meets requirement later
+   - getRulesForDisplay shows both rules
+   - seedDefaultRules includes both (null = not active)
+
+2. `src/services/evaluationEngine.ts` (legacy)
+   - Added `minTradeDurationMinutes` to EvaluationConfig
+   - Added per-trade min duration check in hold-time loop
+
+3. `src/bot/evaluationHandler.ts`
+   - Passes `minTradeDurationMinutes` to legacy engine (respects rules_enabled)
+
+4. `src/scheduler/vpsPullScheduler.ts`
+   - End-of-challenge DQ for min_total_trades (STEP 7 block)
+
+5. `src/api/server.ts`
+   - Leaderboard response includes `minTotalTrades` from rules (for frontend blue flag)
+
+**Frontend:**
+6. `WinnerPip/winnerpip/app/admin/panel/page.tsx`
+   - Creation stepper (Step 3): added inputs for both rules with ON/OFF + tooltips
+   - Rules tab: added inputs for both rules with ON/OFF + tooltips
+   - States + API loading updated
+
+7. `WinnerPip/winnerpip/app/challenge/[id]/page.tsx` (user dashboard)
+   - Blue info banner: "Minimum Trades Not Met — X/Y trades" (shown during active challenge)
+   - Blue flag in leaderboard user detail modal when viewing someone who hasn't met min
+   - `minTotalTrades` state stored from leaderboard API response
+
+### Behavior Summary
+- **Min Trade Duration**: e.g., min 2 minutes — trade held 45 seconds → flagged, profit removed
+- **Min Total Trades**: e.g., min 10 trades
+  - During challenge: blue info banner on dashboard, blue badge in leaderboard detail
+  - At challenge end: hard DQ ("Did not meet minimum 10 trades (completed 7 trades)")
+  - If user later meets it: DQ automatically cleared on next evaluation
