@@ -2035,8 +2035,10 @@ function CreateChallengePanel({ onCreated }: { onCreated: (id: number) => void }
     type: "hybrid" as "demo" | "real" | "hybrid",
     start_date: "",
     end_date: "",
+    deposit_mode: "fixed" as "fixed" | "max_limit" | "min_limit",
     starting_balance: "30",
     target_balance: "60",
+    target_percent: "100",
     prize_pool_text: "",
     real_winners_count: "3",
     demo_winners_count: "3",
@@ -2107,6 +2109,8 @@ function CreateChallengePanel({ onCreated }: { onCreated: (id: number) => void }
           evaluation_type: form.evaluation_type || "winnerpip",
           starting_balance: parseFloat(form.starting_balance),
           target_balance: parseFloat(form.target_balance),
+          deposit_mode: form.deposit_mode,
+          target_percent: form.deposit_mode !== 'fixed' ? parseFloat(form.target_percent) || null : null,
           real_winners_count: parseInt(form.real_winners_count),
           demo_winners_count: parseInt(form.demo_winners_count),
           real_prizes: form.real_prizes.split(",").map(p => p.trim()).filter(Boolean).map(p => isNaN(Number(p)) ? p : parseFloat(p)),
@@ -2185,9 +2189,32 @@ function CreateChallengePanel({ onCreated }: { onCreated: (id: number) => void }
                 <div><label className="text-xs text-gray-400 font-medium mb-1 block">End Date & Time (EAT) *</label><input type="datetime-local" value={form.end_date} onChange={e => setForm({...form, end_date: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
               </div>
               <p className="text-[10px] text-gray-500 -mt-2">Registration closes automatically when challenge starts</p>
+              {/* Deposit Mode */}
+              <div>
+                <label className="text-xs text-gray-400 font-medium mb-1 block">Deposit Mode</label>
+                <div className="grid grid-cols-3 gap-2">
+                  <button type="button" onClick={() => setForm({...form, deposit_mode: 'fixed'})} className={`p-2.5 rounded-xl border text-center text-xs font-semibold transition-all ${form.deposit_mode === 'fixed' ? 'border-royal bg-royal/10 text-royal' : 'border-white/20 text-gray-400 hover:border-white/30'}`}>
+                    Fixed Deposit
+                  </button>
+                  <button type="button" onClick={() => setForm({...form, deposit_mode: 'max_limit'})} className={`p-2.5 rounded-xl border text-center text-xs font-semibold transition-all ${form.deposit_mode === 'max_limit' ? 'border-gold bg-gold/10 text-gold' : 'border-white/20 text-gray-400 hover:border-white/30'}`}>
+                    Max Limit
+                  </button>
+                  <button type="button" onClick={() => setForm({...form, deposit_mode: 'min_limit'})} className={`p-2.5 rounded-xl border text-center text-xs font-semibold transition-all ${form.deposit_mode === 'min_limit' ? 'border-profit bg-profit/10 text-profit' : 'border-white/20 text-gray-400 hover:border-white/30'}`}>
+                    Min Limit
+                  </button>
+                </div>
+                <p className="text-[10px] text-gray-500 mt-1">{form.deposit_mode === 'fixed' ? 'Everyone starts with exact amount. Leaderboard by balance.' : form.deposit_mode === 'max_limit' ? 'Users deposit up to this max. Target & rules in %. Leaderboard by growth %.' : 'Users must deposit at least this min. Target & rules in %. Leaderboard by growth %.'}</p>
+              </div>
               <div className="grid grid-cols-2 gap-3">
-                <div><label className="text-xs text-gray-400 font-medium mb-1 block">Starting Balance ($) *</label><input value={form.starting_balance} onChange={e => setForm({...form, starting_balance: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
-                <div><label className="text-xs text-gray-400 font-medium mb-1 block">Target Balance ($)</label><input value={form.target_balance} onChange={e => setForm({...form, target_balance: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
+                <div>
+                  <label className="text-xs text-gray-400 font-medium mb-1 block">{form.deposit_mode === 'fixed' ? 'Starting Balance ($) *' : form.deposit_mode === 'max_limit' ? 'Maximum Deposit ($) *' : 'Minimum Deposit ($) *'}</label>
+                  <input value={form.starting_balance} onChange={e => setForm({...form, starting_balance: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" />
+                </div>
+                {form.deposit_mode === 'fixed' ? (
+                  <div><label className="text-xs text-gray-400 font-medium mb-1 block">Target Balance ($)</label><input value={form.target_balance} onChange={e => setForm({...form, target_balance: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
+                ) : (
+                  <div><label className="text-xs text-gray-400 font-medium mb-1 block">Target Growth (%)</label><input value={form.target_percent} onChange={e => setForm({...form, target_percent: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" placeholder="e.g., 100" /></div>
+                )}
               </div>
               <div><label className="text-xs text-gray-400 font-medium mb-1 block">Prize Pool Text</label><input value={form.prize_pool_text} onChange={e => setForm({...form, prize_pool_text: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" placeholder="$1,600 Total Prize Pool" /></div>
               <div className="grid grid-cols-2 gap-3">
@@ -2248,7 +2275,9 @@ function CreateChallengePanel({ onCreated }: { onCreated: (id: number) => void }
               <ReviewRow label="Title" value={form.title} />
               <ReviewRow label="Type" value={form.type} />
               <ReviewRow label="Period" value={`${form.start_date} → ${form.end_date}`} />
-              <ReviewRow label="Balance" value={rules.only_cent_account && form.type !== "demo" ? `${form.starting_balance}¢ → ${form.target_balance}¢` : `$${form.starting_balance} → $${form.target_balance}`} />
+              <ReviewRow label="Deposit Mode" value={form.deposit_mode === 'max_limit' ? 'Max Limit' : form.deposit_mode === 'min_limit' ? 'Min Limit' : 'Fixed'} />
+              <ReviewRow label={form.deposit_mode === 'fixed' ? 'Balance' : form.deposit_mode === 'max_limit' ? 'Max Deposit' : 'Min Deposit'} value={rules.only_cent_account && form.type !== "demo" ? `${form.starting_balance}¢` : `$${form.starting_balance}`} />
+              <ReviewRow label="Target" value={form.deposit_mode !== 'fixed' ? `${form.target_percent}% growth` : (rules.only_cent_account && form.type !== "demo" ? `${form.target_balance}¢` : `$${form.target_balance}`)} />
               <ReviewRow label="Prize Pool" value={form.prize_pool_text || "—"} />
               {form.type !== "demo" && <ReviewRow label="Real Prizes" value={form.real_prizes || "—"} />}
               {form.type !== "real" && <ReviewRow label="Demo Prizes" value={form.demo_prizes || "—"} />}

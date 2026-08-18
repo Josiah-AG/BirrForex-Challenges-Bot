@@ -107,8 +107,8 @@ export async function executeCreate(data: any): Promise<{ success: boolean; chal
        (title, type, status, start_date, end_date, registration_deadline, starting_balance, target_balance,
         prize_pool_text, real_winners_count, demo_winners_count, real_prizes, demo_prizes,
         pdf_url, video_url, source, team_only, announcement_posted, evaluation_type,
-        pull_times, pull_interval_hours, first_pull_time)
-       VALUES ($1, $2, 'draft', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, false, $17, $18, $19, $20)
+        pull_times, pull_interval_hours, first_pull_time, deposit_mode, target_percent)
+       VALUES ($1, $2, 'draft', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, false, $17, $18, $19, $20, $21, $22)
        RETURNING *`,
       [
         data.title, data.type, data.start_date, data.end_date,
@@ -122,6 +122,8 @@ export async function executeCreate(data: any): Promise<{ success: boolean; chal
         JSON.stringify(data.pull_times || ['00:00','04:00','08:00','12:00','16:00','20:00']),
         data.pull_interval_hours || 4,
         data.first_pull_time || '00:00',
+        data.deposit_mode || 'fixed',
+        data.target_percent || null,
       ]
     );
     return { success: true, challenge: result.rows[0] };
@@ -150,15 +152,20 @@ export function buildCreateMessage(data: any): string {
     const dt = new Date(new Date(d).getTime() + 3 * 60 * 60 * 1000);
     return dt.toISOString().substring(0, 16).replace('T', ' ') + ' EAT';
   };
+  const depositModeLabel = data.deposit_mode === 'max_limit' ? 'Max Limit' : data.deposit_mode === 'min_limit' ? 'Min Limit' : 'Fixed';
+  const targetDisplay = data.deposit_mode && data.deposit_mode !== 'fixed' && data.target_percent
+    ? `${data.target_percent}% growth`
+    : `$${data.target_balance || 0}`;
   return (
     `🔐 <b>Challenge Creation Request</b>\n\n` +
     `<b>Title:</b> ${data.title}\n` +
     `<b>Type:</b> ${data.type}\n` +
     `<b>Source:</b> ${data.source || 'winnerpip'}\n` +
+    `<b>Deposit Mode:</b> ${depositModeLabel}\n` +
     `<b>Start:</b> ${toEAT(data.start_date)}\n` +
     `<b>End:</b> ${toEAT(data.end_date)}\n` +
     `<b>Balance:</b> $${data.starting_balance}\n` +
-    `<b>Target:</b> $${data.target_balance || 0}\n\n` +
+    `<b>Target:</b> ${targetDisplay}\n\n` +
     `⚠️ Confirm to create this challenge.`
   );
 }

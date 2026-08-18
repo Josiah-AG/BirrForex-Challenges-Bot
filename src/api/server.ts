@@ -2215,6 +2215,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenges`, adminIpCheck, async (req,
       prize_pool_text, real_winners_count, demo_winners_count,
       real_prizes, demo_prizes, pdf_url, video_url,
       evaluation_type, pull_times, pull_interval_hours, first_pull_time,
+      deposit_mode, target_percent,
     } = req.body;
 
     if (!title || !type || !start_date || !end_date || !starting_balance) {
@@ -2233,6 +2234,8 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenges`, adminIpCheck, async (req,
       prize_pool_text, real_winners_count, demo_winners_count,
       real_prizes, demo_prizes, pdf_url, video_url,
       evaluation_type, pull_times, pull_interval_hours, first_pull_time,
+      deposit_mode: deposit_mode || 'fixed',
+      target_percent: target_percent || null,
     };
     const token = gatekeeper.queueCreate(data);
 

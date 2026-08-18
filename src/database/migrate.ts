@@ -453,6 +453,11 @@ async function migrate() {
     `).catch(() => {});
     console.log('✅ team_invitations table OK');
 
+    // === Deposit mode & target percent columns ===
+    await db.query(`ALTER TABLE trading_challenges ADD COLUMN IF NOT EXISTS deposit_mode VARCHAR(20) DEFAULT 'fixed';`).catch(() => {});
+    await db.query(`ALTER TABLE trading_challenges ADD COLUMN IF NOT EXISTS target_percent DECIMAL(10,2);`).catch(() => {});
+    console.log('✅ deposit_mode & target_percent columns OK');
+
     console.log('✅ Database migration completed successfully!');
     process.exit(0);
   } catch (error) {
