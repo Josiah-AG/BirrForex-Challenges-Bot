@@ -2203,7 +2203,17 @@ function CreateChallengePanel({ onCreated }: { onCreated: (id: number) => void }
                     Min Limit
                   </button>
                 </div>
-                <p className="text-[10px] text-gray-500 mt-1">{form.deposit_mode === 'fixed' ? 'Everyone starts with exact amount. Leaderboard by balance.' : form.deposit_mode === 'max_limit' ? 'Users deposit up to this max. Target & rules in %. Leaderboard by growth %.' : 'Users must deposit at least this min. Target & rules in %. Leaderboard by growth %.'}</p>
+                <div className="mt-2 p-2.5 rounded-lg bg-white/5 border border-white/5">
+                  {form.deposit_mode === 'fixed' && (
+                    <p className="text-[11px] text-gray-400"><span className="text-royal font-semibold">Fixed Deposit:</span> All participants must start with the exact same balance. Target is a fixed dollar amount. SL and drawdown rules can be in $ or %. Leaderboard ranked by balance. <span className="text-gray-500 italic">Best for equal-start competitions.</span></p>
+                  )}
+                  {form.deposit_mode === 'max_limit' && (
+                    <p className="text-[11px] text-gray-400"><span className="text-gold font-semibold">Max Limit:</span> Participants can deposit any amount up to a maximum cap. Target is in growth %. SL and drawdown rules must be in % (auto-scales with each user&apos;s balance). Leaderboard ranked by account growth %. <span className="text-gray-500 italic">Best for flexible-entry challenges where fairness comes from % performance.</span></p>
+                  )}
+                  {form.deposit_mode === 'min_limit' && (
+                    <p className="text-[11px] text-gray-400"><span className="text-profit font-semibold">Min Limit:</span> Participants must deposit at least a minimum amount — no upper limit. Target is in growth %. SL and drawdown rules must be in %. Leaderboard ranked by account growth %. <span className="text-gray-500 italic">Best for serious traders — higher deposit = more skin in the game, but everyone competes on % growth equally.</span></p>
+                  )}
+                </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
