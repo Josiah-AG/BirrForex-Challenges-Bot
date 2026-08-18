@@ -1430,14 +1430,16 @@ export class WpEvaluationEngine {
         // === MAX RISK EXCEEDED FLAG (losing trades) ===
         // If this is a losing trade and the loss exceeds max_risk_dollars + 10% tolerance,
         // flag it as "Maximum risk exceeded". No profit deduction — losses always count as-is.
-        if (tradeEffectiveRisk > 0 && tradeNet < 0 && violations.length === 0) {
+        const lossTradeposId = (trade as any).position_id ?? trade.ticket;
+        const lossTradeEffectiveRisk = getEffectiveMaxRisk(lossTradeposId);
+        if (lossTradeEffectiveRisk > 0 && tradeNet < 0 && violations.length === 0) {
           const absLoss = Math.abs(tradeNet);
-          const riskTolerance = tradeEffectiveRisk * 1.10;
+          const riskTolerance = lossTradeEffectiveRisk * 1.10;
           if (absLoss > riskTolerance) {
             const currency = reg.is_cent ? '¢' : '$';
             const riskDisplay = isRiskPercentMode
-              ? `${currency}${absLoss.toFixed(2)} exceeds max ${rules.max_risk_percent}% (${currency}${tradeEffectiveRisk.toFixed(2)})`
-              : `${currency}${absLoss.toFixed(2)} exceeds max allowed risk of ${currency}${tradeEffectiveRisk.toFixed(2)}`;
+              ? `${currency}${absLoss.toFixed(2)} exceeds max ${rules.max_risk_percent}% (${currency}${lossTradeEffectiveRisk.toFixed(2)})`
+              : `${currency}${absLoss.toFixed(2)} exceeds max allowed risk of ${currency}${lossTradeEffectiveRisk.toFixed(2)}`;
             violations.push(`Maximum risk exceeded — loss of ${riskDisplay}`);
           }
         }
@@ -1806,7 +1808,7 @@ export class WpEvaluationEngine {
 
       // Load rules
       const rules = await this.loadRules(challengeId);
-      if (!rules || !rules.max_risk_dollars) {
+      if (!rules || (!rules.max_risk_dollars && !(rules.max_risk_mode === 'percentage' && rules.max_risk_percent))) {
         return { checked: 0, violations: 0, cleared: 0, nickname: reg.nickname || reg.account_number, error: 'No rules configured' };
       }
 
@@ -1882,7 +1884,12 @@ export class WpEvaluationEngine {
         const recheckPosId = (trade as any).position_id ?? trade.ticket;
         const recheckSiblings = (siblingsByPos.get(recheckPosId) || [trade])
           .sort((a: any, b: any) => new Date(a.close_time).getTime() - new Date(b.close_time).getTime());
-        const slOutcome = await runSlCheckForTrade(trade, recheckSiblings, rules.max_hold_hours || null, rules.max_risk_dollars);
+        // For percentage mode, use starting balance as reference (recheck doesn't have full balance timeline)
+        const recheckStartBal = await db.query(`SELECT starting_balance FROM trading_challenges WHERE id = $1`, [challengeId]);
+        const recheckEffectiveRisk = (rules.max_risk_mode === 'percentage' && rules.max_risk_percent)
+          ? (parseFloat(recheckStartBal.rows[0]?.starting_balance || '50') * (rules.max_risk_percent / 100))
+          : (rules.max_risk_dollars || 0);
+        const slOutcome = await runSlCheckForTrade(trade, recheckSiblings, rules.max_hold_hours || null, recheckEffectiveRisk);
         checkedCount++;
 
         if (slOutcome.violation === 'FAILED') {
@@ -1912,7 +1919,7 @@ export class WpEvaluationEngine {
           const newConflicts = conflicts + 1;
           if (newConflicts >= MAX_CONFLICTS) {
             // Escalate — fake_sl wins (stricter side)
-            const riskLabel = trade.symbol.endsWith('c') ? `¢${rules.max_risk_dollars}` : `$${rules.max_risk_dollars}`;
+            const riskLabel = reg.is_cent ? `¢${recheckEffectiveRisk.toFixed(2)}` : `$${recheckEffectiveRisk.toFixed(2)}`;
             const escalationViol = `Max risk check returned conflicting results across ${newConflicts} evaluations — max allowed loss of ${riskLabel} applied as a precaution.`;
             if (!existingViols.includes(escalationViol)) existingViols.push(escalationViol);
             await db.query(
