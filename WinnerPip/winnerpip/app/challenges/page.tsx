@@ -199,20 +199,55 @@ export default function ChallengesPage() {
             </div>
 
             <div className="flex items-center gap-3 p-3 rounded-xl bg-white/5 border border-white/10">
-              <Users size={16} className="text-royal flex-shrink-0" />
+              <Target size={16} className="text-gold flex-shrink-0" />
               <div>
-                <p className="text-xs text-gray-500">Participants</p>
-                <p className="text-sm text-white font-medium">{challenge.teamOnly ? <span className="blur-[5px] select-none">{challenge.participants.total}</span> : challenge.participants.total}</p>
+                <p className="text-xs text-gray-500">Target</p>
+                <p className="text-sm font-medium">
+                  <span className={`text-white ${challenge.teamOnly ? 'blur-[5px] select-none' : ''}`}>${challenge.startingBalance}</span>
+                  <span className="text-gray-500 mx-1">&rarr;</span>
+                  <span className={`text-gold ${challenge.teamOnly ? 'blur-[5px] select-none' : ''}`}>${challenge.targetBalance}</span>
+                </p>
               </div>
             </div>
 
-            {challenge.prizePoolText && (
+            <div className="flex items-center gap-3 p-3 rounded-xl bg-white/5 border border-white/10">
+              <Users size={16} className="text-royal flex-shrink-0" />
+              <div>
+                <p className="text-xs text-gray-500">Participants</p>
+                <p className={`text-sm text-white font-medium ${challenge.teamOnly ? 'blur-[5px] select-none' : ''}`}>{challenge.participants.total}</p>
+              </div>
+            </div>
+
+            {(challenge.realPrizes?.length > 0 || challenge.demoPrizes?.length > 0) && (
               <div className="p-3 rounded-xl bg-gradient-to-r from-gold/10 to-gold/5 border border-gold/20">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 mb-2">
                   <Trophy size={14} className="text-gold flex-shrink-0" />
                   <p className="text-xs text-gray-500">Prize Pool</p>
                 </div>
-                <p className={`text-sm text-gold font-medium mt-1 ${challenge.teamOnly ? 'blur-[5px] select-none' : ''}`}>{challenge.prizePoolText}</p>
+                {challenge.realPrizes?.length > 0 && (
+                  <div className="mb-1.5">
+                    <p className="text-[10px] text-gray-400 uppercase tracking-wider mb-1">{challenge.type === "hybrid" ? "Real Account" : "Prizes"}</p>
+                    <div className={`flex flex-wrap gap-1.5 ${challenge.teamOnly ? 'blur-[5px] select-none' : ''}`}>
+                      {challenge.realPrizes.map((p: number, i: number) => (
+                        <span key={i} className="px-2 py-0.5 bg-gold/20 rounded text-xs font-bold text-gold">
+                          {["🥇","🥈","🥉"][i] || `${i+1}.`} {typeof p === "number" ? `$${p}` : (isNaN(Number(p)) ? p : `$${p}`)}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {challenge.demoPrizes?.length > 0 && (
+                  <div>
+                    <p className="text-[10px] text-gray-400 uppercase tracking-wider mb-1">{challenge.type === "hybrid" ? "Demo Account" : "Prizes"}</p>
+                    <div className={`flex flex-wrap gap-1.5 ${challenge.teamOnly ? 'blur-[5px] select-none' : ''}`}>
+                      {challenge.demoPrizes.map((p: number, i: number) => (
+                        <span key={i} className="px-2 py-0.5 bg-royal/20 rounded text-xs font-bold text-royal">
+                          {["🥇","🥈","🥉"][i] || `${i+1}.`} {typeof p === "number" ? `$${p}` : (isNaN(Number(p)) ? p : `$${p}`)}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>

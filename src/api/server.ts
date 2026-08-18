@@ -403,8 +403,9 @@ app.get('/api/challenges/:id/winners', async (req, res) => {
   try {
     const challengeId = parseInt(req.params.id);
 
-    // Hardcoded winners for Challenge 15 (no DB data available)
-    if (challengeId === 15) {
+    // Hardcoded winners for Challenge 15 (title-based match — no DB winner data available for this challenge)
+    const challenge15Check = await db.query(`SELECT id FROM trading_challenges WHERE title ILIKE '%Challenge 15%' AND id = $1`, [challengeId]);
+    if (challenge15Check.rows.length > 0) {
       return res.json({
         hasWinners: true,
         real: [
