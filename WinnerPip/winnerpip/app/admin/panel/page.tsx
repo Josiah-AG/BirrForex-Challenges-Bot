@@ -1989,6 +1989,16 @@ function CreateChallengePanel({ onCreated }: { onCreated: (id: number) => void }
     min_active_days: 7,
     only_cent_account: false,
     allow_professional: false,
+    rules_enabled: {
+      max_lot_size: true,
+      max_open_trades: true,
+      pair_limit: true,
+      stop_loss_required: true,
+      daily_loss_cap: true,
+      max_hold_hours: true,
+      weekend_trading: true,
+      min_active_days: true,
+    } as Record<string, boolean>,
   });
 
   const handleCreate = async () => {
@@ -2125,16 +2135,17 @@ function CreateChallengePanel({ onCreated }: { onCreated: (id: number) => void }
         {step === 3 && (
           <div>
             <h3 className="text-xl font-bold text-white mb-4">Challenge Rules</h3>
+            <p className="text-xs text-gray-500 mb-4">Toggle rules ON/OFF. Hover ⓘ for details. Disabled rules won&apos;t be enforced during evaluation.</p>
             <div className="space-y-3">
-              <RuleInput label="Max Lot Size" value={rules.max_lot_size} onChange={v => setRules({...rules, max_lot_size: v})} />
-              <RuleInput label="Max Open Trades" value={rules.max_open_trades} onChange={v => setRules({...rules, max_open_trades: v})} />
-              <RuleInput label="Pair Limit" value={rules.pair_limit} onChange={v => setRules({...rules, pair_limit: v})} />
-              <RuleInput label="Max Risk ($)" value={rules.max_risk_dollars} onChange={v => setRules({...rules, max_risk_dollars: v})} />
-              <RuleInput label="Daily Loss Cap ($)" value={rules.daily_loss_cap} onChange={v => setRules({...rules, daily_loss_cap: v})} />
-              <RuleInput label="Max Hold Hours" value={rules.max_hold_hours} onChange={v => setRules({...rules, max_hold_hours: v})} />
-              <RuleInput label="Min Active Days" value={rules.min_active_days} onChange={v => setRules({...rules, min_active_days: v})} />
-              <RuleToggle label="Stop Loss Required" value={rules.stop_loss_required} onChange={v => setRules({...rules, stop_loss_required: v})} />
-              <RuleToggle label="Weekend Trading" value={rules.weekend_trading} onChange={v => setRules({...rules, weekend_trading: v})} />
+              <RuleInputWithToggle label="Max Lot Size" tooltip="Limits the maximum lot size per position. Trades exceeding this have profits removed." value={rules.max_lot_size} enabled={rules.rules_enabled.max_lot_size} onValueChange={v => setRules({...rules, max_lot_size: v})} onToggle={() => setRules({...rules, rules_enabled: {...rules.rules_enabled, max_lot_size: !rules.rules_enabled.max_lot_size}})} />
+              <RuleInputWithToggle label="Max Open Trades" tooltip="Limits simultaneous open trades. All overlapping trades get flagged when exceeded." value={rules.max_open_trades} enabled={rules.rules_enabled.max_open_trades} onValueChange={v => setRules({...rules, max_open_trades: v})} onToggle={() => setRules({...rules, rules_enabled: {...rules.rules_enabled, max_open_trades: !rules.rules_enabled.max_open_trades}})} />
+              <RuleInputWithToggle label="Pair Limit" tooltip="Max trades on the same pair open at once. Prevents overexposure to a single instrument." value={rules.pair_limit} enabled={rules.rules_enabled.pair_limit} onValueChange={v => setRules({...rules, pair_limit: v})} onToggle={() => setRules({...rules, rules_enabled: {...rules.rules_enabled, pair_limit: !rules.rules_enabled.pair_limit}})} />
+              <RuleInputWithToggle label="Max Risk ($)" tooltip="Max dollar risk per trade (SL distance). Uses two-layer check: declared SL + M1 candle fake-SL detection." value={rules.max_risk_dollars} enabled={rules.rules_enabled.stop_loss_required} onValueChange={v => setRules({...rules, max_risk_dollars: v})} onToggle={() => setRules({...rules, rules_enabled: {...rules.rules_enabled, stop_loss_required: !rules.rules_enabled.stop_loss_required}})} />
+              <RuleInputWithToggle label="Daily Loss Cap ($)" tooltip="Max drawdown from day's opening balance. Profits after breach are removed for the rest of that day." value={rules.daily_loss_cap} enabled={rules.rules_enabled.daily_loss_cap} onValueChange={v => setRules({...rules, daily_loss_cap: v})} onToggle={() => setRules({...rules, rules_enabled: {...rules.rules_enabled, daily_loss_cap: !rules.rules_enabled.daily_loss_cap}})} />
+              <RuleInputWithToggle label="Max Hold Hours" tooltip="Max time a trade can be held. Exceeding this flags the trade. Encourages active intraday trading." value={rules.max_hold_hours} enabled={rules.rules_enabled.max_hold_hours} onValueChange={v => setRules({...rules, max_hold_hours: v})} onToggle={() => setRules({...rules, rules_enabled: {...rules.rules_enabled, max_hold_hours: !rules.rules_enabled.max_hold_hours}})} />
+              <RuleInputWithToggle label="Min Active Days" tooltip="Minimum distinct trading days to qualify for prizes. Users who can't reach this are DQ'd before challenge end." value={rules.min_active_days} enabled={rules.rules_enabled.min_active_days} onValueChange={v => setRules({...rules, min_active_days: v})} onToggle={() => setRules({...rules, rules_enabled: {...rules.rules_enabled, min_active_days: !rules.rules_enabled.min_active_days}})} />
+              <RuleToggleWithTooltip label="Stop Loss Required" tooltip="Enforces SL verification using M1 candle data. Detects fake stop losses placed after price moved." value={rules.stop_loss_required} enabled={rules.rules_enabled.stop_loss_required} onValueChange={v => setRules({...rules, stop_loss_required: v})} onToggle={() => setRules({...rules, rules_enabled: {...rules.rules_enabled, stop_loss_required: !rules.rules_enabled.stop_loss_required}})} />
+              <RuleToggleWithTooltip label="Weekend Trading" tooltip="Controls crypto trades on weekends. When OFF (and enabled), weekend crypto trades are flagged. Forex excluded." value={rules.weekend_trading} enabled={rules.rules_enabled.weekend_trading} onValueChange={v => setRules({...rules, weekend_trading: v})} onToggle={() => setRules({...rules, rules_enabled: {...rules.rules_enabled, weekend_trading: !rules.rules_enabled.weekend_trading}})} />
               <RuleToggle label="Only Cent Account (Real)" value={rules.only_cent_account} onChange={v => setRules({...rules, only_cent_account: v, ...(v ? { allow_professional: false } : {})})} />
               {!rules.only_cent_account && <RuleToggle label="Allow Professional Accounts (Pro/Zero/Raw)" value={rules.allow_professional || false} onChange={v => setRules({...rules, allow_professional: v})} />}
             </div>
@@ -2195,6 +2206,48 @@ function RuleToggle({ label, value, onChange }: { label: string; value: boolean;
       <p className="text-sm text-white font-medium">{label}</p>
       <button onClick={() => onChange(!value)} className={`w-12 h-6 rounded-full transition-all ${value ? "bg-profit" : "bg-white/20"}`}>
         <div className={`w-5 h-5 bg-white rounded-full transition-transform ${value ? "translate-x-6" : "translate-x-0.5"}`}></div>
+      </button>
+    </div>
+  );
+}
+
+function RuleInputWithToggle({ label, tooltip, value, enabled, onValueChange, onToggle }: { label: string; tooltip: string; value: number; enabled: boolean; onValueChange: (v: number) => void; onToggle: () => void }) {
+  return (
+    <div className={`flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10 ${!enabled ? "opacity-50" : ""}`}>
+      <div className="flex items-center gap-2">
+        <button onClick={onToggle} className={`w-9 h-5 rounded-full transition-all flex-shrink-0 ${enabled ? "bg-royal" : "bg-white/20"}`}>
+          <div className={`w-4 h-4 bg-white rounded-full transition-transform ${enabled ? "translate-x-4" : "translate-x-0.5"}`}></div>
+        </button>
+        <p className="text-sm text-white font-medium">{label}</p>
+        <div className="relative group">
+          <span className="cursor-help text-gray-500 hover:text-royal transition-colors text-xs">ⓘ</span>
+          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-[#1a1a2e] border border-white/20 rounded-lg text-xs text-gray-300 w-52 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity z-50 shadow-xl">
+            {tooltip}
+          </div>
+        </div>
+      </div>
+      <input type="number" step="any" value={value} onChange={e => onValueChange(parseFloat(e.target.value) || 0)} disabled={!enabled} className={`w-20 p-2 rounded-lg bg-white/10 border border-white/10 text-white text-sm text-center outline-none ${!enabled ? "cursor-not-allowed" : ""}`} />
+    </div>
+  );
+}
+
+function RuleToggleWithTooltip({ label, tooltip, value, enabled, onValueChange, onToggle }: { label: string; tooltip: string; value: boolean; enabled: boolean; onValueChange: (v: boolean) => void; onToggle: () => void }) {
+  return (
+    <div className={`flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10 ${!enabled ? "opacity-50" : ""}`}>
+      <div className="flex items-center gap-2">
+        <button onClick={onToggle} className={`w-9 h-5 rounded-full transition-all flex-shrink-0 ${enabled ? "bg-royal" : "bg-white/20"}`}>
+          <div className={`w-4 h-4 bg-white rounded-full transition-transform ${enabled ? "translate-x-4" : "translate-x-0.5"}`}></div>
+        </button>
+        <p className="text-sm text-white font-medium">{label}</p>
+        <div className="relative group">
+          <span className="cursor-help text-gray-500 hover:text-royal transition-colors text-xs">ⓘ</span>
+          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-[#1a1a2e] border border-white/20 rounded-lg text-xs text-gray-300 w-52 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity z-50 shadow-xl">
+            {tooltip}
+          </div>
+        </div>
+      </div>
+      <button onClick={() => enabled && onValueChange(!value)} className={`w-12 h-6 rounded-full transition-all ${value && enabled ? "bg-profit" : "bg-white/20"} ${!enabled ? "cursor-not-allowed" : ""}`}>
+        <div className={`w-5 h-5 bg-white rounded-full transition-transform ${value && enabled ? "translate-x-6" : "translate-x-0.5"}`}></div>
       </button>
     </div>
   );
