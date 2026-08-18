@@ -218,3 +218,37 @@ Will implement the actual logic for `max_limit` and `min_limit` modes:
 - Registration: adjusted validation per mode
 - Pre-start: inverted DQ for min_limit
 - Frontend: growth % display on leaderboard
+
+---
+
+## Update #4 Phase 2 — Deposit Modes Logic (IMPLEMENTED)
+
+### What was done
+Full implementation of `max_limit` and `min_limit` deposit modes across the entire system.
+
+### Files Modified (8 files)
+1. `src/services/wpEvaluationEngine.ts` — evaluateAccount accepts depositMode/targetPercent, deposit DQ respects mode, isQualified uses growth %, growth_percent stored in staging
+2. `src/services/leaderboardService.ts` — Rankings use growth_percent for non-fixed modes, flush copies growth_percent
+3. `src/services/tradingChallengeService.ts` — TradingChallenge interface updated with deposit_mode + target_percent
+4. `src/api/server.ts` — Leaderboard returns depositMode + growthPercent, challenge creation passes new fields
+5. `src/scheduler/tradingScheduler.ts` — Pre-start snapshot and balance warning respect deposit mode
+6. `src/bot/tradingRegistrationHandler.ts` — Registration balance validation per mode
+7. `src/database/migrate.ts` — growth_percent column on leaderboard + staging tables
+8. `WinnerPip/winnerpip/app/challenge/[id]/page.tsx` — Shows growth % on leaderboard when applicable
+
+### Behavior by Mode
+| Aspect | fixed | max_limit | min_limit |
+|--------|-------|-----------|-----------|
+| Deposit DQ | above limit | above max | below min |
+| Target | adjustedBalance >= $ | growth % >= target % | growth % >= target % |
+| Leaderboard rank | by balance | by growth % | by growth % |
+| Leaderboard display | $45.20 | ↑ 85.2% ($45.20) | ↑ 85.2% ($45.20) |
+| Registration real | reject if above | reject if above | accept any (DQ at pre-start if below) |
+| Registration demo | exact match | reject if above | reject if below |
+| Pre-start DQ | above = DQ | above = DQ | below = DQ |
+| SL/DD rules | fixed $ or % | must be % (frontend enforces) | must be % (frontend enforces) |
+
+### Safety
+- All existing challenges have `deposit_mode = 'fixed'` (DB default)
+- Every code path defaults to `'fixed'` when field is null/undefined
+- Fixed mode logic is completely unchanged — no conditional branches affect it
