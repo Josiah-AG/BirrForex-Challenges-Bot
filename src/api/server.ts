@@ -303,6 +303,7 @@ app.post('/api/auth/verify-token', async (req, res) => {
  */
 app.get('/api/challenges', async (req, res) => {
   try {
+    const includePast = req.query.include_past === 'true';
     const result = await db.query(
       `SELECT id, title, type, status, start_date, end_date, starting_balance, target_balance,
               real_winners_count, demo_winners_count, real_prizes, demo_prizes, prize_pool_text,
@@ -311,7 +312,7 @@ app.get('/api/challenges', async (req, res) => {
        FROM trading_challenges
        WHERE status != 'deleted'
        ORDER BY created_at DESC
-       LIMIT 20`
+       LIMIT ${includePast ? 50 : 20}`
     );
 
     const challenges: any[] = [];
@@ -331,16 +332,19 @@ app.get('/api/challenges', async (req, res) => {
       else if (c.status === 'completed' && !c.winners_posted_at) displayStatus = 'ended';
       else displayStatus = c.status;
 
-      // 7-day visibility: hide challenges where winners were posted more than 7 days ago
-      if (c.winners_posted_at) {
-        const daysSincePosted = (Date.now() - new Date(c.winners_posted_at).getTime()) / (1000 * 60 * 60 * 24);
-        if (daysSincePosted > 7) continue; // Skip — no longer visible
-      }
+      // Visibility filter — only apply when NOT fetching past challenges
+      if (!includePast) {
+        // 7-day visibility: hide challenges where winners were posted more than 7 days ago
+        if (c.winners_posted_at) {
+          const daysSincePosted = (Date.now() - new Date(c.winners_posted_at).getTime()) / (1000 * 60 * 60 * 24);
+          if (daysSincePosted > 7) continue;
+        }
 
-      // Hide old completed challenges that predate the winners_posted_at feature
-      if (c.status === 'completed' && !c.winners_posted_at) {
-        const daysSinceEnd = (Date.now() - new Date(c.end_date).getTime()) / (1000 * 60 * 60 * 24);
-        if (daysSinceEnd > 14) continue; // Skip — old challenge, no longer relevant
+        // Hide old completed challenges that predate the winners_posted_at feature
+        if (c.status === 'completed' && !c.winners_posted_at) {
+          const daysSinceEnd = (Date.now() - new Date(c.end_date).getTime()) / (1000 * 60 * 60 * 24);
+          if (daysSinceEnd > 14) continue;
+        }
       }
 
       challenges.push({
@@ -387,6 +391,77 @@ app.get('/api/challenges', async (req, res) => {
     return res.json({ challenges });
   } catch (error) {
     console.error('Challenges error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * GET /api/challenges/:id/winners
+ * Returns winners for a completed challenge (public)
+ */
+app.get('/api/challenges/:id/winners', async (req, res) => {
+  try {
+    const challengeId = parseInt(req.params.id);
+
+    // Hardcoded winners for Challenge 15 (no DB data available)
+    if (challengeId === 15) {
+      return res.json({
+        hasWinners: true,
+        real: [
+          { rank: 1, nickname: "Eyobgere", trades: 19, flagged: 1, prize: "iPhone 17 Pro Max" },
+          { rank: 2, nickname: "Therealteme89", trades: 16, flagged: 2, prize: "iPhone 17 Pro Max" },
+          { rank: 3, nickname: "Amanxspat", trades: 9, flagged: 0, prize: "iPhone 17 Pro Max" },
+        ],
+        demo: [
+          { rank: 1, nickname: "Devaman00", trades: 20, flagged: 0, prize: "$300" },
+          { rank: 2, nickname: "Romeo5121", trades: 24, flagged: 8, prize: "$200" },
+          { rank: 3, nickname: "Bella4x19", trades: 47, flagged: 5, prize: "$100" },
+        ],
+      });
+    }
+
+    // Check if challenge has winner data
+    const challenge = await db.query(
+      `SELECT type, team_only, real_prizes, demo_prizes FROM trading_challenges WHERE id = $1`,
+      [challengeId]
+    );
+    if (!challenge.rows[0]) return res.status(404).json({ error: 'Challenge not found' });
+
+    const challengeType = challenge.rows[0].type;
+    const isTeamOnly = challenge.rows[0].team_only || false;
+    const realPrizes = typeof challenge.rows[0].real_prizes === 'string' ? JSON.parse(challenge.rows[0].real_prizes) : (challenge.rows[0].real_prizes || []);
+    const demoPrizes = typeof challenge.rows[0].demo_prizes === 'string' ? JSON.parse(challenge.rows[0].demo_prizes) : (challenge.rows[0].demo_prizes || []);
+
+    // Get winners from leaderboard (top N by rank, qualified)
+    const getWinners = async (accountType: string, prizes: any[]) => {
+      if (prizes.length === 0) return [];
+      const result = await db.query(
+        `SELECT l.nickname, l.total_trades, l.flagged_trades, l.rank
+         FROM wp_leaderboard l
+         JOIN trading_registrations r ON l.registration_id = r.id
+         WHERE l.challenge_id = $1 AND l.account_type = $2
+           AND l.is_disqualified = false AND r.disqualified = false
+           AND l.is_qualified = true
+         ORDER BY l.rank ASC
+         LIMIT $3`,
+        [challengeId, accountType, prizes.length]
+      );
+      return result.rows.map((w: any, i: number) => ({
+        rank: i + 1,
+        nickname: w.nickname,
+        trades: w.total_trades,
+        flagged: w.flagged_trades,
+        prize: isTeamOnly ? '••••' : (typeof prizes[i] === 'number' ? `$${prizes[i]}` : String(prizes[i] || '')),
+      }));
+    };
+
+    const real = challengeType !== 'demo' ? await getWinners('real', realPrizes) : [];
+    const demo = challengeType !== 'real' ? await getWinners('demo', demoPrizes) : [];
+    const hasWinners = real.length > 0 || demo.length > 0;
+
+    return res.json({ hasWinners, real, demo, teamOnly: isTeamOnly });
+  } catch (error) {
+    console.error('Winners error:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
