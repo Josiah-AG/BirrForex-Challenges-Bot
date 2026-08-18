@@ -68,6 +68,13 @@ When configuring a trading challenge's rules (via WinnerPip admin panel), each r
 5. `WinnerPip/winnerpip/app/admin/[id]/page.tsx` (per-challenge admin)
    - Same toggle + tooltip changes as panel page
 
+6. `WinnerPip/winnerpip/app/admin/panel/page.tsx` — `CreateChallengePanel` component (Step 3: Rules)
+   - Added `rules_enabled` to `rules` state
+   - Replaced `RuleInput` with new `RuleInputWithToggle` — has ON/OFF toggle + tooltip
+   - Replaced `RuleToggle` (for SL/Weekend) with new `RuleToggleWithTooltip` — has enable toggle + tooltip
+   - Added helper components: `RuleInputWithToggle`, `RuleToggleWithTooltip`
+   - `rules_enabled` sent when creating challenge via API
+
 ### Design Decisions
 - **Backward compatible**: `rules_enabled` is optional. Existing challenges without it default to all rules ON (`isRuleEnabled` returns `true` when `rules_enabled` is undefined)
 - **Max Risk per Trade** is tied to the SL Required enable toggle (they're the same rule)
@@ -75,4 +82,22 @@ When configuring a trading challenge's rules (via WinnerPip admin panel), each r
 - **Disabled rules**: input values are preserved even when toggled OFF, so you can turn them back ON without re-entering values
 
 ### Pending
-- Waiting for user's next update requirement
+- Update #2: Percentage-based SL risk and daily drawdown — confirmed feasible, starting implementation
+
+---
+
+### Verification Audit (Post-Implementation)
+
+After user confirmed toggles are visible, ran a full audit of all files that consume rules. Found and fixed 3 gaps:
+
+**Gaps Fixed:**
+1. `src/bot/evaluationHandler.ts` — Legacy evaluation was passing rule values unconditionally. Now passes `99999` (effectively unlimited) for disabled rules, so legacy engine won't flag them. `minActiveDays` gets `0` when disabled.
+2. `src/bot/evaluationHandler.ts` — Fake SL candle check now checks `rules_enabled.stop_loss_required !== false` before running.
+3. `src/api/server.ts` (line 1630) — Metrics weekend filter now checks `rules_enabled.weekend_trading === false` — if rule is disabled, weekend trades are included in stats.
+
+**Confirmed Fully Compliant (no gaps):**
+- `src/services/wpEvaluationEngine.ts` — All 11 rule checks use `isRuleEnabled()`
+- `src/scheduler/vpsPullScheduler.ts` — All 3 locations check `rules_enabled`
+- `src/scheduler/tradingScheduler.ts` — Does not use rules at all
+- `src/api/discordRoutes.ts` — Only uses `only_cent_account` (registration filter, not evaluation rule)
+- `src/services/leaderboardService.ts` — Does not read rules at all

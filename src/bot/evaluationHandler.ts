@@ -442,8 +442,18 @@ class EvaluationHandler {
       maxLot: (wpRules?.rules_enabled?.max_lot_size !== false) ? (wpRules?.max_lot_size || 0.02) : 99999,
       maxOpenTrades: (wpRules?.rules_enabled?.max_open_trades !== false) ? (wpRules?.max_open_trades || 3) : 99999,
       maxSamePair: (wpRules?.rules_enabled?.pair_limit !== false) ? (wpRules?.pair_limit || 2) : 99999,
-      maxSlDollars: (wpRules?.rules_enabled?.stop_loss_required !== false) ? (wpRules?.max_risk_dollars || 6) : 99999,
-      maxDailyLoss: (wpRules?.rules_enabled?.daily_loss_cap !== false) ? (wpRules?.daily_loss_cap || 10) : 99999,
+      // SL risk: percentage mode computes from starting balance (legacy engine uses one fixed value)
+      maxSlDollars: (wpRules?.rules_enabled?.stop_loss_required !== false)
+        ? (wpRules?.max_risk_mode === 'percentage' && wpRules?.max_risk_percent
+          ? (Number(challenge.starting_balance) || 50) * (wpRules.max_risk_percent / 100)
+          : (wpRules?.max_risk_dollars || 6))
+        : 99999,
+      // Daily loss: percentage mode computes from starting balance (legacy engine uses one fixed value)
+      maxDailyLoss: (wpRules?.rules_enabled?.daily_loss_cap !== false)
+        ? (wpRules?.daily_loss_mode === 'percentage' && wpRules?.daily_loss_percent
+          ? (Number(challenge.starting_balance) || 50) * (wpRules.daily_loss_percent / 100)
+          : (wpRules?.daily_loss_cap || 10))
+        : 99999,
       maxHoldHours: (wpRules?.rules_enabled?.max_hold_hours !== false) ? (wpRules?.max_hold_hours || 24) : 99999,
       minActiveDays: (wpRules?.rules_enabled?.min_active_days !== false) ? (wpRules?.min_active_days || 7) : 0,
     };

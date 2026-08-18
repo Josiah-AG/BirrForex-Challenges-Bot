@@ -36,7 +36,11 @@ export default function AdminDashboard() {
     pair_limit: 2,
     stop_loss_required: true,
     max_risk_dollars: 5,
+    max_risk_mode: 'fixed' as 'fixed' | 'percentage',
+    max_risk_percent: 10,
     daily_loss_cap: 10,
+    daily_loss_mode: 'fixed' as 'fixed' | 'percentage',
+    daily_loss_percent: 20,
     max_hold_hours: 24,
     weekend_trading: false,
     min_active_days: 7,
@@ -175,7 +179,11 @@ export default function AdminDashboard() {
               pair_limit: data.rules.pair_limit ?? 2,
               stop_loss_required: data.rules.stop_loss_required ?? true,
               max_risk_dollars: data.rules.max_risk_dollars ?? 5,
+              max_risk_mode: data.rules.max_risk_mode ?? 'fixed',
+              max_risk_percent: data.rules.max_risk_percent ?? 10,
               daily_loss_cap: data.rules.daily_loss_cap ?? 10,
+              daily_loss_mode: data.rules.daily_loss_mode ?? 'fixed',
+              daily_loss_percent: data.rules.daily_loss_percent ?? 20,
               max_hold_hours: data.rules.max_hold_hours ?? 24,
               weekend_trading: data.rules.weekend_trading ?? false,
               min_active_days: data.rules.min_active_days ?? 7,
@@ -1146,37 +1154,53 @@ export default function AdminDashboard() {
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <label className="text-sm font-medium text-gray-300">Max Risk per Trade ($)</label>
+                      <label className="text-sm font-medium text-gray-300">Max Risk per Trade</label>
                       <div className="relative group">
                         <span className="cursor-help text-gray-500 hover:text-royal transition-colors">ⓘ</span>
                         <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-[#1a1a2e] border border-white/20 rounded-lg text-xs text-gray-300 w-56 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity z-50 shadow-xl">
-                          Maximum dollar risk per trade measured by stop loss distance. Uses a two-layer check: declared SL width + M1 candle verification to detect fake stop losses. Tied to the &quot;Stop Loss Required&quot; toggle below.
+                          Maximum risk per trade measured by SL distance. Fixed = same $ for all. Percentage = calculated from account balance at trade open time.
                         </div>
                       </div>
                     </div>
+                    <div className="flex items-center gap-1.5">
+                      <button onClick={() => !rulesLocked && setRulesConfig({ ...rulesConfig, max_risk_mode: 'fixed' })} className={`px-2 py-1 rounded-md text-[10px] font-semibold transition-all ${rulesConfig.max_risk_mode !== 'percentage' ? 'bg-royal/30 text-royal border border-royal/40' : 'bg-white/5 text-gray-500 border border-white/10'}`}>Fixed $</button>
+                      <button onClick={() => !rulesLocked && setRulesConfig({ ...rulesConfig, max_risk_mode: 'percentage' })} className={`px-2 py-1 rounded-md text-[10px] font-semibold transition-all ${rulesConfig.max_risk_mode === 'percentage' ? 'bg-gold/30 text-gold border border-gold/40' : 'bg-white/5 text-gray-500 border border-white/10'}`}>% Balance</button>
+                    </div>
                   </div>
-                  <Input type="number" step="0.5" placeholder="e.g., 5 (empty = no limit)" value={rulesConfig.max_risk_dollars || ""} onChange={(e) => setRulesConfig({ ...rulesConfig, max_risk_dollars: e.target.value ? parseFloat(e.target.value) : 0 })} disabled={rulesLocked || !rulesConfig.rules_enabled.stop_loss_required} className={!rulesConfig.rules_enabled.stop_loss_required ? "opacity-40" : ""} />
-                  <p className="text-[10px] text-gray-500">Maximum SL distance in dollars (controlled by SL Required toggle)</p>
+                  {rulesConfig.max_risk_mode === 'percentage' ? (
+                    <Input type="number" step="1" placeholder="e.g., 10 (% of balance)" value={rulesConfig.max_risk_percent || ""} onChange={(e) => setRulesConfig({ ...rulesConfig, max_risk_percent: e.target.value ? parseFloat(e.target.value) : 0 })} disabled={rulesLocked || !rulesConfig.rules_enabled.stop_loss_required} className={!rulesConfig.rules_enabled.stop_loss_required ? "opacity-40" : ""} />
+                  ) : (
+                    <Input type="number" step="0.5" placeholder="e.g., 5 (empty = no limit)" value={rulesConfig.max_risk_dollars || ""} onChange={(e) => setRulesConfig({ ...rulesConfig, max_risk_dollars: e.target.value ? parseFloat(e.target.value) : 0 })} disabled={rulesLocked || !rulesConfig.rules_enabled.stop_loss_required} className={!rulesConfig.rules_enabled.stop_loss_required ? "opacity-40" : ""} />
+                  )}
+                  <p className="text-[10px] text-gray-500">{rulesConfig.max_risk_mode === 'percentage' ? '% of account balance at trade open time' : 'Fixed $ max SL distance (controlled by SL Required toggle)'}</p>
                 </div>
 
                 {/* Daily Loss Cap */}
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <label className="text-sm font-medium text-gray-300">Daily Loss Cap ($)</label>
+                      <label className="text-sm font-medium text-gray-300">Daily Loss Cap</label>
                       <div className="relative group">
                         <span className="cursor-help text-gray-500 hover:text-royal transition-colors">ⓘ</span>
                         <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-[#1a1a2e] border border-white/20 rounded-lg text-xs text-gray-300 w-56 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity z-50 shadow-xl">
-                          Maximum allowed drawdown from the day&apos;s opening balance. Once the cap is breached, any profitable trades closed after that point on the same day have their profits removed.
+                          Maximum drawdown from day&apos;s opening balance. Fixed = same $ every day. Percentage = scales with account (e.g., 20% of day open balance).
                         </div>
                       </div>
                     </div>
-                    <button onClick={() => !rulesLocked && setRulesConfig({ ...rulesConfig, rules_enabled: { ...rulesConfig.rules_enabled, daily_loss_cap: !rulesConfig.rules_enabled.daily_loss_cap } })} className={`w-10 h-5 rounded-full transition-all ${rulesConfig.rules_enabled.daily_loss_cap ? "bg-profit" : "bg-white/20"}`}>
-                      <div className={`w-4 h-4 bg-white rounded-full transition-transform ${rulesConfig.rules_enabled.daily_loss_cap ? "translate-x-5" : "translate-x-0.5"}`}></div>
-                    </button>
+                    <div className="flex items-center gap-1.5">
+                      <button onClick={() => !rulesLocked && setRulesConfig({ ...rulesConfig, rules_enabled: { ...rulesConfig.rules_enabled, daily_loss_cap: !rulesConfig.rules_enabled.daily_loss_cap } })} className={`w-10 h-5 rounded-full transition-all ${rulesConfig.rules_enabled.daily_loss_cap ? "bg-profit" : "bg-white/20"}`}>
+                        <div className={`w-4 h-4 bg-white rounded-full transition-transform ${rulesConfig.rules_enabled.daily_loss_cap ? "translate-x-5" : "translate-x-0.5"}`}></div>
+                      </button>
+                      <button onClick={() => !rulesLocked && setRulesConfig({ ...rulesConfig, daily_loss_mode: 'fixed' })} className={`px-2 py-1 rounded-md text-[10px] font-semibold transition-all ${rulesConfig.daily_loss_mode !== 'percentage' ? 'bg-royal/30 text-royal border border-royal/40' : 'bg-white/5 text-gray-500 border border-white/10'}`}>Fixed $</button>
+                      <button onClick={() => !rulesLocked && setRulesConfig({ ...rulesConfig, daily_loss_mode: 'percentage' })} className={`px-2 py-1 rounded-md text-[10px] font-semibold transition-all ${rulesConfig.daily_loss_mode === 'percentage' ? 'bg-gold/30 text-gold border border-gold/40' : 'bg-white/5 text-gray-500 border border-white/10'}`}>% Balance</button>
+                    </div>
                   </div>
-                  <Input type="number" step="1" placeholder="e.g., 10 (empty = no cap)" value={rulesConfig.daily_loss_cap || ""} onChange={(e) => setRulesConfig({ ...rulesConfig, daily_loss_cap: e.target.value ? parseFloat(e.target.value) : 0 })} disabled={rulesLocked || !rulesConfig.rules_enabled.daily_loss_cap} className={!rulesConfig.rules_enabled.daily_loss_cap ? "opacity-40" : ""} />
-                  <p className="text-[10px] text-gray-500">Max drawdown from day&apos;s opening balance. Profits after breach are removed.</p>
+                  {rulesConfig.daily_loss_mode === 'percentage' ? (
+                    <Input type="number" step="1" placeholder="e.g., 20 (% of day balance)" value={rulesConfig.daily_loss_percent || ""} onChange={(e) => setRulesConfig({ ...rulesConfig, daily_loss_percent: e.target.value ? parseFloat(e.target.value) : 0 })} disabled={rulesLocked || !rulesConfig.rules_enabled.daily_loss_cap} className={!rulesConfig.rules_enabled.daily_loss_cap ? "opacity-40" : ""} />
+                  ) : (
+                    <Input type="number" step="1" placeholder="e.g., 10 (empty = no cap)" value={rulesConfig.daily_loss_cap || ""} onChange={(e) => setRulesConfig({ ...rulesConfig, daily_loss_cap: e.target.value ? parseFloat(e.target.value) : 0 })} disabled={rulesLocked || !rulesConfig.rules_enabled.daily_loss_cap} className={!rulesConfig.rules_enabled.daily_loss_cap ? "opacity-40" : ""} />
+                  )}
+                  <p className="text-[10px] text-gray-500">{rulesConfig.daily_loss_mode === 'percentage' ? '% of day\'s opening balance — scales as account grows' : 'Fixed $ drawdown from day\'s opening balance'}</p>
                 </div>
 
                 {/* Trading Duration */}
@@ -1983,7 +2007,11 @@ function CreateChallengePanel({ onCreated }: { onCreated: (id: number) => void }
     pair_limit: 2,
     stop_loss_required: true,
     max_risk_dollars: 5,
+    max_risk_mode: 'fixed' as 'fixed' | 'percentage',
+    max_risk_percent: 10,
     daily_loss_cap: 10,
+    daily_loss_mode: 'fixed' as 'fixed' | 'percentage',
+    daily_loss_percent: 20,
     max_hold_hours: 24,
     weekend_trading: false,
     min_active_days: 7,
@@ -2140,8 +2168,8 @@ function CreateChallengePanel({ onCreated }: { onCreated: (id: number) => void }
               <RuleInputWithToggle label="Max Lot Size" tooltip="Limits the maximum lot size per position. Trades exceeding this have profits removed." value={rules.max_lot_size} enabled={rules.rules_enabled.max_lot_size} onValueChange={v => setRules({...rules, max_lot_size: v})} onToggle={() => setRules({...rules, rules_enabled: {...rules.rules_enabled, max_lot_size: !rules.rules_enabled.max_lot_size}})} />
               <RuleInputWithToggle label="Max Open Trades" tooltip="Limits simultaneous open trades. All overlapping trades get flagged when exceeded." value={rules.max_open_trades} enabled={rules.rules_enabled.max_open_trades} onValueChange={v => setRules({...rules, max_open_trades: v})} onToggle={() => setRules({...rules, rules_enabled: {...rules.rules_enabled, max_open_trades: !rules.rules_enabled.max_open_trades}})} />
               <RuleInputWithToggle label="Pair Limit" tooltip="Max trades on the same pair open at once. Prevents overexposure to a single instrument." value={rules.pair_limit} enabled={rules.rules_enabled.pair_limit} onValueChange={v => setRules({...rules, pair_limit: v})} onToggle={() => setRules({...rules, rules_enabled: {...rules.rules_enabled, pair_limit: !rules.rules_enabled.pair_limit}})} />
-              <RuleInputWithToggle label="Max Risk ($)" tooltip="Max dollar risk per trade (SL distance). Uses two-layer check: declared SL + M1 candle fake-SL detection." value={rules.max_risk_dollars} enabled={rules.rules_enabled.stop_loss_required} onValueChange={v => setRules({...rules, max_risk_dollars: v})} onToggle={() => setRules({...rules, rules_enabled: {...rules.rules_enabled, stop_loss_required: !rules.rules_enabled.stop_loss_required}})} />
-              <RuleInputWithToggle label="Daily Loss Cap ($)" tooltip="Max drawdown from day's opening balance. Profits after breach are removed for the rest of that day." value={rules.daily_loss_cap} enabled={rules.rules_enabled.daily_loss_cap} onValueChange={v => setRules({...rules, daily_loss_cap: v})} onToggle={() => setRules({...rules, rules_enabled: {...rules.rules_enabled, daily_loss_cap: !rules.rules_enabled.daily_loss_cap}})} />
+              <RuleInputWithMode label="Max Risk" tooltip="Max risk per trade measured by SL distance. Fixed = same $ amount for all trades. Percentage = calculated from account balance at the time each trade is opened." value={rules.max_risk_mode === 'percentage' ? rules.max_risk_percent : rules.max_risk_dollars} enabled={rules.rules_enabled.stop_loss_required} mode={rules.max_risk_mode} onValueChange={v => rules.max_risk_mode === 'percentage' ? setRules({...rules, max_risk_percent: v}) : setRules({...rules, max_risk_dollars: v})} onToggle={() => setRules({...rules, rules_enabled: {...rules.rules_enabled, stop_loss_required: !rules.rules_enabled.stop_loss_required}})} onModeChange={m => setRules({...rules, max_risk_mode: m})} />
+              <RuleInputWithMode label="Daily Loss Cap" tooltip="Max drawdown from day's opening balance. Fixed = same $ cap every day. Percentage = calculated from each day's opening balance (scales with account growth)." value={rules.daily_loss_mode === 'percentage' ? rules.daily_loss_percent : rules.daily_loss_cap} enabled={rules.rules_enabled.daily_loss_cap} mode={rules.daily_loss_mode} onValueChange={v => rules.daily_loss_mode === 'percentage' ? setRules({...rules, daily_loss_percent: v}) : setRules({...rules, daily_loss_cap: v})} onToggle={() => setRules({...rules, rules_enabled: {...rules.rules_enabled, daily_loss_cap: !rules.rules_enabled.daily_loss_cap}})} onModeChange={m => setRules({...rules, daily_loss_mode: m})} />
               <RuleInputWithToggle label="Max Hold Hours" tooltip="Max time a trade can be held. Exceeding this flags the trade. Encourages active intraday trading." value={rules.max_hold_hours} enabled={rules.rules_enabled.max_hold_hours} onValueChange={v => setRules({...rules, max_hold_hours: v})} onToggle={() => setRules({...rules, rules_enabled: {...rules.rules_enabled, max_hold_hours: !rules.rules_enabled.max_hold_hours}})} />
               <RuleInputWithToggle label="Min Active Days" tooltip="Minimum distinct trading days to qualify for prizes. Users who can't reach this are DQ'd before challenge end." value={rules.min_active_days} enabled={rules.rules_enabled.min_active_days} onValueChange={v => setRules({...rules, min_active_days: v})} onToggle={() => setRules({...rules, rules_enabled: {...rules.rules_enabled, min_active_days: !rules.rules_enabled.min_active_days}})} />
               <RuleToggleWithTooltip label="Stop Loss Required" tooltip="Enforces SL verification using M1 candle data. Detects fake stop losses placed after price moved." value={rules.stop_loss_required} enabled={rules.rules_enabled.stop_loss_required} onValueChange={v => setRules({...rules, stop_loss_required: v})} onToggle={() => setRules({...rules, rules_enabled: {...rules.rules_enabled, stop_loss_required: !rules.rules_enabled.stop_loss_required}})} />
@@ -2172,8 +2200,8 @@ function CreateChallengePanel({ onCreated }: { onCreated: (id: number) => void }
               {form.type !== "real" && <ReviewRow label="Demo Prizes" value={form.demo_prizes || "—"} />}
               <ReviewRow label="Max Lot" value={String(rules.max_lot_size)} />
               <ReviewRow label="SL Required" value={rules.stop_loss_required ? "Yes" : "No"} />
-              <ReviewRow label="Daily Loss Cap" value={rules.only_cent_account && form.type !== "demo" ? `${rules.daily_loss_cap}¢` : `$${rules.daily_loss_cap}`} />
-              <ReviewRow label="Max Risk" value={rules.only_cent_account && form.type !== "demo" ? `${rules.max_risk_dollars}¢` : `$${rules.max_risk_dollars}`} />
+              <ReviewRow label="Daily Loss Cap" value={rules.daily_loss_mode === 'percentage' ? `${rules.daily_loss_percent}% of day balance` : (rules.only_cent_account && form.type !== "demo" ? `${rules.daily_loss_cap}¢` : `$${rules.daily_loss_cap}`)} />
+              <ReviewRow label="Max Risk" value={rules.max_risk_mode === 'percentage' ? `${rules.max_risk_percent}% of balance` : (rules.only_cent_account && form.type !== "demo" ? `${rules.max_risk_dollars}¢` : `$${rules.max_risk_dollars}`)} />
               <ReviewRow label="Min Active Days" value={String(rules.min_active_days)} />
               {rules.only_cent_account && <ReviewRow label="Cent Account" value="Required" />}
             </div>
@@ -2249,6 +2277,35 @@ function RuleToggleWithTooltip({ label, tooltip, value, enabled, onValueChange, 
       <button onClick={() => enabled && onValueChange(!value)} className={`w-12 h-6 rounded-full transition-all ${value && enabled ? "bg-profit" : "bg-white/20"} ${!enabled ? "cursor-not-allowed" : ""}`}>
         <div className={`w-5 h-5 bg-white rounded-full transition-transform ${value && enabled ? "translate-x-6" : "translate-x-0.5"}`}></div>
       </button>
+    </div>
+  );
+}
+
+function RuleInputWithMode({ label, tooltip, value, enabled, mode, onValueChange, onToggle, onModeChange }: { label: string; tooltip: string; value: number; enabled: boolean; mode: 'fixed' | 'percentage'; onValueChange: (v: number) => void; onToggle: () => void; onModeChange: (m: 'fixed' | 'percentage') => void }) {
+  return (
+    <div className={`p-3 bg-white/5 rounded-xl border border-white/10 space-y-2 ${!enabled ? "opacity-50" : ""}`}>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <button onClick={onToggle} className={`w-9 h-5 rounded-full transition-all flex-shrink-0 ${enabled ? "bg-royal" : "bg-white/20"}`}>
+            <div className={`w-4 h-4 bg-white rounded-full transition-transform ${enabled ? "translate-x-4" : "translate-x-0.5"}`}></div>
+          </button>
+          <p className="text-sm text-white font-medium">{label}</p>
+          <div className="relative group">
+            <span className="cursor-help text-gray-500 hover:text-royal transition-colors text-xs">ⓘ</span>
+            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-[#1a1a2e] border border-white/20 rounded-lg text-xs text-gray-300 w-56 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity z-50 shadow-xl">
+              {tooltip}
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <button onClick={() => enabled && onModeChange('fixed')} className={`px-2 py-1 rounded-md text-[10px] font-semibold transition-all ${mode === 'fixed' ? 'bg-royal/30 text-royal border border-royal/40' : 'bg-white/5 text-gray-500 border border-white/10 hover:text-gray-300'}`}>Fixed $</button>
+          <button onClick={() => enabled && onModeChange('percentage')} className={`px-2 py-1 rounded-md text-[10px] font-semibold transition-all ${mode === 'percentage' ? 'bg-gold/30 text-gold border border-gold/40' : 'bg-white/5 text-gray-500 border border-white/10 hover:text-gray-300'}`}>% Balance</button>
+        </div>
+      </div>
+      <div className="flex items-center gap-2">
+        <input type="number" step="any" value={value} onChange={e => onValueChange(parseFloat(e.target.value) || 0)} disabled={!enabled} className={`w-20 p-2 rounded-lg bg-white/10 border border-white/10 text-white text-sm text-center outline-none ${!enabled ? "cursor-not-allowed" : ""}`} />
+        <span className="text-xs text-gray-500">{mode === 'percentage' ? '% of account balance' : (label.includes('Daily') ? '$ from day open' : '$ per trade')}</span>
+      </div>
     </div>
   );
 }

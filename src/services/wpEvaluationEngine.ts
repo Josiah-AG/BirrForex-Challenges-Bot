@@ -80,7 +80,11 @@ interface RuleConfig {
   pair_limit: number | null;
   stop_loss_required: boolean;
   max_risk_dollars: number | null;
+  max_risk_mode?: 'fixed' | 'percentage';       // 'fixed' = $ amount, 'percentage' = % of account balance at trade open
+  max_risk_percent?: number | null;              // e.g. 10 = 10% of balance
   daily_loss_cap: number | null;
+  daily_loss_mode?: 'fixed' | 'percentage';      // 'fixed' = $ amount, 'percentage' = % of day's opening balance
+  daily_loss_percent?: number | null;            // e.g. 20 = 20% of day's opening balance
   max_hold_hours: number | null;
   weekend_trading: boolean;
   min_active_days: number;
@@ -1017,8 +1021,12 @@ export class WpEvaluationEngine {
     const dailyDrawdownFlagged = new Set<number>();
     let drawdownBreachTime: string | null = null;
     let drawdownBreachDay: string | null = null;
+    let drawdownBreachCap: number = 0; // Store the effective cap at breach for violation message
 
-    if (rules.daily_loss_cap && isRuleEnabled(rules, 'daily_loss_cap')) {
+    const isDailyLossPercentMode = rules.daily_loss_mode === 'percentage' && rules.daily_loss_percent;
+    const hasDailyLossRule = isDailyLossPercentMode || rules.daily_loss_cap;
+
+    if (hasDailyLossRule && isRuleEnabled(rules, 'daily_loss_cap')) {
       const tradesByDay = new Map<string, TradeRow[]>();
       allTrades.forEach(t => {
         const day = new Date(t.close_time).toISOString().split('T')[0];
@@ -1030,6 +1038,10 @@ export class WpEvaluationEngine {
       const sortedDays = [...tradesByDay.keys()].sort();
       for (const day of sortedDays) {
         const dayOpenBalance = runningBalance;
+        // Calculate effective daily cap: percentage of day's opening balance OR fixed amount
+        const effectiveDailyCap = isDailyLossPercentMode
+          ? dayOpenBalance * (rules.daily_loss_percent! / 100)
+          : rules.daily_loss_cap!;
         let drawdownBreached = false;
 
         for (const t of tradesByDay.get(day)!) {
@@ -1037,9 +1049,10 @@ export class WpEvaluationEngine {
           runningBalance += tradeNet;
           const drawdown = dayOpenBalance - runningBalance;
 
-          if (drawdown >= rules.daily_loss_cap! && !drawdownBreached) {
+          if (drawdown >= effectiveDailyCap && !drawdownBreached) {
             drawdownBreached = true;
             drawdownBreachDay = day;
+            drawdownBreachCap = effectiveDailyCap;
             // Get the time of the trade that caused the breach
             const breachTimeUTC = new Date(t.close_time);
             const breachTimeEAT = new Date(breachTimeUTC.getTime() + 3 * 60 * 60 * 1000);
@@ -1069,7 +1082,49 @@ export class WpEvaluationEngine {
     // Per-TICKET SL outcome (not per-position) — allows different results for each partial close
     const ticketSlOutcomes = new Map<number, PositionSlOutcome>();
 
-    if (rules.stop_loss_required && rules.max_risk_dollars && isRuleEnabled(rules, 'stop_loss_required')) {
+    // === Percentage-based SL risk: compute balance at each position's open time ===
+    const isRiskPercentMode = rules.max_risk_mode === 'percentage' && rules.max_risk_percent;
+    // Map: positionId → effective max risk dollars for that position (computed from balance at open)
+    const positionEffectiveMaxRisk = new Map<number, number>();
+
+    if (isRiskPercentMode) {
+      // Build running balance timeline: for each position, determine balance when it was opened
+      // Sort all trades by open_time to build a timeline of balance changes
+      const tradesByOpen = [...allTrades].sort((a, b) => new Date(a.open_time).getTime() - new Date(b.open_time).getTime());
+      // Track which positions we've already computed
+      const computedPositions = new Set<number>();
+      let balanceTimeline = effectiveStartBalance;
+      // Sort trades by CLOSE time to track actual balance progression
+      const tradesByClose = [...allTrades].sort((a, b) => new Date(a.close_time).getTime() - new Date(b.close_time).getTime());
+      let closeIdx = 0;
+
+      for (const t of tradesByOpen) {
+        const posId = (t as any).position_id ?? t.ticket;
+        if (computedPositions.has(posId)) continue;
+        computedPositions.add(posId);
+        const openMs = new Date(t.open_time).getTime();
+
+        // Advance balance timeline: add profit of all trades that closed BEFORE this trade opened
+        while (closeIdx < tradesByClose.length && new Date(tradesByClose[closeIdx].close_time).getTime() <= openMs) {
+          const ct = tradesByClose[closeIdx];
+          balanceTimeline += parseFloat(String(ct.profit)) + parseFloat(String(ct.commission || 0)) + parseFloat(String(ct.swap || 0));
+          closeIdx++;
+        }
+
+        const effectiveRisk = balanceTimeline * (rules.max_risk_percent! / 100);
+        positionEffectiveMaxRisk.set(posId, effectiveRisk);
+      }
+    }
+
+    // Helper: get effective max risk dollars for a position (percentage or fixed)
+    const getEffectiveMaxRisk = (posId: number): number => {
+      if (isRiskPercentMode) {
+        return positionEffectiveMaxRisk.get(posId) || (effectiveStartBalance * (rules.max_risk_percent! / 100));
+      }
+      return rules.max_risk_dollars || 0;
+    };
+
+    if (rules.stop_loss_required && (rules.max_risk_dollars || isRiskPercentMode) && isRuleEnabled(rules, 'stop_loss_required')) {
       const currency = reg.is_cent ? '¢' : '$';
       for (const [posId, tickets] of positionToTickets) {
         const siblings = allTrades
@@ -1089,7 +1144,8 @@ export class WpEvaluationEngine {
         let layerAViolation: string | null = null;
         const sl = parseFloat(String(entryTrade.stop_loss));
         const hasSl = sl !== 0 && !isNaN(sl);
-        if (hasSl) {
+        const posEffectiveRisk = getEffectiveMaxRisk(posId);
+        if (hasSl && posEffectiveRisk > 0) {
           const entryNet = parseFloat(String(entryTrade.profit)) + parseFloat(String(entryTrade.commission || 0)) + parseFloat(String(entryTrade.swap || 0));
           const isPartialPosition = isPartialClose || totalLot > closedLot;
           const slDollars = calculateSlDollars(
@@ -1098,10 +1154,13 @@ export class WpEvaluationEngine {
             parseFloat(String(entryTrade.close_price)), entryNet,
             isPartialPosition
           );
-          const tolerance = rules.max_risk_dollars * 0.10;
-          if (slDollars > rules.max_risk_dollars + tolerance) {
+          const tolerance = posEffectiveRisk * 0.10;
+          if (slDollars > posEffectiveRisk + tolerance) {
             layerABreach = true;
-            layerAViolation = `Declared SL risk ${currency}${slDollars.toFixed(2)} exceeds max ${currency}${rules.max_risk_dollars}${isPartialClose ? ' (full position) — all closes disqualified' : ''}`;
+            const riskDisplay = isRiskPercentMode
+              ? `${currency}${slDollars.toFixed(2)} exceeds max ${rules.max_risk_percent}% (${currency}${posEffectiveRisk.toFixed(2)})`
+              : `${currency}${slDollars.toFixed(2)} exceeds max ${currency}${posEffectiveRisk}`;
+            layerAViolation = `Declared SL risk ${riskDisplay}${isPartialClose ? ' (full position) — all closes disqualified' : ''}`;
           }
         }
 
@@ -1113,7 +1172,7 @@ export class WpEvaluationEngine {
           let windowBreachedFrom = -1; // index from which all subsequent are flagged
 
           // Window 0: full lot
-          const w0 = await validateSlWithCandles(entryTrade, rules.max_hold_hours || null, rules.max_risk_dollars, {
+          const w0 = await validateSlWithCandles(entryTrade, rules.max_hold_hours || null, posEffectiveRisk, {
             windowStart: new Date(entryTrade.open_time),
             windowEnd: new Date(siblings[0].close_time),
             effectiveVolume: totalLot,
@@ -1137,7 +1196,7 @@ export class WpEvaluationEngine {
             for (let i = 1; i < siblings.length; i++) {
               const windowStart = new Date(siblings[i - 1].close_time);
               const remainingLot = siblings.slice(i).reduce((s, t) => s + parseFloat(String(t.volume)), 0);
-              const wN = await validateSlWithCandles(siblings[i], rules.max_hold_hours || null, rules.max_risk_dollars, {
+              const wN = await validateSlWithCandles(siblings[i], rules.max_hold_hours || null, posEffectiveRisk, {
                 windowStart,
                 effectiveVolume: remainingLot,
               });
@@ -1234,7 +1293,9 @@ export class WpEvaluationEngine {
       // Daily loss cap
       if (dailyDrawdownFlagged.has(trade.ticket)) {
         const currency = reg.is_cent ? '¢' : '$';
-        const capDisplay = rules.daily_loss_cap ? `${currency}${(rules.daily_loss_cap).toFixed(2)}` : '';
+        const capDisplay = isDailyLossPercentMode
+          ? `${rules.daily_loss_percent}% (${currency}${drawdownBreachCap.toFixed(2)})`
+          : (rules.daily_loss_cap ? `${currency}${(rules.daily_loss_cap).toFixed(2)}` : '');
         violations.push(`Profit after daily ${capDisplay} drawdown breach`);
       }
 
@@ -1269,6 +1330,8 @@ export class WpEvaluationEngine {
         const MAX_CONFLICTS = 3;
         const isDefinitive = isDefinitiveSl;
         const ticketOutcome = ticketSlOutcomes.get(trade.ticket);
+        const tradeposId = (trade as any).position_id ?? trade.ticket;
+        const tradeEffectiveRisk = getEffectiveMaxRisk(tradeposId);
 
         // Layer A — declared SL too wide
         if (ticketOutcome?.layerABreach) {
@@ -1278,7 +1341,7 @@ export class WpEvaluationEngine {
         if (ticketOutcome?.layerBBreach) {
           // Layer B (fake SL) confirmed for this specific ticket
           violations.push(ticketOutcome.layerBViolation!);
-          if (rules.max_risk_dollars) slPenaltyDollars = rules.max_risk_dollars;
+          if (tradeEffectiveRisk) slPenaltyDollars = tradeEffectiveRisk;
           await db.query(
             `UPDATE wp_trades SET sl_allowed_price = $1, sl_max_adverse_price = $2, sl_check_result = $3, sl_check_pending = false, sl_check_attempts = 0, sl_conflict_count = 0 WHERE id = $4`,
             [ticketOutcome.slAllowedPrice, ticketOutcome.slMaxAdversePrice, ticketOutcome.slCheckResult, trade.id]
@@ -1289,7 +1352,7 @@ export class WpEvaluationEngine {
             `UPDATE wp_trades SET sl_allowed_price = $1, sl_max_adverse_price = $2, sl_check_result = 'passed', sl_check_pending = false WHERE id = $3`,
             [ticketOutcome.slAllowedPrice, ticketOutcome.slMaxAdversePrice, trade.id]
           ).catch(() => {});
-        } else if (rules.max_risk_dollars && !ticketOutcome) {
+        } else if (tradeEffectiveRisk > 0 && !ticketOutcome) {
           const existingResult = trade.sl_check_result;
           const attempts = (trade.sl_check_attempts ?? 0);
           const conflicts = (trade.sl_conflict_count ?? 0);
@@ -1301,7 +1364,7 @@ export class WpEvaluationEngine {
             const siblings = allTrades
               .filter(t => (t.position_id ?? t.ticket) === posId2)
               .sort((a, b) => new Date(a.close_time).getTime() - new Date(b.close_time).getTime());
-            const slOutcome = await runSlCheckForTrade(trade, siblings, rules.max_hold_hours || null, rules.max_risk_dollars);
+            const slOutcome = await runSlCheckForTrade(trade, siblings, rules.max_hold_hours || null, tradeEffectiveRisk);
 
             if (slOutcome.violation === 'FAILED') {
               if (isDefinitive(existingResult)) {
@@ -1312,7 +1375,7 @@ export class WpEvaluationEngine {
                 if (existingResult === 'fake_sl') {
                   const storedViols: string[] = (() => { try { return JSON.parse((trade as any).violations || '[]'); } catch { return []; } })();
                   const v = storedViols.find(x => x.includes('maximum allowed risk'));
-                  if (v && !violations.includes(v)) { violations.push(v); slPenaltyDollars = rules.max_risk_dollars; }
+                  if (v && !violations.includes(v)) { violations.push(v); slPenaltyDollars = tradeEffectiveRisk; }
                 }
               } else {
                 const newAttempts = attempts + 1;
@@ -1330,10 +1393,10 @@ export class WpEvaluationEngine {
               if (isDefinitive(existingResult) && existingResult !== newResultValue) {
                 const newConflicts = conflicts + 1;
                 if (newConflicts >= MAX_CONFLICTS) {
-                  const riskLabel = trade.symbol.endsWith('c') ? `¢${rules.max_risk_dollars}` : `$${rules.max_risk_dollars}`;
+                  const riskLabel = reg.is_cent ? `¢${tradeEffectiveRisk.toFixed(2)}` : `$${tradeEffectiveRisk.toFixed(2)}`;
                   const escalationViol = `Max risk check returned conflicting results across ${newConflicts} evaluations — max allowed loss of ${riskLabel} applied as a precaution.`;
                   violations.push(escalationViol);
-                  slPenaltyDollars = rules.max_risk_dollars;
+                  slPenaltyDollars = tradeEffectiveRisk;
                   await db.query(
                     `UPDATE wp_trades SET sl_check_result = 'check_failed', sl_check_pending = false, sl_conflict_count = $1, sl_allowed_price = $2, sl_max_adverse_price = $3 WHERE id = $4`,
                     [newConflicts, slOutcome.slAllowedPrice, slOutcome.slMaxAdversePrice, trade.id]
@@ -1352,7 +1415,7 @@ export class WpEvaluationEngine {
                 ).catch(() => {});
                 if (slOutcome.violation) {
                   violations.push(slOutcome.violation);
-                  slPenaltyDollars = rules.max_risk_dollars;
+                  slPenaltyDollars = tradeEffectiveRisk;
                 }
               }
             }
@@ -1367,12 +1430,15 @@ export class WpEvaluationEngine {
         // === MAX RISK EXCEEDED FLAG (losing trades) ===
         // If this is a losing trade and the loss exceeds max_risk_dollars + 10% tolerance,
         // flag it as "Maximum risk exceeded". No profit deduction — losses always count as-is.
-        if (rules.max_risk_dollars && tradeNet < 0 && violations.length === 0) {
+        if (tradeEffectiveRisk > 0 && tradeNet < 0 && violations.length === 0) {
           const absLoss = Math.abs(tradeNet);
-          const riskTolerance = rules.max_risk_dollars * 1.10;
+          const riskTolerance = tradeEffectiveRisk * 1.10;
           if (absLoss > riskTolerance) {
             const currency = reg.is_cent ? '¢' : '$';
-            violations.push(`Maximum risk exceeded — loss of ${currency}${absLoss.toFixed(2)} exceeds max allowed risk of ${currency}${rules.max_risk_dollars}`);
+            const riskDisplay = isRiskPercentMode
+              ? `${currency}${absLoss.toFixed(2)} exceeds max ${rules.max_risk_percent}% (${currency}${tradeEffectiveRisk.toFixed(2)})`
+              : `${currency}${absLoss.toFixed(2)} exceeds max allowed risk of ${currency}${tradeEffectiveRisk.toFixed(2)}`;
+            violations.push(`Maximum risk exceeded — loss of ${riskDisplay}`);
           }
         }
       }
@@ -1622,7 +1688,10 @@ export class WpEvaluationEngine {
   async seedDefaultRules(challengeId: number) {
     const defaults: RuleConfig = {
       max_lot_size: 0.02, max_open_trades: 3, pair_limit: 2,
-      stop_loss_required: true, max_risk_dollars: 5, daily_loss_cap: 10,
+      stop_loss_required: true, max_risk_dollars: 5,
+      max_risk_mode: 'fixed', max_risk_percent: null,
+      daily_loss_cap: 10,
+      daily_loss_mode: 'fixed', daily_loss_percent: null,
       max_hold_hours: 24, weekend_trading: false, min_active_days: 7,
       only_cent_account: false, allow_professional: false,
       rules_enabled: {
@@ -1680,7 +1749,9 @@ export class WpEvaluationEngine {
     if (cfg.pair_limit && isRuleEnabled(cfg, 'pair_limit')) rules.push(`🔄 Maximum ${cfg.pair_limit} trades on the same pair simultaneously`);
     if (cfg.stop_loss_required && isRuleEnabled(cfg, 'stop_loss_required')) {
       let t = '🛡️ Max risk per trade';
-      if (cfg.max_risk_dollars) {
+      if (cfg.max_risk_mode === 'percentage' && cfg.max_risk_percent) {
+        t += `: ${cfg.max_risk_percent}% of account balance at trade open`;
+      } else if (cfg.max_risk_dollars) {
         if (showDual) {
           t += `: $${cfg.max_risk_dollars} (Standard) / ${cfg.max_risk_dollars * 100}¢ (Cent)`;
         } else if (isRealCentOnly) {
@@ -1692,9 +1763,11 @@ export class WpEvaluationEngine {
       t += ' — each trade is checked; profits removed if limit is breached';
       rules.push(t);
     }
-    if (cfg.daily_loss_cap && isRuleEnabled(cfg, 'daily_loss_cap')) {
-      if (showDual) {
-        rules.push(`⚠️ Daily loss cap: $${cfg.daily_loss_cap} (Standard) / ${cfg.daily_loss_cap * 100}¢ (Cent) from day's opening balance`);
+    if ((cfg.daily_loss_cap || (cfg.daily_loss_mode === 'percentage' && cfg.daily_loss_percent)) && isRuleEnabled(cfg, 'daily_loss_cap')) {
+      if (cfg.daily_loss_mode === 'percentage' && cfg.daily_loss_percent) {
+        rules.push(`⚠️ Daily loss cap: ${cfg.daily_loss_percent}% of day's opening balance`);
+      } else if (showDual) {
+        rules.push(`⚠️ Daily loss cap: $${cfg.daily_loss_cap} (Standard) / ${cfg.daily_loss_cap! * 100}¢ (Cent) from day's opening balance`);
       } else if (isRealCentOnly) {
         rules.push(`⚠️ Daily loss cap: ${cfg.daily_loss_cap}¢ from day's opening balance`);
       } else {
