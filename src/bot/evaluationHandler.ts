@@ -438,13 +438,14 @@ class EvaluationHandler {
       challengeEndDate: endDate.getUTCFullYear() + '-' + String(endDate.getUTCMonth() + 1).padStart(2, '0') + '-' + String(endDate.getUTCDate()).padStart(2, '0'),
       startingBalanceLimit: Number(challenge.starting_balance) || 50,
       targetBalance: Number(challenge.target_balance) || 100,
-      maxLot: wpRules?.max_lot_size || 0.02,
-      maxOpenTrades: wpRules?.max_open_trades || 3,
-      maxSamePair: wpRules?.pair_limit || 2,
-      maxSlDollars: wpRules?.max_risk_dollars || 6,
-      maxDailyLoss: wpRules?.daily_loss_cap || 10,
-      maxHoldHours: wpRules?.max_hold_hours || 24,
-      minActiveDays: wpRules?.min_active_days || 7,
+      // Respect rules_enabled: pass very large values for disabled rules so legacy engine effectively skips them
+      maxLot: (wpRules?.rules_enabled?.max_lot_size !== false) ? (wpRules?.max_lot_size || 0.02) : 99999,
+      maxOpenTrades: (wpRules?.rules_enabled?.max_open_trades !== false) ? (wpRules?.max_open_trades || 3) : 99999,
+      maxSamePair: (wpRules?.rules_enabled?.pair_limit !== false) ? (wpRules?.pair_limit || 2) : 99999,
+      maxSlDollars: (wpRules?.rules_enabled?.stop_loss_required !== false) ? (wpRules?.max_risk_dollars || 6) : 99999,
+      maxDailyLoss: (wpRules?.rules_enabled?.daily_loss_cap !== false) ? (wpRules?.daily_loss_cap || 10) : 99999,
+      maxHoldHours: (wpRules?.rules_enabled?.max_hold_hours !== false) ? (wpRules?.max_hold_hours || 24) : 99999,
+      minActiveDays: (wpRules?.rules_enabled?.min_active_days !== false) ? (wpRules?.min_active_days || 7) : 0,
     };
 
     // Run evaluation
@@ -465,7 +466,7 @@ class EvaluationHandler {
 
     // === POST-EVALUATION: Fake SL candle check using local OHLC data ===
     // Only on trades that passed all other rules (not flagged) and are profitable
-    if (wpRules?.stop_loss_required && wpRules?.max_risk_dollars) {
+    if (wpRules?.stop_loss_required && wpRules?.max_risk_dollars && wpRules?.rules_enabled?.stop_loss_required !== false) {
       try {
         const { db: database } = require('../database/db');
         const remapToBase = (s: string) => s.replace(/[a-z]$/, '') + 'm';

@@ -1627,7 +1627,8 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
              OR (l.total_trades > 0 AND r.last_known_balance IS NOT NULL AND CAST(r.last_known_balance AS numeric) <= 0)
            )`, [challengeId]);
 
-      const weekendFilter = rules2?.weekend_trading ? '' : ` AND EXTRACT(DOW FROM close_time) NOT IN (0, 6)`;
+      const weekendRuleDisabled = rules2?.rules_enabled?.weekend_trading === false;
+      const weekendFilter = (weekendRuleDisabled || rules2?.weekend_trading) ? '' : ` AND EXTRACT(DOW FROM close_time) NOT IN (0, 6)`;
 
       const mostDay = await db.query(
         `SELECT DATE(close_time) as day, COUNT(*) as trade_count
