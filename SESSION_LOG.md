@@ -191,3 +191,30 @@ Add option to set SL risk and daily loss cap as a percentage of account balance 
   - During challenge: blue info banner on dashboard, blue badge in leaderboard detail
   - At challenge end: hard DQ ("Did not meet minimum 10 trades (completed 7 trades)")
   - If user later meets it: DQ automatically cleared on next evaluation
+
+---
+
+## Update #4 Phase 1 — Deposit Mode Data Layer (IMPLEMENTED)
+
+### What was done
+Added `deposit_mode` and `target_percent` fields to the system without changing any existing evaluation, leaderboard, or registration logic. This is the safe foundation for Phase 2.
+
+### Files Modified
+1. `src/database/migrate.ts` — ALTER TABLE adds `deposit_mode` (DEFAULT 'fixed') and `target_percent` (nullable)
+2. `src/services/challengeGatekeeper.ts` — executeCreate INSERT includes new columns; buildCreateMessage shows mode
+3. `src/api/server.ts` — POST /challenges accepts and forwards `deposit_mode` + `target_percent`
+4. `WinnerPip/winnerpip/app/admin/panel/page.tsx` — Deposit mode selector in Step 2, conditional target input
+
+### What's safe
+- All existing challenges default to `deposit_mode = 'fixed'` automatically
+- No evaluation logic changes — `isQualified` still uses `adjustedBalance >= targetBalance`
+- No leaderboard ranking changes — still ranks by `normalized_balance`
+- No registration validation changes — still checks against `starting_balance`
+
+### Phase 2 (next session)
+Will implement the actual logic for `max_limit` and `min_limit` modes:
+- Evaluation: growth % qualification check
+- Leaderboard: rank by growth %
+- Registration: adjusted validation per mode
+- Pre-start: inverted DQ for min_limit
+- Frontend: growth % display on leaderboard
