@@ -458,6 +458,11 @@ async function migrate() {
     await db.query(`ALTER TABLE trading_challenges ADD COLUMN IF NOT EXISTS target_percent DECIMAL(10,2);`).catch(() => {});
     console.log('✅ deposit_mode & target_percent columns OK');
 
+    // === Growth percent column for leaderboard (used by max_limit/min_limit deposit modes) ===
+    await db.query(`ALTER TABLE wp_leaderboard ADD COLUMN IF NOT EXISTS growth_percent DECIMAL(10,2) DEFAULT 0;`).catch(() => {});
+    await db.query(`ALTER TABLE wp_leaderboard_staging ADD COLUMN IF NOT EXISTS growth_percent DECIMAL(10,2) DEFAULT 0;`).catch(() => {});
+    console.log('✅ growth_percent leaderboard column OK');
+
     console.log('✅ Database migration completed successfully!');
     process.exit(0);
   } catch (error) {

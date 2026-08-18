@@ -25,6 +25,7 @@ interface LeaderboardEntry {
   totalTrades: number; qualifiedTrades: number; flaggedTrades: number;
   isQualified: boolean; isDisqualified?: boolean; disqualifyReason?: string | null;
   isBlown?: boolean; isCent?: boolean; isWithdrawn?: boolean; totalWithdrawn?: number;
+  growthPercent?: number;
   lastTradeTime: string | null; lastUpdated: string | null;
   isMe?: boolean;
 }
@@ -79,6 +80,7 @@ export default function ChallengeDashboard() {
   const [myContext, setMyContext] = useState<LeaderboardEntry[]>([]);
   const [challengeRules, setChallengeRules] = useState<string[]>([]);
   const [minTotalTrades, setMinTotalTrades] = useState<number | null>(null);
+  const [depositMode, setDepositMode] = useState<string>('fixed');
 
   // Fetch trades when a user is selected in leaderboard modal
   useEffect(() => {
@@ -211,6 +213,7 @@ export default function ChallengeDashboard() {
         setLeaderboardHasMore(data.hasMore || false);
         setLeaderboardTotal(data.total || entries.length);
         if (data.minTotalTrades) setMinTotalTrades(data.minTotalTrades);
+        if (data.depositMode) setDepositMode(data.depositMode);
         if (data.myContext) {
           setMyContext(data.myContext.map((entry: LeaderboardEntry) => ({
             ...entry,
@@ -739,11 +742,11 @@ export default function ChallengeDashboard() {
                         {!leaderboardPreStart && entry.isWithdrawn && !entry.isDisqualified && <span className="px-1.5 py-0.5 bg-gray-500/20 text-gray-400 text-[10px] rounded font-bold">🚪 Exited</span>}
                         {!leaderboardPreStart && entry.isBlown && !entry.isDisqualified && !entry.isWithdrawn && <span className="px-1.5 py-0.5 bg-gray-500/20 text-gray-400 text-[10px] rounded font-bold">💀</span>}
                       </div>
-                      <p className="text-[10px] text-gray-500">{entry.totalTrades} trades • {entry.qualifiedTrades} qualified{entry.isWithdrawn && entry.totalWithdrawn ? ` • withdrew ${formatBalance(entry.totalWithdrawn, entry.accountType, entry.isCent)}` : ""}</p>
+                      <p className="text-[10px] text-gray-500">{depositMode !== 'fixed' && !entry.isDisqualified && !entry.isWithdrawn ? <><span className="text-gray-400">{formatBalance(entry.adjustedBalance - (entry.totalWithdrawn || 0), entry.accountType, entry.isCent)}</span> • </> : null}{entry.totalTrades} trades • {entry.qualifiedTrades} qualified{entry.isWithdrawn && entry.totalWithdrawn ? ` • withdrew ${formatBalance(entry.totalWithdrawn, entry.accountType, entry.isCent)}` : ""}</p>
                     </div>
                     <div className="flex items-center gap-3 flex-shrink-0">
                       <p className={`text-sm font-bold ${isWinner(entry) ? "text-profit" : "text-white"}`}>
-                      {!leaderboardPreStart && entry.isDisqualified ? <span className="text-loss">DQ</span> : !leaderboardPreStart && entry.isWithdrawn ? <span className="text-gray-400">Exited</span> : formatBalance(entry.adjustedBalance - (entry.totalWithdrawn || 0), entry.accountType, entry.isCent)}
+                      {!leaderboardPreStart && entry.isDisqualified ? <span className="text-loss">DQ</span> : !leaderboardPreStart && entry.isWithdrawn ? <span className="text-gray-400">Exited</span> : depositMode !== 'fixed' ? <span>{(entry.growthPercent || 0) >= 0 ? '↑' : '↓'} {Math.abs(entry.growthPercent || 0).toFixed(1)}%</span> : formatBalance(entry.adjustedBalance - (entry.totalWithdrawn || 0), entry.accountType, entry.isCent)}
                     </p>
                     {!leaderboardPreStart && entry.rankChange != null && entry.rankChange !== 0 ? (
                       <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded ${entry.rankChange > 0 ? "text-profit bg-profit/10" : "text-loss bg-loss/10"}`}>{entry.rankChange > 0 ? `▲${entry.rankChange}` : `▼${Math.abs(entry.rankChange)}`}</span>

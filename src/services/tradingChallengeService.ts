@@ -9,6 +9,8 @@ export interface TradingChallenge {
   end_date: Date;
   starting_balance: number;
   target_balance: number;
+  deposit_mode?: 'fixed' | 'max_limit' | 'min_limit';
+  target_percent?: number | null;
   pdf_url: string | null;
   video_url: string | null;
   real_winners_count: number;

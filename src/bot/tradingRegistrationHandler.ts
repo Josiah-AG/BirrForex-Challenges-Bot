@@ -1212,13 +1212,39 @@ export class TradingRegistrationHandler {
         compareBalance = startingBalance;
       }
 
-      // === DEMO ACCOUNT: must be exactly starting balance ===
+      // Get challenge deposit mode (used by both demo and real balance checks)
+      const depositMode3 = (challenge as any)?.deposit_mode || 'fixed';
+
+      // === DEMO ACCOUNT: balance validation depends on deposit mode ===
       if (account_type === 'demo') {
         // For demo cent accounts, compare in cent units
         const expectedBalance = isCentAccount ? (startingBalance * 100) : startingBalance;
         const tolerance = expectedBalance * 0.01; // 1% tolerance for rounding
 
-        if (Math.abs(vpsBalance - expectedBalance) > tolerance) {
+        let demoBalanceOk = true;
+        let demoRejectReason = '';
+
+        if (depositMode3 === 'fixed') {
+          // Fixed: must be exactly the starting balance
+          if (Math.abs(vpsBalance - expectedBalance) > tolerance) {
+            demoBalanceOk = false;
+            const displayExpected = isCentAccount ? `${startingBalance * 100}¢ ($${startingBalance})` : `$${startingBalance}`;
+            const displayActual = isCentAccount ? `${vpsBalance}¢ ($${(vpsBalance/100).toFixed(2)})` : `$${vpsBalance.toFixed(2)}`;
+            demoRejectReason = `balance_mismatch_demo`;
+          }
+        } else if (depositMode3 === 'max_limit') {
+          // Max limit: must be ≤ limit
+          if (vpsBalance > expectedBalance + tolerance) {
+            demoBalanceOk = false;
+          }
+        } else if (depositMode3 === 'min_limit') {
+          // Min limit: must be ≥ limit
+          if (vpsBalance < expectedBalance - tolerance) {
+            demoBalanceOk = false;
+          }
+        }
+
+        if (!demoBalanceOk) {
           session.step = 'tc_enter_account_number';
           const lang: Lang = session.data.lang || 'en';
           const displayExpected = isCentAccount ? `${startingBalance * 100}¢ ($${startingBalance})` : `$${startingBalance}`;
@@ -1264,7 +1290,12 @@ export class TradingRegistrationHandler {
           ? `${startingBalance * 100}¢ ($${startingBalance})`
           : `$${startingBalance}`;
 
-      if (vpsBalance > compareBalance) {
+      // Deposit mode determines which balance check to apply:
+      //   fixed / max_limit: reject if balance > limit (too high)
+      //   min_limit: no upper limit — accept any balance (under-deposit checked at pre-start)
+      const shouldRejectHighBalance = depositMode3 !== 'min_limit' && vpsBalance > compareBalance;
+
+      if (shouldRejectHighBalance) {
         // Balance exceeds starting balance — reject
         session.step = 'tc_enter_account_number';
         const lang: Lang = session.data.lang || 'en';

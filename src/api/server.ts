@@ -543,6 +543,7 @@ app.get('/api/challenges/:id/leaderboard', async (req, res) => {
              COALESCE(l.is_cent, r.is_cent, false) as is_cent, l.normalized_balance,
              COALESCE(l.is_withdrawn, false) as is_withdrawn,
              COALESCE(l.total_withdrawn, 0) as total_withdrawn,
+             COALESCE(l.growth_percent, 0) as growth_percent,
              r.disqualified as reg_disqualified, r.disqualified_reason as reg_disqualified_reason
       FROM wp_leaderboard l
       JOIN trading_registrations r ON l.registration_id = r.id AND (r.status IS NULL OR r.status != 'removed')
@@ -586,7 +587,8 @@ app.get('/api/challenges/:id/leaderboard', async (req, res) => {
                l.disqualify_reason, l.zero_balance_at,
                COALESCE(l.is_cent, r.is_cent, false) as is_cent,
                COALESCE(l.is_withdrawn, false) as is_withdrawn,
-               COALESCE(l.total_withdrawn, 0) as total_withdrawn
+               COALESCE(l.total_withdrawn, 0) as total_withdrawn,
+               COALESCE(l.growth_percent, 0) as growth_percent
         FROM wp_leaderboard l
         JOIN trading_registrations r ON l.registration_id = r.id AND (r.status IS NULL OR r.status != 'removed')
         WHERE l.challenge_id = $1
@@ -631,6 +633,7 @@ app.get('/api/challenges/:id/leaderboard', async (req, res) => {
             isWithdrawn: r.is_withdrawn || false,
             totalWithdrawn: parseFloat(r.total_withdrawn) || 0,
             isCent: r.is_cent || false,
+            growthPercent: parseFloat(r.growth_percent) || 0,
           }));
         }
       }
@@ -641,6 +644,12 @@ app.get('/api/challenges/:id/leaderboard', async (req, res) => {
       total,
       hasMore: offset + limit < total,
       myContext,
+      depositMode: await (async () => {
+        try {
+          const dm = await db.query(`SELECT deposit_mode FROM trading_challenges WHERE id = $1`, [challengeId]);
+          return dm.rows[0]?.deposit_mode || 'fixed';
+        } catch { return 'fixed'; }
+      })(),
       minTotalTrades: await (async () => {
         try {
           const r = await db.query(`SELECT parameters FROM wp_challenge_rules WHERE challenge_id = $1 AND rule_code = 'config'`, [challengeId]);
@@ -677,6 +686,7 @@ app.get('/api/challenges/:id/leaderboard', async (req, res) => {
             isWithdrawn: r.is_withdrawn || false,
             totalWithdrawn: parseFloat(r.total_withdrawn) || 0,
             isCent: r.is_cent || false,
+            growthPercent: parseFloat(r.growth_percent) || 0,
             lastTradeTime: r.last_trade_time,
             lastUpdated: r.last_updated,
           };

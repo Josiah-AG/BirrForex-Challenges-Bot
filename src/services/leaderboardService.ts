@@ -19,6 +19,11 @@ export class LeaderboardService {
   async updateRankings(challengeId: number, saveSnapshot = false): Promise<void> {
     console.log(`📊 Leaderboard: Updating rankings for challenge ${challengeId}${saveSnapshot ? ' (saving previous_rank snapshot)' : ''}`);
 
+    // Determine ranking mode based on deposit_mode
+    const challengeInfo = await db.query(`SELECT deposit_mode FROM trading_challenges WHERE id = $1`, [challengeId]);
+    const depositMode = challengeInfo.rows[0]?.deposit_mode || 'fixed';
+    const rankByGrowth = depositMode !== 'fixed'; // max_limit and min_limit rank by growth %
+
     // Ensure previous_rank column exists (safe to call multiple times)
     await db.query(`ALTER TABLE wp_leaderboard ADD COLUMN IF NOT EXISTS previous_rank INTEGER`).catch(() => {});
 
@@ -62,11 +67,14 @@ export class LeaderboardService {
       // Sort: 1) balance DESC  2) trades DESC  3) last trade earliest  4) registered earliest (stable tiebreaker)
       // Tier 1: active accounts with positive effective balance (withdrawn accounts
       // are treated as 0 regardless of their stored adjusted_balance)
+      const tier1SortExpr = rankByGrowth
+        ? `COALESCE(l.growth_percent, 0) DESC`
+        : `CASE WHEN COALESCE(l.is_withdrawn, false) THEN 0
+                          ELSE COALESCE(l.normalized_balance, l.adjusted_balance) - COALESCE(l.total_withdrawn, 0) END DESC`;
       await db.query(
         `UPDATE wp_leaderboard SET rank = sub.rn FROM (
           SELECT l.id, ROW_NUMBER() OVER (
-            ORDER BY CASE WHEN COALESCE(l.is_withdrawn, false) THEN 0
-                          ELSE COALESCE(l.normalized_balance, l.adjusted_balance) - COALESCE(l.total_withdrawn, 0) END DESC,
+            ORDER BY ${tier1SortExpr},
                      l.total_trades DESC,
                      l.last_trade_time ASC NULLS LAST,
                      r.registered_at ASC
@@ -113,10 +121,13 @@ export class LeaderboardService {
 
       // Tier 2b: negative balance but NOT blown — still trading, just losing
       // These rank above blown accounts regardless of balance value
+      const tier2bSortExpr = rankByGrowth
+        ? `COALESCE(l.growth_percent, 0) DESC`
+        : `COALESCE(normalized_balance, adjusted_balance) DESC`;
       await db.query(
         `UPDATE wp_leaderboard SET rank = sub.rn FROM (
           SELECT id, (ROW_NUMBER() OVER (
-            ORDER BY COALESCE(normalized_balance, adjusted_balance) DESC,
+            ORDER BY ${tier2bSortExpr},
                      total_trades DESC
           )) + $3 as rn
           FROM wp_leaderboard
@@ -139,10 +150,13 @@ export class LeaderboardService {
       offset += parseInt(tier2bCount.rows[0].cnt);
 
       // Tier 2c: blown accounts (zero_balance_at IS NOT NULL) — always rank below non-blown
+      const tier2cSortExpr = rankByGrowth
+        ? `COALESCE(growth_percent, 0) DESC`
+        : `COALESCE(normalized_balance, adjusted_balance) DESC`;
       await db.query(
         `UPDATE wp_leaderboard SET rank = sub.rn FROM (
           SELECT id, (ROW_NUMBER() OVER (
-            ORDER BY COALESCE(normalized_balance, adjusted_balance) DESC,
+            ORDER BY ${tier2cSortExpr},
                      total_trades DESC,
                      zero_balance_at DESC NULLS LAST
           )) + $3 as rn
@@ -294,10 +308,10 @@ export class LeaderboardService {
       `INSERT INTO wp_leaderboard
        (challenge_id, registration_id, account_number, user_id, username, nickname, account_type, is_cent,
         starting_balance, current_balance, adjusted_balance, normalized_balance, qualified_profit, gross_profit, profit_removed,
-        total_trades, qualified_trades, flagged_trades, active_days, is_qualified, last_trade_time, last_updated, zero_balance_at)
+        total_trades, qualified_trades, flagged_trades, active_days, is_qualified, last_trade_time, last_updated, zero_balance_at, growth_percent)
        SELECT challenge_id, registration_id, account_number, user_id, username, nickname, account_type, is_cent,
               starting_balance, current_balance, adjusted_balance, normalized_balance, qualified_profit, gross_profit, profit_removed,
-              total_trades, qualified_trades, flagged_trades, active_days, is_qualified, last_trade_time, NOW(), zero_balance_at
+              total_trades, qualified_trades, flagged_trades, active_days, is_qualified, last_trade_time, NOW(), zero_balance_at, COALESCE(growth_percent, 0)
        FROM wp_leaderboard_staging WHERE challenge_id = $1
        ON CONFLICT (challenge_id, registration_id) DO UPDATE SET
          current_balance=EXCLUDED.current_balance, adjusted_balance=EXCLUDED.adjusted_balance,
@@ -307,7 +321,7 @@ export class LeaderboardService {
          qualified_trades=EXCLUDED.qualified_trades, flagged_trades=EXCLUDED.flagged_trades,
          active_days=EXCLUDED.active_days, is_qualified=EXCLUDED.is_qualified,
          last_trade_time=EXCLUDED.last_trade_time, last_updated=NOW(),
-         zero_balance_at=EXCLUDED.zero_balance_at`,
+         zero_balance_at=EXCLUDED.zero_balance_at, growth_percent=EXCLUDED.growth_percent`,
       [challengeId]
     );
 

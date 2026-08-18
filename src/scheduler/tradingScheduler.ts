@@ -322,6 +322,7 @@ export class TradingScheduler {
     }
 
     const startingBalance = Number(challenge.starting_balance || 30);
+    const depositMode = (challenge as any).deposit_mode || 'fixed';
     let verified = 0, dqd = 0, failed = 0;
 
     for (const reg of pending.rows) {
@@ -343,16 +344,32 @@ export class TradingScheduler {
         );
         verified++;
 
-        if (balance > limit + tolerance) {
-          const currency = reg.is_cent ? '¢' : '$';
-          await db.query(
-            `UPDATE trading_registrations
-             SET disqualified = true, disqualified_at = NOW(), disqualified_reason = $1
-             WHERE id = $2 AND disqualified = false`,
-            [`Starting balance ${currency}${balance.toFixed(2)} exceeds allowed starting balance of ${currency}${limit.toFixed(2)}`, reg.id]
-          );
-          dqd++;
-          console.log(`🚫 Pre-start DQ: reg ${reg.id} (${reg.account_number}) balance ${balance} > limit ${limit}`);
+        if (depositMode === 'min_limit') {
+          // Min limit: DQ if below minimum (and balance > 0 meaning they deposited something)
+          if (balance > 0 && balance < limit - tolerance) {
+            const currency = reg.is_cent ? '¢' : '$';
+            await db.query(
+              `UPDATE trading_registrations
+               SET disqualified = true, disqualified_at = NOW(), disqualified_reason = $1
+               WHERE id = $2 AND disqualified = false`,
+              [`Starting balance ${currency}${balance.toFixed(2)} is below minimum required deposit of ${currency}${limit.toFixed(2)}`, reg.id]
+            );
+            dqd++;
+            console.log(`🚫 Pre-start DQ: reg ${reg.id} (${reg.account_number}) balance ${balance} < min ${limit}`);
+          }
+        } else {
+          // Fixed and max_limit: DQ if exceeds upper limit
+          if (balance > limit + tolerance) {
+            const currency = reg.is_cent ? '¢' : '$';
+            await db.query(
+              `UPDATE trading_registrations
+               SET disqualified = true, disqualified_at = NOW(), disqualified_reason = $1
+               WHERE id = $2 AND disqualified = false`,
+              [`Starting balance ${currency}${balance.toFixed(2)} exceeds allowed starting balance of ${currency}${limit.toFixed(2)}`, reg.id]
+            );
+            dqd++;
+            console.log(`🚫 Pre-start DQ: reg ${reg.id} (${reg.account_number}) balance ${balance} > limit ${limit}`);
+          }
         }
       } catch (err) {
         failed++;
@@ -1691,6 +1708,7 @@ export class TradingScheduler {
       console.log(`💰 Pre-start balance check: starting for "${challenge.title}" (ID: ${challenge.id})`);
 
       const startingBalance = Number(challenge.starting_balance || 30);
+      const depositMode2 = (challenge as any).deposit_mode || 'fixed';
 
       // Get all registrations (both demo and real) with investor passwords
       // Skip accounts already flagged with password_changed (they already got a DM)
@@ -1792,9 +1810,14 @@ export class TradingScheduler {
           );
           checked++;
 
-          if (balance > limit + tolerance) {
-            // Balance exceeds — set warning flag and notify
-            const excess = balance - limit;
+          // Determine if balance needs a warning based on deposit mode
+          const needsWarning = depositMode2 === 'min_limit'
+            ? (balance > 0 && balance < limit - tolerance)  // Below minimum
+            : (balance > limit + tolerance);                 // Exceeds maximum (fixed + max_limit)
+
+          if (needsWarning) {
+            // Balance issue — set warning flag and notify
+            const excess = depositMode2 === 'min_limit' ? (limit - balance) : (balance - limit);
             await db.query(
               `UPDATE trading_registrations SET balance_warning = true WHERE id = $1`,
               [reg.id]
