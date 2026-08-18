@@ -101,3 +101,42 @@ After user confirmed toggles are visible, ran a full audit of all files that con
 - `src/scheduler/tradingScheduler.ts` — Does not use rules at all
 - `src/api/discordRoutes.ts` — Only uses `only_cent_account` (registration filter, not evaluation rule)
 - `src/services/leaderboardService.ts` — Does not read rules at all
+
+---
+
+## Update #2 — Percentage-Based SL Risk & Daily Drawdown (IMPLEMENTED)
+
+### Requirement
+Add option to set SL risk and daily loss cap as a percentage of account balance instead of a fixed dollar amount. For SL: percentage of balance at the time each trade is opened. For daily drawdown: percentage of day's opening balance.
+
+### Files Modified
+
+**Backend:**
+1. `src/services/wpEvaluationEngine.ts`
+   - Added `max_risk_mode`, `max_risk_percent`, `daily_loss_mode`, `daily_loss_percent` to `RuleConfig`
+   - Daily drawdown: computes `effectiveDailyCap = dayOpenBalance * (percent/100)` per day
+   - SL risk: builds running balance timeline, computes per-position effective max risk from balance at open time
+   - `getEffectiveMaxRisk()` helper returns dynamic value for percentage mode, fixed for default
+   - All SL checks (Layer A declared SL, Layer B candle, per-trade re-check, escalation, loss-exceeded) use dynamic value
+   - Violation messages show both % and calculated $ amount
+   - `getRulesForDisplay()` shows "10% of account balance" / "20% of day's balance"
+   - `seedDefaultRules()` includes mode fields (default: `'fixed'`)
+
+2. `src/bot/evaluationHandler.ts`
+   - Legacy engine approximation: computes effective value from `starting_balance * percent/100`
+   - Acceptable since legacy `/evaluate` is a manual quick-check, not primary evaluation
+
+**Frontend:**
+3. `WinnerPip/winnerpip/app/admin/panel/page.tsx`
+   - Both Rules tab AND creation stepper (Step 3) updated
+   - Mode fields added to `rulesConfig` and `rules` states + API load logic
+   - New `RuleInputWithMode` component: shows "Fixed $" / "% Balance" toggle buttons
+   - Input switches between dollar field and percentage field based on mode
+   - Review step (Step 4) shows mode-appropriate display
+
+### Design Decisions
+- **Percentage SL risk**: uses running balance (sum of profits from trades closed before this one opened) — accurate per-trade dynamic calculation
+- **Percentage daily loss**: uses `dayOpenBalance` which is already tracked — clean fit
+- **Legacy engine**: uses starting balance approximation since it doesn't track per-trade balance
+- **Cent accounts**: percentages auto-scale correctly (10% of 5000¢ = 500¢)
+- **Backward compatible**: `undefined` mode = `'fixed'` behavior, existing challenges unaffected
