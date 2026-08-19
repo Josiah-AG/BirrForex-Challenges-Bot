@@ -1830,6 +1830,159 @@ app.get('/api/host/challenge/:id/csv-status', hostAuthMiddleware, async (req: an
   }
 });
 
+/**
+ * POST /api/host/challenges
+ * Host creates a new challenge (queued for admin approval via Telegram)
+ * Body: { title, type, start_date, end_date, starting_balance, target_balance, deposit_mode, target_percent,
+ *         prize_pool_text, real_winners_count, demo_winners_count, real_prizes, demo_prizes }
+ */
+app.post('/api/host/challenges', hostAuthMiddleware, async (req: any, res) => {
+  try {
+    const { hostService } = require('../services/hostService');
+    const host = await hostService.getHostById(req.host.hostId);
+    if (!host) return res.status(401).json({ error: 'Host not found' });
+
+    // Check if host already has an active challenge
+    const activeChallenges = await db.query(
+      `SELECT id FROM trading_challenges WHERE host_id = $1 AND status IN ('draft', 'registration_open', 'active')`,
+      [req.host.hostId]
+    );
+    if (activeChallenges.rows.length >= (host.max_concurrent_challenges || 1)) {
+      return res.status(400).json({ error: 'You already have an active challenge. Complete or cancel it before creating a new one.' });
+    }
+
+    const {
+      title, type, start_date, end_date, starting_balance, target_balance,
+      deposit_mode, target_percent, prize_pool_text,
+      real_winners_count, demo_winners_count, real_prizes, demo_prizes,
+    } = req.body;
+
+    if (!title || !type || !start_date || !end_date || !starting_balance) {
+      return res.status(400).json({ error: 'Missing required fields: title, type, start_date, end_date, starting_balance' });
+    }
+
+    // Queue for admin approval (same gatekeeper used by admin panel)
+    const gatekeeper = require('../services/challengeGatekeeper');
+    const data = {
+      title, type, source: 'winnerpip', team_only: false,
+      start_date, end_date, registration_deadline: start_date,
+      starting_balance, target_balance: target_balance || 0,
+      deposit_mode: deposit_mode || 'fixed',
+      target_percent: target_percent || null,
+      prize_pool_text: prize_pool_text || '',
+      real_winners_count: real_winners_count || 0,
+      demo_winners_count: demo_winners_count || 0,
+      real_prizes: real_prizes || [],
+      demo_prizes: demo_prizes || [],
+      pdf_url: null, video_url: null,
+      evaluation_type: 'winnerpip',
+      pull_times: ['00:00','04:00','08:00','12:00','16:00','20:00'],
+      pull_interval_hours: 4,
+      first_pull_time: '00:00',
+      host_id: req.host.hostId,
+    };
+
+    const token = gatekeeper.queueCreate(data);
+
+    // Notify admin via Telegram
+    try {
+      const telegram = getTelegram();
+      if (telegram) {
+        const { Markup } = require('telegraf');
+        const msg = await telegram.sendMessage(
+          config.adminUserId,
+          `🏢 <b>Host Challenge Creation</b>\n\n` +
+          `<b>Host:</b> ${host.display_name}\n` +
+          `<b>Title:</b> ${title}\n` +
+          `<b>Type:</b> ${type}\n` +
+          `<b>Period:</b> ${start_date} to ${end_date}\n` +
+          `<b>Balance:</b> $${starting_balance}\n` +
+          `<b>Deposit Mode:</b> ${deposit_mode || 'fixed'}\n\n` +
+          `⚠️ Confirm to create this challenge.`,
+          {
+            parse_mode: 'HTML',
+            ...Markup.inlineKeyboard([
+              [Markup.button.callback('✅ Approve', `gate_approve_${token}`)],
+              [Markup.button.callback('❌ Reject', `gate_reject_${token}`)],
+            ]),
+          }
+        );
+        gatekeeper.setMessageId(token, msg.message_id);
+      }
+    } catch (_e) { /* silent */ }
+
+    return res.json({ success: true, message: 'Challenge submitted for admin approval. You will be notified once approved.' });
+  } catch (error) {
+    console.error('Host create challenge error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * PATCH /api/host/challenge/:id/status
+ * Host requests a status change (queued for admin approval)
+ * Body: { status }
+ */
+app.patch('/api/host/challenge/:id/status', hostAuthMiddleware, async (req: any, res) => {
+  try {
+    const challengeId = parseInt(req.params.id);
+    const { status: newStatus } = req.body;
+
+    if (!newStatus) return res.status(400).json({ error: 'Status is required' });
+
+    const allowedStatuses = ['registration_open', 'active', 'completed'];
+    if (!allowedStatuses.includes(newStatus)) {
+      return res.status(400).json({ error: `Status must be one of: ${allowedStatuses.join(', ')}` });
+    }
+
+    // Verify ownership
+    const challenge = await db.query(
+      `SELECT id, title, status FROM trading_challenges WHERE id = $1 AND host_id = $2`,
+      [challengeId, req.host.hostId]
+    );
+    if (!challenge.rows[0]) return res.status(404).json({ error: 'Challenge not found' });
+
+    const currentStatus = challenge.rows[0].status;
+    const title = challenge.rows[0].title;
+
+    // Queue for admin approval
+    const gatekeeper = require('../services/challengeGatekeeper');
+    const { hostService } = require('../services/hostService');
+    const host = await hostService.getHostById(req.host.hostId);
+
+    const token = gatekeeper.queueStatusChange(challengeId, title, currentStatus, newStatus, host?.display_name || 'Unknown');
+
+    // Notify admin
+    try {
+      const telegram = getTelegram();
+      if (telegram) {
+        const { Markup } = require('telegraf');
+        const msg = await telegram.sendMessage(
+          config.adminUserId,
+          `🔄 <b>Host Status Change Request</b>\n\n` +
+          `<b>Host:</b> ${host?.display_name || 'Unknown'}\n` +
+          `<b>Challenge:</b> ${title}\n` +
+          `<b>Change:</b> ${currentStatus} → ${newStatus}\n\n` +
+          `⚠️ Confirm to change status.`,
+          {
+            parse_mode: 'HTML',
+            ...Markup.inlineKeyboard([
+              [Markup.button.callback('✅ Approve', `gate_approve_${token}`)],
+              [Markup.button.callback('❌ Reject', `gate_reject_${token}`)],
+            ]),
+          }
+        );
+        gatekeeper.setMessageId(token, msg.message_id);
+      }
+    } catch (_e) { /* silent */ }
+
+    return res.json({ success: true, message: 'Status change submitted for admin approval.' });
+  } catch (error) {
+    console.error('Host status change error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // ==================== ADMIN API (Secret path + IP whitelist + rate limit) ====================
 
 /**

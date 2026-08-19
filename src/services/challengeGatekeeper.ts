@@ -185,13 +185,16 @@ export function buildDeleteMessage(challengeId: number, title: string): string {
 /**
  * Queue a challenge status change for admin approval.
  */
-export function queueStatusChange(challengeId: number, title: string, fromStatus: string, toStatus: string): string {
+/**
+ * Queue a status change for admin approval (used by hosts and admin panel).
+ */
+export function queueStatusChange(challengeId: number, title: string, fromStatus: string, toStatus: string, hostName?: string): string {
   cleanExpired();
   const token = generateToken();
   pendingActions.set(token, {
     token,
     type: 'status_change',
-    data: { challengeId, title, fromStatus, toStatus },
+    data: { challengeId, title, fromStatus, toStatus, hostName },
     createdAt: Date.now(),
   });
   return token;
@@ -212,9 +215,11 @@ export async function executeStatusChange(challengeId: number, status: string): 
 /**
  * Build the Telegram message for a status change confirmation.
  */
-export function buildStatusChangeMessage(challengeId: number, title: string, fromStatus: string, toStatus: string): string {
+export function buildStatusChangeMessage(challengeId: number, title: string, fromStatus: string, toStatus: string, hostName?: string): string {
+  const hostLine = hostName ? `<b>Host:</b> ${hostName}\n` : '';
   return (
     `🔐 <b>Status Change Request</b>\n\n` +
+    hostLine +
     `<b>Challenge:</b> ${title} (ID: ${challengeId})\n` +
     `<b>From:</b> ${fromStatus}\n` +
     `<b>To:</b> ${toStatus}\n\n` +

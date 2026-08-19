@@ -31,6 +31,18 @@ export default function HostDashboardPage() {
   const [csvResult, setCsvResult] = useState<{ success?: boolean; error?: string; totalRows?: number } | null>(null);
   const [csvStatus, setCsvStatus] = useState<any>(null);
 
+  // Create challenge modal
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [createForm, setCreateForm] = useState({
+    title: "", type: "hybrid", start_date: "", end_date: "",
+    starting_balance: "30", target_balance: "60", deposit_mode: "fixed",
+    target_percent: "100", prize_pool_text: "",
+    real_winners_count: "3", demo_winners_count: "3",
+    real_prizes: "", demo_prizes: "",
+  });
+  const [createLoading, setCreateLoading] = useState(false);
+  const [createResult, setCreateResult] = useState<{ success?: boolean; error?: string } | null>(null);
+
   const getToken = () => localStorage.getItem("host_token") || "";
 
   // Auth check on mount
@@ -233,6 +245,7 @@ export default function HostDashboardPage() {
                 {selectedChallenge.status === 'active' ? 'Active' : selectedChallenge.status === 'registration_open' ? 'Registration Open' : selectedChallenge.status}
               </span>
             )}
+            <button onClick={() => { setShowCreateModal(true); setCreateResult(null); }} className="ml-auto px-4 py-2 rounded-xl bg-royal/20 text-royal text-sm font-semibold border border-royal/30 hover:bg-royal/30 transition-all">+ New Challenge</button>
           </div>
         )}
 
@@ -242,6 +255,7 @@ export default function HostDashboardPage() {
             <Trophy className="w-16 h-16 text-gray-600 mx-auto mb-4" />
             <p className="text-gray-400 text-lg font-semibold">No challenges yet</p>
             <p className="text-gray-500 text-sm mt-2">Your challenges will appear here once created and approved.</p>
+            <button onClick={() => { setShowCreateModal(true); setCreateResult(null); }} className="mt-6 px-6 py-2.5 rounded-xl bg-gradient-brand text-white font-semibold text-sm hover:opacity-90">Create Challenge</button>
           </div>
         )}
 
@@ -428,6 +442,80 @@ export default function HostDashboardPage() {
           </>
         )}
       </div>
+
+      {/* Create Challenge Modal */}
+      {showCreateModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => !createLoading && setShowCreateModal(false)}>
+          <div className="glass rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto border border-white/10" onClick={e => e.stopPropagation()}>
+            <div className="sticky top-0 glass p-4 border-b border-white/10 flex items-center justify-between z-10 rounded-t-2xl">
+              <h3 className="text-lg font-bold text-white">Create Challenge</h3>
+              <button onClick={() => !createLoading && setShowCreateModal(false)} className="p-2 hover:bg-white/10 rounded-lg"><span className="text-gray-400 text-lg">x</span></button>
+            </div>
+            <div className="p-5">
+              {createResult?.success ? (
+                <div className="text-center py-8">
+                  <p className="text-profit font-bold text-lg mb-2">Submitted for Approval</p>
+                  <p className="text-gray-400 text-sm">Admin will review and approve your challenge. You will see it in your dashboard once approved.</p>
+                  <button onClick={() => { setShowCreateModal(false); window.location.reload(); }} className="mt-6 px-6 py-2.5 rounded-xl bg-royal/20 text-royal font-semibold text-sm border border-royal/30">OK</button>
+                </div>
+              ) : (
+                <form onSubmit={async (e) => {
+                  e.preventDefault();
+                  setCreateLoading(true); setCreateResult(null);
+                  try {
+                    const res = await fetch(`${API_URL}/api/host/challenges`, {
+                      method: 'POST',
+                      headers: { Authorization: `Bearer ${getToken()}`, 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        ...createForm,
+                        starting_balance: parseFloat(createForm.starting_balance),
+                        target_balance: parseFloat(createForm.target_balance),
+                        target_percent: createForm.deposit_mode !== 'fixed' ? parseFloat(createForm.target_percent) : null,
+                        real_winners_count: parseInt(createForm.real_winners_count) || 0,
+                        demo_winners_count: parseInt(createForm.demo_winners_count) || 0,
+                        real_prizes: createForm.real_prizes ? createForm.real_prizes.split(',').map(p => p.trim()) : [],
+                        demo_prizes: createForm.demo_prizes ? createForm.demo_prizes.split(',').map(p => p.trim()) : [],
+                      }),
+                    });
+                    const data = await res.json();
+                    if (res.ok && data.success) { setCreateResult({ success: true }); }
+                    else { setCreateResult({ error: data.error || 'Failed to submit' }); }
+                  } catch (_err) { setCreateResult({ error: 'Could not connect to server' }); }
+                  setCreateLoading(false);
+                }} className="space-y-4">
+                  {createResult?.error && <div className="p-3 rounded-xl bg-loss/10 border border-loss/30"><p className="text-sm text-loss">{createResult.error}</p></div>}
+                  <div><label className="block text-xs text-gray-400 mb-1">Title *</label><input required value={createForm.title} onChange={e => setCreateForm({...createForm, title: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" placeholder="Challenge Title" /></div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div><label className="block text-xs text-gray-400 mb-1">Type *</label><select value={createForm.type} onChange={e => setCreateForm({...createForm, type: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none"><option value="hybrid" className="bg-[#0f1629]">Hybrid</option><option value="demo" className="bg-[#0f1629]">Demo</option><option value="real" className="bg-[#0f1629]">Real</option></select></div>
+                    <div><label className="block text-xs text-gray-400 mb-1">Deposit Mode</label><select value={createForm.deposit_mode} onChange={e => setCreateForm({...createForm, deposit_mode: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none"><option value="fixed" className="bg-[#0f1629]">Fixed</option><option value="max_limit" className="bg-[#0f1629]">Max Limit</option><option value="min_limit" className="bg-[#0f1629]">Min Limit</option></select></div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div><label className="block text-xs text-gray-400 mb-1">Start Date *</label><input required type="datetime-local" value={createForm.start_date} onChange={e => setCreateForm({...createForm, start_date: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
+                    <div><label className="block text-xs text-gray-400 mb-1">End Date *</label><input required type="datetime-local" value={createForm.end_date} onChange={e => setCreateForm({...createForm, end_date: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div><label className="block text-xs text-gray-400 mb-1">Starting Balance ($) *</label><input required value={createForm.starting_balance} onChange={e => setCreateForm({...createForm, starting_balance: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
+                    {createForm.deposit_mode === 'fixed' ? (
+                      <div><label className="block text-xs text-gray-400 mb-1">Target Balance ($)</label><input value={createForm.target_balance} onChange={e => setCreateForm({...createForm, target_balance: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
+                    ) : (
+                      <div><label className="block text-xs text-gray-400 mb-1">Target Growth (%)</label><input value={createForm.target_percent} onChange={e => setCreateForm({...createForm, target_percent: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
+                    )}
+                  </div>
+                  <div><label className="block text-xs text-gray-400 mb-1">Prize Pool Text</label><input value={createForm.prize_pool_text} onChange={e => setCreateForm({...createForm, prize_pool_text: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" placeholder="e.g., $1,000 Total" /></div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div><label className="block text-xs text-gray-400 mb-1">Real Prizes (comma sep)</label><input value={createForm.real_prizes} onChange={e => setCreateForm({...createForm, real_prizes: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" placeholder="500,300,200" /></div>
+                    <div><label className="block text-xs text-gray-400 mb-1">Demo Prizes (comma sep)</label><input value={createForm.demo_prizes} onChange={e => setCreateForm({...createForm, demo_prizes: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" placeholder="300,200,100" /></div>
+                  </div>
+                  <button type="submit" disabled={createLoading} className="w-full py-3 rounded-xl bg-gradient-brand text-white font-semibold text-sm hover:opacity-90 disabled:opacity-50 flex items-center justify-center gap-2">
+                    {createLoading ? <><Loader2 size={16} className="animate-spin" /> Submitting...</> : "Submit for Approval"}
+                  </button>
+                  <p className="text-[10px] text-gray-500 text-center">Your challenge will be reviewed by admin before going live.</p>
+                </form>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
