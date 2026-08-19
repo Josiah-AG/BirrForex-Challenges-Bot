@@ -62,6 +62,7 @@ export default function HostDashboardPage() {
 
   // Create challenge modal
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showAccountSettings, setShowAccountSettings] = useState(false);
   const [createStep, setCreateStep] = useState(1); // 1=details, 2=rules, 3=review
   const [createForm, setCreateForm] = useState({
     title: "", type: "hybrid", start_date: "", end_date: "",
@@ -69,6 +70,7 @@ export default function HostDashboardPage() {
     target_percent: "100",
     real_winners_count: "3", demo_winners_count: "3",
     real_prizes: "", demo_prizes: "",
+    registration_mode: (hostInfo?.hasBrokerIntegration ? "winnerpip" : "manual") as "winnerpip" | "manual",
   });
   const [createRules, setCreateRules] = useState({
     max_lot_size: 0.02, max_open_trades: 3, pair_limit: 2,
@@ -324,12 +326,29 @@ export default function HostDashboardPage() {
               <p className="text-[10px] text-royal/80 font-semibold tracking-wider">HOST DASHBOARD</p>
             </div>
           </div>
-          <button onClick={handleLogout} className="flex items-center gap-2 px-3 py-2 text-gray-400 hover:text-loss hover:bg-loss/10 rounded-lg transition-all text-xs font-medium">
-            <LogOut size={14} /> Logout
-          </button>
+          <div className="flex items-center gap-2">
+            <button onClick={() => setShowAccountSettings(!showAccountSettings)} className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-all text-xs font-medium ${showAccountSettings ? 'text-royal bg-royal/10' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}>
+              <Settings size={14} /> Settings
+            </button>
+            <button onClick={handleLogout} className="flex items-center gap-2 px-3 py-2 text-gray-400 hover:text-loss hover:bg-loss/10 rounded-lg transition-all text-xs font-medium">
+              <LogOut size={14} /> Logout
+            </button>
+          </div>
         </div>
       </header>
 
+      {/* Account Settings Panel */}
+      {showAccountSettings && (
+        <div className="container mx-auto px-4 sm:px-6 py-6 max-w-2xl relative">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-bold text-white">Account Settings</h2>
+            <button onClick={() => setShowAccountSettings(false)} className="text-xs text-gray-400 hover:text-white transition-all">Back to Dashboard</button>
+          </div>
+          <BrokerCredentialsSection />
+        </div>
+      )}
+
+      {!showAccountSettings && (
       <div className="container mx-auto px-4 sm:px-6 py-6 max-w-7xl relative">
         {/* Challenge Selector */}
         {challenges.length > 0 && (
@@ -360,7 +379,7 @@ export default function HostDashboardPage() {
         )}
 
         {/* No challenges */}
-        {challenges.length === 0 && (
+        {challenges.length === 0 && (<>
           <div className="text-center py-24">
             <div className="w-20 h-20 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center mx-auto mb-5">
               <Trophy className="w-10 h-10 text-gray-600" />
@@ -369,7 +388,7 @@ export default function HostDashboardPage() {
             <p className="text-gray-500 text-sm mt-2 max-w-sm mx-auto">Your challenges will appear here once created and approved by admin.</p>
             <button onClick={() => { setShowCreateModal(true); setCreateResult(null); setCreateStep(1); }} className="mt-6 px-6 py-2.5 rounded-xl bg-royal text-white font-semibold text-sm hover:bg-royal/80 transition-all">Create Challenge</button>
           </div>
-        )}
+        </>)}
 
         {/* Tab Navigation */}
         {selectedChallengeId && (
@@ -534,7 +553,7 @@ export default function HostDashboardPage() {
                 )}
 
                 {/* SETTINGS TAB */}
-                {activeTab === "settings" && (<>
+                {activeTab === "settings" && (
                   <div className="glass rounded-2xl border border-white/10 p-5">
                     <h3 className="text-sm font-semibold text-white mb-2 flex items-center gap-2"><Settings size={16} className="text-royal" /> Challenge Settings</h3>
                     <p className="text-xs text-gray-500 mb-5">Edit your challenge details. Changes take effect immediately.</p>
@@ -628,10 +647,7 @@ export default function HostDashboardPage() {
                       </div>
                     )}
                   </div>
-
-                  {/* Broker Credentials Section */}
-                  <BrokerCredentialsSection />
-                </>)}
+                )}
 
                 {/* SCREENING TAB */}
                 {activeTab === "screening" && (
@@ -794,6 +810,7 @@ export default function HostDashboardPage() {
           </>
         )}
       </div>
+      )}
 
       {/* Create Challenge Modal */}
       {showCreateModal && (
@@ -876,6 +893,30 @@ export default function HostDashboardPage() {
                       </div>
                       {createForm.type !== "demo" && <div><label className="text-xs text-gray-400 font-medium mb-1 block">Real Prizes (comma-separated $)</label><input value={createForm.real_prizes} onChange={e => setCreateForm({...createForm, real_prizes: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" placeholder="500,300,200" /></div>}
                       {createForm.type !== "real" && <div><label className="text-xs text-gray-400 font-medium mb-1 block">Demo Prizes (comma-separated $)</label><input value={createForm.demo_prizes} onChange={e => setCreateForm({...createForm, demo_prizes: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" placeholder="300,200,100" /></div>}
+
+                      {/* Registration Mode */}
+                      <div>
+                        <label className="text-xs text-gray-400 font-medium mb-1 block">Registration Mode</label>
+                        <div className="grid grid-cols-2 gap-2">
+                          <button type="button" onClick={() => setCreateForm({...createForm, registration_mode: 'winnerpip'})} disabled={!hostInfo?.hasBrokerIntegration} className={`p-3 rounded-xl border text-center text-xs font-semibold transition-all ${createForm.registration_mode === 'winnerpip' ? 'border-royal bg-royal/10 text-royal' : 'border-white/20 text-gray-400 hover:border-white/30'} ${!hostInfo?.hasBrokerIntegration ? 'opacity-40 cursor-not-allowed' : ''}`}>
+                            Online Registration
+                          </button>
+                          <button type="button" onClick={() => setCreateForm({...createForm, registration_mode: 'manual'})} className={`p-3 rounded-xl border text-center text-xs font-semibold transition-all ${createForm.registration_mode === 'manual' ? 'border-gold bg-gold/10 text-gold' : 'border-white/20 text-gray-400 hover:border-white/30'}`}>
+                            Manual (CSV Upload)
+                          </button>
+                        </div>
+                        {!hostInfo?.hasBrokerIntegration && (
+                          <div className="mt-2 p-2.5 rounded-lg bg-gold/5 border border-gold/10">
+                            <p className="text-[11px] text-gray-400">Online registration requires broker integration. <button onClick={() => { setShowCreateModal(false); setShowAccountSettings(true); }} className="text-gold font-semibold hover:underline">Set up broker integration</button> to let participants register through WinnerPip.</p>
+                          </div>
+                        )}
+                        {hostInfo?.hasBrokerIntegration && createForm.registration_mode === 'winnerpip' && (
+                          <p className="text-[10px] text-gray-500 mt-2">Participants will register via the WinnerPip website. Accounts are verified automatically.</p>
+                        )}
+                        {createForm.registration_mode === 'manual' && (
+                          <p className="text-[10px] text-gray-500 mt-2">You will upload participant accounts as a CSV after the challenge is created.</p>
+                        )}
+                      </div>
                     </div>
                     <button onClick={() => setCreateStep(2)} disabled={!createForm.title || !createForm.start_date || !createForm.end_date} className="w-full py-3 rounded-xl bg-gradient-brand text-white font-semibold hover:opacity-90 transition-all disabled:opacity-50 mt-6">Next: Rules</button>
                   </div>
