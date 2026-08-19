@@ -1706,6 +1706,157 @@ app.get('/api/host/challenge/:id/updates', hostAuthMiddleware, async (req: any, 
 });
 
 /**
+ * GET /api/host/challenge/:id/rules
+ * Get rules config for host's challenge
+ */
+app.get('/api/host/challenge/:id/rules', hostAuthMiddleware, async (req: any, res) => {
+  try {
+    const challengeId = parseInt(req.params.id);
+
+    // Verify ownership
+    const ownership = await db.query(`SELECT status FROM trading_challenges WHERE id = $1 AND host_id = $2`, [challengeId, req.host.hostId]);
+    if (!ownership.rows[0]) return res.status(404).json({ error: 'Challenge not found' });
+
+    const { evaluationEngine } = require('../services/wpEvaluationEngine');
+    const rules = await evaluationEngine.loadRules(challengeId);
+
+    const status = ownership.rows[0].status;
+    const locked = !['draft', 'registration_open'].includes(status);
+
+    return res.json({ rules: rules || null, locked, challengeStatus: status });
+  } catch (error) {
+    console.error('Host rules fetch error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * PUT /api/host/challenge/:id/rules
+ * Save rules config for host's challenge
+ */
+app.put('/api/host/challenge/:id/rules', hostAuthMiddleware, async (req: any, res) => {
+  try {
+    const challengeId = parseInt(req.params.id);
+
+    // Verify ownership
+    const ownership = await db.query(`SELECT status FROM trading_challenges WHERE id = $1 AND host_id = $2`, [challengeId, req.host.hostId]);
+    if (!ownership.rows[0]) return res.status(404).json({ error: 'Challenge not found' });
+
+    const status = ownership.rows[0].status;
+    // Allow saving rules if none exist yet (first-time setup), even if challenge is active
+    const existingRules = await db.query(`SELECT 1 FROM wp_challenge_rules WHERE challenge_id = $1 AND rule_code = 'config'`, [challengeId]);
+    if (!['draft', 'registration_open'].includes(status) && existingRules.rows.length > 0) {
+      return res.status(403).json({ error: 'Rules are locked. Cannot modify rules after challenge has started.', locked: true });
+    }
+
+    const { evaluationEngine } = require('../services/wpEvaluationEngine');
+    await evaluationEngine.saveRules(challengeId, req.body);
+    return res.json({ success: true });
+  } catch (error) {
+    console.error('Host rules save error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * PUT /api/host/challenge/:id/settings
+ * Update challenge details (dates, prizes, target) — host can only edit certain fields
+ * Body: { title?, end_date?, target_balance?, target_percent?, prize_pool_text?, real_winners_count?, demo_winners_count?, real_prizes?, demo_prizes? }
+ */
+app.put('/api/host/challenge/:id/settings', hostAuthMiddleware, async (req: any, res) => {
+  try {
+    const challengeId = parseInt(req.params.id);
+
+    // Verify ownership
+    const ownership = await db.query(`SELECT status FROM trading_challenges WHERE id = $1 AND host_id = $2`, [challengeId, req.host.hostId]);
+    if (!ownership.rows[0]) return res.status(404).json({ error: 'Challenge not found' });
+
+    const fields = req.body;
+    // Hosts can only modify a subset of fields
+    const allowed = ['title', 'end_date', 'target_balance', 'target_percent',
+      'prize_pool_text', 'real_winners_count', 'demo_winners_count', 'real_prizes', 'demo_prizes'];
+
+    const sets: string[] = [];
+    const values: any[] = [];
+    let idx = 1;
+
+    for (const key of allowed) {
+      if (fields[key] !== undefined) {
+        const val = (key === 'real_prizes' || key === 'demo_prizes') ? JSON.stringify(fields[key]) : fields[key];
+        sets.push(`${key} = $${idx}`);
+        values.push(val);
+        idx++;
+      }
+    }
+
+    if (sets.length === 0) return res.status(400).json({ error: 'No valid fields to update' });
+
+    sets.push(`updated_at = NOW()`);
+    values.push(challengeId);
+
+    await db.query(`UPDATE trading_challenges SET ${sets.join(', ')} WHERE id = $${idx}`, values);
+    return res.json({ success: true });
+  } catch (error) {
+    console.error('Host settings save error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * GET /api/host/broker-status
+ * Check if host has broker integration set up
+ */
+app.get('/api/host/broker-status', hostAuthMiddleware, async (req: any, res) => {
+  try {
+    const { hostService } = require('../services/hostService');
+    const host = await hostService.getHostById(req.host.hostId);
+    if (!host) return res.status(404).json({ error: 'Host not found' });
+
+    return res.json({ hasBrokerIntegration: host.has_broker_integration });
+  } catch (error) {
+    console.error('Host broker status error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * POST /api/host/broker-credentials
+ * Save broker credentials (encrypted)
+ * Body: { brokerEmail, brokerPassword, brokerApiKey }
+ */
+app.post('/api/host/broker-credentials', hostAuthMiddleware, async (req: any, res) => {
+  try {
+    const { brokerEmail, brokerPassword, brokerApiKey } = req.body;
+    if (!brokerEmail || !brokerPassword || !brokerApiKey) {
+      return res.status(400).json({ error: 'All broker credential fields are required' });
+    }
+
+    const { hostService } = require('../services/hostService');
+    await hostService.setBrokerCredentials(req.host.hostId, { brokerEmail, brokerPassword, brokerApiKey });
+
+    return res.json({ success: true });
+  } catch (error) {
+    console.error('Host broker credentials save error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * DELETE /api/host/broker-credentials
+ * Remove broker integration
+ */
+app.delete('/api/host/broker-credentials', hostAuthMiddleware, async (req: any, res) => {
+  try {
+    const { hostService } = require('../services/hostService');
+    await hostService.removeBrokerCredentials(req.host.hostId);
+    return res.json({ success: true });
+  } catch (error) {
+    console.error('Host broker credentials remove error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
  * POST /api/host/challenge/:id/upload-csv
  * Host uploads participant data as JSON array (frontend parses CSV client-side)
  * Body: { participants: [{ nickname, accountType, accountNumber, server, investorPassword }] }

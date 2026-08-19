@@ -13,7 +13,7 @@ export default function AdminDashboard() {
   const [adminPass, setAdminPass] = useState("");
   const [loginError, setLoginError] = useState("");
   const [loginLoading, setLoginLoading] = useState(false);
-  const [activeSection, setActiveSection] = useState<"overview" | "leaderboard" | "violations" | "pulls" | "screening" | "participants" | "rules" | "health" | "create" | "settings">("overview");
+  const [activeSection, setActiveSection] = useState<"overview" | "leaderboard" | "violations" | "pulls" | "screening" | "participants" | "rules" | "health" | "create" | "settings" | "hosts">("overview");
   const [selectedParticipant, setSelectedParticipant] = useState<any>(null);
   const [selectedParticipantTrades, setSelectedParticipantTrades] = useState<any[]>([]);
   const [selectedParticipantBalanceOps, setSelectedParticipantBalanceOps] = useState<any[]>([]);
@@ -563,7 +563,7 @@ export default function AdminDashboard() {
       <div className="container mx-auto px-4 py-6 max-w-7xl relative">
         {/* NAV TABS — scrollable on mobile with scroll indicator */}
         <div className="flex gap-1 p-1 glass rounded-xl border border-white/10 mb-6 overflow-x-auto scrollbar-hide">
-          {(["overview", "participants", "leaderboard", "violations", "pulls", "screening", "rules", "settings", "health"] as const).map(tab => (
+          {(["overview", "participants", "leaderboard", "violations", "pulls", "screening", "rules", "settings", "hosts", "health"] as const).map(tab => (
             <button key={tab} onClick={() => setActiveSection(tab)} className={`flex-shrink-0 py-2 px-3 sm:px-4 rounded-lg text-xs sm:text-sm font-semibold transition-all capitalize ${activeSection === tab ? "bg-royal/20 text-royal border border-royal/30" : "text-gray-400 hover:text-white hover:bg-white/5"}`}>{tab === "health" ? "⚡" : tab}</button>
           ))}
         </div>
@@ -1422,6 +1422,11 @@ export default function AdminDashboard() {
         <CreateChallengePanel onCreated={(id) => { setActiveSection("overview"); setSelectedChallengeId(String(id)); }} />
       )}
 
+      {/* ==================== HOSTS TAB ==================== */}
+      {activeSection === "hosts" && (
+        <HostsManagementPanel />
+      )}
+
       {/* ==================== HEALTH TAB ==================== */}
       {activeSection === "health" && (
         <HealthCheckPanel />
@@ -1771,6 +1776,274 @@ function MetricCard({ title, value, sub, user, username, color }: { title: strin
       <p className="text-[9px] text-gray-500">{sub}</p>
       {user && <p className="text-[9px] text-white font-medium mt-0.5">{user}</p>}
       {username && <p className="text-[8px] text-gray-500">@{username}</p>}
+    </div>
+  );
+}
+
+function HostsManagementPanel() {
+  const [hosts, setHosts] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [createForm, setCreateForm] = useState({ displayName: "", email: "", password: "" });
+  const [createLoading, setCreateLoading] = useState(false);
+  const [createError, setCreateError] = useState("");
+  const [selectedHost, setSelectedHost] = useState<any>(null);
+  const [hostDetail, setHostDetail] = useState<any>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [actionLoading, setActionLoading] = useState(false);
+  const [resetPasswordModal, setResetPasswordModal] = useState<any>(null);
+  const [newPassword, setNewPassword] = useState("");
+  const [actionResult, setActionResult] = useState("");
+
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
+  const secretPath = process.env.NEXT_PUBLIC_ADMIN_PATH || "";
+
+  const fetchHosts = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${apiUrl}/api/admin/${secretPath}/hosts`);
+      if (res.ok) {
+        const data = await res.json();
+        setHosts(data.hosts || []);
+      }
+    } catch {}
+    setLoading(false);
+  };
+
+  useEffect(() => { fetchHosts(); }, []);
+
+  const handleCreate = async () => {
+    setCreateLoading(true);
+    setCreateError("");
+    try {
+      const res = await fetch(`${apiUrl}/api/admin/${secretPath}/hosts`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(createForm),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setShowCreateModal(false);
+        setCreateForm({ displayName: "", email: "", password: "" });
+        fetchHosts();
+      } else {
+        setCreateError(data.error || "Failed to create host");
+      }
+    } catch { setCreateError("Network error"); }
+    setCreateLoading(false);
+  };
+
+  const viewHostDetail = async (hostId: number) => {
+    setDetailLoading(true);
+    setSelectedHost(hostId);
+    try {
+      const res = await fetch(`${apiUrl}/api/admin/${secretPath}/hosts/${hostId}`);
+      if (res.ok) {
+        const data = await res.json();
+        setHostDetail(data);
+      }
+    } catch {}
+    setDetailLoading(false);
+  };
+
+  const handleDeactivate = async (hostId: number, currentActive: boolean) => {
+    setActionLoading(true);
+    try {
+      const res = await fetch(`${apiUrl}/api/admin/${secretPath}/hosts/${hostId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ active: !currentActive }),
+      });
+      if (res.ok) {
+        setActionResult(`Host ${currentActive ? "deactivated" : "activated"} successfully`);
+        fetchHosts();
+        if (hostDetail?.host?.id === hostId) viewHostDetail(hostId);
+      }
+    } catch { setActionResult("Action failed"); }
+    setActionLoading(false);
+    setTimeout(() => setActionResult(""), 3000);
+  };
+
+  const handleResetPassword = async () => {
+    if (!resetPasswordModal || newPassword.length < 8) return;
+    setActionLoading(true);
+    try {
+      const res = await fetch(`${apiUrl}/api/admin/${secretPath}/hosts/${resetPasswordModal.id}/reset-password`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ newPassword }),
+      });
+      if (res.ok) {
+        setActionResult("Password reset successfully");
+        setResetPasswordModal(null);
+        setNewPassword("");
+      } else {
+        const data = await res.json();
+        setActionResult(data.error || "Failed to reset password");
+      }
+    } catch { setActionResult("Network error"); }
+    setActionLoading(false);
+    setTimeout(() => setActionResult(""), 3000);
+  };
+
+  const handleDelete = async (hostId: number, displayName: string) => {
+    if (!confirm(`Delete host "${displayName}"? This cannot be undone.`)) return;
+    setActionLoading(true);
+    try {
+      const res = await fetch(`${apiUrl}/api/admin/${secretPath}/hosts/${hostId}`, { method: "DELETE" });
+      if (res.ok) {
+        setActionResult("Host deleted");
+        setSelectedHost(null);
+        setHostDetail(null);
+        fetchHosts();
+      } else {
+        const data = await res.json();
+        setActionResult(data.error || "Delete failed");
+      }
+    } catch { setActionResult("Network error"); }
+    setActionLoading(false);
+    setTimeout(() => setActionResult(""), 3000);
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Header + Create Button */}
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-bold text-white flex items-center gap-2"><Users size={18} className="text-royal" /> Host Management</h2>
+        <button onClick={() => setShowCreateModal(true)} className="px-4 py-2 bg-royal text-white text-sm font-semibold rounded-lg hover:bg-royal/80 transition-all">+ Create Host</button>
+      </div>
+
+      {/* Action result toast */}
+      {actionResult && <div className="p-3 rounded-lg bg-profit/10 border border-profit/30 text-profit text-sm font-medium">{actionResult}</div>}
+
+      {/* Host List */}
+      {loading ? (
+        <div className="flex justify-center py-12"><Loader2 className="animate-spin text-royal" size={24} /></div>
+      ) : hosts.length === 0 ? (
+        <div className="glass rounded-2xl border border-white/10 p-8 text-center">
+          <p className="text-gray-400 text-sm">No hosts created yet</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {hosts.map((host: any) => (
+            <div key={host.id} className={`glass rounded-xl border transition-all ${selectedHost === host.id ? "border-royal/40" : "border-white/10"} p-4`}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className={`w-2.5 h-2.5 rounded-full ${host.active ? "bg-profit" : "bg-gray-500"}`} />
+                  <div>
+                    <p className="text-sm font-bold text-white">{host.display_name}</p>
+                    <p className="text-xs text-gray-400">{host.email}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-gray-500">{host.active_challenges} active · {host.total_challenges} total</span>
+                  <button onClick={() => viewHostDetail(host.id)} className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-white/5 text-gray-300 hover:text-white hover:bg-white/10 transition-all">View</button>
+                </div>
+              </div>
+
+              {/* Expanded detail panel */}
+              {selectedHost === host.id && hostDetail && !detailLoading && (
+                <div className="mt-4 pt-4 border-t border-white/10 space-y-4">
+                  {/* Stats row */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <div className="bg-white/5 rounded-lg p-3"><p className="text-xs text-gray-400">Status</p><p className={`text-sm font-bold ${hostDetail.host.active ? "text-profit" : "text-loss"}`}>{hostDetail.host.active ? "Active" : "Inactive"}</p></div>
+                    <div className="bg-white/5 rounded-lg p-3"><p className="text-xs text-gray-400">Broker Integration</p><p className="text-sm font-bold text-white">{hostDetail.host.has_broker_integration ? "✓ Connected" : "—"}</p></div>
+                    <div className="bg-white/5 rounded-lg p-3"><p className="text-xs text-gray-400">Total Logins</p><p className="text-sm font-bold text-white">{host.total_logins}</p></div>
+                    <div className="bg-white/5 rounded-lg p-3"><p className="text-xs text-gray-400">Created</p><p className="text-sm font-bold text-white">{new Date(hostDetail.host.created_at).toLocaleDateString()}</p></div>
+                  </div>
+
+                  {/* Login History */}
+                  {hostDetail.loginHistory && hostDetail.loginHistory.length > 0 && (
+                    <div>
+                      <p className="text-xs font-semibold text-gray-400 mb-2 uppercase tracking-wider">Recent Logins</p>
+                      <div className="space-y-1 max-h-32 overflow-y-auto">
+                        {hostDetail.loginHistory.slice(0, 10).map((login: any, i: number) => (
+                          <div key={i} className="flex justify-between text-xs bg-white/5 rounded-lg px-3 py-2">
+                            <span className="text-gray-300">{new Date(login.login_at).toLocaleString()}</span>
+                            <span className="text-gray-500 font-mono">{login.ip_address || "—"}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Challenges */}
+                  {hostDetail.challenges && hostDetail.challenges.length > 0 && (
+                    <div>
+                      <p className="text-xs font-semibold text-gray-400 mb-2 uppercase tracking-wider">Challenges</p>
+                      <div className="space-y-1">
+                        {hostDetail.challenges.map((ch: any, i: number) => (
+                          <div key={i} className="flex justify-between text-xs bg-white/5 rounded-lg px-3 py-2">
+                            <span className="text-white font-medium">{ch.title}</span>
+                            <span className={`font-semibold ${ch.status === "active" ? "text-profit" : ch.status === "completed" ? "text-gray-400" : "text-gold"}`}>{ch.status}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Actions */}
+                  <div className="flex gap-2 flex-wrap pt-2">
+                    <button onClick={() => { setResetPasswordModal(host); setNewPassword(""); }} className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-gold/10 text-gold border border-gold/20 hover:bg-gold/20 transition-all" disabled={actionLoading}><Key size={12} className="inline mr-1" />Reset Password</button>
+                    <button onClick={() => handleDeactivate(host.id, host.active)} className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${host.active ? "bg-loss/10 text-loss border border-loss/20 hover:bg-loss/20" : "bg-profit/10 text-profit border border-profit/20 hover:bg-profit/20"}`} disabled={actionLoading}>{host.active ? "Deactivate" : "Activate"}</button>
+                    <button onClick={() => handleDelete(host.id, host.display_name)} className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-red-900/20 text-red-400 border border-red-500/20 hover:bg-red-900/40 transition-all" disabled={actionLoading}>Delete</button>
+                  </div>
+                </div>
+              )}
+              {selectedHost === host.id && detailLoading && (
+                <div className="mt-4 pt-4 border-t border-white/10 flex justify-center py-4"><Loader2 className="animate-spin text-royal" size={18} /></div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Create Host Modal */}
+      {showCreateModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setShowCreateModal(false)}>
+          <div className="glass rounded-2xl max-w-md w-full border border-white/10 p-6 space-y-4" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-bold text-white">Create Host</h3>
+              <button onClick={() => setShowCreateModal(false)} className="p-1 hover:bg-white/10 rounded-lg"><X size={18} className="text-gray-400" /></button>
+            </div>
+            {createError && <p className="text-sm text-loss">{createError}</p>}
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-gray-400 mb-1 block">Display Name</label>
+                <input type="text" value={createForm.displayName} onChange={e => setCreateForm(p => ({ ...p, displayName: e.target.value }))} className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm focus:border-royal/50 outline-none" placeholder="e.g. Alpha Trading Co" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-400 mb-1 block">Email</label>
+                <input type="email" value={createForm.email} onChange={e => setCreateForm(p => ({ ...p, email: e.target.value }))} className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm focus:border-royal/50 outline-none" placeholder="host@example.com" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-400 mb-1 block">Password (min 8 chars)</label>
+                <input type="text" value={createForm.password} onChange={e => setCreateForm(p => ({ ...p, password: e.target.value }))} className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm focus:border-royal/50 outline-none" placeholder="Initial password" />
+              </div>
+            </div>
+            <button onClick={handleCreate} disabled={createLoading || !createForm.displayName || !createForm.email || createForm.password.length < 8} className="w-full py-2.5 rounded-lg bg-royal text-white text-sm font-semibold hover:bg-royal/80 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2">
+              {createLoading ? <Loader2 size={14} className="animate-spin" /> : null} Create Host Account
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Reset Password Modal */}
+      {resetPasswordModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setResetPasswordModal(null)}>
+          <div className="glass rounded-2xl max-w-sm w-full border border-white/10 p-6 space-y-4" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-bold text-white">Reset Password</h3>
+            <p className="text-sm text-gray-400">Set new password for <span className="text-white font-medium">{resetPasswordModal.display_name}</span></p>
+            <input type="text" value={newPassword} onChange={e => setNewPassword(e.target.value)} className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm focus:border-royal/50 outline-none" placeholder="New password (min 8 chars)" />
+            <div className="flex gap-2">
+              <button onClick={() => setResetPasswordModal(null)} className="flex-1 py-2 rounded-lg bg-white/5 text-gray-300 text-sm font-semibold hover:bg-white/10 transition-all">Cancel</button>
+              <button onClick={handleResetPassword} disabled={actionLoading || newPassword.length < 8} className="flex-1 py-2 rounded-lg bg-gold text-black text-sm font-semibold hover:bg-gold/80 disabled:opacity-50 transition-all">
+                {actionLoading ? <Loader2 size={14} className="animate-spin inline mr-1" /> : null}Reset
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

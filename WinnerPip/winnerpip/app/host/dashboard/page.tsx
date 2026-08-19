@@ -5,7 +5,7 @@ import Link from "next/link";
 import Image from "next/image";
 import {
   LayoutDashboard, Users, Trophy, FileText, Settings, RefreshCw,
-  LogOut, Loader2, ChevronDown, Calendar, Target, Activity,
+  LogOut, Loader2, ChevronDown, Calendar, Target, Activity, Shield, Info,
 } from "lucide-react";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
@@ -15,7 +15,7 @@ export default function HostDashboardPage() {
   const [hostInfo, setHostInfo] = useState<any>(null);
   const [challenges, setChallenges] = useState<any[]>([]);
   const [selectedChallengeId, setSelectedChallengeId] = useState<number | null>(null);
-  const [activeTab, setActiveTab] = useState<"overview" | "participants" | "leaderboard" | "updates">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "participants" | "leaderboard" | "updates" | "rules" | "settings">("overview");
   const [loading, setLoading] = useState(true);
 
   // Tab data
@@ -30,6 +30,35 @@ export default function HostDashboardPage() {
   const [csvUploading, setCsvUploading] = useState(false);
   const [csvResult, setCsvResult] = useState<{ success?: boolean; error?: string; totalRows?: number } | null>(null);
   const [csvStatus, setCsvStatus] = useState<any>(null);
+
+  // Rules state
+  const [rulesConfig, setRulesConfig] = useState<any>({
+    max_lot_size: 0.02, max_open_trades: 3, pair_limit: 2,
+    stop_loss_required: true, max_risk_dollars: 5, max_risk_mode: 'fixed' as 'fixed' | 'percentage',
+    max_risk_percent: 10, daily_loss_cap: 10, daily_loss_mode: 'fixed' as 'fixed' | 'percentage',
+    daily_loss_percent: 20, max_hold_hours: 24, min_trade_duration_minutes: null as number | null,
+    weekend_trading: false, min_active_days: 7, min_total_trades: null as number | null,
+    only_cent_account: false,
+    rules_enabled: {
+      max_lot_size: true, max_open_trades: true, pair_limit: true,
+      stop_loss_required: true, daily_loss_cap: true, max_hold_hours: true,
+      min_trade_duration: true, weekend_trading: true, min_active_days: true, min_total_trades: true,
+    } as Record<string, boolean>,
+  });
+  const [rulesLocked, setRulesLocked] = useState(false);
+  const [rulesLoading, setRulesLoading] = useState(false);
+  const [rulesSaving, setRulesSaving] = useState(false);
+  const [rulesSaved, setRulesSaved] = useState(false);
+
+  // Settings state
+  const [settingsForm, setSettingsForm] = useState<any>({
+    title: "", end_date: "", target_balance: "", target_percent: "",
+    prize_pool_text: "", real_winners_count: "", demo_winners_count: "",
+    real_prizes: "", demo_prizes: "",
+  });
+  const [settingsLoading, setSettingsLoading] = useState(false);
+  const [settingsSaving, setSettingsSaving] = useState(false);
+  const [settingsSaved, setSettingsSaved] = useState(false);
 
   // Create challenge modal
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -122,6 +151,62 @@ export default function HostDashboardPage() {
         .then(r => r.json())
         .then(data => { setUpdates(data.updates || []); setTabLoading(false); })
         .catch(() => setTabLoading(false));
+    } else if (activeTab === "rules") {
+      setRulesLoading(true);
+      fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/rules`, { headers })
+        .then(r => r.json())
+        .then(data => {
+          setRulesLocked(data.locked || false);
+          if (data.rules) {
+            setRulesConfig({
+              max_lot_size: data.rules.max_lot_size ?? 0.02,
+              max_open_trades: data.rules.max_open_trades ?? 3,
+              pair_limit: data.rules.pair_limit ?? 2,
+              stop_loss_required: data.rules.stop_loss_required ?? true,
+              max_risk_dollars: data.rules.max_risk_dollars ?? 5,
+              max_risk_mode: data.rules.max_risk_mode ?? 'fixed',
+              max_risk_percent: data.rules.max_risk_percent ?? 10,
+              daily_loss_cap: data.rules.daily_loss_cap ?? 10,
+              daily_loss_mode: data.rules.daily_loss_mode ?? 'fixed',
+              daily_loss_percent: data.rules.daily_loss_percent ?? 20,
+              max_hold_hours: data.rules.max_hold_hours ?? 24,
+              min_trade_duration_minutes: data.rules.min_trade_duration_minutes ?? null,
+              weekend_trading: data.rules.weekend_trading ?? false,
+              min_active_days: data.rules.min_active_days ?? 7,
+              min_total_trades: data.rules.min_total_trades ?? null,
+              only_cent_account: data.rules.only_cent_account ?? false,
+              rules_enabled: data.rules.rules_enabled ?? {
+                max_lot_size: true, max_open_trades: true, pair_limit: true,
+                stop_loss_required: true, daily_loss_cap: true, max_hold_hours: true,
+                min_trade_duration: true, weekend_trading: true, min_active_days: true, min_total_trades: true,
+              },
+            });
+          }
+          setRulesSaved(false);
+          setRulesLoading(false);
+          setTabLoading(false);
+        })
+        .catch(() => { setRulesLoading(false); setTabLoading(false); });
+    } else if (activeTab === "settings") {
+      setSettingsLoading(true);
+      // Load current challenge data to populate form
+      const ch = challenges.find((c: any) => c.id === selectedChallengeId);
+      if (ch) {
+        setSettingsForm({
+          title: ch.title || "",
+          end_date: ch.end_date ? new Date(ch.end_date).toISOString().slice(0, 16) : "",
+          target_balance: ch.target_balance ?? "",
+          target_percent: ch.target_percent ?? "",
+          prize_pool_text: ch.prize_pool_text || "",
+          real_winners_count: ch.real_winners_count ?? "",
+          demo_winners_count: ch.demo_winners_count ?? "",
+          real_prizes: Array.isArray(ch.real_prizes) ? ch.real_prizes.join(", ") : (ch.real_prizes || ""),
+          demo_prizes: Array.isArray(ch.demo_prizes) ? ch.demo_prizes.join(", ") : (ch.demo_prizes || ""),
+        });
+      }
+      setSettingsLoading(false);
+      setSettingsSaved(false);
+      setTabLoading(false);
     }
   }, [selectedChallengeId, activeTab, isAuth]);
 
@@ -267,6 +352,8 @@ export default function HostDashboardPage() {
                 { key: "overview", label: "Overview", icon: <LayoutDashboard size={14} /> },
                 { key: "participants", label: "Participants", icon: <Users size={14} /> },
                 { key: "leaderboard", label: "Leaderboard", icon: <Trophy size={14} /> },
+                { key: "rules", label: "Rules", icon: <Shield size={14} /> },
+                { key: "settings", label: "Settings", icon: <Settings size={14} /> },
                 { key: "updates", label: "Updates", icon: <RefreshCw size={14} /> },
               ].map((tab: any) => (
                 <button
@@ -409,6 +496,106 @@ export default function HostDashboardPage() {
                   </div>
                 )}
 
+                {/* SETTINGS TAB */}
+                {activeTab === "settings" && (<>
+                  <div className="glass rounded-2xl border border-white/10 p-5">
+                    <h3 className="text-sm font-semibold text-white mb-2 flex items-center gap-2"><Settings size={16} className="text-royal" /> Challenge Settings</h3>
+                    <p className="text-xs text-gray-500 mb-5">Edit your challenge details. Changes take effect immediately.</p>
+
+                    {settingsLoading ? (
+                      <div className="flex justify-center py-12"><Loader2 className="animate-spin text-royal" size={20} /></div>
+                    ) : (
+                      <div className="space-y-4">
+                        <div>
+                          <label className="block text-xs text-gray-400 mb-1">Challenge Title</label>
+                          <input type="text" value={settingsForm.title} onChange={e => setSettingsForm((p: any) => ({ ...p, title: e.target.value }))} className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none focus:border-royal/50" />
+                        </div>
+
+                        <div>
+                          <label className="block text-xs text-gray-400 mb-1">End Date</label>
+                          <input type="datetime-local" value={settingsForm.end_date} onChange={e => setSettingsForm((p: any) => ({ ...p, end_date: e.target.value }))} className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none focus:border-royal/50" />
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-xs text-gray-400 mb-1">Target Balance ($)</label>
+                            <input type="number" step="0.01" value={settingsForm.target_balance} onChange={e => setSettingsForm((p: any) => ({ ...p, target_balance: e.target.value }))} className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none focus:border-royal/50" placeholder="e.g. 60" />
+                          </div>
+                          <div>
+                            <label className="block text-xs text-gray-400 mb-1">Target Growth (%)</label>
+                            <input type="number" step="1" value={settingsForm.target_percent} onChange={e => setSettingsForm((p: any) => ({ ...p, target_percent: e.target.value }))} className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none focus:border-royal/50" placeholder="e.g. 100" />
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-xs text-gray-400 mb-1">Prize Pool Text</label>
+                          <input type="text" value={settingsForm.prize_pool_text} onChange={e => setSettingsForm((p: any) => ({ ...p, prize_pool_text: e.target.value }))} className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none focus:border-royal/50" placeholder="e.g. $1,000 Total" />
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-xs text-gray-400 mb-1">Real Winners Count</label>
+                            <input type="number" min="0" value={settingsForm.real_winners_count} onChange={e => setSettingsForm((p: any) => ({ ...p, real_winners_count: e.target.value }))} className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none focus:border-royal/50" />
+                          </div>
+                          <div>
+                            <label className="block text-xs text-gray-400 mb-1">Demo Winners Count</label>
+                            <input type="number" min="0" value={settingsForm.demo_winners_count} onChange={e => setSettingsForm((p: any) => ({ ...p, demo_winners_count: e.target.value }))} className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none focus:border-royal/50" />
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-xs text-gray-400 mb-1">Real Prizes (comma separated)</label>
+                            <input type="text" value={settingsForm.real_prizes} onChange={e => setSettingsForm((p: any) => ({ ...p, real_prizes: e.target.value }))} className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none focus:border-royal/50" placeholder="500, 300, 200" />
+                          </div>
+                          <div>
+                            <label className="block text-xs text-gray-400 mb-1">Demo Prizes (comma separated)</label>
+                            <input type="text" value={settingsForm.demo_prizes} onChange={e => setSettingsForm((p: any) => ({ ...p, demo_prizes: e.target.value }))} className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none focus:border-royal/50" placeholder="300, 200, 100" />
+                          </div>
+                        </div>
+
+                        {/* Save button */}
+                        <div className="pt-4 flex items-center gap-3">
+                          <button
+                            onClick={async () => {
+                              setSettingsSaving(true);
+                              try {
+                                const payload: any = {};
+                                if (settingsForm.title) payload.title = settingsForm.title;
+                                if (settingsForm.end_date) payload.end_date = settingsForm.end_date;
+                                if (settingsForm.target_balance) payload.target_balance = parseFloat(settingsForm.target_balance);
+                                if (settingsForm.target_percent) payload.target_percent = parseFloat(settingsForm.target_percent);
+                                if (settingsForm.prize_pool_text) payload.prize_pool_text = settingsForm.prize_pool_text;
+                                if (settingsForm.real_winners_count !== "") payload.real_winners_count = parseInt(settingsForm.real_winners_count) || 0;
+                                if (settingsForm.demo_winners_count !== "") payload.demo_winners_count = parseInt(settingsForm.demo_winners_count) || 0;
+                                if (settingsForm.real_prizes) payload.real_prizes = settingsForm.real_prizes.split(",").map((s: string) => s.trim()).filter(Boolean);
+                                if (settingsForm.demo_prizes) payload.demo_prizes = settingsForm.demo_prizes.split(",").map((s: string) => s.trim()).filter(Boolean);
+
+                                const res = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/settings`, {
+                                  method: "PUT",
+                                  headers: { Authorization: `Bearer ${getToken()}`, "Content-Type": "application/json" },
+                                  body: JSON.stringify(payload),
+                                });
+                                if (res.ok) setSettingsSaved(true);
+                              } catch {}
+                              setSettingsSaving(false);
+                              setTimeout(() => setSettingsSaved(false), 3000);
+                            }}
+                            disabled={settingsSaving}
+                            className="px-6 py-2.5 rounded-xl bg-royal text-white text-sm font-semibold hover:bg-royal/80 disabled:opacity-50 transition-all flex items-center gap-2"
+                          >
+                            {settingsSaving ? <Loader2 size={14} className="animate-spin" /> : null} Save Settings
+                          </button>
+                          {settingsSaved && <span className="text-sm text-profit font-medium">✓ Saved</span>}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Broker Credentials Section */}
+                  <BrokerCredentialsSection />
+                </>)}
+
                 {/* UPDATES TAB */}
                 {activeTab === "updates" && (
                   <div className="glass rounded-2xl border border-white/10 p-5">
@@ -433,6 +620,125 @@ export default function HostDashboardPage() {
                             </div>
                           </div>
                         ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* RULES TAB */}
+                {activeTab === "rules" && (
+                  <div className="glass rounded-2xl border border-white/10 p-5">
+                    <h3 className="text-sm font-semibold text-white mb-2 flex items-center gap-2"><Shield size={16} className="text-royal" /> Rule Configuration</h3>
+                    <p className="text-xs text-gray-500 mb-5">{rulesLocked ? "Rules are locked — challenge has already started." : "Configure the evaluation rules for your challenge. Rules can only be changed before the challenge starts."}</p>
+
+                    {rulesLoading ? (
+                      <div className="flex justify-center py-12"><Loader2 className="animate-spin text-royal" size={20} /></div>
+                    ) : (
+                      <div className="space-y-4">
+                        {/* Max Lot Size */}
+                        <RuleRow label="Max Lot Size" tooltip="Maximum position size allowed per trade" enabled={rulesConfig.rules_enabled.max_lot_size} onToggle={(v) => setRulesConfig((p: any) => ({ ...p, rules_enabled: { ...p.rules_enabled, max_lot_size: v } }))} locked={rulesLocked}>
+                          <input type="number" step="0.01" min="0.01" value={rulesConfig.max_lot_size} onChange={e => setRulesConfig((p: any) => ({ ...p, max_lot_size: parseFloat(e.target.value) || 0 }))} disabled={rulesLocked || !rulesConfig.rules_enabled.max_lot_size} className="w-24 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm outline-none disabled:opacity-40" />
+                        </RuleRow>
+
+                        {/* Max Open Trades */}
+                        <RuleRow label="Max Open Trades" tooltip="Maximum number of positions open simultaneously" enabled={rulesConfig.rules_enabled.max_open_trades} onToggle={(v) => setRulesConfig((p: any) => ({ ...p, rules_enabled: { ...p.rules_enabled, max_open_trades: v } }))} locked={rulesLocked}>
+                          <input type="number" min="1" value={rulesConfig.max_open_trades} onChange={e => setRulesConfig((p: any) => ({ ...p, max_open_trades: parseInt(e.target.value) || 1 }))} disabled={rulesLocked || !rulesConfig.rules_enabled.max_open_trades} className="w-24 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm outline-none disabled:opacity-40" />
+                        </RuleRow>
+
+                        {/* Pair Limit */}
+                        <RuleRow label="Pair Limit" tooltip="Max number of different instruments tradeable at the same time" enabled={rulesConfig.rules_enabled.pair_limit} onToggle={(v) => setRulesConfig((p: any) => ({ ...p, rules_enabled: { ...p.rules_enabled, pair_limit: v } }))} locked={rulesLocked}>
+                          <input type="number" min="1" value={rulesConfig.pair_limit} onChange={e => setRulesConfig((p: any) => ({ ...p, pair_limit: parseInt(e.target.value) || 1 }))} disabled={rulesLocked || !rulesConfig.rules_enabled.pair_limit} className="w-24 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm outline-none disabled:opacity-40" />
+                        </RuleRow>
+
+                        {/* Stop Loss Required + Max Risk */}
+                        <RuleRow label="Stop Loss Required" tooltip="Every trade must have a stop-loss set. Max risk limits the loss per trade." enabled={rulesConfig.rules_enabled.stop_loss_required} onToggle={(v) => setRulesConfig((p: any) => ({ ...p, rules_enabled: { ...p.rules_enabled, stop_loss_required: v } }))} locked={rulesLocked}>
+                          <div className="flex items-center gap-2">
+                            <div className="flex rounded-lg overflow-hidden border border-white/10">
+                              <button onClick={() => setRulesConfig((p: any) => ({ ...p, max_risk_mode: 'fixed' }))} className={`px-2 py-1 text-[10px] font-bold transition-all ${rulesConfig.max_risk_mode === 'fixed' ? 'bg-royal/20 text-royal' : 'bg-white/5 text-gray-500'}`} disabled={rulesLocked || !rulesConfig.rules_enabled.stop_loss_required}>Fixed $</button>
+                              <button onClick={() => setRulesConfig((p: any) => ({ ...p, max_risk_mode: 'percentage' }))} className={`px-2 py-1 text-[10px] font-bold transition-all ${rulesConfig.max_risk_mode === 'percentage' ? 'bg-royal/20 text-royal' : 'bg-white/5 text-gray-500'}`} disabled={rulesLocked || !rulesConfig.rules_enabled.stop_loss_required}>% Balance</button>
+                            </div>
+                            {rulesConfig.max_risk_mode === 'fixed' ? (
+                              <input type="number" step="0.5" min="0" value={rulesConfig.max_risk_dollars} onChange={e => setRulesConfig((p: any) => ({ ...p, max_risk_dollars: parseFloat(e.target.value) || 0 }))} disabled={rulesLocked || !rulesConfig.rules_enabled.stop_loss_required} className="w-20 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm outline-none disabled:opacity-40" />
+                            ) : (
+                              <input type="number" step="1" min="1" max="100" value={rulesConfig.max_risk_percent} onChange={e => setRulesConfig((p: any) => ({ ...p, max_risk_percent: parseFloat(e.target.value) || 0 }))} disabled={rulesLocked || !rulesConfig.rules_enabled.stop_loss_required} className="w-20 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm outline-none disabled:opacity-40" />
+                            )}
+                          </div>
+                        </RuleRow>
+
+                        {/* Daily Loss Cap */}
+                        <RuleRow label="Daily Loss Cap" tooltip="Maximum loss allowed in a single day. Exceeding triggers DQ." enabled={rulesConfig.rules_enabled.daily_loss_cap} onToggle={(v) => setRulesConfig((p: any) => ({ ...p, rules_enabled: { ...p.rules_enabled, daily_loss_cap: v } }))} locked={rulesLocked}>
+                          <div className="flex items-center gap-2">
+                            <div className="flex rounded-lg overflow-hidden border border-white/10">
+                              <button onClick={() => setRulesConfig((p: any) => ({ ...p, daily_loss_mode: 'fixed' }))} className={`px-2 py-1 text-[10px] font-bold transition-all ${rulesConfig.daily_loss_mode === 'fixed' ? 'bg-royal/20 text-royal' : 'bg-white/5 text-gray-500'}`} disabled={rulesLocked || !rulesConfig.rules_enabled.daily_loss_cap}>Fixed $</button>
+                              <button onClick={() => setRulesConfig((p: any) => ({ ...p, daily_loss_mode: 'percentage' }))} className={`px-2 py-1 text-[10px] font-bold transition-all ${rulesConfig.daily_loss_mode === 'percentage' ? 'bg-royal/20 text-royal' : 'bg-white/5 text-gray-500'}`} disabled={rulesLocked || !rulesConfig.rules_enabled.daily_loss_cap}>% Balance</button>
+                            </div>
+                            {rulesConfig.daily_loss_mode === 'fixed' ? (
+                              <input type="number" step="0.5" min="0" value={rulesConfig.daily_loss_cap} onChange={e => setRulesConfig((p: any) => ({ ...p, daily_loss_cap: parseFloat(e.target.value) || 0 }))} disabled={rulesLocked || !rulesConfig.rules_enabled.daily_loss_cap} className="w-20 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm outline-none disabled:opacity-40" />
+                            ) : (
+                              <input type="number" step="1" min="1" max="100" value={rulesConfig.daily_loss_percent} onChange={e => setRulesConfig((p: any) => ({ ...p, daily_loss_percent: parseFloat(e.target.value) || 0 }))} disabled={rulesLocked || !rulesConfig.rules_enabled.daily_loss_cap} className="w-20 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm outline-none disabled:opacity-40" />
+                            )}
+                          </div>
+                        </RuleRow>
+
+                        {/* Max Hold Hours */}
+                        <RuleRow label="Max Hold Hours" tooltip="Maximum time a trade can be held open" enabled={rulesConfig.rules_enabled.max_hold_hours} onToggle={(v) => setRulesConfig((p: any) => ({ ...p, rules_enabled: { ...p.rules_enabled, max_hold_hours: v } }))} locked={rulesLocked}>
+                          <input type="number" min="1" value={rulesConfig.max_hold_hours} onChange={e => setRulesConfig((p: any) => ({ ...p, max_hold_hours: parseInt(e.target.value) || 1 }))} disabled={rulesLocked || !rulesConfig.rules_enabled.max_hold_hours} className="w-24 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm outline-none disabled:opacity-40" />
+                        </RuleRow>
+
+                        {/* Min Trade Duration */}
+                        <RuleRow label="Min Trade Duration (min)" tooltip="Trades held shorter than this many minutes are flagged" enabled={rulesConfig.rules_enabled.min_trade_duration} onToggle={(v) => setRulesConfig((p: any) => ({ ...p, rules_enabled: { ...p.rules_enabled, min_trade_duration: v } }))} locked={rulesLocked}>
+                          <input type="number" min="1" value={rulesConfig.min_trade_duration_minutes ?? ""} onChange={e => setRulesConfig((p: any) => ({ ...p, min_trade_duration_minutes: e.target.value ? parseInt(e.target.value) : null }))} disabled={rulesLocked || !rulesConfig.rules_enabled.min_trade_duration} className="w-24 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm outline-none disabled:opacity-40" placeholder="—" />
+                        </RuleRow>
+
+                        {/* Weekend Trading */}
+                        <RuleRow label="Weekend Trading" tooltip="Whether trades opened/held over weekends are allowed" enabled={rulesConfig.rules_enabled.weekend_trading} onToggle={(v) => setRulesConfig((p: any) => ({ ...p, rules_enabled: { ...p.rules_enabled, weekend_trading: v } }))} locked={rulesLocked}>
+                          <button onClick={() => setRulesConfig((p: any) => ({ ...p, weekend_trading: !p.weekend_trading }))} disabled={rulesLocked || !rulesConfig.rules_enabled.weekend_trading} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${rulesConfig.weekend_trading ? 'bg-profit/20 text-profit border-profit/30' : 'bg-loss/20 text-loss border-loss/30'} disabled:opacity-40`}>{rulesConfig.weekend_trading ? "Allowed" : "Blocked"}</button>
+                        </RuleRow>
+
+                        {/* Min Active Days */}
+                        <RuleRow label="Min Active Days" tooltip="Minimum number of unique trading days required to qualify" enabled={rulesConfig.rules_enabled.min_active_days} onToggle={(v) => setRulesConfig((p: any) => ({ ...p, rules_enabled: { ...p.rules_enabled, min_active_days: v } }))} locked={rulesLocked}>
+                          <input type="number" min="1" value={rulesConfig.min_active_days} onChange={e => setRulesConfig((p: any) => ({ ...p, min_active_days: parseInt(e.target.value) || 1 }))} disabled={rulesLocked || !rulesConfig.rules_enabled.min_active_days} className="w-24 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm outline-none disabled:opacity-40" />
+                        </RuleRow>
+
+                        {/* Min Total Trades */}
+                        <RuleRow label="Min Total Trades" tooltip="Minimum number of trades needed to qualify" enabled={rulesConfig.rules_enabled.min_total_trades} onToggle={(v) => setRulesConfig((p: any) => ({ ...p, rules_enabled: { ...p.rules_enabled, min_total_trades: v } }))} locked={rulesLocked}>
+                          <input type="number" min="1" value={rulesConfig.min_total_trades ?? ""} onChange={e => setRulesConfig((p: any) => ({ ...p, min_total_trades: e.target.value ? parseInt(e.target.value) : null }))} disabled={rulesLocked || !rulesConfig.rules_enabled.min_total_trades} className="w-24 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm outline-none disabled:opacity-40" placeholder="—" />
+                        </RuleRow>
+
+                        {/* Only Cent Account */}
+                        <div className="flex items-center justify-between py-3 border-b border-white/5">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm text-gray-300">Only Cent Account</span>
+                            <span className="relative group"><Info size={12} className="text-gray-600 cursor-help" /><span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 text-[10px] text-white bg-black/90 rounded-lg whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity">Only accounts with cent balance are accepted</span></span>
+                          </div>
+                          <button onClick={() => setRulesConfig((p: any) => ({ ...p, only_cent_account: !p.only_cent_account }))} disabled={rulesLocked} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${rulesConfig.only_cent_account ? 'bg-profit/20 text-profit border-profit/30' : 'bg-white/5 text-gray-500 border-white/10'} disabled:opacity-40`}>{rulesConfig.only_cent_account ? "Yes" : "No"}</button>
+                        </div>
+
+                        {/* Save button */}
+                        {!rulesLocked && (
+                          <div className="pt-4 flex items-center gap-3">
+                            <button
+                              onClick={async () => {
+                                setRulesSaving(true);
+                                try {
+                                  const res = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/rules`, {
+                                    method: "PUT",
+                                    headers: { Authorization: `Bearer ${getToken()}`, "Content-Type": "application/json" },
+                                    body: JSON.stringify(rulesConfig),
+                                  });
+                                  if (res.ok) setRulesSaved(true);
+                                } catch {}
+                                setRulesSaving(false);
+                                setTimeout(() => setRulesSaved(false), 3000);
+                              }}
+                              disabled={rulesSaving}
+                              className="px-6 py-2.5 rounded-xl bg-royal text-white text-sm font-semibold hover:bg-royal/80 disabled:opacity-50 transition-all flex items-center gap-2"
+                            >
+                              {rulesSaving ? <Loader2 size={14} className="animate-spin" /> : null} Save Rules
+                            </button>
+                            {rulesSaved && <span className="text-sm text-profit font-medium">✓ Saved</span>}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -514,6 +820,145 @@ export default function HostDashboardPage() {
               )}
             </div>
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+function RuleRow({ label, tooltip, enabled, onToggle, locked, children }: { label: string; tooltip: string; enabled: boolean; onToggle: (v: boolean) => void; locked: boolean; children: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between py-3 border-b border-white/5">
+      <div className="flex items-center gap-2">
+        <button onClick={() => !locked && onToggle(!enabled)} disabled={locked} className={`w-8 h-4 rounded-full relative transition-all ${enabled ? 'bg-royal' : 'bg-gray-700'} disabled:opacity-50`}>
+          <span className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all ${enabled ? 'left-4' : 'left-0.5'}`} />
+        </button>
+        <span className={`text-sm ${enabled ? 'text-gray-300' : 'text-gray-600'}`}>{label}</span>
+        <span className="relative group"><Info size={12} className="text-gray-600 cursor-help" /><span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 text-[10px] text-white bg-black/90 rounded-lg whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-50">{tooltip}</span></span>
+      </div>
+      <div className={`${!enabled ? 'opacity-40 pointer-events-none' : ''}`}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function BrokerCredentialsSection() {
+  const [hasBroker, setHasBroker] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [form, setForm] = useState({ brokerEmail: "", brokerPassword: "", brokerApiKey: "" });
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState("");
+  const [showForm, setShowForm] = useState(false);
+
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
+  const getToken = () => localStorage.getItem("host_token") || "";
+
+  useEffect(() => {
+    fetch(`${apiUrl}/api/host/broker-status`, {
+      headers: { Authorization: `Bearer ${getToken()}` },
+    })
+      .then(r => r.json())
+      .then(data => { setHasBroker(data.hasBrokerIntegration || false); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, []);
+
+  const handleSave = async () => {
+    if (!form.brokerEmail || !form.brokerPassword || !form.brokerApiKey) {
+      setError("All fields are required");
+      return;
+    }
+    setSaving(true);
+    setError("");
+    try {
+      const res = await fetch(`${apiUrl}/api/host/broker-credentials`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${getToken()}`, "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      });
+      if (res.ok) {
+        setSaved(true);
+        setHasBroker(true);
+        setShowForm(false);
+        setForm({ brokerEmail: "", brokerPassword: "", brokerApiKey: "" });
+      } else {
+        const data = await res.json();
+        setError(data.error || "Save failed");
+      }
+    } catch { setError("Network error"); }
+    setSaving(false);
+    setTimeout(() => setSaved(false), 3000);
+  };
+
+  const handleRemove = async () => {
+    if (!confirm("Remove broker credentials? Partner allocation checks will be disabled.")) return;
+    setSaving(true);
+    try {
+      const res = await fetch(`${apiUrl}/api/host/broker-credentials`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${getToken()}` },
+      });
+      if (res.ok) { setHasBroker(false); setSaved(true); }
+    } catch {}
+    setSaving(false);
+    setTimeout(() => setSaved(false), 3000);
+  };
+
+  if (loading) return <div className="glass rounded-2xl border border-white/10 p-5 mt-4 flex justify-center py-8"><Loader2 className="animate-spin text-royal" size={20} /></div>;
+
+  return (
+    <div className="glass rounded-2xl border border-white/10 p-5 mt-4">
+      <h3 className="text-sm font-semibold text-white mb-2 flex items-center gap-2">
+        <Shield size={16} className="text-gold" /> Broker Integration
+      </h3>
+      <p className="text-xs text-gray-500 mb-4">
+        Connect your broker credentials to enable automatic partner allocation verification for participants.
+      </p>
+
+      {saved && <div className="p-2 mb-3 rounded-lg bg-profit/10 border border-profit/30 text-profit text-xs font-medium">✓ Credentials updated</div>}
+
+      {hasBroker && !showForm ? (
+        <div className="space-y-3">
+          <div className="flex items-center gap-3 p-3 rounded-xl bg-profit/5 border border-profit/20">
+            <div className="w-2.5 h-2.5 rounded-full bg-profit" />
+            <p className="text-sm text-profit font-medium">Broker integration active</p>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={() => setShowForm(true)} className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-white/5 text-gray-300 hover:text-white hover:bg-white/10 border border-white/10 transition-all">Update Credentials</button>
+            <button onClick={handleRemove} disabled={saving} className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-loss/10 text-loss border border-loss/20 hover:bg-loss/20 transition-all disabled:opacity-50">Remove</button>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {!hasBroker && !showForm && (
+            <button onClick={() => setShowForm(true)} className="px-4 py-2 text-sm font-semibold rounded-xl bg-gold/10 text-gold border border-gold/20 hover:bg-gold/20 transition-all">Setup Broker Credentials</button>
+          )}
+          {showForm && (
+            <>
+              {error && <p className="text-xs text-loss">{error}</p>}
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Broker Email</label>
+                <input type="email" value={form.brokerEmail} onChange={e => setForm(p => ({ ...p, brokerEmail: e.target.value }))} className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none focus:border-gold/50" placeholder="your@broker.com" />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Broker Password</label>
+                <input type="password" value={form.brokerPassword} onChange={e => setForm(p => ({ ...p, brokerPassword: e.target.value }))} className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none focus:border-gold/50" placeholder="••••••••" />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Broker API Key</label>
+                <input type="text" value={form.brokerApiKey} onChange={e => setForm(p => ({ ...p, brokerApiKey: e.target.value }))} className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none focus:border-gold/50" placeholder="Partner API key" />
+              </div>
+              <p className="text-[10px] text-gray-600">Credentials are encrypted with AES-256 and never stored in plain text.</p>
+              <div className="flex gap-2 pt-1">
+                <button onClick={handleSave} disabled={saving} className="px-5 py-2 rounded-xl bg-gold text-black text-sm font-semibold hover:bg-gold/80 disabled:opacity-50 transition-all flex items-center gap-2">
+                  {saving ? <Loader2 size={14} className="animate-spin" /> : null} Save Credentials
+                </button>
+                <button onClick={() => { setShowForm(false); setError(""); }} className="px-4 py-2 rounded-xl bg-white/5 text-gray-300 text-sm font-medium hover:bg-white/10 transition-all">Cancel</button>
+              </div>
+            </>
+          )}
         </div>
       )}
     </div>
