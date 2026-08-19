@@ -282,7 +282,10 @@ export default function HostDashboardPage() {
   if (!isAuth || loading) {
     return (
       <div className="min-h-screen bg-[#0a0e1a] flex items-center justify-center">
-        <Loader2 className="w-8 h-8 text-royal animate-spin" />
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="w-8 h-8 text-royal animate-spin" />
+          <p className="text-xs text-gray-500 font-medium">Loading dashboard...</p>
+        </div>
       </div>
     );
   }
@@ -290,64 +293,74 @@ export default function HostDashboardPage() {
   const selectedChallenge = challenges.find(c => c.id === selectedChallengeId);
 
   return (
-    <div className="min-h-screen bg-[#0a0e1a]">
+    <div className="min-h-screen bg-[#0a0e1a] relative">
+      {/* Background effects */}
+      <div className="fixed inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute top-0 right-1/4 w-80 h-80 bg-royal/8 rounded-full blur-3xl"></div>
+        <div className="absolute bottom-1/4 left-0 w-64 h-64 bg-gold/5 rounded-full blur-3xl"></div>
+      </div>
+
       {/* Header */}
-      <header className="glass border-b border-white/5 sticky top-0 z-50">
-        <div className="container mx-auto px-4 py-3 flex items-center justify-between">
+      <header className="glass border-b border-white/5 sticky top-0 z-50 backdrop-blur-xl">
+        <div className="container mx-auto px-4 sm:px-6 py-3 flex items-center justify-between max-w-7xl">
           <div className="flex items-center gap-3">
-            <Image src="/winnerpip-icon.png" alt="WinnerPip" width={36} height={36} className="rounded-lg" />
+            <Image src="/winnerpip-icon.png" alt="WinnerPip" width={32} height={32} className="rounded-lg" />
             <div>
-              <p className="text-sm font-bold text-white">{hostInfo?.displayName || "Host"}</p>
-              <p className="text-[10px] text-gray-500">HOST DASHBOARD</p>
+              <p className="text-sm font-bold text-white leading-tight">{hostInfo?.displayName || "Host"}</p>
+              <p className="text-[10px] text-royal/80 font-semibold tracking-wider">HOST DASHBOARD</p>
             </div>
           </div>
-          <button onClick={handleLogout} className="flex items-center gap-2 px-3 py-2 text-gray-400 hover:text-white hover:bg-white/5 rounded-lg transition-all text-sm">
+          <button onClick={handleLogout} className="flex items-center gap-2 px-3 py-2 text-gray-400 hover:text-loss hover:bg-loss/10 rounded-lg transition-all text-xs font-medium">
             <LogOut size={14} /> Logout
           </button>
         </div>
       </header>
 
-      <div className="container mx-auto px-4 py-6 max-w-7xl">
+      <div className="container mx-auto px-4 sm:px-6 py-6 max-w-7xl relative">
         {/* Challenge Selector */}
         {challenges.length > 0 && (
-          <div className="flex items-center gap-3 mb-6">
-            <div className="relative">
-              <select
-                value={selectedChallengeId || ""}
-                onChange={(e) => setSelectedChallengeId(parseInt(e.target.value))}
-                className="appearance-none bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 pr-10 text-white text-sm font-medium outline-none focus:border-royal/50 cursor-pointer"
-              >
-                {challenges.map((c) => (
-                  <option key={c.id} value={c.id} className="bg-[#0f1629]">
-                    {c.title} ({c.status})
-                  </option>
-                ))}
-              </select>
-              <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-6">
+            <div className="flex items-center gap-3 flex-1 min-w-0">
+              <div className="relative">
+                <select
+                  value={selectedChallengeId || ""}
+                  onChange={(e) => setSelectedChallengeId(parseInt(e.target.value))}
+                  className="appearance-none bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 pr-10 text-white text-sm font-medium outline-none focus:border-royal/40 cursor-pointer min-w-[180px]"
+                >
+                  {challenges.map((c) => (
+                    <option key={c.id} value={c.id} className="bg-[#0f1629]">
+                      {c.title} ({c.status})
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
+              </div>
+              {selectedChallenge && (
+                <span className={`px-2.5 py-1 rounded-full text-[10px] font-semibold ${selectedChallenge.status === 'active' ? 'bg-profit/20 text-profit border border-profit/30' : selectedChallenge.status === 'registration_open' ? 'bg-gold/20 text-gold border border-gold/30' : 'bg-white/10 text-gray-400 border border-white/20'}`}>
+                  {selectedChallenge.status === 'active' ? 'Active' : selectedChallenge.status === 'registration_open' ? 'Registration Open' : selectedChallenge.status}
+                </span>
+              )}
             </div>
-            {selectedChallenge && (
-              <span className={`px-2.5 py-1 rounded-full text-[10px] font-semibold ${selectedChallenge.status === 'active' ? 'bg-profit/20 text-profit border border-profit/30' : selectedChallenge.status === 'registration_open' ? 'bg-gold/20 text-gold border border-gold/30' : 'bg-white/10 text-gray-400 border border-white/20'}`}>
-                {selectedChallenge.status === 'active' ? 'Active' : selectedChallenge.status === 'registration_open' ? 'Registration Open' : selectedChallenge.status}
-              </span>
-            )}
-            <button onClick={() => { setShowCreateModal(true); setCreateResult(null); }} className="ml-auto px-4 py-2 rounded-xl bg-royal/20 text-royal text-sm font-semibold border border-royal/30 hover:bg-royal/30 transition-all">+ New Challenge</button>
+            <button onClick={() => { setShowCreateModal(true); setCreateResult(null); }} className="px-4 py-2 rounded-xl bg-royal/20 text-royal text-sm font-semibold border border-royal/30 hover:bg-royal/30 transition-all whitespace-nowrap">+ New Challenge</button>
           </div>
         )}
 
         {/* No challenges */}
         {challenges.length === 0 && (
-          <div className="text-center py-20">
-            <Trophy className="w-16 h-16 text-gray-600 mx-auto mb-4" />
-            <p className="text-gray-400 text-lg font-semibold">No challenges yet</p>
-            <p className="text-gray-500 text-sm mt-2">Your challenges will appear here once created and approved.</p>
-            <button onClick={() => { setShowCreateModal(true); setCreateResult(null); }} className="mt-6 px-6 py-2.5 rounded-xl bg-gradient-brand text-white font-semibold text-sm hover:opacity-90">Create Challenge</button>
+          <div className="text-center py-24">
+            <div className="w-20 h-20 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center mx-auto mb-5">
+              <Trophy className="w-10 h-10 text-gray-600" />
+            </div>
+            <p className="text-gray-300 text-lg font-semibold">No challenges yet</p>
+            <p className="text-gray-500 text-sm mt-2 max-w-sm mx-auto">Your challenges will appear here once created and approved by admin.</p>
+            <button onClick={() => { setShowCreateModal(true); setCreateResult(null); }} className="mt-6 px-6 py-2.5 rounded-xl bg-royal text-white font-semibold text-sm hover:bg-royal/80 transition-all">Create Challenge</button>
           </div>
         )}
 
         {/* Tab Navigation */}
         {selectedChallengeId && (
           <>
-            <div className="flex gap-1 p-1 glass rounded-xl border border-white/10 mb-6 overflow-x-auto">
+            <div className="flex gap-1 p-1 glass rounded-xl border border-white/10 mb-6 overflow-x-auto scrollbar-hide">
               {[
                 { key: "overview", label: "Overview", icon: <LayoutDashboard size={14} /> },
                 { key: "participants", label: "Participants", icon: <Users size={14} /> },
@@ -360,7 +373,7 @@ export default function HostDashboardPage() {
                 <button
                   key={tab.key}
                   onClick={() => setActiveTab(tab.key)}
-                  className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all whitespace-nowrap ${activeTab === tab.key ? "bg-royal/20 text-royal" : "text-gray-400 hover:text-white hover:bg-white/5"}`}
+                  className={`flex items-center gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg text-xs sm:text-sm font-medium transition-all whitespace-nowrap ${activeTab === tab.key ? "bg-royal/20 text-royal border border-royal/30" : "text-gray-400 hover:text-white hover:bg-white/5"}`}
                 >
                   {tab.icon} {tab.label}
                 </button>
@@ -369,33 +382,36 @@ export default function HostDashboardPage() {
 
             {/* Tab Content */}
             {tabLoading ? (
-              <div className="flex items-center justify-center py-20">
-                <Loader2 className="w-6 h-6 text-royal animate-spin" />
+              <div className="flex items-center justify-center py-16">
+                <div className="flex flex-col items-center gap-3">
+                  <Loader2 className="w-6 h-6 text-royal animate-spin" />
+                  <p className="text-xs text-gray-500">Loading data...</p>
+                </div>
               </div>
             ) : (
               <>
                 {/* OVERVIEW TAB */}
                 {activeTab === "overview" && overview && (
-                  <div className="space-y-6">
+                  <div className="space-y-5">
                     {/* Challenge Info */}
                     <div className="glass rounded-2xl border border-white/10 p-5">
                       <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2"><LayoutDashboard size={16} className="text-royal" /> Challenge Overview</h3>
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                        <div className="bg-white/5 rounded-xl p-4 text-center">
-                          <p className="text-[10px] text-gray-500 uppercase mb-1">Participants</p>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        <div className="bg-white/5 rounded-xl p-4 border border-white/5">
+                          <p className="text-[10px] text-gray-500 uppercase tracking-wide mb-1">Participants</p>
                           <p className="text-2xl font-bold text-white">{overview.participants.total}</p>
-                          <p className="text-[10px] text-gray-500 mt-1">Real: {overview.participants.real} | Demo: {overview.participants.demo}</p>
+                          <p className="text-[10px] text-gray-500 mt-1">Real: {overview.participants.real} · Demo: {overview.participants.demo}</p>
                         </div>
-                        <div className="bg-white/5 rounded-xl p-4 text-center">
-                          <p className="text-[10px] text-gray-500 uppercase mb-1">Qualified</p>
+                        <div className="bg-white/5 rounded-xl p-4 border border-white/5">
+                          <p className="text-[10px] text-gray-500 uppercase tracking-wide mb-1">Qualified</p>
                           <p className="text-2xl font-bold text-profit">{overview.leaderboard.qualified}</p>
                         </div>
-                        <div className="bg-white/5 rounded-xl p-4 text-center">
-                          <p className="text-[10px] text-gray-500 uppercase mb-1">Disqualified</p>
+                        <div className="bg-white/5 rounded-xl p-4 border border-white/5">
+                          <p className="text-[10px] text-gray-500 uppercase tracking-wide mb-1">Disqualified</p>
                           <p className="text-2xl font-bold text-loss">{overview.participants.disqualified}</p>
                         </div>
-                        <div className="bg-white/5 rounded-xl p-4 text-center">
-                          <p className="text-[10px] text-gray-500 uppercase mb-1">Last Update</p>
+                        <div className="bg-white/5 rounded-xl p-4 border border-white/5">
+                          <p className="text-[10px] text-gray-500 uppercase tracking-wide mb-1">Last Update</p>
                           <p className="text-sm font-semibold text-white">{overview.lastUpdateAt ? new Date(new Date(overview.lastUpdateAt).getTime() + 3*60*60*1000).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) + " EAT" : "—"}</p>
                         </div>
                       </div>
@@ -403,12 +419,12 @@ export default function HostDashboardPage() {
 
                     {/* Challenge Details */}
                     <div className="glass rounded-2xl border border-white/10 p-5">
-                      <h3 className="text-sm font-semibold text-white mb-3">Challenge Details</h3>
-                      <div className="grid grid-cols-2 gap-3 text-sm">
-                        <div className="flex items-center gap-2"><Calendar size={14} className="text-gray-500" /><span className="text-gray-400">Period:</span><span className="text-white">{new Date(overview.challenge.startDate).toLocaleDateString()} — {new Date(overview.challenge.endDate).toLocaleDateString()}</span></div>
-                        <div className="flex items-center gap-2"><Target size={14} className="text-gray-500" /><span className="text-gray-400">Target:</span><span className="text-white">{overview.challenge.depositMode !== 'fixed' ? `${overview.challenge.targetPercent}% growth` : `$${overview.challenge.targetBalance}`}</span></div>
-                        <div className="flex items-center gap-2"><Activity size={14} className="text-gray-500" /><span className="text-gray-400">Type:</span><span className="text-white capitalize">{overview.challenge.type}</span></div>
-                        <div className="flex items-center gap-2"><FileText size={14} className="text-gray-500" /><span className="text-gray-400">Status:</span><span className="text-white capitalize">{overview.challenge.status}</span></div>
+                      <h3 className="text-sm font-semibold text-white mb-4">Challenge Details</h3>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                        <div className="flex items-center gap-3 p-3 rounded-xl bg-white/5 border border-white/5"><Calendar size={14} className="text-gray-500 flex-shrink-0" /><span className="text-gray-400">Period:</span><span className="text-white font-medium">{new Date(overview.challenge.startDate).toLocaleDateString()} — {new Date(overview.challenge.endDate).toLocaleDateString()}</span></div>
+                        <div className="flex items-center gap-3 p-3 rounded-xl bg-white/5 border border-white/5"><Target size={14} className="text-gray-500 flex-shrink-0" /><span className="text-gray-400">Target:</span><span className="text-white font-medium">{overview.challenge.depositMode !== 'fixed' ? `${overview.challenge.targetPercent}% growth` : `$${overview.challenge.targetBalance}`}</span></div>
+                        <div className="flex items-center gap-3 p-3 rounded-xl bg-white/5 border border-white/5"><Activity size={14} className="text-gray-500 flex-shrink-0" /><span className="text-gray-400">Type:</span><span className="text-white font-medium capitalize">{overview.challenge.type}</span></div>
+                        <div className="flex items-center gap-3 p-3 rounded-xl bg-white/5 border border-white/5"><FileText size={14} className="text-gray-500 flex-shrink-0" /><span className="text-gray-400">Status:</span><span className="text-white font-medium capitalize">{overview.challenge.status}</span></div>
                       </div>
                     </div>
                   </div>
@@ -419,7 +435,10 @@ export default function HostDashboardPage() {
                   <div className="glass rounded-2xl border border-white/10 p-5">
                     <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2"><Users size={16} className="text-royal" /> Participants ({participantsPagination?.total || participants.length})</h3>
                     {participants.length === 0 ? (
-                      <p className="text-gray-500 text-sm text-center py-10">No participants registered yet</p>
+                      <div className="text-center py-12">
+                        <Users className="w-10 h-10 text-gray-700 mx-auto mb-3" />
+                        <p className="text-gray-500 text-sm">No participants registered yet</p>
+                      </div>
                     ) : (
                       <div className="overflow-x-auto">
                         <table className="w-full text-sm">
@@ -449,9 +468,9 @@ export default function HostDashboardPage() {
                   </div>
 
                   {/* CSV Upload Section */}
-                  <div className="glass rounded-2xl border border-white/10 p-5 mt-4">
-                    <h3 className="text-sm font-semibold text-white mb-3">Upload Participants (CSV)</h3>
-                    <p className="text-xs text-gray-500 mb-4">Upload a CSV file with columns: nickname, accountType (demo/real), accountNumber, server, investorPassword</p>
+                  <div className="glass rounded-2xl border border-white/10 p-5 mt-5">
+                    <h3 className="text-sm font-semibold text-white mb-2">Upload Participants (CSV)</h3>
+                    <p className="text-xs text-gray-500 mb-4">CSV columns: nickname, accountType (demo/real), accountNumber, server, investorPassword</p>
 
                     <input
                       type="file"
@@ -472,7 +491,10 @@ export default function HostDashboardPage() {
                   <div className="glass rounded-2xl border border-white/10 p-5">
                     <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2"><Trophy size={16} className="text-gold" /> Leaderboard</h3>
                     {leaderboard.length === 0 ? (
-                      <p className="text-gray-500 text-sm text-center py-10">Leaderboard will appear after the first data update</p>
+                      <div className="text-center py-12">
+                        <Trophy className="w-10 h-10 text-gray-700 mx-auto mb-3" />
+                        <p className="text-gray-500 text-sm">Leaderboard will appear after the first data update</p>
+                      </div>
                     ) : (
                       <div className="space-y-2">
                         {leaderboard.map((entry: any) => (
@@ -607,7 +629,11 @@ export default function HostDashboardPage() {
                   <div className="glass rounded-2xl border border-white/10 p-5">
                     <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2"><RefreshCw size={16} className="text-royal" /> Data Updates</h3>
                     {updates.length === 0 ? (
-                      <p className="text-gray-500 text-sm text-center py-10">No updates yet. Data updates run automatically 6 times per day.</p>
+                      <div className="text-center py-12">
+                        <RefreshCw className="w-10 h-10 text-gray-700 mx-auto mb-3" />
+                        <p className="text-gray-500 text-sm">No updates yet</p>
+                        <p className="text-gray-600 text-xs mt-1">Data updates run automatically 6 times per day.</p>
+                      </div>
                     ) : (
                       <div className="space-y-2">
                         {updates.map((u: any) => (

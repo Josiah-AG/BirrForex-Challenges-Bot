@@ -548,6 +548,7 @@ export default function AdminDashboard() {
                 <p className="text-[10px] sm:text-xs text-royal font-semibold">ADMIN PANEL</p>
               </div>
               <button onClick={() => setActiveSection("create")} className="px-2 sm:px-3 py-1.5 rounded-lg bg-profit/20 border border-profit/30 text-profit text-[10px] sm:text-xs font-bold hover:bg-profit/30 transition-all flex-shrink-0">+ New</button>
+              <button onClick={() => setActiveSection("hosts")} className={`px-2 sm:px-3 py-1.5 rounded-lg border text-[10px] sm:text-xs font-bold transition-all flex-shrink-0 ${activeSection === "hosts" ? "bg-royal/20 border-royal/30 text-royal" : "bg-white/5 border-white/10 text-gray-400 hover:text-white hover:bg-white/10"}`}>Hosts</button>
             </div>
             <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
               <span className={`hidden sm:inline px-3 py-1 rounded-full text-xs font-semibold border ${challenge.status === "active" ? "bg-profit/20 text-profit border-profit/30" : "bg-white/10 text-gray-300 border-white/20"}`}>● {challenge.status}</span>
@@ -563,7 +564,7 @@ export default function AdminDashboard() {
       <div className="container mx-auto px-4 py-6 max-w-7xl relative">
         {/* NAV TABS — scrollable on mobile with scroll indicator */}
         <div className="flex gap-1 p-1 glass rounded-xl border border-white/10 mb-6 overflow-x-auto scrollbar-hide">
-          {(["overview", "participants", "leaderboard", "violations", "pulls", "screening", "rules", "settings", "hosts", "health"] as const).map(tab => (
+          {(["overview", "participants", "leaderboard", "violations", "pulls", "screening", "rules", "settings", "health"] as const).map(tab => (
             <button key={tab} onClick={() => setActiveSection(tab)} className={`flex-shrink-0 py-2 px-3 sm:px-4 rounded-lg text-xs sm:text-sm font-semibold transition-all capitalize ${activeSection === tab ? "bg-royal/20 text-royal border border-royal/30" : "text-gray-400 hover:text-white hover:bg-white/5"}`}>{tab === "health" ? "⚡" : tab}</button>
           ))}
         </div>
