@@ -1322,6 +1322,252 @@ app.post('/api/host/verify-token', async (req, res) => {
   }
 });
 
+// ==================== HOST DASHBOARD API (Protected by hostAuthMiddleware) ====================
+
+/**
+ * GET /api/host/challenges
+ * Returns all challenges owned by the authenticated host
+ */
+app.get('/api/host/challenges', hostAuthMiddleware, async (req: any, res) => {
+  try {
+    const { hostService } = require('../services/hostService');
+    const challenges = await hostService.getHostChallenges(req.host.hostId);
+    return res.json({ challenges });
+  } catch (error) {
+    console.error('Host challenges error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * GET /api/host/challenge/:id/overview
+ * Returns overview stats for a host's challenge
+ */
+app.get('/api/host/challenge/:id/overview', hostAuthMiddleware, async (req: any, res) => {
+  try {
+    const challengeId = parseInt(req.params.id);
+
+    // Verify this challenge belongs to the host
+    const challenge = await db.query(
+      `SELECT id, title, type, status, start_date, end_date, starting_balance, target_balance,
+              deposit_mode, target_percent, real_winners_count, demo_winners_count, prize_pool_text
+       FROM trading_challenges WHERE id = $1 AND host_id = $2`,
+      [challengeId, req.host.hostId]
+    );
+    if (!challenge.rows[0]) return res.status(404).json({ error: 'Challenge not found' });
+
+    const c = challenge.rows[0];
+
+    // Participant counts
+    const counts = await db.query(
+      `SELECT COUNT(*) as total,
+              COUNT(CASE WHEN account_type = 'demo' THEN 1 END) as demo,
+              COUNT(CASE WHEN account_type = 'real' THEN 1 END) as real,
+              COUNT(CASE WHEN disqualified = true THEN 1 END) as disqualified
+       FROM trading_registrations WHERE challenge_id = $1`,
+      [challengeId]
+    );
+
+    // Leaderboard summary
+    const lbSummary = await db.query(
+      `SELECT COUNT(*) as total_ranked,
+              COUNT(CASE WHEN is_qualified = true THEN 1 END) as qualified,
+              COUNT(CASE WHEN is_disqualified = true THEN 1 END) as dq_on_lb
+       FROM wp_leaderboard WHERE challenge_id = $1`,
+      [challengeId]
+    );
+
+    // Last update time
+    const lastUpdate = await db.query(
+      `SELECT completed_at FROM wp_pull_batches WHERE challenge_id = $1 AND status = 'completed' ORDER BY completed_at DESC LIMIT 1`,
+      [challengeId]
+    );
+
+    return res.json({
+      challenge: {
+        id: c.id, title: c.title, type: c.type, status: c.status,
+        startDate: c.start_date, endDate: c.end_date,
+        startingBalance: c.starting_balance, targetBalance: c.target_balance,
+        depositMode: c.deposit_mode, targetPercent: c.target_percent,
+        prizePoolText: c.prize_pool_text,
+      },
+      participants: {
+        total: parseInt(counts.rows[0].total),
+        demo: parseInt(counts.rows[0].demo),
+        real: parseInt(counts.rows[0].real),
+        disqualified: parseInt(counts.rows[0].disqualified),
+      },
+      leaderboard: {
+        totalRanked: parseInt(lbSummary.rows[0]?.total_ranked || 0),
+        qualified: parseInt(lbSummary.rows[0]?.qualified || 0),
+        disqualified: parseInt(lbSummary.rows[0]?.dq_on_lb || 0),
+      },
+      lastUpdateAt: lastUpdate.rows[0]?.completed_at || null,
+    });
+  } catch (error) {
+    console.error('Host overview error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * GET /api/host/challenge/:id/participants
+ * Returns participant list for a host's challenge
+ */
+app.get('/api/host/challenge/:id/participants', hostAuthMiddleware, async (req: any, res) => {
+  try {
+    const challengeId = parseInt(req.params.id);
+
+    // Verify ownership
+    const ownership = await db.query(`SELECT 1 FROM trading_challenges WHERE id = $1 AND host_id = $2`, [challengeId, req.host.hostId]);
+    if (!ownership.rows[0]) return res.status(404).json({ error: 'Challenge not found' });
+
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = 50;
+    const offset = (page - 1) * limit;
+
+    const result = await db.query(
+      `SELECT id, nickname, account_type, account_number, mt5_server, email,
+              disqualified, disqualified_reason, registered_at, pull_status, connection_verified
+       FROM trading_registrations
+       WHERE challenge_id = $1 AND (status IS NULL OR status != 'removed')
+       ORDER BY registered_at DESC
+       LIMIT $2 OFFSET $3`,
+      [challengeId, limit, offset]
+    );
+
+    const countResult = await db.query(
+      `SELECT COUNT(*) as total FROM trading_registrations WHERE challenge_id = $1 AND (status IS NULL OR status != 'removed')`,
+      [challengeId]
+    );
+
+    return res.json({
+      participants: result.rows.map((r: any) => ({
+        id: r.id,
+        nickname: r.nickname,
+        accountType: r.account_type,
+        accountNumber: r.account_number,
+        server: r.mt5_server,
+        email: r.email,
+        disqualified: r.disqualified,
+        disqualifiedReason: r.disqualified_reason,
+        registeredAt: r.registered_at,
+        pullStatus: r.pull_status,
+        connectionVerified: r.connection_verified,
+      })),
+      pagination: {
+        page,
+        totalPages: Math.ceil(parseInt(countResult.rows[0].total) / limit),
+        total: parseInt(countResult.rows[0].total),
+      },
+    });
+  } catch (error) {
+    console.error('Host participants error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * GET /api/host/challenge/:id/leaderboard
+ * Returns leaderboard for a host's challenge
+ */
+app.get('/api/host/challenge/:id/leaderboard', hostAuthMiddleware, async (req: any, res) => {
+  try {
+    const challengeId = parseInt(req.params.id);
+
+    // Verify ownership
+    const ownership = await db.query(`SELECT 1 FROM trading_challenges WHERE id = $1 AND host_id = $2`, [challengeId, req.host.hostId]);
+    if (!ownership.rows[0]) return res.status(404).json({ error: 'Challenge not found' });
+
+    const category = req.query.category as string || 'all';
+    let catFilter = '';
+    const params: any[] = [challengeId];
+    if (category === 'demo' || category === 'real') {
+      catFilter = ' AND l.account_type = $2';
+      params.push(category);
+    }
+
+    const result = await db.query(
+      `SELECT l.nickname, l.account_type, l.rank, l.current_balance, l.adjusted_balance,
+              l.qualified_profit, l.gross_profit, l.profit_removed, l.total_trades,
+              l.qualified_trades, l.flagged_trades, l.is_qualified, l.is_disqualified,
+              l.disqualify_reason, l.growth_percent, l.last_trade_time,
+              COALESCE(l.is_cent, false) as is_cent,
+              r.disqualified as reg_disqualified, r.disqualified_reason as reg_dq_reason
+       FROM wp_leaderboard l
+       JOIN trading_registrations r ON l.registration_id = r.id
+       WHERE l.challenge_id = $1${catFilter}
+       ORDER BY CASE WHEN l.is_disqualified OR r.disqualified THEN 1 ELSE 0 END, l.rank ASC NULLS LAST
+       LIMIT 100`,
+      params
+    );
+
+    return res.json({
+      leaderboard: result.rows.map((r: any) => ({
+        nickname: r.nickname,
+        accountType: r.account_type,
+        rank: r.rank,
+        currentBalance: parseFloat(r.current_balance),
+        adjustedBalance: parseFloat(r.adjusted_balance),
+        qualifiedProfit: parseFloat(r.qualified_profit),
+        grossProfit: parseFloat(r.gross_profit),
+        profitRemoved: parseFloat(r.profit_removed),
+        totalTrades: r.total_trades,
+        qualifiedTrades: r.qualified_trades,
+        flaggedTrades: r.flagged_trades,
+        isQualified: r.is_qualified,
+        isDisqualified: r.is_disqualified || r.reg_disqualified || false,
+        disqualifyReason: r.disqualify_reason || r.reg_dq_reason || null,
+        growthPercent: parseFloat(r.growth_percent) || 0,
+        isCent: r.is_cent,
+        lastTradeTime: r.last_trade_time,
+      })),
+    });
+  } catch (error) {
+    console.error('Host leaderboard error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * GET /api/host/challenge/:id/updates
+ * Returns update cycle history (renamed from "pulls" — host doesn't see internal mechanism)
+ */
+app.get('/api/host/challenge/:id/updates', hostAuthMiddleware, async (req: any, res) => {
+  try {
+    const challengeId = parseInt(req.params.id);
+
+    // Verify ownership
+    const ownership = await db.query(`SELECT 1 FROM trading_challenges WHERE id = $1 AND host_id = $2`, [challengeId, req.host.hostId]);
+    if (!ownership.rows[0]) return res.status(404).json({ error: 'Challenge not found' });
+
+    const result = await db.query(
+      `SELECT id, started_at, completed_at, total_accounts, successful, failed, status
+       FROM wp_pull_batches
+       WHERE challenge_id = $1
+       ORDER BY started_at DESC
+       LIMIT 30`,
+      [challengeId]
+    );
+
+    return res.json({
+      updates: result.rows.map((r: any, i: number) => ({
+        id: r.id,
+        updateNumber: result.rows.length - i,
+        startedAt: r.started_at,
+        completedAt: r.completed_at,
+        totalAccounts: r.total_accounts,
+        successful: r.successful,
+        failed: r.failed,
+        status: r.status,
+      })),
+    });
+  } catch (error) {
+    console.error('Host updates error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // ==================== ADMIN API (Secret path + IP whitelist + rate limit) ====================
 
 /**
