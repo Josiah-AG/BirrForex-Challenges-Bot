@@ -103,7 +103,7 @@ export default function HostLandingPage() {
       <section className="container mx-auto px-4 py-20 max-w-3xl relative text-center">
         <div className="glass rounded-2xl border border-white/10 p-10">
           <h2 className="text-2xl md:text-3xl font-bold text-white mb-4">Ready to Host?</h2>
-          <p className="text-gray-400 mb-8">Get in touch and we'll have you running your first challenge in no time.</p>
+          <p className="text-gray-400 mb-8">Get in touch and we&apos;ll have you running your first challenge in no time.</p>
           <Link href="/host/register" className="inline-flex items-center gap-2 px-8 py-3.5 rounded-xl bg-gradient-brand text-white font-semibold hover:opacity-90 transition-all">
             Get Started <ArrowRight size={16} />
           </Link>
