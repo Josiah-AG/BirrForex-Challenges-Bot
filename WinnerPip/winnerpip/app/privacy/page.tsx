@@ -71,12 +71,22 @@ export default function PrivacyPage() {
             WinnerPip uses local storage to maintain your login session. We do not use third-party tracking cookies or analytics services that collect personal data.
           </p>
 
-          <h2 className="text-lg font-bold text-white">8. Your Rights</h2>
+          <h2 className="text-lg font-bold text-white">8. Email Communications</h2>
+          <p>
+            By registering for a challenge with your email address, you consent to receive challenge-related notifications including registration confirmations, balance warnings, disqualification notices, and challenge start/end updates. These are transactional emails directly related to your participation, not marketing communications. You can stop receiving these emails by withdrawing from the challenge.
+          </p>
+
+          <h2 className="text-lg font-bold text-white">9. Data Controller and Processor</h2>
+          <p>
+            For BirrForex challenges, BirrForex acts as the data controller. For hosted challenges (third-party), the challenge host is the data controller and WinnerPip acts as a data processor providing technical services on their behalf. In both cases, WinnerPip applies the same security and privacy standards to your data.
+          </p>
+
+          <h2 className="text-lg font-bold text-white">10. Your Rights</h2>
           <p>
             You can request deletion of your data by contacting support@birrforex.com. If you withdraw from a challenge, your registration data will be marked as removed and your trades will no longer be evaluated.
           </p>
 
-          <h2 className="text-lg font-bold text-white">9. Contact</h2>
+          <h2 className="text-lg font-bold text-white">11. Contact</h2>
           <p>
             For privacy-related questions or data deletion requests, contact us at <a href="mailto:support@birrforex.com" className="text-royal hover:underline">support@birrforex.com</a>.
           </p>

@@ -25,17 +25,22 @@ export default function TermsPage() {
             WinnerPip is a trading competition platform that provides automated trade monitoring, rule evaluation, and leaderboard services for trading challenges. By using WinnerPip, you agree to these terms.
           </p>
 
-          <h2 className="text-lg font-bold text-white">2. Account Registration</h2>
+          <h2 className="text-lg font-bold text-white">2. Eligibility</h2>
+          <p>
+            You must be at least 18 years old to use WinnerPip or participate in any challenge. By registering, you confirm that you meet this age requirement and that you are legally permitted to participate in trading activities in your jurisdiction.
+          </p>
+
+          <h2 className="text-lg font-bold text-white">3. Account Registration</h2>
           <p>
             When you register for a challenge, you provide your MT5 account number, server, and investor (read-only) password. This gives the platform read-only access to view your trade history. WinnerPip cannot execute trades, modify orders, or withdraw funds from your account.
           </p>
 
-          <h2 className="text-lg font-bold text-white">3. Challenge Rules</h2>
+          <h2 className="text-lg font-bold text-white">4. Challenge Rules</h2>
           <p>
             Each challenge has a specific set of rules defined by the challenge creator. Trades that violate these rules will have their profits removed from your qualified balance. Losses from rule-violating trades still count. The system evaluates rules automatically and the leaderboard reflects qualified performance only.
           </p>
 
-          <h2 className="text-lg font-bold text-white">4. Transparency and Trade Visibility</h2>
+          <h2 className="text-lg font-bold text-white">5. Transparency and Trade Visibility</h2>
           <p>
             For fairness, all participants&apos; trading history is visible to other participants through the leaderboard during the challenge. This includes trade symbol, direction, lot size, timing, profit, and any rule violations. This allows everyone to verify that results are legitimate. Only your nickname is shown, not your account number or personal information.
           </p>
@@ -43,12 +48,12 @@ export default function TermsPage() {
             By registering for a challenge, you consent to your trade history being visible to other participants for the duration of the challenge and in the final results.
           </p>
 
-          <h2 className="text-lg font-bold text-white">5. Disqualification</h2>
+          <h2 className="text-lg font-bold text-white">6. Disqualification</h2>
           <p>
             Participants may be disqualified for exceeding deposit limits, recharging their account during a challenge, failing to meet minimum trading requirements, or other rule violations. Disqualification decisions are made automatically by the evaluation system based on the defined rules.
           </p>
 
-          <h2 className="text-lg font-bold text-white">6. Hosted Challenges (Third-Party)</h2>
+          <h2 className="text-lg font-bold text-white">7. Hosted Challenges (Third-Party)</h2>
           <p>
             WinnerPip hosts challenges on behalf of third-party challenge organizers. For hosted challenges (those marked &quot;Hosted by&quot; on the platform):
           </p>
@@ -59,29 +64,67 @@ export default function TermsPage() {
             <li>Any disputes regarding prizes or challenge terms should be directed to the challenge host.</li>
           </ul>
 
-          <h2 className="text-lg font-bold text-white">7. BirrForex Challenges</h2>
+          <h2 className="text-lg font-bold text-white">8. BirrForex Challenges</h2>
           <p>
             Challenges created directly by BirrForex (not marked as &quot;Hosted by&quot;) are organized, funded, and managed by BirrForex. Prize delivery for BirrForex challenges is handled by the BirrForex team.
           </p>
 
-          <h2 className="text-lg font-bold text-white">8. No Financial Advice</h2>
+          <h2 className="text-lg font-bold text-white">9. No Financial Advice</h2>
           <p>
             WinnerPip is a competition platform and does not provide financial advice, trading signals, or investment recommendations. Participation in challenges involves real trading risk. Trade responsibly and only with capital you can afford to lose.
           </p>
 
-          <h2 className="text-lg font-bold text-white">9. Fair Play</h2>
+          <h2 className="text-lg font-bold text-white">10. Limitation of Liability</h2>
+          <p>
+            WinnerPip and BirrForex are not liable for any trading losses, missed opportunities, or financial damages arising from your participation in challenges. The platform is provided &quot;as is&quot; without warranties of any kind. Our total liability to you for any claim related to the platform is limited to the amount you paid to use the service (if any).
+          </p>
+          <p>
+            You acknowledge that trading forex and CFDs carries significant risk of loss and that challenge participation is entirely at your own risk.
+          </p>
+
+          <h2 className="text-lg font-bold text-white">11. Indemnification</h2>
+          <p>
+            You agree to indemnify and hold harmless WinnerPip, BirrForex, and their operators from any claims, damages, or expenses arising from your use of the platform, your trading activity, or your violation of these terms.
+          </p>
+
+          <h2 className="text-lg font-bold text-white">12. Fair Play</h2>
           <p>
             Any attempt to manipulate results, use multiple accounts, exploit system vulnerabilities, or engage in fraudulent activity will result in immediate disqualification and permanent ban from the platform.
           </p>
 
-          <h2 className="text-lg font-bold text-white">10. Platform Availability</h2>
+          <h2 className="text-lg font-bold text-white">13. Account Termination</h2>
+          <p>
+            WinnerPip reserves the right to suspend or terminate any user account, challenge participation, or host account at any time, with or without notice, for violation of these terms or for any other reason at our discretion. Users may also withdraw from challenges at any time by contacting support.
+          </p>
+
+          <h2 className="text-lg font-bold text-white">14. Intellectual Property</h2>
+          <p>
+            All content on WinnerPip (including design, logos, text, code, and features) is the intellectual property of BirrForex. You may not copy, reproduce, or distribute any part of the platform without written permission.
+          </p>
+
+          <h2 className="text-lg font-bold text-white">15. Third-Party Services</h2>
+          <p>
+            WinnerPip integrates with third-party services including MT5 brokers and payment providers. We are not responsible for the availability, accuracy, or policies of these third-party services. Your use of broker platforms is governed by their own terms.
+          </p>
+
+          <h2 className="text-lg font-bold text-white">16. Platform Availability</h2>
           <p>
             WinnerPip strives for continuous uptime but does not guarantee uninterrupted service. Scheduled maintenance, technical issues, or broker outages may temporarily affect data updates. The platform is not liable for missed trades or delayed evaluations caused by factors outside its control.
           </p>
 
-          <h2 className="text-lg font-bold text-white">11. Changes to Terms</h2>
+          <h2 className="text-lg font-bold text-white">17. Governing Law</h2>
           <p>
-            These terms may be updated at any time. Continued use of the platform after changes constitutes acceptance of the updated terms.
+            These terms are governed by the laws of Ethiopia. Any disputes arising from the use of this platform that cannot be resolved amicably shall be subject to the jurisdiction of Ethiopian courts.
+          </p>
+
+          <h2 className="text-lg font-bold text-white">18. Changes to Terms</h2>
+          <p>
+            These terms may be updated at any time. Continued use of the platform after changes constitutes acceptance of the updated terms. We recommend reviewing this page periodically.
+          </p>
+
+          <h2 className="text-lg font-bold text-white">19. Contact</h2>
+          <p>
+            For questions about these terms, contact us at <a href="mailto:support@birrforex.com" className="text-royal hover:underline">support@birrforex.com</a>.
           </p>
         </div>
       </div>
