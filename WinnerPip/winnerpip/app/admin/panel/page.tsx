@@ -2003,8 +2003,8 @@ function HostsManagementPanel() {
 
       {/* Create Host Modal */}
       {showCreateModal && (
-        <div className="fixed inset-0 bg-[#0a0e1a]/95 z-50 flex items-center justify-center p-4" onClick={() => setShowCreateModal(false)}>
-          <div className="bg-[#1a2235] rounded-2xl max-w-sm w-full border border-white/15 shadow-2xl shadow-black/80" onClick={e => e.stopPropagation()}>
+        <div className="fixed inset-0 bg-[#0a0e1a]/95 z-50 flex items-start justify-center p-4 pt-16 sm:pt-4 sm:items-center overflow-y-auto" onClick={() => setShowCreateModal(false)}>
+          <div className="bg-[#1a2235] rounded-2xl max-w-sm w-full border border-white/15 shadow-2xl shadow-black/80 my-auto" onClick={e => e.stopPropagation()}>
             <div className="px-6 pt-6 pb-4">
               <div className="flex items-start justify-between mb-5">
                 <div className="flex items-center gap-3">
@@ -2049,8 +2049,8 @@ function HostsManagementPanel() {
 
       {/* Reset Password Modal */}
       {resetPasswordModal && (
-        <div className="fixed inset-0 bg-[#0a0e1a]/95 z-50 flex items-center justify-center p-4" onClick={() => setResetPasswordModal(null)}>
-          <div className="bg-[#1a2235] rounded-2xl max-w-sm w-full border border-white/15 shadow-2xl shadow-black/80" onClick={e => e.stopPropagation()}>
+        <div className="fixed inset-0 bg-[#0a0e1a]/95 z-50 flex items-start justify-center p-4 pt-16 sm:pt-4 sm:items-center overflow-y-auto" onClick={() => setResetPasswordModal(null)}>
+          <div className="bg-[#1a2235] rounded-2xl max-w-sm w-full border border-white/15 shadow-2xl shadow-black/80 my-auto" onClick={e => e.stopPropagation()}>
             <div className="px-6 pt-6 pb-4">
               <div className="flex items-center gap-3 mb-5">
                 <div className="w-10 h-10 rounded-xl bg-gold/15 border border-gold/20 flex items-center justify-center flex-shrink-0">
