@@ -455,3 +455,78 @@ The evaluation engine, VPS pull scheduler, leaderboard service — NONE of these
 - Host dashboard: Settings tab for challenge edits
 - Broker credential setup UI for hosts
 - Test end-to-end host flow with a real host account
+
+---
+
+## Session 2 — August 19, 2026
+
+### Host Mode UI Completion
+
+Completed all remaining Host Mode UI work outlined at the end of Session 1.
+
+### Changes Made
+
+**1. Admin Panel — Hosts Tab** (`WinnerPip/winnerpip/app/admin/panel/page.tsx`)
+- Added "Hosts" to nav tabs (between "settings" and "health")
+- New `HostsManagementPanel` component:
+  - "Create Host" button + modal (display name, email, password)
+  - Host list with status indicator (green/gray dot), email, active/total challenge counts
+  - Expandable detail panel per host: stats grid, login history (last 10 entries with timestamps + IPs), challenges list
+  - Management actions: Reset Password (modal with new password input), Deactivate/Activate toggle, Delete (with confirmation)
+  - All wired to existing admin API endpoints (GET/POST/PATCH/DELETE `/api/admin/:secretPath/hosts`)
+
+**2. Host Dashboard — Rules Tab** (`WinnerPip/winnerpip/app/host/dashboard/page.tsx`)
+- Added "Rules" tab with full rule configuration form (same capabilities as admin)
+- `RuleRow` helper component: ON/OFF toggle, label, tooltip (ⓘ hover), input slot
+- All 10 rules configurable: max lot size, max open trades, pair limit, SL required + max risk (Fixed $ / % Balance), daily loss cap (Fixed $ / % Balance), max hold hours, min trade duration, weekend trading, min active days, min total trades, only cent account
+- Locked state: when challenge is active, all inputs disabled with explanatory text
+- Save button with loading spinner + success confirmation
+
+**3. Host Dashboard — Settings Tab** (`WinnerPip/winnerpip/app/host/dashboard/page.tsx`)
+- Added "Settings" tab for editing challenge details
+- Form fields: title, end date, target balance, target percent, prize pool text, real/demo winners count, real/demo prizes (comma separated)
+- Save button sends only populated fields to API
+
+**4. Host Dashboard — Broker Credential Setup** (`WinnerPip/winnerpip/app/host/dashboard/page.tsx`)
+- `BrokerCredentialsSection` component in Settings tab
+- States: not configured (show "Setup" button), configured (show green "active" badge + Update/Remove actions), form (email, password, API key inputs)
+- AES-256 encryption note shown in form
+- Remove with confirmation dialog
+
+**5. Backend API Endpoints Added** (`src/api/server.ts`)
+- `GET /api/host/challenge/:id/rules` — fetch rules with ownership verification + locked status
+- `PUT /api/host/challenge/:id/rules` — save rules (blocked when challenge active + rules already exist)
+- `PUT /api/host/challenge/:id/settings` — update challenge details (limited to host-safe fields: title, end_date, target_balance, target_percent, prize_pool_text, winners counts, prizes)
+- `GET /api/host/broker-status` — check if host has broker integration
+- `POST /api/host/broker-credentials` — save encrypted broker credentials
+- `DELETE /api/host/broker-credentials` — remove broker integration
+
+### Terminology Audit
+- Scanned all host-facing files (`/host/**`) and host API response fields
+- **Result: Clean** — no 'pull', 'VPS', 'OHLC', 'candle', or 'terminal' references leak to hosts
+- The updates tab correctly queries `wp_pull_batches` internally but exposes sanitized field names (`updateNumber`, `startedAt`, `successful`, `failed`, `totalAccounts`)
+
+### Git
+- Branch: `feature/host-mode-ui`
+- Commit: `1f1c664` — "feat: add Host Mode UI — admin Hosts tab, host Rules/Settings/Broker tabs"
+- Pushed to origin
+
+### Host Mode — FULLY COMPLETE
+
+All 7 phases + all additional UI work are now implemented:
+- Phase 1 ✅ DB schema, encryption, host service, admin API
+- Phase 2 ✅ Host JWT auth (login, verify, middleware)
+- Phase 3 ✅ Host dashboard (6 tabs: Overview, Participants, Leaderboard, Rules, Settings, Updates)
+- Phase 4 ✅ Web registration for hosted challenges
+- Phase 5 ✅ CSV upload + email notifications (Resend)
+- Phase 6 ✅ Landing page + footer + SEO
+- Phase 7 ✅ Admin approval via Telegram gatekeeper
+- Admin panel Hosts management tab ✅
+- Host Rules configuration ✅
+- Host Settings (challenge edits) ✅
+- Broker credential setup ✅
+- Terminology sanitization ✅
+
+### Remaining (non-blocking, future)
+- End-to-end test with a real host account
+- Optional: in-panel admin approval view (currently Telegram-only — fully functional)
