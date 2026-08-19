@@ -107,8 +107,8 @@ export async function executeCreate(data: any): Promise<{ success: boolean; chal
        (title, type, status, start_date, end_date, registration_deadline, starting_balance, target_balance,
         prize_pool_text, real_winners_count, demo_winners_count, real_prizes, demo_prizes,
         pdf_url, video_url, source, team_only, announcement_posted, evaluation_type,
-        pull_times, pull_interval_hours, first_pull_time, deposit_mode, target_percent)
-       VALUES ($1, $2, 'draft', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, false, $17, $18, $19, $20, $21, $22)
+        pull_times, pull_interval_hours, first_pull_time, deposit_mode, target_percent, host_id)
+       VALUES ($1, $2, 'draft', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, false, $17, $18, $19, $20, $21, $22, $23)
        RETURNING *`,
       [
         data.title, data.type, data.start_date, data.end_date,
@@ -124,6 +124,7 @@ export async function executeCreate(data: any): Promise<{ success: boolean; chal
         data.first_pull_time || '00:00',
         data.deposit_mode || 'fixed',
         data.target_percent || null,
+        data.host_id || null,
       ]
     );
     return { success: true, challenge: result.rows[0] };

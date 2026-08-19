@@ -406,8 +406,10 @@ export class VpsPullScheduler {
             if (!key.includes(dateKey)) this.pullScheduleTriggered.delete(key);
           }
           console.log(`⏰ VPS Pull: Scheduled pull triggered for challenge ${challenge.id} at ${currentHHMM} EAT`);
-          this.runPullCycle();
-          return;
+          this.runPullCycleForChallenge(challenge.id).catch(e =>
+            console.error(`Scheduled pull error for challenge ${challenge.id}:`, e)
+          );
+          return; // One at a time — next minute will pick up any others
         }
       }
     } catch (e) {
