@@ -4,6 +4,14 @@ const resend = new Resend(process.env.RESEND_API_KEY || '');
 
 const FROM_ADDRESS = 'WinnerPip <challenges@winnerpip.com>';
 
+const FOOTER_HTML = `
+  <div style="text-align: center; margin-top: 24px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,0.05);">
+    <a href="https://linktr.ee/birrforex" target="_blank" rel="noopener noreferrer" style="color: #64748b; font-size: 11px; text-decoration: none;">
+      Powered by <strong style="color: #94a3b8;">BirrForex</strong>
+    </a>
+  </div>
+`;
+
 /**
  * Email Service for WinnerPip
  * Used for hosted challenge participant notifications
@@ -53,6 +61,7 @@ class EmailService {
               </p>
             </div>
             <p style="color: #475569; font-size: 11px; text-align: center; margin: 16px 0 0;">WinnerPip — Trade. Compete. Win.</p>
+            ${FOOTER_HTML}
           </div>
         `,
       });
@@ -99,6 +108,7 @@ class EmailService {
               </p>
             </div>
             <p style="color: #475569; font-size: 11px; text-align: center; margin: 16px 0 0;">WinnerPip — Trade. Compete. Win.</p>
+            ${FOOTER_HTML}
           </div>
         `,
       });
@@ -141,6 +151,7 @@ class EmailService {
               </p>
             </div>
             <p style="color: #475569; font-size: 11px; text-align: center; margin: 16px 0 0;">WinnerPip — Trade. Compete. Win.</p>
+            ${FOOTER_HTML}
           </div>
         `,
       });
@@ -183,6 +194,7 @@ class EmailService {
               </p>
             </div>
             <p style="color: #475569; font-size: 11px; text-align: center; margin: 16px 0 0;">WinnerPip — Trade. Compete. Win.</p>
+            ${FOOTER_HTML}
           </div>
         `,
       });
@@ -221,6 +233,7 @@ class EmailService {
               </p>
             </div>
             <p style="color: #475569; font-size: 11px; text-align: center; margin: 16px 0 0;">WinnerPip — Trade. Compete. Win.</p>
+            ${FOOTER_HTML}
           </div>
         `,
       });
