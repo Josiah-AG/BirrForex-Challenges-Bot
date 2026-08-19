@@ -305,13 +305,15 @@ app.get('/api/challenges', async (req, res) => {
   try {
     const includePast = req.query.include_past === 'true';
     const result = await db.query(
-      `SELECT id, title, type, status, start_date, end_date, starting_balance, target_balance,
-              real_winners_count, demo_winners_count, real_prizes, demo_prizes, prize_pool_text,
-              pdf_url, video_url, announcement_posted, evaluation_type, winners_posted_at,
-              source, team_only, registration_deadline
-       FROM trading_challenges
-       WHERE status != 'deleted'
-       ORDER BY created_at DESC
+      `SELECT c.id, c.title, c.type, c.status, c.start_date, c.end_date, c.starting_balance, c.target_balance,
+              c.real_winners_count, c.demo_winners_count, c.real_prizes, c.demo_prizes, c.prize_pool_text,
+              c.pdf_url, c.video_url, c.announcement_posted, c.evaluation_type, c.winners_posted_at,
+              c.source, c.team_only, c.registration_deadline, c.host_id,
+              h.display_name as host_display_name
+       FROM trading_challenges c
+       LEFT JOIN hosts h ON c.host_id = h.id
+       WHERE c.status != 'deleted'
+       ORDER BY c.created_at DESC
        LIMIT ${includePast ? 50 : 20}`
     );
 
@@ -369,6 +371,8 @@ app.get('/api/challenges', async (req, res) => {
         source: c.source || 'telegram',
         teamOnly: c.team_only || false,
         registrationDeadline: c.registration_deadline,
+        hostId: c.host_id || null,
+        hostDisplayName: c.host_display_name || null,
       });
     }
 
@@ -463,6 +467,139 @@ app.get('/api/challenges/:id/winners', async (req, res) => {
     return res.json({ hasWinners, real, demo, teamOnly: isTeamOnly });
   } catch (error) {
     console.error('Winners error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * POST /api/challenges/:id/register
+ * Web registration for hosted challenges
+ * Body: { email, nickname, accountNumber, mt5Server, investorPassword, accountType }
+ */
+app.post('/api/challenges/:id/register', authLimiter, async (req, res) => {
+  try {
+    const challengeId = parseInt(req.params.id as string);
+    const { email, nickname, accountNumber, mt5Server, investorPassword, accountType } = req.body;
+
+    // Validate required fields
+    if (!email || !nickname || !accountNumber || !mt5Server || !investorPassword || !accountType) {
+      return res.status(400).json({ error: 'All fields are required: email, nickname, accountNumber, mt5Server, investorPassword, accountType' });
+    }
+    if (!['demo', 'real'].includes(accountType)) {
+      return res.status(400).json({ error: 'Account type must be demo or real' });
+    }
+    if (nickname.length < 2 || nickname.length > 30) {
+      return res.status(400).json({ error: 'Nickname must be 2-30 characters' });
+    }
+
+    // Check challenge exists and is open for registration
+    const challenge = await db.query(
+      `SELECT id, host_id, status, type, starting_balance, deposit_mode FROM trading_challenges WHERE id = $1`,
+      [challengeId]
+    );
+    if (!challenge.rows[0]) return res.status(404).json({ error: 'Challenge not found' });
+    if (!challenge.rows[0].host_id) return res.status(400).json({ error: 'Web registration is only available for hosted challenges' });
+    if (challenge.rows[0].status !== 'registration_open') return res.status(400).json({ error: 'Registration is not open for this challenge' });
+
+    const challengeType = challenge.rows[0].type;
+    if (challengeType === 'demo' && accountType === 'real') return res.status(400).json({ error: 'This challenge only accepts demo accounts' });
+    if (challengeType === 'real' && accountType === 'demo') return res.status(400).json({ error: 'This challenge only accepts real accounts' });
+
+    // Check if already registered (by email or account number)
+    const existing = await db.query(
+      `SELECT 1 FROM trading_registrations WHERE challenge_id = $1 AND (email = $2 OR account_number = $3) AND (status IS NULL OR status != 'removed')`,
+      [challengeId, email.toLowerCase().trim(), accountNumber.trim()]
+    );
+    if (existing.rows.length > 0) {
+      return res.status(409).json({ error: 'You are already registered for this challenge with this email or account number' });
+    }
+
+    // Check nickname uniqueness within challenge
+    const nickCheck = await db.query(
+      `SELECT 1 FROM trading_registrations WHERE challenge_id = $1 AND LOWER(nickname) = $2 AND (status IS NULL OR status != 'removed')`,
+      [challengeId, nickname.toLowerCase().trim()]
+    );
+    if (nickCheck.rows.length > 0) {
+      return res.status(409).json({ error: 'This nickname is already taken in this challenge' });
+    }
+
+    // Fuzzy match MT5 server name
+    const { fuzzyMatchServer } = require('../services/vpsService');
+    const matchedServer = fuzzyMatchServer(mt5Server.trim(), accountType);
+    const serverToUse = matchedServer || mt5Server.trim();
+
+    // Verify MT5 connection via VPS
+    const { vpsService } = require('../services/vpsService');
+    const verifyResult = await vpsService.verifyConnection(
+      accountNumber.trim(), serverToUse, investorPassword.trim()
+    );
+
+    if (!verifyResult.success) {
+      const errorMessages: Record<string, string> = {
+        'invalid_credentials': 'Invalid account number, server, or investor password. Please check your credentials.',
+        'server_not_found': `Server "${mt5Server}" not found. Please check the server name.`,
+        'timeout': 'Connection timed out. Please try again.',
+        'api_error': 'Verification service temporarily unavailable. Please try again later.',
+      };
+      return res.status(400).json({ error: errorMessages[verifyResult.status] || verifyResult.message });
+    }
+
+    // Detect cent account
+    const currency = (verifyResult.currency || '').toUpperCase();
+    const isCent = currency === 'USC' || currency === 'USCENT';
+    const accountSubtype = verifyResult.account_subtype || 'standard';
+
+    // Insert registration
+    const regResult = await db.query(
+      `INSERT INTO trading_registrations
+       (challenge_id, user_id, username, nickname, account_type, account_subtype, email,
+        account_number, mt5_server, investor_password, source, is_cent,
+        connection_verified, connection_verified_at, registration_balance, last_known_balance)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'winnerpip', $11, true, NOW(), $12, $12)
+       RETURNING id`,
+      [
+        challengeId,
+        0, // user_id = 0 for web registrations (no Telegram)
+        null, // username = null
+        nickname.trim(),
+        accountType,
+        accountSubtype,
+        email.toLowerCase().trim(),
+        accountNumber.trim(),
+        serverToUse,
+        investorPassword.trim(),
+        isCent,
+        verifyResult.balance || 0,
+      ]
+    );
+
+    // Send confirmation email
+    try {
+      const { emailService } = require('../services/emailService');
+      const challengeTitle = (await db.query(`SELECT title FROM trading_challenges WHERE id = $1`, [challengeId])).rows[0]?.title || '';
+      await emailService.sendRegistrationConfirmation(email.toLowerCase().trim(), {
+        nickname: nickname.trim(),
+        challengeTitle,
+        accountNumber: accountNumber.trim(),
+        accountType,
+      });
+    } catch (emailErr) {
+      console.error('Registration email failed (non-critical):', emailErr);
+    }
+
+    return res.json({
+      success: true,
+      registration: {
+        id: regResult.rows[0].id,
+        nickname: nickname.trim(),
+        accountNumber: accountNumber.trim(),
+        server: serverToUse,
+        accountType,
+        balance: verifyResult.balance || 0,
+      },
+    });
+  } catch (error) {
+    console.error('Web registration error:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
 });

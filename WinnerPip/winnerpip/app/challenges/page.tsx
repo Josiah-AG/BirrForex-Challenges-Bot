@@ -32,6 +32,8 @@ interface Challenge {
   teamOnly?: boolean;
   source?: string;
   registrationDeadline?: string;
+  hostId?: number | null;
+  hostDisplayName?: string | null;
 }
 
 interface Winner {
@@ -56,6 +58,13 @@ export default function ChallengesPage() {
   const [selectedPastChallenge, setSelectedPastChallenge] = useState<Challenge | null>(null);
   const [winnersData, setWinnersData] = useState<WinnersData | null>(null);
   const [winnersLoading, setWinnersLoading] = useState(false);
+
+  // Registration modal state
+  const [registerChallenge, setRegisterChallenge] = useState<Challenge | null>(null);
+  const [regForm, setRegForm] = useState({ email: "", nickname: "", accountNumber: "", mt5Server: "", investorPassword: "", accountType: "demo" });
+  const [regLoading, setRegLoading] = useState(false);
+  const [regError, setRegError] = useState("");
+  const [regSuccess, setRegSuccess] = useState(false);
 
   useEffect(() => {
     const fetchChallenges = async () => {
@@ -153,7 +162,16 @@ export default function ChallengesPage() {
     return (
       <button
         key={challenge.id}
-        onClick={() => isPast ? handlePastChallengeClick(challenge) : handleChallengeClick(challenge)}
+        onClick={() => {
+          if (isPast) return handlePastChallengeClick(challenge);
+          if (challenge.hostId && (challenge.displayStatus === 'registration_open' || challenge.status === 'registration_open')) {
+            setRegisterChallenge(challenge);
+            setRegForm({ email: "", nickname: "", accountNumber: "", mt5Server: "", investorPassword: "", accountType: challenge.type === 'real' ? 'real' : 'demo' });
+            setRegError(""); setRegSuccess(false);
+            return;
+          }
+          handleChallengeClick(challenge);
+        }}
         className="text-left w-full glass-hover card-glow rounded-2xl group shadow-[0_12px_40px_rgba(0,0,0,0.4)] border border-white/20 relative overflow-hidden"
       >
         <div className="absolute inset-0 bg-gradient-to-br from-royal/10 to-gold/10 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
@@ -181,6 +199,11 @@ export default function ChallengesPage() {
               {challenge.teamOnly && (
                 <span className="px-3 py-1.5 rounded-full bg-red-500/20 text-red-400 border border-red-500/30 text-xs font-semibold">
                   Team Only
+                </span>
+              )}
+              {challenge.hostId && challenge.hostDisplayName && (
+                <span className="px-3 py-1.5 rounded-full bg-royal/20 text-royal border border-royal/30 text-xs font-semibold">
+                  Hosted by {challenge.hostDisplayName}
                 </span>
               )}
             </div>
@@ -257,6 +280,7 @@ export default function ChallengesPage() {
             <span className={`text-sm font-semibold ${isPast ? 'text-profit' : 'text-royal'}`}>
               {isPast ? "View Winners" : (() => {
                 const ds = challenge.displayStatus || challenge.status;
+                if (ds === "registration_open" && challenge.hostId) return "Register Now";
                 if (ds === "registration_open") return "Join Challenge";
                 if (ds === "ongoing" || ds === "active") return "View Dashboard";
                 if (ds === "coming_soon") return "Coming Soon";
@@ -444,6 +468,97 @@ export default function ChallengesPage() {
                     </div>
                   )}
                 </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Registration Modal */}
+      {registerChallenge && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => !regLoading && setRegisterChallenge(null)}>
+          <div className="glass rounded-2xl max-w-md w-full max-h-[90vh] overflow-y-auto border border-white/10" onClick={e => e.stopPropagation()}>
+            <div className="sticky top-0 glass p-4 border-b border-white/10 flex items-center justify-between z-10 rounded-t-2xl">
+              <div>
+                <h3 className="text-lg font-bold text-white">Register</h3>
+                <p className="text-xs text-gray-500">{registerChallenge.title}</p>
+              </div>
+              <button onClick={() => !regLoading && setRegisterChallenge(null)} className="p-2 hover:bg-white/10 rounded-lg">
+                <X size={18} className="text-gray-400" />
+              </button>
+            </div>
+
+            <div className="p-5">
+              {regSuccess ? (
+                <div className="text-center py-8">
+                  <CheckCircle className="w-14 h-14 text-profit mx-auto mb-4" />
+                  <h3 className="text-lg font-bold text-white mb-2">Registration Successful!</h3>
+                  <p className="text-gray-400 text-sm">Your account has been verified and connected. You&apos;ll receive a confirmation email shortly.</p>
+                  <button onClick={() => setRegisterChallenge(null)} className="mt-6 px-6 py-2.5 rounded-xl bg-royal/20 text-royal font-semibold text-sm border border-royal/30">Done</button>
+                </div>
+              ) : (
+                <form onSubmit={async (e) => {
+                  e.preventDefault();
+                  setRegError(""); setRegLoading(true);
+                  try {
+                    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+                    const res = await fetch(`${apiUrl}/api/challenges/${registerChallenge.id}/register`, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify(regForm),
+                    });
+                    const data = await res.json();
+                    if (res.ok && data.success) {
+                      setRegSuccess(true);
+                    } else {
+                      setRegError(data.error || "Registration failed");
+                    }
+                  } catch { setRegError("Could not connect to server"); }
+                  setRegLoading(false);
+                }} className="space-y-4">
+                  {regError && <div className="p-3 rounded-xl bg-loss/10 border border-loss/30"><p className="text-sm text-loss">{regError}</p></div>}
+
+                  <div>
+                    <label className="block text-xs text-gray-400 font-medium mb-1">Exness Email *</label>
+                    <input type="email" required value={regForm.email} onChange={e => setRegForm({...regForm, email: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none focus:border-royal/50" placeholder="your@email.com" />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-gray-400 font-medium mb-1">Nickname *</label>
+                    <input type="text" required minLength={2} maxLength={30} value={regForm.nickname} onChange={e => setRegForm({...regForm, nickname: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none focus:border-royal/50" placeholder="Your display name" />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-gray-400 font-medium mb-1">Account Number *</label>
+                    <input type="text" required value={regForm.accountNumber} onChange={e => setRegForm({...regForm, accountNumber: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none focus:border-royal/50" placeholder="MT5 account number" />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-gray-400 font-medium mb-1">MT5 Server *</label>
+                    <input type="text" required value={regForm.mt5Server} onChange={e => setRegForm({...regForm, mt5Server: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none focus:border-royal/50" placeholder="e.g., Exness-MT5Trial9" />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-gray-400 font-medium mb-1">Investor Password *</label>
+                    <input type="password" required value={regForm.investorPassword} onChange={e => setRegForm({...regForm, investorPassword: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none focus:border-royal/50" placeholder="Read-only investor password" />
+                  </div>
+
+                  {registerChallenge.type === 'hybrid' && (
+                    <div>
+                      <label className="block text-xs text-gray-400 font-medium mb-1">Account Type *</label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button type="button" onClick={() => setRegForm({...regForm, accountType: 'demo'})} className={`p-2.5 rounded-xl border text-sm font-semibold transition-all ${regForm.accountType === 'demo' ? 'border-royal bg-royal/10 text-royal' : 'border-white/20 text-gray-400'}`}>Demo</button>
+                        <button type="button" onClick={() => setRegForm({...regForm, accountType: 'real'})} className={`p-2.5 rounded-xl border text-sm font-semibold transition-all ${regForm.accountType === 'real' ? 'border-gold bg-gold/10 text-gold' : 'border-white/20 text-gray-400'}`}>Real</button>
+                      </div>
+                    </div>
+                  )}
+
+                  <button type="submit" disabled={regLoading} className="w-full py-3 rounded-xl bg-gradient-brand text-white font-semibold text-sm hover:opacity-90 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+                    {regLoading ? <><Loader2 size={16} className="animate-spin" /> Verifying...</> : "Register"}
+                  </button>
+
+                  <p className="text-[10px] text-gray-500 text-center">Your account will be verified via MT5 connection. Make sure your investor password is correct.</p>
+                </form>
               )}
             </div>
           </div>
