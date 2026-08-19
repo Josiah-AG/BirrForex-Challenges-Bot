@@ -1,476 +1,309 @@
-# Host Mode — End-to-End Test Plan
+# Host Mode — Step-by-Step Test Checklist
 
-This document is a step-by-step testing guide to verify every piece of the Host Mode system works correctly before onboarding real hosts.
-
----
-
-## Prerequisites
-
-- Bot running on Railway (or locally with `npx ts-node src/index.ts`)
-- WinnerPip frontend deployed (or `npm run dev` locally)
-- PostgreSQL database accessible
-- VPS Python workers running (for MT5 verification)
-- Resend API key set (`RESEND_API_KEY` env var) — or skip email tests
-- Broker encryption key set (`BROKER_ENCRYPTION_KEY` env var) — 64-char hex
+Test this in order. Each step depends on the previous one passing. Mark each box as you go.
 
 ---
 
-## Phase 1: Admin Creates a Host
+## SETUP (before you start)
 
-### Test 1.1 — Create Host via Admin Panel
-
-**Steps:**
-1. Go to `winnerpip.com/admin/panel` (or local)
-2. Log in with admin key
-3. Click "Hosts" button in the header
-4. Click "+ Create Host"
-5. Fill: Display Name = "Test Host Co", Email = "testhost@example.com", Password = "TestHost123"
-6. Click "Create Host Account"
-
-**Expected:**
-- Modal shows solid dark background (no bleed-through)
-- Success — modal closes, host appears in the list
-- Host list shows: green dot (active), "Test Host Co", "testhost@example.com", "0 active · 0 total"
-
-**Verify in DB:**
-```sql
-SELECT id, display_name, email, active, has_broker_integration FROM hosts WHERE email = 'testhost@example.com';
-```
-Should return 1 row, active=true, has_broker_integration=false.
+Make sure these are running:
+- [ ] Bot is running (Railway or local `npx ts-node src/index.ts`)
+- [ ] WinnerPip frontend is deployed (or local `npm run dev`)
+- [ ] VPS Python workers are running
+- [ ] You have an MT5 demo account ready (account number, server, investor password)
 
 ---
 
-### Test 1.2 — Host Management Actions
+## TEST 1: Create a Host
 
-**Steps:**
-1. Click "View" on the host
-2. Verify detail panel expands showing: Status (Active), Broker Integration (—), Total Logins (0), Created date
-3. Click "Reset Password" → set to "NewPassword1" → click Reset
-4. Click "Deactivate" → host dot turns gray
-5. Click "Activate" → host dot turns green
+1. Go to the admin panel (winnerpip.com/admin/panel)
+2. Log in with your admin key
+3. Click the **"Hosts"** button in the header (next to "+ New")
+4. Click **"+ Create Host"**
+5. Fill in:
+   - Display Name: `Test Host`
+   - Email: `testhost@test.com`
+   - Password: `TestHost123`
+6. Click **"Create Host Account"**
 
-**Verify in DB:**
-```sql
-SELECT active FROM hosts WHERE email = 'testhost@example.com';
--- Should be true after reactivation
-```
-
----
-
-## Phase 2: Host Authentication
-
-### Test 2.1 — Host Login
-
-**Steps:**
-1. Go to `winnerpip.com/host/login`
-2. Enter email: testhost@example.com, password: NewPassword1
-3. Click Login
-
-**Expected:**
-- Redirects to `/host/dashboard`
-- Header shows "Test Host Co" + "HOST DASHBOARD"
-- Empty state: "No challenges yet" with "Create Challenge" button
-- `localStorage` has `host_token` and `host_info`
-
-### Test 2.2 — Token Persistence
-
-**Steps:**
-1. Refresh the page
-2. Dashboard should reload without re-login (token verified via API)
-
-### Test 2.3 — Deactivated Host Rejected
-
-**Steps:**
-1. Admin deactivates the host via admin panel
-2. Host refreshes dashboard
-3. Should redirect to login page (verify-token returns 401)
-4. Admin reactivates the host
+**Check:**
+- [ ] Modal had a solid dark background (no page showing through)
+- [ ] After creating, the host appears in the list with a green dot
+- [ ] The list shows "0 active · 0 total"
 
 ---
 
-## Phase 3: Host Creates a Challenge
+## TEST 2: Host Login
 
-### Test 3.1 — Challenge Creation Form
+1. Open a new browser tab (or incognito)
+2. Go to winnerpip.com/host/login
+3. Enter email: `testhost@test.com`, password: `TestHost123`
+4. Click Login
 
-**Steps:**
-1. Host dashboard → click "+ New Challenge" (or "Create Challenge")
-2. Fill:
-   - Title: "Test Trading Challenge"
+**Check:**
+- [ ] Redirected to /host/dashboard
+- [ ] Header shows "Test Host" and "HOST DASHBOARD"
+- [ ] Empty state shows "No challenges yet" with a Create Challenge button
+
+---
+
+## TEST 3: Host Creates a Challenge (Details Step)
+
+1. Click **"Create Challenge"** (or "+ New Challenge")
+2. Modal opens with progress bar showing step 1/3 "Details"
+3. Fill in:
+   - Title: `Host Test Challenge`
    - Type: Hybrid
-   - Deposit Mode: Fixed
-   - Start Date: tomorrow (set 24h from now)
-   - End Date: 7 days from now
-   - Starting Balance: 30
-   - Target Balance: 60
-   - Prize Pool Text: "$500 Prize Pool"
-   - Real Prizes: 300, 200
-   - Demo Prizes: 200, 100
-3. Click "Submit for Approval"
+   - Deposit Mode: click "Fixed Deposit" button
+   - Start Date: set to **tomorrow** (any time)
+   - End Date: set to **7 days from now**
+   - Starting Balance: `30`
+   - Target Balance: `60`
+   - Real Winners: `1`
+   - Demo Winners: `1`
+   - Real Prizes: `100`
+   - Demo Prizes: `50`
+4. Click **"Next: Rules"**
 
-**Expected:**
-- Success message: "Submitted for Approval"
-- Admin (you) gets a Telegram message:
-  ```
-  🔐 Challenge Creation Request
-  Title: Test Trading Challenge
-  Type: hybrid
-  Source: winnerpip
-  ...
-  ⚠️ Confirm to create this challenge.
-  [Approve] [Reject]
-  ```
-
-### Test 3.2 — Admin Approves Challenge
-
-**Steps:**
-1. Click "Approve" on the Telegram message
-
-**Expected:**
-- Telegram confirms: "Challenge created successfully"
-- Host refreshes dashboard → challenge appears in selector
-- Challenge status shows "Draft" initially (or "Registration Open" if start_date logic applies)
-
-**Verify in DB:**
-```sql
-SELECT id, title, host_id, status, starting_balance FROM trading_challenges WHERE title = 'Test Trading Challenge';
-```
-- `host_id` should NOT be NULL (should match the host's ID)
-- `status` should be 'draft'
-
-**THIS IS THE CRITICAL CHECK** — if host_id is NULL, the bug wasn't fixed.
+**Check:**
+- [ ] Deposit mode buttons are colored (Fixed = blue, Max = gold, Min = green)
+- [ ] Info box below deposit mode shows explanation text
+- [ ] "Next: Rules" button was disabled until title + dates were filled
+- [ ] Moved to step 2 (progress bar updated)
 
 ---
 
-## Phase 4: Challenge Configuration
+## TEST 4: Host Creates a Challenge (Rules Step)
 
-### Test 4.1 — Host Configures Rules
+1. You should be on step 2/3 "Rules"
+2. Toggle OFF: "Min Trade Duration" and "Min Total Trades"
+3. Set Max Lot Size: `0.05`
+4. Set Max Open Trades: `5`
+5. Set Daily Loss Cap: click "%" button, set to `20`
+6. Leave the rest as defaults
+7. Click **"Review"**
 
-**Steps:**
-1. Host dashboard → select the challenge → "Rules" tab
-2. Set:
-   - Max Lot Size: 0.05 (ON)
-   - Max Open Trades: 5 (ON)
-   - Stop Loss Required: ON, Fixed $5
-   - Daily Loss Cap: ON, Fixed $10
-   - Weekend Trading: Blocked (ON)
-   - Min Active Days: 5 (ON)
-3. Click "Save Rules"
-
-**Expected:**
-- "✓ Saved" confirmation appears
-- Refresh page → rules persist with same values
-
-**Verify in DB:**
-```sql
-SELECT rule_value FROM wp_challenge_rules WHERE challenge_id = <ID> AND rule_code = 'config';
-```
-
-### Test 4.2 — Host Edits Settings
-
-**Steps:**
-1. "Settings" tab → change Prize Pool Text to "$1000 Prize Pool"
-2. Click "Save Settings"
-
-**Expected:**
-- "✓ Saved" confirmation
-- Overview tab reflects updated prize info
-
-### Test 4.3 — Admin Opens Registration
-
-**Steps:**
-1. Admin panel → select the hosted challenge from dropdown
-2. Change status to "registration_open" (via admin status change endpoint or Telegram)
-
-**Verify:** Challenge status updates. Host dashboard shows "Registration Open" badge.
+**Check:**
+- [ ] Each rule row has a blue toggle on the left
+- [ ] Hovering the info icon (i) shows a tooltip with explanation
+- [ ] Disabled rules have faded inputs
+- [ ] Max Risk shows Fixed/% buttons
+- [ ] Moved to step 3 (progress bar updated)
 
 ---
 
-## Phase 5: Participant Registration (Web)
+## TEST 5: Host Submits Challenge for Approval
 
-### Test 5.1 — Challenge Visible on Public Page
+1. You should be on step 3/3 "Review"
+2. Verify the summary shows correct values
+3. Click **"Submit for Approval"**
 
-**Steps:**
-1. Go to `winnerpip.com/challenges`
-2. Find "Test Trading Challenge"
-
-**Expected:**
-- Card shows challenge title
-- Badge: "Hosted by Test Host Co"
-- Button: "Register Now" (since status = registration_open)
-
-### Test 5.2 — Web Registration Flow
-
-**Steps:**
-1. Click "Register Now" on the challenge card
-2. Registration modal opens with fields:
-   - Email, Nickname, Account Number, MT5 Server, Investor Password, Account Type
-3. Fill with a REAL test MT5 account:
-   - Email: your-test@email.com
-   - Nickname: TestTrader1
-   - Account Number: (real MT5 account number)
-   - MT5 Server: (real server name)
-   - Investor Password: (real investor password)
-   - Account Type: demo (or real depending on account)
-4. Submit
-
-**Expected:**
-- Loading state: "Verifying..."
-- VPS connection check passes
-- If host has broker integration: allocation check runs
-- Success: "Registration Successful!" message
-- Confirmation email sent to the email address (check inbox or Resend dashboard)
-
-**Verify in DB:**
-```sql
-SELECT id, nickname, email, account_number, source, user_id, connection_verified
-FROM trading_registrations WHERE challenge_id = <ID>;
-```
-- source = 'winnerpip'
-- user_id = 0
-- connection_verified = true
-
-### Test 5.3 — Duplicate Registration Blocked
-
-**Steps:**
-1. Try registering same email or account number again
-
-**Expected:** Error: "You are already registered..."
-
-### Test 5.4 — Host Sees Participant
-
-**Steps:**
-1. Host dashboard → "Participants" tab
-
-**Expected:** TestTrader1 appears in the table with account number, type, "Connected" status
+**Check:**
+- [ ] Loading spinner appears
+- [ ] Success message: "Submitted for Approval"
+- [ ] YOU (admin) receive a Telegram message with "Challenge Creation Request" and Approve/Reject buttons
 
 ---
 
-## Phase 6: CSV Upload Path
+## TEST 6: Admin Approves the Challenge
 
-### Test 6.1 — Host Uploads CSV
+1. Go to your Telegram
+2. Find the approval message from the bot
+3. Click **"Approve"**
 
-**Steps:**
-1. Create a CSV file:
+**Check:**
+- [ ] Bot replies confirming challenge was created
+- [ ] Go back to the host dashboard and refresh
+- [ ] The challenge now appears in the dropdown selector
+- [ ] Status shows (could be "draft" or "registration_open" depending on start date)
+
+**CRITICAL DB CHECK** (run this SQL):
+```sql
+SELECT id, title, host_id, status FROM trading_challenges ORDER BY id DESC LIMIT 1;
+```
+- [ ] `host_id` is NOT NULL (matches the host's ID)
+
+---
+
+## TEST 7: Admin Opens Registration
+
+1. Go to admin panel
+2. Select "Host Test Challenge" from the challenge dropdown
+3. If status is "draft", change it to "registration_open":
+   - You can use the admin status change (Settings tab or API)
+   - Or wait for the registration deadline logic
+
+Alternative: set the start date to the past so auto-start kicks in.
+
+**Check:**
+- [ ] Challenge status is now "registration_open"
+- [ ] Host dashboard shows "Registration Open" badge
+
+---
+
+## TEST 8: Challenge Visible on Public Page
+
+1. Go to winnerpip.com/challenges
+2. Look for "Host Test Challenge"
+
+**Check:**
+- [ ] Card shows the challenge title
+- [ ] Blue badge says "Hosted by Test Host"
+- [ ] Button says "Register Now"
+
+---
+
+## TEST 9: Register a Participant via Web
+
+1. Click **"Register Now"** on the challenge card
+2. Registration modal opens
+3. Fill with your test MT5 account:
+   - Email: any valid email you can check
+   - Nickname: `TestTrader1`
+   - Account Number: (your real MT5 demo account)
+   - MT5 Server: (the server name)
+   - Investor Password: (the investor/read-only password)
+   - Account Type: Demo
+4. Click **"Register"**
+
+**Check:**
+- [ ] Shows "Verifying..." while connecting
+- [ ] Success: "Registration Successful!" with green checkmark
+- [ ] Safety note is visible under the investor password field (lock icon + explanation)
+- [ ] You receive a confirmation email (check inbox or Resend dashboard)
+
+---
+
+## TEST 10: Host Sees the Participant
+
+1. Go back to host dashboard
+2. Click **"Participants"** tab
+
+**Check:**
+- [ ] TestTrader1 appears in the table
+- [ ] Shows account number, type (demo), status (Connected)
+- [ ] Registered date is today
+
+---
+
+## TEST 11: Host Configures Rules (Rules Tab)
+
+1. Click **"Rules"** tab on host dashboard
+2. Rules should load (showing the values you set during creation)
+
+**Check:**
+- [ ] Values match what you set in step 4 (max lot 0.05, max open 5, daily loss 20%, etc.)
+- [ ] If challenge hasn't started yet: inputs are editable
+- [ ] If challenge is active: inputs are locked with message
+
+---
+
+## TEST 12: Host Edits Settings
+
+1. Click **"Settings"** tab
+2. Change "Demo Winners #" to `2`
+3. Click **"Save Settings"**
+
+**Check:**
+- [ ] "Saved" confirmation appears
+- [ ] Refresh page, go back to Settings — value is still `2`
+
+---
+
+## TEST 13: Challenge Starts + Pull Runs
+
+1. Wait for the start date to pass
+   - OR manually set status to 'active' via SQL:
+   ```sql
+   UPDATE trading_challenges SET status = 'active' WHERE title = 'Host Test Challenge';
    ```
-   nickname,accountType,accountNumber,server,investorPassword
-   CSVUser1,demo,12345678,Exness-MT5Trial7,TestPass123
-   CSVUser2,demo,87654321,Exness-MT5Trial7,TestPass456
-   ```
-2. Host dashboard → "Participants" tab → upload the CSV file
+2. Wait for the next pull schedule time (check bot logs)
+   - OR trigger manually via admin panel "Full Pull + Evaluate + Rank" button
 
-**Expected:**
-- "2 participants uploaded. Awaiting admin approval."
-- Admin gets Telegram notification about pending CSV
-
-### Test 6.2 — Admin Approves CSV
-
-**Steps:**
-1. Admin panel → use the pending CSV endpoint (or Telegram notification)
-2. Approve the upload
-
-**Expected:**
-- System verifies each account via VPS
-- Valid accounts appear in participants list
-- Invalid accounts show as failed with reason
+**Check:**
+- [ ] Bot logs show: "Scheduled pull triggered for challenge [ID]"
+- [ ] Pull completes (check "Updates" tab on host dashboard)
+- [ ] If participant has trades: they appear on the Leaderboard tab
 
 ---
 
-## Phase 7: Pull Cycle & Evaluation
+## TEST 14: Host Views Leaderboard
 
-### Test 7.1 — Challenge Auto-Starts
+1. Click **"Leaderboard"** tab on host dashboard
 
-**Steps:**
-1. Wait for the start_date to pass (or manually UPDATE status to 'active')
-2. If auto-start: `vpsPullScheduler` changes status at scheduled check
-
-**Expected:**
-- Challenge status → 'active'
-- Web-registered participants get "Challenge Started" email
-- Admin gets Telegram: "Challenge Auto-Started"
-
-### Test 7.2 — Pull Cycle Runs
-
-**Steps:**
-1. Wait for next scheduled pull time (default: every 4 hours at 00:00, 04:00, etc.)
-2. Or trigger via admin panel "Full Pull + Evaluate + Rank" button
-
-**Expected:**
-- Pull fetches trade data from MT5 accounts via VPS
-- Console shows: "⏰ VPS Pull: Scheduled pull triggered for challenge <ID>"
-- Trades stored in `wp_trades` table
-- Evaluation runs → leaderboard updates
-
-**Verify:**
-```sql
-SELECT COUNT(*) FROM wp_trades WHERE challenge_id = <ID>;
-SELECT * FROM wp_leaderboard WHERE challenge_id = <ID> ORDER BY rank ASC;
-```
-
-### Test 7.3 — Host Sees Leaderboard
-
-**Steps:**
-1. Host dashboard → "Leaderboard" tab
-
-**Expected:**
-- Participants listed with rank, nickname, balance/growth, trades, flagged count
-- DQ'd participants shown with red DQ badge
-
-### Test 7.4 — Host Sees Updates
-
-**Steps:**
-1. Host dashboard → "Updates" tab
-
-**Expected:**
-- Shows update cycles with: update number, timestamp, accounts processed, success/failed counts
-- No "pull" or "VPS" terminology visible
+**Check:**
+- [ ] Shows participant(s) with rank, balance/growth, trades, flagged count
+- [ ] If no trades yet: "Leaderboard will appear after the first data update"
 
 ---
 
-## Phase 8: Multi-Challenge Concurrency
+## TEST 15: Host Views Updates
 
-### Test 8.1 — Two Challenges Active Simultaneously
+1. Click **"Updates"** tab
 
-**Steps:**
-1. Have a BirrForex challenge active
-2. Have the hosted challenge active at the same time
-3. Both should have the same pull_times (default 6x/day)
-4. Wait for a scheduled pull time
-
-**Expected:**
-- Console shows pull triggered for BOTH challenges (sequentially)
-- Both challenges get their accounts pulled and evaluated
-- Both leaderboards update independently
-
-**Verify:**
-```sql
-SELECT id, title, status FROM trading_challenges WHERE status = 'active';
--- Should show 2 rows
-
-SELECT challenge_id, COUNT(*) FROM wp_pull_batches
-WHERE started_at > NOW() - INTERVAL '1 hour'
-GROUP BY challenge_id;
--- Should show batches for both challenge IDs
-```
+**Check:**
+- [ ] Shows at least one update entry with: update number, timestamp, accounts processed, success count
+- [ ] No "pull" or "VPS" text visible — only "update" terminology
 
 ---
 
-## Phase 9: Challenge End & Emails
+## TEST 16: Duplicate Registration Blocked
 
-### Test 9.1 — Challenge Auto-Ends
+1. Go back to winnerpip.com/challenges
+2. Try registering the same account number or email again
 
-**Steps:**
-1. Set end_date to pass (or manually trigger)
-2. Wait for vpsPullScheduler lifecycle check
-
-**Expected:**
-- Status → 'reviewing'
-- Web-registered participants get "Challenge Ended" email
-- Admin gets Telegram: "Challenge Auto-Ended"
-- 2 final sync pulls run after end
+**Check:**
+- [ ] Error: "You are already registered for this challenge..."
 
 ---
 
-## Phase 10: Broker Integration (Optional)
+## TEST 17: Admin Panel Shows Hosted Challenge
 
-### Test 10.1 — Setup Broker Credentials
+1. Go to admin panel
+2. Check the challenge dropdown
 
-**Steps:**
-1. Host dashboard → "Settings" tab → scroll to "Broker Integration"
-2. Click "Setup Broker Credentials"
-3. Enter Exness affiliate credentials (email, password, API key)
-4. Click "Save Credentials"
-
-**Expected:**
-- Green "Broker integration active" badge appears
-- "Screening" tab now visible in navigation
-
-### Test 10.2 — Run Screening
-
-**Steps:**
-1. "Screening" tab → click "Run Screening"
-
-**Expected:**
-- Allocation results per participant (Allocated / Not Allocated / No Email)
-- Stats grid shows totals
-
-### Test 10.3 — Registration Blocks Unallocated
-
-**Steps:**
-1. Try registering with an email NOT allocated under the host's partnership
-2. Submit registration
-
-**Expected:**
-- Error: "Your account is not allocated under the required broker partnership..."
+**Check:**
+- [ ] "Host Test Challenge" appears in the admin's challenge list
+- [ ] Admin can view participants, leaderboard, violations for it
+- [ ] Admin can change status if needed
 
 ---
 
-## Phase 11: Edge Cases
+## TEST 18: Two Challenges Active at Same Time (optional)
 
-### Test 11.1 — Host Concurrent Challenge Limit
+Only if you have a BirrForex challenge also active:
 
-**Steps:**
-1. While one challenge is active, try creating another
+1. Both challenges should have the same pull schedule
+2. Wait for a pull time to hit
 
-**Expected:** Error: "You already have an active challenge..."
-
-### Test 11.2 — Rules Locked After Start
-
-**Steps:**
-1. After challenge becomes active, go to "Rules" tab
-
-**Expected:**
-- All inputs disabled
-- Message: "Rules are locked — challenge has already started"
-
-### Test 11.3 — Admin Can Override Host Challenge
-
-**Steps:**
-1. Admin panel → select the hosted challenge from dropdown
-2. Change status, view participants, view leaderboard
-
-**Expected:** All admin functions work for hosted challenges same as BirrForex ones
+**Check:**
+- [ ] Bot logs show pulls triggered for BOTH challenge IDs
+- [ ] Both leaderboards update independently
 
 ---
 
-## Checklist Summary
+## CLEANUP
 
-| # | Test | Status |
-|---|------|--------|
-| 1.1 | Create host via admin panel | ☐ |
-| 1.2 | Host management actions | ☐ |
-| 2.1 | Host login | ☐ |
-| 2.2 | Token persistence | ☐ |
-| 2.3 | Deactivated host rejected | ☐ |
-| 3.1 | Challenge creation form | ☐ |
-| 3.2 | Admin approves → host_id saved | ☐ |
-| 4.1 | Host configures rules | ☐ |
-| 4.2 | Host edits settings | ☐ |
-| 4.3 | Admin opens registration | ☐ |
-| 5.1 | Challenge visible on public page | ☐ |
-| 5.2 | Web registration flow | ☐ |
-| 5.3 | Duplicate registration blocked | ☐ |
-| 5.4 | Host sees participant | ☐ |
-| 6.1 | CSV upload | ☐ |
-| 6.2 | Admin approves CSV | ☐ |
-| 7.1 | Challenge auto-starts | ☐ |
-| 7.2 | Pull cycle runs | ☐ |
-| 7.3 | Host sees leaderboard | ☐ |
-| 7.4 | Host sees updates | ☐ |
-| 8.1 | Two challenges active simultaneously | ☐ |
-| 9.1 | Challenge auto-ends + emails | ☐ |
-| 10.1 | Broker credential setup | ☐ |
-| 10.2 | Run screening | ☐ |
-| 10.3 | Registration blocks unallocated | ☐ |
-| 11.1 | Concurrent challenge limit | ☐ |
-| 11.2 | Rules locked after start | ☐ |
-| 11.3 | Admin can override host challenge | ☐ |
+After testing is complete:
+1. Admin panel → Hosts → View → Delete the test host
+2. Or leave it for future reference
 
 ---
 
-## Notes
+## CONFIDENCE CHECKLIST
 
-- **Test 3.2 is the most critical** — if `host_id` is NULL after admin approval, the entire system breaks
-- **Test 8.1** verifies the pull scheduler fix works for concurrent challenges
-- **Phase 10** only applicable if you have real Exness affiliate credentials for the test host
-- For email tests, check the Resend dashboard if inbox delivery is slow
-- The VPS workers must be running for tests 5.2, 6.2, 7.2 to pass
+After all tests pass, you can be confident that:
+
+- [ ] Hosts can be created and managed by admin
+- [ ] Hosts can log in and see their dashboard
+- [ ] Challenge creation flows through Telegram approval correctly
+- [ ] **host_id is properly saved** (the critical bug we fixed)
+- [ ] Challenges appear on the public page with "Hosted by" badge
+- [ ] Web registration works (VPS verify + email confirmation)
+- [ ] Host can see participants, configure rules, edit settings
+- [ ] Pull scheduler picks up hosted challenges
+- [ ] Evaluation and leaderboard work for hosted challenges
+- [ ] Admin retains full control over hosted challenges
+- [ ] No internal terminology leaks to the host
+
+**If all boxes are checked, the system is ready for real hosts.**
