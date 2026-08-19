@@ -274,3 +274,111 @@ Added "Past Challenges" tab to the WinnerPip challenges page with winner popup m
    - No winners → "No participant hit the target" message
    - Team-only challenges: prizes blurred in the modal
    - Current challenges tab: shows existing active/upcoming cards unchanged
+
+---
+
+## Update #6 — Host Mode (MAJOR FEATURE — SPEC)
+
+### Vision
+Turn WinnerPip into a multi-tenant platform where external partners ("Hosts") pay to run their own trading challenges using the evaluation infrastructure, without knowing the internal mechanism.
+
+### Architecture Decisions
+- **Multi-tenant via host_id FK** on trading_challenges (NULL = BirrForex, set = hosted)
+- **Separate host dashboard route** (`/host/dashboard`) — not conditional admin panel
+- **Terminology sanitized**: "pull" → "update", no VPS/OHLC/candle/terminal references
+- **Credential encryption**: AES-256-GCM with Railway env master key
+- **Email notifications via Resend** for hosted challenge participants (from challenges@winnerpip.com)
+- **Internal payment structure** prepared but not exposed in UI yet
+
+### Database: New Tables
+```
+hosts:
+  id, display_name, email, password_hash,
+  broker_email_encrypted, broker_password_encrypted, broker_api_key_encrypted,
+  encryption_iv, has_broker_integration (boolean),
+  active, created_at, last_login_at
+
+host_login_history:
+  id, host_id, login_at, ip_address
+```
+
+### Database: Modified Tables
+- `trading_challenges` → add `host_id INTEGER REFERENCES hosts(id)` (nullable)
+- `trading_registrations` → allow `user_id` and `username` to be nullable (for WinnerPip web registrations)
+- `trading_registrations` → add `email` column for notifications (already exists but used for Exness email — may need a `notification_email` field)
+
+### Host Account Lifecycle
+1. Admin creates host via admin panel (display_name, email, password)
+2. Admin sends credentials to host manually
+3. Host logs in at winnerpip.com/host/login
+4. Host creates challenge → admin approves via Telegram
+5. Host status changes → admin approves
+6. Admin can pause/cancel/delete host's challenge (non-payment, etc.)
+
+### Host Dashboard Tabs
+- **Overview**: challenge stats (same as admin overview but for their challenge only)
+- **Participants**: list of registered users
+- **Leaderboard**: same as admin leaderboard view
+- **Screening**: only visible if broker integrated (partner allocation check)
+- **Rules**: rule configuration (same UI as admin rules tab)
+- **Settings**: challenge settings (dates, prizes, etc.)
+- **Updates**: renamed "Pulls" tab — shows update cycles without revealing mechanism
+
+### Admin Host Management
+- "Create Host" button on admin panel
+- Host list: display_name, email, active challenges, login history, status
+- Can: reset credentials, deactivate, delete host
+- Can: pause/cancel/delete any host's challenge
+- Sees ALL challenges (host + BirrForex) in the challenge list
+
+### Challenge Card Display (Public)
+- Shows challenge title
+- Badge: "Hosted by [HostName]"
+- "Register" button (leads to web registration form)
+- Non-BirrForex challenges don't show BirrForex branding
+
+### Registration Flow for Hosted Challenges (on WinnerPip web)
+- Form: Email (Exness), Nickname, Account Number, MT5 Server, Investor Password, Account Type
+- If host has broker integration: system verifies partner allocation using host's encrypted credentials
+- System verifies MT5 connection via VPS (same as current)
+- On success: registration saved with source='winnerpip', telegram_id=null
+- Error messages: same as Telegram bot flow
+
+### CSV Upload Path (No Broker Integration)
+- Host uploads CSV: nickname, account_type, account_number, server, investor_password
+- Admin approves the upload
+- System verifies each account (VPS connection, fuzzy server match)
+- Reports: which succeeded, which failed (with reasons)
+- Failed accounts can be corrected and re-uploaded
+- telegram_id/username = null for CSV participants
+
+### Email Notifications (via Resend)
+- From: challenges@winnerpip.com
+- Events: registration confirmation, balance warning, DQ notification, challenge start, challenge end
+- Only for hosted challenge participants (BirrForex participants still use Telegram DMs)
+
+### Broker Credential Security
+- AES-256-GCM encryption
+- Master key: Railway environment variable (BROKER_ENCRYPTION_KEY)
+- Per-host unique IV stored in DB
+- Decrypted only at runtime for allocation checks
+- Never logged, never returned via API
+- Audit trail: log every decryption access
+
+### Constraints
+- Host can run ONE challenge at a time (can create next immediately after completion)
+- Pull schedule: fixed 6x/day (host cannot change)
+- Every challenge creation + status change requires admin approval
+- Admin has full control over all challenges regardless of owner
+
+### Implementation Phases
+- **Phase 1**: Database schema + Host model + encryption utils + admin host management
+- **Phase 2**: Host authentication (login page, session, middleware)
+- **Phase 3**: Host dashboard (overview, participants, leaderboard, rules, settings, updates)
+- **Phase 4**: WinnerPip web registration flow for hosted challenges
+- **Phase 5**: CSV upload path + email notifications (Resend integration)
+- **Phase 6**: Host landing page (`/host`) + footer link + terminology cleanup
+- **Phase 7**: Admin approval flow for host actions + billing structure (internal)
+
+### Key Principle
+The evaluation engine, VPS pull scheduler, leaderboard service — NONE of these change. They already work per-challenge. A hosted challenge is just another challenge with `host_id` set. The only new code is the access layer (who can see what) and registration path (web vs Telegram).
