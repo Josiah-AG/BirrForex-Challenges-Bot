@@ -2,7 +2,16 @@ import Image from "next/image";
 import Link from "next/link";
 import { Sparkles, Zap, Shield, TrendingUp, Users, BarChart3 } from "lucide-react";
 
-export default function Home() {
+async function getStats() {
+  try {
+    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com"}/api/stats`, { next: { revalidate: 3600 } });
+    if (res.ok) return await res.json();
+  } catch {}
+  return { challengesCompleted: 15, totalParticipants: 1800 };
+}
+
+export default async function Home() {
+  const stats = await getStats();
   return (
     <div className="min-h-screen flex flex-col bg-[#0a0e1a]">
       {/* Animated background */}
@@ -63,8 +72,7 @@ export default function Home() {
             />
             
             <p className="text-lg md:text-2xl text-gray-400 mb-10 md:mb-12 max-w-3xl mx-auto leading-relaxed">
-              The ultimate platform for hosting and participating in <span className="gradient-text font-semibold">forex trading competitions</span>.
-              Automated verification, real-time monitoring, and transparent leaderboards.
+              Trade on your own MT5 account. We track your performance automatically and rank you against other traders. Hit the target, follow the rules, win prizes.
             </p>
             
             <div className="flex flex-col sm:flex-row gap-4 justify-center px-4">
@@ -95,42 +103,42 @@ export default function Home() {
               <FeatureCard
                 icon={<TrendingUp className="w-8 h-8" />}
                 title="Live Leaderboards"
-                description="Real-time rankings with full transparency. See exactly how you rank against other traders."
+                description="See your rank update throughout the challenge. Fully transparent, no hidden calculations."
                 gradient="from-profit/20 to-profit/5"
                 iconColor="text-profit"
               />
               <FeatureCard
                 icon={<Shield className="w-8 h-8" />}
                 title="Automated Verification"
-                description="Verifications for challenges are automated and done in minutes. No manual checking required."
+                description="Account connection is verified in seconds. No manual steps, no waiting."
                 gradient="from-royal/20 to-royal/5"
                 iconColor="text-royal"
               />
               <FeatureCard
                 icon={<Zap className="w-8 h-8" />}
-                title="Real-Time Monitoring"
-                description="Automatic rule enforcement and violation detection across all participants."
+                title="Rule Enforcement"
+                description="Every trade is checked against the challenge rules. Violations flagged automatically."
                 gradient="from-gold/20 to-gold/5"
                 iconColor="text-gold"
               />
               <FeatureCard
                 icon={<BarChart3 className="w-8 h-8" />}
-                title="Flexible Rules"
-                description="Each challenge has custom rules tailored to test different trading strategies."
+                title="Custom Rules"
+                description="Each challenge has its own rules: lot size limits, SL requirements, max hold time, daily loss caps."
                 gradient="from-royal/20 to-royal/5"
                 iconColor="text-royal"
               />
               <FeatureCard
                 icon={<Users className="w-8 h-8" />}
-                title="Multi-Account Support"
-                description="Support for demo and real account challenges."
+                title="Demo or Real"
+                description="Compete with a demo account to practice, or go real for bigger prizes."
                 gradient="from-profit/20 to-profit/5"
                 iconColor="text-profit"
               />
               <FeatureCard
                 icon={<Sparkles className="w-8 h-8" />}
-                title="Detailed Analytics"
-                description="Track your performance with comprehensive trade history and statistics."
+                title="Full Trade History"
+                description="See every trade, every violation, every pip. Nothing hidden."
                 gradient="from-gold/20 to-gold/5"
                 iconColor="text-gold"
               />
@@ -153,85 +161,81 @@ export default function Home() {
             <div className="max-w-4xl mx-auto space-y-8">
               <Step
                 number="1"
-                title="Register & Verify"
-                description="Sign up and connect your MT5 trading account using your read-only investor password. We never access your trading password — your funds are always safe."
+                title="Register"
+                description="Connect your MT5 account using the read-only investor password. This lets us track your trades without any access to your funds or trading ability."
               />
               <Step
                 number="2"
                 title="Join a Challenge"
-                description="Browse available challenges and join one that matches your style. Demo or real account - your choice."
+                description="Pick a challenge that fits your style. Some are demo-only, some real, some both. Each has its own rules and prize structure."
               />
               <Step
                 number="3"
-                title="Trade & Compete"
-                description="Trade according to the challenge rules. Our system monitors your trades in real-time using read-only access."
+                title="Trade"
+                description="Trade normally on your MT5 account. The system pulls your data automatically 6 times a day and checks it against the challenge rules."
               />
               <Step
                 number="4"
-                title="Win Prizes"
-                description="Top performers win prizes. All rankings are transparent and based on qualified profits."
+                title="Win"
+                description="If you hit the target balance with qualified trades, you rank on the leaderboard. Top traders take home the prizes."
               />
             </div>
           </div>
         </section>
 
         {/* Track Record */}
-        <section className="py-16 md:py-20 relative">
+        <section className="py-16 md:py-20 relative" aria-label="Platform statistics">
           <div className="container mx-auto px-4">
             <div className="text-center mb-12">
               <h2 className="text-3xl md:text-4xl font-bold mb-4">
-                Trusted by <span className="gradient-text">Traders</span>
+                Our <span className="gradient-text">Track Record</span>
               </h2>
               <p className="text-gray-400 text-lg max-w-2xl mx-auto">
-                Our growing community of competitive traders
+                Real numbers from real challenges
               </p>
             </div>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6 max-w-4xl mx-auto">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 md:gap-6 max-w-3xl mx-auto">
               <div className="glass rounded-2xl p-6 text-center border border-white/10">
-                <p className="text-3xl md:text-4xl font-bold gradient-text">15+</p>
-                <p className="text-sm text-gray-400 mt-2">Challenges Completed</p>
+                <p className="text-3xl md:text-4xl font-bold gradient-text">{stats.challengesCompleted}</p>
+                <p className="text-sm text-gray-400 mt-2">Challenges Run</p>
               </div>
               <div className="glass rounded-2xl p-6 text-center border border-white/10">
-                <p className="text-3xl md:text-4xl font-bold text-profit">1,800+</p>
-                <p className="text-sm text-gray-400 mt-2">Participants</p>
+                <p className="text-3xl md:text-4xl font-bold text-profit">{stats.totalParticipants.toLocaleString()}</p>
+                <p className="text-sm text-gray-400 mt-2">Total Registrations</p>
               </div>
-              <div className="glass rounded-2xl p-6 text-center border border-white/10">
-                <p className="text-3xl md:text-4xl font-bold text-gold">$5,000+</p>
-                <p className="text-sm text-gray-400 mt-2">Prizes Awarded</p>
-              </div>
-              <div className="glass rounded-2xl p-6 text-center border border-white/10">
-                <p className="text-3xl md:text-4xl font-bold text-royal">24/7</p>
-                <p className="text-sm text-gray-400 mt-2">Automated Monitoring</p>
+              <div className="glass rounded-2xl p-6 text-center border border-white/10 col-span-2 md:col-span-1">
+                <p className="text-3xl md:text-4xl font-bold text-royal">6x/day</p>
+                <p className="text-sm text-gray-400 mt-2">Automated Updates</p>
               </div>
             </div>
           </div>
         </section>
 
         {/* Security & Trust */}
-        <section className="py-16 md:py-20 relative">
+        <section className="py-16 md:py-20 relative" aria-label="Security information">
           <div className="container mx-auto px-4">
             <div className="max-w-4xl mx-auto glass rounded-2xl border border-white/10 p-8 md:p-12">
               <div className="flex items-start gap-4 mb-6">
                 <div className="p-3 bg-profit/20 rounded-xl border border-profit/30 flex-shrink-0">
-                  <Shield className="w-6 h-6 text-profit" />
+                  <Shield className="w-6 h-6 text-profit" aria-hidden="true" />
                 </div>
                 <div>
-                  <h3 className="text-xl md:text-2xl font-bold text-white mb-2">Your Funds Are Always Safe</h3>
-                  <p className="text-gray-400 text-sm md:text-base leading-relaxed">We use <strong className="text-white">read-only investor passwords</strong> — a standard MT5 feature designed specifically for monitoring. This gives us view-only access to see your trade history and balance, but <strong className="text-white">absolutely no ability to place trades, withdraw funds, or modify your account in any way</strong>.</p>
+                  <h3 className="text-xl md:text-2xl font-bold text-white mb-2">We only use read-only investor passwords</h3>
+                  <p className="text-gray-400 text-sm md:text-base leading-relaxed">When you register for a challenge, you provide your MT5 investor password. This is a built-in MetaTrader feature that gives view-only access to trade history and balance. It cannot place trades, move money, or change anything on your account. Prop firms, copy-trading services, and analytics tools all use this same method.</p>
                 </div>
               </div>
               <div className="grid sm:grid-cols-3 gap-4 mt-8">
                 <div className="bg-white/5 rounded-xl p-4 border border-white/5">
-                  <p className="text-profit font-bold text-sm mb-1">&#10003; Read-Only Access</p>
-                  <p className="text-gray-500 text-xs">We can only view trades — never execute or modify them</p>
+                  <p className="text-profit font-bold text-sm mb-1">View-only access</p>
+                  <p className="text-gray-500 text-xs">We can see your trades but never execute or modify them</p>
                 </div>
                 <div className="bg-white/5 rounded-xl p-4 border border-white/5">
-                  <p className="text-profit font-bold text-sm mb-1">&#10003; No Fund Access</p>
-                  <p className="text-gray-500 text-xs">Impossible to withdraw, deposit, or transfer funds</p>
+                  <p className="text-profit font-bold text-sm mb-1">No withdrawals possible</p>
+                  <p className="text-gray-500 text-xs">Investor passwords have zero access to fund transfers</p>
                 </div>
                 <div className="bg-white/5 rounded-xl p-4 border border-white/5">
-                  <p className="text-profit font-bold text-sm mb-1">&#10003; Industry Standard</p>
-                  <p className="text-gray-500 text-xs">MT5 investor passwords are used by prop firms, copiers, and analytics tools worldwide</p>
+                  <p className="text-profit font-bold text-sm mb-1">Standard MT5 feature</p>
+                  <p className="text-gray-500 text-xs">Built into MetaTrader by design for safe third-party monitoring</p>
                 </div>
               </div>
             </div>

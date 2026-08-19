@@ -298,6 +298,27 @@ app.post('/api/auth/verify-token', async (req, res) => {
 // ==================== CHALLENGES ====================
 
 /**
+ * GET /api/stats
+ * Returns platform stats for the landing page (public, cached)
+ */
+app.get('/api/stats', async (req, res) => {
+  try {
+    const completed = await db.query(
+      `SELECT COUNT(*) as cnt FROM trading_challenges WHERE status IN ('completed', 'reviewing') OR winners_posted_at IS NOT NULL`
+    );
+    const participants = await db.query(
+      `SELECT COUNT(*) as cnt FROM trading_registrations WHERE status IS NULL OR status != 'removed'`
+    );
+    return res.json({
+      challengesCompleted: parseInt(completed.rows[0]?.cnt || '0'),
+      totalParticipants: parseInt(participants.rows[0]?.cnt || '0'),
+    });
+  } catch {
+    return res.json({ challengesCompleted: 0, totalParticipants: 0 });
+  }
+});
+
+/**
  * GET /api/challenges
  * Returns all challenges (public — for landing page)
  */
