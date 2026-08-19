@@ -463,6 +463,18 @@ async function migrate() {
     await db.query(`ALTER TABLE wp_leaderboard_staging ADD COLUMN IF NOT EXISTS growth_percent DECIMAL(10,2) DEFAULT 0;`).catch(() => {});
     console.log('✅ growth_percent leaderboard column OK');
 
+    // === Host Mode tables ===
+    const hostSchemaPath = join(__dirname, 'host_schema.sql');
+    try {
+      const hostSchema = readFileSync(hostSchemaPath, 'utf-8');
+      await db.query(hostSchema);
+    } catch (e) { /* host_schema.sql might not exist in older builds */ }
+
+    // Add host_id FK to trading_challenges
+    await db.query(`ALTER TABLE trading_challenges ADD COLUMN IF NOT EXISTS host_id INTEGER REFERENCES hosts(id) ON DELETE SET NULL;`).catch(() => {});
+    await db.query(`CREATE INDEX IF NOT EXISTS idx_trading_challenges_host ON trading_challenges(host_id);`).catch(() => {});
+    console.log('✅ Host mode schema OK');
+
     console.log('✅ Database migration completed successfully!');
     process.exit(0);
   } catch (error) {

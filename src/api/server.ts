@@ -5958,6 +5958,149 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+// ==================== HOST MANAGEMENT (Admin) ====================
+
+/**
+ * GET /api/admin/:secretPath/hosts
+ * List all hosts with stats
+ */
+app.get(`/api/admin/${ADMIN_SECRET_PATH}/hosts`, adminIpCheck, async (req, res) => {
+  try {
+    const { hostService } = require('../services/hostService');
+    const hosts = await hostService.getAllHostsWithStats();
+    return res.json({ hosts });
+  } catch (error) {
+    console.error('Admin hosts list error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * POST /api/admin/:secretPath/hosts
+ * Create a new host account
+ * Body: { displayName, email, password }
+ */
+app.post(`/api/admin/${ADMIN_SECRET_PATH}/hosts`, adminIpCheck, async (req, res) => {
+  try {
+    const { displayName, email, password } = req.body;
+    if (!displayName || !email || !password) {
+      return res.status(400).json({ error: 'Missing required fields: displayName, email, password' });
+    }
+    if (password.length < 8) {
+      return res.status(400).json({ error: 'Password must be at least 8 characters' });
+    }
+
+    const { hostService } = require('../services/hostService');
+
+    // Check if email already exists
+    const existing = await hostService.getHostByEmail(email);
+    if (existing) {
+      return res.status(409).json({ error: 'A host with this email already exists' });
+    }
+
+    const host = await hostService.createHost({ displayName, email, password });
+    return res.json({ success: true, host });
+  } catch (error) {
+    console.error('Admin create host error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * GET /api/admin/:secretPath/hosts/:hostId
+ * Get host details + login history
+ */
+app.get(`/api/admin/${ADMIN_SECRET_PATH}/hosts/:hostId`, adminIpCheck, async (req, res) => {
+  try {
+    const hostId = parseInt(req.params.hostId);
+    const { hostService } = require('../services/hostService');
+
+    const host = await hostService.getHostById(hostId);
+    if (!host) return res.status(404).json({ error: 'Host not found' });
+
+    const loginHistory = await hostService.getLoginHistory(hostId, 20);
+    const challenges = await hostService.getHostChallenges(hostId);
+
+    return res.json({ host, loginHistory, challenges });
+  } catch (error) {
+    console.error('Admin get host error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * PATCH /api/admin/:secretPath/hosts/:hostId
+ * Update host (displayName, active status)
+ * Body: { displayName?, active? }
+ */
+app.patch(`/api/admin/${ADMIN_SECRET_PATH}/hosts/:hostId`, adminIpCheck, async (req, res) => {
+  try {
+    const hostId = parseInt(req.params.hostId);
+    const { displayName, active } = req.body;
+    const { hostService } = require('../services/hostService');
+
+    const host = await hostService.getHostById(hostId);
+    if (!host) return res.status(404).json({ error: 'Host not found' });
+
+    if (displayName !== undefined) {
+      await hostService.updateDisplayName(hostId, displayName);
+    }
+    if (active !== undefined) {
+      await hostService.setActive(hostId, active);
+    }
+
+    return res.json({ success: true });
+  } catch (error) {
+    console.error('Admin update host error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * POST /api/admin/:secretPath/hosts/:hostId/reset-password
+ * Reset host password
+ * Body: { newPassword }
+ */
+app.post(`/api/admin/${ADMIN_SECRET_PATH}/hosts/:hostId/reset-password`, adminIpCheck, async (req, res) => {
+  try {
+    const hostId = parseInt(req.params.hostId);
+    const { newPassword } = req.body;
+    if (!newPassword || newPassword.length < 8) {
+      return res.status(400).json({ error: 'Password must be at least 8 characters' });
+    }
+
+    const { hostService } = require('../services/hostService');
+    const host = await hostService.getHostById(hostId);
+    if (!host) return res.status(404).json({ error: 'Host not found' });
+
+    await hostService.resetPassword(hostId, newPassword);
+    return res.json({ success: true });
+  } catch (error) {
+    console.error('Admin reset host password error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * DELETE /api/admin/:secretPath/hosts/:hostId
+ * Delete a host account
+ */
+app.delete(`/api/admin/${ADMIN_SECRET_PATH}/hosts/:hostId`, adminIpCheck, async (req, res) => {
+  try {
+    const hostId = parseInt(req.params.hostId);
+    const { hostService } = require('../services/hostService');
+
+    const host = await hostService.getHostById(hostId);
+    if (!host) return res.status(404).json({ error: 'Host not found' });
+
+    await hostService.deleteHost(hostId);
+    return res.json({ success: true });
+  } catch (error) {
+    console.error('Admin delete host error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // ==================== CHALLENGE RULES (public — for user dashboard) ====================
 
 /**
