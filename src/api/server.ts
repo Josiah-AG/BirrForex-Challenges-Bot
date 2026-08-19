@@ -1170,6 +1170,158 @@ function verifyToken(token: string): { registrationId: number; telegramId: numbe
   }
 }
 
+// ==================== HOST AUTH ====================
+
+const HOST_TOKEN_EXPIRY_HOURS = 24; // 1 day
+
+function generateHostToken(hostId: number): string {
+  const payload = {
+    hostId,
+    type: 'host',
+    exp: Date.now() + HOST_TOKEN_EXPIRY_HOURS * 60 * 60 * 1000,
+  };
+  const data = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  const signature = crypto
+    .createHmac('sha256', TOKEN_SECRET)
+    .update(data)
+    .digest('base64url');
+  return `${data}.${signature}`;
+}
+
+function verifyHostToken(token: string): { hostId: number } | null {
+  try {
+    const [data, signature] = token.split('.');
+    if (!data || !signature) return null;
+
+    const expectedSig = crypto
+      .createHmac('sha256', TOKEN_SECRET)
+      .update(data)
+      .digest('base64url');
+
+    const sigBuffer = Buffer.from(signature, 'base64url');
+    const expectedBuffer = Buffer.from(expectedSig, 'base64url');
+    if (sigBuffer.length !== expectedBuffer.length || !crypto.timingSafeEqual(sigBuffer, expectedBuffer)) return null;
+
+    const payload = JSON.parse(Buffer.from(data, 'base64url').toString());
+    if (payload.exp < Date.now()) return null;
+    if (payload.type !== 'host') return null;
+
+    return { hostId: payload.hostId };
+  } catch {
+    return null;
+  }
+}
+
+function hostAuthMiddleware(req: any, res: any, next: any) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+
+  const token = authHeader.split(' ')[1];
+  const payload = verifyHostToken(token);
+
+  if (!payload) {
+    return res.status(401).json({ error: 'Invalid or expired token' });
+  }
+
+  req.host = payload;
+  next();
+}
+
+/**
+ * POST /api/host/login
+ * Body: { email, password }
+ * Returns: token + host info
+ */
+app.post('/api/host/login', authLimiter, async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password are required' });
+    }
+
+    const { hostService } = require('../services/hostService');
+    const host = await hostService.getHostByEmail(email);
+
+    if (!host) {
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
+
+    if (!host.active) {
+      return res.status(403).json({ error: 'Account is deactivated. Contact support.' });
+    }
+
+    const valid = await hostService.verifyPassword(password, host.password_hash);
+    if (!valid) {
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
+
+    // Record login
+    const ip = req.headers['x-forwarded-for'] as string || req.ip || '';
+    const userAgent = req.headers['user-agent'] || '';
+    await hostService.recordLogin(host.id, ip, userAgent);
+
+    // Generate token
+    const token = generateHostToken(host.id);
+
+    return res.json({
+      success: true,
+      token,
+      host: {
+        id: host.id,
+        displayName: host.display_name,
+        email: host.email,
+      },
+    });
+  } catch (error) {
+    console.error('Host login error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * POST /api/host/verify-token
+ * Header: Authorization: Bearer <token>
+ * Returns: host info if token is valid
+ */
+app.post('/api/host/verify-token', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'No token provided' });
+    }
+
+    const token = authHeader.split(' ')[1];
+    const payload = verifyHostToken(token);
+
+    if (!payload) {
+      return res.status(401).json({ error: 'Invalid or expired token' });
+    }
+
+    const { hostService } = require('../services/hostService');
+    const host = await hostService.getHostById(payload.hostId);
+
+    if (!host || !host.active) {
+      return res.status(401).json({ error: 'Host account not found or deactivated' });
+    }
+
+    return res.json({
+      success: true,
+      host: {
+        id: host.id,
+        displayName: host.display_name,
+        email: host.email,
+        hasBrokerIntegration: host.has_broker_integration,
+      },
+    });
+  } catch (error) {
+    console.error('Host verify-token error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // ==================== ADMIN API (Secret path + IP whitelist + rate limit) ====================
 
 /**
