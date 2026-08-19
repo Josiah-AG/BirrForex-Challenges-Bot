@@ -416,3 +416,42 @@ The evaluation engine, VPS pull scheduler, leaderboard service — NONE of these
 - `RESEND_API_KEY` — Resend API key for email (Railway)
 
 ### Next Session: Start with Phase 7 (admin approval for host actions)
+
+
+---
+
+## Host Mode Phase 7 — Admin Approval Flow (IMPLEMENTED)
+
+- POST /api/host/challenges — host creates challenge, queued via gatekeeper for admin Telegram approval
+- PATCH /api/host/challenge/:id/status — host requests status change, admin approves on Telegram
+- Gatekeeper updated: queueStatusChange + executeStatusChange unified with optional hostName
+- Frontend: Create Challenge modal on host dashboard with full form
+- Bot callback already handles status_change type approvals
+
+## All 7 Host Mode Phases COMPLETE
+
+### Summary of Deliverables:
+- Phase 1: DB schema, encryption, host service, admin API
+- Phase 2: Host JWT auth (login, verify, middleware)
+- Phase 3: Host dashboard (4 tabs, protected API)
+- Phase 4: Web registration for hosted challenges
+- Phase 5: CSV upload + email notifications (Resend)
+- Phase 6: Landing page + footer + SEO
+- Phase 7: Admin approval via Telegram gatekeeper
+
+### Additional Work This Session:
+- About, Terms, Privacy pages (legally comprehensive)
+- SEO (meta, OG, structured data, sitemap, robots)
+- Resend email integration with branded templates
+- Past Challenges tab with winner popup
+- Deposit modes (fixed/max_limit/min_limit) fully implemented
+- Per-rule ON/OFF toggles + tooltips
+- Percentage-based SL risk and daily drawdown
+- Min trade duration + min total trades rules
+
+### Remaining Work (for future sessions):
+- Admin panel UI for host management (Create Host button, host list with stats)
+- Host dashboard: Rules tab configuration form
+- Host dashboard: Settings tab for challenge edits
+- Broker credential setup UI for hosts
+- Test end-to-end host flow with a real host account
