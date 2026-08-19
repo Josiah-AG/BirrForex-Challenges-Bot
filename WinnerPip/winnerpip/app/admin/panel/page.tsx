@@ -563,13 +563,11 @@ export default function AdminDashboard() {
 
       <div className="container mx-auto px-4 py-6 max-w-7xl relative">
         {/* NAV TABS — scrollable on mobile with scroll indicator */}
-        {activeSection !== "hosts" && activeSection !== "create" && (
         <div className="flex gap-1 p-1 glass rounded-xl border border-white/10 mb-6 overflow-x-auto scrollbar-hide">
           {(["overview", "participants", "leaderboard", "violations", "pulls", "screening", "rules", "settings", "health"] as const).map(tab => (
             <button key={tab} onClick={() => setActiveSection(tab)} className={`flex-shrink-0 py-2 px-3 sm:px-4 rounded-lg text-xs sm:text-sm font-semibold transition-all capitalize ${activeSection === tab ? "bg-royal/20 text-royal border border-royal/30" : "text-gray-400 hover:text-white hover:bg-white/5"}`}>{tab === "health" ? "⚡" : tab}</button>
           ))}
         </div>
-        )}
 
         {/* ==================== OVERVIEW ==================== */}
         {activeSection === "overview" && (<>
@@ -1909,7 +1907,7 @@ function HostsManagementPanel() {
   };
 
   return (
-    <div className="glass rounded-2xl border border-white/10 p-5">
+    <div className="glass rounded-2xl border border-white/10 p-5 max-w-4xl mx-auto">
       {/* Header + Create Button */}
       <div className="flex items-center justify-between mb-5">
         <h2 className="text-lg font-bold text-white flex items-center gap-2"><Users size={18} className="text-royal" /> Host Management</h2>
