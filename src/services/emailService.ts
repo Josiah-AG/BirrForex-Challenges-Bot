@@ -15,34 +15,49 @@ function wrapEmail(content: string): string {
   return `
 <!DOCTYPE html>
 <html>
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
-<body style="margin: 0; padding: 0; background-color: #f0f0f5; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color: #f0f0f5; padding: 32px 16px;">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="dark">
+  <meta name="supported-color-schemes" content="dark">
+  <style>
+    :root { color-scheme: dark only; }
+    @media (prefers-color-scheme: light) {
+      .email-body { background-color: #0c1524 !important; }
+    }
+    @media (prefers-color-scheme: dark) {
+      .email-body { background-color: #0c1524 !important; }
+    }
+    u + .email-body { background-color: #0c1524 !important; }
+  </style>
+</head>
+<body class="email-body" style="margin: 0; padding: 0; background-color: #0c1524; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color: #0c1524; padding: 32px 16px;">
     <tr>
       <td align="center">
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width: 560px; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.12);">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width: 560px; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.3);">
 
-          <!-- HEADER: WinnerPip landing page color -->
+          <!-- HEADER -->
           <tr>
-            <td align="center" style="background-color: #0a0e1a; padding: 36px 32px 28px;">
+            <td align="center" style="background-color: #0f1a2e; padding: 36px 32px 28px;">
               <img src="${LOGO_URL}" alt="WinnerPip" width="52" height="52" style="display: block; border-radius: 14px; margin: 0 auto 12px;" />
-              <h1 style="font-size: 22px; font-weight: 700; margin: 0 0 6px; letter-spacing: -0.5px; background: linear-gradient(135deg, #1F6FEB 0%, #F5B400 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;">WinnerPip</h1>
-              <p style="color: #94a3b8; font-size: 12px; margin: 0; font-weight: 400; letter-spacing: 0.3px;">Trade. Compete. Win.</p>
+              <h1 style="font-size: 22px; font-weight: 700; margin: 0 0 6px; letter-spacing: -0.5px; color: #c9a227;">WinnerPip</h1>
+              <p style="color: #7a8ba3; font-size: 12px; margin: 0; font-weight: 400; letter-spacing: 0.3px;">Trade. Compete. Win.</p>
             </td>
           </tr>
 
-          <!-- BODY: White background -->
+          <!-- BODY -->
           <tr>
             <td style="background-color: #ffffff; padding: 32px;">
               ${content}
             </td>
           </tr>
 
-          <!-- FOOTER: WinnerPip landing page color -->
+          <!-- FOOTER -->
           <tr>
-            <td align="center" style="background-color: #0a0e1a; padding: 20px 32px;">
-              <a href="https://linktr.ee/birrforex" target="_blank" rel="noopener noreferrer" style="color: #94a3b8; font-size: 12px; text-decoration: none;">
-                Powered by <strong style="color: #F5B400;">BirrForex</strong>
+            <td align="center" style="background-color: #0f1a2e; padding: 20px 32px;">
+              <a href="https://linktr.ee/birrforex" target="_blank" rel="noopener noreferrer" style="color: #7a8ba3; font-size: 12px; text-decoration: none;">
+                Powered by <strong style="color: #d4a017;">BirrForex</strong>
               </a>
             </td>
           </tr>
