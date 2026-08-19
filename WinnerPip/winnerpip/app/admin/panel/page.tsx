@@ -1907,27 +1907,29 @@ function HostsManagementPanel() {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="glass rounded-2xl border border-white/10 p-5">
       {/* Header + Create Button */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between mb-5">
         <h2 className="text-lg font-bold text-white flex items-center gap-2"><Users size={18} className="text-royal" /> Host Management</h2>
         <button onClick={() => setShowCreateModal(true)} className="px-4 py-2 bg-royal text-white text-sm font-semibold rounded-lg hover:bg-royal/80 transition-all">+ Create Host</button>
       </div>
 
       {/* Action result toast */}
-      {actionResult && <div className="p-3 rounded-lg bg-profit/10 border border-profit/30 text-profit text-sm font-medium">{actionResult}</div>}
+      {actionResult && <div className="p-3 rounded-lg bg-profit/10 border border-profit/30 text-profit text-sm font-medium mb-4">{actionResult}</div>}
 
       {/* Host List */}
       {loading ? (
         <div className="flex justify-center py-12"><Loader2 className="animate-spin text-royal" size={24} /></div>
       ) : hosts.length === 0 ? (
-        <div className="glass rounded-2xl border border-white/10 p-8 text-center">
+        <div className="text-center py-12">
+          <Users className="w-10 h-10 text-gray-700 mx-auto mb-3" />
           <p className="text-gray-400 text-sm">No hosts created yet</p>
+          <p className="text-gray-600 text-xs mt-1">Click &quot;+ Create Host&quot; to add your first host.</p>
         </div>
       ) : (
         <div className="space-y-3">
           {hosts.map((host: any) => (
-            <div key={host.id} className={`glass rounded-xl border transition-all ${selectedHost === host.id ? "border-royal/40" : "border-white/10"} p-4`}>
+            <div key={host.id} className={`rounded-xl border transition-all ${selectedHost === host.id ? "border-royal/40 bg-royal/5" : "border-white/10 bg-white/5"} p-4`}>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <div className={`w-2.5 h-2.5 rounded-full ${host.active ? "bg-profit" : "bg-gray-500"}`} />
