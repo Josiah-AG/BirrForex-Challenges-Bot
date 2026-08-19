@@ -1,17 +1,9 @@
 import Image from "next/image";
 import Link from "next/link";
 import { Sparkles, Zap, Shield, TrendingUp, Users, BarChart3 } from "lucide-react";
+import { StatsSection } from "./StatsSection";
 
-async function getStats() {
-  try {
-    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com"}/api/stats`, { next: { revalidate: 3600 } });
-    if (res.ok) return await res.json();
-  } catch {}
-  return { challengesCompleted: 15, totalParticipants: 4800, totalCashPrizes: 5000, hasInKindPrizes: true };
-}
-
-export default async function Home() {
-  const stats = await getStats();
+export default function Home() {
   return (
     <div className="min-h-screen flex flex-col bg-[#0a0e1a]">
       {/* Animated background */}
@@ -184,37 +176,7 @@ export default async function Home() {
         </section>
 
         {/* Track Record */}
-        <section className="py-16 md:py-20 relative" aria-label="Platform statistics">
-          <div className="container mx-auto px-4">
-            <div className="text-center mb-12">
-              <h2 className="text-3xl md:text-4xl font-bold mb-4">
-                Our <span className="gradient-text">Track Record</span>
-              </h2>
-              <p className="text-gray-400 text-lg max-w-2xl mx-auto">
-                Real numbers from real challenges
-              </p>
-            </div>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6 max-w-4xl mx-auto">
-              <div className="glass rounded-2xl p-6 text-center border border-white/10">
-                <p className="text-3xl md:text-4xl font-bold gradient-text">{stats.challengesCompleted}</p>
-                <p className="text-sm text-gray-400 mt-2">Challenges Run</p>
-              </div>
-              <div className="glass rounded-2xl p-6 text-center border border-white/10">
-                <p className="text-3xl md:text-4xl font-bold text-profit">{stats.totalParticipants.toLocaleString()}</p>
-                <p className="text-sm text-gray-400 mt-2">Total Registrations</p>
-              </div>
-              <div className="glass rounded-2xl p-6 text-center border border-white/10">
-                <p className="text-3xl md:text-4xl font-bold text-gold">${stats.totalCashPrizes.toLocaleString()}+</p>
-                <p className="text-sm text-gray-400 mt-2">Prizes Given</p>
-                {stats.hasInKindPrizes && <p className="text-[10px] text-gold mt-1">+ iPhones and other prizes</p>}
-              </div>
-              <div className="glass rounded-2xl p-6 text-center border border-white/10">
-                <p className="text-3xl md:text-4xl font-bold text-royal">24/7</p>
-                <p className="text-sm text-gray-400 mt-2">Monitoring</p>
-              </div>
-            </div>
-          </div>
-        </section>
+        <StatsSection />
 
         {/* Security & Trust */}
         <section className="py-16 md:py-20 relative" aria-label="Security information">
