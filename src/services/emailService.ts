@@ -36,7 +36,7 @@ function wrapEmail(content: string): string {
 
           <!-- BODY: white -->
           <tr>
-            <td bgcolor="#ffffff" style="background-color: #111827; padding: 32px;">
+            <td bgcolor="#ffffff" style="background-color: #ffffff; padding: 32px;">
               ${content}
             </td>
           </tr>
