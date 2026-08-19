@@ -1705,6 +1705,131 @@ app.get('/api/host/challenge/:id/updates', hostAuthMiddleware, async (req: any, 
   }
 });
 
+/**
+ * POST /api/host/challenge/:id/upload-csv
+ * Host uploads participant data as JSON array (frontend parses CSV client-side)
+ * Body: { participants: [{ nickname, accountType, accountNumber, server, investorPassword }] }
+ */
+app.post('/api/host/challenge/:id/upload-csv', hostAuthMiddleware, async (req: any, res) => {
+  try {
+    const challengeId = parseInt(req.params.id);
+
+    // Verify ownership
+    const ownership = await db.query(`SELECT status FROM trading_challenges WHERE id = $1 AND host_id = $2`, [challengeId, req.host.hostId]);
+    if (!ownership.rows[0]) return res.status(404).json({ error: 'Challenge not found' });
+    if (ownership.rows[0].status !== 'registration_open') return res.status(400).json({ error: 'Registration is not open for this challenge' });
+
+    const { participants } = req.body;
+    if (!Array.isArray(participants) || participants.length === 0) {
+      return res.status(400).json({ error: 'No participant data provided. Expected: { participants: [...] }' });
+    }
+    if (participants.length > 500) {
+      return res.status(400).json({ error: 'Maximum 500 participants per upload' });
+    }
+
+    // Check for existing pending upload
+    const existingPending = await db.query(
+      `SELECT id FROM host_csv_uploads WHERE challenge_id = $1 AND host_id = $2 AND status = 'pending'`,
+      [challengeId, req.host.hostId]
+    );
+    if (existingPending.rows.length > 0) {
+      return res.status(409).json({ error: 'You already have a pending upload awaiting admin approval. Wait for it to be processed or contact admin.' });
+    }
+
+    // Validate each row
+    const errors: string[] = [];
+    for (let i = 0; i < participants.length; i++) {
+      const p = participants[i];
+      if (!p.nickname || !p.accountType || !p.accountNumber || !p.server || !p.investorPassword) {
+        errors.push(`Row ${i + 1}: Missing required fields (nickname, accountType, accountNumber, server, investorPassword)`);
+      }
+      if (p.accountType && !['demo', 'real'].includes(p.accountType)) {
+        errors.push(`Row ${i + 1}: accountType must be 'demo' or 'real'`);
+      }
+      if (p.nickname && (p.nickname.length < 2 || p.nickname.length > 30)) {
+        errors.push(`Row ${i + 1}: nickname must be 2-30 characters`);
+      }
+    }
+    if (errors.length > 0) {
+      return res.status(400).json({ error: 'Validation errors', details: errors.slice(0, 10) });
+    }
+
+    // Create upload record
+    const upload = await db.query(
+      `INSERT INTO host_csv_uploads (host_id, challenge_id, total_rows) VALUES ($1, $2, $3) RETURNING id`,
+      [req.host.hostId, challengeId, participants.length]
+    );
+    const uploadId = upload.rows[0].id;
+
+    // Insert rows
+    for (const p of participants) {
+      await db.query(
+        `INSERT INTO host_csv_rows (upload_id, nickname, account_type, account_number, mt5_server, investor_password)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [uploadId, p.nickname.trim(), p.accountType, p.accountNumber.trim(), p.server.trim(), p.investorPassword.trim()]
+      );
+    }
+
+    // Notify admin via Telegram
+    try {
+      const { hostService } = require('../services/hostService');
+      const host = await hostService.getHostById(req.host.hostId);
+      const telegram = getTelegram();
+      if (telegram) {
+        await telegram.sendMessage(
+          config.adminUserId,
+          `📋 <b>CSV Upload Pending Approval</b>\n\n` +
+          `<b>Host:</b> ${host?.display_name || 'Unknown'}\n` +
+          `<b>Challenge:</b> ${challengeId}\n` +
+          `<b>Participants:</b> ${participants.length}\n\n` +
+          `Approve via admin panel.`,
+          { parse_mode: 'HTML' }
+        );
+      }
+    } catch {}
+
+    return res.json({ success: true, uploadId, totalRows: participants.length });
+  } catch (error) {
+    console.error('Host CSV upload error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * GET /api/host/challenge/:id/csv-status
+ * Returns status of CSV uploads for this challenge
+ */
+app.get('/api/host/challenge/:id/csv-status', hostAuthMiddleware, async (req: any, res) => {
+  try {
+    const challengeId = parseInt(req.params.id);
+
+    // Verify ownership
+    const ownership = await db.query(`SELECT 1 FROM trading_challenges WHERE id = $1 AND host_id = $2`, [challengeId, req.host.hostId]);
+    if (!ownership.rows[0]) return res.status(404).json({ error: 'Challenge not found' });
+
+    const uploads = await db.query(
+      `SELECT id, status, total_rows, verified_count, failed_count, uploaded_at, approved_at, processed_at
+       FROM host_csv_uploads WHERE challenge_id = $1 AND host_id = $2 ORDER BY uploaded_at DESC LIMIT 10`,
+      [challengeId, req.host.hostId]
+    );
+
+    // For the most recent upload, get row details if processed
+    let rowDetails: any[] = [];
+    if (uploads.rows.length > 0 && uploads.rows[0].status === 'processed') {
+      const rows = await db.query(
+        `SELECT nickname, account_type, account_number, status, error_message FROM host_csv_rows WHERE upload_id = $1 ORDER BY id`,
+        [uploads.rows[0].id]
+      );
+      rowDetails = rows.rows;
+    }
+
+    return res.json({ uploads: uploads.rows, rowDetails });
+  } catch (error) {
+    console.error('Host CSV status error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // ==================== ADMIN API (Secret path + IP whitelist + rate limit) ====================
 
 /**
@@ -6632,6 +6757,143 @@ app.delete(`/api/admin/${ADMIN_SECRET_PATH}/hosts/:hostId`, adminIpCheck, async 
     return res.json({ success: true });
   } catch (error) {
     console.error('Admin delete host error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * POST /api/admin/:secretPath/host-csv/:uploadId/approve
+ * Admin approves a CSV upload — system verifies each account via VPS and registers them
+ */
+app.post(`/api/admin/${ADMIN_SECRET_PATH}/host-csv/:uploadId/approve`, adminIpCheck, async (req, res) => {
+  try {
+    const uploadId = parseInt(req.params.uploadId as string);
+
+    // Get upload record
+    const upload = await db.query(
+      `SELECT u.*, c.starting_balance, c.type as challenge_type, c.deposit_mode
+       FROM host_csv_uploads u
+       JOIN trading_challenges c ON u.challenge_id = c.id
+       WHERE u.id = $1`,
+      [uploadId]
+    );
+    if (!upload.rows[0]) return res.status(404).json({ error: 'Upload not found' });
+    if (upload.rows[0].status !== 'pending') return res.status(400).json({ error: 'Upload already processed' });
+
+    const uploadData = upload.rows[0];
+    const challengeId = uploadData.challenge_id;
+
+    // Mark as processing
+    await db.query(`UPDATE host_csv_uploads SET status = 'processing', approved_at = NOW() WHERE id = $1`, [uploadId]);
+
+    // Get all rows
+    const rows = await db.query(`SELECT * FROM host_csv_rows WHERE upload_id = $1 ORDER BY id`, [uploadId]);
+
+    let verifiedCount = 0;
+    let failedCount = 0;
+
+    const { vpsService, fuzzyMatchServer } = require('../services/vpsService');
+
+    for (const row of rows.rows) {
+      try {
+        // Fuzzy match server
+        const matchedServer = fuzzyMatchServer(row.mt5_server, row.account_type) || row.mt5_server;
+
+        // Check duplicate
+        const existing = await db.query(
+          `SELECT 1 FROM trading_registrations WHERE challenge_id = $1 AND account_number = $2 AND (status IS NULL OR status != 'removed')`,
+          [challengeId, row.account_number]
+        );
+        if (existing.rows.length > 0) {
+          await db.query(`UPDATE host_csv_rows SET status = 'failed', error_message = 'Account already registered' WHERE id = $1`, [row.id]);
+          failedCount++;
+          continue;
+        }
+
+        // Verify VPS connection
+        const result = await vpsService.verifyConnection(row.account_number, matchedServer, row.investor_password);
+
+        if (!result.success) {
+          const errMsg = result.status === 'invalid_credentials' ? 'Invalid credentials (account/server/password)'
+            : result.status === 'server_not_found' ? `Server "${row.mt5_server}" not found`
+            : result.status === 'timeout' ? 'Connection timed out'
+            : result.message || 'Verification failed';
+          await db.query(`UPDATE host_csv_rows SET status = 'failed', error_message = $1 WHERE id = $2`, [errMsg, row.id]);
+          failedCount++;
+          continue;
+        }
+
+        // Detect cent account
+        const currency = (result.currency || '').toUpperCase();
+        const isCent = currency === 'USC' || currency === 'USCENT';
+        const accountSubtype = result.account_subtype || 'standard';
+
+        // Insert registration
+        const reg = await db.query(
+          `INSERT INTO trading_registrations
+           (challenge_id, user_id, username, nickname, account_type, account_subtype, email,
+            account_number, mt5_server, investor_password, source, is_cent,
+            connection_verified, connection_verified_at, registration_balance, last_known_balance)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'csv', $11, true, NOW(), $12, $12)
+           RETURNING id`,
+          [
+            challengeId,
+            0, // user_id = 0 for CSV registrations
+            null, // username = null
+            row.nickname,
+            row.account_type,
+            accountSubtype,
+            null, // email = null for CSV uploads
+            row.account_number,
+            matchedServer,
+            row.investor_password,
+            isCent,
+            result.balance || 0,
+          ]
+        );
+
+        await db.query(`UPDATE host_csv_rows SET status = 'verified', registration_id = $1 WHERE id = $2`, [reg.rows[0].id, row.id]);
+        verifiedCount++;
+
+        // Small delay between verifications to not overwhelm VPS
+        await new Promise(r => setTimeout(r, 1000));
+      } catch (rowErr) {
+        await db.query(`UPDATE host_csv_rows SET status = 'failed', error_message = $1 WHERE id = $2`, [(rowErr as Error).message, row.id]);
+        failedCount++;
+      }
+    }
+
+    // Update upload record
+    await db.query(
+      `UPDATE host_csv_uploads SET status = 'processed', verified_count = $1, failed_count = $2, processed_at = NOW() WHERE id = $3`,
+      [verifiedCount, failedCount, uploadId]
+    );
+
+    return res.json({ success: true, verified: verifiedCount, failed: failedCount, total: rows.rows.length });
+  } catch (error) {
+    console.error('Admin CSV approve error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * GET /api/admin/:secretPath/host-csv/pending
+ * List all pending CSV uploads for admin review
+ */
+app.get(`/api/admin/${ADMIN_SECRET_PATH}/host-csv/pending`, adminIpCheck, async (req, res) => {
+  try {
+    const result = await db.query(
+      `SELECT u.id, u.challenge_id, u.total_rows, u.uploaded_at, u.status,
+              h.display_name as host_name, c.title as challenge_title
+       FROM host_csv_uploads u
+       JOIN hosts h ON u.host_id = h.id
+       JOIN trading_challenges c ON u.challenge_id = c.id
+       WHERE u.status = 'pending'
+       ORDER BY u.uploaded_at DESC`
+    );
+    return res.json({ uploads: result.rows });
+  } catch (error) {
+    console.error('Admin pending CSV error:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
 });

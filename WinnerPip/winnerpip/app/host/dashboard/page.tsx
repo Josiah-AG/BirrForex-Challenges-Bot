@@ -26,6 +26,11 @@ export default function HostDashboardPage() {
   const [updates, setUpdates] = useState<any[]>([]);
   const [tabLoading, setTabLoading] = useState(false);
 
+  // CSV upload
+  const [csvUploading, setCsvUploading] = useState(false);
+  const [csvResult, setCsvResult] = useState<{ success?: boolean; error?: string; totalRows?: number } | null>(null);
+  const [csvStatus, setCsvStatus] = useState<any>(null);
+
   const getToken = () => localStorage.getItem("host_token") || "";
 
   // Auth check on mount
@@ -276,6 +281,88 @@ export default function HostDashboardPage() {
                         </table>
                       </div>
                     )}
+                  </div>
+
+                  {/* CSV Upload Section */}
+                  <div className="glass rounded-2xl border border-white/10 p-5 mt-4">
+                    <h3 className="text-sm font-semibold text-white mb-3">Upload Participants (CSV)</h3>
+                    <p className="text-xs text-gray-500 mb-4">Upload a CSV file with columns: nickname, accountType (demo/real), accountNumber, server, investorPassword</p>
+
+                    <input
+                      type="file"
+                      accept=".csv"
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (!file || !selectedChallengeId) return;
+                        setCsvResult(null);
+                        setCsvUploading(true);
+
+                        try {
+                          const text = await file.text();
+                          const lines = text.trim().split('\n');
+                          const header = lines[0].toLowerCase();
+
+                          // Detect delimiter
+                          const delimiter = header.includes('\t') ? '\t' : ',';
+                          const headers = header.split(delimiter).map(h => h.trim().replace(/"/g, ''));
+
+                          // Map headers
+                          const nickIdx = headers.findIndex(h => h.includes('nick') || h === 'username' || h === 'name');
+                          const typeIdx = headers.findIndex(h => h.includes('type') || h.includes('account_type'));
+                          const acctIdx = headers.findIndex(h => h.includes('account') && !h.includes('type'));
+                          const srvIdx = headers.findIndex(h => h.includes('server'));
+                          const pwIdx = headers.findIndex(h => h.includes('password') || h.includes('investor'));
+
+                          if (nickIdx < 0 || typeIdx < 0 || acctIdx < 0 || srvIdx < 0 || pwIdx < 0) {
+                            setCsvResult({ error: 'CSV must have columns: nickname, accountType, accountNumber, server, investorPassword' });
+                            setCsvUploading(false);
+                            return;
+                          }
+
+                          const participants = [];
+                          for (let i = 1; i < lines.length; i++) {
+                            const cols = lines[i].split(delimiter).map(c => c.trim().replace(/"/g, ''));
+                            if (cols.length < 5 || !cols[acctIdx]) continue;
+                            participants.push({
+                              nickname: cols[nickIdx],
+                              accountType: cols[typeIdx]?.toLowerCase(),
+                              accountNumber: cols[acctIdx],
+                              server: cols[srvIdx],
+                              investorPassword: cols[pwIdx],
+                            });
+                          }
+
+                          if (participants.length === 0) {
+                            setCsvResult({ error: 'No valid rows found in CSV' });
+                            setCsvUploading(false);
+                            return;
+                          }
+
+                          // Submit to API
+                          const res = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/upload-csv`, {
+                            method: 'POST',
+                            headers: { Authorization: `Bearer ${getToken()}`, 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ participants }),
+                          });
+                          const data = await res.json();
+                          if (res.ok && data.success) {
+                            setCsvResult({ success: true, totalRows: data.totalRows });
+                          } else {
+                            setCsvResult({ error: data.error || 'Upload failed' });
+                          }
+                        } catch (err) {
+                          setCsvResult({ error: 'Failed to parse CSV file' });
+                        }
+                        setCsvUploading(false);
+                        e.target.value = '';
+                      }}
+                      disabled={csvUploading}
+                      className="block w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-semibold file:bg-royal/20 file:text-royal hover:file:bg-royal/30 file:cursor-pointer cursor-pointer disabled:opacity-50"
+                    />
+
+                    {csvUploading && <p className="text-xs text-royal mt-3 flex items-center gap-2"><Loader2 size={12} className="animate-spin" /> Parsing and uploading...</p>}
+                    {csvResult?.success && <p className="text-xs text-profit mt-3">{csvResult.totalRows} participants uploaded. Awaiting admin approval.</p>}
+                    {csvResult?.error && <p className="text-xs text-loss mt-3">{csvResult.error}</p>}
                   </div>
                 )}
 

@@ -1657,6 +1657,25 @@ export class WpEvaluationEngine {
       }
     }
 
+    // === DQ EMAIL NOTIFICATION for hosted challenge participants ===
+    // Check if the user was just DQ'd in this evaluation cycle and send email if applicable
+    // Only send once — check if we already notified via wp_pull_errors 'dq_email_sent' marker
+    try {
+      const dqCheck = await db.query(`SELECT disqualified, disqualified_reason FROM trading_registrations WHERE id = $1`, [reg.id]);
+      if (dqCheck.rows[0]?.disqualified) {
+        const alreadySent = await db.query(
+          `SELECT 1 FROM wp_pull_errors WHERE registration_id = $1 AND error_code = 'dq_email_sent'`, [reg.id]
+        );
+        if (alreadySent.rows.length === 0) {
+          await this.notifyDqByEmail(reg.id, challengeId, dqCheck.rows[0].disqualified_reason || 'Rule violation');
+          await db.query(
+            `INSERT INTO wp_pull_errors (registration_id, account_number, error_code, error_message) VALUES ($1, $2, 'dq_email_sent', $3)`,
+            [reg.id, reg.account_number, dqCheck.rows[0].disqualified_reason || 'DQ']
+          );
+        }
+      }
+    } catch {}
+
     return { flaggedCount, isQualified };
   }
 
@@ -1683,6 +1702,27 @@ export class WpEvaluationEngine {
     if (this.bot) {
       // Check source — Discord user IDs are > 10 digits, or check source column
       const source = reg.source || 'telegram';
+
+      // Email notification for hosted challenge participants (winnerpip/csv registrations)
+      if (source === 'winnerpip' || source === 'csv') {
+        try {
+          // Get participant email
+          const emailResult = await db.query(`SELECT email FROM trading_registrations WHERE id = $1`, [reg.id]);
+          const participantEmail = emailResult.rows[0]?.email;
+          if (participantEmail) {
+            const { emailService } = require('./emailService');
+            const challengeResult = await db.query(`SELECT title FROM trading_challenges WHERE id = $1`, [challengeId]);
+            await emailService.sendGeneric(participantEmail,
+              `Daily Drawdown Reached — ${challengeResult.rows[0]?.title || 'Challenge'}`,
+              `<h2 style="color: #d97706; font-size: 18px; margin: 0 0 12px;">Daily Drawdown Reached</h2>
+               <p style="color: #374151; font-size: 14px; line-height: 1.6;">Hi <strong>${reg.nickname}</strong>, you hit your daily loss limit of <strong>${currency}${cap}</strong> at <strong>${time} EAT</strong>.</p>
+               <p style="color: #6b7280; font-size: 13px; margin-top: 12px;">Any profits you make for the rest of today will NOT be counted toward your qualified balance. You can continue trading tomorrow with a fresh start.</p>`
+            );
+          }
+        } catch (emailErr) { console.error('Drawdown email error:', emailErr); }
+        return;
+      }
+
       if (source !== 'telegram') return; // Don't try to DM Discord users via Telegram
 
       try {
@@ -1702,6 +1742,35 @@ export class WpEvaluationEngine {
   }
 
   // ==================== HELPERS ====================
+
+  /**
+   * Send DQ email notification for hosted challenge participants
+   * Called after any disqualification — checks if participant is web/csv registered and sends email
+   */
+  private async notifyDqByEmail(regId: number, challengeId: number, reason: string): Promise<void> {
+    try {
+      const regResult = await db.query(
+        `SELECT r.source, r.email, r.nickname, c.title as challenge_title
+         FROM trading_registrations r
+         JOIN trading_challenges c ON r.challenge_id = c.id
+         WHERE r.id = $1`,
+        [regId]
+      );
+      const reg = regResult.rows[0];
+      if (!reg) return;
+      if (reg.source !== 'winnerpip' && reg.source !== 'csv') return;
+      if (!reg.email) return;
+
+      const { emailService } = require('./emailService');
+      await emailService.sendDisqualification(reg.email, {
+        nickname: reg.nickname,
+        challengeTitle: reg.challenge_title,
+        reason,
+      });
+    } catch (err) {
+      console.error(`DQ email notification error for reg ${regId}:`, err);
+    }
+  }
 
   private isWeekend(d: Date): boolean {
     // Weekend in EAT (UTC+3): Saturday 00:00 EAT to Sunday 23:59 EAT
