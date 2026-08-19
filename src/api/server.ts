@@ -309,12 +309,29 @@ app.get('/api/stats', async (req, res) => {
     const participants = await db.query(
       `SELECT COUNT(*) as cnt FROM trading_registrations WHERE status IS NULL OR status != 'removed'`
     );
+    // Sum cash prizes from all completed challenges
+    const prizes = await db.query(
+      `SELECT real_prizes, demo_prizes FROM trading_challenges WHERE winners_posted_at IS NOT NULL OR status = 'completed'`
+    );
+    let totalCashPrizes = 0;
+    let hasInKindPrizes = false;
+    for (const row of prizes.rows) {
+      const rp = typeof row.real_prizes === 'string' ? JSON.parse(row.real_prizes) : (row.real_prizes || []);
+      const dp = typeof row.demo_prizes === 'string' ? JSON.parse(row.demo_prizes) : (row.demo_prizes || []);
+      for (const p of [...rp, ...dp]) {
+        const num = parseFloat(String(p));
+        if (!isNaN(num)) totalCashPrizes += num;
+        else hasInKindPrizes = true;
+      }
+    }
     return res.json({
       challengesCompleted: parseInt(completed.rows[0]?.cnt || '0'),
       totalParticipants: parseInt(participants.rows[0]?.cnt || '0'),
+      totalCashPrizes: Math.round(totalCashPrizes),
+      hasInKindPrizes,
     });
   } catch {
-    return res.json({ challengesCompleted: 0, totalParticipants: 0 });
+    return res.json({ challengesCompleted: 0, totalParticipants: 0, totalCashPrizes: 0, hasInKindPrizes: false });
   }
 });
 

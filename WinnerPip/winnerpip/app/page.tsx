@@ -7,7 +7,7 @@ async function getStats() {
     const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com"}/api/stats`, { next: { revalidate: 3600 } });
     if (res.ok) return await res.json();
   } catch {}
-  return { challengesCompleted: 15, totalParticipants: 1800 };
+  return { challengesCompleted: 15, totalParticipants: 4800, totalCashPrizes: 5000, hasInKindPrizes: true };
 }
 
 export default async function Home() {
@@ -194,7 +194,7 @@ export default async function Home() {
                 Real numbers from real challenges
               </p>
             </div>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 md:gap-6 max-w-3xl mx-auto">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6 max-w-4xl mx-auto">
               <div className="glass rounded-2xl p-6 text-center border border-white/10">
                 <p className="text-3xl md:text-4xl font-bold gradient-text">{stats.challengesCompleted}</p>
                 <p className="text-sm text-gray-400 mt-2">Challenges Run</p>
@@ -203,9 +203,14 @@ export default async function Home() {
                 <p className="text-3xl md:text-4xl font-bold text-profit">{stats.totalParticipants.toLocaleString()}</p>
                 <p className="text-sm text-gray-400 mt-2">Total Registrations</p>
               </div>
-              <div className="glass rounded-2xl p-6 text-center border border-white/10 col-span-2 md:col-span-1">
-                <p className="text-3xl md:text-4xl font-bold text-royal">6x/day</p>
-                <p className="text-sm text-gray-400 mt-2">Automated Updates</p>
+              <div className="glass rounded-2xl p-6 text-center border border-white/10">
+                <p className="text-3xl md:text-4xl font-bold text-gold">${stats.totalCashPrizes.toLocaleString()}+</p>
+                <p className="text-sm text-gray-400 mt-2">Prizes Given</p>
+                {stats.hasInKindPrizes && <p className="text-[10px] text-gold mt-1">+ iPhones and other prizes</p>}
+              </div>
+              <div className="glass rounded-2xl p-6 text-center border border-white/10">
+                <p className="text-3xl md:text-4xl font-bold text-royal">24/7</p>
+                <p className="text-sm text-gray-400 mt-2">Monitoring</p>
               </div>
             </div>
           </div>
