@@ -14,48 +14,41 @@ const LOGO_URL = 'https://winnerpip.com/winnerpip-icon.png';
 function wrapEmail(content: string): string {
   return `
 <!DOCTYPE html>
-<html>
+<html dir="ltr" xmlns="http://www.w3.org/1999/xhtml">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="color-scheme" content="dark">
-  <meta name="supported-color-schemes" content="dark">
+  <meta name="color-scheme" content="light dark">
+  <meta name="supported-color-schemes" content="light dark">
+  <title>WinnerPip</title>
 </head>
-<body style="margin: 0; padding: 0; background-color: #0c1524; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif; -webkit-text-size-adjust: 100%;">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color: #0c1524; padding: 32px 16px;">
-    <tr>
-      <td align="center">
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width: 560px; border-radius: 16px; overflow: hidden;">
+<body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif; -webkit-text-size-adjust: 100%; background-color: #0f1a2e;">
+  <div style="background-color: #0f1a2e; padding: 24px 16px;">
+    <div style="max-width: 560px; margin: 0 auto; border-radius: 12px; overflow: hidden;">
 
-          <!-- HEADER -->
-          <tr>
-            <td align="center" style="background-color: #0f1a2e; padding: 36px 32px 28px;">
-              <img src="${LOGO_URL}" alt="WinnerPip" width="52" height="52" style="display: block; border-radius: 14px; margin: 0 auto 12px;" />
-              <h1 style="font-size: 22px; font-weight: 700; margin: 0 0 6px; letter-spacing: -0.5px; color: #c9a227;">WinnerPip</h1>
-              <p style="color: #7a8ba3; font-size: 12px; margin: 0; font-weight: 400; letter-spacing: 0.3px;">Trade. Compete. Win.</p>
-            </td>
-          </tr>
+      <!-- HEADER -->
+      <div style="background-color: #0f1a2e; padding: 36px 32px 28px; text-align: center;">
+        <img src="${LOGO_URL}" alt="WinnerPip" width="52" height="52" style="display: inline-block; border-radius: 14px; margin-bottom: 12px;" />
+        <div style="font-size: 22px; font-weight: 700; color: #c9a227; margin-bottom: 6px;">WinnerPip</div>
+        <div style="color: #7a8ba3; font-size: 12px;">Trade. Compete. Win.</div>
+      </div>
 
-          <!-- BODY: Dark themed (prevents mobile inversion) -->
-          <tr>
-            <td style="background-color: #111d32; padding: 32px;">
-              ${content}
-            </td>
-          </tr>
+      <!-- BODY -->
+      <div style="background-color: #0f1a2e; padding: 0 32px 32px;">
+        <div style="background-color: #1a2740; border-radius: 12px; padding: 28px; border: 1px solid rgba(255,255,255,0.08);">
+          ${content}
+        </div>
+      </div>
 
-          <!-- FOOTER -->
-          <tr>
-            <td align="center" style="background-color: #0f1a2e; padding: 20px 32px;">
-              <a href="https://linktr.ee/birrforex" target="_blank" rel="noopener noreferrer" style="color: #7a8ba3; font-size: 12px; text-decoration: none;">
-                Powered by <strong style="color: #d4a017;">BirrForex</strong>
-              </a>
-            </td>
-          </tr>
+      <!-- FOOTER -->
+      <div style="background-color: #0f1a2e; padding: 16px 32px 28px; text-align: center;">
+        <a href="https://linktr.ee/birrforex" target="_blank" rel="noopener noreferrer" style="color: #7a8ba3; font-size: 12px; text-decoration: none;">
+          Powered by <strong style="color: #d4a017;">BirrForex</strong>
+        </a>
+      </div>
 
-        </table>
-      </td>
-    </tr>
-  </table>
+    </div>
+  </div>
 </body>
 </html>`;
 }
