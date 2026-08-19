@@ -112,17 +112,12 @@ export default function TermsPage() {
             WinnerPip strives for continuous uptime but does not guarantee uninterrupted service. Scheduled maintenance, technical issues, or broker outages may temporarily affect data updates. The platform is not liable for missed trades or delayed evaluations caused by factors outside its control.
           </p>
 
-          <h2 className="text-lg font-bold text-white">17. Governing Law</h2>
-          <p>
-            These terms are governed by the laws of Ethiopia. Any disputes arising from the use of this platform that cannot be resolved amicably shall be subject to the jurisdiction of Ethiopian courts.
-          </p>
-
-          <h2 className="text-lg font-bold text-white">18. Changes to Terms</h2>
+          <h2 className="text-lg font-bold text-white">17. Changes to Terms</h2>
           <p>
             These terms may be updated at any time. Continued use of the platform after changes constitutes acceptance of the updated terms. We recommend reviewing this page periodically.
           </p>
 
-          <h2 className="text-lg font-bold text-white">19. Contact</h2>
+          <h2 className="text-lg font-bold text-white">18. Contact</h2>
           <p>
             For questions about these terms, contact us at <a href="mailto:support@birrforex.com" className="text-royal hover:underline">support@birrforex.com</a>.
           </p>
