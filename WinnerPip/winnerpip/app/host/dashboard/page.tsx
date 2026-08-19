@@ -15,7 +15,7 @@ export default function HostDashboardPage() {
   const [hostInfo, setHostInfo] = useState<any>(null);
   const [challenges, setChallenges] = useState<any[]>([]);
   const [selectedChallengeId, setSelectedChallengeId] = useState<number | null>(null);
-  const [activeTab, setActiveTab] = useState<"overview" | "participants" | "leaderboard" | "updates" | "rules" | "settings">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "participants" | "leaderboard" | "updates" | "rules" | "settings" | "screening">("overview");
   const [loading, setLoading] = useState(true);
 
   // Tab data
@@ -354,6 +354,7 @@ export default function HostDashboardPage() {
                 { key: "leaderboard", label: "Leaderboard", icon: <Trophy size={14} /> },
                 { key: "rules", label: "Rules", icon: <Shield size={14} /> },
                 { key: "settings", label: "Settings", icon: <Settings size={14} /> },
+                ...(hostInfo?.hasBrokerIntegration ? [{ key: "screening", label: "Screening", icon: <Target size={14} /> }] : []),
                 { key: "updates", label: "Updates", icon: <RefreshCw size={14} /> },
               ].map((tab: any) => (
                 <button
@@ -595,6 +596,11 @@ export default function HostDashboardPage() {
                   {/* Broker Credentials Section */}
                   <BrokerCredentialsSection />
                 </>)}
+
+                {/* SCREENING TAB */}
+                {activeTab === "screening" && (
+                  <ScreeningTab challengeId={selectedChallengeId!} getToken={getToken} />
+                )}
 
                 {/* UPDATES TAB */}
                 {activeTab === "updates" && (
@@ -959,6 +965,95 @@ function BrokerCredentialsSection() {
               </div>
             </>
           )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ScreeningTab({ challengeId, getToken }: { challengeId: number; getToken: () => string }) {
+  const [results, setResults] = useState<any[]>([]);
+  const [stats, setStats] = useState<{ total: number; allocated: number; notAllocated: number; failed: number } | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [hasRun, setHasRun] = useState(false);
+
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
+
+  const runScreening = async () => {
+    setLoading(true);
+    setError("");
+    setResults([]);
+    setStats(null);
+    try {
+      const res = await fetch(`${apiUrl}/api/host/challenge/${challengeId}/screening`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${getToken()}` },
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setResults(data.results || []);
+        setStats({ total: data.total, allocated: data.allocated, notAllocated: data.notAllocated, failed: data.failed });
+        setHasRun(true);
+      } else {
+        setError(data.error || "Screening failed");
+      }
+    } catch { setError("Network error"); }
+    setLoading(false);
+  };
+
+  return (
+    <div className="glass rounded-2xl border border-white/10 p-5">
+      <h3 className="text-sm font-semibold text-white mb-2 flex items-center gap-2"><Target size={16} className="text-gold" /> Partner Allocation Screening</h3>
+      <p className="text-xs text-gray-500 mb-4">Check if participants are properly allocated under your broker partnership.</p>
+
+      {error && <div className="p-3 mb-4 rounded-lg bg-loss/10 border border-loss/30 text-loss text-sm">{error}</div>}
+
+      <button onClick={runScreening} disabled={loading} className="px-5 py-2.5 rounded-xl bg-gold/10 text-gold text-sm font-semibold border border-gold/20 hover:bg-gold/20 transition-all disabled:opacity-50 flex items-center gap-2 mb-5">
+        {loading ? <Loader2 size={14} className="animate-spin" /> : <Target size={14} />}
+        {loading ? "Checking allocations..." : hasRun ? "Re-run Screening" : "Run Screening"}
+      </button>
+
+      {/* Stats */}
+      {stats && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+          <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500 uppercase">Total</p><p className="text-lg font-bold text-white">{stats.total}</p></div>
+          <div className="bg-profit/5 rounded-xl p-3 text-center border border-profit/10"><p className="text-[10px] text-gray-500 uppercase">Allocated</p><p className="text-lg font-bold text-profit">{stats.allocated}</p></div>
+          <div className="bg-loss/5 rounded-xl p-3 text-center border border-loss/10"><p className="text-[10px] text-gray-500 uppercase">Not Allocated</p><p className="text-lg font-bold text-loss">{stats.notAllocated}</p></div>
+          <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500 uppercase">No Data</p><p className="text-lg font-bold text-gray-400">{stats.failed}</p></div>
+        </div>
+      )}
+
+      {/* Results list */}
+      {results.length > 0 && (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-white/10">
+                <th className="text-left py-2 px-3 text-gray-500 font-medium">Nickname</th>
+                <th className="text-left py-2 px-3 text-gray-500 font-medium">Email</th>
+                <th className="text-left py-2 px-3 text-gray-500 font-medium">Account</th>
+                <th className="text-left py-2 px-3 text-gray-500 font-medium">Type</th>
+                <th className="text-center py-2 px-3 text-gray-500 font-medium">Allocation</th>
+              </tr>
+            </thead>
+            <tbody>
+              {results.map((r: any) => (
+                <tr key={r.id} className="border-b border-white/5 hover:bg-white/5">
+                  <td className="py-2.5 px-3 text-white font-medium">{r.nickname}</td>
+                  <td className="py-2.5 px-3 text-gray-400 text-xs">{r.email || "—"}</td>
+                  <td className="py-2.5 px-3 text-gray-300">{r.accountNumber}</td>
+                  <td className="py-2.5 px-3"><span className={`px-2 py-0.5 rounded text-[10px] font-bold ${r.accountType === 'real' ? 'bg-gold/20 text-gold' : 'bg-royal/20 text-royal'}`}>{r.accountType}</span></td>
+                  <td className="py-2.5 px-3 text-center">
+                    {r.status === 'allocated' && <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-profit/20 text-profit">✓ Allocated</span>}
+                    {r.status === 'not_allocated' && <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-loss/20 text-loss">✗ Not Allocated</span>}
+                    {r.status === 'no_email' && <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-white/10 text-gray-500">No Email</span>}
+                    {r.status === 'check_failed' && <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-white/10 text-gray-500">Error</span>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
     </div>

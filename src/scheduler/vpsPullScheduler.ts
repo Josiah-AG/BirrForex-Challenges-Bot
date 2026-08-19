@@ -3276,6 +3276,30 @@ export class VpsPullScheduler {
           );
           console.log(`🚀 Auto-started challenge ${challenge.id}: "${challenge.title}"`);
 
+          // Email web-registered participants that challenge has started
+          try {
+            const webRegs = await db.query(
+              `SELECT email, nickname FROM trading_registrations
+               WHERE challenge_id = $1 AND email IS NOT NULL AND (source = 'winnerpip' OR user_id = 0 OR user_id IS NULL)
+               AND disqualified = false`,
+              [challenge.id]
+            );
+            if (webRegs.rows.length > 0) {
+              const { emailService } = require('../services/emailService');
+              for (const reg of webRegs.rows) {
+                try {
+                  await emailService.sendChallengeStarted(reg.email, {
+                    nickname: reg.nickname,
+                    challengeTitle: challenge.title,
+                    endDate: new Date(challenge.end_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+                  });
+                } catch {}
+              }
+              console.log(`📧 Sent challenge-started emails to ${webRegs.rows.length} web participants`);
+            }
+          } catch (emailBatchErr) {
+            console.warn('⚠️ Challenge-started email batch error:', (emailBatchErr as Error).message);
+          }
           // Send admin notification
           await this.bot.bot.telegram.sendMessage(
             config.adminUserId,
@@ -3311,6 +3335,29 @@ export class VpsPullScheduler {
           );
           console.log(`🏁 Auto-ended challenge ${challenge.id}: "${challenge.title}"`);
 
+          // Email web-registered participants that challenge has ended
+          try {
+            const webRegs = await db.query(
+              `SELECT email, nickname FROM trading_registrations
+               WHERE challenge_id = $1 AND email IS NOT NULL AND (source = 'winnerpip' OR user_id = 0 OR user_id IS NULL)
+               AND disqualified = false`,
+              [challenge.id]
+            );
+            if (webRegs.rows.length > 0) {
+              const { emailService } = require('../services/emailService');
+              for (const reg of webRegs.rows) {
+                try {
+                  await emailService.sendChallengeEnded(reg.email, {
+                    nickname: reg.nickname,
+                    challengeTitle: challenge.title,
+                  });
+                } catch {}
+              }
+              console.log(`📧 Sent challenge-ended emails to ${webRegs.rows.length} web participants`);
+            }
+          } catch (emailBatchErr) {
+            console.warn('⚠️ Challenge-ended email batch error:', (emailBatchErr as Error).message);
+          }
           // Send admin notification
           await this.bot.bot.telegram.sendMessage(
             config.adminUserId,

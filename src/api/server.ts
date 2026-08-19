@@ -549,6 +549,39 @@ app.post('/api/challenges/:id/register', authLimiter, async (req, res) => {
     const isCent = currency === 'USC' || currency === 'USCENT';
     const accountSubtype = verifyResult.account_subtype || 'standard';
 
+    // Partner allocation check (if host has broker integration)
+    const hostId = challenge.rows[0].host_id;
+    if (hostId) {
+      const { hostService } = require('../services/hostService');
+      const credentials = await hostService.getBrokerCredentials(hostId);
+      if (credentials) {
+        try {
+          const axios = require('axios');
+          const authRes = await axios.post('https://my.exnessaffiliates.com/api/v2/auth/', {
+            login: credentials.email,
+            password: credentials.password,
+          }, { timeout: 15000 });
+          const brokerToken = authRes.data?.token;
+
+          if (brokerToken) {
+            const allocRes = await axios.post('https://my.exnessaffiliates.com/api/partner/affiliation/', {
+              email: email.toLowerCase().trim(),
+            }, {
+              headers: { Authorization: `JWT ${brokerToken}`, 'Content-Type': 'application/json' },
+              timeout: 10000,
+            });
+
+            if (allocRes.data?.affiliation !== true) {
+              return res.status(400).json({ error: 'Your account is not allocated under the required broker partnership. Please contact the challenge host for instructions.' });
+            }
+          }
+        } catch (allocErr: any) {
+          // Non-blocking — if allocation check fails, allow registration but log
+          console.warn(`⚠️ Allocation check failed for ${email} on host ${hostId}:`, (allocErr as Error).message);
+        }
+      }
+    }
+
     // Insert registration
     const regResult = await db.query(
       `INSERT INTO trading_registrations
@@ -1852,6 +1885,114 @@ app.delete('/api/host/broker-credentials', hostAuthMiddleware, async (req: any, 
     return res.json({ success: true });
   } catch (error) {
     console.error('Host broker credentials remove error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * POST /api/host/challenge/:id/screening
+ * Run partner allocation check for all participants in a hosted challenge
+ * Requires host to have broker integration configured
+ * Returns allocation status per participant
+ */
+app.post('/api/host/challenge/:id/screening', hostAuthMiddleware, async (req: any, res) => {
+  try {
+    const challengeId = parseInt(req.params.id);
+
+    // Verify ownership
+    const ownership = await db.query(`SELECT status FROM trading_challenges WHERE id = $1 AND host_id = $2`, [challengeId, req.host.hostId]);
+    if (!ownership.rows[0]) return res.status(404).json({ error: 'Challenge not found' });
+
+    // Verify broker integration
+    const { hostService } = require('../services/hostService');
+    const credentials = await hostService.getBrokerCredentials(req.host.hostId);
+    if (!credentials) {
+      return res.status(400).json({ error: 'Broker integration not configured. Set up credentials in Settings first.' });
+    }
+
+    // Get all participants with emails
+    const participants = await db.query(
+      `SELECT id, nickname, email, account_number, account_type, disqualified
+       FROM trading_registrations
+       WHERE challenge_id = $1 AND (status IS NULL OR status != 'removed')
+       ORDER BY nickname ASC`,
+      [challengeId]
+    );
+
+    if (participants.rows.length === 0) {
+      return res.json({ results: [], total: 0 });
+    }
+
+    // Authenticate with broker API using host credentials
+    const axios = require('axios');
+    let brokerToken: string | null = null;
+    try {
+      const authRes = await axios.post('https://my.exnessaffiliates.com/api/v2/auth/', {
+        login: credentials.email,
+        password: credentials.password,
+      }, { timeout: 15000 });
+      brokerToken = authRes.data?.token || null;
+    } catch (authErr: any) {
+      return res.status(502).json({ error: 'Failed to authenticate with broker API. Check your credentials.' });
+    }
+
+    if (!brokerToken) {
+      return res.status(502).json({ error: 'Broker API authentication returned no token.' });
+    }
+
+    // Check allocation for each participant
+    const results: any[] = [];
+    for (const p of participants.rows) {
+      if (!p.email) {
+        results.push({ id: p.id, nickname: p.nickname, email: null, accountNumber: p.account_number, accountType: p.account_type, allocated: null, status: 'no_email', disqualified: p.disqualified });
+        continue;
+      }
+
+      try {
+        const allocRes = await axios.post('https://my.exnessaffiliates.com/api/partner/affiliation/', {
+          email: p.email,
+        }, {
+          headers: { Authorization: `JWT ${brokerToken}`, 'Content-Type': 'application/json' },
+          timeout: 10000,
+        });
+
+        const allocated = allocRes.data?.affiliation === true;
+        const clientUid = allocRes.data?.client_uid || null;
+        results.push({
+          id: p.id,
+          nickname: p.nickname,
+          email: p.email,
+          accountNumber: p.account_number,
+          accountType: p.account_type,
+          allocated,
+          clientUid,
+          status: allocated ? 'allocated' : 'not_allocated',
+          disqualified: p.disqualified,
+        });
+      } catch (allocErr: any) {
+        results.push({
+          id: p.id,
+          nickname: p.nickname,
+          email: p.email,
+          accountNumber: p.account_number,
+          accountType: p.account_type,
+          allocated: null,
+          status: 'check_failed',
+          disqualified: p.disqualified,
+        });
+      }
+
+      // Rate limit — small delay between API calls
+      await new Promise(r => setTimeout(r, 500));
+    }
+
+    const allocated = results.filter(r => r.status === 'allocated').length;
+    const notAllocated = results.filter(r => r.status === 'not_allocated').length;
+    const failed = results.filter(r => r.status === 'check_failed' || r.status === 'no_email').length;
+
+    return res.json({ results, total: results.length, allocated, notAllocated, failed });
+  } catch (error) {
+    console.error('Host screening error:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
 });

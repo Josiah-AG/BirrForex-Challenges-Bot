@@ -1713,7 +1713,7 @@ export class TradingScheduler {
       // Get all registrations (both demo and real) with investor passwords
       // Skip accounts already flagged with password_changed (they already got a DM)
       const regs = await db.query(
-        `SELECT id, account_number, mt5_server, investor_password, user_id, username, nickname, is_cent, source, account_type, lang
+        `SELECT id, account_number, mt5_server, investor_password, user_id, username, nickname, is_cent, source, account_type, lang, email
          FROM trading_registrations
          WHERE challenge_id = $1
            AND disqualified = false
@@ -1824,7 +1824,7 @@ export class TradingScheduler {
             );
             warned++;
 
-            // DM user (Telegram only, max 1 per day — check if already warned today)
+            // Notify user (max 1 per day — check if already warned today)
             if (reg.source !== 'discord') {
               const alreadyWarned = await db.query(
                 `SELECT 1 FROM wp_pull_errors
@@ -1838,25 +1838,44 @@ export class TradingScheduler {
                    VALUES ($1, $2, 'balance_warning', $3)`,
                   [reg.id, reg.account_number, `Balance ${currency}${balance.toFixed(2)} exceeds limit ${currency}${limit.toFixed(2)}`]
                 );
-                // Send Telegram DM
-                try {
-                  const lang: Lang = (reg.lang as Lang) || 'en';
-                  const startDate = toEAT(challenge.start_date);
-                  const startStr = startDate.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-                  await this.bot.bot.telegram.sendMessage(
-                    reg.user_id,
-                    t(lang, 'prestart_balance_warning', {
-                      account: reg.account_number,
-                      balance: `${currency}${balance.toFixed(2)}`,
+
+                // Web-registered users (no Telegram) — send email
+                if ((reg.source === 'winnerpip' || !reg.user_id || reg.user_id === 0) && reg.email) {
+                  try {
+                    const { emailService } = require('../services/emailService');
+                    const startDate = toEAT(challenge.start_date);
+                    const startStr = startDate.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                    await emailService.sendBalanceWarning(reg.email, {
+                      nickname: reg.nickname,
+                      challengeTitle: challenge.title,
+                      currentBalance: `${currency}${balance.toFixed(2)}`,
                       limit: `${currency}${limit.toFixed(2)}`,
-                      excess: `${currency}${excess.toFixed(2)}`,
-                      title: challenge.title,
                       startDate: startStr,
-                    }),
-                    { parse_mode: 'HTML' }
-                  );
-                } catch (dmErr) {
-                  console.warn(`⚠️ Could not DM user ${reg.user_id} about balance warning:`, (dmErr as Error).message);
+                    });
+                  } catch (emailErr) {
+                    console.warn(`⚠️ Could not email ${reg.email} about balance warning:`, (emailErr as Error).message);
+                  }
+                } else if (reg.user_id && reg.user_id > 0) {
+                  // Telegram DM
+                  try {
+                    const lang: Lang = (reg.lang as Lang) || 'en';
+                    const startDate = toEAT(challenge.start_date);
+                    const startStr = startDate.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                    await this.bot.bot.telegram.sendMessage(
+                      reg.user_id,
+                      t(lang, 'prestart_balance_warning', {
+                        account: reg.account_number,
+                        balance: `${currency}${balance.toFixed(2)}`,
+                        limit: `${currency}${limit.toFixed(2)}`,
+                        excess: `${currency}${excess.toFixed(2)}`,
+                        title: challenge.title,
+                        startDate: startStr,
+                      }),
+                      { parse_mode: 'HTML' }
+                    );
+                  } catch (dmErr) {
+                    console.warn(`⚠️ Could not DM user ${reg.user_id} about balance warning:`, (dmErr as Error).message);
+                  }
                 }
               }
             }
