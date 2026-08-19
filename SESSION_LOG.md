@@ -382,3 +382,37 @@ host_login_history:
 
 ### Key Principle
 The evaluation engine, VPS pull scheduler, leaderboard service — NONE of these change. They already work per-challenge. A hosted challenge is just another challenge with `host_id` set. The only new code is the access layer (who can see what) and registration path (web vs Telegram).
+
+---
+
+## Host Mode Implementation Progress (Session 1)
+
+### Completed Phases:
+- **Phase 1** ✅ — Database (hosts, host_login_history tables), host_id FK on trading_challenges, AES-256-GCM encryption utility, hostService CRUD, admin API endpoints (6 endpoints for host management)
+- **Phase 2** ✅ — Host authentication (login/verify-token API, JWT tokens with 24h expiry, hostAuthMiddleware, frontend login + register pages)
+- **Phase 3** ✅ — Host dashboard (5 protected API endpoints + frontend with 4 tabs: Overview, Participants, Leaderboard, Updates)
+- **Phase 4** ✅ — Web registration for hosted challenges (POST /api/challenges/:id/register with VPS verify, 'Hosted by' badge on cards, registration modal on frontend)
+- **Phase 5** ✅ — CSV upload (host_csv_uploads + host_csv_rows tables, upload/approve/status endpoints, frontend CSV parser, email notifications for DQ + drawdown via Resend)
+- **Phase 6** ✅ — Host landing page (/host) + 'Host' link in footer
+
+### Remaining:
+- **Phase 7** — Admin approval flow for host challenge creation + status changes (gatekeeper integration for host-created challenges)
+- **Additional** — Host challenge creation UI on host dashboard (create challenge button + form)
+- **Additional** — Admin panel host management UI (Create Host button, host list, login history view)
+- **Additional** — Terminology cleanup in host dashboard (ensure no "pull" references leak)
+
+### Key Files Created This Session:
+- `src/database/host_schema.sql` — hosts, host_login_history, host_csv_uploads, host_csv_rows
+- `src/utils/encryption.ts` — AES-256-GCM for broker credentials
+- `src/services/hostService.ts` — Full CRUD + credential encryption
+- `src/services/emailService.ts` — Resend integration (5 email types)
+- `WinnerPip/winnerpip/app/host/page.tsx` — Landing page
+- `WinnerPip/winnerpip/app/host/login/page.tsx` — Login
+- `WinnerPip/winnerpip/app/host/register/page.tsx` — Register (contact support)
+- `WinnerPip/winnerpip/app/host/dashboard/page.tsx` — Dashboard with 4 tabs
+
+### Key Environment Variables Required:
+- `BROKER_ENCRYPTION_KEY` — 64-char hex string for AES-256 (Railway)
+- `RESEND_API_KEY` — Resend API key for email (Railway)
+
+### Next Session: Start with Phase 7 (admin approval for host actions)
