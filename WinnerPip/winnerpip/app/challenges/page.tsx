@@ -340,7 +340,7 @@ export default function ChallengesPage() {
               <div className="text-center py-20">
                 <Trophy className="w-16 h-16 text-gray-600 mx-auto mb-4" />
                 <p className="text-gray-400 text-lg">No active challenges right now</p>
-                <p className="text-gray-500 text-sm mt-2">Check back soon or follow @BirrForex for announcements</p>
+                <p className="text-gray-500 text-sm mt-2">Check back soon or follow <a href="https://linktr.ee/birrforex" target="_blank" rel="noopener noreferrer" className="font-bold text-white hover:text-royal transition-colors">BirrForex</a> for announcements</p>
               </div>
             ) : (
               <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
