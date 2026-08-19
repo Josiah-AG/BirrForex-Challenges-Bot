@@ -541,6 +541,7 @@ export default function ChallengesPage() {
                   <div>
                     <label className="block text-xs text-gray-400 font-medium mb-1">Investor Password *</label>
                     <input type="password" required value={regForm.investorPassword} onChange={e => setRegForm({...regForm, investorPassword: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none focus:border-royal/50" placeholder="Read-only investor password" />
+                    <p className="text-[10px] text-gray-500 mt-1.5 flex items-start gap-1"><span className="text-profit">&#128274;</span> This is your MT5 read-only password — it only allows viewing trades. It cannot be used to trade, withdraw, or access your funds in any way.</p>
                   </div>
 
                   {registerChallenge.type === 'hybrid' && (
@@ -557,7 +558,7 @@ export default function ChallengesPage() {
                     {regLoading ? <><Loader2 size={16} className="animate-spin" /> Verifying...</> : "Register"}
                   </button>
 
-                  <p className="text-[10px] text-gray-500 text-center">Your account will be verified via MT5 connection. Make sure your investor password is correct.</p>
+                  <p className="text-[10px] text-gray-500 text-center">We use read-only investor passwords only — your account funds and trading ability are never at risk.</p>
                 </form>
               )}
             </div>

@@ -13,15 +13,15 @@ export default function Home() {
       </div>
 
       {/* Header */}
-      <header className="glass sticky top-0 z-50 border-b border-white/5">
+      <header className="glass sticky top-0 z-50 border-b border-white/5" role="banner">
         <div className="container mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
-            <Link href="/" className="flex items-center gap-3 group">
+            <Link href="/" className="flex items-center gap-3 group" aria-label="WinnerPip Home">
               <div className="relative">
                 <div className="absolute inset-0 bg-gradient-brand rounded-xl blur-xl opacity-50 group-hover:opacity-75 transition-opacity"></div>
                 <Image
                   src="/winnerpip-icon.png"
-                  alt="WinnerPip"
+                  alt="WinnerPip Logo"
                   width={44}
                   height={44}
                   className="rounded-xl relative"
@@ -29,13 +29,14 @@ export default function Home() {
               </div>
               <span className="text-xl font-bold gradient-text hidden sm:inline">WinnerPip</span>
             </Link>
-            <nav className="flex items-center gap-4 md:gap-6">
+            <nav className="flex items-center gap-4 md:gap-6" aria-label="Main navigation">
               <Link
                 href="/challenges"
                 className="bg-gradient-brand hover:opacity-90 text-white px-5 py-2.5 md:px-7 md:py-3 rounded-xl transition text-sm md:text-base font-semibold shadow-lg shadow-royal/20 flex items-center gap-2"
+                aria-label="View and join trading challenges"
               >
                 Join Challenge
-                <Zap className="w-4 h-4" />
+                <Zap className="w-4 h-4" aria-hidden="true" />
               </Link>
             </nav>
           </div>
@@ -43,7 +44,7 @@ export default function Home() {
       </header>
 
       {/* Hero Section */}
-      <main className="flex-1 relative">
+      <main className="flex-1 relative" role="main">
         <section className="container mx-auto px-4 py-16 md:py-24 text-center">
           <div className="max-w-5xl mx-auto">
             <div className="flex items-center justify-center gap-2 mb-6">
@@ -153,7 +154,7 @@ export default function Home() {
               <Step
                 number="1"
                 title="Register & Verify"
-                description="Sign up and connect your trading account. Automatic verification ensures you meet all requirements."
+                description="Sign up and connect your MT5 trading account using your read-only investor password. We never access your trading password — your funds are always safe."
               />
               <Step
                 number="2"
@@ -163,7 +164,7 @@ export default function Home() {
               <Step
                 number="3"
                 title="Trade & Compete"
-                description="Trade according to the challenge rules. Our system monitors your trades in real-time."
+                description="Trade according to the challenge rules. Our system monitors your trades in real-time using read-only access."
               />
               <Step
                 number="4"
@@ -173,10 +174,73 @@ export default function Home() {
             </div>
           </div>
         </section>
+
+        {/* Track Record */}
+        <section className="py-16 md:py-20 relative">
+          <div className="container mx-auto px-4">
+            <div className="text-center mb-12">
+              <h2 className="text-3xl md:text-4xl font-bold mb-4">
+                Trusted by <span className="gradient-text">Traders</span>
+              </h2>
+              <p className="text-gray-400 text-lg max-w-2xl mx-auto">
+                Our growing community of competitive traders
+              </p>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6 max-w-4xl mx-auto">
+              <div className="glass rounded-2xl p-6 text-center border border-white/10">
+                <p className="text-3xl md:text-4xl font-bold gradient-text">15+</p>
+                <p className="text-sm text-gray-400 mt-2">Challenges Completed</p>
+              </div>
+              <div className="glass rounded-2xl p-6 text-center border border-white/10">
+                <p className="text-3xl md:text-4xl font-bold text-profit">1,800+</p>
+                <p className="text-sm text-gray-400 mt-2">Participants</p>
+              </div>
+              <div className="glass rounded-2xl p-6 text-center border border-white/10">
+                <p className="text-3xl md:text-4xl font-bold text-gold">$5,000+</p>
+                <p className="text-sm text-gray-400 mt-2">Prizes Awarded</p>
+              </div>
+              <div className="glass rounded-2xl p-6 text-center border border-white/10">
+                <p className="text-3xl md:text-4xl font-bold text-royal">24/7</p>
+                <p className="text-sm text-gray-400 mt-2">Automated Monitoring</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Security & Trust */}
+        <section className="py-16 md:py-20 relative">
+          <div className="container mx-auto px-4">
+            <div className="max-w-4xl mx-auto glass rounded-2xl border border-white/10 p-8 md:p-12">
+              <div className="flex items-start gap-4 mb-6">
+                <div className="p-3 bg-profit/20 rounded-xl border border-profit/30 flex-shrink-0">
+                  <Shield className="w-6 h-6 text-profit" />
+                </div>
+                <div>
+                  <h3 className="text-xl md:text-2xl font-bold text-white mb-2">Your Funds Are Always Safe</h3>
+                  <p className="text-gray-400 text-sm md:text-base leading-relaxed">We use <strong className="text-white">read-only investor passwords</strong> — a standard MT5 feature designed specifically for monitoring. This gives us view-only access to see your trade history and balance, but <strong className="text-white">absolutely no ability to place trades, withdraw funds, or modify your account in any way</strong>.</p>
+                </div>
+              </div>
+              <div className="grid sm:grid-cols-3 gap-4 mt-8">
+                <div className="bg-white/5 rounded-xl p-4 border border-white/5">
+                  <p className="text-profit font-bold text-sm mb-1">&#10003; Read-Only Access</p>
+                  <p className="text-gray-500 text-xs">We can only view trades — never execute or modify them</p>
+                </div>
+                <div className="bg-white/5 rounded-xl p-4 border border-white/5">
+                  <p className="text-profit font-bold text-sm mb-1">&#10003; No Fund Access</p>
+                  <p className="text-gray-500 text-xs">Impossible to withdraw, deposit, or transfer funds</p>
+                </div>
+                <div className="bg-white/5 rounded-xl p-4 border border-white/5">
+                  <p className="text-profit font-bold text-sm mb-1">&#10003; Industry Standard</p>
+                  <p className="text-gray-500 text-xs">MT5 investor passwords are used by prop firms, copiers, and analytics tools worldwide</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
       </main>
 
       {/* Footer */}
-      <footer className="glass border-t border-white/5 py-8 relative">
+      <footer className="glass border-t border-white/5 py-8 relative" role="contentinfo">
         <div className="container mx-auto px-4">
           <div className="flex flex-col md:flex-row justify-between items-center gap-4">
             <p className="text-gray-500 text-sm">&copy; 2026 WinnerPip. All rights reserved.</p>
