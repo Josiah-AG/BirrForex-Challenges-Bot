@@ -55,6 +55,9 @@ export default function PrivacyPage() {
             We do not sell or share your personal data with third parties. Your leaderboard performance (nickname, rank, trade count) is publicly visible on the challenge page. Your account number, email, and password are never displayed publicly.
           </p>
           <p>
+            For transparency during active challenges, all participants&apos; trading history (trade symbol, direction, lot size, open/close time, profit, and rule violations) is visible to other participants through the leaderboard. This ensures fair play and allows participants to verify results. Only your nickname is shown alongside this data, not your account number or personal details.
+          </p>
+          <p>
             For hosted challenges, the challenge host can see your nickname, account type, account number, and registration status. They cannot see your investor password.
           </p>
 

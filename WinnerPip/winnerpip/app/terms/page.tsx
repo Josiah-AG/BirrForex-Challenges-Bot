@@ -35,12 +35,20 @@ export default function TermsPage() {
             Each challenge has a specific set of rules defined by the challenge creator. Trades that violate these rules will have their profits removed from your qualified balance. Losses from rule-violating trades still count. The system evaluates rules automatically and the leaderboard reflects qualified performance only.
           </p>
 
-          <h2 className="text-lg font-bold text-white">4. Disqualification</h2>
+          <h2 className="text-lg font-bold text-white">4. Transparency and Trade Visibility</h2>
+          <p>
+            For fairness, all participants&apos; trading history is visible to other participants through the leaderboard during the challenge. This includes trade symbol, direction, lot size, timing, profit, and any rule violations. This allows everyone to verify that results are legitimate. Only your nickname is shown, not your account number or personal information.
+          </p>
+          <p>
+            By registering for a challenge, you consent to your trade history being visible to other participants for the duration of the challenge and in the final results.
+          </p>
+
+          <h2 className="text-lg font-bold text-white">5. Disqualification</h2>
           <p>
             Participants may be disqualified for exceeding deposit limits, recharging their account during a challenge, failing to meet minimum trading requirements, or other rule violations. Disqualification decisions are made automatically by the evaluation system based on the defined rules.
           </p>
 
-          <h2 className="text-lg font-bold text-white">5. Hosted Challenges (Third-Party)</h2>
+          <h2 className="text-lg font-bold text-white">6. Hosted Challenges (Third-Party)</h2>
           <p>
             WinnerPip hosts challenges on behalf of third-party challenge organizers. For hosted challenges (those marked &quot;Hosted by&quot; on the platform):
           </p>
@@ -51,27 +59,27 @@ export default function TermsPage() {
             <li>Any disputes regarding prizes or challenge terms should be directed to the challenge host.</li>
           </ul>
 
-          <h2 className="text-lg font-bold text-white">6. BirrForex Challenges</h2>
+          <h2 className="text-lg font-bold text-white">7. BirrForex Challenges</h2>
           <p>
             Challenges created directly by BirrForex (not marked as &quot;Hosted by&quot;) are organized, funded, and managed by BirrForex. Prize delivery for BirrForex challenges is handled by the BirrForex team.
           </p>
 
-          <h2 className="text-lg font-bold text-white">7. No Financial Advice</h2>
+          <h2 className="text-lg font-bold text-white">8. No Financial Advice</h2>
           <p>
             WinnerPip is a competition platform and does not provide financial advice, trading signals, or investment recommendations. Participation in challenges involves real trading risk. Trade responsibly and only with capital you can afford to lose.
           </p>
 
-          <h2 className="text-lg font-bold text-white">8. Fair Play</h2>
+          <h2 className="text-lg font-bold text-white">9. Fair Play</h2>
           <p>
             Any attempt to manipulate results, use multiple accounts, exploit system vulnerabilities, or engage in fraudulent activity will result in immediate disqualification and permanent ban from the platform.
           </p>
 
-          <h2 className="text-lg font-bold text-white">9. Platform Availability</h2>
+          <h2 className="text-lg font-bold text-white">10. Platform Availability</h2>
           <p>
             WinnerPip strives for continuous uptime but does not guarantee uninterrupted service. Scheduled maintenance, technical issues, or broker outages may temporarily affect data updates. The platform is not liable for missed trades or delayed evaluations caused by factors outside its control.
           </p>
 
-          <h2 className="text-lg font-bold text-white">10. Changes to Terms</h2>
+          <h2 className="text-lg font-bold text-white">11. Changes to Terms</h2>
           <p>
             These terms may be updated at any time. Continued use of the platform after changes constitutes acceptance of the updated terms.
           </p>
