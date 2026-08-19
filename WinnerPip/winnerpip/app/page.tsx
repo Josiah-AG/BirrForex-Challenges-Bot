@@ -181,6 +181,7 @@ export default function Home() {
           <div className="flex flex-col md:flex-row justify-between items-center gap-4">
             <p className="text-gray-500 text-sm">&copy; 2026 WinnerPip. All rights reserved.</p>
             <div className="flex gap-6 text-sm">
+              <Link href="/host" className="text-gray-500 hover:text-gray-300 transition">Host</Link>
               <Link href="/about" className="text-gray-500 hover:text-gray-300 transition">About</Link>
               <Link href="/terms" className="text-gray-500 hover:text-gray-300 transition">Terms</Link>
               <Link href="/privacy" className="text-gray-500 hover:text-gray-300 transition">Privacy</Link>
