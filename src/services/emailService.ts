@@ -22,12 +22,12 @@ function wrapEmail(content: string): string {
       <td align="center">
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width: 560px; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.12);">
 
-          <!-- HEADER: Dark purple/blue -->
+          <!-- HEADER: WinnerPip landing page color -->
           <tr>
-            <td align="center" style="background: linear-gradient(135deg, #0f1629 0%, #1a1040 50%, #0f1629 100%); padding: 36px 32px 28px;">
+            <td align="center" style="background-color: #0a0e1a; padding: 36px 32px 28px;">
               <img src="${LOGO_URL}" alt="WinnerPip" width="52" height="52" style="display: block; border-radius: 14px; margin: 0 auto 12px;" />
-              <h1 style="color: #ffffff; font-size: 22px; font-weight: 700; margin: 0 0 4px; letter-spacing: -0.5px;">WinnerPip</h1>
-              <p style="color: #a5b4fc; font-size: 12px; margin: 0; font-weight: 500; letter-spacing: 1px;">TRADE &middot; COMPETE &middot; WIN</p>
+              <h1 style="font-size: 22px; font-weight: 700; margin: 0 0 6px; letter-spacing: -0.5px; background: linear-gradient(135deg, #1F6FEB 0%, #F5B400 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;">WinnerPip</h1>
+              <p style="color: #94a3b8; font-size: 12px; margin: 0; font-weight: 400; letter-spacing: 0.3px;">Trade. Compete. Win.</p>
             </td>
           </tr>
 
@@ -38,11 +38,11 @@ function wrapEmail(content: string): string {
             </td>
           </tr>
 
-          <!-- FOOTER: Dark purple/blue -->
+          <!-- FOOTER: WinnerPip landing page color -->
           <tr>
-            <td align="center" style="background: linear-gradient(135deg, #0f1629 0%, #1a1040 50%, #0f1629 100%); padding: 20px 32px;">
+            <td align="center" style="background-color: #0a0e1a; padding: 20px 32px;">
               <a href="https://linktr.ee/birrforex" target="_blank" rel="noopener noreferrer" style="color: #94a3b8; font-size: 12px; text-decoration: none;">
-                Powered by <strong style="color: #ffffff;">BirrForex</strong>
+                Powered by <strong style="color: #F5B400;">BirrForex</strong>
               </a>
             </td>
           </tr>
