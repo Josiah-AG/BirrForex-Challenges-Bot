@@ -5,7 +5,7 @@ import Link from "next/link";
 import Image from "next/image";
 import {
   LayoutDashboard, Users, Trophy, FileText, Settings, RefreshCw,
-  LogOut, Loader2, ChevronDown, Calendar, Target, Activity, Shield, Info,
+  LogOut, Loader2, ChevronDown, Calendar, Target, Activity, Shield, Info, X,
 } from "lucide-react";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
@@ -62,12 +62,26 @@ export default function HostDashboardPage() {
 
   // Create challenge modal
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [createStep, setCreateStep] = useState(1); // 1=details, 2=rules, 3=review
   const [createForm, setCreateForm] = useState({
     title: "", type: "hybrid", start_date: "", end_date: "",
     starting_balance: "30", target_balance: "60", deposit_mode: "fixed",
-    target_percent: "100", prize_pool_text: "",
+    target_percent: "100",
     real_winners_count: "3", demo_winners_count: "3",
     real_prizes: "", demo_prizes: "",
+  });
+  const [createRules, setCreateRules] = useState({
+    max_lot_size: 0.02, max_open_trades: 3, pair_limit: 2,
+    stop_loss_required: true, max_risk_dollars: 5, max_risk_mode: 'fixed' as 'fixed' | 'percentage',
+    max_risk_percent: 10, daily_loss_cap: 10, daily_loss_mode: 'fixed' as 'fixed' | 'percentage',
+    daily_loss_percent: 20, max_hold_hours: 24, min_trade_duration_minutes: null as number | null,
+    weekend_trading: false, min_active_days: 7, min_total_trades: null as number | null,
+    only_cent_account: false,
+    rules_enabled: {
+      max_lot_size: true, max_open_trades: true, pair_limit: true,
+      stop_loss_required: true, daily_loss_cap: true, max_hold_hours: true,
+      min_trade_duration: true, weekend_trading: true, min_active_days: true, min_total_trades: true,
+    } as Record<string, boolean>,
   });
   const [createLoading, setCreateLoading] = useState(false);
   const [createResult, setCreateResult] = useState<{ success?: boolean; error?: string } | null>(null);
@@ -341,7 +355,7 @@ export default function HostDashboardPage() {
                 </span>
               )}
             </div>
-            <button onClick={() => { setShowCreateModal(true); setCreateResult(null); }} className="px-4 py-2 rounded-xl bg-royal/20 text-royal text-sm font-semibold border border-royal/30 hover:bg-royal/30 transition-all whitespace-nowrap">+ New Challenge</button>
+            <button onClick={() => { setShowCreateModal(true); setCreateResult(null); setCreateStep(1); }} className="px-4 py-2 rounded-xl bg-royal/20 text-royal text-sm font-semibold border border-royal/30 hover:bg-royal/30 transition-all whitespace-nowrap">+ New Challenge</button>
           </div>
         )}
 
@@ -353,7 +367,7 @@ export default function HostDashboardPage() {
             </div>
             <p className="text-gray-300 text-lg font-semibold">No challenges yet</p>
             <p className="text-gray-500 text-sm mt-2 max-w-sm mx-auto">Your challenges will appear here once created and approved by admin.</p>
-            <button onClick={() => { setShowCreateModal(true); setCreateResult(null); }} className="mt-6 px-6 py-2.5 rounded-xl bg-royal text-white font-semibold text-sm hover:bg-royal/80 transition-all">Create Challenge</button>
+            <button onClick={() => { setShowCreateModal(true); setCreateResult(null); setCreateStep(1); }} className="mt-6 px-6 py-2.5 rounded-xl bg-royal text-white font-semibold text-sm hover:bg-royal/80 transition-all">Create Challenge</button>
           </div>
         )}
 
@@ -783,73 +797,189 @@ export default function HostDashboardPage() {
 
       {/* Create Challenge Modal */}
       {showCreateModal && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => !createLoading && setShowCreateModal(false)}>
-          <div className="glass rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto border border-white/10" onClick={e => e.stopPropagation()}>
-            <div className="sticky top-0 glass p-4 border-b border-white/10 flex items-center justify-between z-10 rounded-t-2xl">
-              <h3 className="text-lg font-bold text-white">Create Challenge</h3>
-              <button onClick={() => !createLoading && setShowCreateModal(false)} className="p-2 hover:bg-white/10 rounded-lg"><span className="text-gray-400 text-lg">x</span></button>
+        <div className="fixed inset-0 bg-[#0a0e1a]/95 z-50 flex items-center justify-center p-4" onClick={() => !createLoading && setShowCreateModal(false)}>
+          <div className="bg-[#1a2235] rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto border border-white/15 shadow-2xl shadow-black/80" onClick={e => e.stopPropagation()}>
+            {/* Header + Progress */}
+            <div className="sticky top-0 bg-[#1a2235] px-6 pt-5 pb-4 border-b border-white/10 z-10 rounded-t-2xl">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-bold text-white">Create Challenge</h3>
+                <button onClick={() => !createLoading && setShowCreateModal(false)} className="p-1.5 hover:bg-white/10 rounded-lg transition-all"><X size={16} className="text-gray-500" /></button>
+              </div>
+              <div className="flex items-center gap-2">
+                {[1,2,3].map(s => (
+                  <div key={s} className="flex-1 flex items-center gap-2">
+                    <div className={`flex-1 h-1.5 rounded-full transition-all ${s <= createStep ? "bg-royal" : "bg-white/10"}`} />
+                  </div>
+                ))}
+              </div>
+              <div className="flex justify-between mt-2">
+                <span className={`text-[10px] font-medium ${createStep >= 1 ? 'text-royal' : 'text-gray-600'}`}>Details</span>
+                <span className={`text-[10px] font-medium ${createStep >= 2 ? 'text-royal' : 'text-gray-600'}`}>Rules</span>
+                <span className={`text-[10px] font-medium ${createStep >= 3 ? 'text-royal' : 'text-gray-600'}`}>Review</span>
+              </div>
             </div>
-            <div className="p-5">
+
+            <div className="px-6 py-5">
               {createResult?.success ? (
                 <div className="text-center py-8">
+                  <div className="w-14 h-14 rounded-full bg-profit/20 border border-profit/30 flex items-center justify-center mx-auto mb-4">
+                    <Trophy size={24} className="text-profit" />
+                  </div>
                   <p className="text-profit font-bold text-lg mb-2">Submitted for Approval</p>
                   <p className="text-gray-400 text-sm">Admin will review and approve your challenge. You will see it in your dashboard once approved.</p>
-                  <button onClick={() => { setShowCreateModal(false); window.location.reload(); }} className="mt-6 px-6 py-2.5 rounded-xl bg-royal/20 text-royal font-semibold text-sm border border-royal/30">OK</button>
+                  <button onClick={() => { setShowCreateModal(false); setCreateStep(1); window.location.reload(); }} className="mt-6 px-6 py-2.5 rounded-xl bg-royal/20 text-royal font-semibold text-sm border border-royal/30">Done</button>
                 </div>
-              ) : (
-                <form onSubmit={async (e) => {
-                  e.preventDefault();
-                  setCreateLoading(true); setCreateResult(null);
-                  try {
-                    const res = await fetch(`${API_URL}/api/host/challenges`, {
-                      method: 'POST',
-                      headers: { Authorization: `Bearer ${getToken()}`, 'Content-Type': 'application/json' },
-                      body: JSON.stringify({
-                        ...createForm,
-                        starting_balance: parseFloat(createForm.starting_balance),
-                        target_balance: parseFloat(createForm.target_balance),
-                        target_percent: createForm.deposit_mode !== 'fixed' ? parseFloat(createForm.target_percent) : null,
-                        real_winners_count: parseInt(createForm.real_winners_count) || 0,
-                        demo_winners_count: parseInt(createForm.demo_winners_count) || 0,
-                        real_prizes: createForm.real_prizes ? createForm.real_prizes.split(',').map(p => p.trim()) : [],
-                        demo_prizes: createForm.demo_prizes ? createForm.demo_prizes.split(',').map(p => p.trim()) : [],
-                      }),
-                    });
-                    const data = await res.json();
-                    if (res.ok && data.success) { setCreateResult({ success: true }); }
-                    else { setCreateResult({ error: data.error || 'Failed to submit' }); }
-                  } catch (_err) { setCreateResult({ error: 'Could not connect to server' }); }
-                  setCreateLoading(false);
-                }} className="space-y-4">
-                  {createResult?.error && <div className="p-3 rounded-xl bg-loss/10 border border-loss/30"><p className="text-sm text-loss">{createResult.error}</p></div>}
-                  <div><label className="block text-xs text-gray-400 mb-1">Title *</label><input required value={createForm.title} onChange={e => setCreateForm({...createForm, title: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" placeholder="Challenge Title" /></div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div><label className="block text-xs text-gray-400 mb-1">Type *</label><select value={createForm.type} onChange={e => setCreateForm({...createForm, type: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none"><option value="hybrid" className="bg-[#0f1629]">Hybrid</option><option value="demo" className="bg-[#0f1629]">Demo</option><option value="real" className="bg-[#0f1629]">Real</option></select></div>
-                    <div><label className="block text-xs text-gray-400 mb-1">Deposit Mode</label><select value={createForm.deposit_mode} onChange={e => setCreateForm({...createForm, deposit_mode: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none"><option value="fixed" className="bg-[#0f1629]">Fixed</option><option value="max_limit" className="bg-[#0f1629]">Max Limit</option><option value="min_limit" className="bg-[#0f1629]">Min Limit</option></select></div>
+              ) : (<>
+                {/* Step 1: Details */}
+                {createStep === 1 && (
+                  <div className="space-y-4">
+                    <div><label className="text-[11px] text-gray-400 font-medium mb-1.5 block">Title *</label><input value={createForm.title} onChange={e => setCreateForm({...createForm, title: e.target.value})} className="w-full px-3.5 py-2.5 rounded-xl bg-[#0a0e1a] border border-white/10 text-white text-sm placeholder:text-gray-600 focus:border-royal/50 outline-none transition-all" placeholder="e.g. Monthly Trading Challenge" /></div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div><label className="text-[11px] text-gray-400 font-medium mb-1.5 block">Type *</label>
+                        <select value={createForm.type} onChange={e => setCreateForm({...createForm, type: e.target.value})} className="w-full px-3.5 py-2.5 rounded-xl bg-[#0a0e1a] border border-white/10 text-white text-sm outline-none">
+                          <option value="hybrid" className="bg-[#0f1629]">Hybrid (Demo + Real)</option>
+                          <option value="demo" className="bg-[#0f1629]">Demo Only</option>
+                          <option value="real" className="bg-[#0f1629]">Real Only</option>
+                        </select>
+                      </div>
+                      <div><label className="text-[11px] text-gray-400 font-medium mb-1.5 block">Deposit Mode</label>
+                        <select value={createForm.deposit_mode} onChange={e => setCreateForm({...createForm, deposit_mode: e.target.value})} className="w-full px-3.5 py-2.5 rounded-xl bg-[#0a0e1a] border border-white/10 text-white text-sm outline-none">
+                          <option value="fixed" className="bg-[#0f1629]">Fixed</option>
+                          <option value="max_limit" className="bg-[#0f1629]">Max Limit</option>
+                          <option value="min_limit" className="bg-[#0f1629]">Min Limit</option>
+                        </select>
+                      </div>
+                    </div>
+                    {/* Deposit mode info */}
+                    <div className="p-2.5 rounded-lg bg-white/5 border border-white/5">
+                      {createForm.deposit_mode === 'fixed' && <p className="text-[10px] text-gray-400"><span className="text-royal font-semibold">Fixed:</span> All participants start with the same balance. Target is a $ amount. Leaderboard ranked by balance.</p>}
+                      {createForm.deposit_mode === 'max_limit' && <p className="text-[10px] text-gray-400"><span className="text-gold font-semibold">Max Limit:</span> Participants deposit up to a maximum cap. Target is growth %. Leaderboard ranked by % growth.</p>}
+                      {createForm.deposit_mode === 'min_limit' && <p className="text-[10px] text-gray-400"><span className="text-profit font-semibold">Min Limit:</span> Participants must deposit at least a minimum. Target is growth %. Leaderboard ranked by % growth.</p>}
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div><label className="text-[11px] text-gray-400 font-medium mb-1.5 block">Start Date (EAT) *</label><input type="datetime-local" value={createForm.start_date} onChange={e => setCreateForm({...createForm, start_date: e.target.value})} className="w-full px-3.5 py-2.5 rounded-xl bg-[#0a0e1a] border border-white/10 text-white text-sm outline-none" /></div>
+                      <div><label className="text-[11px] text-gray-400 font-medium mb-1.5 block">End Date (EAT) *</label><input type="datetime-local" value={createForm.end_date} onChange={e => setCreateForm({...createForm, end_date: e.target.value})} className="w-full px-3.5 py-2.5 rounded-xl bg-[#0a0e1a] border border-white/10 text-white text-sm outline-none" /></div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div><label className="text-[11px] text-gray-400 font-medium mb-1.5 block">{createForm.deposit_mode === 'fixed' ? 'Starting Balance ($) *' : createForm.deposit_mode === 'max_limit' ? 'Max Deposit ($) *' : 'Min Deposit ($) *'}</label><input value={createForm.starting_balance} onChange={e => setCreateForm({...createForm, starting_balance: e.target.value})} className="w-full px-3.5 py-2.5 rounded-xl bg-[#0a0e1a] border border-white/10 text-white text-sm outline-none" /></div>
+                      {createForm.deposit_mode === 'fixed' ? (
+                        <div><label className="text-[11px] text-gray-400 font-medium mb-1.5 block">Target Balance ($)</label><input value={createForm.target_balance} onChange={e => setCreateForm({...createForm, target_balance: e.target.value})} className="w-full px-3.5 py-2.5 rounded-xl bg-[#0a0e1a] border border-white/10 text-white text-sm outline-none" /></div>
+                      ) : (
+                        <div><label className="text-[11px] text-gray-400 font-medium mb-1.5 block">Target Growth (%)</label><input value={createForm.target_percent} onChange={e => setCreateForm({...createForm, target_percent: e.target.value})} className="w-full px-3.5 py-2.5 rounded-xl bg-[#0a0e1a] border border-white/10 text-white text-sm outline-none" placeholder="100" /></div>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div><label className="text-[11px] text-gray-400 font-medium mb-1.5 block">Real Winners #</label><input value={createForm.real_winners_count} onChange={e => setCreateForm({...createForm, real_winners_count: e.target.value})} className="w-full px-3.5 py-2.5 rounded-xl bg-[#0a0e1a] border border-white/10 text-white text-sm outline-none" /></div>
+                      <div><label className="text-[11px] text-gray-400 font-medium mb-1.5 block">Demo Winners #</label><input value={createForm.demo_winners_count} onChange={e => setCreateForm({...createForm, demo_winners_count: e.target.value})} className="w-full px-3.5 py-2.5 rounded-xl bg-[#0a0e1a] border border-white/10 text-white text-sm outline-none" /></div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div><label className="text-[11px] text-gray-400 font-medium mb-1.5 block">Real Prizes (comma sep)</label><input value={createForm.real_prizes} onChange={e => setCreateForm({...createForm, real_prizes: e.target.value})} className="w-full px-3.5 py-2.5 rounded-xl bg-[#0a0e1a] border border-white/10 text-white text-sm placeholder:text-gray-600 outline-none" placeholder="500,300,200" /></div>
+                      <div><label className="text-[11px] text-gray-400 font-medium mb-1.5 block">Demo Prizes (comma sep)</label><input value={createForm.demo_prizes} onChange={e => setCreateForm({...createForm, demo_prizes: e.target.value})} className="w-full px-3.5 py-2.5 rounded-xl bg-[#0a0e1a] border border-white/10 text-white text-sm placeholder:text-gray-600 outline-none" placeholder="300,200,100" /></div>
+                    </div>
+                    <button onClick={() => setCreateStep(2)} disabled={!createForm.title || !createForm.start_date || !createForm.end_date} className="w-full py-3 rounded-xl bg-royal text-white font-semibold text-sm hover:bg-royal/90 disabled:opacity-40 transition-all mt-2">Next: Rules</button>
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div><label className="block text-xs text-gray-400 mb-1">Start Date *</label><input required type="datetime-local" value={createForm.start_date} onChange={e => setCreateForm({...createForm, start_date: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
-                    <div><label className="block text-xs text-gray-400 mb-1">End Date *</label><input required type="datetime-local" value={createForm.end_date} onChange={e => setCreateForm({...createForm, end_date: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
+                )}
+
+                {/* Step 2: Rules */}
+                {createStep === 2 && (
+                  <div>
+                    <p className="text-xs text-gray-500 mb-4">Toggle rules ON/OFF. Hover the info icon for details.</p>
+                    <div className="space-y-1">
+                      <RuleRow label="Max Lot Size" tooltip="Maximum position size allowed per trade" enabled={createRules.rules_enabled.max_lot_size} onToggle={v => setCreateRules(p => ({...p, rules_enabled: {...p.rules_enabled, max_lot_size: v}}))} locked={false}>
+                        <input type="number" step="0.01" value={createRules.max_lot_size} onChange={e => setCreateRules(p => ({...p, max_lot_size: parseFloat(e.target.value)||0}))} disabled={!createRules.rules_enabled.max_lot_size} className="w-20 px-2.5 py-1.5 rounded-lg bg-[#0a0e1a] border border-white/10 text-white text-sm outline-none disabled:opacity-40" />
+                      </RuleRow>
+                      <RuleRow label="Max Open Trades" tooltip="Maximum simultaneous open positions" enabled={createRules.rules_enabled.max_open_trades} onToggle={v => setCreateRules(p => ({...p, rules_enabled: {...p.rules_enabled, max_open_trades: v}}))} locked={false}>
+                        <input type="number" value={createRules.max_open_trades} onChange={e => setCreateRules(p => ({...p, max_open_trades: parseInt(e.target.value)||1}))} disabled={!createRules.rules_enabled.max_open_trades} className="w-20 px-2.5 py-1.5 rounded-lg bg-[#0a0e1a] border border-white/10 text-white text-sm outline-none disabled:opacity-40" />
+                      </RuleRow>
+                      <RuleRow label="Pair Limit" tooltip="Max different instruments open at once" enabled={createRules.rules_enabled.pair_limit} onToggle={v => setCreateRules(p => ({...p, rules_enabled: {...p.rules_enabled, pair_limit: v}}))} locked={false}>
+                        <input type="number" value={createRules.pair_limit} onChange={e => setCreateRules(p => ({...p, pair_limit: parseInt(e.target.value)||1}))} disabled={!createRules.rules_enabled.pair_limit} className="w-20 px-2.5 py-1.5 rounded-lg bg-[#0a0e1a] border border-white/10 text-white text-sm outline-none disabled:opacity-40" />
+                      </RuleRow>
+                      <RuleRow label="Stop Loss Required" tooltip="Every trade must have a stop-loss. Max risk limits loss per trade." enabled={createRules.rules_enabled.stop_loss_required} onToggle={v => setCreateRules(p => ({...p, rules_enabled: {...p.rules_enabled, stop_loss_required: v}}))} locked={false}>
+                        <div className="flex items-center gap-1.5">
+                          <button onClick={() => setCreateRules(p => ({...p, max_risk_mode: 'fixed'}))} className={`px-2 py-1 text-[9px] font-bold rounded ${createRules.max_risk_mode === 'fixed' ? 'bg-royal/20 text-royal' : 'bg-white/5 text-gray-500'}`}>$</button>
+                          <button onClick={() => setCreateRules(p => ({...p, max_risk_mode: 'percentage'}))} className={`px-2 py-1 text-[9px] font-bold rounded ${createRules.max_risk_mode === 'percentage' ? 'bg-royal/20 text-royal' : 'bg-white/5 text-gray-500'}`}>%</button>
+                          <input type="number" step="0.5" value={createRules.max_risk_mode === 'percentage' ? createRules.max_risk_percent : createRules.max_risk_dollars} onChange={e => createRules.max_risk_mode === 'percentage' ? setCreateRules(p => ({...p, max_risk_percent: parseFloat(e.target.value)||0})) : setCreateRules(p => ({...p, max_risk_dollars: parseFloat(e.target.value)||0}))} disabled={!createRules.rules_enabled.stop_loss_required} className="w-16 px-2 py-1.5 rounded-lg bg-[#0a0e1a] border border-white/10 text-white text-sm outline-none disabled:opacity-40" />
+                        </div>
+                      </RuleRow>
+                      <RuleRow label="Daily Loss Cap" tooltip="Max drawdown in a single day. Exceeding triggers DQ." enabled={createRules.rules_enabled.daily_loss_cap} onToggle={v => setCreateRules(p => ({...p, rules_enabled: {...p.rules_enabled, daily_loss_cap: v}}))} locked={false}>
+                        <div className="flex items-center gap-1.5">
+                          <button onClick={() => setCreateRules(p => ({...p, daily_loss_mode: 'fixed'}))} className={`px-2 py-1 text-[9px] font-bold rounded ${createRules.daily_loss_mode === 'fixed' ? 'bg-royal/20 text-royal' : 'bg-white/5 text-gray-500'}`}>$</button>
+                          <button onClick={() => setCreateRules(p => ({...p, daily_loss_mode: 'percentage'}))} className={`px-2 py-1 text-[9px] font-bold rounded ${createRules.daily_loss_mode === 'percentage' ? 'bg-royal/20 text-royal' : 'bg-white/5 text-gray-500'}`}>%</button>
+                          <input type="number" step="0.5" value={createRules.daily_loss_mode === 'percentage' ? createRules.daily_loss_percent : createRules.daily_loss_cap} onChange={e => createRules.daily_loss_mode === 'percentage' ? setCreateRules(p => ({...p, daily_loss_percent: parseFloat(e.target.value)||0})) : setCreateRules(p => ({...p, daily_loss_cap: parseFloat(e.target.value)||0}))} disabled={!createRules.rules_enabled.daily_loss_cap} className="w-16 px-2 py-1.5 rounded-lg bg-[#0a0e1a] border border-white/10 text-white text-sm outline-none disabled:opacity-40" />
+                        </div>
+                      </RuleRow>
+                      <RuleRow label="Max Hold Hours" tooltip="Maximum time a trade can be held open" enabled={createRules.rules_enabled.max_hold_hours} onToggle={v => setCreateRules(p => ({...p, rules_enabled: {...p.rules_enabled, max_hold_hours: v}}))} locked={false}>
+                        <input type="number" value={createRules.max_hold_hours} onChange={e => setCreateRules(p => ({...p, max_hold_hours: parseInt(e.target.value)||1}))} disabled={!createRules.rules_enabled.max_hold_hours} className="w-20 px-2.5 py-1.5 rounded-lg bg-[#0a0e1a] border border-white/10 text-white text-sm outline-none disabled:opacity-40" />
+                      </RuleRow>
+                      <RuleRow label="Min Trade Duration (min)" tooltip="Trades held shorter than this are flagged" enabled={createRules.rules_enabled.min_trade_duration} onToggle={v => setCreateRules(p => ({...p, rules_enabled: {...p.rules_enabled, min_trade_duration: v}}))} locked={false}>
+                        <input type="number" value={createRules.min_trade_duration_minutes ?? ""} onChange={e => setCreateRules(p => ({...p, min_trade_duration_minutes: e.target.value ? parseInt(e.target.value) : null}))} disabled={!createRules.rules_enabled.min_trade_duration} className="w-20 px-2.5 py-1.5 rounded-lg bg-[#0a0e1a] border border-white/10 text-white text-sm outline-none disabled:opacity-40" placeholder="—" />
+                      </RuleRow>
+                      <RuleRow label="Weekend Trading" tooltip="Whether trades on weekends are allowed" enabled={createRules.rules_enabled.weekend_trading} onToggle={v => setCreateRules(p => ({...p, rules_enabled: {...p.rules_enabled, weekend_trading: v}}))} locked={false}>
+                        <button onClick={() => setCreateRules(p => ({...p, weekend_trading: !p.weekend_trading}))} disabled={!createRules.rules_enabled.weekend_trading} className={`px-3 py-1 rounded text-[10px] font-bold ${createRules.weekend_trading ? 'bg-profit/20 text-profit' : 'bg-loss/20 text-loss'} disabled:opacity-40`}>{createRules.weekend_trading ? "Allowed" : "Blocked"}</button>
+                      </RuleRow>
+                      <RuleRow label="Min Active Days" tooltip="Minimum unique trading days to qualify" enabled={createRules.rules_enabled.min_active_days} onToggle={v => setCreateRules(p => ({...p, rules_enabled: {...p.rules_enabled, min_active_days: v}}))} locked={false}>
+                        <input type="number" value={createRules.min_active_days} onChange={e => setCreateRules(p => ({...p, min_active_days: parseInt(e.target.value)||1}))} disabled={!createRules.rules_enabled.min_active_days} className="w-20 px-2.5 py-1.5 rounded-lg bg-[#0a0e1a] border border-white/10 text-white text-sm outline-none disabled:opacity-40" />
+                      </RuleRow>
+                      <RuleRow label="Min Total Trades" tooltip="Minimum trades needed to qualify" enabled={createRules.rules_enabled.min_total_trades} onToggle={v => setCreateRules(p => ({...p, rules_enabled: {...p.rules_enabled, min_total_trades: v}}))} locked={false}>
+                        <input type="number" value={createRules.min_total_trades ?? ""} onChange={e => setCreateRules(p => ({...p, min_total_trades: e.target.value ? parseInt(e.target.value) : null}))} disabled={!createRules.rules_enabled.min_total_trades} className="w-20 px-2.5 py-1.5 rounded-lg bg-[#0a0e1a] border border-white/10 text-white text-sm outline-none disabled:opacity-40" placeholder="—" />
+                      </RuleRow>
+                    </div>
+                    <div className="flex gap-3 mt-5">
+                      <button onClick={() => setCreateStep(1)} className="flex-1 py-2.5 rounded-xl bg-white/5 border border-white/10 text-gray-400 text-sm font-medium hover:bg-white/10 transition-all">Back</button>
+                      <button onClick={() => setCreateStep(3)} className="flex-1 py-2.5 rounded-xl bg-royal text-white text-sm font-semibold hover:bg-royal/90 transition-all">Review</button>
+                    </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div><label className="block text-xs text-gray-400 mb-1">Starting Balance ($) *</label><input required value={createForm.starting_balance} onChange={e => setCreateForm({...createForm, starting_balance: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
-                    {createForm.deposit_mode === 'fixed' ? (
-                      <div><label className="block text-xs text-gray-400 mb-1">Target Balance ($)</label><input value={createForm.target_balance} onChange={e => setCreateForm({...createForm, target_balance: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
-                    ) : (
-                      <div><label className="block text-xs text-gray-400 mb-1">Target Growth (%)</label><input value={createForm.target_percent} onChange={e => setCreateForm({...createForm, target_percent: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
-                    )}
+                )}
+
+                {/* Step 3: Review & Submit */}
+                {createStep === 3 && (
+                  <div>
+                    <div className="space-y-2 mb-5">
+                      <div className="flex justify-between py-2 border-b border-white/5"><span className="text-xs text-gray-500">Title</span><span className="text-xs text-white font-medium">{createForm.title}</span></div>
+                      <div className="flex justify-between py-2 border-b border-white/5"><span className="text-xs text-gray-500">Type</span><span className="text-xs text-white font-medium capitalize">{createForm.type}</span></div>
+                      <div className="flex justify-between py-2 border-b border-white/5"><span className="text-xs text-gray-500">Deposit Mode</span><span className="text-xs text-white font-medium capitalize">{createForm.deposit_mode.replace('_', ' ')}</span></div>
+                      <div className="flex justify-between py-2 border-b border-white/5"><span className="text-xs text-gray-500">Period</span><span className="text-xs text-white font-medium">{createForm.start_date ? new Date(createForm.start_date).toLocaleDateString() : '—'} → {createForm.end_date ? new Date(createForm.end_date).toLocaleDateString() : '—'}</span></div>
+                      <div className="flex justify-between py-2 border-b border-white/5"><span className="text-xs text-gray-500">{createForm.deposit_mode === 'fixed' ? 'Balance' : 'Deposit Limit'}</span><span className="text-xs text-white font-medium">${createForm.starting_balance}</span></div>
+                      <div className="flex justify-between py-2 border-b border-white/5"><span className="text-xs text-gray-500">Target</span><span className="text-xs text-white font-medium">{createForm.deposit_mode !== 'fixed' ? `${createForm.target_percent}%` : `$${createForm.target_balance}`}</span></div>
+                      <div className="flex justify-between py-2 border-b border-white/5"><span className="text-xs text-gray-500">Max Lot</span><span className="text-xs text-white font-medium">{createRules.rules_enabled.max_lot_size ? createRules.max_lot_size : 'OFF'}</span></div>
+                      <div className="flex justify-between py-2 border-b border-white/5"><span className="text-xs text-gray-500">Max Risk</span><span className="text-xs text-white font-medium">{createRules.rules_enabled.stop_loss_required ? (createRules.max_risk_mode === 'percentage' ? `${createRules.max_risk_percent}%` : `$${createRules.max_risk_dollars}`) : 'OFF'}</span></div>
+                      <div className="flex justify-between py-2 border-b border-white/5"><span className="text-xs text-gray-500">Daily Loss Cap</span><span className="text-xs text-white font-medium">{createRules.rules_enabled.daily_loss_cap ? (createRules.daily_loss_mode === 'percentage' ? `${createRules.daily_loss_percent}%` : `$${createRules.daily_loss_cap}`) : 'OFF'}</span></div>
+                      <div className="flex justify-between py-2"><span className="text-xs text-gray-500">Min Active Days</span><span className="text-xs text-white font-medium">{createRules.rules_enabled.min_active_days ? createRules.min_active_days : 'OFF'}</span></div>
+                    </div>
+                    {createResult?.error && <div className="p-3 rounded-xl bg-loss/10 border border-loss/20 mb-4"><p className="text-xs text-loss">{createResult.error}</p></div>}
+                    <div className="flex gap-3">
+                      <button onClick={() => setCreateStep(2)} className="flex-1 py-2.5 rounded-xl bg-white/5 border border-white/10 text-gray-400 text-sm font-medium hover:bg-white/10 transition-all">Back</button>
+                      <button onClick={async () => {
+                        setCreateLoading(true); setCreateResult(null);
+                        try {
+                          const res = await fetch(`${API_URL}/api/host/challenges`, {
+                            method: 'POST',
+                            headers: { Authorization: `Bearer ${getToken()}`, 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                              ...createForm,
+                              starting_balance: parseFloat(createForm.starting_balance),
+                              target_balance: parseFloat(createForm.target_balance),
+                              target_percent: createForm.deposit_mode !== 'fixed' ? parseFloat(createForm.target_percent) : null,
+                              real_winners_count: parseInt(createForm.real_winners_count) || 0,
+                              demo_winners_count: parseInt(createForm.demo_winners_count) || 0,
+                              real_prizes: createForm.real_prizes ? createForm.real_prizes.split(',').map(p => p.trim()).filter(Boolean) : [],
+                              demo_prizes: createForm.demo_prizes ? createForm.demo_prizes.split(',').map(p => p.trim()).filter(Boolean) : [],
+                              rules: createRules,
+                            }),
+                          });
+                          const data = await res.json();
+                          if (res.ok && data.success) { setCreateResult({ success: true }); }
+                          else { setCreateResult({ error: data.error || 'Failed to submit' }); }
+                        } catch { setCreateResult({ error: 'Could not connect to server' }); }
+                        setCreateLoading(false);
+                      }} disabled={createLoading} className="flex-1 py-2.5 rounded-xl bg-profit/20 border border-profit/30 text-profit text-sm font-bold hover:bg-profit/30 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+                        {createLoading ? <Loader2 size={14} className="animate-spin" /> : null} Submit for Approval
+                      </button>
+                    </div>
+                    <p className="text-[10px] text-gray-600 text-center mt-3">Your challenge will be reviewed by admin before going live.</p>
                   </div>
-                  <div><label className="block text-xs text-gray-400 mb-1">Prize Pool Text</label><input value={createForm.prize_pool_text} onChange={e => setCreateForm({...createForm, prize_pool_text: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" placeholder="e.g., $1,000 Total" /></div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div><label className="block text-xs text-gray-400 mb-1">Real Prizes (comma sep)</label><input value={createForm.real_prizes} onChange={e => setCreateForm({...createForm, real_prizes: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" placeholder="500,300,200" /></div>
-                    <div><label className="block text-xs text-gray-400 mb-1">Demo Prizes (comma sep)</label><input value={createForm.demo_prizes} onChange={e => setCreateForm({...createForm, demo_prizes: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" placeholder="300,200,100" /></div>
-                  </div>
-                  <button type="submit" disabled={createLoading} className="w-full py-3 rounded-xl bg-gradient-brand text-white font-semibold text-sm hover:opacity-90 disabled:opacity-50 flex items-center justify-center gap-2">
-                    {createLoading ? <><Loader2 size={16} className="animate-spin" /> Submitting...</> : "Submit for Approval"}
-                  </button>
-                  <p className="text-[10px] text-gray-500 text-center">Your challenge will be reviewed by admin before going live.</p>
-                </form>
-              )}
+                )}
+              </>)}
             </div>
           </div>
         </div>
