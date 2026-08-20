@@ -1263,7 +1263,7 @@ function CreateChallengeModal({ createStep, setCreateStep, createForm, setCreate
                 <div className="border-t border-white/10 pt-4 mt-4">
                   <p className="text-xs text-gray-300 font-semibold mb-3 uppercase tracking-wider">Registration Mode</p>
                   <div className="grid grid-cols-2 gap-3">
-                    <button type="button" onClick={() => setCreateForm({...createForm, registration_mode: 'winnerpip'})} className={`p-3 rounded-xl border text-center transition-all ${createForm.registration_mode === 'winnerpip' ? 'bg-royal/20 border-royal/40 text-royal' : 'bg-white/5 border-white/10 text-gray-400 hover:text-white'}`}>
+                    <button type="button" onClick={() => hostInfo?.hasBrokerIntegration && setCreateForm({...createForm, registration_mode: 'winnerpip'})} className={`p-3 rounded-xl border text-center transition-all ${!hostInfo?.hasBrokerIntegration ? 'opacity-40 cursor-not-allowed bg-white/5 border-white/10 text-gray-500' : createForm.registration_mode === 'winnerpip' ? 'bg-royal/20 border-royal/40 text-royal' : 'bg-white/5 border-white/10 text-gray-400 hover:text-white'}`}>
                       <p className="text-sm font-semibold">Online</p>
                       <p className="text-[10px] mt-0.5 opacity-70">Users register on WinnerPip</p>
                     </button>
@@ -1272,13 +1272,9 @@ function CreateChallengeModal({ createStep, setCreateStep, createForm, setCreate
                       <p className="text-[10px] mt-0.5 opacity-70">Upload participant list</p>
                     </button>
                   </div>
-                  {createForm.registration_mode === 'winnerpip' && !hostInfo?.hasBrokerIntegration && (
-                    <div className="mt-3 p-3 rounded-xl bg-gold/10 border border-gold/20 overflow-hidden">
-                      <div className="flex items-center gap-2">
-                        <span className="text-gold text-xs flex-shrink-0">&#9888;&#65039;</span>
-                        <p className="text-[11px] text-gold/90 whitespace-nowrap overflow-hidden text-ellipsis">Broker integration required for online registration &mdash; connect your broker credentials to verify participant accounts automatically</p>
-                      </div>
-                      <button type="button" onClick={() => { onClose(); setShowAccountSettings(true); }} className="mt-2 text-[11px] text-gold font-semibold underline underline-offset-2 hover:text-white transition-colors">Integrate Broker &rarr;</button>
+                  {!hostInfo?.hasBrokerIntegration && (
+                    <div className="mt-3 p-3 rounded-xl bg-royal/5 border border-royal/20">
+                      <p className="text-[11px] text-gray-300 leading-relaxed">To make participant registration and automatic allocation verification easier, you can do it directly on WinnerPip. <button type="button" onClick={() => { onClose(); setShowAccountSettings(true); }} className="text-royal font-semibold hover:underline">Integrate Broker</button></p>
                     </div>
                   )}
                 </div>
