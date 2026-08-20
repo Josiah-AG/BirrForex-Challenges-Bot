@@ -1797,7 +1797,7 @@ app.get('/api/host/challenge/:id/rules', hostAuthMiddleware, async (req: any, re
     const rules = await evaluationEngine.loadRules(challengeId);
 
     const status = ownership.rows[0].status;
-    const locked = !['draft', 'registration_open'].includes(status);
+    const locked = !['draft', 'pending_approval', 'registration_open'].includes(status);
 
     return res.json({ rules: rules || null, locked, challengeStatus: status });
   } catch (error) {
@@ -1821,7 +1821,7 @@ app.put('/api/host/challenge/:id/rules', hostAuthMiddleware, async (req: any, re
     const status = ownership.rows[0].status;
     // Allow saving rules if none exist yet (first-time setup), even if challenge is active
     const existingRules = await db.query(`SELECT 1 FROM wp_challenge_rules WHERE challenge_id = $1 AND rule_code = 'config'`, [challengeId]);
-    if (!['draft', 'registration_open'].includes(status) && existingRules.rows.length > 0) {
+    if (!['draft', 'pending_approval', 'registration_open'].includes(status) && existingRules.rows.length > 0) {
       return res.status(403).json({ error: 'Rules are locked. Cannot modify rules after challenge has started.', locked: true });
     }
 

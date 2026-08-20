@@ -270,6 +270,22 @@ export default function HostDashboardPage() {
 
           {/* ===== OVERVIEW ===== */}
           {activeTab === "overview" && overview && (<>
+            {/* Challenge Info Banner */}
+            {overview.challenge && (
+              <div className="glass rounded-2xl border border-white/10 p-5 mb-6">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-lg font-bold text-white">{overview.challenge.title}</h3>
+                  <span className={`px-3 py-1 rounded-full text-[10px] font-semibold border ${overview.challenge.status === 'active' ? 'bg-profit/20 text-profit border-profit/30' : overview.challenge.status === 'registration_open' ? 'bg-gold/20 text-gold border-gold/30' : 'bg-white/10 text-gray-300 border-white/20'}`}>{overview.challenge.status?.replace('_', ' ')}</span>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                  <div><span className="text-gray-500">Type</span><p className="text-white font-medium capitalize">{overview.challenge.type || "—"}</p></div>
+                  <div><span className="text-gray-500">Balance</span><p className="text-white font-medium">${overview.challenge.starting_balance} &rarr; ${overview.challenge.target_balance}</p></div>
+                  <div><span className="text-gray-500">Start</span><p className="text-white font-medium">{overview.challenge.start_date ? fmtTime(overview.challenge.start_date) : "—"}</p></div>
+                  <div><span className="text-gray-500">End</span><p className="text-white font-medium">{overview.challenge.end_date ? fmtTime(overview.challenge.end_date) : "—"}</p></div>
+                </div>
+              </div>
+            )}
+
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 mb-6">
               <StatCard icon={<Users size={16} />} label="Participants" value={(overview.totalParticipants || 0).toLocaleString()} sub={`Demo: ${overview.demoParticipants || 0} | Real: ${overview.realParticipants || 0}`} color="text-royal" />
               <StatCard icon={<Activity size={16} />} label="Total Trades" value={(overview.totalTrades || 0).toLocaleString()} sub={`Demo: ${overview.demoTrades || 0} (${overview.demoVolume || 0} lots) | Real: ${overview.realTrades || 0} (${overview.realVolume || 0} lots)`} color="text-white" />
@@ -613,6 +629,7 @@ export default function HostDashboardPage() {
                 <div className="flex flex-wrap gap-2">
                   <button onClick={() => doAction(`${API_URL}/api/host/challenge/${selectedChallengeId}/force-update`)} disabled={actionLoading} className="px-4 py-2.5 rounded-lg bg-royal/20 text-royal text-xs font-semibold border border-royal/30 hover:bg-royal/30 disabled:opacity-50 transition-all">Full Update + Evaluate + Rank</button>
                   <button onClick={() => doAction(`${API_URL}/api/host/challenge/${selectedChallengeId}/force-update-rank`)} disabled={actionLoading} className="px-4 py-2.5 rounded-lg bg-profit/20 text-profit text-xs font-semibold border border-profit/30 hover:bg-profit/30 disabled:opacity-50 transition-all">Update Non-DQ Only</button>
+                  <button onClick={() => doAction(`${API_URL}/api/host/challenge/${selectedChallengeId}/re-evaluate-user`, 'POST', {})} disabled={actionLoading} className="px-4 py-2.5 rounded-lg bg-cyan-500/20 text-cyan-400 text-xs font-semibold border border-cyan-500/30 hover:bg-cyan-500/30 disabled:opacity-50 transition-all">Re-evaluate All</button>
                   {failedAccounts?.credentialFailures?.length > 0 && (
                     <button onClick={() => doAction(`${API_URL}/api/host/challenge/${selectedChallengeId}/retry-credentials`)} disabled={actionLoading} className="px-4 py-2.5 rounded-lg bg-gold/20 text-gold text-xs font-semibold border border-gold/30 hover:bg-gold/30 disabled:opacity-50 transition-all">Retry All Credentials ({failedAccounts.credentialFailures.length})</button>
                   )}
@@ -893,15 +910,11 @@ export default function HostDashboardPage() {
                     <div><label className="text-xs text-gray-400 font-medium mb-1 block">Start (EAT)</label><input type="datetime-local" value={settingsForm.start_date || ""} onChange={e => setSettingsForm((p: any) => ({...p, start_date: e.target.value}))} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
                     <div><label className="text-xs text-gray-400 font-medium mb-1 block">End (EAT)</label><input type="datetime-local" value={settingsForm.end_date || ""} onChange={e => setSettingsForm((p: any) => ({...p, end_date: e.target.value}))} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
+                  {selectedChallenge?.deposit_mode === 'fixed' || !selectedChallenge?.deposit_mode ? (
                     <div><label className="text-xs text-gray-400 font-medium mb-1 block">Target Balance ($)</label><input value={settingsForm.target_balance || ""} onChange={e => setSettingsForm((p: any) => ({...p, target_balance: e.target.value}))} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
-                    <div><label className="text-xs text-gray-400 font-medium mb-1 block">Target Percent (%)</label><input value={settingsForm.target_percent || ""} onChange={e => setSettingsForm((p: any) => ({...p, target_percent: e.target.value}))} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div><label className="text-xs text-gray-400 font-medium mb-1 block">Real Winners #</label><input value={settingsForm.real_winners_count || ""} onChange={e => setSettingsForm((p: any) => ({...p, real_winners_count: e.target.value}))} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
-                    <div><label className="text-xs text-gray-400 font-medium mb-1 block">Demo Winners #</label><input value={settingsForm.demo_winners_count || ""} onChange={e => setSettingsForm((p: any) => ({...p, demo_winners_count: e.target.value}))} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
-                  </div>
-                  <div><label className="text-xs text-gray-400 font-medium mb-1 block">Prize Pool Text</label><input value={settingsForm.prize_pool_text || ""} onChange={e => setSettingsForm((p: any) => ({...p, prize_pool_text: e.target.value}))} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" placeholder="e.g., $100 Real + $50 Demo" /></div>
+                  ) : (
+                    <div><label className="text-xs text-gray-400 font-medium mb-1 block">Target Growth (%)</label><input value={settingsForm.target_percent || ""} onChange={e => setSettingsForm((p: any) => ({...p, target_percent: e.target.value}))} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
+                  )}
                   <button onClick={async () => {
                     setSettingsSaving(true);
                     const payload: any = {};
@@ -910,9 +923,6 @@ export default function HostDashboardPage() {
                     if (settingsForm.start_date) payload.start_date = settingsForm.start_date;
                     if (settingsForm.target_balance) payload.target_balance = parseFloat(settingsForm.target_balance);
                     if (settingsForm.target_percent) payload.target_percent = parseFloat(settingsForm.target_percent);
-                    if (settingsForm.real_winners_count !== "") payload.real_winners_count = parseInt(settingsForm.real_winners_count) || 0;
-                    if (settingsForm.demo_winners_count !== "") payload.demo_winners_count = parseInt(settingsForm.demo_winners_count) || 0;
-                    if (settingsForm.prize_pool_text) payload.prize_pool_text = settingsForm.prize_pool_text;
                     await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/settings`, { method: "PUT", headers: headers(), body: JSON.stringify(payload) });
                     setSettingsSaved(true); setSettingsSaving(false);
                     setTimeout(() => setSettingsSaved(false), 3000);
@@ -951,6 +961,24 @@ export default function HostDashboardPage() {
                         const blob = new Blob([csv], { type: 'text/csv' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `${(settingsForm.title || 'challenge').replace(/\s+/g, '_')}_leaderboard.csv`; a.click();
                       } catch { alert("Export failed"); }
                     }} className="p-2.5 rounded-lg bg-white/5 border border-white/10 text-gray-300 text-xs font-semibold hover:bg-white/10 transition-all">&#128202; Leaderboard CSV</button>
+                    <button onClick={async () => {
+                      try {
+                        const res = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/violations`, { headers: { Authorization: `Bearer ${getToken()}` } });
+                        const data = await res.json();
+                        const rows = (data.violations || []).flatMap((v: any) => (v.flagged_trades || []).map((t: any) => `${v.nickname},${t.symbol},${t.ticket},"${(t.violations || []).join('; ')}",${t.profit}`));
+                        const csv = "nickname,symbol,ticket,violations,profit\n" + rows.join("\n");
+                        const blob = new Blob([csv], { type: 'text/csv' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `${(settingsForm.title || 'challenge').replace(/\s+/g, '_')}_violations.csv`; a.click();
+                      } catch { alert("Export failed"); }
+                    }} className="p-2.5 rounded-lg bg-white/5 border border-white/10 text-gray-300 text-xs font-semibold hover:bg-white/10 transition-all">&#128203; Violations CSV</button>
+                    <button onClick={async () => {
+                      try {
+                        const res = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/full-participants`, { headers: { Authorization: `Bearer ${getToken()}` } });
+                        const data = await res.json();
+                        const rows = (data.participants || []).map((p: any) => `${p.rank||''},${p.nickname},${p.email||''},${p.accountNumber},${p.accountType},${p.lastKnownBalance||''},${p.qualifiedProfit||''},${p.totalTrades||0},${p.disqualified?'DQ':'Active'}`);
+                        const csv = "rank,nickname,email,account,type,balance,profit,trades,status\n" + rows.join("\n");
+                        const blob = new Blob([csv], { type: 'text/csv' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `${(settingsForm.title || 'challenge').replace(/\s+/g, '_')}_full_report.csv`; a.click();
+                      } catch { alert("Export failed"); }
+                    }} className="p-2.5 rounded-lg bg-white/5 border border-white/10 text-gray-300 text-xs font-semibold hover:bg-white/10 transition-all">&#128203; Full Report CSV</button>
                   </div>
                 </div>
 
@@ -1231,7 +1259,22 @@ function CreateChallengeModal({ createStep, setCreateStep, createForm, setCreate
                   <div className="mt-3"><label className="text-xs text-gray-400 mb-1 block">Demo Prizes (comma separated)</label><input value={createForm.demo_prizes} onChange={(e: any) => setCreateForm({...createForm, demo_prizes: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" placeholder="$50, $30, $20" /></div>
                 </div>
 
-                <button onClick={() => setCreateStep(2)} disabled={!createForm.title || !createForm.start_date || !createForm.end_date} className="w-full py-3 rounded-xl bg-royal text-white font-semibold disabled:opacity-40 mt-2">Next: Rules</button>
+                {/* Registration Mode */}
+                <div className="border-t border-white/10 pt-4 mt-4">
+                  <p className="text-xs text-gray-300 font-semibold mb-3 uppercase tracking-wider">Registration Mode</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <button type="button" onClick={() => setCreateForm({...createForm, registration_mode: 'winnerpip'})} className={`p-3 rounded-xl border text-center transition-all ${createForm.registration_mode === 'winnerpip' ? 'bg-royal/20 border-royal/40 text-royal' : 'bg-white/5 border-white/10 text-gray-400 hover:text-white'}`}>
+                      <p className="text-sm font-semibold">Online</p>
+                      <p className="text-[10px] mt-0.5 opacity-70">Users register on WinnerPip</p>
+                    </button>
+                    <button type="button" onClick={() => setCreateForm({...createForm, registration_mode: 'manual'})} className={`p-3 rounded-xl border text-center transition-all ${createForm.registration_mode === 'manual' ? 'bg-gold/20 border-gold/40 text-gold' : 'bg-white/5 border-white/10 text-gray-400 hover:text-white'}`}>
+                      <p className="text-sm font-semibold">Manual (CSV)</p>
+                      <p className="text-[10px] mt-0.5 opacity-70">Upload participant list</p>
+                    </button>
+                  </div>
+                </div>
+
+                <button onClick={() => setCreateStep(2)} disabled={!createForm.title || !createForm.start_date || !createForm.end_date} className="w-full py-3 rounded-xl bg-royal text-white font-semibold disabled:opacity-40 mt-4">Next: Rules</button>
               </div>
             )}
 
@@ -1400,6 +1443,7 @@ function CreateChallengeModal({ createStep, setCreateStep, createForm, setCreate
                   <div className="flex justify-between py-2 border-b border-white/5"><span className="text-gray-500">Demo Winners</span><span className="text-white">{createForm.demo_winners_count || "0"}</span></div>
                   {createForm.real_prizes && <div className="flex justify-between py-2 border-b border-white/5"><span className="text-gray-500">Real Prizes</span><span className="text-white">{createForm.real_prizes}</span></div>}
                   {createForm.demo_prizes && <div className="flex justify-between py-2 border-b border-white/5"><span className="text-gray-500">Demo Prizes</span><span className="text-white">{createForm.demo_prizes}</span></div>}
+                  <div className="flex justify-between py-2 border-b border-white/5"><span className="text-gray-500">Registration</span><span className="text-white">{createForm.registration_mode === 'winnerpip' ? 'Online (WinnerPip)' : 'Manual (CSV)'}</span></div>
 
                   <p className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider mt-4 mb-2">Rules</p>
                   {createRules.rules_enabled.max_lot_size && <div className="flex justify-between py-1.5"><span className="text-gray-500">Max Lot Size</span><span className="text-white">{createRules.max_lot_size}</span></div>}
