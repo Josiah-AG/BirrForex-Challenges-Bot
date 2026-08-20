@@ -60,6 +60,23 @@ router.get('/challenge/:id/full-overview', async (req: any, res: Response) => {
     const totalTrades = parseInt(trades.rows[0]?.total || '0');
     const totalViolations = parseInt(trades.rows[0]?.flagged || '0');
 
+    // Basic metrics (matching admin overview Trading Insights)
+    const blownReal = await db.query(`SELECT COUNT(*) as cnt FROM wp_leaderboard WHERE challenge_id=$1 AND is_blown=true AND account_type='real'`, [challengeId]);
+    const blownDemo = await db.query(`SELECT COUNT(*) as cnt FROM wp_leaderboard WHERE challenge_id=$1 AND is_blown=true AND account_type='demo'`, [challengeId]);
+    const dqReal = await db.query(`SELECT COUNT(*) as cnt FROM wp_leaderboard WHERE challenge_id=$1 AND is_disqualified=true AND account_type='real'`, [challengeId]);
+    const dqDemo = await db.query(`SELECT COUNT(*) as cnt FROM wp_leaderboard WHERE challenge_id=$1 AND is_disqualified=true AND account_type='demo'`, [challengeId]);
+    const avgTradesReal = await db.query(`SELECT ROUND(AVG(total_trades)) as avg FROM wp_leaderboard WHERE challenge_id=$1 AND account_type='real' AND total_trades > 0`, [challengeId]);
+    const avgTradesDemo = await db.query(`SELECT ROUND(AVG(total_trades)) as avg FROM wp_leaderboard WHERE challenge_id=$1 AND account_type='demo' AND total_trades > 0`, [challengeId]);
+
+    const challengeType = c.type || 'hybrid';
+    const metrics: any = { challengeType };
+    if (challengeType === 'hybrid') {
+      metrics.real = { blownAccounts: parseInt(blownReal.rows[0]?.cnt || '0'), disqualifiedAccounts: parseInt(dqReal.rows[0]?.cnt || '0'), avgTradesPerUser: parseInt(avgTradesReal.rows[0]?.avg || '0') };
+      metrics.demo = { blownAccounts: parseInt(blownDemo.rows[0]?.cnt || '0'), disqualifiedAccounts: parseInt(dqDemo.rows[0]?.cnt || '0'), avgTradesPerUser: parseInt(avgTradesDemo.rows[0]?.avg || '0') };
+    } else {
+      metrics.combined = { blownAccounts: parseInt(blownReal.rows[0]?.cnt || '0') + parseInt(blownDemo.rows[0]?.cnt || '0'), disqualifiedAccounts: parseInt(dqReal.rows[0]?.cnt || '0') + parseInt(dqDemo.rows[0]?.cnt || '0'), avgTradesPerUser: parseInt(avgTradesReal.rows[0]?.avg || '0') || parseInt(avgTradesDemo.rows[0]?.avg || '0') };
+    }
+
     return res.json({
       challenge: c,
       totalParticipants,
@@ -74,6 +91,7 @@ router.get('/challenge/:id/full-overview', async (req: any, res: Response) => {
       pullsToday: parseInt(pullsToday.rows[0]?.cnt || '0'),
       lastPull: lastPull.rows[0] || null,
       topViolations: topViolations.rows.map((v: any) => ({ rule: v.rule, count: parseInt(v.cnt) })),
+      metrics,
     });
   } catch (error) {
     console.error('Host full overview error:', error);

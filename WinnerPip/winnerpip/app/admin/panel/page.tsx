@@ -2602,6 +2602,8 @@ function CreateChallengePanel({ onCreated }: { onCreated: (id: number) => void }
               <ReviewRow label="Daily Loss Cap" value={rules.daily_loss_mode === 'percentage' ? `${rules.daily_loss_percent}% of day balance` : (rules.only_cent_account && form.type !== "demo" ? `${rules.daily_loss_cap}¢` : `$${rules.daily_loss_cap}`)} />
               <ReviewRow label="Max Risk" value={rules.max_risk_mode === 'percentage' ? `${rules.max_risk_percent}% of balance` : (rules.only_cent_account && form.type !== "demo" ? `${rules.max_risk_dollars}¢` : `$${rules.max_risk_dollars}`)} />
               <ReviewRow label="Min Active Days" value={String(rules.min_active_days)} />
+              {rules.rules_enabled?.min_trade_duration && rules.min_trade_duration_minutes && <ReviewRow label="Min Trade Duration" value={`${rules.min_trade_duration_minutes} min`} />}
+              {rules.rules_enabled?.min_total_trades && rules.min_total_trades && <ReviewRow label="Min Total Trades" value={String(rules.min_total_trades)} />}
               {rules.only_cent_account && <ReviewRow label="Cent Account" value="Required" />}
             </div>
             {error && <div className="p-3 rounded-xl bg-loss/10 border border-loss/30 mb-4"><p className="text-sm text-loss">{error}</p></div>}

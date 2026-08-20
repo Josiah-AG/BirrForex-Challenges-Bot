@@ -143,6 +143,7 @@ export default function HostDashboardPage() {
             pullsFailed: data.lastPull?.failed || 0,
             lastPullTime: data.lastPull?.started_at ? fmtTime(data.lastPull.started_at) : "—",
             topViolations: data.topViolations || [],
+            metrics: data.metrics || null,
           });
         } else {
           // Even if API fails, show an empty overview so page isn't blank
