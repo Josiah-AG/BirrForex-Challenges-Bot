@@ -600,3 +600,16 @@ Created `src/api/hostRoutes.ts` mounted at `/api/host` with ownership verificati
 ### REMAINING (Next Session):
 - **Frontend rebuild of host dashboard** — port admin panel UI (Overview, Participants, Leaderboard, Violations, Updates, Settings tabs) to match admin exactly, using the 16 new API endpoints
 - This is the final piece — API is ready, just needs the UI
+
+### REMAINING (Critical — Next Session Priority):
+- **Host dashboard visual parity with admin** — the structure/tabs/API calls are all correct but the UI within each tab needs to match admin's visual density:
+  - Overview: needs the same StatCard component with icons + colored text, same grid layout
+  - Participants: needs search bar, category filter tabs (Total/Demo/Real/Due For), full table with all columns (nickname, username, email, account, type, balance, profit, trades, actions), proper detail modal with balance chart
+  - Leaderboard: needs full table layout (not cards) with columns: rank, nickname, account, type, balance/gross, trades, pass%, profit, violations. Clickable rows.
+  - Violations: needs same card layout as admin (nickname + account + flag count + $ removed)
+  - Updates: needs more action buttons matching admin (Full Update + Evaluate + Rank, View Failed Accounts button). Credential failures need Retry + Update PW buttons per account.
+  - Rules: needs 2-column grid layout matching admin exactly (with Fixed/%Balance toggles, descriptions under each rule, "Always enforced" notes)
+  - Settings: needs full form matching admin (title, type, start/end dates, balance, target, prize pool text) + colored status action buttons (Open Reg green, Start blue gradient, End + Review gold, Completed gray) + exports section (Registrations CSV, Leaderboard CSV) + no Announce button + no OHLC + no debug log
+  
+  Reference: read admin/panel/page.tsx lines 571-1780 for the exact UI patterns to port.
+  The host file currently at WinnerPip/winnerpip/app/host/dashboard/page.tsx has the correct API wiring — just needs the JSX within each tab section to be replaced with admin-matching markup.
