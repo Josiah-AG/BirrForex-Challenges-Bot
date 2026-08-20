@@ -20,11 +20,13 @@ function LoginForm() {
   const [error, setError] = useState("");
   const [isTeamOnly, setIsTeamOnly] = useState(false);
   const [challengeTitle, setChallengeTitle] = useState("");
+  const [isHosted, setIsHosted] = useState(false);
+  const [registrationMode, setRegistrationMode] = useState<string | null>(null);
 
   const botUsername = "birrforex_challenge_bot";
   const discordInvite = process.env.NEXT_PUBLIC_DISCORD_INVITE || "https://discord.gg/birrforex";
 
-  // Check if challenge is team-only
+  // Check if challenge is team-only or hosted
   useState(() => {
     if (challengeId) {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
@@ -35,6 +37,10 @@ function LoginForm() {
           if (challenge?.teamOnly) {
             setIsTeamOnly(true);
             setChallengeTitle(challenge.title);
+          }
+          if (challenge?.hostId) {
+            setIsHosted(true);
+            setRegistrationMode(challenge.registrationMode || 'manual');
           }
         })
         .catch(() => {});
@@ -215,6 +221,26 @@ function LoginForm() {
                     Already registered? Sign in above with your account number and investor password.
                   </p>
                 </>
+              ) : isHosted ? (
+                registrationMode === 'winnerpip' ? (
+                  <>
+                    <p className="text-center text-sm text-gray-400 mb-4">Haven&apos;t registered yet?</p>
+                    <a
+                      href="/challenges"
+                      className="w-full flex items-center justify-center gap-2 p-4 rounded-xl bg-royal/20 border border-royal/30 hover:bg-royal/30 text-royal font-semibold transition-all text-sm"
+                    >
+                      Register on WinnerPip
+                      <ArrowRight size={14} />
+                    </a>
+                    <p className="text-center text-xs text-gray-500 mt-3">
+                      Find this challenge on the challenges page and click Register Now.
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-center text-xs text-gray-500">
+                    Registration is managed by the challenge host. If you&apos;ve been registered, sign in above with your MT5 account credentials.
+                  </p>
+                )
               ) : (
                 <>
                   <p className="text-center text-sm text-gray-400 mb-4">Haven&apos;t registered yet?</p>
