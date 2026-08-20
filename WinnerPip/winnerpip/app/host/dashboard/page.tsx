@@ -78,6 +78,11 @@ export default function HostDashboardPage() {
   const [actionModal, setActionModal] = useState<any>(null);
   const [actionMessage, setActionMessage] = useState("");
 
+  // CSV Upload
+  const [csvUploading, setCsvUploading] = useState(false);
+  const [csvResult, setCsvResult] = useState<any>(null);
+  const [csvStatus, setCsvStatus] = useState<any>(null);
+
   const getToken = () => localStorage.getItem("host_token") || "";
   const headers = () => ({ Authorization: `Bearer ${getToken()}`, 'Content-Type': 'application/json' });
   const selectedChallenge = challenges.find(c => c.id === selectedChallengeId);
@@ -153,6 +158,11 @@ export default function HostDashboardPage() {
       } else if (activeTab === "participants") {
         const res = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/full-participants`, { headers: h });
         if (res.ok) { const d = await res.json(); setParticipants(d.participants || []); setParticipantsPagination(d.pagination); }
+        // Also fetch CSV upload status
+        try {
+          const csvRes = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/csv-status`, { headers: h });
+          if (csvRes.ok) setCsvStatus(await csvRes.json());
+        } catch {}
       } else if (activeTab === "leaderboard") {
         const res = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/leaderboard`, { headers: h });
         if (res.ok) { const d = await res.json(); setLeaderboard(d.leaderboard || []); }
@@ -427,6 +437,75 @@ export default function HostDashboardPage() {
           {/* ===== PARTICIPANTS ===== */}
           {activeTab === "participants" && (
             <div className="space-y-6">
+              {/* CSV Upload Section */}
+              <div className="glass rounded-2xl border border-white/10 p-5">
+                <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2"><FileText size={16} className="text-gold" /> Upload Participants (CSV)</h3>
+                <p className="text-[10px] text-gray-500 mb-3">Upload a CSV file with columns: nickname, account_type (demo/real), account_number, server, investor_password</p>
+                <div className="flex items-center gap-3">
+                  <label className="flex-1 cursor-pointer">
+                    <input type="file" accept=".csv,.txt" className="hidden" onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      setCsvUploading(true); setCsvResult(null);
+                      try {
+                        const text = await file.text();
+                        const lines = text.trim().split('\n');
+                        const header = lines[0].toLowerCase();
+                        const hasHeader = header.includes('nickname') || header.includes('account');
+                        const dataLines = hasHeader ? lines.slice(1) : lines;
+                        const participants = dataLines.filter(l => l.trim()).map(line => {
+                          const cols = line.split(',').map(c => c.trim().replace(/^["']|["']$/g, ''));
+                          return { nickname: cols[0], accountType: cols[1], accountNumber: cols[2], server: cols[3], investorPassword: cols[4] };
+                        }).filter(p => p.nickname && p.accountNumber && p.server && p.investorPassword);
+                        if (participants.length === 0) { setCsvResult({ error: 'No valid rows found. Expected: nickname, account_type, account_number, server, investor_password' }); setCsvUploading(false); return; }
+                        const res = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/upload-csv`, { method: 'POST', headers: headers(), body: JSON.stringify({ participants }) });
+                        const data = await res.json();
+                        if (res.ok && data.success) { setCsvResult({ success: true, count: data.totalRows }); } else { setCsvResult({ error: data.error || 'Upload failed' }); }
+                      } catch { setCsvResult({ error: 'Failed to read file' }); }
+                      setCsvUploading(false);
+                      e.target.value = '';
+                    }} />
+                    <div className="p-3 rounded-xl bg-gold/10 border border-gold/20 text-center hover:bg-gold/20 transition-all">
+                      <p className="text-sm font-semibold text-gold">{csvUploading ? "Uploading..." : "Choose CSV File"}</p>
+                    </div>
+                  </label>
+                </div>
+                {csvResult?.success && <p className="text-xs text-profit mt-3">Uploaded {csvResult.count} participants. Pending admin approval for verification.</p>}
+                {csvResult?.error && <p className="text-xs text-loss mt-3">{csvResult.error}</p>}
+
+                {/* Upload History & Status */}
+                {csvStatus?.uploads?.length > 0 && (
+                  <div className="mt-4 space-y-2">
+                    <p className="text-[10px] text-gray-400 font-semibold uppercase">Upload History</p>
+                    {csvStatus.uploads.map((u: any) => (
+                      <div key={u.id} className={`p-3 rounded-lg border ${u.status === 'processed' ? 'bg-profit/5 border-profit/20' : u.status === 'pending' ? 'bg-gold/5 border-gold/20' : 'bg-white/5 border-white/10'}`}>
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <span className={`text-xs font-semibold ${u.status === 'processed' ? 'text-profit' : u.status === 'pending' ? 'text-gold' : 'text-gray-300'}`}>{u.status === 'processed' ? 'Processed' : u.status === 'pending' ? 'Pending Approval' : u.status}</span>
+                            <p className="text-[10px] text-gray-500 mt-0.5">{u.total_rows} rows &bull; {u.uploaded_at ? fmtTime(u.uploaded_at) : ''}</p>
+                          </div>
+                          {u.status === 'processed' && <span className="text-[10px] text-gray-400">{u.verified_count} verified &bull; {u.failed_count} failed</span>}
+                        </div>
+                      </div>
+                    ))}
+                    {/* Show row details for latest processed upload */}
+                    {csvStatus.rowDetails?.length > 0 && (
+                      <details className="mt-2">
+                        <summary className="text-[10px] text-royal cursor-pointer hover:underline">View row details ({csvStatus.rowDetails.length} rows)</summary>
+                        <div className="mt-2 space-y-1 max-h-48 overflow-y-auto">
+                          {csvStatus.rowDetails.map((r: any, i: number) => (
+                            <div key={i} className={`flex items-center justify-between p-2 rounded-lg text-xs ${r.status === 'verified' ? 'bg-profit/5' : 'bg-loss/5'}`}>
+                              <span className="text-white font-medium">{r.nickname} ({r.account_number})</span>
+                              <span className={r.status === 'verified' ? 'text-profit' : 'text-loss'}>{r.status === 'verified' ? 'Verified' : r.error_message || 'Failed'}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </details>
+                    )}
+                  </div>
+                )}
+              </div>
+
               {/* Search Bar */}
               <div className="glass rounded-2xl border border-white/10 p-5">
                 <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2"><Users size={16} className="text-royal" /> Find User</h3>
