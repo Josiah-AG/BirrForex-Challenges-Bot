@@ -62,7 +62,7 @@ app.use(cors({
   credentials: true,
 }));
 
-app.use(express.json({ limit: '10kb' })); // Limit body size for DDoS protection
+app.use(express.json({ limit: '50kb' })); // Limit body size for DDoS protection
 
 // ==================== ADMIN SECURITY: IP WHITELIST + SECRET PATH ====================
 
