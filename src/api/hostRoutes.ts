@@ -61,8 +61,8 @@ router.get('/challenge/:id/full-overview', async (req: any, res: Response) => {
     const totalViolations = parseInt(trades.rows[0]?.flagged || '0');
 
     // Basic metrics (matching admin overview Trading Insights)
-    const blownReal = await db.query(`SELECT COUNT(*) as cnt FROM wp_leaderboard WHERE challenge_id=$1 AND is_blown=true AND account_type='real'`, [challengeId]);
-    const blownDemo = await db.query(`SELECT COUNT(*) as cnt FROM wp_leaderboard WHERE challenge_id=$1 AND is_blown=true AND account_type='demo'`, [challengeId]);
+    const blownReal = await db.query(`SELECT COUNT(*) as cnt FROM wp_leaderboard WHERE challenge_id=$1 AND zero_balance_at IS NOT NULL AND account_type='real'`, [challengeId]);
+    const blownDemo = await db.query(`SELECT COUNT(*) as cnt FROM wp_leaderboard WHERE challenge_id=$1 AND zero_balance_at IS NOT NULL AND account_type='demo'`, [challengeId]);
     const dqReal = await db.query(`SELECT COUNT(*) as cnt FROM wp_leaderboard WHERE challenge_id=$1 AND is_disqualified=true AND account_type='real'`, [challengeId]);
     const dqDemo = await db.query(`SELECT COUNT(*) as cnt FROM wp_leaderboard WHERE challenge_id=$1 AND is_disqualified=true AND account_type='demo'`, [challengeId]);
     const avgTradesReal = await db.query(`SELECT ROUND(AVG(total_trades)) as avg FROM wp_leaderboard WHERE challenge_id=$1 AND account_type='real' AND total_trades > 0`, [challengeId]);
