@@ -1050,7 +1050,6 @@ export default function HostDashboardPage() {
                     <div><label className="text-xs text-gray-400 font-medium mb-1 block">Starting Balance ($)</label><input value={settingsForm.starting_balance || ""} onChange={e => setSettingsForm((p: any) => ({...p, starting_balance: e.target.value}))} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
                     <div><label className="text-xs text-gray-400 font-medium mb-1 block">Target Balance ($)</label><input value={settingsForm.target_balance || ""} onChange={e => setSettingsForm((p: any) => ({...p, target_balance: e.target.value}))} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
                   </div>
-                  <div><label className="text-xs text-gray-400 font-medium mb-1 block">Prize Pool Text</label><input value={settingsForm.prize_pool_text || ""} onChange={e => setSettingsForm((p: any) => ({...p, prize_pool_text: e.target.value}))} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" placeholder="e.g., 1350 USD" /></div>
                   <button onClick={async () => {
                     setSettingsSaving(true);
                     const payload: any = {};
@@ -1060,7 +1059,6 @@ export default function HostDashboardPage() {
                     if (settingsForm.start_date) payload.start_date = settingsForm.start_date;
                     if (settingsForm.starting_balance) payload.starting_balance = parseFloat(settingsForm.starting_balance);
                     if (settingsForm.target_balance) payload.target_balance = parseFloat(settingsForm.target_balance);
-                    if (settingsForm.prize_pool_text !== undefined) payload.prize_pool_text = settingsForm.prize_pool_text;
                     await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/settings`, { method: "PUT", headers: headers(), body: JSON.stringify(payload) });
                     setSettingsSaved(true); setSettingsSaving(false);
                     setTimeout(() => setSettingsSaved(false), 3000);
@@ -1127,6 +1125,51 @@ export default function HostDashboardPage() {
                         const blob = new Blob([html], { type: 'text/html' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `${(settingsForm.title || 'challenge').replace(/\s+/g, '_')}_rules.html`; a.click();
                       } catch { alert("Export failed"); }
                     }} className="p-2.5 rounded-lg bg-royal/10 border border-royal/30 text-royal text-xs font-semibold hover:bg-royal/20 transition-all">&#128203; Rules Image</button>
+                  </div>
+                </div>
+
+                {/* Stat Exports */}
+                <div className="border-t border-white/10 pt-5">
+                  <p className="text-xs text-gray-400 font-semibold mb-3 uppercase tracking-wider">Stat Exports</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {(settingsForm.type || selectedChallenge?.type) === 'hybrid' ? (<>
+                      <button onClick={async () => {
+                        try {
+                          const res = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/leaderboard`, { headers: { Authorization: `Bearer ${getToken()}` } });
+                          const data = await res.json();
+                          const lb = (data.leaderboard || []).filter((e: any) => e.accountType === 'real' && !e.isDisqualified).slice(0, 10);
+                          const html = `<html><head><style>body{background:#0a0e1a;color:#fff;font-family:system-ui;padding:40px}h1{color:#f59e0b;margin-bottom:20px}table{width:100%;border-collapse:collapse}th,td{padding:10px 12px;text-align:left;border-bottom:1px solid rgba(255,255,255,0.1)}th{color:#6b7280;font-size:11px;text-transform:uppercase}td{font-size:13px}.rank{color:#f59e0b;font-weight:bold}</style></head><body><h1>${settingsForm.title || 'Challenge'} - Real Leaderboard</h1><table><tr><th>#</th><th>Nickname</th><th>Balance</th><th>Trades</th></tr>${lb.map((e: any, i: number) => `<tr><td class="rank">${i+1}</td><td>${e.nickname}</td><td>$${Number(e.adjustedBalance||0).toFixed(2)}</td><td>${e.totalTrades||0}</td></tr>`).join('')}</table></body></html>`;
+                          const blob = new Blob([html], { type: 'text/html' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `${(settingsForm.title || 'challenge').replace(/\s+/g, '_')}_real_leaderboard.html`; a.click();
+                        } catch { alert("Export failed"); }
+                      }} className="p-2.5 rounded-lg bg-gold/10 border border-gold/30 text-gold text-xs font-semibold hover:bg-gold/20 transition-all">&#127942; Real Leaderboard</button>
+                      <button onClick={async () => {
+                        try {
+                          const res = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/leaderboard`, { headers: { Authorization: `Bearer ${getToken()}` } });
+                          const data = await res.json();
+                          const lb = (data.leaderboard || []).filter((e: any) => e.accountType === 'demo' && !e.isDisqualified).slice(0, 10);
+                          const html = `<html><head><style>body{background:#0a0e1a;color:#fff;font-family:system-ui;padding:40px}h1{color:#6366f1;margin-bottom:20px}table{width:100%;border-collapse:collapse}th,td{padding:10px 12px;text-align:left;border-bottom:1px solid rgba(255,255,255,0.1)}th{color:#6b7280;font-size:11px;text-transform:uppercase}td{font-size:13px}.rank{color:#6366f1;font-weight:bold}</style></head><body><h1>${settingsForm.title || 'Challenge'} - Demo Leaderboard</h1><table><tr><th>#</th><th>Nickname</th><th>Balance</th><th>Trades</th></tr>${lb.map((e: any, i: number) => `<tr><td class="rank">${i+1}</td><td>${e.nickname}</td><td>$${Number(e.adjustedBalance||0).toFixed(2)}</td><td>${e.totalTrades||0}</td></tr>`).join('')}</table></body></html>`;
+                          const blob = new Blob([html], { type: 'text/html' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `${(settingsForm.title || 'challenge').replace(/\s+/g, '_')}_demo_leaderboard.html`; a.click();
+                        } catch { alert("Export failed"); }
+                      }} className="p-2.5 rounded-lg bg-gold/10 border border-gold/30 text-gold text-xs font-semibold hover:bg-gold/20 transition-all">&#127942; Demo Leaderboard</button>
+                    </>) : (
+                      <button onClick={async () => {
+                        try {
+                          const res = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/leaderboard`, { headers: { Authorization: `Bearer ${getToken()}` } });
+                          const data = await res.json();
+                          const lb = (data.leaderboard || []).filter((e: any) => !e.isDisqualified).slice(0, 10);
+                          const html = `<html><head><style>body{background:#0a0e1a;color:#fff;font-family:system-ui;padding:40px}h1{color:#f59e0b;margin-bottom:20px}table{width:100%;border-collapse:collapse}th,td{padding:10px 12px;text-align:left;border-bottom:1px solid rgba(255,255,255,0.1)}th{color:#6b7280;font-size:11px;text-transform:uppercase}td{font-size:13px}.rank{color:#f59e0b;font-weight:bold}</style></head><body><h1>${settingsForm.title || 'Challenge'} - Leaderboard</h1><table><tr><th>#</th><th>Nickname</th><th>Balance</th><th>Trades</th></tr>${lb.map((e: any, i: number) => `<tr><td class="rank">${i+1}</td><td>${e.nickname}</td><td>$${Number(e.adjustedBalance||0).toFixed(2)}</td><td>${e.totalTrades||0}</td></tr>`).join('')}</table></body></html>`;
+                          const blob = new Blob([html], { type: 'text/html' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `${(settingsForm.title || 'challenge').replace(/\s+/g, '_')}_leaderboard.html`; a.click();
+                        } catch { alert("Export failed"); }
+                      }} className="p-2.5 rounded-lg bg-gold/10 border border-gold/30 text-gold text-xs font-semibold hover:bg-gold/20 transition-all">&#127942; Leaderboard Image</button>
+                    )}
+                    <button onClick={async () => {
+                      try {
+                        const res = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/full-overview`, { headers: { Authorization: `Bearer ${getToken()}` } });
+                        const data = await res.json();
+                        const html = `<html><head><style>body{background:#0a0e1a;color:#fff;font-family:system-ui;padding:40px}h1{color:#6366f1;margin-bottom:20px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.card{background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:16px}.label{color:#6b7280;font-size:10px;text-transform:uppercase}.value{font-size:20px;font-weight:bold;margin-top:4px}</style></head><body><h1>${settingsForm.title || 'Challenge'} Stats</h1><div class="grid"><div class="card"><div class="label">Participants</div><div class="value">${data.totalParticipants||0}</div></div><div class="card"><div class="label">Total Trades</div><div class="value">${data.totalTrades||0}</div></div><div class="card"><div class="label">Violations</div><div class="value" style="color:#ef4444">${data.totalViolations||0}</div></div><div class="card"><div class="label">Above Target</div><div class="value" style="color:#f59e0b">${data.aboveTarget||0}</div></div></div></body></html>`;
+                        const blob = new Blob([html], { type: 'text/html' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `${(settingsForm.title || 'challenge').replace(/\s+/g, '_')}_stats.html`; a.click();
+                      } catch { alert("Export failed"); }
+                    }} className="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-semibold hover:bg-amber-500/20 transition-all">&#128202; Challenge Stats</button>
                   </div>
                 </div>
 
@@ -1393,7 +1436,26 @@ function CreateChallengeModal({ createStep, setCreateStep, createForm, setCreate
                 <div><label className="text-xs text-gray-400 mb-1 block">Timezone</label><select value={createForm.timezone} onChange={(e: any) => setCreateForm({...createForm, timezone: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none"><option value="Africa/Nairobi">East Africa (Nairobi) UTC+3</option><option value="Asia/Dubai">UAE (Dubai) UTC+4</option><option value="Europe/London">UK (London)</option><option value="America/New_York">US Eastern</option><option value="Asia/Shanghai">China (Shanghai)</option><option value="UTC">UTC</option></select></div>
                 <div className="grid grid-cols-2 gap-3">
                   <div><label className="text-xs text-gray-400 mb-1 block">Starting Balance ($)</label><input value={createForm.starting_balance} onChange={(e: any) => setCreateForm({...createForm, starting_balance: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
-                  <div><label className="text-xs text-gray-400 mb-1 block">Target Balance ($)</label><input value={createForm.target_balance} onChange={(e: any) => setCreateForm({...createForm, target_balance: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
+                  {createForm.deposit_mode === 'fixed' ? (
+                    <div><label className="text-xs text-gray-400 mb-1 block">Target Balance ($)</label><input value={createForm.target_balance} onChange={(e: any) => setCreateForm({...createForm, target_balance: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
+                  ) : (
+                    <div><label className="text-xs text-gray-400 mb-1 block">Target Growth (%)</label><input value={createForm.target_percent} onChange={(e: any) => setCreateForm({...createForm, target_percent: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" placeholder="e.g., 100" /></div>
+                  )}
+                </div>
+
+                {/* Deposit Mode */}
+                <div>
+                  <label className="text-xs text-gray-400 mb-2 block">Deposit Mode</label>
+                  <div className="grid grid-cols-3 gap-2">
+                    <button type="button" onClick={() => setCreateForm({...createForm, deposit_mode: 'fixed'})} className={`p-2.5 rounded-xl border text-center text-xs font-semibold transition-all ${createForm.deposit_mode === 'fixed' ? 'border-royal bg-royal/10 text-royal' : 'border-white/20 text-gray-400 hover:border-white/30'}`}>Fixed Deposit</button>
+                    <button type="button" onClick={() => setCreateForm({...createForm, deposit_mode: 'max_limit'})} className={`p-2.5 rounded-xl border text-center text-xs font-semibold transition-all ${createForm.deposit_mode === 'max_limit' ? 'border-gold bg-gold/10 text-gold' : 'border-white/20 text-gray-400 hover:border-white/30'}`}>Max Limit</button>
+                    <button type="button" onClick={() => setCreateForm({...createForm, deposit_mode: 'min_limit'})} className={`p-2.5 rounded-xl border text-center text-xs font-semibold transition-all ${createForm.deposit_mode === 'min_limit' ? 'border-profit bg-profit/10 text-profit' : 'border-white/20 text-gray-400 hover:border-white/30'}`}>Min Limit</button>
+                  </div>
+                  <div className="mt-2 p-2.5 rounded-lg bg-white/5 border border-white/5">
+                    {createForm.deposit_mode === 'fixed' && <p className="text-[11px] text-gray-400"><span className="text-royal font-semibold">Fixed Deposit:</span> All participants start with the same balance. Target is a fixed dollar amount. Leaderboard ranked by balance. Best for equal-start competitions.</p>}
+                    {createForm.deposit_mode === 'max_limit' && <p className="text-[11px] text-gray-400"><span className="text-gold font-semibold">Max Limit:</span> Participants can deposit any amount up to a maximum cap. Target is in growth %. SL and drawdown rules must be in %. Leaderboard ranked by growth %. Best for flexible-entry challenges.</p>}
+                    {createForm.deposit_mode === 'min_limit' && <p className="text-[11px] text-gray-400"><span className="text-profit font-semibold">Min Limit:</span> Participants must deposit at least a minimum amount. Target is in growth %. SL and drawdown rules must be in %. Leaderboard ranked by growth %. Best for serious traders.</p>}
+                  </div>
                 </div>
 
                 {/* Rewards Section */}
@@ -1588,7 +1650,9 @@ function CreateChallengeModal({ createStep, setCreateStep, createForm, setCreate
                   <p className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider mb-2">Challenge Details</p>
                   <div className="flex justify-between py-2 border-b border-white/5"><span className="text-gray-500">Title</span><span className="text-white font-medium">{createForm.title}</span></div>
                   <div className="flex justify-between py-2 border-b border-white/5"><span className="text-gray-500">Type</span><span className="text-white capitalize">{createForm.type}</span></div>
-                  <div className="flex justify-between py-2 border-b border-white/5"><span className="text-gray-500">Balance</span><span className="text-white">${createForm.starting_balance} &rarr; ${createForm.target_balance}</span></div>
+                  <div className="flex justify-between py-2 border-b border-white/5"><span className="text-gray-500">Deposit Mode</span><span className="text-white">{createForm.deposit_mode === 'max_limit' ? 'Max Limit' : createForm.deposit_mode === 'min_limit' ? 'Min Limit' : 'Fixed'}</span></div>
+                  <div className="flex justify-between py-2 border-b border-white/5"><span className="text-gray-500">{createForm.deposit_mode === 'fixed' ? 'Balance' : createForm.deposit_mode === 'max_limit' ? 'Max Deposit' : 'Min Deposit'}</span><span className="text-white">${createForm.starting_balance}</span></div>
+                  <div className="flex justify-between py-2 border-b border-white/5"><span className="text-gray-500">Target</span><span className="text-white">{createForm.deposit_mode !== 'fixed' ? `${createForm.target_percent}% growth` : `$${createForm.target_balance}`}</span></div>
                   <div className="flex justify-between py-2 border-b border-white/5"><span className="text-gray-500">Timezone</span><span className="text-white">{createForm.timezone}</span></div>
 
                   <p className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider mt-4 mb-2">Rewards</p>
