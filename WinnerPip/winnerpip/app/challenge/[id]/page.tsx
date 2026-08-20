@@ -31,7 +31,7 @@ interface LeaderboardEntry {
 }
 interface ChallengeInfo {
   id: number; title: string; status: string;
-  startDate: string; endDate: string;
+  startDate: string; endDate: string; timezone?: string;
   startingBalance: number; myStartingBalance?: number; targetBalance: number;
   winnersCount: number; realWinnersCount: number; demoWinnersCount: number;
   onlyCentAccount?: boolean;
@@ -348,19 +348,13 @@ export default function ChallengeDashboard() {
     return accountType.charAt(0).toUpperCase() + accountType.slice(1);
   };
 
-  // Format date helper (shows in EAT)
+  // Format date helper (uses challenge timezone)
+  const challengeTz = challenge?.timezone || 'Africa/Nairobi';
   const formatDate = (dateStr: string) => {
-    const d = new Date(dateStr);
-    const eat = new Date(d.getTime() + 3 * 60 * 60 * 1000);
-    const month = eat.toLocaleString("en-US", { month: "short", timeZone: "UTC" });
-    const day = eat.getUTCDate();
-    const h = eat.getUTCHours().toString().padStart(2, "0");
-    const m = eat.getUTCMinutes().toString().padStart(2, "0");
-    return `${month} ${day}, ${h}:${m}`;
+    return new Date(dateStr).toLocaleString("en-US", { timeZone: challengeTz, month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
   };
   const formatTimeEAT = (dateStr: string) => {
-    const d = new Date(new Date(dateStr).getTime() + 3 * 60 * 60 * 1000);
-    return `${d.getUTCHours().toString().padStart(2, '0')}:${d.getUTCMinutes().toString().padStart(2, '0')}`;
+    return new Date(dateStr).toLocaleString("en-US", { timeZone: challengeTz, hour: "2-digit", minute: "2-digit", hour12: false });
   };
   const groupTradesByPosition = (trades: Trade[]) => {
     const map = new Map<number, Trade[]>();
@@ -403,49 +397,43 @@ export default function ChallengeDashboard() {
     return `${Math.floor(hours / 24)}d ago`;
   };
 
-  // Calculate next pull time (EAT schedule: 00:00, 04:00, 08:00, 12:00, 16:00, 20:00)
+  // Calculate next pull time (uses challenge timezone)
   const getNextPullTime = () => {
     const now = new Date();
-    const eatNow = new Date(now.getTime() + 3 * 60 * 60 * 1000);
-    const currentHourEAT = eatNow.getUTCHours();
+    const localHour = parseInt(now.toLocaleString("en-US", { timeZone: challengeTz, hour: "numeric", hour12: false })) || 0;
     const pullHours = [0, 4, 8, 12, 16, 20];
-    let nextHour = pullHours.find(h => h > currentHourEAT);
-    if (nextHour === undefined) {
-      nextHour = 0;
-    }
-    const h = nextHour.toString().padStart(2, "0");
-    return `${h}:00 EAT`;
+    let nextHour = pullHours.find(h => h > localHour);
+    if (nextHour === undefined) nextHour = 0;
+    return `${nextHour.toString().padStart(2, "0")}:00`;
   };
 
   // Get the last scheduled pull time (not force pulls)
   const getLastScheduledPullTime = (lastUpdated: string | null) => {
     const now = new Date();
-    const eatNow = new Date(now.getTime() + 3 * 60 * 60 * 1000);
-    const currentHourEAT = eatNow.getUTCHours();
+    const localHour = parseInt(now.toLocaleString("en-US", { timeZone: challengeTz, hour: "numeric", hour12: false })) || 0;
     const pullHours = [0, 4, 8, 12, 16, 20];
 
     // Find the most recent pull hour that has passed (this is when data was flushed)
     let lastPullHour = 20; // default
     for (let i = pullHours.length - 1; i >= 0; i--) {
-      if (pullHours[i] <= currentHourEAT) {
+      if (pullHours[i] <= localHour) {
         lastPullHour = pullHours[i];
         break;
       }
     }
     // If current hour is before first pull (0), use yesterday's 20:00
-    if (currentHourEAT < pullHours[0]) {
+    if (localHour < pullHours[0]) {
       lastPullHour = 20;
     }
 
     // The data shown is from the cycle BEFORE the flush
-    // Flush happens at lastPullHour, data is from the cycle before that
     const pullIdx = pullHours.indexOf(lastPullHour);
-    const dataFromHour = pullIdx > 0 ? pullHours[pullIdx - 1] : 20; // previous cycle start
-    const dataToHour = lastPullHour; // previous cycle end = flush time
+    const dataFromHour = pullIdx > 0 ? pullHours[pullIdx - 1] : 20;
+    const dataToHour = lastPullHour;
 
     const fromStr = String(dataFromHour).padStart(2, "0") + ":00";
     const toStr = String(dataToHour).padStart(2, "0") + ":00";
-    return `${fromStr} – ${toStr} EAT`;
+    return `${fromStr} – ${toStr}`;
   };
 
   // Determine challenge state
@@ -642,7 +630,7 @@ export default function ChallengeDashboard() {
                   <p className="text-sm font-semibold text-white">All Trades</p>
                   <p className="text-xs text-gray-500">Tap a trade for details</p>
                 </div>
-                <p className="text-[10px] text-gray-600 mt-1">Trades closed before {myStats.lastPullAt ? (() => { const d = new Date(new Date(myStats.lastPullAt!).getTime() + 3*60*60*1000); return `${String(d.getUTCHours()).padStart(2,"0")}:${String(d.getUTCMinutes()).padStart(2,"0")} EAT`; })() : "last sync"} • Next sync: {getNextPullTime()}</p>
+                <p className="text-[10px] text-gray-600 mt-1">Trades closed before {myStats.lastPullAt ? new Date(myStats.lastPullAt).toLocaleString("en-US", { timeZone: challengeTz, hour: "2-digit", minute: "2-digit", hour12: false }) : "last sync"} • Next sync: {getNextPullTime()}</p>
               </div>
               {recentTrades.length === 0 ? (
                 <div className="p-8 text-center">
@@ -878,7 +866,7 @@ export default function ChallengeDashboard() {
               <Clock size={16} className="text-gold flex-shrink-0" />
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold text-gold">Challenge hasn&apos;t started yet</p>
-                <p className="text-xs text-gray-400">Starts {new Date(challenge.startDate).toLocaleString("en-US", { timeZone: "Africa/Nairobi", weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })} EAT</p>
+                <p className="text-xs text-gray-400">Starts {new Date(challenge.startDate).toLocaleString("en-US", { timeZone: challengeTz, weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</p>
               </div>
               <button onClick={() => setShowRules(true)} className="flex-shrink-0 px-3 py-1.5 rounded-lg bg-gold/20 border border-gold/30 text-gold text-xs font-semibold hover:bg-gold/30 transition-all">📋 Rules</button>
             </div>
@@ -1063,7 +1051,7 @@ export default function ChallengeDashboard() {
                   <p className="text-sm font-semibold text-white">Recent Trades</p>
                   <p className="text-xs text-gray-500">Tap a trade for details</p>
                 </div>
-                <p className="text-[10px] text-gray-600 mt-1">Trades closed before {myStats.lastPullAt ? (() => { const d = new Date(new Date(myStats.lastPullAt!).getTime() + 3*60*60*1000); return `${String(d.getUTCHours()).padStart(2,"0")}:${String(d.getUTCMinutes()).padStart(2,"0")} EAT`; })() : "last sync"} • Next sync: {getNextPullTime()}</p>
+                <p className="text-[10px] text-gray-600 mt-1">Trades closed before {myStats.lastPullAt ? new Date(myStats.lastPullAt).toLocaleString("en-US", { timeZone: challengeTz, hour: "2-digit", minute: "2-digit", hour12: false }) : "last sync"} • Next sync: {getNextPullTime()}</p>
               </div>
               {recentTrades.length === 0 ? (
                 <div className="p-8 text-center">
@@ -1514,7 +1502,7 @@ export default function ChallengeDashboard() {
                     feed.sort((a, b) => b.sortTime - a.sortTime);
                     const opIcon = (t: string) => t === 'deposit' ? '💰' : t === 'withdrawal' ? '🚪' : t === 'swap' ? '🔄' : '📊';
                     const opColor = (t: string) => t === 'deposit' ? 'text-profit' : t === 'withdrawal' ? 'text-loss' : t === 'swap' ? 'text-amber-400' : 'text-blue-400';
-                    const fmtEAT = (d: string) => new Date(new Date(d).getTime() + 3*60*60*1000).toISOString().substring(11,16);
+                    const fmtEAT = (d: string) => new Date(d).toLocaleString("en-US", { timeZone: challengeTz, hour: "2-digit", minute: "2-digit", hour12: false });
                     const cur = (v: number) => selectedUser!.isCent ? `${v.toFixed(2)}¢` : `$${v.toFixed(2)}`;
                     return (
                       <div className="mt-4">

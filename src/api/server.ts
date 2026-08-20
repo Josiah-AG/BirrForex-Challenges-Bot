@@ -1164,7 +1164,7 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
               r.actual_starting_balance, r.registration_balance, r.last_known_balance, r.disqualified, r.disqualified_reason, r.is_cent,
               r.last_pull_at, r.balance_warning,
               c.title, c.status, c.start_date, c.end_date, c.starting_balance, c.target_balance, c.leaderboard_updated_at,
-              c.real_winners_count, c.demo_winners_count, c.type as challenge_type,
+              c.real_winners_count, c.demo_winners_count, c.type as challenge_type, c.timezone,
               COALESCE((SELECT (parameters->>'only_cent_account')::boolean FROM wp_challenge_rules WHERE challenge_id = c.id AND rule_code = 'config'), false) as only_cent_account
        FROM trading_registrations r
        JOIN trading_challenges c ON r.challenge_id = c.id
@@ -1229,6 +1229,7 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
         status: registration.status,
         startDate: registration.start_date,
         endDate: registration.end_date,
+        timezone: registration.timezone || 'Africa/Nairobi',
         // Balance targets: admin enters in $ for hybrid/standard, in ¢ for cent-only challenges.
         // For cent users in NON-cent-only challenges, multiply by 100 to convert $ → ¢.
         startingBalance: (registration.is_cent && !registration.only_cent_account)

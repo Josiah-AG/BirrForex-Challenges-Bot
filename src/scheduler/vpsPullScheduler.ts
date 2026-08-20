@@ -384,19 +384,23 @@ export class VpsPullScheduler {
     }
 
     try {
-      const now = new Date();
-      const eatTime = new Date(now.getTime() + 3 * 60 * 60 * 1000);
-      const currentHHMM = `${String(eatTime.getUTCHours()).padStart(2, '0')}:${String(eatTime.getUTCMinutes()).padStart(2, '0')}`;
-      const dateKey = eatTime.toISOString().split('T')[0];
+      const { getLocalTime } = require('../utils/timezone');
 
       const challenges = await db.query(
-        `SELECT id, status, pull_times, end_date, evaluation_type, winners_posted_at
+        `SELECT id, status, pull_times, end_date, evaluation_type, winners_posted_at, timezone
          FROM trading_challenges
          WHERE status IN ('active', 'reviewing')
            AND (status = 'active' OR (winners_posted_at IS NULL AND end_date > NOW() - INTERVAL '48 hours'))`
       );
 
+      const now = new Date();
+
       for (const challenge of challenges.rows) {
+        const tz = challenge.timezone || 'Africa/Nairobi';
+        const local = getLocalTime(now, tz);
+        const currentHHMM = local.timeStr;
+        const dateKey = local.dateStr;
+
         const pullTimes: string[] = challenge.pull_times || ['00:00','04:00','08:00','12:00','16:00','20:00'];
         const dedupKey = `${challenge.id}_${currentHHMM}_${dateKey}`;
 
@@ -405,7 +409,7 @@ export class VpsPullScheduler {
           for (const key of this.pullScheduleTriggered) {
             if (!key.includes(dateKey)) this.pullScheduleTriggered.delete(key);
           }
-          console.log(`⏰ VPS Pull: Scheduled pull triggered for challenge ${challenge.id} at ${currentHHMM} EAT`);
+          console.log(`⏰ VPS Pull: Scheduled pull triggered for challenge ${challenge.id} at ${currentHHMM} (${tz})`);
           this.runPullCycleForChallenge(challenge.id).catch(e =>
             console.error(`Scheduled pull error for challenge ${challenge.id}:`, e)
           );
@@ -517,7 +521,7 @@ export class VpsPullScheduler {
 
       // Determine if this is a final sync (Saturday OR challenge ended)
       const isChallengeEnded = challengeToPull.status === 'reviewing' || challengeToPull.status === 'completed';
-      const isFinalSync = this.isSaturdayFinalSync() || isChallengeEnded;
+      const isFinalSync = this.isSaturdayFinalSync(challengeToPull) || isChallengeEnded;
 
       // === STEP 1: Build shared queue with failed-first priority ===
       const accounts = await this.getAccountsToPull(challengeToPull.id);
@@ -1189,7 +1193,7 @@ export class VpsPullScheduler {
         if (isChallengeEnded || !account.lastPullAt) {
           // Full pull: challenge ended (final sync) OR first-ever pull
           fromDate = challengeStartDate || new Date(2020, 0, 1).toISOString();
-        } else if (challenge && this.isMidnightEATRun() && !this.isFirstNightSinceChallengeStart(challenge)) {
+        } else if (challenge && this.isMidnightRun(challenge) && !this.isFirstNightSinceChallengeStart(challenge)) {
           // 25h daily safety pull: yesterday's midnight EAT, minus 1h overlap, to now.
           const now = new Date();
           const nowEAT = new Date(now.getTime() + 3 * 60 * 60 * 1000);
@@ -1538,10 +1542,12 @@ export class VpsPullScheduler {
   // ==================== HELPER: WEEKEND LOGIC ====================
 
   private async shouldSkipWeekend(challenge: TradingChallenge): Promise<boolean> {
+    const { getLocalTime } = require('../utils/timezone');
+    const tz = (challenge as any).timezone || 'Africa/Nairobi';
     const now = new Date();
-    const eatTime = new Date(now.getTime() + 3 * 60 * 60 * 1000);
-    const dayOfWeek = eatTime.getUTCDay();
-    const hourEAT = eatTime.getUTCHours();
+    const local = getLocalTime(now, tz);
+    const dayOfWeek = local.dayOfWeek;
+    const hour = local.hour;
     const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
 
     if (!isWeekend) return false;
@@ -1552,32 +1558,33 @@ export class VpsPullScheduler {
       return false;
     }
 
-    // Saturday first pull (06:00 EAT) always runs as sync check
-    if (dayOfWeek === 6 && hourEAT === 6) {
+    // Saturday first pull (06:00 local) always runs as sync check
+    if (dayOfWeek === 6 && hour === 6) {
       console.log('📊 VPS Pull: Saturday sync check — capturing Friday close data');
       return false;
     }
 
-    console.log(`📊 VPS Pull: Weekend skip (${dayOfWeek === 6 ? 'Sat' : 'Sun'} ${hourEAT}:00 EAT)`);
+    console.log(`📊 VPS Pull: Weekend skip (${dayOfWeek === 6 ? 'Sat' : 'Sun'} ${hour}:00 ${tz})`);
     return true;
   }
 
-  private isSaturdayFinalSync(): boolean {
-    const now = new Date();
-    const eatTime = new Date(now.getTime() + 3 * 60 * 60 * 1000);
-    return eatTime.getUTCDay() === 6 && eatTime.getUTCHours() === 6;
+  private isSaturdayFinalSync(challenge?: TradingChallenge): boolean {
+    const { getLocalTime } = require('../utils/timezone');
+    const tz = (challenge as any)?.timezone || 'Africa/Nairobi';
+    const local = getLocalTime(new Date(), tz);
+    return local.dayOfWeek === 6 && local.hour === 6;
   }
 
   // ==================== HELPER: MIDNIGHT 25H SAFETY PULL ====================
 
   /**
-   * True only during the 00:00 EAT scheduled run (UTC hour 21).
-   * This is one of the 6 daily cron slots ('0 21,1,5,9,13,17 * * *').
+   * True only during the 00:00 local time scheduled run for the challenge.
    */
-  private isMidnightEATRun(): boolean {
-    const now = new Date();
-    const eatTime = new Date(now.getTime() + 3 * 60 * 60 * 1000);
-    return eatTime.getUTCHours() === 0;
+  private isMidnightRun(challenge?: TradingChallenge): boolean {
+    const { getLocalTime } = require('../utils/timezone');
+    const tz = (challenge as any)?.timezone || 'Africa/Nairobi';
+    const local = getLocalTime(new Date(), tz);
+    return local.hour === 0;
   }
 
   /**
@@ -2679,7 +2686,7 @@ export class VpsPullScheduler {
   private getNullScanLookbackHours(account: AccountToPull, challenge: TradingChallenge): number | null {
     const isChallengeEnded = challenge?.status === 'reviewing' || challenge?.status === 'completed';
     if (isChallengeEnded || !account.lastPullAt) return null; // full scope
-    if (challenge && this.isMidnightEATRun() && !this.isFirstNightSinceChallengeStart(challenge)) return 30;
+    if (challenge && this.isMidnightRun(challenge) && !this.isFirstNightSinceChallengeStart(challenge)) return 30;
     return 24;
   }
 

@@ -289,15 +289,12 @@ function selectTimeframe(holdMinutes: number, maxHoldHours: number | null): { ti
  * Format candle open time in EAT for violation messages.
  * Returns simple time like "10:30 EAT" or "13:00 EAT"
  */
-function formatCandleTimeEAT(candleTimeISO: string, _periodMs: number): string {
-  const utc = new Date(candleTimeISO);
-  const eat = new Date(utc.getTime() + 3 * 60 * 60 * 1000); // UTC+3
-  const yyyy = eat.getUTCFullYear();
-  const mo   = (eat.getUTCMonth() + 1).toString().padStart(2, '0');
-  const dd   = eat.getUTCDate().toString().padStart(2, '0');
-  const h    = eat.getUTCHours().toString().padStart(2, '0');
-  const m    = eat.getUTCMinutes().toString().padStart(2, '0');
-  return `${yyyy}-${mo}-${dd} ${h}:${m} EAT`;
+function formatCandleTimeEAT(candleTimeISO: string, _periodMs: number, timezone?: string): string {
+  const { formatInTimezone, getTimezoneAbbr } = require('../utils/timezone');
+  const tz = timezone || 'Africa/Nairobi';
+  const formatted = formatInTimezone(candleTimeISO, tz);
+  const abbr = getTimezoneAbbr(tz);
+  return `${formatted} ${abbr}`;
 }
 
 /**
@@ -587,11 +584,12 @@ export class WpEvaluationEngine {
 
     // Get challenge dates for period filtering
     const challengeDates = await db.query(
-      `SELECT start_date, end_date FROM trading_challenges WHERE id = $1`,
+      `SELECT start_date, end_date, timezone FROM trading_challenges WHERE id = $1`,
       [challengeId]
     );
     const challengeStart = challengeDates.rows[0]?.start_date;
     const challengeEnd = challengeDates.rows[0]?.end_date;
+    const challengeTimezone = challengeDates.rows[0]?.timezone || 'Africa/Nairobi';
 
     // Apply 3-hour grace window before start (for Sunday market open → Monday server time)
     let startFilter = '';
@@ -1088,8 +1086,8 @@ export class WpEvaluationEngine {
             drawdownBreachCap = effectiveDailyCap;
             // Get the time of the trade that caused the breach
             const breachTimeUTC = new Date(t.close_time);
-            const breachTimeEAT = new Date(breachTimeUTC.getTime() + 3 * 60 * 60 * 1000);
-            drawdownBreachTime = `${breachTimeEAT.getUTCHours().toString().padStart(2, '0')}:${breachTimeEAT.getUTCMinutes().toString().padStart(2, '0')}`;
+            const { formatTimeInTimezone } = require('../utils/timezone');
+            drawdownBreachTime = formatTimeInTimezone(breachTimeUTC, challengeTimezone);
           }
 
           if (drawdownBreached && tradeNet > 0) {
@@ -1360,7 +1358,7 @@ export class WpEvaluationEngine {
       // Non-crypto forex/commodity markets are closed on weekends; any weekend
       // timestamp on a non-crypto pair is just server time overlap at market open/close.
       if (!rules.weekend_trading && isRuleEnabled(rules, 'weekend_trading')) {
-        if (this.isWeekend(new Date(trade.open_time)) || this.isWeekend(new Date(trade.close_time))) {
+        if (this.isWeekend(new Date(trade.open_time), challengeTimezone) || this.isWeekend(new Date(trade.close_time), challengeTimezone)) {
           if (this.isCryptoPair(trade.symbol)) {
             violations.push(`Weekend trading`);
           }
@@ -1772,12 +1770,9 @@ export class WpEvaluationEngine {
     }
   }
 
-  private isWeekend(d: Date): boolean {
-    // Weekend in EAT (UTC+3): Saturday 00:00 EAT to Sunday 23:59 EAT
-    // Convert to EAT by adding 3 hours
-    const eatTime = new Date(d.getTime() + 3 * 60 * 60 * 1000);
-    const day = eatTime.getUTCDay(); // Day in EAT
-    return day === 6 || day === 0; // Saturday or Sunday in EAT
+  private isWeekend(d: Date, timezone?: string): boolean {
+    const { isWeekendInTimezone } = require('../utils/timezone');
+    return isWeekendInTimezone(d, timezone || 'Africa/Nairobi');
   }
 
   private isCryptoPair(symbol: string): boolean {
