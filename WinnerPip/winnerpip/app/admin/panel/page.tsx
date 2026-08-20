@@ -1907,7 +1907,7 @@ function HostsManagementPanel() {
   };
 
   return (
-    <div className="glass rounded-2xl border border-white/10 p-5">
+    <div className="glass rounded-2xl border border-white/10 p-5 max-w-4xl mx-auto min-h-[60vh]">
       {/* Header + Create Button */}
       <div className="flex items-center justify-between mb-5">
         <h2 className="text-lg font-bold text-white flex items-center gap-2"><Users size={18} className="text-royal" /> Host Management</h2>
