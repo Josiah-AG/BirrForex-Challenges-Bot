@@ -60,7 +60,7 @@ export default function HostDashboardPage() {
     max_risk_percent: 10, daily_loss_cap: 10, daily_loss_mode: 'fixed',
     daily_loss_percent: 20, max_hold_hours: 24, min_trade_duration_minutes: null,
     weekend_trading: false, min_active_days: 7, min_total_trades: null,
-    only_cent_account: false,
+    only_cent_account: false, allow_professional: false,
     rules_enabled: { max_lot_size: true, max_open_trades: true, pair_limit: true, stop_loss_required: true, daily_loss_cap: true, max_hold_hours: true, min_trade_duration: true, weekend_trading: true, min_active_days: true, min_total_trades: true },
   });
   const [createLoading, setCreateLoading] = useState(false);
@@ -1186,12 +1186,6 @@ function CreateChallengeModal({ createStep, setCreateStep, createForm, setCreate
     </div>
   );
 
-  const Toggle = ({ enabled, onToggle }: { enabled: boolean; onToggle: () => void }) => (
-    <button type="button" onClick={onToggle} className={`w-9 h-5 rounded-full transition-all flex-shrink-0 ${enabled ? "bg-profit" : "bg-white/20"}`}>
-      <div className={`w-3.5 h-3.5 bg-white rounded-full transition-transform ${enabled ? "translate-x-4.5" : "translate-x-0.5"}`} style={{ transform: enabled ? 'translateX(18px)' : 'translateX(2px)' }} />
-    </button>
-  );
-
   return (
     <div className="fixed inset-0 bg-[#0a0e1a]/95 z-50 flex items-center justify-center p-4" onClick={() => !createLoading && onClose()}>
       <div className="bg-[#1a2235] rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto border border-white/15 shadow-2xl" onClick={(e: any) => e.stopPropagation()}>
@@ -1241,138 +1235,152 @@ function CreateChallengeModal({ createStep, setCreateStep, createForm, setCreate
               </div>
             )}
 
-            {/* ====== STEP 2: Rules with Toggles & Tooltips ====== */}
+            {/* ====== STEP 2: Rules (Admin-style) ====== */}
             {createStep === 2 && (
-              <div className="space-y-4">
-                <p className="text-xs text-gray-500 mb-1">Configure rules for your challenge. Toggle OFF to disable a rule entirely.</p>
+              <div className="space-y-3">
+                <p className="text-xs text-gray-500 mb-3">Toggle rules ON/OFF. Hover &#9432; for details. Disabled rules won&apos;t be enforced during evaluation.</p>
 
                 {/* Max Lot Size */}
-                <div className="p-3 bg-white/5 rounded-xl border border-white/10 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center"><span className="text-sm text-white font-medium">Max Lot Size</span><Tip text="Limits the maximum lot size per position. Trades exceeding this have profits removed." /></div>
-                    <Toggle enabled={createRules.rules_enabled.max_lot_size} onToggle={() => setCreateRules({...createRules, rules_enabled: {...createRules.rules_enabled, max_lot_size: !createRules.rules_enabled.max_lot_size}})} />
+                <div className={`flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10 ${!createRules.rules_enabled.max_lot_size ? "opacity-50" : ""}`}>
+                  <div className="flex items-center gap-2">
+                    <button type="button" onClick={() => setCreateRules({...createRules, rules_enabled: {...createRules.rules_enabled, max_lot_size: !createRules.rules_enabled.max_lot_size}})} className={`w-9 h-5 rounded-full transition-all flex-shrink-0 ${createRules.rules_enabled.max_lot_size ? "bg-royal" : "bg-white/20"}`}><div className={`w-4 h-4 bg-white rounded-full transition-transform ${createRules.rules_enabled.max_lot_size ? "translate-x-4" : "translate-x-0.5"}`}></div></button>
+                    <p className="text-sm text-white font-medium">Max Lot Size</p>
+                    <Tip text="Limits the maximum lot size per position. Trades exceeding this have profits removed." />
                   </div>
-                  {createRules.rules_enabled.max_lot_size && <input type="number" step="0.01" value={createRules.max_lot_size || ""} onChange={e => setCreateRules({...createRules, max_lot_size: parseFloat(e.target.value) || 0})} placeholder="e.g., 0.02" className="w-full p-2.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm outline-none" />}
+                  <input type="number" step="0.01" value={createRules.max_lot_size || ""} onChange={e => setCreateRules({...createRules, max_lot_size: parseFloat(e.target.value) || 0})} disabled={!createRules.rules_enabled.max_lot_size} className={`w-20 p-2 rounded-lg bg-white/10 border border-white/10 text-white text-sm text-center outline-none ${!createRules.rules_enabled.max_lot_size ? "cursor-not-allowed" : ""}`} />
                 </div>
 
                 {/* Max Open Trades */}
-                <div className="p-3 bg-white/5 rounded-xl border border-white/10 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center"><span className="text-sm text-white font-medium">Max Open Trades</span><Tip text="Limits how many trades can be open simultaneously. All overlapping trades get flagged." /></div>
-                    <Toggle enabled={createRules.rules_enabled.max_open_trades} onToggle={() => setCreateRules({...createRules, rules_enabled: {...createRules.rules_enabled, max_open_trades: !createRules.rules_enabled.max_open_trades}})} />
+                <div className={`flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10 ${!createRules.rules_enabled.max_open_trades ? "opacity-50" : ""}`}>
+                  <div className="flex items-center gap-2">
+                    <button type="button" onClick={() => setCreateRules({...createRules, rules_enabled: {...createRules.rules_enabled, max_open_trades: !createRules.rules_enabled.max_open_trades}})} className={`w-9 h-5 rounded-full transition-all flex-shrink-0 ${createRules.rules_enabled.max_open_trades ? "bg-royal" : "bg-white/20"}`}><div className={`w-4 h-4 bg-white rounded-full transition-transform ${createRules.rules_enabled.max_open_trades ? "translate-x-4" : "translate-x-0.5"}`}></div></button>
+                    <p className="text-sm text-white font-medium">Max Open Trades</p>
+                    <Tip text="Limits simultaneous open trades. All overlapping trades get flagged when exceeded." />
                   </div>
-                  {createRules.rules_enabled.max_open_trades && <input type="number" value={createRules.max_open_trades || ""} onChange={e => setCreateRules({...createRules, max_open_trades: parseInt(e.target.value) || 0})} placeholder="e.g., 3" className="w-full p-2.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm outline-none" />}
+                  <input type="number" value={createRules.max_open_trades || ""} onChange={e => setCreateRules({...createRules, max_open_trades: parseInt(e.target.value) || 0})} disabled={!createRules.rules_enabled.max_open_trades} className={`w-20 p-2 rounded-lg bg-white/10 border border-white/10 text-white text-sm text-center outline-none ${!createRules.rules_enabled.max_open_trades ? "cursor-not-allowed" : ""}`} />
                 </div>
 
                 {/* Pair Limit */}
-                <div className="p-3 bg-white/5 rounded-xl border border-white/10 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center"><span className="text-sm text-white font-medium">Pair Limit</span><Tip text="Max trades on the same currency pair open at once. Prevents overexposure." /></div>
-                    <Toggle enabled={createRules.rules_enabled.pair_limit} onToggle={() => setCreateRules({...createRules, rules_enabled: {...createRules.rules_enabled, pair_limit: !createRules.rules_enabled.pair_limit}})} />
+                <div className={`flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10 ${!createRules.rules_enabled.pair_limit ? "opacity-50" : ""}`}>
+                  <div className="flex items-center gap-2">
+                    <button type="button" onClick={() => setCreateRules({...createRules, rules_enabled: {...createRules.rules_enabled, pair_limit: !createRules.rules_enabled.pair_limit}})} className={`w-9 h-5 rounded-full transition-all flex-shrink-0 ${createRules.rules_enabled.pair_limit ? "bg-royal" : "bg-white/20"}`}><div className={`w-4 h-4 bg-white rounded-full transition-transform ${createRules.rules_enabled.pair_limit ? "translate-x-4" : "translate-x-0.5"}`}></div></button>
+                    <p className="text-sm text-white font-medium">Pair Limit</p>
+                    <Tip text="Max trades on the same pair open at once. Prevents overexposure to a single instrument." />
                   </div>
-                  {createRules.rules_enabled.pair_limit && <input type="number" value={createRules.pair_limit || ""} onChange={e => setCreateRules({...createRules, pair_limit: parseInt(e.target.value) || 0})} placeholder="e.g., 2" className="w-full p-2.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm outline-none" />}
+                  <input type="number" value={createRules.pair_limit || ""} onChange={e => setCreateRules({...createRules, pair_limit: parseInt(e.target.value) || 0})} disabled={!createRules.rules_enabled.pair_limit} className={`w-20 p-2 rounded-lg bg-white/10 border border-white/10 text-white text-sm text-center outline-none ${!createRules.rules_enabled.pair_limit ? "cursor-not-allowed" : ""}`} />
                 </div>
 
-                {/* Max Risk per Trade */}
-                <div className="p-3 bg-white/5 rounded-xl border border-white/10 space-y-2">
+                {/* Max Risk (with mode) */}
+                <div className={`p-3 bg-white/5 rounded-xl border border-white/10 space-y-2 ${!createRules.rules_enabled.stop_loss_required ? "opacity-50" : ""}`}>
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center"><span className="text-sm text-white font-medium">Max Risk / Trade</span><Tip text="Maximum SL risk per trade. Fixed = same $ for all. % = calculated from balance at trade open." /></div>
-                    <Toggle enabled={createRules.rules_enabled.stop_loss_required} onToggle={() => setCreateRules({...createRules, rules_enabled: {...createRules.rules_enabled, stop_loss_required: !createRules.rules_enabled.stop_loss_required}})} />
-                  </div>
-                  {createRules.rules_enabled.stop_loss_required && (<>
-                    <div className="flex gap-1.5 mb-2">
-                      <button type="button" onClick={() => setCreateRules({...createRules, max_risk_mode: 'fixed'})} className={`px-2.5 py-1 rounded-md text-[10px] font-semibold transition-all ${createRules.max_risk_mode !== 'percentage' ? 'bg-royal/30 text-royal border border-royal/40' : 'bg-white/5 text-gray-500 border border-white/10'}`}>Fixed $</button>
-                      <button type="button" onClick={() => setCreateRules({...createRules, max_risk_mode: 'percentage'})} className={`px-2.5 py-1 rounded-md text-[10px] font-semibold transition-all ${createRules.max_risk_mode === 'percentage' ? 'bg-gold/30 text-gold border border-gold/40' : 'bg-white/5 text-gray-500 border border-white/10'}`}>% Balance</button>
+                    <div className="flex items-center gap-2">
+                      <button type="button" onClick={() => setCreateRules({...createRules, rules_enabled: {...createRules.rules_enabled, stop_loss_required: !createRules.rules_enabled.stop_loss_required}})} className={`w-9 h-5 rounded-full transition-all flex-shrink-0 ${createRules.rules_enabled.stop_loss_required ? "bg-royal" : "bg-white/20"}`}><div className={`w-4 h-4 bg-white rounded-full transition-transform ${createRules.rules_enabled.stop_loss_required ? "translate-x-4" : "translate-x-0.5"}`}></div></button>
+                      <p className="text-sm text-white font-medium">Max Risk</p>
+                      <Tip text="Max risk per trade measured by SL distance. Fixed = same $ for all. Percentage = from balance at trade open." />
                     </div>
-                    {createRules.max_risk_mode === 'percentage' ? (
-                      <input type="number" step="1" value={createRules.max_risk_percent || ""} onChange={e => setCreateRules({...createRules, max_risk_percent: parseFloat(e.target.value) || 0})} placeholder="e.g., 10 (%)" className="w-full p-2.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm outline-none" />
-                    ) : (
-                      <input type="number" step="0.5" value={createRules.max_risk_dollars || ""} onChange={e => setCreateRules({...createRules, max_risk_dollars: parseFloat(e.target.value) || 0})} placeholder="e.g., 5 ($)" className="w-full p-2.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm outline-none" />
-                    )}
-                  </>)}
+                    <div className="flex items-center gap-1.5">
+                      <button type="button" onClick={() => createRules.rules_enabled.stop_loss_required && setCreateRules({...createRules, max_risk_mode: 'fixed'})} className={`px-2 py-1 rounded-md text-[10px] font-semibold transition-all ${createRules.max_risk_mode !== 'percentage' ? 'bg-royal/30 text-royal border border-royal/40' : 'bg-white/5 text-gray-500 border border-white/10'}`}>Fixed $</button>
+                      <button type="button" onClick={() => createRules.rules_enabled.stop_loss_required && setCreateRules({...createRules, max_risk_mode: 'percentage'})} className={`px-2 py-1 rounded-md text-[10px] font-semibold transition-all ${createRules.max_risk_mode === 'percentage' ? 'bg-gold/30 text-gold border border-gold/40' : 'bg-white/5 text-gray-500 border border-white/10'}`}>% Balance</button>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input type="number" step="any" value={createRules.max_risk_mode === 'percentage' ? (createRules.max_risk_percent || "") : (createRules.max_risk_dollars || "")} onChange={e => createRules.max_risk_mode === 'percentage' ? setCreateRules({...createRules, max_risk_percent: parseFloat(e.target.value) || 0}) : setCreateRules({...createRules, max_risk_dollars: parseFloat(e.target.value) || 0})} disabled={!createRules.rules_enabled.stop_loss_required} className={`w-20 p-2 rounded-lg bg-white/10 border border-white/10 text-white text-sm text-center outline-none ${!createRules.rules_enabled.stop_loss_required ? "cursor-not-allowed" : ""}`} />
+                    <span className="text-xs text-gray-500">{createRules.max_risk_mode === 'percentage' ? '% of account balance' : '$ per trade'}</span>
+                  </div>
                 </div>
 
-                {/* Daily Loss Cap */}
-                <div className="p-3 bg-white/5 rounded-xl border border-white/10 space-y-2">
+                {/* Daily Loss Cap (with mode) */}
+                <div className={`p-3 bg-white/5 rounded-xl border border-white/10 space-y-2 ${!createRules.rules_enabled.daily_loss_cap ? "opacity-50" : ""}`}>
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center"><span className="text-sm text-white font-medium">Daily Loss Cap</span><Tip text="Maximum drawdown from day's opening balance. Scales with account in % mode." /></div>
-                    <Toggle enabled={createRules.rules_enabled.daily_loss_cap} onToggle={() => setCreateRules({...createRules, rules_enabled: {...createRules.rules_enabled, daily_loss_cap: !createRules.rules_enabled.daily_loss_cap}})} />
-                  </div>
-                  {createRules.rules_enabled.daily_loss_cap && (<>
-                    <div className="flex gap-1.5 mb-2">
-                      <button type="button" onClick={() => setCreateRules({...createRules, daily_loss_mode: 'fixed'})} className={`px-2.5 py-1 rounded-md text-[10px] font-semibold transition-all ${createRules.daily_loss_mode !== 'percentage' ? 'bg-royal/30 text-royal border border-royal/40' : 'bg-white/5 text-gray-500 border border-white/10'}`}>Fixed $</button>
-                      <button type="button" onClick={() => setCreateRules({...createRules, daily_loss_mode: 'percentage'})} className={`px-2.5 py-1 rounded-md text-[10px] font-semibold transition-all ${createRules.daily_loss_mode === 'percentage' ? 'bg-gold/30 text-gold border border-gold/40' : 'bg-white/5 text-gray-500 border border-white/10'}`}>% Balance</button>
+                    <div className="flex items-center gap-2">
+                      <button type="button" onClick={() => setCreateRules({...createRules, rules_enabled: {...createRules.rules_enabled, daily_loss_cap: !createRules.rules_enabled.daily_loss_cap}})} className={`w-9 h-5 rounded-full transition-all flex-shrink-0 ${createRules.rules_enabled.daily_loss_cap ? "bg-royal" : "bg-white/20"}`}><div className={`w-4 h-4 bg-white rounded-full transition-transform ${createRules.rules_enabled.daily_loss_cap ? "translate-x-4" : "translate-x-0.5"}`}></div></button>
+                      <p className="text-sm text-white font-medium">Daily Loss Cap</p>
+                      <Tip text="Max drawdown from day's opening balance. Fixed = same $ cap every day. Percentage = scales with account growth." />
                     </div>
-                    {createRules.daily_loss_mode === 'percentage' ? (
-                      <input type="number" step="1" value={createRules.daily_loss_percent || ""} onChange={e => setCreateRules({...createRules, daily_loss_percent: parseFloat(e.target.value) || 0})} placeholder="e.g., 20 (%)" className="w-full p-2.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm outline-none" />
-                    ) : (
-                      <input type="number" step="1" value={createRules.daily_loss_cap || ""} onChange={e => setCreateRules({...createRules, daily_loss_cap: parseFloat(e.target.value) || 0})} placeholder="e.g., 10 ($)" className="w-full p-2.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm outline-none" />
-                    )}
-                  </>)}
+                    <div className="flex items-center gap-1.5">
+                      <button type="button" onClick={() => createRules.rules_enabled.daily_loss_cap && setCreateRules({...createRules, daily_loss_mode: 'fixed'})} className={`px-2 py-1 rounded-md text-[10px] font-semibold transition-all ${createRules.daily_loss_mode !== 'percentage' ? 'bg-royal/30 text-royal border border-royal/40' : 'bg-white/5 text-gray-500 border border-white/10'}`}>Fixed $</button>
+                      <button type="button" onClick={() => createRules.rules_enabled.daily_loss_cap && setCreateRules({...createRules, daily_loss_mode: 'percentage'})} className={`px-2 py-1 rounded-md text-[10px] font-semibold transition-all ${createRules.daily_loss_mode === 'percentage' ? 'bg-gold/30 text-gold border border-gold/40' : 'bg-white/5 text-gray-500 border border-white/10'}`}>% Balance</button>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input type="number" step="any" value={createRules.daily_loss_mode === 'percentage' ? (createRules.daily_loss_percent || "") : (createRules.daily_loss_cap || "")} onChange={e => createRules.daily_loss_mode === 'percentage' ? setCreateRules({...createRules, daily_loss_percent: parseFloat(e.target.value) || 0}) : setCreateRules({...createRules, daily_loss_cap: parseFloat(e.target.value) || 0})} disabled={!createRules.rules_enabled.daily_loss_cap} className={`w-20 p-2 rounded-lg bg-white/10 border border-white/10 text-white text-sm text-center outline-none ${!createRules.rules_enabled.daily_loss_cap ? "cursor-not-allowed" : ""}`} />
+                    <span className="text-xs text-gray-500">{createRules.daily_loss_mode === 'percentage' ? '% of day open balance' : '$ from day open'}</span>
+                  </div>
                 </div>
 
                 {/* Max Hold Hours */}
-                <div className="p-3 bg-white/5 rounded-xl border border-white/10 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center"><span className="text-sm text-white font-medium">Max Trade Duration (hrs)</span><Tip text="Maximum time a trade can be held. Trades exceeding this get profits removed." /></div>
-                    <Toggle enabled={createRules.rules_enabled.max_hold_hours} onToggle={() => setCreateRules({...createRules, rules_enabled: {...createRules.rules_enabled, max_hold_hours: !createRules.rules_enabled.max_hold_hours}})} />
+                <div className={`flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10 ${!createRules.rules_enabled.max_hold_hours ? "opacity-50" : ""}`}>
+                  <div className="flex items-center gap-2">
+                    <button type="button" onClick={() => setCreateRules({...createRules, rules_enabled: {...createRules.rules_enabled, max_hold_hours: !createRules.rules_enabled.max_hold_hours}})} className={`w-9 h-5 rounded-full transition-all flex-shrink-0 ${createRules.rules_enabled.max_hold_hours ? "bg-royal" : "bg-white/20"}`}><div className={`w-4 h-4 bg-white rounded-full transition-transform ${createRules.rules_enabled.max_hold_hours ? "translate-x-4" : "translate-x-0.5"}`}></div></button>
+                    <p className="text-sm text-white font-medium">Max Hold Hours</p>
+                    <Tip text="Max time a trade can be held. Exceeding this flags the trade and removes profits." />
                   </div>
-                  {createRules.rules_enabled.max_hold_hours && <input type="number" value={createRules.max_hold_hours || ""} onChange={e => setCreateRules({...createRules, max_hold_hours: parseInt(e.target.value) || 0})} placeholder="e.g., 24" className="w-full p-2.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm outline-none" />}
+                  <input type="number" value={createRules.max_hold_hours || ""} onChange={e => setCreateRules({...createRules, max_hold_hours: parseInt(e.target.value) || 0})} disabled={!createRules.rules_enabled.max_hold_hours} className={`w-20 p-2 rounded-lg bg-white/10 border border-white/10 text-white text-sm text-center outline-none ${!createRules.rules_enabled.max_hold_hours ? "cursor-not-allowed" : ""}`} />
                 </div>
 
                 {/* Min Trade Duration */}
-                <div className="p-3 bg-white/5 rounded-xl border border-white/10 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center"><span className="text-sm text-white font-medium">Min Duration (min)</span><Tip text="Minimum time a trade must be held. Prevents scalping bots." /></div>
-                    <Toggle enabled={createRules.rules_enabled.min_trade_duration} onToggle={() => setCreateRules({...createRules, rules_enabled: {...createRules.rules_enabled, min_trade_duration: !createRules.rules_enabled.min_trade_duration}})} />
+                <div className={`flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10 ${!createRules.rules_enabled.min_trade_duration ? "opacity-50" : ""}`}>
+                  <div className="flex items-center gap-2">
+                    <button type="button" onClick={() => setCreateRules({...createRules, rules_enabled: {...createRules.rules_enabled, min_trade_duration: !createRules.rules_enabled.min_trade_duration}})} className={`w-9 h-5 rounded-full transition-all flex-shrink-0 ${createRules.rules_enabled.min_trade_duration ? "bg-royal" : "bg-white/20"}`}><div className={`w-4 h-4 bg-white rounded-full transition-transform ${createRules.rules_enabled.min_trade_duration ? "translate-x-4" : "translate-x-0.5"}`}></div></button>
+                    <p className="text-sm text-white font-medium">Min Duration (min)</p>
+                    <Tip text="Minimum hold time. Trades closed faster are flagged. Prevents ultra-short scalping." />
                   </div>
-                  {createRules.rules_enabled.min_trade_duration && <input type="number" value={createRules.min_trade_duration_minutes || ""} onChange={e => setCreateRules({...createRules, min_trade_duration_minutes: parseInt(e.target.value) || null})} placeholder="e.g., 2" className="w-full p-2.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm outline-none" />}
+                  <input type="number" value={createRules.min_trade_duration_minutes || ""} onChange={e => setCreateRules({...createRules, min_trade_duration_minutes: parseInt(e.target.value) || null})} disabled={!createRules.rules_enabled.min_trade_duration} className={`w-20 p-2 rounded-lg bg-white/10 border border-white/10 text-white text-sm text-center outline-none ${!createRules.rules_enabled.min_trade_duration ? "cursor-not-allowed" : ""}`} />
                 </div>
 
                 {/* Min Active Days */}
-                <div className="p-3 bg-white/5 rounded-xl border border-white/10 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center"><span className="text-sm text-white font-medium">Min Active Days</span><Tip text="Minimum distinct trading days to qualify for prizes. DQ at challenge end if not met." /></div>
-                    <Toggle enabled={createRules.rules_enabled.min_active_days} onToggle={() => setCreateRules({...createRules, rules_enabled: {...createRules.rules_enabled, min_active_days: !createRules.rules_enabled.min_active_days}})} />
+                <div className={`flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10 ${!createRules.rules_enabled.min_active_days ? "opacity-50" : ""}`}>
+                  <div className="flex items-center gap-2">
+                    <button type="button" onClick={() => setCreateRules({...createRules, rules_enabled: {...createRules.rules_enabled, min_active_days: !createRules.rules_enabled.min_active_days}})} className={`w-9 h-5 rounded-full transition-all flex-shrink-0 ${createRules.rules_enabled.min_active_days ? "bg-royal" : "bg-white/20"}`}><div className={`w-4 h-4 bg-white rounded-full transition-transform ${createRules.rules_enabled.min_active_days ? "translate-x-4" : "translate-x-0.5"}`}></div></button>
+                    <p className="text-sm text-white font-medium">Min Active Days</p>
+                    <Tip text="Minimum distinct trading days to qualify for prizes. DQ'd at challenge end if not met." />
                   </div>
-                  {createRules.rules_enabled.min_active_days && <input type="number" value={createRules.min_active_days || ""} onChange={e => setCreateRules({...createRules, min_active_days: parseInt(e.target.value) || 0})} placeholder="e.g., 7" className="w-full p-2.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm outline-none" />}
+                  <input type="number" value={createRules.min_active_days || ""} onChange={e => setCreateRules({...createRules, min_active_days: parseInt(e.target.value) || 0})} disabled={!createRules.rules_enabled.min_active_days} className={`w-20 p-2 rounded-lg bg-white/10 border border-white/10 text-white text-sm text-center outline-none ${!createRules.rules_enabled.min_active_days ? "cursor-not-allowed" : ""}`} />
                 </div>
 
                 {/* Min Total Trades */}
-                <div className="p-3 bg-white/5 rounded-xl border border-white/10 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center"><span className="text-sm text-white font-medium">Min Total Trades</span><Tip text="Minimum closed trades to qualify. Users who don't meet this are DQ'd at challenge end." /></div>
-                    <Toggle enabled={createRules.rules_enabled.min_total_trades} onToggle={() => setCreateRules({...createRules, rules_enabled: {...createRules.rules_enabled, min_total_trades: !createRules.rules_enabled.min_total_trades}})} />
+                <div className={`flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10 ${!createRules.rules_enabled.min_total_trades ? "opacity-50" : ""}`}>
+                  <div className="flex items-center gap-2">
+                    <button type="button" onClick={() => setCreateRules({...createRules, rules_enabled: {...createRules.rules_enabled, min_total_trades: !createRules.rules_enabled.min_total_trades}})} className={`w-9 h-5 rounded-full transition-all flex-shrink-0 ${createRules.rules_enabled.min_total_trades ? "bg-royal" : "bg-white/20"}`}><div className={`w-4 h-4 bg-white rounded-full transition-transform ${createRules.rules_enabled.min_total_trades ? "translate-x-4" : "translate-x-0.5"}`}></div></button>
+                    <p className="text-sm text-white font-medium">Min Total Trades</p>
+                    <Tip text="Minimum closed trades to qualify. Users who don't meet this are DQ'd at challenge end." />
                   </div>
-                  {createRules.rules_enabled.min_total_trades && <input type="number" value={createRules.min_total_trades || ""} onChange={e => setCreateRules({...createRules, min_total_trades: parseInt(e.target.value) || null})} placeholder="e.g., 10" className="w-full p-2.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm outline-none" />}
+                  <input type="number" value={createRules.min_total_trades || ""} onChange={e => setCreateRules({...createRules, min_total_trades: parseInt(e.target.value) || null})} disabled={!createRules.rules_enabled.min_total_trades} className={`w-20 p-2 rounded-lg bg-white/10 border border-white/10 text-white text-sm text-center outline-none ${!createRules.rules_enabled.min_total_trades ? "cursor-not-allowed" : ""}`} />
                 </div>
 
-                {/* Weekend Trading */}
-                <div className="p-3 bg-white/5 rounded-xl border border-white/10">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center"><span className="text-sm text-white font-medium">Weekend Trading</span><Tip text="When OFF, crypto trades on weekends are flagged. Forex markets are closed anyway." /></div>
-                    <Toggle enabled={createRules.rules_enabled.weekend_trading} onToggle={() => setCreateRules({...createRules, rules_enabled: {...createRules.rules_enabled, weekend_trading: !createRules.rules_enabled.weekend_trading}})} />
+                {/* Weekend Trading (toggle with enable) */}
+                <div className={`flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10 ${!createRules.rules_enabled.weekend_trading ? "opacity-50" : ""}`}>
+                  <div className="flex items-center gap-2">
+                    <button type="button" onClick={() => setCreateRules({...createRules, rules_enabled: {...createRules.rules_enabled, weekend_trading: !createRules.rules_enabled.weekend_trading}})} className={`w-9 h-5 rounded-full transition-all flex-shrink-0 ${createRules.rules_enabled.weekend_trading ? "bg-royal" : "bg-white/20"}`}><div className={`w-4 h-4 bg-white rounded-full transition-transform ${createRules.rules_enabled.weekend_trading ? "translate-x-4" : "translate-x-0.5"}`}></div></button>
+                    <p className="text-sm text-white font-medium">Weekend Trading</p>
+                    <Tip text="Controls crypto trades on weekends. When OFF (and enabled), weekend crypto trades are flagged." />
                   </div>
-                  {createRules.rules_enabled.weekend_trading && (
-                    <div className="mt-2 flex items-center gap-2">
-                      <span className="text-[10px] text-gray-500">Allow weekend?</span>
-                      <button type="button" onClick={() => setCreateRules({...createRules, weekend_trading: !createRules.weekend_trading})} className={`w-10 h-5 rounded-full transition-all ${createRules.weekend_trading ? "bg-profit" : "bg-white/20"}`}><div className="w-4 h-4 bg-white rounded-full transition-transform" style={{ transform: createRules.weekend_trading ? 'translateX(20px)' : 'translateX(2px)' }} /></button>
-                      <span className="text-[10px] text-gray-400">{createRules.weekend_trading ? "Yes" : "No"}</span>
+                  <button type="button" onClick={() => createRules.rules_enabled.weekend_trading && setCreateRules({...createRules, weekend_trading: !createRules.weekend_trading})} className={`w-12 h-6 rounded-full transition-all ${createRules.weekend_trading && createRules.rules_enabled.weekend_trading ? "bg-profit" : "bg-white/20"} ${!createRules.rules_enabled.weekend_trading ? "cursor-not-allowed" : ""}`}><div className={`w-5 h-5 bg-white rounded-full transition-transform ${createRules.weekend_trading && createRules.rules_enabled.weekend_trading ? "translate-x-6" : "translate-x-0.5"}`}></div></button>
+                </div>
+
+                {/* Only Cent Account */}
+                <div className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10">
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm text-white font-medium">Only Cent Account (Real)</p>
+                    <Tip text="Real category only accepts cent accounts. Not a toggleable evaluation rule — it's a registration filter." />
+                  </div>
+                  <button type="button" onClick={() => setCreateRules({...createRules, only_cent_account: !createRules.only_cent_account, ...((!createRules.only_cent_account) ? { allow_professional: false } : {})})} className={`w-12 h-6 rounded-full transition-all ${createRules.only_cent_account ? "bg-profit" : "bg-white/20"}`}><div className={`w-5 h-5 bg-white rounded-full transition-transform ${createRules.only_cent_account ? "translate-x-6" : "translate-x-0.5"}`}></div></button>
+                </div>
+
+                {/* Allow Professional Accounts */}
+                {!createRules.only_cent_account && (
+                  <div className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10">
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm text-white font-medium">Allow Professional Accounts</p>
+                      <Tip text="Allow Pro/Zero/Raw Spread account types. When OFF, only Standard accounts are accepted for real category." />
                     </div>
-                  )}
-                </div>
-
-                {/* Only Cent */}
-                <div className="p-3 bg-white/5 rounded-xl border border-white/10">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center"><span className="text-sm text-white font-medium">Only Cent Account</span><Tip text="Real category only accepts cent accounts. Not a toggleable evaluation rule — it's a registration filter." /></div>
-                    <button type="button" onClick={() => setCreateRules({...createRules, only_cent_account: !createRules.only_cent_account})} className={`w-10 h-5 rounded-full transition-all ${createRules.only_cent_account ? "bg-profit" : "bg-white/20"}`}><div className="w-4 h-4 bg-white rounded-full transition-transform" style={{ transform: createRules.only_cent_account ? 'translateX(20px)' : 'translateX(2px)' }} /></button>
+                    <button type="button" onClick={() => setCreateRules({...createRules, allow_professional: !createRules.allow_professional})} className={`w-12 h-6 rounded-full transition-all ${createRules.allow_professional ? "bg-profit" : "bg-white/20"}`}><div className={`w-5 h-5 bg-white rounded-full transition-transform ${createRules.allow_professional ? "translate-x-6" : "translate-x-0.5"}`}></div></button>
                   </div>
-                </div>
+                )}
 
                 <div className="flex gap-3 mt-4">
-                  <button onClick={() => setCreateStep(1)} className="flex-1 py-2.5 rounded-xl bg-white/5 border border-white/10 text-gray-400 text-sm">Back</button>
-                  <button onClick={() => setCreateStep(3)} className="flex-1 py-2.5 rounded-xl bg-royal text-white text-sm font-semibold">Review</button>
+                  <button onClick={() => setCreateStep(1)} className="flex-1 py-2.5 rounded-xl bg-white/5 border border-white/10 text-gray-400 text-sm font-semibold hover:bg-white/10 transition-all">Back</button>
+                  <button onClick={() => setCreateStep(3)} className="flex-1 py-2.5 rounded-xl bg-royal text-white text-sm font-semibold hover:opacity-90 transition-all">Review</button>
                 </div>
               </div>
             )}
@@ -1404,7 +1412,8 @@ function CreateChallengeModal({ createStep, setCreateStep, createForm, setCreate
                   {createRules.rules_enabled.min_active_days && <div className="flex justify-between py-1.5"><span className="text-gray-500">Min Active Days</span><span className="text-white">{createRules.min_active_days}</span></div>}
                   {createRules.rules_enabled.min_total_trades && <div className="flex justify-between py-1.5"><span className="text-gray-500">Min Total Trades</span><span className="text-white">{createRules.min_total_trades}</span></div>}
                   {createRules.rules_enabled.weekend_trading && <div className="flex justify-between py-1.5"><span className="text-gray-500">Weekend Trading</span><span className="text-white">{createRules.weekend_trading ? "Allowed" : "Not Allowed"}</span></div>}
-                  {createRules.only_cent_account && <div className="flex justify-between py-1.5"><span className="text-gray-500">Only Cent Account</span><span className="text-white">Yes</span></div>}
+                  {createRules.only_cent_account && <div className="flex justify-between py-1.5"><span className="text-gray-500">Cent Account</span><span className="text-white">Required</span></div>}
+                  {createRules.allow_professional && <div className="flex justify-between py-1.5"><span className="text-gray-500">Professional Accounts</span><span className="text-white">Allowed</span></div>}
                 </div>
                 {createResult?.error && <p className="text-xs text-loss mb-3">{createResult.error}</p>}
                 <div className="flex gap-3">
