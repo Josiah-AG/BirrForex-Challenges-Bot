@@ -34,6 +34,7 @@ interface Challenge {
   registrationDeadline?: string;
   hostId?: number | null;
   hostDisplayName?: string | null;
+  registrationMode?: string | null;
 }
 
 interface Winner {
@@ -164,7 +165,7 @@ export default function ChallengesPage() {
         key={challenge.id}
         onClick={() => {
           if (isPast) return handlePastChallengeClick(challenge);
-          if (challenge.hostId && (challenge.displayStatus === 'registration_open' || challenge.status === 'registration_open')) {
+          if (challenge.hostId && challenge.registrationMode === 'winnerpip' && (challenge.displayStatus === 'registration_open' || challenge.status === 'registration_open')) {
             setRegisterChallenge(challenge);
             setRegForm({ email: "", nickname: "", accountNumber: "", mt5Server: "", investorPassword: "", accountType: challenge.type === 'real' ? 'real' : 'demo' });
             setRegError(""); setRegSuccess(false);
@@ -280,7 +281,8 @@ export default function ChallengesPage() {
             <span className={`text-sm font-semibold ${isPast ? 'text-profit' : 'text-royal'}`}>
               {isPast ? "View Winners" : (() => {
                 const ds = challenge.displayStatus || challenge.status;
-                if (ds === "registration_open" && challenge.hostId) return "Register Now";
+                if (ds === "registration_open" && challenge.hostId && challenge.registrationMode === 'winnerpip') return "Register Now";
+                if (ds === "registration_open" && challenge.hostId && challenge.registrationMode === 'manual') return "View Challenge";
                 if (ds === "registration_open") return "Join Challenge";
                 if (ds === "ongoing" || ds === "active") return "View Dashboard";
                 if (ds === "coming_soon") return "Coming Soon";

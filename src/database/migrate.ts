@@ -479,6 +479,10 @@ async function migrate() {
     await db.query(`ALTER TABLE trading_challenges ADD COLUMN IF NOT EXISTS timezone VARCHAR(50) DEFAULT 'Africa/Nairobi';`).catch(() => {});
     console.log('✅ Timezone column OK');
 
+    // Registration mode for hosted challenges (winnerpip = online, manual = CSV upload)
+    await db.query(`ALTER TABLE trading_challenges ADD COLUMN IF NOT EXISTS registration_mode VARCHAR(20) DEFAULT 'manual';`).catch(() => {});
+    console.log('✅ registration_mode column OK');
+
     console.log('✅ Database migration completed successfully!');
     process.exit(0);
   } catch (error) {

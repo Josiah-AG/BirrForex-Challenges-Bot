@@ -346,7 +346,7 @@ app.get('/api/challenges', async (req, res) => {
       `SELECT c.id, c.title, c.type, c.status, c.start_date, c.end_date, c.starting_balance, c.target_balance,
               c.real_winners_count, c.demo_winners_count, c.real_prizes, c.demo_prizes, c.prize_pool_text,
               c.pdf_url, c.video_url, c.announcement_posted, c.evaluation_type, c.winners_posted_at,
-              c.source, c.team_only, c.registration_deadline, c.host_id,
+              c.source, c.team_only, c.registration_deadline, c.host_id, c.registration_mode,
               h.display_name as host_display_name
        FROM trading_challenges c
        LEFT JOIN hosts h ON c.host_id = h.id
@@ -411,6 +411,7 @@ app.get('/api/challenges', async (req, res) => {
         registrationDeadline: c.registration_deadline,
         hostId: c.host_id || null,
         hostDisplayName: c.host_display_name || null,
+        registrationMode: c.registration_mode || (c.host_id ? 'manual' : null),
       });
     }
 
@@ -2204,9 +2205,9 @@ app.post('/api/host/challenges', hostAuthMiddleware, async (req: any, res) => {
        (title, type, status, start_date, end_date, registration_deadline, starting_balance, target_balance,
         prize_pool_text, real_winners_count, demo_winners_count, real_prizes, demo_prizes,
         source, team_only, announcement_posted, evaluation_type,
-        pull_times, pull_interval_hours, first_pull_time, deposit_mode, target_percent, host_id, timezone)
+        pull_times, pull_interval_hours, first_pull_time, deposit_mode, target_percent, host_id, timezone, registration_mode)
        VALUES ($1, $2, 'pending_approval', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-        'winnerpip', false, false, 'winnerpip', $13, 4, '00:00', $14, $15, $16, $17)
+        'winnerpip', false, false, 'winnerpip', $13, 4, '00:00', $14, $15, $16, $17, $18)
        RETURNING id`,
       [
         title, type, start_date, end_date, start_date,
@@ -2216,6 +2217,7 @@ app.post('/api/host/challenges', hostAuthMiddleware, async (req: any, res) => {
         JSON.stringify(['00:00','04:00','08:00','12:00','16:00','20:00']),
         deposit_mode || 'fixed', target_percent || null, req.hostAccount.hostId,
         timezone || 'Africa/Nairobi',
+        req.body.registration_mode || 'manual',
       ]
     );
     const challengeId = insertResult.rows[0].id;
