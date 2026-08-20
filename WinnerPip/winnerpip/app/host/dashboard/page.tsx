@@ -1053,7 +1053,7 @@ function RuleRow({ label, tooltip, enabled, onToggle, locked, children }: { labe
 function BrokerCredentialsSection() {
   const [hasBroker, setHasBroker] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [form, setForm] = useState({ brokerEmail: "", brokerPassword: "", brokerApiKey: "" });
+  const [form, setForm] = useState({ brokerEmail: "", brokerPassword: "" });
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
@@ -1072,8 +1072,8 @@ function BrokerCredentialsSection() {
   }, []);
 
   const handleSave = async () => {
-    if (!form.brokerEmail || !form.brokerPassword || !form.brokerApiKey) {
-      setError("All fields are required");
+    if (!form.brokerEmail || !form.brokerPassword) {
+      setError("Email and password are required");
       return;
     }
     setSaving(true);
@@ -1088,7 +1088,7 @@ function BrokerCredentialsSection() {
         setSaved(true);
         setHasBroker(true);
         setShowForm(false);
-        setForm({ brokerEmail: "", brokerPassword: "", brokerApiKey: "" });
+        setForm({ brokerEmail: "", brokerPassword: "" });
       } else {
         const data = await res.json();
         setError(data.error || "Save failed");
@@ -1151,10 +1151,6 @@ function BrokerCredentialsSection() {
               <div>
                 <label className="block text-xs text-gray-400 mb-1">Broker Password</label>
                 <input type="password" value={form.brokerPassword} onChange={e => setForm(p => ({ ...p, brokerPassword: e.target.value }))} className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none focus:border-gold/50" placeholder="••••••••" />
-              </div>
-              <div>
-                <label className="block text-xs text-gray-400 mb-1">Broker API Key</label>
-                <input type="text" value={form.brokerApiKey} onChange={e => setForm(p => ({ ...p, brokerApiKey: e.target.value }))} className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none focus:border-gold/50" placeholder="Partner API key" />
               </div>
               <p className="text-[10px] text-gray-600">Credentials are encrypted with AES-256 and never stored in plain text.</p>
               <div className="flex gap-2 pt-1">

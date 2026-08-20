@@ -1897,13 +1897,13 @@ app.get('/api/host/broker-status', hostAuthMiddleware, async (req: any, res) => 
  */
 app.post('/api/host/broker-credentials', hostAuthMiddleware, async (req: any, res) => {
   try {
-    const { brokerEmail, brokerPassword, brokerApiKey } = req.body;
-    if (!brokerEmail || !brokerPassword || !brokerApiKey) {
-      return res.status(400).json({ error: 'All broker credential fields are required' });
+    const { brokerEmail, brokerPassword } = req.body;
+    if (!brokerEmail || !brokerPassword) {
+      return res.status(400).json({ error: 'Broker email and password are required' });
     }
 
     const { hostService } = require('../services/hostService');
-    await hostService.setBrokerCredentials(req.host.hostId, { brokerEmail, brokerPassword, brokerApiKey });
+    await hostService.setBrokerCredentials(req.host.hostId, { brokerEmail, brokerPassword, brokerApiKey: '' });
 
     return res.json({ success: true });
   } catch (error) {
