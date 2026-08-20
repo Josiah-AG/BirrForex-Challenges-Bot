@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import {
   LayoutDashboard, Users, Trophy, FileText, Settings, RefreshCw,
   LogOut, Loader2, ChevronDown, Calendar, Target, Activity, Shield, Info, X,
+  AlertTriangle, Zap, Clock, TrendingUp, Key, UserMinus, Ban, BarChart3,
 } from "lucide-react";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
@@ -15,125 +16,86 @@ export default function HostDashboardPage() {
   const [hostInfo, setHostInfo] = useState<any>(null);
   const [challenges, setChallenges] = useState<any[]>([]);
   const [selectedChallengeId, setSelectedChallengeId] = useState<number | null>(null);
-  const [activeTab, setActiveTab] = useState<"overview" | "participants" | "leaderboard" | "updates" | "rules" | "settings" | "screening">("overview");
+  const [activeTab, setActiveTab] = useState<string>("overview");
   const [loading, setLoading] = useState(true);
+  const [tabLoading, setTabLoading] = useState(false);
 
   // Tab data
   const [overview, setOverview] = useState<any>(null);
   const [participants, setParticipants] = useState<any[]>([]);
   const [participantsPagination, setParticipantsPagination] = useState<any>(null);
   const [leaderboard, setLeaderboard] = useState<any[]>([]);
-  const [updates, setUpdates] = useState<any[]>([]);
-  const [tabLoading, setTabLoading] = useState(false);
-
-  // CSV upload
-  const [csvUploading, setCsvUploading] = useState(false);
-  const [csvResult, setCsvResult] = useState<{ success?: boolean; error?: string; totalRows?: number } | null>(null);
-  const [csvStatus, setCsvStatus] = useState<any>(null);
+  const [violations, setViolations] = useState<any[]>([]);
+  const [pullHistory, setPullHistory] = useState<any[]>([]);
+  const [failedAccounts, setFailedAccounts] = useState<any>(null);
+  const [selectedParticipant, setSelectedParticipant] = useState<any>(null);
+  const [selectedParticipantTrades, setSelectedParticipantTrades] = useState<any[]>([]);
 
   // Rules state
-  const [rulesConfig, setRulesConfig] = useState<any>({
-    max_lot_size: 0.02, max_open_trades: 3, pair_limit: 2,
-    stop_loss_required: true, max_risk_dollars: 5, max_risk_mode: 'fixed' as 'fixed' | 'percentage',
-    max_risk_percent: 10, daily_loss_cap: 10, daily_loss_mode: 'fixed' as 'fixed' | 'percentage',
-    daily_loss_percent: 20, max_hold_hours: 24, min_trade_duration_minutes: null as number | null,
-    weekend_trading: false, min_active_days: 7, min_total_trades: null as number | null,
-    only_cent_account: false,
-    rules_enabled: {
-      max_lot_size: true, max_open_trades: true, pair_limit: true,
-      stop_loss_required: true, daily_loss_cap: true, max_hold_hours: true,
-      min_trade_duration: true, weekend_trading: true, min_active_days: true, min_total_trades: true,
-    } as Record<string, boolean>,
-  });
+  const [rulesConfig, setRulesConfig] = useState<any>(null);
   const [rulesLocked, setRulesLocked] = useState(false);
   const [rulesLoading, setRulesLoading] = useState(false);
   const [rulesSaving, setRulesSaving] = useState(false);
   const [rulesSaved, setRulesSaved] = useState(false);
 
-  // Settings state
-  const [settingsForm, setSettingsForm] = useState<any>({
-    title: "", end_date: "", target_balance: "", target_percent: "",
-    prize_pool_text: "", real_winners_count: "", demo_winners_count: "",
-    real_prizes: "", demo_prizes: "",
-  });
-  const [settingsLoading, setSettingsLoading] = useState(false);
+  // Settings
+  const [settingsForm, setSettingsForm] = useState<any>({});
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [settingsSaved, setSettingsSaved] = useState(false);
 
-  // Create challenge modal
+  // Create challenge
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showAccountSettings, setShowAccountSettings] = useState(false);
-  const [createStep, setCreateStep] = useState(1); // 1=details, 2=rules, 3=review
+  const [createStep, setCreateStep] = useState(1);
   const [createForm, setCreateForm] = useState({
     title: "", type: "hybrid", start_date: "", end_date: "",
     starting_balance: "30", target_balance: "60", deposit_mode: "fixed",
-    target_percent: "100",
-    real_winners_count: "3", demo_winners_count: "3",
+    target_percent: "100", real_winners_count: "3", demo_winners_count: "3",
     real_prizes: "", demo_prizes: "",
-    registration_mode: (hostInfo?.hasBrokerIntegration ? "winnerpip" : "manual") as "winnerpip" | "manual",
+    registration_mode: "manual" as "winnerpip" | "manual",
     timezone: "Africa/Nairobi",
   });
-  const [createRules, setCreateRules] = useState({
+  const [createRules, setCreateRules] = useState<any>({
     max_lot_size: 0.02, max_open_trades: 3, pair_limit: 2,
-    stop_loss_required: true, max_risk_dollars: 5, max_risk_mode: 'fixed' as 'fixed' | 'percentage',
-    max_risk_percent: 10, daily_loss_cap: 10, daily_loss_mode: 'fixed' as 'fixed' | 'percentage',
-    daily_loss_percent: 20, max_hold_hours: 24, min_trade_duration_minutes: null as number | null,
-    weekend_trading: false, min_active_days: 7, min_total_trades: null as number | null,
+    stop_loss_required: true, max_risk_dollars: 5, max_risk_mode: 'fixed',
+    max_risk_percent: 10, daily_loss_cap: 10, daily_loss_mode: 'fixed',
+    daily_loss_percent: 20, max_hold_hours: 24, min_trade_duration_minutes: null,
+    weekend_trading: false, min_active_days: 7, min_total_trades: null,
     only_cent_account: false,
-    rules_enabled: {
-      max_lot_size: true, max_open_trades: true, pair_limit: true,
-      stop_loss_required: true, daily_loss_cap: true, max_hold_hours: true,
-      min_trade_duration: true, weekend_trading: true, min_active_days: true, min_total_trades: true,
-    } as Record<string, boolean>,
+    rules_enabled: { max_lot_size: true, max_open_trades: true, pair_limit: true, stop_loss_required: true, daily_loss_cap: true, max_hold_hours: true, min_trade_duration: true, weekend_trading: true, min_active_days: true, min_total_trades: true },
   });
   const [createLoading, setCreateLoading] = useState(false);
-  const [createResult, setCreateResult] = useState<{ success?: boolean; error?: string } | null>(null);
+  const [createResult, setCreateResult] = useState<any>(null);
+
+  // Action states
+  const [actionLoading, setActionLoading] = useState(false);
+  const [actionResult, setActionResult] = useState("");
 
   const getToken = () => localStorage.getItem("host_token") || "";
+  const headers = () => ({ Authorization: `Bearer ${getToken()}`, 'Content-Type': 'application/json' });
+  const selectedChallenge = challenges.find(c => c.id === selectedChallengeId);
+  const challengeTz = selectedChallenge?.timezone || 'Africa/Nairobi';
 
-  // Auth check on mount
+  // Auth
   useEffect(() => {
     const token = localStorage.getItem("host_token");
     const info = localStorage.getItem("host_info");
-    if (!token || !info) {
-      window.location.href = "/host/login";
-      return;
-    }
-
-    // Verify token
-    fetch(`${API_URL}/api/host/verify-token`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${token}` },
-    })
+    if (!token || !info) { window.location.href = "/host/login"; return; }
+    fetch(`${API_URL}/api/host/verify-token`, { method: "POST", headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.json())
-      .then(data => {
-        if (data.success) {
-          setHostInfo(data.host);
-          setIsAuth(true);
-        } else {
-          localStorage.removeItem("host_token");
-          localStorage.removeItem("host_info");
-          window.location.href = "/host/login";
-        }
-      })
-      .catch(() => {
-        // Offline — use cached info
-        try { setHostInfo(JSON.parse(info)); setIsAuth(true); } catch (_e) { window.location.href = "/host/login"; }
-      });
+      .then(data => { if (data.success) { setHostInfo(data.host); setIsAuth(true); } else { window.location.href = "/host/login"; } })
+      .catch(() => { try { setHostInfo(JSON.parse(info)); setIsAuth(true); } catch { window.location.href = "/host/login"; } });
   }, []);
 
-  // Fetch challenges after auth
+  // Fetch challenges
   useEffect(() => {
     if (!isAuth) return;
-    fetch(`${API_URL}/api/host/challenges`, {
-      headers: { Authorization: `Bearer ${getToken()}` },
-    })
+    fetch(`${API_URL}/api/host/challenges`, { headers: { Authorization: `Bearer ${getToken()}` } })
       .then(r => r.json())
       .then(data => {
         setChallenges(data.challenges || []);
         if (data.challenges?.length > 0) {
-          // Select the most recent active challenge, or first
-          const active = data.challenges.find((c: any) => c.status === "active" || c.status === "registration_open");
+          const active = data.challenges.find((c: any) => ['active', 'registration_open'].includes(c.status));
           setSelectedChallengeId(active?.id || data.challenges[0].id);
         }
         setLoading(false);
@@ -141,967 +103,567 @@ export default function HostDashboardPage() {
       .catch(() => setLoading(false));
   }, [isAuth]);
 
-  // Fetch tab data when challenge or tab changes
-  useEffect(() => {
+  // Fetch tab data
+  const fetchTabData = useCallback(async () => {
     if (!selectedChallengeId || !isAuth) return;
     setTabLoading(true);
-
-    const headers = { Authorization: `Bearer ${getToken()}` };
-
-    if (activeTab === "overview") {
-      fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/overview`, { headers })
-        .then(r => r.json())
-        .then(data => { setOverview(data); setTabLoading(false); })
-        .catch(() => setTabLoading(false));
-    } else if (activeTab === "participants") {
-      fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/participants`, { headers })
-        .then(r => r.json())
-        .then(data => { setParticipants(data.participants || []); setParticipantsPagination(data.pagination); setTabLoading(false); })
-        .catch(() => setTabLoading(false));
-    } else if (activeTab === "leaderboard") {
-      fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/leaderboard`, { headers })
-        .then(r => r.json())
-        .then(data => { setLeaderboard(data.leaderboard || []); setTabLoading(false); })
-        .catch(() => setTabLoading(false));
-    } else if (activeTab === "updates") {
-      fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/updates`, { headers })
-        .then(r => r.json())
-        .then(data => { setUpdates(data.updates || []); setTabLoading(false); })
-        .catch(() => setTabLoading(false));
-    } else if (activeTab === "rules") {
-      setRulesLoading(true);
-      fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/rules`, { headers })
-        .then(r => r.json())
-        .then(data => {
-          setRulesLocked(data.locked || false);
-          if (data.rules) {
-            setRulesConfig({
-              max_lot_size: data.rules.max_lot_size ?? 0.02,
-              max_open_trades: data.rules.max_open_trades ?? 3,
-              pair_limit: data.rules.pair_limit ?? 2,
-              stop_loss_required: data.rules.stop_loss_required ?? true,
-              max_risk_dollars: data.rules.max_risk_dollars ?? 5,
-              max_risk_mode: data.rules.max_risk_mode ?? 'fixed',
-              max_risk_percent: data.rules.max_risk_percent ?? 10,
-              daily_loss_cap: data.rules.daily_loss_cap ?? 10,
-              daily_loss_mode: data.rules.daily_loss_mode ?? 'fixed',
-              daily_loss_percent: data.rules.daily_loss_percent ?? 20,
-              max_hold_hours: data.rules.max_hold_hours ?? 24,
-              min_trade_duration_minutes: data.rules.min_trade_duration_minutes ?? null,
-              weekend_trading: data.rules.weekend_trading ?? false,
-              min_active_days: data.rules.min_active_days ?? 7,
-              min_total_trades: data.rules.min_total_trades ?? null,
-              only_cent_account: data.rules.only_cent_account ?? false,
-              rules_enabled: data.rules.rules_enabled ?? {
-                max_lot_size: true, max_open_trades: true, pair_limit: true,
-                stop_loss_required: true, daily_loss_cap: true, max_hold_hours: true,
-                min_trade_duration: true, weekend_trading: true, min_active_days: true, min_total_trades: true,
-              },
-            });
-          }
-          setRulesSaved(false);
-          setRulesLoading(false);
-          setTabLoading(false);
-        })
-        .catch(() => { setRulesLoading(false); setTabLoading(false); });
-    } else if (activeTab === "settings") {
-      setSettingsLoading(true);
-      // Load current challenge data to populate form
-      const ch = challenges.find((c: any) => c.id === selectedChallengeId);
-      if (ch) {
-        setSettingsForm({
-          title: ch.title || "",
-          end_date: ch.end_date ? new Date(ch.end_date).toISOString().slice(0, 16) : "",
-          target_balance: ch.target_balance ?? "",
-          target_percent: ch.target_percent ?? "",
-          prize_pool_text: ch.prize_pool_text || "",
-          real_winners_count: ch.real_winners_count ?? "",
-          demo_winners_count: ch.demo_winners_count ?? "",
-          real_prizes: Array.isArray(ch.real_prizes) ? ch.real_prizes.join(", ") : (ch.real_prizes || ""),
-          demo_prizes: Array.isArray(ch.demo_prizes) ? ch.demo_prizes.join(", ") : (ch.demo_prizes || ""),
-        });
+    const h = { Authorization: `Bearer ${getToken()}` };
+    try {
+      if (activeTab === "overview") {
+        const res = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/full-overview`, { headers: h });
+        if (res.ok) setOverview(await res.json());
+      } else if (activeTab === "participants") {
+        const res = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/full-participants`, { headers: h });
+        if (res.ok) { const d = await res.json(); setParticipants(d.participants || []); setParticipantsPagination(d.pagination); }
+      } else if (activeTab === "leaderboard") {
+        const res = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/leaderboard`, { headers: h });
+        if (res.ok) { const d = await res.json(); setLeaderboard(d.leaderboard || []); }
+      } else if (activeTab === "violations") {
+        const res = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/violations`, { headers: h });
+        if (res.ok) { const d = await res.json(); setViolations(d.violations || []); }
+      } else if (activeTab === "updates") {
+        const [histRes, failRes] = await Promise.all([
+          fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/pull-history`, { headers: h }),
+          fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/failed-accounts`, { headers: h }),
+        ]);
+        if (histRes.ok) { const d = await histRes.json(); setPullHistory(d.batches || []); }
+        if (failRes.ok) setFailedAccounts(await failRes.json());
+      } else if (activeTab === "rules") {
+        setRulesLoading(true);
+        const res = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/rules`, { headers: h });
+        if (res.ok) { const d = await res.json(); setRulesConfig(d.rules); setRulesLocked(d.locked || false); }
+        setRulesLoading(false);
+      } else if (activeTab === "settings") {
+        const ch = selectedChallenge;
+        if (ch) setSettingsForm({ title: ch.title || "", end_date: ch.end_date ? new Date(ch.end_date).toISOString().slice(0, 16) : "", target_balance: ch.target_balance ?? "", target_percent: ch.target_percent ?? "", real_winners_count: ch.real_winners_count ?? "", demo_winners_count: ch.demo_winners_count ?? "", real_prizes: Array.isArray(ch.real_prizes) ? ch.real_prizes.join(", ") : "", demo_prizes: Array.isArray(ch.demo_prizes) ? ch.demo_prizes.join(", ") : "" });
+        setSettingsSaved(false);
       }
-      setSettingsLoading(false);
-      setSettingsSaved(false);
-      setTabLoading(false);
-    }
+    } catch {}
+    setTabLoading(false);
   }, [selectedChallengeId, activeTab, isAuth]);
 
-  const handleLogout = () => {
-    localStorage.removeItem("host_token");
-    localStorage.removeItem("host_info");
-    window.location.href = "/host/login";
-  };
+  useEffect(() => { fetchTabData(); }, [fetchTabData]);
 
-  const handleCsvUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !selectedChallengeId) return;
-    setCsvResult(null);
-    setCsvUploading(true);
+  // Fetch participant trades
+  useEffect(() => {
+    if (!selectedParticipant || !selectedChallengeId) { setSelectedParticipantTrades([]); return; }
+    fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/user-trades?nickname=${encodeURIComponent(selectedParticipant.nickname)}`, { headers: { Authorization: `Bearer ${getToken()}` } })
+      .then(r => r.ok ? r.json() : { trades: [] })
+      .then(d => setSelectedParticipantTrades(d.trades || []))
+      .catch(() => setSelectedParticipantTrades([]));
+  }, [selectedParticipant, selectedChallengeId]);
 
+  const handleLogout = () => { localStorage.removeItem("host_token"); localStorage.removeItem("host_info"); window.location.href = "/host/login"; };
+
+  // Action handlers
+  const doAction = async (url: string, method = 'POST', body?: any) => {
+    setActionLoading(true);
     try {
-      const text = await file.text();
-      const lines = text.trim().split('\n');
-      const header = lines[0].toLowerCase();
-
-      const delimiter = header.includes('\t') ? '\t' : ',';
-      const headers = header.split(delimiter).map(h => h.trim().replace(/"/g, ''));
-
-      const nickIdx = headers.findIndex(h => h.includes('nick') || h === 'username' || h === 'name');
-      const typeIdx = headers.findIndex(h => h.includes('type') || h.includes('account_type'));
-      const acctIdx = headers.findIndex(h => h.includes('account') && !h.includes('type'));
-      const srvIdx = headers.findIndex(h => h.includes('server'));
-      const pwIdx = headers.findIndex(h => h.includes('password') || h.includes('investor'));
-
-      if (nickIdx < 0 || typeIdx < 0 || acctIdx < 0 || srvIdx < 0 || pwIdx < 0) {
-        setCsvResult({ error: 'CSV must have columns: nickname, accountType, accountNumber, server, investorPassword' });
-        setCsvUploading(false);
-        return;
-      }
-
-      const participants: any[] = [];
-      for (let i = 1; i < lines.length; i++) {
-        const cols = lines[i].split(delimiter).map(c => c.trim().replace(/"/g, ''));
-        if (cols.length < 5 || !cols[acctIdx]) continue;
-        participants.push({
-          nickname: cols[nickIdx],
-          accountType: cols[typeIdx]?.toLowerCase(),
-          accountNumber: cols[acctIdx],
-          server: cols[srvIdx],
-          investorPassword: cols[pwIdx],
-        });
-      }
-
-      if (participants.length === 0) {
-        setCsvResult({ error: 'No valid rows found in CSV' });
-        setCsvUploading(false);
-        return;
-      }
-
-      const res = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/upload-csv`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${getToken()}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ participants }),
-      });
+      const res = await fetch(url, { method, headers: headers(), ...(body ? { body: JSON.stringify(body) } : {}) });
       const data = await res.json();
-      if (res.ok && data.success) {
-        setCsvResult({ success: true, totalRows: data.totalRows });
-      } else {
-        setCsvResult({ error: data.error || 'Upload failed' });
-      }
-    } catch (_csvErr) {
-      setCsvResult({ error: 'Failed to parse CSV file' });
-    }
-    setCsvUploading(false);
-    e.target.value = '';
+      setActionResult(data.success ? "Done" : (data.error || "Failed"));
+    } catch { setActionResult("Network error"); }
+    setActionLoading(false);
+    setTimeout(() => setActionResult(""), 3000);
+    fetchTabData();
   };
 
-  if (!isAuth || loading) {
-    return (
-      <div className="min-h-screen bg-[#0a0e1a] flex items-center justify-center">
-        <div className="flex flex-col items-center gap-3">
-          <Loader2 className="w-8 h-8 text-royal animate-spin" />
-          <p className="text-xs text-gray-500 font-medium">Loading dashboard...</p>
-        </div>
-      </div>
-    );
-  }
+  const fmtTime = (d: string) => d ? new Date(d).toLocaleString("en-US", { timeZone: challengeTz, month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: true }) : "—";
 
-  const selectedChallenge = challenges.find(c => c.id === selectedChallengeId);
+  if (!isAuth || loading) return <div className="min-h-screen bg-[#0a0e1a] flex items-center justify-center"><Loader2 className="w-8 h-8 text-royal animate-spin" /></div>;
 
   return (
-    <div className="min-h-screen bg-[#0a0e1a] relative">
-      {/* Background effects */}
-      <div className="fixed inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-0 right-1/4 w-80 h-80 bg-royal/8 rounded-full blur-3xl"></div>
-        <div className="absolute bottom-1/4 left-0 w-64 h-64 bg-gold/5 rounded-full blur-3xl"></div>
-      </div>
-
+    <div className="min-h-screen bg-[#0a0e1a]">
       {/* Header */}
-      <header className="glass border-b border-white/5 sticky top-0 z-50 backdrop-blur-xl">
-        <div className="container mx-auto px-4 sm:px-6 py-3 flex items-center justify-between max-w-7xl">
+      <header className="glass border-b border-white/5 sticky top-0 z-50">
+        <div className="container mx-auto px-4 py-3 flex items-center justify-between max-w-7xl">
           <div className="flex items-center gap-3">
             <Image src="/winnerpip-icon.png" alt="WinnerPip" width={32} height={32} className="rounded-lg" />
             <div>
-              <p className="text-sm font-bold text-white leading-tight">{hostInfo?.displayName || "Host"}</p>
-              <p className="text-[10px] text-royal/80 font-semibold tracking-wider">HOST DASHBOARD</p>
+              <p className="text-sm font-bold text-white">{hostInfo?.displayName || "Host"}</p>
+              <p className="text-[10px] text-royal font-semibold tracking-wider">HOST DASHBOARD</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={() => setShowAccountSettings(!showAccountSettings)} className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-all text-xs font-medium ${showAccountSettings ? 'text-royal bg-royal/10' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}>
-              <Settings size={14} /> Settings
-            </button>
-            <button onClick={handleLogout} className="flex items-center gap-2 px-3 py-2 text-gray-400 hover:text-loss hover:bg-loss/10 rounded-lg transition-all text-xs font-medium">
-              <LogOut size={14} /> Logout
-            </button>
+            <button onClick={() => setShowAccountSettings(!showAccountSettings)} className={`px-3 py-2 rounded-lg text-xs font-medium transition-all ${showAccountSettings ? 'text-royal bg-royal/10' : 'text-gray-400 hover:text-white'}`}><Settings size={14} /></button>
+            <button onClick={handleLogout} className="px-3 py-2 text-gray-400 hover:text-loss rounded-lg text-xs"><LogOut size={14} /></button>
           </div>
         </div>
       </header>
 
-      {/* Account Settings Panel */}
-      {showAccountSettings && (
-        <div className="container mx-auto px-4 sm:px-6 py-6 max-w-2xl relative">
+      {showAccountSettings ? (
+        <div className="container mx-auto px-4 py-6 max-w-2xl">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-bold text-white">Account Settings</h2>
-            <button onClick={() => setShowAccountSettings(false)} className="text-xs text-gray-400 hover:text-white transition-all">Back to Dashboard</button>
+            <button onClick={() => setShowAccountSettings(false)} className="text-xs text-gray-400 hover:text-white">Back</button>
           </div>
           <BrokerCredentialsSection />
         </div>
-      )}
-
-      {!showAccountSettings && (
-      <div className="container mx-auto px-4 sm:px-6 py-6 max-w-7xl relative">
+      ) : (
+      <div className="container mx-auto px-4 py-6 max-w-7xl">
         {/* Challenge Selector */}
         {challenges.length > 0 && (
           <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-6">
-            <div className="flex items-center gap-3 flex-1 min-w-0">
+            <div className="flex items-center gap-3 flex-1">
               <div className="relative">
-                <select
-                  value={selectedChallengeId || ""}
-                  onChange={(e) => setSelectedChallengeId(parseInt(e.target.value))}
-                  className="appearance-none bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 pr-10 text-white text-sm font-medium outline-none focus:border-royal/40 cursor-pointer min-w-[180px]"
-                >
-                  {challenges.map((c) => (
-                    <option key={c.id} value={c.id} className="bg-[#0f1629]">
-                      {c.title} ({c.status})
-                    </option>
-                  ))}
+                <select value={selectedChallengeId || ""} onChange={e => setSelectedChallengeId(parseInt(e.target.value))} className="appearance-none bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 pr-10 text-white text-sm font-medium outline-none">
+                  {challenges.map(c => <option key={c.id} value={c.id} className="bg-[#0f1629]">{c.title} ({c.status})</option>)}
                 </select>
                 <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
               </div>
-              {selectedChallenge && (
-                <span className={`px-2.5 py-1 rounded-full text-[10px] font-semibold ${selectedChallenge.status === 'active' ? 'bg-profit/20 text-profit border border-profit/30' : selectedChallenge.status === 'registration_open' ? 'bg-gold/20 text-gold border border-gold/30' : selectedChallenge.status === 'pending_approval' ? 'bg-royal/20 text-royal border border-royal/30' : selectedChallenge.status === 'rejected' ? 'bg-loss/20 text-loss border border-loss/30' : 'bg-white/10 text-gray-400 border border-white/20'}`}>
-                  {selectedChallenge.status === 'active' ? 'Active' : selectedChallenge.status === 'registration_open' ? 'Registration Open' : selectedChallenge.status === 'pending_approval' ? 'Pending Approval' : selectedChallenge.status === 'rejected' ? 'Rejected' : selectedChallenge.status}
-                </span>
-              )}
+              {selectedChallenge && <StatusBadge status={selectedChallenge.status} />}
             </div>
-            <button onClick={() => { setShowCreateModal(true); setCreateResult(null); setCreateStep(1); }} className="px-4 py-2 rounded-xl bg-royal/20 text-royal text-sm font-semibold border border-royal/30 hover:bg-royal/30 transition-all whitespace-nowrap">+ New Challenge</button>
+            <button onClick={() => { setShowCreateModal(true); setCreateResult(null); setCreateStep(1); }} className="px-4 py-2 rounded-xl bg-royal/20 text-royal text-sm font-semibold border border-royal/30">+ New Challenge</button>
           </div>
         )}
 
-        {/* No challenges */}
-        {challenges.length === 0 && (<>
+        {challenges.length === 0 && (
           <div className="text-center py-24">
-            <div className="w-20 h-20 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center mx-auto mb-5">
-              <Trophy className="w-10 h-10 text-gray-600" />
-            </div>
+            <Trophy className="w-16 h-16 text-gray-600 mx-auto mb-4" />
             <p className="text-gray-300 text-lg font-semibold">No challenges yet</p>
-            <p className="text-gray-500 text-sm mt-2 max-w-sm mx-auto">Your challenges will appear here once created and approved by admin.</p>
-            <button onClick={() => { setShowCreateModal(true); setCreateResult(null); setCreateStep(1); }} className="mt-6 px-6 py-2.5 rounded-xl bg-royal text-white font-semibold text-sm hover:bg-royal/80 transition-all">Create Challenge</button>
+            <button onClick={() => { setShowCreateModal(true); setCreateResult(null); setCreateStep(1); }} className="mt-6 px-6 py-2.5 rounded-xl bg-royal text-white font-semibold text-sm">Create Challenge</button>
           </div>
-        </>)}
+        )}
 
-        {/* Tab Navigation */}
-        {selectedChallengeId && (
-          <>
-            <div className="flex gap-1 p-1 glass rounded-xl border border-white/10 mb-6 overflow-x-auto scrollbar-hide">
-              {[
-                { key: "overview", label: "Overview", icon: <LayoutDashboard size={14} /> },
-                { key: "participants", label: "Participants", icon: <Users size={14} /> },
-                { key: "leaderboard", label: "Leaderboard", icon: <Trophy size={14} /> },
-                { key: "rules", label: "Rules", icon: <Shield size={14} /> },
-                { key: "settings", label: "Settings", icon: <Settings size={14} /> },
-                ...(hostInfo?.hasBrokerIntegration ? [{ key: "screening", label: "Screening", icon: <Target size={14} /> }] : []),
-                { key: "updates", label: "Updates", icon: <RefreshCw size={14} /> },
-              ].map((tab: any) => (
-                <button
-                  key={tab.key}
-                  onClick={() => setActiveTab(tab.key)}
-                  className={`flex items-center gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg text-xs sm:text-sm font-medium transition-all whitespace-nowrap ${activeTab === tab.key ? "bg-royal/20 text-royal border border-royal/30" : "text-gray-400 hover:text-white hover:bg-white/5"}`}
-                >
-                  {tab.icon} {tab.label}
-                </button>
-              ))}
+        {/* Tabs */}
+        {selectedChallengeId && (<>
+          <div className="flex gap-1 p-1 glass rounded-xl border border-white/10 mb-6 overflow-x-auto scrollbar-hide">
+            {[
+              { key: "overview", label: "Overview" },
+              { key: "participants", label: "Participants" },
+              { key: "leaderboard", label: "Leaderboard" },
+              { key: "violations", label: "Violations" },
+              { key: "updates", label: "Updates" },
+              ...(hostInfo?.hasBrokerIntegration ? [{ key: "screening", label: "Screening" }] : []),
+              { key: "rules", label: "Rules" },
+              { key: "settings", label: "Settings" },
+            ].map(tab => (
+              <button key={tab.key} onClick={() => setActiveTab(tab.key)} className={`flex-shrink-0 py-2 px-3 sm:px-4 rounded-lg text-xs sm:text-sm font-semibold transition-all ${activeTab === tab.key ? "bg-royal/20 text-royal border border-royal/30" : "text-gray-400 hover:text-white hover:bg-white/5"}`}>{tab.label}</button>
+            ))}
+          </div>
+
+          {/* Action toast */}
+          {actionResult && <div className="p-3 rounded-lg bg-profit/10 border border-profit/30 text-profit text-sm font-medium mb-4">{actionResult}</div>}
+
+          {tabLoading ? <div className="flex justify-center py-16"><Loader2 className="w-6 h-6 text-royal animate-spin" /></div> : (<>
+
+          {/* ===== OVERVIEW ===== */}
+          {activeTab === "overview" && overview && (<>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 mb-6">
+              <StatCard icon={<Users size={16} />} label="Participants" value={overview.totalParticipants} sub={`Demo: ${overview.demoParticipants} | Real: ${overview.realParticipants}`} color="text-royal" />
+              <StatCard icon={<Activity size={16} />} label="Total Trades" value={overview.totalTrades} sub={`Violations: ${overview.totalViolations}`} color="text-white" />
+              <StatCard icon={<AlertTriangle size={16} />} label="Violations" value={overview.totalViolations} sub={`${overview.violationRate}% rate`} color="text-loss" />
+              <StatCard icon={<Trophy size={16} />} label="Above Target" value={overview.aboveTarget} sub={`${overview.totalParticipants > 0 ? ((overview.aboveTarget / overview.totalParticipants) * 100).toFixed(1) : 0}% qualified`} color="text-gold" />
             </div>
-
-            {/* Tab Content */}
-            {tabLoading ? (
-              <div className="flex items-center justify-center py-16">
-                <div className="flex flex-col items-center gap-3">
-                  <Loader2 className="w-6 h-6 text-royal animate-spin" />
-                  <p className="text-xs text-gray-500">Loading data...</p>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 mb-6">
+              <StatCard icon={<Zap size={16} />} label="Updates Today" value={overview.pullsToday} sub="" color="text-royal" />
+              <StatCard icon={<Shield size={16} />} label="Last Update" value={overview.lastPull ? (overview.lastPull.successful + " ok") : "—"} sub={overview.lastPull ? `Failed: ${overview.lastPull.failed}` : ""} color="text-profit" />
+              <StatCard icon={<Key size={16} />} label="PW Changed" value={overview.passwordChanged} sub="Credential failures" color="text-gold" />
+              <StatCard icon={<Clock size={16} />} label="DQ'd" value={overview.disqualified} sub="Disqualified" color="text-loss" />
+            </div>
+            {/* Top Violations */}
+            {overview.topViolations?.length > 0 && (
+              <div className="glass rounded-2xl border border-white/10 p-5">
+                <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2"><AlertTriangle size={16} className="text-loss" /> Top Rule Violations</h3>
+                <div className="space-y-3">
+                  {overview.topViolations.map((v: any, i: number) => (
+                    <div key={i}>
+                      <div className="flex justify-between mb-1"><span className="text-sm text-gray-300">{v.rule}</span><span className="text-xs text-gray-500">{v.count}</span></div>
+                      <div className="w-full h-2 bg-white/10 rounded-full overflow-hidden"><div className="h-full bg-loss/60 rounded-full" style={{ width: `${Math.min((v.count / Math.max(...overview.topViolations.map((x: any) => x.count), 1)) * 100, 100)}%` }} /></div>
+                    </div>
+                  ))}
                 </div>
               </div>
-            ) : (
-              <>
-                {/* OVERVIEW TAB */}
-                {activeTab === "overview" && overview && (
-                  <div className="space-y-5">
-                    {/* Challenge Info */}
-                    <div className="glass rounded-2xl border border-white/10 p-5">
-                      <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2"><LayoutDashboard size={16} className="text-royal" /> Challenge Overview</h3>
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                        <div className="bg-white/5 rounded-xl p-4 border border-white/5">
-                          <p className="text-[10px] text-gray-500 uppercase tracking-wide mb-1">Participants</p>
-                          <p className="text-2xl font-bold text-white">{overview.participants.total}</p>
-                          <p className="text-[10px] text-gray-500 mt-1">Real: {overview.participants.real} · Demo: {overview.participants.demo}</p>
-                        </div>
-                        <div className="bg-white/5 rounded-xl p-4 border border-white/5">
-                          <p className="text-[10px] text-gray-500 uppercase tracking-wide mb-1">Qualified</p>
-                          <p className="text-2xl font-bold text-profit">{overview.leaderboard.qualified}</p>
-                        </div>
-                        <div className="bg-white/5 rounded-xl p-4 border border-white/5">
-                          <p className="text-[10px] text-gray-500 uppercase tracking-wide mb-1">Disqualified</p>
-                          <p className="text-2xl font-bold text-loss">{overview.participants.disqualified}</p>
-                        </div>
-                        <div className="bg-white/5 rounded-xl p-4 border border-white/5">
-                          <p className="text-[10px] text-gray-500 uppercase tracking-wide mb-1">Last Update</p>
-                          <p className="text-sm font-semibold text-white">{overview.lastUpdateAt ? new Date(overview.lastUpdateAt).toLocaleString("en-US", { timeZone: overview.challenge?.timezone || 'Africa/Nairobi', month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "—"}</p>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Challenge Details */}
-                    <div className="glass rounded-2xl border border-white/10 p-5">
-                      <h3 className="text-sm font-semibold text-white mb-4">Challenge Details</h3>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-                        <div className="flex items-center gap-3 p-3 rounded-xl bg-white/5 border border-white/5"><Calendar size={14} className="text-gray-500 flex-shrink-0" /><span className="text-gray-400">Period:</span><span className="text-white font-medium">{new Date(overview.challenge.startDate).toLocaleDateString()} — {new Date(overview.challenge.endDate).toLocaleDateString()}</span></div>
-                        <div className="flex items-center gap-3 p-3 rounded-xl bg-white/5 border border-white/5"><Target size={14} className="text-gray-500 flex-shrink-0" /><span className="text-gray-400">Target:</span><span className="text-white font-medium">{overview.challenge.depositMode !== 'fixed' ? `${overview.challenge.targetPercent}% growth` : `$${overview.challenge.targetBalance}`}</span></div>
-                        <div className="flex items-center gap-3 p-3 rounded-xl bg-white/5 border border-white/5"><Activity size={14} className="text-gray-500 flex-shrink-0" /><span className="text-gray-400">Type:</span><span className="text-white font-medium capitalize">{overview.challenge.type}</span></div>
-                        <div className="flex items-center gap-3 p-3 rounded-xl bg-white/5 border border-white/5"><FileText size={14} className="text-gray-500 flex-shrink-0" /><span className="text-gray-400">Status:</span><span className="text-white font-medium capitalize">{overview.challenge.status}</span></div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* PARTICIPANTS TAB */}
-                {activeTab === "participants" && (<>
-                  <div className="glass rounded-2xl border border-white/10 p-5">
-                    <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2"><Users size={16} className="text-royal" /> Participants ({participantsPagination?.total || participants.length})</h3>
-                    {participants.length === 0 ? (
-                      <div className="text-center py-12">
-                        <Users className="w-10 h-10 text-gray-700 mx-auto mb-3" />
-                        <p className="text-gray-500 text-sm">No participants registered yet</p>
-                      </div>
-                    ) : (
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-sm">
-                          <thead>
-                            <tr className="border-b border-white/10">
-                              <th className="text-left py-2 px-3 text-gray-500 font-medium">Nickname</th>
-                              <th className="text-left py-2 px-3 text-gray-500 font-medium">Account</th>
-                              <th className="text-left py-2 px-3 text-gray-500 font-medium">Type</th>
-                              <th className="text-left py-2 px-3 text-gray-500 font-medium">Status</th>
-                              <th className="text-left py-2 px-3 text-gray-500 font-medium">Registered</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {participants.map((p: any) => (
-                              <tr key={p.id} className="border-b border-white/5 hover:bg-white/5">
-                                <td className="py-2.5 px-3 text-white font-medium">{p.nickname}</td>
-                                <td className="py-2.5 px-3 text-gray-300">{p.accountNumber}</td>
-                                <td className="py-2.5 px-3"><span className={`px-2 py-0.5 rounded text-[10px] font-bold ${p.accountType === 'real' ? 'bg-gold/20 text-gold' : 'bg-royal/20 text-royal'}`}>{p.accountType}</span></td>
-                                <td className="py-2.5 px-3">{p.disqualified ? <span className="text-loss text-xs font-semibold">DQ</span> : p.connectionVerified ? <span className="text-profit text-xs">Connected</span> : <span className="text-gray-500 text-xs">Pending</span>}</td>
-                                <td className="py-2.5 px-3 text-gray-500 text-xs">{new Date(p.registeredAt).toLocaleDateString()}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* CSV Upload Section */}
-                  <div className="glass rounded-2xl border border-white/10 p-5 mt-5">
-                    <h3 className="text-sm font-semibold text-white mb-2">Upload Participants (CSV)</h3>
-                    <p className="text-xs text-gray-500 mb-4">CSV columns: nickname, accountType (demo/real), accountNumber, server, investorPassword</p>
-
-                    <input
-                      type="file"
-                      accept=".csv"
-                      onChange={(e) => handleCsvUpload(e)}
-                      disabled={csvUploading}
-                      className="block w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-semibold file:bg-royal/20 file:text-royal hover:file:bg-royal/30 file:cursor-pointer cursor-pointer disabled:opacity-50"
-                    />
-
-                    {csvUploading && <p className="text-xs text-royal mt-3 flex items-center gap-2"><Loader2 size={12} className="animate-spin" /> Parsing and uploading...</p>}
-                    {csvResult?.success && <p className="text-xs text-profit mt-3">{csvResult.totalRows} participants uploaded. Awaiting admin approval.</p>}
-                    {csvResult?.error && <p className="text-xs text-loss mt-3">{csvResult.error}</p>}
-                  </div>
-                </>)}
-
-                {/* LEADERBOARD TAB */}
-                {activeTab === "leaderboard" && (
-                  <div className="glass rounded-2xl border border-white/10 p-5">
-                    <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2"><Trophy size={16} className="text-gold" /> Leaderboard</h3>
-                    {leaderboard.length === 0 ? (
-                      <div className="text-center py-12">
-                        <Trophy className="w-10 h-10 text-gray-700 mx-auto mb-3" />
-                        <p className="text-gray-500 text-sm">Leaderboard will appear after the first data update</p>
-                      </div>
-                    ) : (
-                      <div className="space-y-2">
-                        {leaderboard.map((entry: any) => (
-                          <div key={entry.nickname} className={`flex items-center justify-between p-3 rounded-xl ${entry.isDisqualified ? 'bg-loss/5 border border-loss/20' : 'bg-white/5 border border-white/10'}`}>
-                            <div className="flex items-center gap-3">
-                              <span className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold ${entry.rank === 1 ? 'bg-gold/20 text-gold' : entry.rank === 2 ? 'bg-gray-300/20 text-gray-300' : entry.rank === 3 ? 'bg-amber-700/20 text-amber-600' : 'bg-white/5 text-gray-500'}`}>
-                                {entry.isDisqualified ? 'DQ' : `#${entry.rank || '—'}`}
-                              </span>
-                              <div>
-                                <p className="text-sm font-semibold text-white">{entry.nickname}</p>
-                                <p className="text-[10px] text-gray-500">{entry.totalTrades} trades • {entry.flaggedTrades} flagged • {entry.accountType}</p>
-                              </div>
-                            </div>
-                            <div className="text-right">
-                              <p className="text-sm font-bold text-white">{entry.growthPercent > 0 ? `↑ ${entry.growthPercent.toFixed(1)}%` : entry.isCent ? `${entry.adjustedBalance.toFixed(0)}¢` : `$${entry.adjustedBalance.toFixed(2)}`}</p>
-                              {entry.isDisqualified && <p className="text-[10px] text-loss">{entry.disqualifyReason}</p>}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* SETTINGS TAB */}
-                {activeTab === "settings" && (
-                  <div className="glass rounded-2xl border border-white/10 p-5">
-                    <h3 className="text-sm font-semibold text-white mb-2 flex items-center gap-2"><Settings size={16} className="text-royal" /> Challenge Settings</h3>
-                    <p className="text-xs text-gray-500 mb-5">Edit your challenge details. Changes take effect immediately.</p>
-
-                    {settingsLoading ? (
-                      <div className="flex justify-center py-12"><Loader2 className="animate-spin text-royal" size={20} /></div>
-                    ) : (
-                      <div className="space-y-4">
-                        <div>
-                          <label className="block text-xs text-gray-400 mb-1">Challenge Title</label>
-                          <input type="text" value={settingsForm.title} onChange={e => setSettingsForm((p: any) => ({ ...p, title: e.target.value }))} className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none focus:border-royal/50" />
-                        </div>
-
-                        <div>
-                          <label className="block text-xs text-gray-400 mb-1">End Date</label>
-                          <input type="datetime-local" value={settingsForm.end_date} onChange={e => setSettingsForm((p: any) => ({ ...p, end_date: e.target.value }))} className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none focus:border-royal/50" />
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-3">
-                          <div>
-                            <label className="block text-xs text-gray-400 mb-1">Target Balance ($)</label>
-                            <input type="number" step="0.01" value={settingsForm.target_balance} onChange={e => setSettingsForm((p: any) => ({ ...p, target_balance: e.target.value }))} className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none focus:border-royal/50" placeholder="e.g. 60" />
-                          </div>
-                          <div>
-                            <label className="block text-xs text-gray-400 mb-1">Target Growth (%)</label>
-                            <input type="number" step="1" value={settingsForm.target_percent} onChange={e => setSettingsForm((p: any) => ({ ...p, target_percent: e.target.value }))} className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none focus:border-royal/50" placeholder="e.g. 100" />
-                          </div>
-                        </div>
-
-                        <div>
-                          <label className="block text-xs text-gray-400 mb-1">Prize Pool Text</label>
-                          <input type="text" value={settingsForm.prize_pool_text} onChange={e => setSettingsForm((p: any) => ({ ...p, prize_pool_text: e.target.value }))} className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none focus:border-royal/50" placeholder="e.g. $1,000 Total" />
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-3">
-                          <div>
-                            <label className="block text-xs text-gray-400 mb-1">Real Winners Count</label>
-                            <input type="number" min="0" value={settingsForm.real_winners_count} onChange={e => setSettingsForm((p: any) => ({ ...p, real_winners_count: e.target.value }))} className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none focus:border-royal/50" />
-                          </div>
-                          <div>
-                            <label className="block text-xs text-gray-400 mb-1">Demo Winners Count</label>
-                            <input type="number" min="0" value={settingsForm.demo_winners_count} onChange={e => setSettingsForm((p: any) => ({ ...p, demo_winners_count: e.target.value }))} className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none focus:border-royal/50" />
-                          </div>
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-3">
-                          <div>
-                            <label className="block text-xs text-gray-400 mb-1">Real Prizes (comma separated)</label>
-                            <input type="text" value={settingsForm.real_prizes} onChange={e => setSettingsForm((p: any) => ({ ...p, real_prizes: e.target.value }))} className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none focus:border-royal/50" placeholder="500, 300, 200" />
-                          </div>
-                          <div>
-                            <label className="block text-xs text-gray-400 mb-1">Demo Prizes (comma separated)</label>
-                            <input type="text" value={settingsForm.demo_prizes} onChange={e => setSettingsForm((p: any) => ({ ...p, demo_prizes: e.target.value }))} className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none focus:border-royal/50" placeholder="300, 200, 100" />
-                          </div>
-                        </div>
-
-                        {/* Save button */}
-                        <div className="pt-4 flex items-center gap-3">
-                          <button
-                            onClick={async () => {
-                              setSettingsSaving(true);
-                              try {
-                                const payload: any = {};
-                                if (settingsForm.title) payload.title = settingsForm.title;
-                                if (settingsForm.end_date) payload.end_date = settingsForm.end_date;
-                                if (settingsForm.target_balance) payload.target_balance = parseFloat(settingsForm.target_balance);
-                                if (settingsForm.target_percent) payload.target_percent = parseFloat(settingsForm.target_percent);
-                                if (settingsForm.prize_pool_text) payload.prize_pool_text = settingsForm.prize_pool_text;
-                                if (settingsForm.real_winners_count !== "") payload.real_winners_count = parseInt(settingsForm.real_winners_count) || 0;
-                                if (settingsForm.demo_winners_count !== "") payload.demo_winners_count = parseInt(settingsForm.demo_winners_count) || 0;
-                                if (settingsForm.real_prizes) payload.real_prizes = settingsForm.real_prizes.split(",").map((s: string) => s.trim()).filter(Boolean);
-                                if (settingsForm.demo_prizes) payload.demo_prizes = settingsForm.demo_prizes.split(",").map((s: string) => s.trim()).filter(Boolean);
-
-                                const res = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/settings`, {
-                                  method: "PUT",
-                                  headers: { Authorization: `Bearer ${getToken()}`, "Content-Type": "application/json" },
-                                  body: JSON.stringify(payload),
-                                });
-                                if (res.ok) setSettingsSaved(true);
-                              } catch {}
-                              setSettingsSaving(false);
-                              setTimeout(() => setSettingsSaved(false), 3000);
-                            }}
-                            disabled={settingsSaving}
-                            className="px-6 py-2.5 rounded-xl bg-royal text-white text-sm font-semibold hover:bg-royal/80 disabled:opacity-50 transition-all flex items-center gap-2"
-                          >
-                            {settingsSaving ? <Loader2 size={14} className="animate-spin" /> : null} Save Settings
-                          </button>
-                          {settingsSaved && <span className="text-sm text-profit font-medium">✓ Saved</span>}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* SCREENING TAB */}
-                {activeTab === "screening" && (
-                  <ScreeningTab challengeId={selectedChallengeId!} getToken={getToken} />
-                )}
-
-                {/* UPDATES TAB */}
-                {activeTab === "updates" && (
-                  <div className="glass rounded-2xl border border-white/10 p-5">
-                    <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2"><RefreshCw size={16} className="text-royal" /> Data Updates</h3>
-                    {updates.length === 0 ? (
-                      <div className="text-center py-12">
-                        <RefreshCw className="w-10 h-10 text-gray-700 mx-auto mb-3" />
-                        <p className="text-gray-500 text-sm">No updates yet</p>
-                        <p className="text-gray-600 text-xs mt-1">Data updates run automatically 6 times per day.</p>
-                      </div>
-                    ) : (
-                      <div className="space-y-2">
-                        {updates.map((u: any) => (
-                          <div key={u.id} className="flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/10">
-                            <div className="flex items-center gap-3">
-                              <div className={`w-2 h-2 rounded-full ${u.status === 'completed' ? 'bg-profit' : u.status === 'running' ? 'bg-gold animate-pulse' : 'bg-loss'}`}></div>
-                              <div>
-                                <p className="text-sm text-white font-medium">Update #{u.updateNumber}</p>
-                                <p className="text-[10px] text-gray-500">{new Date(u.startedAt).toLocaleString("en-US", { timeZone: selectedChallenge?.timezone || 'Africa/Nairobi', month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</p>
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-4 text-xs">
-                              <span className="text-profit font-semibold">{u.successful} OK</span>
-                              {u.failed > 0 && <span className="text-loss font-semibold">{u.failed} failed</span>}
-                              <span className="text-gray-500">{u.totalAccounts} accounts</span>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* RULES TAB */}
-                {activeTab === "rules" && (
-                  <div className="glass rounded-2xl border border-white/10 p-5">
-                    <h3 className="text-sm font-semibold text-white mb-2 flex items-center gap-2"><Shield size={16} className="text-royal" /> Rule Configuration</h3>
-                    <p className="text-xs text-gray-500 mb-5">{rulesLocked ? "Rules are locked — challenge has already started." : "Configure the evaluation rules for your challenge. Rules can only be changed before the challenge starts."}</p>
-
-                    {rulesLoading ? (
-                      <div className="flex justify-center py-12"><Loader2 className="animate-spin text-royal" size={20} /></div>
-                    ) : (
-                      <div className="space-y-4">
-                        {/* Max Lot Size */}
-                        <RuleRow label="Max Lot Size" tooltip="Maximum position size allowed per trade" enabled={rulesConfig.rules_enabled.max_lot_size} onToggle={(v) => setRulesConfig((p: any) => ({ ...p, rules_enabled: { ...p.rules_enabled, max_lot_size: v } }))} locked={rulesLocked}>
-                          <input type="number" step="0.01" min="0.01" value={rulesConfig.max_lot_size} onChange={e => setRulesConfig((p: any) => ({ ...p, max_lot_size: parseFloat(e.target.value) || 0 }))} disabled={rulesLocked || !rulesConfig.rules_enabled.max_lot_size} className="w-24 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm outline-none disabled:opacity-40" />
-                        </RuleRow>
-
-                        {/* Max Open Trades */}
-                        <RuleRow label="Max Open Trades" tooltip="Maximum number of positions open simultaneously" enabled={rulesConfig.rules_enabled.max_open_trades} onToggle={(v) => setRulesConfig((p: any) => ({ ...p, rules_enabled: { ...p.rules_enabled, max_open_trades: v } }))} locked={rulesLocked}>
-                          <input type="number" min="1" value={rulesConfig.max_open_trades} onChange={e => setRulesConfig((p: any) => ({ ...p, max_open_trades: parseInt(e.target.value) || 1 }))} disabled={rulesLocked || !rulesConfig.rules_enabled.max_open_trades} className="w-24 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm outline-none disabled:opacity-40" />
-                        </RuleRow>
-
-                        {/* Pair Limit */}
-                        <RuleRow label="Pair Limit" tooltip="Max number of different instruments tradeable at the same time" enabled={rulesConfig.rules_enabled.pair_limit} onToggle={(v) => setRulesConfig((p: any) => ({ ...p, rules_enabled: { ...p.rules_enabled, pair_limit: v } }))} locked={rulesLocked}>
-                          <input type="number" min="1" value={rulesConfig.pair_limit} onChange={e => setRulesConfig((p: any) => ({ ...p, pair_limit: parseInt(e.target.value) || 1 }))} disabled={rulesLocked || !rulesConfig.rules_enabled.pair_limit} className="w-24 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm outline-none disabled:opacity-40" />
-                        </RuleRow>
-
-                        {/* Stop Loss Required + Max Risk */}
-                        <RuleRow label="Stop Loss Required" tooltip="Every trade must have a stop-loss set. Max risk limits the loss per trade." enabled={rulesConfig.rules_enabled.stop_loss_required} onToggle={(v) => setRulesConfig((p: any) => ({ ...p, rules_enabled: { ...p.rules_enabled, stop_loss_required: v } }))} locked={rulesLocked}>
-                          <div className="flex items-center gap-2">
-                            <div className="flex rounded-lg overflow-hidden border border-white/10">
-                              <button onClick={() => setRulesConfig((p: any) => ({ ...p, max_risk_mode: 'fixed' }))} className={`px-2 py-1 text-[10px] font-bold transition-all ${rulesConfig.max_risk_mode === 'fixed' ? 'bg-royal/20 text-royal' : 'bg-white/5 text-gray-500'}`} disabled={rulesLocked || !rulesConfig.rules_enabled.stop_loss_required}>Fixed $</button>
-                              <button onClick={() => setRulesConfig((p: any) => ({ ...p, max_risk_mode: 'percentage' }))} className={`px-2 py-1 text-[10px] font-bold transition-all ${rulesConfig.max_risk_mode === 'percentage' ? 'bg-royal/20 text-royal' : 'bg-white/5 text-gray-500'}`} disabled={rulesLocked || !rulesConfig.rules_enabled.stop_loss_required}>% Balance</button>
-                            </div>
-                            {rulesConfig.max_risk_mode === 'fixed' ? (
-                              <input type="number" step="0.5" min="0" value={rulesConfig.max_risk_dollars} onChange={e => setRulesConfig((p: any) => ({ ...p, max_risk_dollars: parseFloat(e.target.value) || 0 }))} disabled={rulesLocked || !rulesConfig.rules_enabled.stop_loss_required} className="w-20 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm outline-none disabled:opacity-40" />
-                            ) : (
-                              <input type="number" step="1" min="1" max="100" value={rulesConfig.max_risk_percent} onChange={e => setRulesConfig((p: any) => ({ ...p, max_risk_percent: parseFloat(e.target.value) || 0 }))} disabled={rulesLocked || !rulesConfig.rules_enabled.stop_loss_required} className="w-20 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm outline-none disabled:opacity-40" />
-                            )}
-                          </div>
-                        </RuleRow>
-
-                        {/* Daily Loss Cap */}
-                        <RuleRow label="Daily Loss Cap" tooltip="Maximum loss allowed in a single day. Exceeding triggers DQ." enabled={rulesConfig.rules_enabled.daily_loss_cap} onToggle={(v) => setRulesConfig((p: any) => ({ ...p, rules_enabled: { ...p.rules_enabled, daily_loss_cap: v } }))} locked={rulesLocked}>
-                          <div className="flex items-center gap-2">
-                            <div className="flex rounded-lg overflow-hidden border border-white/10">
-                              <button onClick={() => setRulesConfig((p: any) => ({ ...p, daily_loss_mode: 'fixed' }))} className={`px-2 py-1 text-[10px] font-bold transition-all ${rulesConfig.daily_loss_mode === 'fixed' ? 'bg-royal/20 text-royal' : 'bg-white/5 text-gray-500'}`} disabled={rulesLocked || !rulesConfig.rules_enabled.daily_loss_cap}>Fixed $</button>
-                              <button onClick={() => setRulesConfig((p: any) => ({ ...p, daily_loss_mode: 'percentage' }))} className={`px-2 py-1 text-[10px] font-bold transition-all ${rulesConfig.daily_loss_mode === 'percentage' ? 'bg-royal/20 text-royal' : 'bg-white/5 text-gray-500'}`} disabled={rulesLocked || !rulesConfig.rules_enabled.daily_loss_cap}>% Balance</button>
-                            </div>
-                            {rulesConfig.daily_loss_mode === 'fixed' ? (
-                              <input type="number" step="0.5" min="0" value={rulesConfig.daily_loss_cap} onChange={e => setRulesConfig((p: any) => ({ ...p, daily_loss_cap: parseFloat(e.target.value) || 0 }))} disabled={rulesLocked || !rulesConfig.rules_enabled.daily_loss_cap} className="w-20 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm outline-none disabled:opacity-40" />
-                            ) : (
-                              <input type="number" step="1" min="1" max="100" value={rulesConfig.daily_loss_percent} onChange={e => setRulesConfig((p: any) => ({ ...p, daily_loss_percent: parseFloat(e.target.value) || 0 }))} disabled={rulesLocked || !rulesConfig.rules_enabled.daily_loss_cap} className="w-20 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm outline-none disabled:opacity-40" />
-                            )}
-                          </div>
-                        </RuleRow>
-
-                        {/* Max Hold Hours */}
-                        <RuleRow label="Max Hold Hours" tooltip="Maximum time a trade can be held open" enabled={rulesConfig.rules_enabled.max_hold_hours} onToggle={(v) => setRulesConfig((p: any) => ({ ...p, rules_enabled: { ...p.rules_enabled, max_hold_hours: v } }))} locked={rulesLocked}>
-                          <input type="number" min="1" value={rulesConfig.max_hold_hours} onChange={e => setRulesConfig((p: any) => ({ ...p, max_hold_hours: parseInt(e.target.value) || 1 }))} disabled={rulesLocked || !rulesConfig.rules_enabled.max_hold_hours} className="w-24 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm outline-none disabled:opacity-40" />
-                        </RuleRow>
-
-                        {/* Min Trade Duration */}
-                        <RuleRow label="Min Trade Duration (min)" tooltip="Trades held shorter than this many minutes are flagged" enabled={rulesConfig.rules_enabled.min_trade_duration} onToggle={(v) => setRulesConfig((p: any) => ({ ...p, rules_enabled: { ...p.rules_enabled, min_trade_duration: v } }))} locked={rulesLocked}>
-                          <input type="number" min="1" value={rulesConfig.min_trade_duration_minutes ?? ""} onChange={e => setRulesConfig((p: any) => ({ ...p, min_trade_duration_minutes: e.target.value ? parseInt(e.target.value) : null }))} disabled={rulesLocked || !rulesConfig.rules_enabled.min_trade_duration} className="w-24 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm outline-none disabled:opacity-40" placeholder="—" />
-                        </RuleRow>
-
-                        {/* Weekend Trading */}
-                        <RuleRow label="Weekend Trading" tooltip="Whether trades opened/held over weekends are allowed" enabled={rulesConfig.rules_enabled.weekend_trading} onToggle={(v) => setRulesConfig((p: any) => ({ ...p, rules_enabled: { ...p.rules_enabled, weekend_trading: v } }))} locked={rulesLocked}>
-                          <button onClick={() => setRulesConfig((p: any) => ({ ...p, weekend_trading: !p.weekend_trading }))} disabled={rulesLocked || !rulesConfig.rules_enabled.weekend_trading} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${rulesConfig.weekend_trading ? 'bg-profit/20 text-profit border-profit/30' : 'bg-loss/20 text-loss border-loss/30'} disabled:opacity-40`}>{rulesConfig.weekend_trading ? "Allowed" : "Blocked"}</button>
-                        </RuleRow>
-
-                        {/* Min Active Days */}
-                        <RuleRow label="Min Active Days" tooltip="Minimum number of unique trading days required to qualify" enabled={rulesConfig.rules_enabled.min_active_days} onToggle={(v) => setRulesConfig((p: any) => ({ ...p, rules_enabled: { ...p.rules_enabled, min_active_days: v } }))} locked={rulesLocked}>
-                          <input type="number" min="1" value={rulesConfig.min_active_days} onChange={e => setRulesConfig((p: any) => ({ ...p, min_active_days: parseInt(e.target.value) || 1 }))} disabled={rulesLocked || !rulesConfig.rules_enabled.min_active_days} className="w-24 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm outline-none disabled:opacity-40" />
-                        </RuleRow>
-
-                        {/* Min Total Trades */}
-                        <RuleRow label="Min Total Trades" tooltip="Minimum number of trades needed to qualify" enabled={rulesConfig.rules_enabled.min_total_trades} onToggle={(v) => setRulesConfig((p: any) => ({ ...p, rules_enabled: { ...p.rules_enabled, min_total_trades: v } }))} locked={rulesLocked}>
-                          <input type="number" min="1" value={rulesConfig.min_total_trades ?? ""} onChange={e => setRulesConfig((p: any) => ({ ...p, min_total_trades: e.target.value ? parseInt(e.target.value) : null }))} disabled={rulesLocked || !rulesConfig.rules_enabled.min_total_trades} className="w-24 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm outline-none disabled:opacity-40" placeholder="—" />
-                        </RuleRow>
-
-                        {/* Only Cent Account */}
-                        <div className="flex items-center justify-between py-3 border-b border-white/5">
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm text-gray-300">Only Cent Account</span>
-                            <span className="relative group"><Info size={12} className="text-gray-600 cursor-help" /><span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 text-[10px] text-white bg-black/90 rounded-lg whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity">Only accounts with cent balance are accepted</span></span>
-                          </div>
-                          <button onClick={() => setRulesConfig((p: any) => ({ ...p, only_cent_account: !p.only_cent_account }))} disabled={rulesLocked} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${rulesConfig.only_cent_account ? 'bg-profit/20 text-profit border-profit/30' : 'bg-white/5 text-gray-500 border-white/10'} disabled:opacity-40`}>{rulesConfig.only_cent_account ? "Yes" : "No"}</button>
-                        </div>
-
-                        {/* Save button */}
-                        {!rulesLocked && (
-                          <div className="pt-4 flex items-center gap-3">
-                            <button
-                              onClick={async () => {
-                                setRulesSaving(true);
-                                try {
-                                  const res = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/rules`, {
-                                    method: "PUT",
-                                    headers: { Authorization: `Bearer ${getToken()}`, "Content-Type": "application/json" },
-                                    body: JSON.stringify(rulesConfig),
-                                  });
-                                  if (res.ok) setRulesSaved(true);
-                                } catch {}
-                                setRulesSaving(false);
-                                setTimeout(() => setRulesSaved(false), 3000);
-                              }}
-                              disabled={rulesSaving}
-                              className="px-6 py-2.5 rounded-xl bg-royal text-white text-sm font-semibold hover:bg-royal/80 disabled:opacity-50 transition-all flex items-center gap-2"
-                            >
-                              {rulesSaving ? <Loader2 size={14} className="animate-spin" /> : null} Save Rules
-                            </button>
-                            {rulesSaved && <span className="text-sm text-profit font-medium">✓ Saved</span>}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </>
             )}
-          </>
-        )}
+          </>)}
+
+          {/* ===== PARTICIPANTS ===== */}
+          {activeTab === "participants" && (
+            <div className="glass rounded-2xl border border-white/10 p-5">
+              <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2"><Users size={16} className="text-royal" /> Participants ({participantsPagination?.total || participants.length})</h3>
+              {participants.length === 0 ? <p className="text-gray-500 text-sm text-center py-10">No participants yet</p> : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead><tr className="border-b border-white/10">
+                      <th className="text-left py-2 px-3 text-gray-500 font-medium">Nickname</th>
+                      <th className="text-left py-2 px-3 text-gray-500 font-medium">Account</th>
+                      <th className="text-left py-2 px-3 text-gray-500 font-medium">Type</th>
+                      <th className="text-left py-2 px-3 text-gray-500 font-medium">Status</th>
+                      <th className="text-left py-2 px-3 text-gray-500 font-medium">Balance</th>
+                      <th className="text-right py-2 px-3 text-gray-500 font-medium">Actions</th>
+                    </tr></thead>
+                    <tbody>
+                      {participants.map(p => (
+                        <tr key={p.id} className="border-b border-white/5 hover:bg-white/5 cursor-pointer" onClick={() => setSelectedParticipant(p)}>
+                          <td className="py-2.5 px-3 text-white font-medium">{p.nickname}</td>
+                          <td className="py-2.5 px-3 text-gray-300">{p.accountNumber}</td>
+                          <td className="py-2.5 px-3"><span className={`px-2 py-0.5 rounded text-[10px] font-bold ${p.accountType === 'real' ? 'bg-gold/20 text-gold' : 'bg-royal/20 text-royal'}`}>{p.accountType}</span></td>
+                          <td className="py-2.5 px-3">{p.disqualified ? <span className="text-loss text-xs font-semibold">DQ</span> : p.pullStatus === 'password_changed' ? <span className="text-gold text-xs">PW Changed</span> : <span className="text-profit text-xs">Active</span>}</td>
+                          <td className="py-2.5 px-3 text-gray-300">{p.lastKnownBalance ? `$${parseFloat(p.lastKnownBalance).toFixed(2)}` : "—"}</td>
+                          <td className="py-2.5 px-3 text-right">
+                            <button onClick={e => { e.stopPropagation(); if(confirm(`Disqualify ${p.nickname}?`)) doAction(`${API_URL}/api/host/challenge/${selectedChallengeId}/disqualify`, 'POST', { registrationId: p.id, reason: 'Host decision' }); }} className="text-loss text-[10px] font-semibold px-2 py-1 rounded bg-loss/10 hover:bg-loss/20 mr-1" disabled={p.disqualified}>DQ</button>
+                            <button onClick={e => { e.stopPropagation(); if(confirm(`Remove ${p.nickname}?`)) doAction(`${API_URL}/api/host/challenge/${selectedChallengeId}/unverify`, 'POST', { registrationId: p.id }); }} className="text-gray-400 text-[10px] font-semibold px-2 py-1 rounded bg-white/5 hover:bg-white/10">Remove</button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ===== LEADERBOARD ===== */}
+          {activeTab === "leaderboard" && (
+            <div className="glass rounded-2xl border border-white/10 p-5">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-semibold text-white flex items-center gap-2"><Trophy size={16} className="text-gold" /> Leaderboard</h3>
+                <button onClick={() => { window.open(`${API_URL}/api/host/challenge/${selectedChallengeId}/export-registrations?token=${getToken()}`, '_blank'); }} className="text-xs text-royal font-semibold px-3 py-1.5 rounded-lg bg-royal/10 border border-royal/20">Export CSV</button>
+              </div>
+              {leaderboard.length === 0 ? <p className="text-gray-500 text-sm text-center py-10">Leaderboard populates after first update</p> : (
+                <div className="space-y-2">
+                  {leaderboard.map((entry: any) => (
+                    <div key={entry.nickname} className={`flex items-center justify-between p-3 rounded-xl ${entry.isDisqualified ? 'bg-loss/5 border border-loss/20' : 'bg-white/5 border border-white/10'}`}>
+                      <div className="flex items-center gap-3">
+                        <span className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold ${entry.rank === 1 ? 'bg-gold/20 text-gold' : entry.rank === 2 ? 'bg-gray-300/20 text-gray-300' : entry.rank === 3 ? 'bg-amber-700/20 text-amber-600' : 'bg-white/5 text-gray-500'}`}>{entry.isDisqualified ? 'DQ' : `#${entry.rank || '—'}`}</span>
+                        <div>
+                          <p className="text-sm font-semibold text-white">{entry.nickname}</p>
+                          <p className="text-[10px] text-gray-500">{entry.totalTrades} trades • {entry.flaggedTrades} flagged • {entry.accountType}</p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-sm font-bold text-white">{entry.growthPercent > 0 ? `+${entry.growthPercent.toFixed(1)}%` : `$${parseFloat(entry.adjustedBalance || 0).toFixed(2)}`}</p>
+                        {entry.isDisqualified && <p className="text-[10px] text-loss">{entry.disqualifyReason}</p>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ===== VIOLATIONS ===== */}
+          {activeTab === "violations" && (
+            <div className="glass rounded-2xl border border-white/10 p-5">
+              <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2"><AlertTriangle size={16} className="text-loss" /> Violations by User</h3>
+              {violations.length === 0 ? <p className="text-gray-500 text-sm text-center py-10">No violations yet</p> : (
+                <div className="space-y-3">
+                  {violations.map((v: any, i: number) => (
+                    <div key={i} className="p-4 rounded-xl bg-white/5 border border-white/10">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm font-bold text-white">{v.nickname}</span>
+                        <span className="text-xs text-loss font-semibold">{v.violation_count} violations • ${parseFloat(v.profit_removed || 0).toFixed(2)} removed</span>
+                      </div>
+                      <div className="space-y-1">
+                        {(v.flagged_trades || []).slice(0, 5).map((t: any, j: number) => (
+                          <div key={j} className="flex items-center gap-2 text-xs text-gray-400">
+                            <span className="text-white font-medium">{t.symbol}</span>
+                            <span className="truncate">{t.violations?.[0] || "Rule violation"}</span>
+                            <span className="ml-auto text-loss">${parseFloat(t.profit || 0).toFixed(2)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ===== UPDATES (Pulls) ===== */}
+          {activeTab === "updates" && (
+            <div className="space-y-4">
+              {/* Action buttons */}
+              <div className="glass rounded-2xl border border-white/10 p-5">
+                <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2"><RefreshCw size={16} className="text-royal" /> Update Actions</h3>
+                <div className="flex flex-wrap gap-2">
+                  <button onClick={() => doAction(`${API_URL}/api/host/challenge/${selectedChallengeId}/force-update`)} disabled={actionLoading} className="px-4 py-2 rounded-lg bg-royal/20 text-royal text-xs font-semibold border border-royal/30 hover:bg-royal/30 disabled:opacity-50">Force Update (All)</button>
+                  <button onClick={() => doAction(`${API_URL}/api/host/challenge/${selectedChallengeId}/force-update-rank`)} disabled={actionLoading} className="px-4 py-2 rounded-lg bg-profit/20 text-profit text-xs font-semibold border border-profit/30 hover:bg-profit/30 disabled:opacity-50">Update Non-DQ</button>
+                  {failedAccounts?.credentialFailures?.length > 0 && (
+                    <button onClick={() => doAction(`${API_URL}/api/host/challenge/${selectedChallengeId}/retry-credentials`)} disabled={actionLoading} className="px-4 py-2 rounded-lg bg-gold/20 text-gold text-xs font-semibold border border-gold/30 hover:bg-gold/30 disabled:opacity-50">Retry Credentials ({failedAccounts.credentialFailures.length})</button>
+                  )}
+                </div>
+              </div>
+
+              {/* Credential Failures */}
+              {failedAccounts?.credentialFailures?.length > 0 && (
+                <div className="glass rounded-2xl border border-loss/20 p-5">
+                  <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2"><Key size={16} className="text-loss" /> Credential Failures ({failedAccounts.credentialFailures.length})</h3>
+                  <div className="space-y-2">
+                    {failedAccounts.credentialFailures.map((f: any) => (
+                      <div key={f.id} className="flex items-center justify-between p-3 rounded-lg bg-loss/5 border border-loss/10">
+                        <div>
+                          <p className="text-sm text-white font-medium">{f.nickname}</p>
+                          <p className="text-[10px] text-gray-500">{f.account_number} • {f.mt5_server}</p>
+                        </div>
+                        <button onClick={() => doAction(`${API_URL}/api/host/challenge/${selectedChallengeId}/re-evaluate-user`, 'POST', { registrationId: f.id })} className="text-[10px] text-royal font-semibold px-2 py-1 rounded bg-royal/10">Re-evaluate</button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Update History */}
+              <div className="glass rounded-2xl border border-white/10 p-5">
+                <h3 className="text-sm font-semibold text-white mb-3">Update History</h3>
+                {pullHistory.length === 0 ? <p className="text-gray-500 text-sm text-center py-6">No updates yet</p> : (
+                  <div className="space-y-2">
+                    {pullHistory.map((b: any, i: number) => (
+                      <div key={b.id} className="flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/10">
+                        <div className="flex items-center gap-3">
+                          <div className={`w-2 h-2 rounded-full ${b.status === 'completed' ? 'bg-profit' : b.status === 'running' ? 'bg-gold animate-pulse' : 'bg-loss'}`} />
+                          <div>
+                            <p className="text-sm text-white font-medium">Update #{pullHistory.length - i}</p>
+                            <p className="text-[10px] text-gray-500">{fmtTime(b.started_at)}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-4 text-xs">
+                          <span className="text-profit font-semibold">{b.successful} ok</span>
+                          {b.failed > 0 && <span className="text-loss font-semibold">{b.failed} failed</span>}
+                          <span className="text-gray-500">{b.total_accounts} accounts</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ===== SCREENING ===== */}
+          {activeTab === "screening" && <ScreeningTab challengeId={selectedChallengeId!} getToken={getToken} />}
+
+          {/* ===== RULES ===== */}
+          {activeTab === "rules" && (
+            <div className="glass rounded-2xl border border-white/10 p-5">
+              <h3 className="text-sm font-semibold text-white mb-2 flex items-center gap-2"><Shield size={16} className="text-royal" /> Rule Configuration</h3>
+              <p className="text-xs text-gray-500 mb-5">{rulesLocked ? "Rules are locked — challenge has started." : "Rules can be changed before the challenge starts."}</p>
+              {rulesLoading ? <Loader2 className="animate-spin text-royal mx-auto" size={20} /> : rulesConfig && (
+                <div className="space-y-2">
+                  <RuleRow label="Max Lot Size" tooltip="Maximum lot size per trade" enabled={rulesConfig.rules_enabled?.max_lot_size} onToggle={v => setRulesConfig((p: any) => ({...p, rules_enabled: {...p.rules_enabled, max_lot_size: v}}))} locked={rulesLocked}>
+                    <input type="number" step="0.01" value={rulesConfig.max_lot_size} onChange={e => setRulesConfig((p: any) => ({...p, max_lot_size: parseFloat(e.target.value)||0}))} disabled={rulesLocked || !rulesConfig.rules_enabled?.max_lot_size} className="w-20 p-2 rounded-lg bg-white/10 border border-white/10 text-white text-sm text-center outline-none disabled:opacity-40" />
+                  </RuleRow>
+                  <RuleRow label="Max Open Trades" tooltip="Maximum simultaneous positions" enabled={rulesConfig.rules_enabled?.max_open_trades} onToggle={v => setRulesConfig((p: any) => ({...p, rules_enabled: {...p.rules_enabled, max_open_trades: v}}))} locked={rulesLocked}>
+                    <input type="number" value={rulesConfig.max_open_trades} onChange={e => setRulesConfig((p: any) => ({...p, max_open_trades: parseInt(e.target.value)||1}))} disabled={rulesLocked || !rulesConfig.rules_enabled?.max_open_trades} className="w-20 p-2 rounded-lg bg-white/10 border border-white/10 text-white text-sm text-center outline-none disabled:opacity-40" />
+                  </RuleRow>
+                  <RuleRow label="Daily Loss Cap" tooltip="Max daily drawdown" enabled={rulesConfig.rules_enabled?.daily_loss_cap} onToggle={v => setRulesConfig((p: any) => ({...p, rules_enabled: {...p.rules_enabled, daily_loss_cap: v}}))} locked={rulesLocked}>
+                    <input type="number" value={rulesConfig.daily_loss_cap} onChange={e => setRulesConfig((p: any) => ({...p, daily_loss_cap: parseFloat(e.target.value)||0}))} disabled={rulesLocked || !rulesConfig.rules_enabled?.daily_loss_cap} className="w-20 p-2 rounded-lg bg-white/10 border border-white/10 text-white text-sm text-center outline-none disabled:opacity-40" />
+                  </RuleRow>
+                  <RuleRow label="Min Active Days" tooltip="Minimum trading days to qualify" enabled={rulesConfig.rules_enabled?.min_active_days} onToggle={v => setRulesConfig((p: any) => ({...p, rules_enabled: {...p.rules_enabled, min_active_days: v}}))} locked={rulesLocked}>
+                    <input type="number" value={rulesConfig.min_active_days} onChange={e => setRulesConfig((p: any) => ({...p, min_active_days: parseInt(e.target.value)||1}))} disabled={rulesLocked || !rulesConfig.rules_enabled?.min_active_days} className="w-20 p-2 rounded-lg bg-white/10 border border-white/10 text-white text-sm text-center outline-none disabled:opacity-40" />
+                  </RuleRow>
+                  {!rulesLocked && (
+                    <div className="pt-4 flex items-center gap-3">
+                      <button onClick={async () => {
+                        setRulesSaving(true);
+                        await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/rules`, { method: "PUT", headers: headers(), body: JSON.stringify(rulesConfig) });
+                        setRulesSaved(true); setRulesSaving(false);
+                        setTimeout(() => setRulesSaved(false), 3000);
+                      }} disabled={rulesSaving} className="px-6 py-2.5 rounded-xl bg-royal text-white text-sm font-semibold disabled:opacity-50">
+                        {rulesSaving ? <Loader2 size={14} className="animate-spin" /> : null} Save Rules
+                      </button>
+                      {rulesSaved && <span className="text-sm text-profit">Saved</span>}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ===== SETTINGS ===== */}
+          {activeTab === "settings" && (
+            <div className="space-y-4">
+              {/* Status Actions */}
+              <div className="glass rounded-2xl border border-white/10 p-5">
+                <h3 className="text-sm font-semibold text-white mb-4">Status Actions</h3>
+                <div className="flex flex-wrap gap-2">
+                  {['registration_open', 'active', 'reviewing', 'completed'].map(s => (
+                    <button key={s} onClick={() => { if(confirm(`Change status to "${s}"?`)) doAction(`${API_URL}/api/host/challenge/${selectedChallengeId}/direct-status`, 'PATCH', { status: s }); }} disabled={selectedChallenge?.status === s || actionLoading} className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all disabled:opacity-30 ${selectedChallenge?.status === s ? 'bg-royal/20 text-royal border-royal/30' : 'bg-white/5 text-gray-400 border-white/10 hover:text-white'}`}>{s.replace('_', ' ')}</button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Challenge Details */}
+              <div className="glass rounded-2xl border border-white/10 p-5">
+                <h3 className="text-sm font-semibold text-white mb-4">Challenge Details</h3>
+                <div className="space-y-3">
+                  <div><label className="text-xs text-gray-400 mb-1 block">Title</label><input value={settingsForm.title || ""} onChange={e => setSettingsForm((p: any) => ({...p, title: e.target.value}))} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
+                  <div><label className="text-xs text-gray-400 mb-1 block">End Date</label><input type="datetime-local" value={settingsForm.end_date || ""} onChange={e => setSettingsForm((p: any) => ({...p, end_date: e.target.value}))} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div><label className="text-xs text-gray-400 mb-1 block">Real Winners #</label><input value={settingsForm.real_winners_count || ""} onChange={e => setSettingsForm((p: any) => ({...p, real_winners_count: e.target.value}))} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
+                    <div><label className="text-xs text-gray-400 mb-1 block">Demo Winners #</label><input value={settingsForm.demo_winners_count || ""} onChange={e => setSettingsForm((p: any) => ({...p, demo_winners_count: e.target.value}))} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
+                  </div>
+                  <button onClick={async () => {
+                    setSettingsSaving(true);
+                    const payload: any = {};
+                    if (settingsForm.title) payload.title = settingsForm.title;
+                    if (settingsForm.end_date) payload.end_date = settingsForm.end_date;
+                    if (settingsForm.real_winners_count !== "") payload.real_winners_count = parseInt(settingsForm.real_winners_count) || 0;
+                    if (settingsForm.demo_winners_count !== "") payload.demo_winners_count = parseInt(settingsForm.demo_winners_count) || 0;
+                    await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/settings`, { method: "PUT", headers: headers(), body: JSON.stringify(payload) });
+                    setSettingsSaved(true); setSettingsSaving(false);
+                    setTimeout(() => setSettingsSaved(false), 3000);
+                  }} disabled={settingsSaving} className="px-6 py-2.5 rounded-xl bg-royal text-white text-sm font-semibold disabled:opacity-50">Save</button>
+                  {settingsSaved && <span className="text-sm text-profit ml-3">Saved</span>}
+                </div>
+              </div>
+
+              {/* Export */}
+              <div className="glass rounded-2xl border border-white/10 p-5">
+                <h3 className="text-sm font-semibold text-white mb-4">Export</h3>
+                <div className="flex flex-wrap gap-2">
+                  <button onClick={async () => {
+                    const res = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/export-registrations`, { headers: { Authorization: `Bearer ${getToken()}` } });
+                    const data = await res.json();
+                    const csv = "nickname,email,category,account_number,server,investor_password\n" + (data.registrations || []).map((r: any) => `${r.nickname},${r.email||''},${r.account_type},${r.account_number},${r.mt5_server},${r.investor_password}`).join("\n");
+                    const blob = new Blob([csv], { type: 'text/csv' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'registrations.csv'; a.click();
+                  }} className="px-4 py-2 rounded-lg bg-white/5 text-gray-300 text-xs font-semibold border border-white/10 hover:bg-white/10">Export Registrations (CSV)</button>
+                </div>
+              </div>
+
+              {/* Delete */}
+              <div className="glass rounded-2xl border border-loss/20 p-5">
+                <h3 className="text-sm font-semibold text-loss mb-2">Danger Zone</h3>
+                <button onClick={() => { if(confirm("Delete this challenge? This cannot be undone.")) doAction(`${API_URL}/api/host/challenge/${selectedChallengeId}`, 'DELETE'); }} className="px-4 py-2 rounded-lg bg-loss/10 text-loss text-xs font-semibold border border-loss/20 hover:bg-loss/20" disabled={actionLoading}>Delete Challenge</button>
+              </div>
+            </div>
+          )}
+
+          </>)}
+        </>)}
       </div>
       )}
 
-      {/* Create Challenge Modal */}
-      {showCreateModal && (
-        <div className="fixed inset-0 bg-[#0a0e1a]/95 z-50 flex items-center justify-center p-4" onClick={() => !createLoading && setShowCreateModal(false)}>
-          <div className="bg-[#1a2235] rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto border border-white/15 shadow-2xl shadow-black/80" onClick={e => e.stopPropagation()}>
-            {/* Header + Progress */}
-            <div className="sticky top-0 bg-[#1a2235] px-6 pt-5 pb-4 border-b border-white/10 z-10 rounded-t-2xl">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-bold text-white">Create Challenge</h3>
-                <button onClick={() => !createLoading && setShowCreateModal(false)} className="p-1.5 hover:bg-white/10 rounded-lg transition-all"><X size={16} className="text-gray-500" /></button>
-              </div>
-              <div className="flex items-center gap-2">
-                {[1,2,3].map(s => (
-                  <div key={s} className="flex-1 flex items-center gap-2">
-                    <div className={`flex-1 h-1.5 rounded-full transition-all ${s <= createStep ? "bg-royal" : "bg-white/10"}`} />
-                  </div>
-                ))}
-              </div>
-              <div className="flex justify-between mt-2">
-                <span className={`text-[10px] font-medium ${createStep >= 1 ? 'text-royal' : 'text-gray-600'}`}>Details</span>
-                <span className={`text-[10px] font-medium ${createStep >= 2 ? 'text-royal' : 'text-gray-600'}`}>Rules</span>
-                <span className={`text-[10px] font-medium ${createStep >= 3 ? 'text-royal' : 'text-gray-600'}`}>Review</span>
-              </div>
+      {/* Participant Detail Modal */}
+      {selectedParticipant && (
+        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4" onClick={() => setSelectedParticipant(null)}>
+          <div className="bg-[#1a2235] rounded-2xl max-w-md w-full max-h-[80vh] overflow-y-auto border border-white/15" onClick={e => e.stopPropagation()}>
+            <div className="sticky top-0 bg-[#1a2235] p-4 border-b border-white/10 flex items-center justify-between rounded-t-2xl">
+              <h3 className="text-lg font-bold text-white">{selectedParticipant.nickname}</h3>
+              <button onClick={() => setSelectedParticipant(null)} className="p-2 hover:bg-white/10 rounded-lg"><X size={16} className="text-gray-400" /></button>
             </div>
-
-            <div className="px-6 py-5">
-              {createResult?.success ? (
-                <div className="text-center py-8">
-                  <div className="w-14 h-14 rounded-full bg-profit/20 border border-profit/30 flex items-center justify-center mx-auto mb-4">
-                    <Trophy size={24} className="text-profit" />
-                  </div>
-                  <p className="text-profit font-bold text-lg mb-2">Submitted for Approval</p>
-                  <p className="text-gray-400 text-sm">Admin will review and approve your challenge. You will see it in your dashboard once approved.</p>
-                  <button onClick={() => { setShowCreateModal(false); setCreateStep(1); window.location.reload(); }} className="mt-6 px-6 py-2.5 rounded-xl bg-royal/20 text-royal font-semibold text-sm border border-royal/30">Done</button>
+            <div className="p-4 space-y-3">
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div className="bg-white/5 rounded-lg p-2"><span className="text-gray-500">Account:</span> <span className="text-white">{selectedParticipant.accountNumber}</span></div>
+                <div className="bg-white/5 rounded-lg p-2"><span className="text-gray-500">Type:</span> <span className="text-white">{selectedParticipant.accountType}</span></div>
+                <div className="bg-white/5 rounded-lg p-2"><span className="text-gray-500">Balance:</span> <span className="text-white">${parseFloat(selectedParticipant.lastKnownBalance || 0).toFixed(2)}</span></div>
+                <div className="bg-white/5 rounded-lg p-2"><span className="text-gray-500">Status:</span> <span className={selectedParticipant.disqualified ? "text-loss" : "text-profit"}>{selectedParticipant.disqualified ? "DQ" : "Active"}</span></div>
+              </div>
+              <h4 className="text-xs font-semibold text-gray-400 mt-4">Recent Trades</h4>
+              {selectedParticipantTrades.length === 0 ? <p className="text-xs text-gray-600">No trades</p> : (
+                <div className="space-y-1 max-h-60 overflow-y-auto">
+                  {selectedParticipantTrades.slice(0, 20).map((t: any) => (
+                    <div key={t.ticket} className={`flex items-center justify-between p-2 rounded-lg text-xs ${t.is_qualified ? 'bg-white/5' : 'bg-loss/5'}`}>
+                      <div><span className="text-white font-medium">{t.symbol}</span> <span className="text-gray-500">{t.volume} lots</span></div>
+                      <span className={`font-semibold ${t.profit >= 0 ? 'text-profit' : 'text-loss'}`}>${parseFloat(t.profit).toFixed(2)}</span>
+                    </div>
+                  ))}
                 </div>
-              ) : (<>
-                {/* Step 1: Details */}
-                {createStep === 1 && (
-                  <div>
-                    <h3 className="text-xl font-bold text-white mb-4">Challenge Details</h3>
-                    <div className="space-y-4">
-                      <div><label className="text-xs text-gray-400 font-medium mb-1 block">Title *</label><input value={createForm.title} onChange={e => setCreateForm({...createForm, title: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm focus:border-royal/50 outline-none" placeholder="Challenge 1 - Hybrid" /></div>
-                      <div><label className="text-xs text-gray-400 font-medium mb-1 block">Type *</label>
-                        <select value={createForm.type} onChange={e => setCreateForm({...createForm, type: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm focus:border-royal/50 outline-none">
-                          <option value="hybrid" className="bg-[#0f1629]">Hybrid (Demo + Real)</option>
-                          <option value="demo" className="bg-[#0f1629]">Demo Only</option>
-                          <option value="real" className="bg-[#0f1629]">Real Only</option>
-                        </select>
-                      </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <div><label className="text-xs text-gray-400 font-medium mb-1 block">Start Date &amp; Time *</label><input type="datetime-local" value={createForm.start_date} onChange={e => setCreateForm({...createForm, start_date: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
-                        <div><label className="text-xs text-gray-400 font-medium mb-1 block">End Date &amp; Time *</label><input type="datetime-local" value={createForm.end_date} onChange={e => setCreateForm({...createForm, end_date: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
-                      </div>
-                      {/* Timezone */}
-                      <div>
-                        <label className="text-xs text-gray-400 font-medium mb-1 block">Timezone</label>
-                        <select value={createForm.timezone} onChange={e => setCreateForm({...createForm, timezone: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm focus:border-royal/50 outline-none">
-                          <optgroup label="Africa" className="bg-[#0f1629]">
-                            <option value="Africa/Nairobi" className="bg-[#0f1629]">East Africa (Nairobi) UTC+3</option>
-                            <option value="Africa/Lagos" className="bg-[#0f1629]">West Africa (Lagos) UTC+1</option>
-                            <option value="Africa/Cairo" className="bg-[#0f1629]">Egypt (Cairo) UTC+2</option>
-                            <option value="Africa/Johannesburg" className="bg-[#0f1629]">South Africa (Johannesburg) UTC+2</option>
-                            <option value="Africa/Casablanca" className="bg-[#0f1629]">Morocco (Casablanca) UTC+1</option>
-                          </optgroup>
-                          <optgroup label="Middle East" className="bg-[#0f1629]">
-                            <option value="Asia/Dubai" className="bg-[#0f1629]">UAE (Dubai) UTC+4</option>
-                            <option value="Asia/Riyadh" className="bg-[#0f1629]">Saudi Arabia (Riyadh) UTC+3</option>
-                            <option value="Asia/Tehran" className="bg-[#0f1629]">Iran (Tehran) UTC+3:30</option>
-                            <option value="Asia/Istanbul" className="bg-[#0f1629]">Turkey (Istanbul) UTC+3</option>
-                          </optgroup>
-                          <optgroup label="Asia" className="bg-[#0f1629]">
-                            <option value="Asia/Kolkata" className="bg-[#0f1629]">India (Kolkata) UTC+5:30</option>
-                            <option value="Asia/Karachi" className="bg-[#0f1629]">Pakistan (Karachi) UTC+5</option>
-                            <option value="Asia/Bangkok" className="bg-[#0f1629]">Thailand (Bangkok) UTC+7</option>
-                            <option value="Asia/Singapore" className="bg-[#0f1629]">Singapore UTC+8</option>
-                            <option value="Asia/Shanghai" className="bg-[#0f1629]">China (Shanghai) UTC+8</option>
-                            <option value="Asia/Tokyo" className="bg-[#0f1629]">Japan (Tokyo) UTC+9</option>
-                            <option value="Asia/Manila" className="bg-[#0f1629]">Philippines (Manila) UTC+8</option>
-                          </optgroup>
-                          <optgroup label="Europe" className="bg-[#0f1629]">
-                            <option value="Europe/London" className="bg-[#0f1629]">UK (London) UTC+0/+1</option>
-                            <option value="Europe/Paris" className="bg-[#0f1629]">Central Europe (Paris) UTC+1/+2</option>
-                            <option value="Europe/Berlin" className="bg-[#0f1629]">Germany (Berlin) UTC+1/+2</option>
-                            <option value="Europe/Moscow" className="bg-[#0f1629]">Russia (Moscow) UTC+3</option>
-                          </optgroup>
-                          <optgroup label="Americas" className="bg-[#0f1629]">
-                            <option value="America/New_York" className="bg-[#0f1629]">US Eastern (New York) UTC-5/-4</option>
-                            <option value="America/Chicago" className="bg-[#0f1629]">US Central (Chicago) UTC-6/-5</option>
-                            <option value="America/Denver" className="bg-[#0f1629]">US Mountain (Denver) UTC-7/-6</option>
-                            <option value="America/Los_Angeles" className="bg-[#0f1629]">US Pacific (Los Angeles) UTC-8/-7</option>
-                            <option value="America/Toronto" className="bg-[#0f1629]">Canada Eastern (Toronto) UTC-5/-4</option>
-                            <option value="America/Sao_Paulo" className="bg-[#0f1629]">Brazil (Sao Paulo) UTC-3</option>
-                            <option value="America/Mexico_City" className="bg-[#0f1629]">Mexico (Mexico City) UTC-6/-5</option>
-                          </optgroup>
-                          <optgroup label="Oceania" className="bg-[#0f1629]">
-                            <option value="Australia/Sydney" className="bg-[#0f1629]">Australia Eastern (Sydney) UTC+10/+11</option>
-                            <option value="Pacific/Auckland" className="bg-[#0f1629]">New Zealand (Auckland) UTC+12/+13</option>
-                          </optgroup>
-                          <optgroup label="UTC" className="bg-[#0f1629]">
-                            <option value="UTC" className="bg-[#0f1629]">UTC (Coordinated Universal Time)</option>
-                          </optgroup>
-                        </select>
-                        <p className="text-[10px] text-gray-500 mt-1">All challenge times (start, end, trade display) will use this timezone</p>
-                      </div>
-                      <p className="text-[10px] text-gray-500 -mt-2">Registration closes automatically when challenge starts</p>
-                      {/* Deposit Mode */}
-                      <div>
-                        <label className="text-xs text-gray-400 font-medium mb-1 block">Deposit Mode</label>
-                        <div className="grid grid-cols-3 gap-2">
-                          <button type="button" onClick={() => setCreateForm({...createForm, deposit_mode: 'fixed'})} className={`p-2.5 rounded-xl border text-center text-xs font-semibold transition-all ${createForm.deposit_mode === 'fixed' ? 'border-royal bg-royal/10 text-royal' : 'border-white/20 text-gray-400 hover:border-white/30'}`}>Fixed Deposit</button>
-                          <button type="button" onClick={() => setCreateForm({...createForm, deposit_mode: 'max_limit'})} className={`p-2.5 rounded-xl border text-center text-xs font-semibold transition-all ${createForm.deposit_mode === 'max_limit' ? 'border-gold bg-gold/10 text-gold' : 'border-white/20 text-gray-400 hover:border-white/30'}`}>Max Limit</button>
-                          <button type="button" onClick={() => setCreateForm({...createForm, deposit_mode: 'min_limit'})} className={`p-2.5 rounded-xl border text-center text-xs font-semibold transition-all ${createForm.deposit_mode === 'min_limit' ? 'border-profit bg-profit/10 text-profit' : 'border-white/20 text-gray-400 hover:border-white/30'}`}>Min Limit</button>
-                        </div>
-                        <div className="mt-2 p-2.5 rounded-lg bg-white/5 border border-white/5">
-                          {createForm.deposit_mode === 'fixed' && <p className="text-[11px] text-gray-400"><span className="text-royal font-semibold">Fixed Deposit:</span> All participants start with the same balance. Target is a fixed dollar amount. Leaderboard ranked by balance. <span className="text-gray-500 italic">Best for equal-start competitions.</span></p>}
-                          {createForm.deposit_mode === 'max_limit' && <p className="text-[11px] text-gray-400"><span className="text-gold font-semibold">Max Limit:</span> Participants can deposit any amount up to a maximum cap. Target is in growth %. SL and drawdown rules must be in %. Leaderboard ranked by account growth %. <span className="text-gray-500 italic">Best for flexible-entry challenges.</span></p>}
-                          {createForm.deposit_mode === 'min_limit' && <p className="text-[11px] text-gray-400"><span className="text-profit font-semibold">Min Limit:</span> Participants must deposit at least a minimum amount — no upper limit. Target is in growth %. SL and drawdown rules must be in %. Leaderboard ranked by account growth %. <span className="text-gray-500 italic">Best for serious traders.</span></p>}
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-2 gap-3">
-                        <div><label className="text-xs text-gray-400 font-medium mb-1 block">{createForm.deposit_mode === 'fixed' ? 'Starting Balance ($) *' : createForm.deposit_mode === 'max_limit' ? 'Maximum Deposit ($) *' : 'Minimum Deposit ($) *'}</label><input value={createForm.starting_balance} onChange={e => setCreateForm({...createForm, starting_balance: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
-                        {createForm.deposit_mode === 'fixed' ? (
-                          <div><label className="text-xs text-gray-400 font-medium mb-1 block">Target Balance ($)</label><input value={createForm.target_balance} onChange={e => setCreateForm({...createForm, target_balance: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
-                        ) : (
-                          <div><label className="text-xs text-gray-400 font-medium mb-1 block">Target Growth (%)</label><input value={createForm.target_percent} onChange={e => setCreateForm({...createForm, target_percent: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" placeholder="e.g., 100" /></div>
-                        )}
-                      </div>
-                      <div className="grid grid-cols-2 gap-3">
-                        {createForm.type !== "demo" && <div><label className="text-xs text-gray-400 font-medium mb-1 block">Real Winners #</label><input value={createForm.real_winners_count} onChange={e => setCreateForm({...createForm, real_winners_count: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>}
-                        {createForm.type !== "real" && <div><label className="text-xs text-gray-400 font-medium mb-1 block">Demo Winners #</label><input value={createForm.demo_winners_count} onChange={e => setCreateForm({...createForm, demo_winners_count: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>}
-                      </div>
-                      {createForm.type !== "demo" && <div><label className="text-xs text-gray-400 font-medium mb-1 block">Real Prizes (comma-separated $)</label><input value={createForm.real_prizes} onChange={e => setCreateForm({...createForm, real_prizes: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" placeholder="500,300,200" /></div>}
-                      {createForm.type !== "real" && <div><label className="text-xs text-gray-400 font-medium mb-1 block">Demo Prizes (comma-separated $)</label><input value={createForm.demo_prizes} onChange={e => setCreateForm({...createForm, demo_prizes: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" placeholder="300,200,100" /></div>}
-
-                      {/* Registration Mode */}
-                      <div>
-                        <label className="text-xs text-gray-400 font-medium mb-1 block">Registration Mode</label>
-                        <div className="grid grid-cols-2 gap-2">
-                          <button type="button" onClick={() => setCreateForm({...createForm, registration_mode: 'winnerpip'})} disabled={!hostInfo?.hasBrokerIntegration} className={`p-3 rounded-xl border text-center text-xs font-semibold transition-all ${createForm.registration_mode === 'winnerpip' ? 'border-royal bg-royal/10 text-royal' : 'border-white/20 text-gray-400 hover:border-white/30'} ${!hostInfo?.hasBrokerIntegration ? 'opacity-40 cursor-not-allowed' : ''}`}>
-                            Online Registration
-                          </button>
-                          <button type="button" onClick={() => setCreateForm({...createForm, registration_mode: 'manual'})} className={`p-3 rounded-xl border text-center text-xs font-semibold transition-all ${createForm.registration_mode === 'manual' ? 'border-gold bg-gold/10 text-gold' : 'border-white/20 text-gray-400 hover:border-white/30'}`}>
-                            Manual (CSV Upload)
-                          </button>
-                        </div>
-                        {!hostInfo?.hasBrokerIntegration && (
-                          <div className="mt-2 p-2.5 rounded-lg bg-gold/5 border border-gold/10">
-                            <p className="text-[11px] text-gray-400">Online registration requires broker integration. <button onClick={() => { setShowCreateModal(false); setShowAccountSettings(true); }} className="text-gold font-semibold hover:underline">Set up broker integration</button> to let participants register through WinnerPip.</p>
-                          </div>
-                        )}
-                        {hostInfo?.hasBrokerIntegration && createForm.registration_mode === 'winnerpip' && (
-                          <p className="text-[10px] text-gray-500 mt-2">Participants will register via the WinnerPip website. Accounts are verified automatically.</p>
-                        )}
-                        {createForm.registration_mode === 'manual' && (
-                          <p className="text-[10px] text-gray-500 mt-2">You will upload participant accounts as a CSV after the challenge is created.</p>
-                        )}
-                      </div>
-                    </div>
-                    <button onClick={() => setCreateStep(2)} disabled={!createForm.title || !createForm.start_date || !createForm.end_date} className="w-full py-3 rounded-xl bg-gradient-brand text-white font-semibold hover:opacity-90 transition-all disabled:opacity-50 mt-6">Next: Rules</button>
-                  </div>
-                )}
-
-                {/* Step 2: Rules */}
-                {createStep === 2 && (
-                  <div>
-                    <h3 className="text-xl font-bold text-white mb-1">Challenge Rules</h3>
-                    <p className="text-xs text-gray-500 mb-4">Toggle rules ON/OFF. Hover &#9432; for details. Disabled rules won&apos;t be enforced during evaluation.</p>
-                    <div className="space-y-2">
-                      <CreateRuleRow label="Max Lot Size" tooltip="Limits the maximum lot size per position. Trades exceeding this have profits removed." enabled={createRules.rules_enabled.max_lot_size} onToggle={() => setCreateRules(p => ({...p, rules_enabled: {...p.rules_enabled, max_lot_size: !p.rules_enabled.max_lot_size}}))}>
-                        <input type="number" step="0.01" value={createRules.max_lot_size} onChange={e => setCreateRules(p => ({...p, max_lot_size: parseFloat(e.target.value)||0}))} disabled={!createRules.rules_enabled.max_lot_size} className="w-20 p-2 rounded-lg bg-white/10 border border-white/10 text-white text-sm text-center outline-none disabled:opacity-40" />
-                      </CreateRuleRow>
-                      <CreateRuleRow label="Max Open Trades" tooltip="Limits simultaneous open trades. All overlapping trades get flagged when exceeded." enabled={createRules.rules_enabled.max_open_trades} onToggle={() => setCreateRules(p => ({...p, rules_enabled: {...p.rules_enabled, max_open_trades: !p.rules_enabled.max_open_trades}}))}>
-                        <input type="number" value={createRules.max_open_trades} onChange={e => setCreateRules(p => ({...p, max_open_trades: parseInt(e.target.value)||1}))} disabled={!createRules.rules_enabled.max_open_trades} className="w-20 p-2 rounded-lg bg-white/10 border border-white/10 text-white text-sm text-center outline-none disabled:opacity-40" />
-                      </CreateRuleRow>
-                      <CreateRuleRow label="Pair Limit" tooltip="Max trades on the same pair open at once. Prevents overexposure to a single instrument." enabled={createRules.rules_enabled.pair_limit} onToggle={() => setCreateRules(p => ({...p, rules_enabled: {...p.rules_enabled, pair_limit: !p.rules_enabled.pair_limit}}))}>
-                        <input type="number" value={createRules.pair_limit} onChange={e => setCreateRules(p => ({...p, pair_limit: parseInt(e.target.value)||1}))} disabled={!createRules.rules_enabled.pair_limit} className="w-20 p-2 rounded-lg bg-white/10 border border-white/10 text-white text-sm text-center outline-none disabled:opacity-40" />
-                      </CreateRuleRow>
-                      <CreateRuleRow label="Max Risk" tooltip="Max risk per trade measured by SL distance. Fixed = same $ amount for all trades. Percentage = calculated from account balance at the time each trade is opened." enabled={createRules.rules_enabled.stop_loss_required} onToggle={() => setCreateRules(p => ({...p, rules_enabled: {...p.rules_enabled, stop_loss_required: !p.rules_enabled.stop_loss_required}}))}>
-                        <div className="flex items-center gap-1">
-                          <button onClick={() => setCreateRules(p => ({...p, max_risk_mode: 'fixed'}))} className={`px-2 py-1 text-[9px] font-bold rounded border ${createRules.max_risk_mode === 'fixed' ? 'bg-profit/20 text-profit border-profit/30' : 'bg-white/5 text-gray-500 border-white/10'}`}>Fixed</button>
-                          <button onClick={() => setCreateRules(p => ({...p, max_risk_mode: 'percentage'}))} className={`px-2 py-1 text-[9px] font-bold rounded border ${createRules.max_risk_mode === 'percentage' ? 'bg-profit/20 text-profit border-profit/30' : 'bg-white/5 text-gray-500 border-white/10'}`}>%Balance</button>
-                          <input type="number" step="0.5" value={createRules.max_risk_mode === 'percentage' ? createRules.max_risk_percent : createRules.max_risk_dollars} onChange={e => createRules.max_risk_mode === 'percentage' ? setCreateRules(p => ({...p, max_risk_percent: parseFloat(e.target.value)||0})) : setCreateRules(p => ({...p, max_risk_dollars: parseFloat(e.target.value)||0}))} disabled={!createRules.rules_enabled.stop_loss_required} className="w-14 p-2 rounded-lg bg-white/10 border border-white/10 text-white text-sm text-center outline-none disabled:opacity-40" />
-                        </div>
-                      </CreateRuleRow>
-                      <CreateRuleRow label="Daily Loss Cap" tooltip="Max drawdown from day's opening balance. Fixed = same $ cap every day. Percentage = calculated from each day's opening balance (scales with account growth)." enabled={createRules.rules_enabled.daily_loss_cap} onToggle={() => setCreateRules(p => ({...p, rules_enabled: {...p.rules_enabled, daily_loss_cap: !p.rules_enabled.daily_loss_cap}}))}>
-                        <div className="flex items-center gap-1">
-                          <button onClick={() => setCreateRules(p => ({...p, daily_loss_mode: 'fixed'}))} className={`px-2 py-1 text-[9px] font-bold rounded border ${createRules.daily_loss_mode === 'fixed' ? 'bg-profit/20 text-profit border-profit/30' : 'bg-white/5 text-gray-500 border-white/10'}`}>Fixed</button>
-                          <button onClick={() => setCreateRules(p => ({...p, daily_loss_mode: 'percentage'}))} className={`px-2 py-1 text-[9px] font-bold rounded border ${createRules.daily_loss_mode === 'percentage' ? 'bg-profit/20 text-profit border-profit/30' : 'bg-white/5 text-gray-500 border-white/10'}`}>%Balance</button>
-                          <input type="number" step="0.5" value={createRules.daily_loss_mode === 'percentage' ? createRules.daily_loss_percent : createRules.daily_loss_cap} onChange={e => createRules.daily_loss_mode === 'percentage' ? setCreateRules(p => ({...p, daily_loss_percent: parseFloat(e.target.value)||0})) : setCreateRules(p => ({...p, daily_loss_cap: parseFloat(e.target.value)||0}))} disabled={!createRules.rules_enabled.daily_loss_cap} className="w-14 p-2 rounded-lg bg-white/10 border border-white/10 text-white text-sm text-center outline-none disabled:opacity-40" />
-                        </div>
-                      </CreateRuleRow>
-                      <CreateRuleRow label="Max Hold Hours" tooltip="Max time a trade can be held. Exceeding this flags the trade. Encourages active intraday trading." enabled={createRules.rules_enabled.max_hold_hours} onToggle={() => setCreateRules(p => ({...p, rules_enabled: {...p.rules_enabled, max_hold_hours: !p.rules_enabled.max_hold_hours}}))}>
-                        <input type="number" value={createRules.max_hold_hours} onChange={e => setCreateRules(p => ({...p, max_hold_hours: parseInt(e.target.value)||1}))} disabled={!createRules.rules_enabled.max_hold_hours} className="w-20 p-2 rounded-lg bg-white/10 border border-white/10 text-white text-sm text-center outline-none disabled:opacity-40" />
-                      </CreateRuleRow>
-                      <CreateRuleRow label="Min Trade Duration (min)" tooltip="Minimum time a trade must be held. Trades closed faster than this are flagged and profits removed. Prevents ultra-short scalping." enabled={createRules.rules_enabled.min_trade_duration} onToggle={() => setCreateRules(p => ({...p, rules_enabled: {...p.rules_enabled, min_trade_duration: !p.rules_enabled.min_trade_duration}}))}>
-                        <input type="number" value={createRules.min_trade_duration_minutes ?? ""} onChange={e => setCreateRules(p => ({...p, min_trade_duration_minutes: e.target.value ? parseInt(e.target.value) : null}))} disabled={!createRules.rules_enabled.min_trade_duration} className="w-20 p-2 rounded-lg bg-white/10 border border-white/10 text-white text-sm text-center outline-none disabled:opacity-40" placeholder="—" />
-                      </CreateRuleRow>
-                      <CreateRuleRow label="Min Active Days" tooltip="Minimum distinct trading days to qualify for prizes. Users who can't reach this are DQ'd at challenge end." enabled={createRules.rules_enabled.min_active_days} onToggle={() => setCreateRules(p => ({...p, rules_enabled: {...p.rules_enabled, min_active_days: !p.rules_enabled.min_active_days}}))}>
-                        <input type="number" value={createRules.min_active_days} onChange={e => setCreateRules(p => ({...p, min_active_days: parseInt(e.target.value)||1}))} disabled={!createRules.rules_enabled.min_active_days} className="w-20 p-2 rounded-lg bg-white/10 border border-white/10 text-white text-sm text-center outline-none disabled:opacity-40" />
-                      </CreateRuleRow>
-                      <CreateRuleRow label="Min Total Trades" tooltip="Minimum total number of trades to qualify. Users see a blue flag until met. At challenge end, users who haven't met this are disqualified." enabled={createRules.rules_enabled.min_total_trades} onToggle={() => setCreateRules(p => ({...p, rules_enabled: {...p.rules_enabled, min_total_trades: !p.rules_enabled.min_total_trades}}))}>
-                        <input type="number" value={createRules.min_total_trades ?? ""} onChange={e => setCreateRules(p => ({...p, min_total_trades: e.target.value ? parseInt(e.target.value) : null}))} disabled={!createRules.rules_enabled.min_total_trades} className="w-20 p-2 rounded-lg bg-white/10 border border-white/10 text-white text-sm text-center outline-none disabled:opacity-40" placeholder="—" />
-                      </CreateRuleRow>
-                      {/* Boolean toggle rules */}
-                      <CreateRuleToggle label="Weekend Trading" tooltip="Controls crypto trades on weekends. When OFF, weekend crypto trades are flagged. Forex markets are closed anyway." value={createRules.weekend_trading} onChange={v => setCreateRules(p => ({...p, weekend_trading: v}))} />
-                      <CreateRuleToggle label="Only Cent Account (Real)" tooltip="Only cent-denominated accounts are accepted for real account registration." value={createRules.only_cent_account} onChange={v => setCreateRules(p => ({...p, only_cent_account: v, ...(v ? {allow_professional: false} : {})}))} />
-                      {!createRules.only_cent_account && <CreateRuleToggle label="Allow Professional Accounts (Pro/Zero/Raw)" tooltip="When enabled, professional account types like Pro, Zero Spread, and Raw Spread are accepted. When off, only Standard/Standard Cent accounts can register." value={(createRules as any).allow_professional || false} onChange={v => setCreateRules(p => ({...p, allow_professional: v}))} />}
-                    </div>
-                    <div className="flex gap-3 mt-6">
-                      <button onClick={() => setCreateStep(1)} className="flex-1 py-3 rounded-xl bg-white/5 border border-white/10 text-gray-400 font-semibold hover:bg-white/10 transition-all">Back</button>
-                      <button onClick={() => setCreateStep(3)} className="flex-1 py-3 rounded-xl bg-gradient-brand text-white font-semibold hover:opacity-90 transition-all">Review</button>
-                    </div>
-                  </div>
-                )}
-
-                {/* Step 3: Review & Submit */}
-                {createStep === 3 && (
-                  <div>
-                    <div className="space-y-2 mb-5">
-                      <div className="flex justify-between py-2 border-b border-white/5"><span className="text-xs text-gray-500">Title</span><span className="text-xs text-white font-medium">{createForm.title}</span></div>
-                      <div className="flex justify-between py-2 border-b border-white/5"><span className="text-xs text-gray-500">Type</span><span className="text-xs text-white font-medium capitalize">{createForm.type}</span></div>
-                      <div className="flex justify-between py-2 border-b border-white/5"><span className="text-xs text-gray-500">Deposit Mode</span><span className="text-xs text-white font-medium capitalize">{createForm.deposit_mode.replace('_', ' ')}</span></div>
-                      <div className="flex justify-between py-2 border-b border-white/5"><span className="text-xs text-gray-500">Timezone</span><span className="text-xs text-white font-medium">{createForm.timezone.replace('_', ' ').split('/').pop()}</span></div>
-                      <div className="flex justify-between py-2 border-b border-white/5"><span className="text-xs text-gray-500">Period</span><span className="text-xs text-white font-medium">{createForm.start_date ? new Date(createForm.start_date).toLocaleDateString() : '—'} → {createForm.end_date ? new Date(createForm.end_date).toLocaleDateString() : '—'}</span></div>
-                      {createForm.real_prizes && <div className="flex justify-between py-2 border-b border-white/5"><span className="text-xs text-gray-500">Real Prizes</span><span className="text-xs text-white font-medium">${createForm.real_prizes}</span></div>}
-                      {createForm.demo_prizes && <div className="flex justify-between py-2 border-b border-white/5"><span className="text-xs text-gray-500">Demo Prizes</span><span className="text-xs text-white font-medium">${createForm.demo_prizes}</span></div>}
-                      <div className="flex justify-between py-2 border-b border-white/5"><span className="text-xs text-gray-500">{createForm.deposit_mode === 'fixed' ? 'Balance' : 'Deposit Limit'}</span><span className="text-xs text-white font-medium">${createForm.starting_balance}</span></div>
-                      <div className="flex justify-between py-2 border-b border-white/5"><span className="text-xs text-gray-500">Target</span><span className="text-xs text-white font-medium">{createForm.deposit_mode !== 'fixed' ? `${createForm.target_percent}%` : `$${createForm.target_balance}`}</span></div>
-                      <div className="flex justify-between py-2 border-b border-white/5"><span className="text-xs text-gray-500">Max Lot</span><span className="text-xs text-white font-medium">{createRules.rules_enabled.max_lot_size ? createRules.max_lot_size : 'OFF'}</span></div>
-                      <div className="flex justify-between py-2 border-b border-white/5"><span className="text-xs text-gray-500">Max Risk</span><span className="text-xs text-white font-medium">{createRules.rules_enabled.stop_loss_required ? (createRules.max_risk_mode === 'percentage' ? `${createRules.max_risk_percent}%` : `$${createRules.max_risk_dollars}`) : 'OFF'}</span></div>
-                      <div className="flex justify-between py-2 border-b border-white/5"><span className="text-xs text-gray-500">Daily Loss Cap</span><span className="text-xs text-white font-medium">{createRules.rules_enabled.daily_loss_cap ? (createRules.daily_loss_mode === 'percentage' ? `${createRules.daily_loss_percent}%` : `$${createRules.daily_loss_cap}`) : 'OFF'}</span></div>
-                      <div className="flex justify-between py-2 border-b border-white/5"><span className="text-xs text-gray-500">Min Active Days</span><span className="text-xs text-white font-medium">{createRules.rules_enabled.min_active_days ? createRules.min_active_days : 'OFF'}</span></div>
-                      <div className="flex justify-between py-2"><span className="text-xs text-gray-500">Registration</span><span className="text-xs text-white font-medium">{createForm.registration_mode === 'winnerpip' ? 'Online (WinnerPip)' : 'Manual (CSV)'}</span></div>
-                    </div>
-                    {createResult?.error && <div className="p-3 rounded-xl bg-loss/10 border border-loss/20 mb-4"><p className="text-xs text-loss">{createResult.error}</p></div>}
-                    <div className="flex gap-3">
-                      <button onClick={() => setCreateStep(2)} className="flex-1 py-2.5 rounded-xl bg-white/5 border border-white/10 text-gray-400 text-sm font-medium hover:bg-white/10 transition-all">Back</button>
-                      <button onClick={async () => {
-                        setCreateLoading(true); setCreateResult(null);
-                        try {
-                          const res = await fetch(`${API_URL}/api/host/challenges`, {
-                            method: 'POST',
-                            headers: { Authorization: `Bearer ${getToken()}`, 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                              ...createForm,
-                              starting_balance: parseFloat(createForm.starting_balance),
-                              target_balance: parseFloat(createForm.target_balance),
-                              target_percent: createForm.deposit_mode !== 'fixed' ? parseFloat(createForm.target_percent) : null,
-                              real_winners_count: parseInt(createForm.real_winners_count) || 0,
-                              demo_winners_count: parseInt(createForm.demo_winners_count) || 0,
-                              real_prizes: createForm.real_prizes ? createForm.real_prizes.split(',').map(p => p.trim()).filter(Boolean) : [],
-                              demo_prizes: createForm.demo_prizes ? createForm.demo_prizes.split(',').map(p => p.trim()).filter(Boolean) : [],
-                              rules: createRules,
-                            }),
-                          });
-                          const data = await res.json();
-                          if (res.ok && data.success) { setCreateResult({ success: true }); }
-                          else { setCreateResult({ error: data.error || 'Failed to submit' }); }
-                        } catch { setCreateResult({ error: 'Could not connect to server' }); }
-                        setCreateLoading(false);
-                      }} disabled={createLoading} className="flex-1 py-2.5 rounded-xl bg-profit/20 border border-profit/30 text-profit text-sm font-bold hover:bg-profit/30 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
-                        {createLoading ? <Loader2 size={14} className="animate-spin" /> : null} Submit for Approval
-                      </button>
-                    </div>
-                    <p className="text-[10px] text-gray-600 text-center mt-3">Your challenge will be reviewed by admin before going live.</p>
-                  </div>
-                )}
-              </>)}
+              )}
             </div>
           </div>
         </div>
       )}
+
+      {/* Create Challenge Modal - keeping existing */}
+      {showCreateModal && <CreateChallengeModal
+        createStep={createStep} setCreateStep={setCreateStep}
+        createForm={createForm} setCreateForm={setCreateForm}
+        createRules={createRules} setCreateRules={setCreateRules}
+        createLoading={createLoading} setCreateLoading={setCreateLoading}
+        createResult={createResult} setCreateResult={setCreateResult}
+        onClose={() => setShowCreateModal(false)}
+        hostInfo={hostInfo} getToken={getToken}
+        setShowAccountSettings={setShowAccountSettings}
+        setShowCreateModal={setShowCreateModal}
+      />}
     </div>
   );
 }
 
+// ===== HELPER COMPONENTS =====
+
+function StatusBadge({ status }: { status: string }) {
+  const colors: Record<string, string> = {
+    active: 'bg-profit/20 text-profit border-profit/30',
+    registration_open: 'bg-gold/20 text-gold border-gold/30',
+    pending_approval: 'bg-royal/20 text-royal border-royal/30',
+    rejected: 'bg-loss/20 text-loss border-loss/30',
+  };
+  const labels: Record<string, string> = {
+    active: 'Active', registration_open: 'Registration Open',
+    pending_approval: 'Pending Approval', rejected: 'Rejected',
+    reviewing: 'Reviewing', completed: 'Completed', draft: 'Draft',
+  };
+  return <span className={`px-2.5 py-1 rounded-full text-[10px] font-semibold border ${colors[status] || 'bg-white/10 text-gray-400 border-white/20'}`}>{labels[status] || status}</span>;
+}
+
+function StatCard({ icon, label, value, sub, color }: { icon: React.ReactNode; label: string; value: any; sub: string; color: string }) {
+  return (
+    <div className="glass rounded-xl p-3 sm:p-4 border border-white/10">
+      <div className={`flex items-center gap-1.5 mb-1.5 ${color}`}>{icon}<p className="text-[10px] text-gray-400 uppercase tracking-wider font-medium">{label}</p></div>
+      <p className={`text-lg sm:text-2xl font-bold ${color}`}>{value}</p>
+      {sub && <p className="text-[10px] text-gray-500 mt-1">{sub}</p>}
+    </div>
+  );
+}
 
 function RuleRow({ label, tooltip, enabled, onToggle, locked, children }: { label: string; tooltip: string; enabled: boolean; onToggle: (v: boolean) => void; locked: boolean; children: React.ReactNode }) {
   return (
-    <div className="flex items-center justify-between py-3 border-b border-white/5">
+    <div className={`flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10 ${!enabled ? "opacity-50" : ""}`}>
       <div className="flex items-center gap-2">
-        <button onClick={() => !locked && onToggle(!enabled)} disabled={locked} className={`w-8 h-4 rounded-full relative transition-all ${enabled ? 'bg-royal' : 'bg-gray-700'} disabled:opacity-50`}>
-          <span className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all ${enabled ? 'left-4' : 'left-0.5'}`} />
+        <button onClick={() => !locked && onToggle(!enabled)} disabled={locked} className={`w-9 h-5 rounded-full transition-all flex-shrink-0 ${enabled ? "bg-royal" : "bg-white/20"}`}>
+          <div className={`w-4 h-4 bg-white rounded-full transition-transform ${enabled ? "translate-x-4" : "translate-x-0.5"}`} />
         </button>
-        <span className={`text-sm ${enabled ? 'text-gray-300' : 'text-gray-600'}`}>{label}</span>
-        <span className="relative group"><Info size={12} className="text-gray-600 cursor-help" /><span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 text-[10px] text-white bg-black/90 rounded-lg whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-50">{tooltip}</span></span>
+        <p className="text-sm text-white font-medium">{label}</p>
+        <div className="relative group"><Info size={12} className="text-gray-500 cursor-help" /><div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-1.5 text-[10px] text-white bg-black/95 rounded-lg w-48 text-center opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-50">{tooltip}</div></div>
       </div>
-      <div className={`${!enabled ? 'opacity-40 pointer-events-none' : ''}`}>
-        {children}
-      </div>
+      {children}
+    </div>
+  );
+}
+
+function ScreeningTab({ challengeId, getToken }: { challengeId: number; getToken: () => string }) {
+  const [results, setResults] = useState<any[]>([]);
+  const [stats, setStats] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
+
+  const runScreening = async () => {
+    setLoading(true); setError("");
+    try {
+      const res = await fetch(`${apiUrl}/api/host/challenge/${challengeId}/screening`, { method: "POST", headers: { Authorization: `Bearer ${getToken()}` } });
+      const data = await res.json();
+      if (res.ok) { setResults(data.results || []); setStats({ total: data.total, allocated: data.allocated, notAllocated: data.notAllocated, failed: data.failed }); }
+      else setError(data.error || "Failed");
+    } catch { setError("Network error"); }
+    setLoading(false);
+  };
+
+  return (
+    <div className="glass rounded-2xl border border-white/10 p-5">
+      <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2"><Target size={16} className="text-gold" /> Partner Screening</h3>
+      <button onClick={runScreening} disabled={loading} className="px-5 py-2.5 rounded-xl bg-gold/10 text-gold text-sm font-semibold border border-gold/20 hover:bg-gold/20 disabled:opacity-50 mb-4">{loading ? "Checking..." : "Run Screening"}</button>
+      {error && <p className="text-loss text-sm mb-3">{error}</p>}
+      {stats && (
+        <div className="grid grid-cols-4 gap-3 mb-4">
+          <div className="bg-white/5 rounded-lg p-3 text-center"><p className="text-lg font-bold text-white">{stats.total}</p><p className="text-[10px] text-gray-500">Total</p></div>
+          <div className="bg-profit/5 rounded-lg p-3 text-center"><p className="text-lg font-bold text-profit">{stats.allocated}</p><p className="text-[10px] text-gray-500">Allocated</p></div>
+          <div className="bg-loss/5 rounded-lg p-3 text-center"><p className="text-lg font-bold text-loss">{stats.notAllocated}</p><p className="text-[10px] text-gray-500">Not Allocated</p></div>
+          <div className="bg-white/5 rounded-lg p-3 text-center"><p className="text-lg font-bold text-gray-400">{stats.failed}</p><p className="text-[10px] text-gray-500">No Data</p></div>
+        </div>
+      )}
+      {results.length > 0 && (
+        <div className="space-y-1">
+          {results.map((r: any) => (
+            <div key={r.id} className="flex items-center justify-between p-2 rounded-lg bg-white/5 text-xs">
+              <span className="text-white font-medium">{r.nickname}</span>
+              <span className={`font-semibold ${r.status === 'allocated' ? 'text-profit' : r.status === 'not_allocated' ? 'text-loss' : 'text-gray-500'}`}>{r.status === 'allocated' ? 'Allocated' : r.status === 'not_allocated' ? 'Not Allocated' : '—'}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -1114,235 +676,154 @@ function BrokerCredentialsSection() {
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
   const [showForm, setShowForm] = useState(false);
-
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
   const getToken = () => localStorage.getItem("host_token") || "";
 
   useEffect(() => {
-    fetch(`${apiUrl}/api/host/broker-status`, {
-      headers: { Authorization: `Bearer ${getToken()}` },
-    })
-      .then(r => r.json())
-      .then(data => { setHasBroker(data.hasBrokerIntegration || false); setLoading(false); })
-      .catch(() => setLoading(false));
+    fetch(`${apiUrl}/api/host/broker-status`, { headers: { Authorization: `Bearer ${getToken()}` } })
+      .then(r => r.json()).then(data => { setHasBroker(data.hasBrokerIntegration || false); setLoading(false); }).catch(() => setLoading(false));
   }, []);
 
   const handleSave = async () => {
-    if (!form.brokerEmail || !form.brokerPassword) {
-      setError("Email and password are required");
-      return;
-    }
-    setSaving(true);
-    setError("");
+    if (!form.brokerEmail || !form.brokerPassword) { setError("Email and password required"); return; }
+    setSaving(true); setError("");
     try {
-      const res = await fetch(`${apiUrl}/api/host/broker-credentials`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${getToken()}`, "Content-Type": "application/json" },
-        body: JSON.stringify(form),
-      });
-      if (res.ok) {
-        setSaved(true);
-        setHasBroker(true);
-        setShowForm(false);
-        setForm({ brokerEmail: "", brokerPassword: "" });
-      } else {
-        const data = await res.json();
-        setError(data.error || "Save failed");
-      }
+      const res = await fetch(`${apiUrl}/api/host/broker-credentials`, { method: "POST", headers: { Authorization: `Bearer ${getToken()}`, "Content-Type": "application/json" }, body: JSON.stringify(form) });
+      if (res.ok) { setSaved(true); setHasBroker(true); setShowForm(false); setForm({ brokerEmail: "", brokerPassword: "" }); }
+      else { const d = await res.json(); setError(d.error || "Failed"); }
     } catch { setError("Network error"); }
-    setSaving(false);
-    setTimeout(() => setSaved(false), 3000);
+    setSaving(false); setTimeout(() => setSaved(false), 3000);
   };
 
-  const handleRemove = async () => {
-    if (!confirm("Remove broker credentials? Partner allocation checks will be disabled.")) return;
-    setSaving(true);
-    try {
-      const res = await fetch(`${apiUrl}/api/host/broker-credentials`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${getToken()}` },
-      });
-      if (res.ok) { setHasBroker(false); setSaved(true); }
-    } catch {}
-    setSaving(false);
-    setTimeout(() => setSaved(false), 3000);
-  };
-
-  if (loading) return <div className="glass rounded-2xl border border-white/10 p-5 mt-4 flex justify-center py-8"><Loader2 className="animate-spin text-royal" size={20} /></div>;
-
-  return (
-    <div className="glass rounded-2xl border border-white/10 p-5 mt-4">
-      <h3 className="text-sm font-semibold text-white mb-2 flex items-center gap-2">
-        <Shield size={16} className="text-gold" /> Broker Integration
-      </h3>
-      <p className="text-xs text-gray-500 mb-4">
-        Connect your broker credentials to enable automatic partner allocation verification for participants.
-      </p>
-
-      {saved && <div className="p-2 mb-3 rounded-lg bg-profit/10 border border-profit/30 text-profit text-xs font-medium">✓ Credentials updated</div>}
-
-      {hasBroker && !showForm ? (
-        <div className="space-y-3">
-          <div className="flex items-center gap-3 p-3 rounded-xl bg-profit/5 border border-profit/20">
-            <div className="w-2.5 h-2.5 rounded-full bg-profit" />
-            <p className="text-sm text-profit font-medium">Broker integration active</p>
-          </div>
-          <div className="flex gap-2">
-            <button onClick={() => setShowForm(true)} className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-white/5 text-gray-300 hover:text-white hover:bg-white/10 border border-white/10 transition-all">Update Credentials</button>
-            <button onClick={handleRemove} disabled={saving} className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-loss/10 text-loss border border-loss/20 hover:bg-loss/20 transition-all disabled:opacity-50">Remove</button>
-          </div>
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {!hasBroker && !showForm && (
-            <button onClick={() => setShowForm(true)} className="px-4 py-2 text-sm font-semibold rounded-xl bg-gold/10 text-gold border border-gold/20 hover:bg-gold/20 transition-all">Setup Broker Credentials</button>
-          )}
-          {showForm && (
-            <>
-              {error && <p className="text-xs text-loss">{error}</p>}
-              <div>
-                <label className="block text-xs text-gray-400 mb-1">Broker Email</label>
-                <input type="email" value={form.brokerEmail} onChange={e => setForm(p => ({ ...p, brokerEmail: e.target.value }))} className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none focus:border-gold/50" placeholder="your@broker.com" />
-              </div>
-              <div>
-                <label className="block text-xs text-gray-400 mb-1">Broker Password</label>
-                <input type="password" value={form.brokerPassword} onChange={e => setForm(p => ({ ...p, brokerPassword: e.target.value }))} className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none focus:border-gold/50" placeholder="••••••••" />
-              </div>
-              <p className="text-[10px] text-gray-600">Credentials are encrypted with AES-256 and never stored in plain text.</p>
-              <div className="flex gap-2 pt-1">
-                <button onClick={handleSave} disabled={saving} className="px-5 py-2 rounded-xl bg-gold text-black text-sm font-semibold hover:bg-gold/80 disabled:opacity-50 transition-all flex items-center gap-2">
-                  {saving ? <Loader2 size={14} className="animate-spin" /> : null} Save Credentials
-                </button>
-                <button onClick={() => { setShowForm(false); setError(""); }} className="px-4 py-2 rounded-xl bg-white/5 text-gray-300 text-sm font-medium hover:bg-white/10 transition-all">Cancel</button>
-              </div>
-            </>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ScreeningTab({ challengeId, getToken }: { challengeId: number; getToken: () => string }) {
-  const [results, setResults] = useState<any[]>([]);
-  const [stats, setStats] = useState<{ total: number; allocated: number; notAllocated: number; failed: number } | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [hasRun, setHasRun] = useState(false);
-
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
-
-  const runScreening = async () => {
-    setLoading(true);
-    setError("");
-    setResults([]);
-    setStats(null);
-    try {
-      const res = await fetch(`${apiUrl}/api/host/challenge/${challengeId}/screening`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${getToken()}` },
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setResults(data.results || []);
-        setStats({ total: data.total, allocated: data.allocated, notAllocated: data.notAllocated, failed: data.failed });
-        setHasRun(true);
-      } else {
-        setError(data.error || "Screening failed");
-      }
-    } catch { setError("Network error"); }
-    setLoading(false);
-  };
+  if (loading) return <div className="glass rounded-2xl border border-white/10 p-5"><Loader2 className="animate-spin text-royal mx-auto" size={20} /></div>;
 
   return (
     <div className="glass rounded-2xl border border-white/10 p-5">
-      <h3 className="text-sm font-semibold text-white mb-2 flex items-center gap-2"><Target size={16} className="text-gold" /> Partner Allocation Screening</h3>
-      <p className="text-xs text-gray-500 mb-4">Check if participants are properly allocated under your broker partnership.</p>
-
-      {error && <div className="p-3 mb-4 rounded-lg bg-loss/10 border border-loss/30 text-loss text-sm">{error}</div>}
-
-      <button onClick={runScreening} disabled={loading} className="px-5 py-2.5 rounded-xl bg-gold/10 text-gold text-sm font-semibold border border-gold/20 hover:bg-gold/20 transition-all disabled:opacity-50 flex items-center gap-2 mb-5">
-        {loading ? <Loader2 size={14} className="animate-spin" /> : <Target size={14} />}
-        {loading ? "Checking allocations..." : hasRun ? "Re-run Screening" : "Run Screening"}
-      </button>
-
-      {/* Stats */}
-      {stats && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
-          <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500 uppercase">Total</p><p className="text-lg font-bold text-white">{stats.total}</p></div>
-          <div className="bg-profit/5 rounded-xl p-3 text-center border border-profit/10"><p className="text-[10px] text-gray-500 uppercase">Allocated</p><p className="text-lg font-bold text-profit">{stats.allocated}</p></div>
-          <div className="bg-loss/5 rounded-xl p-3 text-center border border-loss/10"><p className="text-[10px] text-gray-500 uppercase">Not Allocated</p><p className="text-lg font-bold text-loss">{stats.notAllocated}</p></div>
-          <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500 uppercase">No Data</p><p className="text-lg font-bold text-gray-400">{stats.failed}</p></div>
+      <h3 className="text-sm font-semibold text-white mb-2 flex items-center gap-2"><Shield size={16} className="text-gold" /> Broker Integration</h3>
+      <p className="text-xs text-gray-500 mb-4">Connect broker credentials for partner allocation verification.</p>
+      {saved && <div className="p-2 mb-3 rounded-lg bg-profit/10 text-profit text-xs">Updated</div>}
+      {hasBroker && !showForm ? (
+        <div>
+          <div className="flex items-center gap-3 p-3 rounded-xl bg-profit/5 border border-profit/20 mb-3"><div className="w-2.5 h-2.5 rounded-full bg-profit" /><p className="text-sm text-profit font-medium">Active</p></div>
+          <div className="flex gap-2">
+            <button onClick={() => setShowForm(true)} className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-white/5 text-gray-300 border border-white/10">Update</button>
+            <button onClick={async () => { if(!confirm("Remove broker credentials?")) return; await fetch(`${apiUrl}/api/host/broker-credentials`, { method: "DELETE", headers: { Authorization: `Bearer ${getToken()}` } }); setHasBroker(false); }} className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-loss/10 text-loss border border-loss/20">Remove</button>
+          </div>
         </div>
-      )}
-
-      {/* Results list */}
-      {results.length > 0 && (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-white/10">
-                <th className="text-left py-2 px-3 text-gray-500 font-medium">Nickname</th>
-                <th className="text-left py-2 px-3 text-gray-500 font-medium">Email</th>
-                <th className="text-left py-2 px-3 text-gray-500 font-medium">Account</th>
-                <th className="text-left py-2 px-3 text-gray-500 font-medium">Type</th>
-                <th className="text-center py-2 px-3 text-gray-500 font-medium">Allocation</th>
-              </tr>
-            </thead>
-            <tbody>
-              {results.map((r: any) => (
-                <tr key={r.id} className="border-b border-white/5 hover:bg-white/5">
-                  <td className="py-2.5 px-3 text-white font-medium">{r.nickname}</td>
-                  <td className="py-2.5 px-3 text-gray-400 text-xs">{r.email || "—"}</td>
-                  <td className="py-2.5 px-3 text-gray-300">{r.accountNumber}</td>
-                  <td className="py-2.5 px-3"><span className={`px-2 py-0.5 rounded text-[10px] font-bold ${r.accountType === 'real' ? 'bg-gold/20 text-gold' : 'bg-royal/20 text-royal'}`}>{r.accountType}</span></td>
-                  <td className="py-2.5 px-3 text-center">
-                    {r.status === 'allocated' && <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-profit/20 text-profit">✓ Allocated</span>}
-                    {r.status === 'not_allocated' && <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-loss/20 text-loss">✗ Not Allocated</span>}
-                    {r.status === 'no_email' && <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-white/10 text-gray-500">No Email</span>}
-                    {r.status === 'check_failed' && <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-white/10 text-gray-500">Error</span>}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      ) : (
+        <div>
+          {!showForm && <button onClick={() => setShowForm(true)} className="px-4 py-2 text-sm font-semibold rounded-xl bg-gold/10 text-gold border border-gold/20">Setup Credentials</button>}
+          {showForm && (
+            <div className="space-y-3">
+              {error && <p className="text-xs text-loss">{error}</p>}
+              <div><label className="text-xs text-gray-400 mb-1 block">Broker Email</label><input type="email" value={form.brokerEmail} onChange={e => setForm(p => ({...p, brokerEmail: e.target.value}))} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
+              <div><label className="text-xs text-gray-400 mb-1 block">Broker Password</label><input type="password" value={form.brokerPassword} onChange={e => setForm(p => ({...p, brokerPassword: e.target.value}))} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
+              <div className="flex gap-2">
+                <button onClick={handleSave} disabled={saving} className="px-5 py-2 rounded-xl bg-gold text-black text-sm font-semibold disabled:opacity-50">Save</button>
+                <button onClick={() => { setShowForm(false); setError(""); }} className="px-4 py-2 rounded-xl bg-white/5 text-gray-300 text-sm">Cancel</button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
   );
 }
 
-function CreateRuleRow({ label, tooltip, enabled, onToggle, children }: { label: string; tooltip: string; enabled: boolean; onToggle: () => void; children: React.ReactNode }) {
+// Create Challenge Modal (extracted)
+function CreateChallengeModal({ createStep, setCreateStep, createForm, setCreateForm, createRules, setCreateRules, createLoading, setCreateLoading, createResult, setCreateResult, onClose, hostInfo, getToken, setShowAccountSettings, setShowCreateModal }: any) {
+  const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
+
+  const handleSubmit = async () => {
+    setCreateLoading(true); setCreateResult(null);
+    try {
+      const res = await fetch(`${API_URL}/api/host/challenges`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${getToken()}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...createForm, starting_balance: parseFloat(createForm.starting_balance), target_balance: parseFloat(createForm.target_balance), target_percent: createForm.deposit_mode !== 'fixed' ? parseFloat(createForm.target_percent) : null, real_winners_count: parseInt(createForm.real_winners_count) || 0, demo_winners_count: parseInt(createForm.demo_winners_count) || 0, real_prizes: createForm.real_prizes ? createForm.real_prizes.split(',').map((p: string) => p.trim()).filter(Boolean) : [], demo_prizes: createForm.demo_prizes ? createForm.demo_prizes.split(',').map((p: string) => p.trim()).filter(Boolean) : [], rules: createRules }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) setCreateResult({ success: true });
+      else setCreateResult({ error: data.error || 'Failed' });
+    } catch { setCreateResult({ error: 'Could not connect to server' }); }
+    setCreateLoading(false);
+  };
+
   return (
-    <div className={`flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10 ${!enabled ? "opacity-50" : ""}`}>
-      <div className="flex items-center gap-2">
-        <button onClick={onToggle} className={`w-9 h-5 rounded-full transition-all flex-shrink-0 ${enabled ? "bg-royal" : "bg-white/20"}`}>
-          <div className={`w-4 h-4 bg-white rounded-full transition-transform ${enabled ? "translate-x-4" : "translate-x-0.5"}`}></div>
-        </button>
-        <p className="text-sm text-white font-medium">{label}</p>
-        <div className="relative group">
-          <Info size={12} className="text-gray-500 cursor-help" />
-          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-1.5 text-[10px] text-white bg-black/95 rounded-lg w-48 text-center opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-50 leading-tight">{tooltip}</div>
+    <div className="fixed inset-0 bg-[#0a0e1a]/95 z-50 flex items-center justify-center p-4" onClick={() => !createLoading && onClose()}>
+      <div className="bg-[#1a2235] rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto border border-white/15 shadow-2xl" onClick={(e: any) => e.stopPropagation()}>
+        <div className="sticky top-0 bg-[#1a2235] px-6 pt-5 pb-4 border-b border-white/10 z-10 rounded-t-2xl">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-lg font-bold text-white">Create Challenge</h3>
+            <button onClick={() => !createLoading && onClose()} className="p-1.5 hover:bg-white/10 rounded-lg"><X size={16} className="text-gray-500" /></button>
+          </div>
+          <div className="flex gap-2">{[1,2,3].map(s => <div key={s} className={`flex-1 h-1.5 rounded-full ${s <= createStep ? "bg-royal" : "bg-white/10"}`} />)}</div>
+        </div>
+        <div className="px-6 py-5">
+          {createResult?.success ? (
+            <div className="text-center py-8">
+              <p className="text-profit font-bold text-lg mb-2">Submitted for Approval</p>
+              <p className="text-gray-400 text-sm">Admin will review your challenge.</p>
+              <button onClick={() => { onClose(); window.location.reload(); }} className="mt-6 px-6 py-2.5 rounded-xl bg-royal/20 text-royal font-semibold text-sm border border-royal/30">Done</button>
+            </div>
+          ) : (<>
+            {createStep === 1 && (
+              <div className="space-y-4">
+                <div><label className="text-xs text-gray-400 mb-1 block">Title *</label><input value={createForm.title} onChange={(e: any) => setCreateForm({...createForm, title: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" placeholder="Challenge Title" /></div>
+                <div><label className="text-xs text-gray-400 mb-1 block">Type</label><select value={createForm.type} onChange={(e: any) => setCreateForm({...createForm, type: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none"><option value="hybrid" className="bg-[#0f1629]">Hybrid</option><option value="demo" className="bg-[#0f1629]">Demo</option><option value="real" className="bg-[#0f1629]">Real</option></select></div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div><label className="text-xs text-gray-400 mb-1 block">Start Date *</label><input type="datetime-local" value={createForm.start_date} onChange={(e: any) => setCreateForm({...createForm, start_date: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
+                  <div><label className="text-xs text-gray-400 mb-1 block">End Date *</label><input type="datetime-local" value={createForm.end_date} onChange={(e: any) => setCreateForm({...createForm, end_date: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
+                </div>
+                <div><label className="text-xs text-gray-400 mb-1 block">Timezone</label><select value={createForm.timezone} onChange={(e: any) => setCreateForm({...createForm, timezone: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none"><option value="Africa/Nairobi">East Africa (Nairobi) UTC+3</option><option value="Asia/Dubai">UAE (Dubai) UTC+4</option><option value="Europe/London">UK (London)</option><option value="America/New_York">US Eastern</option><option value="Asia/Shanghai">China (Shanghai)</option><option value="UTC">UTC</option></select></div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div><label className="text-xs text-gray-400 mb-1 block">Starting Balance ($)</label><input value={createForm.starting_balance} onChange={(e: any) => setCreateForm({...createForm, starting_balance: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
+                  <div><label className="text-xs text-gray-400 mb-1 block">Target Balance ($)</label><input value={createForm.target_balance} onChange={(e: any) => setCreateForm({...createForm, target_balance: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
+                </div>
+                <button onClick={() => setCreateStep(2)} disabled={!createForm.title || !createForm.start_date || !createForm.end_date} className="w-full py-3 rounded-xl bg-royal text-white font-semibold disabled:opacity-40">Next: Rules</button>
+              </div>
+            )}
+            {createStep === 2 && (
+              <div className="space-y-3">
+                <p className="text-xs text-gray-500 mb-2">Configure rules for your challenge.</p>
+                <RuleRowSimple label="Max Lot Size" value={createRules.max_lot_size} onChange={(v: number) => setCreateRules({...createRules, max_lot_size: v})} />
+                <RuleRowSimple label="Max Open Trades" value={createRules.max_open_trades} onChange={(v: number) => setCreateRules({...createRules, max_open_trades: v})} />
+                <RuleRowSimple label="Daily Loss Cap ($)" value={createRules.daily_loss_cap} onChange={(v: number) => setCreateRules({...createRules, daily_loss_cap: v})} />
+                <RuleRowSimple label="Min Active Days" value={createRules.min_active_days} onChange={(v: number) => setCreateRules({...createRules, min_active_days: v})} />
+                <div className="flex gap-3 mt-4">
+                  <button onClick={() => setCreateStep(1)} className="flex-1 py-2.5 rounded-xl bg-white/5 border border-white/10 text-gray-400 text-sm">Back</button>
+                  <button onClick={() => setCreateStep(3)} className="flex-1 py-2.5 rounded-xl bg-royal text-white text-sm font-semibold">Review</button>
+                </div>
+              </div>
+            )}
+            {createStep === 3 && (
+              <div>
+                <div className="space-y-2 mb-5 text-xs">
+                  <div className="flex justify-between py-2 border-b border-white/5"><span className="text-gray-500">Title</span><span className="text-white">{createForm.title}</span></div>
+                  <div className="flex justify-between py-2 border-b border-white/5"><span className="text-gray-500">Type</span><span className="text-white">{createForm.type}</span></div>
+                  <div className="flex justify-between py-2 border-b border-white/5"><span className="text-gray-500">Balance</span><span className="text-white">${createForm.starting_balance} → ${createForm.target_balance}</span></div>
+                  <div className="flex justify-between py-2 border-b border-white/5"><span className="text-gray-500">Timezone</span><span className="text-white">{createForm.timezone}</span></div>
+                  <div className="flex justify-between py-2"><span className="text-gray-500">Max Lot</span><span className="text-white">{createRules.max_lot_size}</span></div>
+                </div>
+                {createResult?.error && <p className="text-xs text-loss mb-3">{createResult.error}</p>}
+                <div className="flex gap-3">
+                  <button onClick={() => setCreateStep(2)} className="flex-1 py-2.5 rounded-xl bg-white/5 border border-white/10 text-gray-400 text-sm">Back</button>
+                  <button onClick={handleSubmit} disabled={createLoading} className="flex-1 py-2.5 rounded-xl bg-profit/20 border border-profit/30 text-profit text-sm font-bold disabled:opacity-50">{createLoading ? "Submitting..." : "Submit for Approval"}</button>
+                </div>
+              </div>
+            )}
+          </>)}
         </div>
       </div>
-      {children}
     </div>
   );
 }
 
-function CreateRuleToggle({ label, tooltip, value, onChange }: { label: string; tooltip: string; value: boolean; onChange: (v: boolean) => void }) {
+function RuleRowSimple({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) {
   return (
     <div className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10">
-      <div className="flex items-center gap-2">
-        <p className="text-sm text-white font-medium">{label}</p>
-        <div className="relative group">
-          <Info size={12} className="text-gray-500 cursor-help" />
-          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-1.5 text-[10px] text-white bg-black/95 rounded-lg w-48 text-center opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-50 leading-tight">{tooltip}</div>
-        </div>
-      </div>
-      <button onClick={() => onChange(!value)} className={`w-12 h-6 rounded-full transition-all ${value ? "bg-profit" : "bg-white/20"}`}>
-        <div className={`w-5 h-5 bg-white rounded-full transition-transform ${value ? "translate-x-6" : "translate-x-0.5"}`}></div>
-      </button>
+      <p className="text-sm text-white font-medium">{label}</p>
+      <input type="number" step="any" value={value} onChange={e => onChange(parseFloat(e.target.value) || 0)} className="w-20 p-2 rounded-lg bg-white/10 border border-white/10 text-white text-sm text-center outline-none" />
     </div>
   );
 }
