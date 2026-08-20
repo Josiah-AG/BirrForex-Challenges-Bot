@@ -234,7 +234,7 @@ export default function HostDashboardPage() {
               </div>
               {selectedChallenge && <StatusBadge status={selectedChallenge.status} />}
             </div>
-            <button onClick={() => { setShowCreateModal(true); setCreateResult(null); setCreateStep(1); }} className="px-4 py-2 rounded-xl bg-royal/20 text-royal text-sm font-semibold border border-royal/30">+ New Challenge</button>
+            <button onClick={() => { setShowCreateModal(true); setCreateResult(null); setCreateStep(1); setCreateForm(f => ({...f, registration_mode: hostInfo?.hasBrokerIntegration ? 'winnerpip' : 'manual'})); }} className="px-4 py-2 rounded-xl bg-royal/20 text-royal text-sm font-semibold border border-royal/30">+ New Challenge</button>
           </div>
         )}
 
@@ -242,7 +242,7 @@ export default function HostDashboardPage() {
           <div className="text-center py-24">
             <Trophy className="w-16 h-16 text-gray-600 mx-auto mb-4" />
             <p className="text-gray-300 text-lg font-semibold">No challenges yet</p>
-            <button onClick={() => { setShowCreateModal(true); setCreateResult(null); setCreateStep(1); }} className="mt-6 px-6 py-2.5 rounded-xl bg-royal text-white font-semibold text-sm">Create Challenge</button>
+            <button onClick={() => { setShowCreateModal(true); setCreateResult(null); setCreateStep(1); setCreateForm(f => ({...f, registration_mode: hostInfo?.hasBrokerIntegration ? 'winnerpip' : 'manual'})); }} className="mt-6 px-6 py-2.5 rounded-xl bg-royal text-white font-semibold text-sm">Create Challenge</button>
           </div>
         )}
 
@@ -1272,6 +1272,15 @@ function CreateChallengeModal({ createStep, setCreateStep, createForm, setCreate
                       <p className="text-[10px] mt-0.5 opacity-70">Upload participant list</p>
                     </button>
                   </div>
+                  {createForm.registration_mode === 'winnerpip' && !hostInfo?.hasBrokerIntegration && (
+                    <div className="mt-3 p-3 rounded-xl bg-gold/10 border border-gold/20 overflow-hidden">
+                      <div className="flex items-center gap-2">
+                        <span className="text-gold text-xs flex-shrink-0">&#9888;&#65039;</span>
+                        <p className="text-[11px] text-gold/90 whitespace-nowrap overflow-hidden text-ellipsis">Broker integration required for online registration &mdash; connect your broker credentials to verify participant accounts automatically</p>
+                      </div>
+                      <button type="button" onClick={() => { onClose(); setShowAccountSettings(true); }} className="mt-2 text-[11px] text-gold font-semibold underline underline-offset-2 hover:text-white transition-colors">Integrate Broker &rarr;</button>
+                    </div>
+                  )}
                 </div>
 
                 <button onClick={() => setCreateStep(2)} disabled={!createForm.title || !createForm.start_date || !createForm.end_date} className="w-full py-3 rounded-xl bg-royal text-white font-semibold disabled:opacity-40 mt-4">Next: Rules</button>
