@@ -387,52 +387,49 @@ export default function HostDashboardPage() {
             </div>
 
             {/* Trading Insights */}
-            {overview.metrics && (
-              <div className="glass rounded-2xl border border-white/10 p-5">
-                <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2"><TrendingUp size={16} className="text-profit" /> Trading Insights</h3>
-                {overview.metrics.challengeType === 'hybrid' ? (
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                    {(['real', 'demo'] as const).map(cat => {
-                      const m = overview.metrics[cat];
-                      if (!m) return null;
-                      const label = cat === 'real' ? 'Real Account' : 'Demo Account';
-                      return (
-                        <div key={cat} className="space-y-3">
-                          <p className="text-xs font-bold text-gray-300 uppercase">{label}</p>
-                          <div className="grid grid-cols-2 gap-2">
-                            {m.maxProfitTrade && <MetricCard title="Best Trade" value={`$${Number(m.maxProfitTrade.profit).toFixed(2)}`} sub={m.maxProfitTrade.symbol} user={m.maxProfitTrade.nickname} color="text-profit" />}
-                            {m.maxLossTrade && <MetricCard title="Worst Trade" value={`$${Number(m.maxLossTrade.profit).toFixed(2)}`} sub={m.maxLossTrade.symbol} user={m.maxLossTrade.nickname} color="text-loss" />}
-                            {m.bestOverallWinRate && <MetricCard title="Best Win Rate" value={`${m.bestOverallWinRate.winRate}%`} sub={`${m.bestOverallWinRate.trades} trades`} user={m.bestOverallWinRate.nickname} color="text-royal" />}
-                            {m.mostTradedPair && <MetricCard title="Most Traded" value={m.mostTradedPair.symbol} sub={`${m.mostTradedPair.tradeCount} trades · ${m.mostTradedPair.totalLots?.toFixed(2) || 0} lots`} color="text-gold" />}
-                            <MetricCard title="Blown" value={String(m.blownAccounts || 0)} sub="equity = 0" color="text-loss" />
-                            <MetricCard title="Disqualified" value={String(m.disqualifiedAccounts || 0)} sub="rule violations" color="text-loss" />
-                            <MetricCard title="Avg Trades/User" value={String(m.avgTradesPerUser || 0)} sub="active traders" color="text-white" />
-                            {m.mostActiveDay && <MetricCard title="Most Active Day" value={new Date(m.mostActiveDay.day).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} sub={`${m.mostActiveDay.tradeCount} trades`} color="text-white" />}
-                          </div>
+            {(() => {
+              const m = overview.metrics;
+              const challengeType = m?.challengeType || selectedChallenge?.type || 'hybrid';
+              if (challengeType === 'hybrid') {
+                const real = m?.real || { blownAccounts: 0, disqualifiedAccounts: 0, avgTradesPerUser: 0 };
+                const demo = m?.demo || { blownAccounts: 0, disqualifiedAccounts: 0, avgTradesPerUser: 0 };
+                return (
+                  <div className="glass rounded-2xl border border-white/10 p-5">
+                    <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2"><TrendingUp size={16} className="text-profit" /> Trading Insights</h3>
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                      <div className="space-y-3">
+                        <p className="text-xs font-bold text-gray-300 uppercase">Real Account</p>
+                        <div className="grid grid-cols-2 gap-2">
+                          <MetricCard title="Blown" value={String(real.blownAccounts || 0)} sub="equity = 0" color="text-loss" />
+                          <MetricCard title="Disqualified" value={String(real.disqualifiedAccounts || 0)} sub="rule violations" color="text-loss" />
+                          <MetricCard title="Avg Trades/User" value={String(real.avgTradesPerUser || 0)} sub="active traders" color="text-white" />
                         </div>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  (() => {
-                    const m = overview.metrics.combined || overview.metrics.real || overview.metrics.demo;
-                    if (!m) return null;
-                    return (
-                      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                        {m.maxProfitTrade && <MetricCard title="Best Trade" value={`$${Number(m.maxProfitTrade.profit).toFixed(2)}`} sub={m.maxProfitTrade.symbol} user={m.maxProfitTrade.nickname} color="text-profit" />}
-                        {m.maxLossTrade && <MetricCard title="Worst Trade" value={`$${Number(m.maxLossTrade.profit).toFixed(2)}`} sub={m.maxLossTrade.symbol} user={m.maxLossTrade.nickname} color="text-loss" />}
-                        {m.bestOverallWinRate && <MetricCard title="Best Win Rate" value={`$${m.bestOverallWinRate.winRate}%`} sub={`${m.bestOverallWinRate.trades} trades`} user={m.bestOverallWinRate.nickname} color="text-royal" />}
-                        {m.mostTradedPair && <MetricCard title="Most Traded Pair" value={m.mostTradedPair.symbol} sub={`${m.mostTradedPair.tradeCount} trades · ${m.mostTradedPair.totalLots?.toFixed(2) || 0} lots`} color="text-gold" />}
-                        <MetricCard title="Blown Accounts" value={String(m.blownAccounts || 0)} sub="equity hit zero" color="text-loss" />
-                        <MetricCard title="Disqualified" value={String(m.disqualifiedAccounts || 0)} sub="rule violations" color="text-loss" />
-                        {m.mostActiveDay && <MetricCard title="Most Active Day" value={new Date(m.mostActiveDay.day).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} sub={`${m.mostActiveDay.tradeCount} trades`} color="text-white" />}
-                        <MetricCard title="Avg Trades/User" value={String(m.avgTradesPerUser || 0)} sub="among active traders" color="text-white" />
                       </div>
-                    );
-                  })()
-                )}
-              </div>
-            )}
+                      <div className="space-y-3">
+                        <p className="text-xs font-bold text-gray-300 uppercase">Demo Account</p>
+                        <div className="grid grid-cols-2 gap-2">
+                          <MetricCard title="Blown" value={String(demo.blownAccounts || 0)} sub="equity = 0" color="text-loss" />
+                          <MetricCard title="Disqualified" value={String(demo.disqualifiedAccounts || 0)} sub="rule violations" color="text-loss" />
+                          <MetricCard title="Avg Trades/User" value={String(demo.avgTradesPerUser || 0)} sub="active traders" color="text-white" />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              } else {
+                const combined = m?.combined || { blownAccounts: 0, disqualifiedAccounts: 0, avgTradesPerUser: 0 };
+                return (
+                  <div className="glass rounded-2xl border border-white/10 p-5">
+                    <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2"><TrendingUp size={16} className="text-profit" /> Trading Insights</h3>
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                      <MetricCard title="Blown Accounts" value={String(combined.blownAccounts || 0)} sub="equity hit zero" color="text-loss" />
+                      <MetricCard title="Disqualified" value={String(combined.disqualifiedAccounts || 0)} sub="rule violations" color="text-loss" />
+                      <MetricCard title="Avg Trades/User" value={String(combined.avgTradesPerUser || 0)} sub="active traders" color="text-white" />
+                    </div>
+                  </div>
+                );
+              }
+            })()}
           </>)}
 
           {/* ===== PARTICIPANTS ===== */}
