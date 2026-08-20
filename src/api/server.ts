@@ -1533,6 +1533,10 @@ app.post('/api/host/verify-token', async (req, res) => {
 
 // ==================== HOST DASHBOARD API (Protected by hostAuthMiddleware) ====================
 
+// Mount host dashboard routes (full admin-level functionality scoped to host's challenges)
+import hostRoutes from './hostRoutes';
+app.use('/api/host', hostAuthMiddleware, hostRoutes);
+
 /**
  * GET /api/host/challenges
  * Returns all challenges owned by the authenticated host
