@@ -530,3 +530,73 @@ All 7 phases + all additional UI work are now implemented:
 ### Remaining (non-blocking, future)
 - End-to-end test with a real host account
 - Optional: in-panel admin approval view (currently Telegram-only — fully functional)
+
+---
+
+## Session 3 — August 19-20, 2026
+
+### Host Mode UI Completion + Bug Fixes + Timezone + Dashboard API
+
+#### UI Work Done:
+- Admin Hosts tab moved to header button
+- Host Create Challenge rebuilt as multi-step form (Details → Rules → Review)
+- Deposit mode as colored button cards with info box
+- Rules step with admin-style toggles + tooltips
+- Registration Mode selector (Online vs Manual based on broker status)
+- Settings button in host header for broker integration
+- Timezone selector dropdown in challenge creation
+- Create Host modal fixed (solid background, centered popup)
+- Modals mobile-friendly
+- Landing page: real stats from DB, security section, natural copy, prizes shown
+
+#### Critical Bugs Fixed:
+- `host_id` not saved in executeCreate() — challenge was created with NULL host_id
+- `req.host` is a read-only getter in Express — renamed to `req.hostAccount`
+- Pull scheduler only pulled first active challenge — now targets specific challenge ID
+- JSON body limit 10kb too small — increased to 50kb
+- Stop Loss Required toggle removed from creation (redundant with Max Risk)
+
+#### Timezone Implementation (Full):
+- DB: `timezone` column on trading_challenges (default Africa/Nairobi)
+- Host creation: timezone picker with all IANA zones
+- API: returns timezone in challenge responses
+- Telegram approval: shows selected timezone
+- New utility: `src/utils/timezone.ts` with native Intl functions
+- vpsPullScheduler: checkPullSchedule(), shouldSkipWeekend(), isSaturdayFinalSync(), isMidnightRun() all use per-challenge timezone
+- wpEvaluationEngine: isWeekend() uses challenge timezone for weekend trade detection
+- formatCandleTimeEAT: uses challenge timezone for violation messages
+- User dashboard (/challenge/[id]): all time helpers use challenge.timezone
+- Host dashboard: last update + updates tab use challenge timezone
+- Backward compatible: all existing challenges default to Africa/Nairobi
+
+#### Host Dashboard API (16 new endpoints):
+Created `src/api/hostRoutes.ts` mounted at `/api/host` with ownership verification:
+- GET /challenge/:id/full-overview
+- GET /challenge/:id/full-participants (paginated)
+- GET /challenge/:id/violations
+- GET /challenge/:id/failed-accounts
+- GET /challenge/:id/pull-history
+- GET /challenge/:id/user-trades
+- GET /challenge/:id/export-registrations (limited fields)
+- GET /challenge/:id/export-user-trades (MT5 report)
+- POST /challenge/:id/force-update
+- POST /challenge/:id/force-update-rank
+- POST /challenge/:id/re-evaluate-user
+- POST /challenge/:id/disqualify
+- POST /challenge/:id/unverify
+- POST /challenge/:id/retry-credentials
+- PATCH /challenge/:id/direct-status
+- DELETE /challenge/:id
+
+#### Other Changes:
+- Challenge now inserts to DB immediately as 'pending_approval' (host sees it right away)
+- Rejection updates status to 'rejected' (visible on dashboard)
+- Telegram approval message shows all details in AM/PM format
+- Allow Professional Accounts toggle added to host creation
+- Removed API Key from broker setup (only email + password needed for Exness)
+- Email notifications: balance warning, challenge start/end for web participants
+- Screening tab + allocation check during registration
+
+### REMAINING (Next Session):
+- **Frontend rebuild of host dashboard** — port admin panel UI (Overview, Participants, Leaderboard, Violations, Updates, Settings tabs) to match admin exactly, using the 16 new API endpoints
+- This is the final piece — API is ready, just needs the UI
