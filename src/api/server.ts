@@ -2174,7 +2174,7 @@ app.post('/api/host/challenges', hostAuthMiddleware, async (req: any, res) => {
 
     // Check if host already has an active challenge
     const activeChallenges = await db.query(
-      `SELECT id FROM trading_challenges WHERE host_id = $1 AND status IN ('draft', 'registration_open', 'active')`,
+      `SELECT id FROM trading_challenges WHERE host_id = $1 AND status IN ('pending_approval', 'draft', 'registration_open', 'active')`,
       [req.hostAccount.hostId]
     );
     if (activeChallenges.rows.length >= (host.max_concurrent_challenges || 1)) {
@@ -2191,43 +2191,56 @@ app.post('/api/host/challenges', hostAuthMiddleware, async (req: any, res) => {
       return res.status(400).json({ error: 'Missing required fields: title, type, start_date, end_date, starting_balance' });
     }
 
-    // Queue for admin approval (same gatekeeper used by admin panel)
+    // Insert challenge immediately with pending_approval status (visible on host dashboard)
     const gatekeeper = require('../services/challengeGatekeeper');
-    const data = {
-      title, type, source: 'winnerpip', team_only: false,
-      start_date, end_date, registration_deadline: start_date,
-      starting_balance, target_balance: target_balance || 0,
-      deposit_mode: deposit_mode || 'fixed',
-      target_percent: target_percent || null,
-      prize_pool_text: prize_pool_text || '',
-      real_winners_count: real_winners_count || 0,
-      demo_winners_count: demo_winners_count || 0,
-      real_prizes: real_prizes || [],
-      demo_prizes: demo_prizes || [],
-      pdf_url: null, video_url: null,
-      evaluation_type: 'winnerpip',
-      pull_times: ['00:00','04:00','08:00','12:00','16:00','20:00'],
-      pull_interval_hours: 4,
-      first_pull_time: '00:00',
-      host_id: req.hostAccount.hostId,
-    };
+    const insertResult = await db.query(
+      `INSERT INTO trading_challenges
+       (title, type, status, start_date, end_date, registration_deadline, starting_balance, target_balance,
+        prize_pool_text, real_winners_count, demo_winners_count, real_prizes, demo_prizes,
+        source, team_only, announcement_posted, evaluation_type,
+        pull_times, pull_interval_hours, first_pull_time, deposit_mode, target_percent, host_id)
+       VALUES ($1, $2, 'pending_approval', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
+        'winnerpip', false, false, 'winnerpip', $13, 4, '00:00', $14, $15, $16)
+       RETURNING id`,
+      [
+        title, type, start_date, end_date, start_date,
+        starting_balance, target_balance || 0,
+        prize_pool_text || '', real_winners_count || 0, demo_winners_count || 0,
+        JSON.stringify(real_prizes || []), JSON.stringify(demo_prizes || []),
+        JSON.stringify(['00:00','04:00','08:00','12:00','16:00','20:00']),
+        deposit_mode || 'fixed', target_percent || null, req.hostAccount.hostId,
+      ]
+    );
+    const challengeId = insertResult.rows[0].id;
 
-    const token = gatekeeper.queueCreate(data);
+    // Queue approval action (on approve → status changes to 'draft', on reject → 'rejected')
+    const token = gatekeeper.queueCreate({ challenge_id: challengeId, host_id: req.hostAccount.hostId, already_inserted: true });
 
     // Notify admin via Telegram
     try {
       const telegram = getTelegram();
       if (telegram) {
         const { Markup } = require('telegraf');
+        const fmtDate = (d: string) => {
+          try { return new Date(d).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true }); }
+          catch { return d; }
+        };
+        const depositLabel = deposit_mode === 'max_limit' ? 'Max Limit' : deposit_mode === 'min_limit' ? 'Min Limit' : 'Fixed';
+        const targetDisplay = deposit_mode && deposit_mode !== 'fixed' ? `${target_percent || 100}% growth` : `$${target_balance || starting_balance * 2}`;
         const msg = await telegram.sendMessage(
           config.adminUserId,
           `🏢 <b>Host Challenge Creation</b>\n\n` +
           `<b>Host:</b> ${host.display_name}\n` +
           `<b>Title:</b> ${title}\n` +
           `<b>Type:</b> ${type}\n` +
-          `<b>Period:</b> ${start_date} to ${end_date}\n` +
+          `<b>Deposit Mode:</b> ${depositLabel}\n` +
+          `<b>Start:</b> ${fmtDate(start_date)}\n` +
+          `<b>End:</b> ${fmtDate(end_date)}\n` +
           `<b>Balance:</b> $${starting_balance}\n` +
-          `<b>Deposit Mode:</b> ${deposit_mode || 'fixed'}\n\n` +
+          `<b>Target:</b> ${targetDisplay}\n` +
+          (real_prizes?.length ? `<b>Real Prizes:</b> ${real_prizes.map((p: any) => `$${p}`).join(', ')}\n` : '') +
+          (demo_prizes?.length ? `<b>Demo Prizes:</b> ${demo_prizes.map((p: any) => `$${p}`).join(', ')}\n` : '') +
+          `<b>Registration:</b> ${req.body.registration_mode === 'winnerpip' ? 'Online (WinnerPip)' : 'Manual (CSV)'}\n\n` +
           `⚠️ Confirm to create this challenge.`,
           {
             parse_mode: 'HTML',

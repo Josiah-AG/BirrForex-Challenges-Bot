@@ -101,6 +101,16 @@ export function setMessageId(token: string, messageId: number): void {
  */
 export async function executeCreate(data: any): Promise<{ success: boolean; challenge?: any; error?: string }> {
   try {
+    // Host-created challenges are already inserted with 'pending_approval' status
+    if (data.already_inserted && data.challenge_id) {
+      const result = await db.query(
+        `UPDATE trading_challenges SET status = 'draft', updated_at = NOW() WHERE id = $1 RETURNING *`,
+        [data.challenge_id]
+      );
+      return { success: true, challenge: result.rows[0] };
+    }
+
+    // Admin-created challenges: insert fresh
     const evalType = data.evaluation_type === 'legacy' ? 'legacy' : 'winnerpip';
     const result = await db.query(
       `INSERT INTO trading_challenges

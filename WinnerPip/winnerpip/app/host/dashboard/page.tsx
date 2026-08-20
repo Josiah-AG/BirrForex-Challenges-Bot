@@ -369,8 +369,8 @@ export default function HostDashboardPage() {
                 <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
               </div>
               {selectedChallenge && (
-                <span className={`px-2.5 py-1 rounded-full text-[10px] font-semibold ${selectedChallenge.status === 'active' ? 'bg-profit/20 text-profit border border-profit/30' : selectedChallenge.status === 'registration_open' ? 'bg-gold/20 text-gold border border-gold/30' : 'bg-white/10 text-gray-400 border border-white/20'}`}>
-                  {selectedChallenge.status === 'active' ? 'Active' : selectedChallenge.status === 'registration_open' ? 'Registration Open' : selectedChallenge.status}
+                <span className={`px-2.5 py-1 rounded-full text-[10px] font-semibold ${selectedChallenge.status === 'active' ? 'bg-profit/20 text-profit border border-profit/30' : selectedChallenge.status === 'registration_open' ? 'bg-gold/20 text-gold border border-gold/30' : selectedChallenge.status === 'pending_approval' ? 'bg-royal/20 text-royal border border-royal/30' : selectedChallenge.status === 'rejected' ? 'bg-loss/20 text-loss border border-loss/30' : 'bg-white/10 text-gray-400 border border-white/20'}`}>
+                  {selectedChallenge.status === 'active' ? 'Active' : selectedChallenge.status === 'registration_open' ? 'Registration Open' : selectedChallenge.status === 'pending_approval' ? 'Pending Approval' : selectedChallenge.status === 'rejected' ? 'Rejected' : selectedChallenge.status}
                 </span>
               )}
             </div>

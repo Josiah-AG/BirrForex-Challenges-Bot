@@ -576,8 +576,12 @@ export class Bot {
 
         if (data.startsWith('gate_reject_')) {
           await ctx.answerCbQuery('Rejected');
+          // If host-created challenge (already in DB), mark as rejected
+          if (pending.type === 'create' && pending.data.already_inserted && pending.data.challenge_id) {
+            await db.query(`UPDATE trading_challenges SET status = 'rejected', updated_at = NOW() WHERE id = $1`, [pending.data.challenge_id]);
+          }
           gatekeeper.removePending(token);
-          const label = pending.type === 'create' ? `Create "${pending.data.title}"`
+          const label = pending.type === 'create' ? `Create "${pending.data.title || 'challenge'}"`
             : pending.type === 'delete' ? `Delete "${pending.data.title}"`
             : `Status change "${pending.data.title}" → ${pending.data.toStatus}`;
           await ctx.editMessageText(
