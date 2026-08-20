@@ -119,7 +119,37 @@ export default function HostDashboardPage() {
     try {
       if (activeTab === "overview") {
         const res = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/full-overview`, { headers: h });
-        if (res.ok) setOverview(await res.json());
+        if (res.ok) {
+          const data = await res.json();
+          // Normalize to ensure all expected fields exist
+          setOverview({
+            challenge: data.challenge || selectedChallenge,
+            totalParticipants: data.totalParticipants || 0,
+            demoParticipants: data.demoParticipants || 0,
+            realParticipants: data.realParticipants || 0,
+            disqualified: data.disqualified || 0,
+            totalTrades: data.totalTrades || 0,
+            totalViolations: data.totalViolations || 0,
+            violationRate: data.violationRate || '0',
+            aboveTarget: data.aboveTarget || 0,
+            passwordChanged: data.passwordChanged || 0,
+            pullsToday: data.pullsToday || 0,
+            pullsSuccess: data.lastPull?.successful || 0,
+            pullsFailed: data.lastPull?.failed || 0,
+            lastPullTime: data.lastPull?.started_at ? fmtTime(data.lastPull.started_at) : "—",
+            topViolations: data.topViolations || [],
+          });
+        } else {
+          // Even if API fails, show an empty overview so page isn't blank
+          setOverview({
+            challenge: selectedChallenge,
+            totalParticipants: 0, demoParticipants: 0, realParticipants: 0,
+            disqualified: 0, totalTrades: 0, totalViolations: 0,
+            violationRate: '0', aboveTarget: 0, passwordChanged: 0,
+            pullsToday: 0, pullsSuccess: 0, pullsFailed: 0,
+            lastPullTime: "—", topViolations: [],
+          });
+        }
       } else if (activeTab === "participants") {
         const res = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/full-participants`, { headers: h });
         if (res.ok) { const d = await res.json(); setParticipants(d.participants || []); setParticipantsPagination(d.pagination); }
@@ -139,11 +169,32 @@ export default function HostDashboardPage() {
       } else if (activeTab === "rules") {
         setRulesLoading(true);
         const res = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/rules`, { headers: h });
-        if (res.ok) { const d = await res.json(); setRulesConfig(d.rules); setRulesLocked(d.locked || false); }
+        if (res.ok) {
+          const d = await res.json();
+          const defaultRules = {
+            max_lot_size: 0.02, max_open_trades: 3, pair_limit: 2,
+            stop_loss_required: true, max_risk_dollars: 5, max_risk_mode: 'fixed',
+            max_risk_percent: 10, daily_loss_cap: 10, daily_loss_mode: 'fixed',
+            daily_loss_percent: 20, max_hold_hours: 24, min_trade_duration_minutes: null,
+            weekend_trading: false, min_active_days: 7, min_total_trades: null,
+            only_cent_account: false, allow_professional: false,
+            rules_enabled: { max_lot_size: true, max_open_trades: true, pair_limit: true, stop_loss_required: true, daily_loss_cap: true, max_hold_hours: true, min_trade_duration: true, weekend_trading: true, min_active_days: true, min_total_trades: true },
+          };
+          setRulesConfig(d.rules || defaultRules);
+          setRulesLocked(d.locked || false);
+        }
         setRulesLoading(false);
       } else if (activeTab === "settings") {
         const ch = selectedChallenge;
-        if (ch) setSettingsForm({ title: ch.title || "", end_date: ch.end_date ? new Date(ch.end_date).toISOString().slice(0, 16) : "", target_balance: ch.target_balance ?? "", target_percent: ch.target_percent ?? "", real_winners_count: ch.real_winners_count ?? "", demo_winners_count: ch.demo_winners_count ?? "", real_prizes: Array.isArray(ch.real_prizes) ? ch.real_prizes.join(", ") : "", demo_prizes: Array.isArray(ch.demo_prizes) ? ch.demo_prizes.join(", ") : "" });
+        if (ch) setSettingsForm({
+          title: ch.title || "",
+          type: ch.type || "hybrid",
+          start_date: ch.start_date ? new Date(ch.start_date).toISOString().slice(0, 16) : "",
+          end_date: ch.end_date ? new Date(ch.end_date).toISOString().slice(0, 16) : "",
+          starting_balance: ch.starting_balance ?? "30",
+          target_balance: ch.target_balance ?? "60",
+          prize_pool_text: ch.prize_pool_text || "",
+        });
         setSettingsSaved(false);
       }
     } catch {}
@@ -288,13 +339,13 @@ export default function HostDashboardPage() {
 
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 mb-6">
               <StatCard icon={<Users size={16} />} label="Participants" value={(overview.totalParticipants || 0).toLocaleString()} sub={`Demo: ${overview.demoParticipants || 0} | Real: ${overview.realParticipants || 0}`} color="text-royal" />
-              <StatCard icon={<Activity size={16} />} label="Total Trades" value={(overview.totalTrades || 0).toLocaleString()} sub={`Demo: ${overview.demoTrades || 0} (${overview.demoVolume || 0} lots) | Real: ${overview.realTrades || 0} (${overview.realVolume || 0} lots)`} color="text-white" />
+              <StatCard icon={<Activity size={16} />} label="Total Trades" value={(overview.totalTrades || 0).toLocaleString()} sub={`Flagged: ${overview.totalViolations || 0}`} color="text-white" />
               <StatCard icon={<AlertTriangle size={16} />} label="Violations" value={String(overview.totalViolations || 0)} sub={`${overview.violationRate || 0}% violation rate`} color="text-loss" />
               <StatCard icon={<Trophy size={16} />} label="Above Target" value={String(overview.aboveTarget || 0)} sub={`${overview.totalParticipants > 0 ? ((overview.aboveTarget / overview.totalParticipants) * 100).toFixed(1) : 0}% qualified`} color="text-gold" />
             </div>
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 mb-6">
-              <StatCard icon={<Target size={16} />} label="Total Balance" value={`$${overview.realBalance || 0}`} sub={`Real: $${overview.realBalance || 0} | Demo: $${overview.demoBalance || 0}`} color="text-profit" />
-              <StatCard icon={<Zap size={16} />} label="Updates Today" value={String(overview.pullsToday || 0)} sub={overview.nextPullTime ? `Next: ${overview.nextPullTime}` : ""} color="text-royal" />
+              <StatCard icon={<Target size={16} />} label="Disqualified" value={String(overview.disqualified || 0)} sub="rule violations" color="text-loss" />
+              <StatCard icon={<Zap size={16} />} label="Updates Today" value={String(overview.pullsToday || 0)} sub="" color="text-royal" />
               <StatCard icon={<Shield size={16} />} label="Update Success" value={String(overview.pullsSuccess || 0)} sub={`Failed: ${overview.pullsFailed || 0} | PW Changed: ${overview.passwordChanged || 0}`} color="text-profit" />
               <StatCard icon={<Clock size={16} />} label="Last Update" value={overview.lastPullTime || "—"} sub={`${overview.pullsSuccess || 0} ok · ${overview.pullsFailed || 0} failed`} color="text-gray-300" />
             </div>
@@ -627,12 +678,11 @@ export default function HostDashboardPage() {
               <div className="glass rounded-2xl border border-white/10 p-5">
                 <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2"><RefreshCw size={16} className="text-royal" /> Update Actions</h3>
                 <div className="flex flex-wrap gap-2">
-                  <button onClick={() => doAction(`${API_URL}/api/host/challenge/${selectedChallengeId}/force-update`)} disabled={actionLoading} className="px-4 py-2.5 rounded-lg bg-royal/20 text-royal text-xs font-semibold border border-royal/30 hover:bg-royal/30 disabled:opacity-50 transition-all">Full Update + Evaluate + Rank</button>
-                  <button onClick={() => doAction(`${API_URL}/api/host/challenge/${selectedChallengeId}/force-update-rank`)} disabled={actionLoading} className="px-4 py-2.5 rounded-lg bg-profit/20 text-profit text-xs font-semibold border border-profit/30 hover:bg-profit/30 disabled:opacity-50 transition-all">Update Non-DQ Only</button>
-                  <button onClick={() => doAction(`${API_URL}/api/host/challenge/${selectedChallengeId}/re-evaluate-user`, 'POST', {})} disabled={actionLoading} className="px-4 py-2.5 rounded-lg bg-cyan-500/20 text-cyan-400 text-xs font-semibold border border-cyan-500/30 hover:bg-cyan-500/30 disabled:opacity-50 transition-all">Re-evaluate All</button>
-                  {failedAccounts?.credentialFailures?.length > 0 && (
-                    <button onClick={() => doAction(`${API_URL}/api/host/challenge/${selectedChallengeId}/retry-credentials`)} disabled={actionLoading} className="px-4 py-2.5 rounded-lg bg-gold/20 text-gold text-xs font-semibold border border-gold/30 hover:bg-gold/30 disabled:opacity-50 transition-all">Retry All Credentials ({failedAccounts.credentialFailures.length})</button>
-                  )}
+                  <button onClick={() => doAction(`${API_URL}/api/host/challenge/${selectedChallengeId}/force-update`)} disabled={actionLoading} className="px-4 py-2.5 rounded-lg bg-royal/20 text-royal text-xs font-semibold border border-royal/30 hover:bg-royal/30 disabled:opacity-50 transition-all">Force Update (Incremental)</button>
+                  <button onClick={() => doAction(`${API_URL}/api/host/challenge/${selectedChallengeId}/force-update-rank`)} disabled={actionLoading} className="px-4 py-2.5 rounded-lg bg-profit/20 text-profit text-xs font-semibold border border-profit/30 hover:bg-profit/30 disabled:opacity-50 transition-all">Full Update (Non-DQ)</button>
+                  <button onClick={() => doAction(`${API_URL}/api/host/challenge/${selectedChallengeId}/force-update`)} disabled={actionLoading} className="px-4 py-2.5 rounded-lg bg-gold/20 text-gold text-xs font-semibold border border-gold/30 hover:bg-gold/30 disabled:opacity-50 transition-all">Full Update + Evaluate + Rank</button>
+                  <button onClick={() => doAction(`${API_URL}/api/host/challenge/${selectedChallengeId}/re-evaluate-user`, 'POST', {})} disabled={actionLoading} className="px-4 py-2.5 rounded-lg bg-cyan-500/20 text-cyan-400 text-xs font-semibold border border-cyan-500/30 hover:bg-cyan-500/30 disabled:opacity-50 transition-all">Evaluate Only</button>
+                  <button onClick={() => doAction(`${API_URL}/api/host/challenge/${selectedChallengeId}/retry-credentials`)} disabled={actionLoading} className="px-4 py-2.5 rounded-lg bg-amber-500/20 text-amber-400 text-xs font-semibold border border-amber-500/30 hover:bg-amber-500/30 disabled:opacity-50 transition-all">Retry All Failed</button>
                 </div>
                 <p className="text-[10px] text-gray-500 mt-3">Updates run automatically 6x/day. Use these for manual triggers between scheduled runs.</p>
               </div>
@@ -906,23 +956,32 @@ export default function HostDashboardPage() {
                 {/* Edit Fields */}
                 <div className="space-y-4">
                   <div><label className="text-xs text-gray-400 font-medium mb-1 block">Title</label><input value={settingsForm.title || ""} onChange={e => setSettingsForm((p: any) => ({...p, title: e.target.value}))} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
+                  <div><label className="text-xs text-gray-400 font-medium mb-1 block">Type</label>
+                    <select value={settingsForm.type || selectedChallenge?.type || "hybrid"} onChange={e => setSettingsForm((p: any) => ({...p, type: e.target.value}))} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none">
+                      <option value="hybrid" className="bg-[#0f1629]">Hybrid</option>
+                      <option value="demo" className="bg-[#0f1629]">Demo</option>
+                      <option value="real" className="bg-[#0f1629]">Real</option>
+                    </select>
+                  </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div><label className="text-xs text-gray-400 font-medium mb-1 block">Start (EAT)</label><input type="datetime-local" value={settingsForm.start_date || ""} onChange={e => setSettingsForm((p: any) => ({...p, start_date: e.target.value}))} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
                     <div><label className="text-xs text-gray-400 font-medium mb-1 block">End (EAT)</label><input type="datetime-local" value={settingsForm.end_date || ""} onChange={e => setSettingsForm((p: any) => ({...p, end_date: e.target.value}))} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
                   </div>
-                  {selectedChallenge?.deposit_mode === 'fixed' || !selectedChallenge?.deposit_mode ? (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div><label className="text-xs text-gray-400 font-medium mb-1 block">Starting Balance ($)</label><input value={settingsForm.starting_balance || ""} onChange={e => setSettingsForm((p: any) => ({...p, starting_balance: e.target.value}))} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
                     <div><label className="text-xs text-gray-400 font-medium mb-1 block">Target Balance ($)</label><input value={settingsForm.target_balance || ""} onChange={e => setSettingsForm((p: any) => ({...p, target_balance: e.target.value}))} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
-                  ) : (
-                    <div><label className="text-xs text-gray-400 font-medium mb-1 block">Target Growth (%)</label><input value={settingsForm.target_percent || ""} onChange={e => setSettingsForm((p: any) => ({...p, target_percent: e.target.value}))} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
-                  )}
+                  </div>
+                  <div><label className="text-xs text-gray-400 font-medium mb-1 block">Prize Pool Text</label><input value={settingsForm.prize_pool_text || ""} onChange={e => setSettingsForm((p: any) => ({...p, prize_pool_text: e.target.value}))} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" placeholder="e.g., 1350 USD" /></div>
                   <button onClick={async () => {
                     setSettingsSaving(true);
                     const payload: any = {};
                     if (settingsForm.title) payload.title = settingsForm.title;
+                    if (settingsForm.type) payload.type = settingsForm.type;
                     if (settingsForm.end_date) payload.end_date = settingsForm.end_date;
                     if (settingsForm.start_date) payload.start_date = settingsForm.start_date;
+                    if (settingsForm.starting_balance) payload.starting_balance = parseFloat(settingsForm.starting_balance);
                     if (settingsForm.target_balance) payload.target_balance = parseFloat(settingsForm.target_balance);
-                    if (settingsForm.target_percent) payload.target_percent = parseFloat(settingsForm.target_percent);
+                    if (settingsForm.prize_pool_text !== undefined) payload.prize_pool_text = settingsForm.prize_pool_text;
                     await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/settings`, { method: "PUT", headers: headers(), body: JSON.stringify(payload) });
                     setSettingsSaved(true); setSettingsSaving(false);
                     setTimeout(() => setSettingsSaved(false), 3000);
@@ -963,22 +1022,32 @@ export default function HostDashboardPage() {
                     }} className="p-2.5 rounded-lg bg-white/5 border border-white/10 text-gray-300 text-xs font-semibold hover:bg-white/10 transition-all">&#128202; Leaderboard CSV</button>
                     <button onClick={async () => {
                       try {
-                        const res = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/violations`, { headers: { Authorization: `Bearer ${getToken()}` } });
-                        const data = await res.json();
-                        const rows = (data.violations || []).flatMap((v: any) => (v.flagged_trades || []).map((t: any) => `${v.nickname},${t.symbol},${t.ticket},"${(t.violations || []).join('; ')}",${t.profit}`));
-                        const csv = "nickname,symbol,ticket,violations,profit\n" + rows.join("\n");
-                        const blob = new Blob([csv], { type: 'text/csv' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `${(settingsForm.title || 'challenge').replace(/\s+/g, '_')}_violations.csv`; a.click();
-                      } catch { alert("Export failed"); }
-                    }} className="p-2.5 rounded-lg bg-white/5 border border-white/10 text-gray-300 text-xs font-semibold hover:bg-white/10 transition-all">&#128203; Violations CSV</button>
-                    <button onClick={async () => {
-                      try {
                         const res = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/full-participants`, { headers: { Authorization: `Bearer ${getToken()}` } });
                         const data = await res.json();
                         const rows = (data.participants || []).map((p: any) => `${p.rank||''},${p.nickname},${p.email||''},${p.accountNumber},${p.accountType},${p.lastKnownBalance||''},${p.qualifiedProfit||''},${p.totalTrades||0},${p.disqualified?'DQ':'Active'}`);
                         const csv = "rank,nickname,email,account,type,balance,profit,trades,status\n" + rows.join("\n");
-                        const blob = new Blob([csv], { type: 'text/csv' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `${(settingsForm.title || 'challenge').replace(/\s+/g, '_')}_full_report.csv`; a.click();
+                        const blob = new Blob([csv], { type: 'text/csv' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `${(settingsForm.title || 'challenge').replace(/\s+/g, '_')}_evaluation.csv`; a.click();
                       } catch { alert("Export failed"); }
-                    }} className="p-2.5 rounded-lg bg-white/5 border border-white/10 text-gray-300 text-xs font-semibold hover:bg-white/10 transition-all">&#128203; Full Report CSV</button>
+                    }} className="p-2.5 rounded-lg bg-white/5 border border-white/10 text-gray-300 text-xs font-semibold hover:bg-white/10 transition-all">&#128203; Evaluation CSV</button>
+                    <button onClick={async () => {
+                      try {
+                        const res = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/rules`, { headers: { Authorization: `Bearer ${getToken()}` } });
+                        const data = await res.json();
+                        const rules = data.rules || {};
+                        const lines = [];
+                        if (rules.rules_enabled?.max_lot_size) lines.push(`Max Lot Size: ${rules.max_lot_size}`);
+                        if (rules.rules_enabled?.max_open_trades) lines.push(`Max Open Trades: ${rules.max_open_trades}`);
+                        if (rules.rules_enabled?.pair_limit) lines.push(`Pair Limit: ${rules.pair_limit}`);
+                        if (rules.rules_enabled?.stop_loss_required) lines.push(`Max Risk: ${rules.max_risk_mode === 'percentage' ? rules.max_risk_percent + '%' : '$' + rules.max_risk_dollars}`);
+                        if (rules.rules_enabled?.daily_loss_cap) lines.push(`Daily Loss Cap: ${rules.daily_loss_mode === 'percentage' ? rules.daily_loss_percent + '%' : '$' + rules.daily_loss_cap}`);
+                        if (rules.rules_enabled?.max_hold_hours) lines.push(`Max Hold: ${rules.max_hold_hours}h`);
+                        if (rules.rules_enabled?.min_trade_duration) lines.push(`Min Duration: ${rules.min_trade_duration_minutes}min`);
+                        if (rules.rules_enabled?.min_active_days) lines.push(`Min Active Days: ${rules.min_active_days}`);
+                        if (rules.rules_enabled?.min_total_trades) lines.push(`Min Trades: ${rules.min_total_trades}`);
+                        const html = `<html><head><style>body{background:#0a0e1a;color:#fff;font-family:system-ui;padding:40px}h1{color:#6366f1}ul{list-style:none;padding:0}li{padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.1);font-size:14px}</style></head><body><h1>${settingsForm.title || 'Challenge'} Rules</h1><ul>${lines.map(l => `<li>${l}</li>`).join('')}</ul></body></html>`;
+                        const blob = new Blob([html], { type: 'text/html' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `${(settingsForm.title || 'challenge').replace(/\s+/g, '_')}_rules.html`; a.click();
+                      } catch { alert("Export failed"); }
+                    }} className="p-2.5 rounded-lg bg-royal/10 border border-royal/30 text-royal text-xs font-semibold hover:bg-royal/20 transition-all">&#128203; Rules Image</button>
                   </div>
                 </div>
 
