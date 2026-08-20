@@ -1433,7 +1433,7 @@ function hostAuthMiddleware(req: any, res: any, next: any) {
     return res.status(401).json({ error: 'Invalid or expired token' });
   }
 
-  req.host = payload;
+  req.hostAccount = payload;
   next();
 }
 
@@ -1539,7 +1539,7 @@ app.post('/api/host/verify-token', async (req, res) => {
 app.get('/api/host/challenges', hostAuthMiddleware, async (req: any, res) => {
   try {
     const { hostService } = require('../services/hostService');
-    const challenges = await hostService.getHostChallenges(req.host.hostId);
+    const challenges = await hostService.getHostChallenges(req.hostAccount.hostId);
     return res.json({ challenges });
   } catch (error) {
     console.error('Host challenges error:', error);
@@ -1560,7 +1560,7 @@ app.get('/api/host/challenge/:id/overview', hostAuthMiddleware, async (req: any,
       `SELECT id, title, type, status, start_date, end_date, starting_balance, target_balance,
               deposit_mode, target_percent, real_winners_count, demo_winners_count, prize_pool_text
        FROM trading_challenges WHERE id = $1 AND host_id = $2`,
-      [challengeId, req.host.hostId]
+      [challengeId, req.hostAccount.hostId]
     );
     if (!challenge.rows[0]) return res.status(404).json({ error: 'Challenge not found' });
 
@@ -1627,7 +1627,7 @@ app.get('/api/host/challenge/:id/participants', hostAuthMiddleware, async (req: 
     const challengeId = parseInt(req.params.id);
 
     // Verify ownership
-    const ownership = await db.query(`SELECT 1 FROM trading_challenges WHERE id = $1 AND host_id = $2`, [challengeId, req.host.hostId]);
+    const ownership = await db.query(`SELECT 1 FROM trading_challenges WHERE id = $1 AND host_id = $2`, [challengeId, req.hostAccount.hostId]);
     if (!ownership.rows[0]) return res.status(404).json({ error: 'Challenge not found' });
 
     const page = parseInt(req.query.page as string) || 1;
@@ -1684,7 +1684,7 @@ app.get('/api/host/challenge/:id/leaderboard', hostAuthMiddleware, async (req: a
     const challengeId = parseInt(req.params.id);
 
     // Verify ownership
-    const ownership = await db.query(`SELECT 1 FROM trading_challenges WHERE id = $1 AND host_id = $2`, [challengeId, req.host.hostId]);
+    const ownership = await db.query(`SELECT 1 FROM trading_challenges WHERE id = $1 AND host_id = $2`, [challengeId, req.hostAccount.hostId]);
     if (!ownership.rows[0]) return res.status(404).json({ error: 'Challenge not found' });
 
     const category = req.query.category as string || 'all';
@@ -1746,7 +1746,7 @@ app.get('/api/host/challenge/:id/updates', hostAuthMiddleware, async (req: any, 
     const challengeId = parseInt(req.params.id);
 
     // Verify ownership
-    const ownership = await db.query(`SELECT 1 FROM trading_challenges WHERE id = $1 AND host_id = $2`, [challengeId, req.host.hostId]);
+    const ownership = await db.query(`SELECT 1 FROM trading_challenges WHERE id = $1 AND host_id = $2`, [challengeId, req.hostAccount.hostId]);
     if (!ownership.rows[0]) return res.status(404).json({ error: 'Challenge not found' });
 
     const result = await db.query(
@@ -1785,7 +1785,7 @@ app.get('/api/host/challenge/:id/rules', hostAuthMiddleware, async (req: any, re
     const challengeId = parseInt(req.params.id);
 
     // Verify ownership
-    const ownership = await db.query(`SELECT status FROM trading_challenges WHERE id = $1 AND host_id = $2`, [challengeId, req.host.hostId]);
+    const ownership = await db.query(`SELECT status FROM trading_challenges WHERE id = $1 AND host_id = $2`, [challengeId, req.hostAccount.hostId]);
     if (!ownership.rows[0]) return res.status(404).json({ error: 'Challenge not found' });
 
     const { evaluationEngine } = require('../services/wpEvaluationEngine');
@@ -1810,7 +1810,7 @@ app.put('/api/host/challenge/:id/rules', hostAuthMiddleware, async (req: any, re
     const challengeId = parseInt(req.params.id);
 
     // Verify ownership
-    const ownership = await db.query(`SELECT status FROM trading_challenges WHERE id = $1 AND host_id = $2`, [challengeId, req.host.hostId]);
+    const ownership = await db.query(`SELECT status FROM trading_challenges WHERE id = $1 AND host_id = $2`, [challengeId, req.hostAccount.hostId]);
     if (!ownership.rows[0]) return res.status(404).json({ error: 'Challenge not found' });
 
     const status = ownership.rows[0].status;
@@ -1839,7 +1839,7 @@ app.put('/api/host/challenge/:id/settings', hostAuthMiddleware, async (req: any,
     const challengeId = parseInt(req.params.id);
 
     // Verify ownership
-    const ownership = await db.query(`SELECT status FROM trading_challenges WHERE id = $1 AND host_id = $2`, [challengeId, req.host.hostId]);
+    const ownership = await db.query(`SELECT status FROM trading_challenges WHERE id = $1 AND host_id = $2`, [challengeId, req.hostAccount.hostId]);
     if (!ownership.rows[0]) return res.status(404).json({ error: 'Challenge not found' });
 
     const fields = req.body;
@@ -1880,7 +1880,7 @@ app.put('/api/host/challenge/:id/settings', hostAuthMiddleware, async (req: any,
 app.get('/api/host/broker-status', hostAuthMiddleware, async (req: any, res) => {
   try {
     const { hostService } = require('../services/hostService');
-    const host = await hostService.getHostById(req.host.hostId);
+    const host = await hostService.getHostById(req.hostAccount.hostId);
     if (!host) return res.status(404).json({ error: 'Host not found' });
 
     return res.json({ hasBrokerIntegration: host.has_broker_integration });
@@ -1903,7 +1903,7 @@ app.post('/api/host/broker-credentials', hostAuthMiddleware, async (req: any, re
     }
 
     const { hostService } = require('../services/hostService');
-    await hostService.setBrokerCredentials(req.host.hostId, { brokerEmail, brokerPassword, brokerApiKey: '' });
+    await hostService.setBrokerCredentials(req.hostAccount.hostId, { brokerEmail, brokerPassword, brokerApiKey: '' });
 
     return res.json({ success: true });
   } catch (error) {
@@ -1919,7 +1919,7 @@ app.post('/api/host/broker-credentials', hostAuthMiddleware, async (req: any, re
 app.delete('/api/host/broker-credentials', hostAuthMiddleware, async (req: any, res) => {
   try {
     const { hostService } = require('../services/hostService');
-    await hostService.removeBrokerCredentials(req.host.hostId);
+    await hostService.removeBrokerCredentials(req.hostAccount.hostId);
     return res.json({ success: true });
   } catch (error) {
     console.error('Host broker credentials remove error:', error);
@@ -1938,12 +1938,12 @@ app.post('/api/host/challenge/:id/screening', hostAuthMiddleware, async (req: an
     const challengeId = parseInt(req.params.id);
 
     // Verify ownership
-    const ownership = await db.query(`SELECT status FROM trading_challenges WHERE id = $1 AND host_id = $2`, [challengeId, req.host.hostId]);
+    const ownership = await db.query(`SELECT status FROM trading_challenges WHERE id = $1 AND host_id = $2`, [challengeId, req.hostAccount.hostId]);
     if (!ownership.rows[0]) return res.status(404).json({ error: 'Challenge not found' });
 
     // Verify broker integration
     const { hostService } = require('../services/hostService');
-    const credentials = await hostService.getBrokerCredentials(req.host.hostId);
+    const credentials = await hostService.getBrokerCredentials(req.hostAccount.hostId);
     if (!credentials) {
       return res.status(400).json({ error: 'Broker integration not configured. Set up credentials in Settings first.' });
     }
@@ -2045,7 +2045,7 @@ app.post('/api/host/challenge/:id/upload-csv', hostAuthMiddleware, async (req: a
     const challengeId = parseInt(req.params.id);
 
     // Verify ownership
-    const ownership = await db.query(`SELECT status FROM trading_challenges WHERE id = $1 AND host_id = $2`, [challengeId, req.host.hostId]);
+    const ownership = await db.query(`SELECT status FROM trading_challenges WHERE id = $1 AND host_id = $2`, [challengeId, req.hostAccount.hostId]);
     if (!ownership.rows[0]) return res.status(404).json({ error: 'Challenge not found' });
     if (ownership.rows[0].status !== 'registration_open') return res.status(400).json({ error: 'Registration is not open for this challenge' });
 
@@ -2060,7 +2060,7 @@ app.post('/api/host/challenge/:id/upload-csv', hostAuthMiddleware, async (req: a
     // Check for existing pending upload
     const existingPending = await db.query(
       `SELECT id FROM host_csv_uploads WHERE challenge_id = $1 AND host_id = $2 AND status = 'pending'`,
-      [challengeId, req.host.hostId]
+      [challengeId, req.hostAccount.hostId]
     );
     if (existingPending.rows.length > 0) {
       return res.status(409).json({ error: 'You already have a pending upload awaiting admin approval. Wait for it to be processed or contact admin.' });
@@ -2087,7 +2087,7 @@ app.post('/api/host/challenge/:id/upload-csv', hostAuthMiddleware, async (req: a
     // Create upload record
     const upload = await db.query(
       `INSERT INTO host_csv_uploads (host_id, challenge_id, total_rows) VALUES ($1, $2, $3) RETURNING id`,
-      [req.host.hostId, challengeId, participants.length]
+      [req.hostAccount.hostId, challengeId, participants.length]
     );
     const uploadId = upload.rows[0].id;
 
@@ -2103,7 +2103,7 @@ app.post('/api/host/challenge/:id/upload-csv', hostAuthMiddleware, async (req: a
     // Notify admin via Telegram
     try {
       const { hostService } = require('../services/hostService');
-      const host = await hostService.getHostById(req.host.hostId);
+      const host = await hostService.getHostById(req.hostAccount.hostId);
       const telegram = getTelegram();
       if (telegram) {
         await telegram.sendMessage(
@@ -2134,13 +2134,13 @@ app.get('/api/host/challenge/:id/csv-status', hostAuthMiddleware, async (req: an
     const challengeId = parseInt(req.params.id);
 
     // Verify ownership
-    const ownership = await db.query(`SELECT 1 FROM trading_challenges WHERE id = $1 AND host_id = $2`, [challengeId, req.host.hostId]);
+    const ownership = await db.query(`SELECT 1 FROM trading_challenges WHERE id = $1 AND host_id = $2`, [challengeId, req.hostAccount.hostId]);
     if (!ownership.rows[0]) return res.status(404).json({ error: 'Challenge not found' });
 
     const uploads = await db.query(
       `SELECT id, status, total_rows, verified_count, failed_count, uploaded_at, approved_at, processed_at
        FROM host_csv_uploads WHERE challenge_id = $1 AND host_id = $2 ORDER BY uploaded_at DESC LIMIT 10`,
-      [challengeId, req.host.hostId]
+      [challengeId, req.hostAccount.hostId]
     );
 
     // For the most recent upload, get row details if processed
@@ -2169,13 +2169,13 @@ app.get('/api/host/challenge/:id/csv-status', hostAuthMiddleware, async (req: an
 app.post('/api/host/challenges', hostAuthMiddleware, async (req: any, res) => {
   try {
     const { hostService } = require('../services/hostService');
-    const host = await hostService.getHostById(req.host.hostId);
+    const host = await hostService.getHostById(req.hostAccount.hostId);
     if (!host) return res.status(401).json({ error: 'Host not found' });
 
     // Check if host already has an active challenge
     const activeChallenges = await db.query(
       `SELECT id FROM trading_challenges WHERE host_id = $1 AND status IN ('draft', 'registration_open', 'active')`,
-      [req.host.hostId]
+      [req.hostAccount.hostId]
     );
     if (activeChallenges.rows.length >= (host.max_concurrent_challenges || 1)) {
       return res.status(400).json({ error: 'You already have an active challenge. Complete or cancel it before creating a new one.' });
@@ -2209,7 +2209,7 @@ app.post('/api/host/challenges', hostAuthMiddleware, async (req: any, res) => {
       pull_times: ['00:00','04:00','08:00','12:00','16:00','20:00'],
       pull_interval_hours: 4,
       first_pull_time: '00:00',
-      host_id: req.host.hostId,
+      host_id: req.hostAccount.hostId,
     };
 
     const token = gatekeeper.queueCreate(data);
@@ -2268,7 +2268,7 @@ app.patch('/api/host/challenge/:id/status', hostAuthMiddleware, async (req: any,
     // Verify ownership
     const challenge = await db.query(
       `SELECT id, title, status FROM trading_challenges WHERE id = $1 AND host_id = $2`,
-      [challengeId, req.host.hostId]
+      [challengeId, req.hostAccount.hostId]
     );
     if (!challenge.rows[0]) return res.status(404).json({ error: 'Challenge not found' });
 
@@ -2278,7 +2278,7 @@ app.patch('/api/host/challenge/:id/status', hostAuthMiddleware, async (req: any,
     // Queue for admin approval
     const gatekeeper = require('../services/challengeGatekeeper');
     const { hostService } = require('../services/hostService');
-    const host = await hostService.getHostById(req.host.hostId);
+    const host = await hostService.getHostById(req.hostAccount.hostId);
 
     const token = gatekeeper.queueStatusChange(challengeId, title, currentStatus, newStatus, host?.display_name || 'Unknown');
 
