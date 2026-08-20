@@ -1434,15 +1434,6 @@ function CreateChallengeModal({ createStep, setCreateStep, createForm, setCreate
                   <div><label className="text-xs text-gray-400 mb-1 block">End Date *</label><input type="datetime-local" value={createForm.end_date} onChange={(e: any) => setCreateForm({...createForm, end_date: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
                 </div>
                 <div><label className="text-xs text-gray-400 mb-1 block">Timezone</label><select value={createForm.timezone} onChange={(e: any) => setCreateForm({...createForm, timezone: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none"><option value="Africa/Nairobi">East Africa (Nairobi) UTC+3</option><option value="Asia/Dubai">UAE (Dubai) UTC+4</option><option value="Europe/London">UK (London)</option><option value="America/New_York">US Eastern</option><option value="Asia/Shanghai">China (Shanghai)</option><option value="UTC">UTC</option></select></div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div><label className="text-xs text-gray-400 mb-1 block">Starting Balance ($)</label><input value={createForm.starting_balance} onChange={(e: any) => setCreateForm({...createForm, starting_balance: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
-                  {createForm.deposit_mode === 'fixed' ? (
-                    <div><label className="text-xs text-gray-400 mb-1 block">Target Balance ($)</label><input value={createForm.target_balance} onChange={(e: any) => setCreateForm({...createForm, target_balance: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
-                  ) : (
-                    <div><label className="text-xs text-gray-400 mb-1 block">Target Growth (%)</label><input value={createForm.target_percent} onChange={(e: any) => setCreateForm({...createForm, target_percent: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" placeholder="e.g., 100" /></div>
-                  )}
-                </div>
-
                 {/* Deposit Mode */}
                 <div>
                   <label className="text-xs text-gray-400 mb-2 block">Deposit Mode</label>
@@ -1456,6 +1447,14 @@ function CreateChallengeModal({ createStep, setCreateStep, createForm, setCreate
                     {createForm.deposit_mode === 'max_limit' && <p className="text-[11px] text-gray-400"><span className="text-gold font-semibold">Max Limit:</span> Participants can deposit any amount up to a maximum cap. Target is in growth %. SL and drawdown rules must be in %. Leaderboard ranked by growth %. Best for flexible-entry challenges.</p>}
                     {createForm.deposit_mode === 'min_limit' && <p className="text-[11px] text-gray-400"><span className="text-profit font-semibold">Min Limit:</span> Participants must deposit at least a minimum amount. Target is in growth %. SL and drawdown rules must be in %. Leaderboard ranked by growth %. Best for serious traders.</p>}
                   </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div><label className="text-xs text-gray-400 mb-1 block">Starting Balance ($)</label><input value={createForm.starting_balance} onChange={(e: any) => setCreateForm({...createForm, starting_balance: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
+                  {createForm.deposit_mode === 'fixed' ? (
+                    <div><label className="text-xs text-gray-400 mb-1 block">Target Balance ($)</label><input value={createForm.target_balance} onChange={(e: any) => setCreateForm({...createForm, target_balance: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
+                  ) : (
+                    <div><label className="text-xs text-gray-400 mb-1 block">Target Growth (%)</label><input value={createForm.target_percent} onChange={(e: any) => setCreateForm({...createForm, target_percent: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" placeholder="e.g., 100" /></div>
+                  )}
                 </div>
 
                 {/* Rewards Section */}
