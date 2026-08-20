@@ -100,10 +100,11 @@ export default function HostDashboardPage() {
     fetch(`${API_URL}/api/host/challenges`, { headers: { Authorization: `Bearer ${getToken()}` } })
       .then(r => r.json())
       .then(data => {
-        setChallenges(data.challenges || []);
-        if (data.challenges?.length > 0) {
-          const active = data.challenges.find((c: any) => ['active', 'registration_open'].includes(c.status));
-          setSelectedChallengeId(active?.id || data.challenges[0].id);
+        const liveChallenges = (data.challenges || []).filter((c: any) => c.status !== 'deleted');
+        setChallenges(liveChallenges);
+        if (liveChallenges.length > 0) {
+          const active = liveChallenges.find((c: any) => ['active', 'registration_open'].includes(c.status));
+          setSelectedChallengeId(active?.id || liveChallenges[0].id);
         }
         setLoading(false);
       })
@@ -1178,6 +1179,19 @@ function CreateChallengeModal({ createStep, setCreateStep, createForm, setCreate
     setCreateLoading(false);
   };
 
+  const Tip = ({ text }: { text: string }) => (
+    <div className="relative group inline-block ml-1">
+      <span className="cursor-help text-gray-500 hover:text-royal transition-colors text-xs">&#9432;</span>
+      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-[#1a1a2e] border border-white/20 rounded-lg text-[10px] text-gray-300 w-52 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity z-50 shadow-xl">{text}</div>
+    </div>
+  );
+
+  const Toggle = ({ enabled, onToggle }: { enabled: boolean; onToggle: () => void }) => (
+    <button type="button" onClick={onToggle} className={`w-9 h-5 rounded-full transition-all flex-shrink-0 ${enabled ? "bg-profit" : "bg-white/20"}`}>
+      <div className={`w-3.5 h-3.5 bg-white rounded-full transition-transform ${enabled ? "translate-x-4.5" : "translate-x-0.5"}`} style={{ transform: enabled ? 'translateX(18px)' : 'translateX(2px)' }} />
+    </button>
+  );
+
   return (
     <div className="fixed inset-0 bg-[#0a0e1a]/95 z-50 flex items-center justify-center p-4" onClick={() => !createLoading && onClose()}>
       <div className="bg-[#1a2235] rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto border border-white/15 shadow-2xl" onClick={(e: any) => e.stopPropagation()}>
@@ -1187,6 +1201,7 @@ function CreateChallengeModal({ createStep, setCreateStep, createForm, setCreate
             <button onClick={() => !createLoading && onClose()} className="p-1.5 hover:bg-white/10 rounded-lg"><X size={16} className="text-gray-500" /></button>
           </div>
           <div className="flex gap-2">{[1,2,3].map(s => <div key={s} className={`flex-1 h-1.5 rounded-full ${s <= createStep ? "bg-royal" : "bg-white/10"}`} />)}</div>
+          <p className="text-[10px] text-gray-500 mt-2">{createStep === 1 ? "Step 1: Details & Rewards" : createStep === 2 ? "Step 2: Rules" : "Step 3: Review & Submit"}</p>
         </div>
         <div className="px-6 py-5">
           {createResult?.success ? (
@@ -1196,10 +1211,11 @@ function CreateChallengeModal({ createStep, setCreateStep, createForm, setCreate
               <button onClick={() => { onClose(); window.location.reload(); }} className="mt-6 px-6 py-2.5 rounded-xl bg-royal/20 text-royal font-semibold text-sm border border-royal/30">Done</button>
             </div>
           ) : (<>
+            {/* ====== STEP 1: Details & Rewards ====== */}
             {createStep === 1 && (
               <div className="space-y-4">
                 <div><label className="text-xs text-gray-400 mb-1 block">Title *</label><input value={createForm.title} onChange={(e: any) => setCreateForm({...createForm, title: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" placeholder="Challenge Title" /></div>
-                <div><label className="text-xs text-gray-400 mb-1 block">Type</label><select value={createForm.type} onChange={(e: any) => setCreateForm({...createForm, type: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none"><option value="hybrid" className="bg-[#0f1629]">Hybrid</option><option value="demo" className="bg-[#0f1629]">Demo</option><option value="real" className="bg-[#0f1629]">Real</option></select></div>
+                <div><label className="text-xs text-gray-400 mb-1 block">Type</label><select value={createForm.type} onChange={(e: any) => setCreateForm({...createForm, type: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none"><option value="hybrid" className="bg-[#0f1629]">Hybrid (Demo + Real)</option><option value="demo" className="bg-[#0f1629]">Demo Only</option><option value="real" className="bg-[#0f1629]">Real Only</option></select></div>
                 <div className="grid grid-cols-2 gap-3">
                   <div><label className="text-xs text-gray-400 mb-1 block">Start Date *</label><input type="datetime-local" value={createForm.start_date} onChange={(e: any) => setCreateForm({...createForm, start_date: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
                   <div><label className="text-xs text-gray-400 mb-1 block">End Date *</label><input type="datetime-local" value={createForm.end_date} onChange={(e: any) => setCreateForm({...createForm, end_date: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
@@ -1209,30 +1225,186 @@ function CreateChallengeModal({ createStep, setCreateStep, createForm, setCreate
                   <div><label className="text-xs text-gray-400 mb-1 block">Starting Balance ($)</label><input value={createForm.starting_balance} onChange={(e: any) => setCreateForm({...createForm, starting_balance: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
                   <div><label className="text-xs text-gray-400 mb-1 block">Target Balance ($)</label><input value={createForm.target_balance} onChange={(e: any) => setCreateForm({...createForm, target_balance: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
                 </div>
-                <button onClick={() => setCreateStep(2)} disabled={!createForm.title || !createForm.start_date || !createForm.end_date} className="w-full py-3 rounded-xl bg-royal text-white font-semibold disabled:opacity-40">Next: Rules</button>
+
+                {/* Rewards Section */}
+                <div className="border-t border-white/10 pt-4 mt-4">
+                  <p className="text-xs text-gray-300 font-semibold mb-3 uppercase tracking-wider">Rewards / Prizes</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div><label className="text-xs text-gray-400 mb-1 block">Real Winners #</label><input value={createForm.real_winners_count} onChange={(e: any) => setCreateForm({...createForm, real_winners_count: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" placeholder="3" /></div>
+                    <div><label className="text-xs text-gray-400 mb-1 block">Demo Winners #</label><input value={createForm.demo_winners_count} onChange={(e: any) => setCreateForm({...createForm, demo_winners_count: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" placeholder="3" /></div>
+                  </div>
+                  <div className="mt-3"><label className="text-xs text-gray-400 mb-1 block">Real Prizes (comma separated)</label><input value={createForm.real_prizes} onChange={(e: any) => setCreateForm({...createForm, real_prizes: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" placeholder="$100, $50, $25" /></div>
+                  <div className="mt-3"><label className="text-xs text-gray-400 mb-1 block">Demo Prizes (comma separated)</label><input value={createForm.demo_prizes} onChange={(e: any) => setCreateForm({...createForm, demo_prizes: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" placeholder="$50, $30, $20" /></div>
+                </div>
+
+                <button onClick={() => setCreateStep(2)} disabled={!createForm.title || !createForm.start_date || !createForm.end_date} className="w-full py-3 rounded-xl bg-royal text-white font-semibold disabled:opacity-40 mt-2">Next: Rules</button>
               </div>
             )}
+
+            {/* ====== STEP 2: Rules with Toggles & Tooltips ====== */}
             {createStep === 2 && (
-              <div className="space-y-3">
-                <p className="text-xs text-gray-500 mb-2">Configure rules for your challenge.</p>
-                <RuleRowSimple label="Max Lot Size" value={createRules.max_lot_size} onChange={(v: number) => setCreateRules({...createRules, max_lot_size: v})} />
-                <RuleRowSimple label="Max Open Trades" value={createRules.max_open_trades} onChange={(v: number) => setCreateRules({...createRules, max_open_trades: v})} />
-                <RuleRowSimple label="Daily Loss Cap ($)" value={createRules.daily_loss_cap} onChange={(v: number) => setCreateRules({...createRules, daily_loss_cap: v})} />
-                <RuleRowSimple label="Min Active Days" value={createRules.min_active_days} onChange={(v: number) => setCreateRules({...createRules, min_active_days: v})} />
+              <div className="space-y-4">
+                <p className="text-xs text-gray-500 mb-1">Configure rules for your challenge. Toggle OFF to disable a rule entirely.</p>
+
+                {/* Max Lot Size */}
+                <div className="p-3 bg-white/5 rounded-xl border border-white/10 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center"><span className="text-sm text-white font-medium">Max Lot Size</span><Tip text="Limits the maximum lot size per position. Trades exceeding this have profits removed." /></div>
+                    <Toggle enabled={createRules.rules_enabled.max_lot_size} onToggle={() => setCreateRules({...createRules, rules_enabled: {...createRules.rules_enabled, max_lot_size: !createRules.rules_enabled.max_lot_size}})} />
+                  </div>
+                  {createRules.rules_enabled.max_lot_size && <input type="number" step="0.01" value={createRules.max_lot_size || ""} onChange={e => setCreateRules({...createRules, max_lot_size: parseFloat(e.target.value) || 0})} placeholder="e.g., 0.02" className="w-full p-2.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm outline-none" />}
+                </div>
+
+                {/* Max Open Trades */}
+                <div className="p-3 bg-white/5 rounded-xl border border-white/10 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center"><span className="text-sm text-white font-medium">Max Open Trades</span><Tip text="Limits how many trades can be open simultaneously. All overlapping trades get flagged." /></div>
+                    <Toggle enabled={createRules.rules_enabled.max_open_trades} onToggle={() => setCreateRules({...createRules, rules_enabled: {...createRules.rules_enabled, max_open_trades: !createRules.rules_enabled.max_open_trades}})} />
+                  </div>
+                  {createRules.rules_enabled.max_open_trades && <input type="number" value={createRules.max_open_trades || ""} onChange={e => setCreateRules({...createRules, max_open_trades: parseInt(e.target.value) || 0})} placeholder="e.g., 3" className="w-full p-2.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm outline-none" />}
+                </div>
+
+                {/* Pair Limit */}
+                <div className="p-3 bg-white/5 rounded-xl border border-white/10 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center"><span className="text-sm text-white font-medium">Pair Limit</span><Tip text="Max trades on the same currency pair open at once. Prevents overexposure." /></div>
+                    <Toggle enabled={createRules.rules_enabled.pair_limit} onToggle={() => setCreateRules({...createRules, rules_enabled: {...createRules.rules_enabled, pair_limit: !createRules.rules_enabled.pair_limit}})} />
+                  </div>
+                  {createRules.rules_enabled.pair_limit && <input type="number" value={createRules.pair_limit || ""} onChange={e => setCreateRules({...createRules, pair_limit: parseInt(e.target.value) || 0})} placeholder="e.g., 2" className="w-full p-2.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm outline-none" />}
+                </div>
+
+                {/* Max Risk per Trade */}
+                <div className="p-3 bg-white/5 rounded-xl border border-white/10 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center"><span className="text-sm text-white font-medium">Max Risk / Trade</span><Tip text="Maximum SL risk per trade. Fixed = same $ for all. % = calculated from balance at trade open." /></div>
+                    <Toggle enabled={createRules.rules_enabled.stop_loss_required} onToggle={() => setCreateRules({...createRules, rules_enabled: {...createRules.rules_enabled, stop_loss_required: !createRules.rules_enabled.stop_loss_required}})} />
+                  </div>
+                  {createRules.rules_enabled.stop_loss_required && (<>
+                    <div className="flex gap-1.5 mb-2">
+                      <button type="button" onClick={() => setCreateRules({...createRules, max_risk_mode: 'fixed'})} className={`px-2.5 py-1 rounded-md text-[10px] font-semibold transition-all ${createRules.max_risk_mode !== 'percentage' ? 'bg-royal/30 text-royal border border-royal/40' : 'bg-white/5 text-gray-500 border border-white/10'}`}>Fixed $</button>
+                      <button type="button" onClick={() => setCreateRules({...createRules, max_risk_mode: 'percentage'})} className={`px-2.5 py-1 rounded-md text-[10px] font-semibold transition-all ${createRules.max_risk_mode === 'percentage' ? 'bg-gold/30 text-gold border border-gold/40' : 'bg-white/5 text-gray-500 border border-white/10'}`}>% Balance</button>
+                    </div>
+                    {createRules.max_risk_mode === 'percentage' ? (
+                      <input type="number" step="1" value={createRules.max_risk_percent || ""} onChange={e => setCreateRules({...createRules, max_risk_percent: parseFloat(e.target.value) || 0})} placeholder="e.g., 10 (%)" className="w-full p-2.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm outline-none" />
+                    ) : (
+                      <input type="number" step="0.5" value={createRules.max_risk_dollars || ""} onChange={e => setCreateRules({...createRules, max_risk_dollars: parseFloat(e.target.value) || 0})} placeholder="e.g., 5 ($)" className="w-full p-2.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm outline-none" />
+                    )}
+                  </>)}
+                </div>
+
+                {/* Daily Loss Cap */}
+                <div className="p-3 bg-white/5 rounded-xl border border-white/10 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center"><span className="text-sm text-white font-medium">Daily Loss Cap</span><Tip text="Maximum drawdown from day's opening balance. Scales with account in % mode." /></div>
+                    <Toggle enabled={createRules.rules_enabled.daily_loss_cap} onToggle={() => setCreateRules({...createRules, rules_enabled: {...createRules.rules_enabled, daily_loss_cap: !createRules.rules_enabled.daily_loss_cap}})} />
+                  </div>
+                  {createRules.rules_enabled.daily_loss_cap && (<>
+                    <div className="flex gap-1.5 mb-2">
+                      <button type="button" onClick={() => setCreateRules({...createRules, daily_loss_mode: 'fixed'})} className={`px-2.5 py-1 rounded-md text-[10px] font-semibold transition-all ${createRules.daily_loss_mode !== 'percentage' ? 'bg-royal/30 text-royal border border-royal/40' : 'bg-white/5 text-gray-500 border border-white/10'}`}>Fixed $</button>
+                      <button type="button" onClick={() => setCreateRules({...createRules, daily_loss_mode: 'percentage'})} className={`px-2.5 py-1 rounded-md text-[10px] font-semibold transition-all ${createRules.daily_loss_mode === 'percentage' ? 'bg-gold/30 text-gold border border-gold/40' : 'bg-white/5 text-gray-500 border border-white/10'}`}>% Balance</button>
+                    </div>
+                    {createRules.daily_loss_mode === 'percentage' ? (
+                      <input type="number" step="1" value={createRules.daily_loss_percent || ""} onChange={e => setCreateRules({...createRules, daily_loss_percent: parseFloat(e.target.value) || 0})} placeholder="e.g., 20 (%)" className="w-full p-2.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm outline-none" />
+                    ) : (
+                      <input type="number" step="1" value={createRules.daily_loss_cap || ""} onChange={e => setCreateRules({...createRules, daily_loss_cap: parseFloat(e.target.value) || 0})} placeholder="e.g., 10 ($)" className="w-full p-2.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm outline-none" />
+                    )}
+                  </>)}
+                </div>
+
+                {/* Max Hold Hours */}
+                <div className="p-3 bg-white/5 rounded-xl border border-white/10 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center"><span className="text-sm text-white font-medium">Max Trade Duration (hrs)</span><Tip text="Maximum time a trade can be held. Trades exceeding this get profits removed." /></div>
+                    <Toggle enabled={createRules.rules_enabled.max_hold_hours} onToggle={() => setCreateRules({...createRules, rules_enabled: {...createRules.rules_enabled, max_hold_hours: !createRules.rules_enabled.max_hold_hours}})} />
+                  </div>
+                  {createRules.rules_enabled.max_hold_hours && <input type="number" value={createRules.max_hold_hours || ""} onChange={e => setCreateRules({...createRules, max_hold_hours: parseInt(e.target.value) || 0})} placeholder="e.g., 24" className="w-full p-2.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm outline-none" />}
+                </div>
+
+                {/* Min Trade Duration */}
+                <div className="p-3 bg-white/5 rounded-xl border border-white/10 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center"><span className="text-sm text-white font-medium">Min Duration (min)</span><Tip text="Minimum time a trade must be held. Prevents scalping bots." /></div>
+                    <Toggle enabled={createRules.rules_enabled.min_trade_duration} onToggle={() => setCreateRules({...createRules, rules_enabled: {...createRules.rules_enabled, min_trade_duration: !createRules.rules_enabled.min_trade_duration}})} />
+                  </div>
+                  {createRules.rules_enabled.min_trade_duration && <input type="number" value={createRules.min_trade_duration_minutes || ""} onChange={e => setCreateRules({...createRules, min_trade_duration_minutes: parseInt(e.target.value) || null})} placeholder="e.g., 2" className="w-full p-2.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm outline-none" />}
+                </div>
+
+                {/* Min Active Days */}
+                <div className="p-3 bg-white/5 rounded-xl border border-white/10 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center"><span className="text-sm text-white font-medium">Min Active Days</span><Tip text="Minimum distinct trading days to qualify for prizes. DQ at challenge end if not met." /></div>
+                    <Toggle enabled={createRules.rules_enabled.min_active_days} onToggle={() => setCreateRules({...createRules, rules_enabled: {...createRules.rules_enabled, min_active_days: !createRules.rules_enabled.min_active_days}})} />
+                  </div>
+                  {createRules.rules_enabled.min_active_days && <input type="number" value={createRules.min_active_days || ""} onChange={e => setCreateRules({...createRules, min_active_days: parseInt(e.target.value) || 0})} placeholder="e.g., 7" className="w-full p-2.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm outline-none" />}
+                </div>
+
+                {/* Min Total Trades */}
+                <div className="p-3 bg-white/5 rounded-xl border border-white/10 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center"><span className="text-sm text-white font-medium">Min Total Trades</span><Tip text="Minimum closed trades to qualify. Users who don't meet this are DQ'd at challenge end." /></div>
+                    <Toggle enabled={createRules.rules_enabled.min_total_trades} onToggle={() => setCreateRules({...createRules, rules_enabled: {...createRules.rules_enabled, min_total_trades: !createRules.rules_enabled.min_total_trades}})} />
+                  </div>
+                  {createRules.rules_enabled.min_total_trades && <input type="number" value={createRules.min_total_trades || ""} onChange={e => setCreateRules({...createRules, min_total_trades: parseInt(e.target.value) || null})} placeholder="e.g., 10" className="w-full p-2.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm outline-none" />}
+                </div>
+
+                {/* Weekend Trading */}
+                <div className="p-3 bg-white/5 rounded-xl border border-white/10">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center"><span className="text-sm text-white font-medium">Weekend Trading</span><Tip text="When OFF, crypto trades on weekends are flagged. Forex markets are closed anyway." /></div>
+                    <Toggle enabled={createRules.rules_enabled.weekend_trading} onToggle={() => setCreateRules({...createRules, rules_enabled: {...createRules.rules_enabled, weekend_trading: !createRules.rules_enabled.weekend_trading}})} />
+                  </div>
+                  {createRules.rules_enabled.weekend_trading && (
+                    <div className="mt-2 flex items-center gap-2">
+                      <span className="text-[10px] text-gray-500">Allow weekend?</span>
+                      <button type="button" onClick={() => setCreateRules({...createRules, weekend_trading: !createRules.weekend_trading})} className={`w-10 h-5 rounded-full transition-all ${createRules.weekend_trading ? "bg-profit" : "bg-white/20"}`}><div className="w-4 h-4 bg-white rounded-full transition-transform" style={{ transform: createRules.weekend_trading ? 'translateX(20px)' : 'translateX(2px)' }} /></button>
+                      <span className="text-[10px] text-gray-400">{createRules.weekend_trading ? "Yes" : "No"}</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Only Cent */}
+                <div className="p-3 bg-white/5 rounded-xl border border-white/10">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center"><span className="text-sm text-white font-medium">Only Cent Account</span><Tip text="Real category only accepts cent accounts. Not a toggleable evaluation rule — it's a registration filter." /></div>
+                    <button type="button" onClick={() => setCreateRules({...createRules, only_cent_account: !createRules.only_cent_account})} className={`w-10 h-5 rounded-full transition-all ${createRules.only_cent_account ? "bg-profit" : "bg-white/20"}`}><div className="w-4 h-4 bg-white rounded-full transition-transform" style={{ transform: createRules.only_cent_account ? 'translateX(20px)' : 'translateX(2px)' }} /></button>
+                  </div>
+                </div>
+
                 <div className="flex gap-3 mt-4">
                   <button onClick={() => setCreateStep(1)} className="flex-1 py-2.5 rounded-xl bg-white/5 border border-white/10 text-gray-400 text-sm">Back</button>
                   <button onClick={() => setCreateStep(3)} className="flex-1 py-2.5 rounded-xl bg-royal text-white text-sm font-semibold">Review</button>
                 </div>
               </div>
             )}
+
+            {/* ====== STEP 3: Review ====== */}
             {createStep === 3 && (
               <div>
                 <div className="space-y-2 mb-5 text-xs">
-                  <div className="flex justify-between py-2 border-b border-white/5"><span className="text-gray-500">Title</span><span className="text-white">{createForm.title}</span></div>
-                  <div className="flex justify-between py-2 border-b border-white/5"><span className="text-gray-500">Type</span><span className="text-white">{createForm.type}</span></div>
-                  <div className="flex justify-between py-2 border-b border-white/5"><span className="text-gray-500">Balance</span><span className="text-white">${createForm.starting_balance} → ${createForm.target_balance}</span></div>
+                  <p className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider mb-2">Challenge Details</p>
+                  <div className="flex justify-between py-2 border-b border-white/5"><span className="text-gray-500">Title</span><span className="text-white font-medium">{createForm.title}</span></div>
+                  <div className="flex justify-between py-2 border-b border-white/5"><span className="text-gray-500">Type</span><span className="text-white capitalize">{createForm.type}</span></div>
+                  <div className="flex justify-between py-2 border-b border-white/5"><span className="text-gray-500">Balance</span><span className="text-white">${createForm.starting_balance} &rarr; ${createForm.target_balance}</span></div>
                   <div className="flex justify-between py-2 border-b border-white/5"><span className="text-gray-500">Timezone</span><span className="text-white">{createForm.timezone}</span></div>
-                  <div className="flex justify-between py-2"><span className="text-gray-500">Max Lot</span><span className="text-white">{createRules.max_lot_size}</span></div>
+
+                  <p className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider mt-4 mb-2">Rewards</p>
+                  <div className="flex justify-between py-2 border-b border-white/5"><span className="text-gray-500">Real Winners</span><span className="text-white">{createForm.real_winners_count || "0"}</span></div>
+                  <div className="flex justify-between py-2 border-b border-white/5"><span className="text-gray-500">Demo Winners</span><span className="text-white">{createForm.demo_winners_count || "0"}</span></div>
+                  {createForm.real_prizes && <div className="flex justify-between py-2 border-b border-white/5"><span className="text-gray-500">Real Prizes</span><span className="text-white">{createForm.real_prizes}</span></div>}
+                  {createForm.demo_prizes && <div className="flex justify-between py-2 border-b border-white/5"><span className="text-gray-500">Demo Prizes</span><span className="text-white">{createForm.demo_prizes}</span></div>}
+
+                  <p className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider mt-4 mb-2">Rules</p>
+                  {createRules.rules_enabled.max_lot_size && <div className="flex justify-between py-1.5"><span className="text-gray-500">Max Lot Size</span><span className="text-white">{createRules.max_lot_size}</span></div>}
+                  {createRules.rules_enabled.max_open_trades && <div className="flex justify-between py-1.5"><span className="text-gray-500">Max Open Trades</span><span className="text-white">{createRules.max_open_trades}</span></div>}
+                  {createRules.rules_enabled.pair_limit && <div className="flex justify-between py-1.5"><span className="text-gray-500">Pair Limit</span><span className="text-white">{createRules.pair_limit}</span></div>}
+                  {createRules.rules_enabled.stop_loss_required && <div className="flex justify-between py-1.5"><span className="text-gray-500">Max Risk</span><span className="text-white">{createRules.max_risk_mode === 'percentage' ? `${createRules.max_risk_percent}% of balance` : `$${createRules.max_risk_dollars}`}</span></div>}
+                  {createRules.rules_enabled.daily_loss_cap && <div className="flex justify-between py-1.5"><span className="text-gray-500">Daily Loss Cap</span><span className="text-white">{createRules.daily_loss_mode === 'percentage' ? `${createRules.daily_loss_percent}% of day balance` : `$${createRules.daily_loss_cap}`}</span></div>}
+                  {createRules.rules_enabled.max_hold_hours && <div className="flex justify-between py-1.5"><span className="text-gray-500">Max Hold</span><span className="text-white">{createRules.max_hold_hours}h</span></div>}
+                  {createRules.rules_enabled.min_trade_duration && <div className="flex justify-between py-1.5"><span className="text-gray-500">Min Duration</span><span className="text-white">{createRules.min_trade_duration_minutes}min</span></div>}
+                  {createRules.rules_enabled.min_active_days && <div className="flex justify-between py-1.5"><span className="text-gray-500">Min Active Days</span><span className="text-white">{createRules.min_active_days}</span></div>}
+                  {createRules.rules_enabled.min_total_trades && <div className="flex justify-between py-1.5"><span className="text-gray-500">Min Total Trades</span><span className="text-white">{createRules.min_total_trades}</span></div>}
+                  {createRules.rules_enabled.weekend_trading && <div className="flex justify-between py-1.5"><span className="text-gray-500">Weekend Trading</span><span className="text-white">{createRules.weekend_trading ? "Allowed" : "Not Allowed"}</span></div>}
+                  {createRules.only_cent_account && <div className="flex justify-between py-1.5"><span className="text-gray-500">Only Cent Account</span><span className="text-white">Yes</span></div>}
                 </div>
                 {createResult?.error && <p className="text-xs text-loss mb-3">{createResult.error}</p>}
                 <div className="flex gap-3">
@@ -1244,15 +1416,6 @@ function CreateChallengeModal({ createStep, setCreateStep, createForm, setCreate
           </>)}
         </div>
       </div>
-    </div>
-  );
-}
-
-function RuleRowSimple({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) {
-  return (
-    <div className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10">
-      <p className="text-sm text-white font-medium">{label}</p>
-      <input type="number" step="any" value={value} onChange={e => onChange(parseFloat(e.target.value) || 0)} className="w-20 p-2 rounded-lg bg-white/10 border border-white/10 text-white text-sm text-center outline-none" />
     </div>
   );
 }
