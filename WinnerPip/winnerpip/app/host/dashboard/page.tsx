@@ -71,6 +71,7 @@ export default function HostDashboardPage() {
     real_winners_count: "3", demo_winners_count: "3",
     real_prizes: "", demo_prizes: "",
     registration_mode: (hostInfo?.hasBrokerIntegration ? "winnerpip" : "manual") as "winnerpip" | "manual",
+    timezone: "Africa/Nairobi",
   });
   const [createRules, setCreateRules] = useState({
     max_lot_size: 0.02, max_open_trades: 3, pair_limit: 2,
@@ -445,7 +446,7 @@ export default function HostDashboardPage() {
                         </div>
                         <div className="bg-white/5 rounded-xl p-4 border border-white/5">
                           <p className="text-[10px] text-gray-500 uppercase tracking-wide mb-1">Last Update</p>
-                          <p className="text-sm font-semibold text-white">{overview.lastUpdateAt ? new Date(new Date(overview.lastUpdateAt).getTime() + 3*60*60*1000).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) + " EAT" : "—"}</p>
+                          <p className="text-sm font-semibold text-white">{overview.lastUpdateAt ? new Date(overview.lastUpdateAt).toLocaleString("en-US", { timeZone: overview.challenge?.timezone || 'Africa/Nairobi', month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "—"}</p>
                         </div>
                       </div>
                     </div>
@@ -672,7 +673,7 @@ export default function HostDashboardPage() {
                               <div className={`w-2 h-2 rounded-full ${u.status === 'completed' ? 'bg-profit' : u.status === 'running' ? 'bg-gold animate-pulse' : 'bg-loss'}`}></div>
                               <div>
                                 <p className="text-sm text-white font-medium">Update #{u.updateNumber}</p>
-                                <p className="text-[10px] text-gray-500">{new Date(new Date(u.startedAt).getTime() + 3*60*60*1000).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })} EAT</p>
+                                <p className="text-[10px] text-gray-500">{new Date(u.startedAt).toLocaleString("en-US", { timeZone: selectedChallenge?.timezone || 'Africa/Nairobi', month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</p>
                               </div>
                             </div>
                             <div className="flex items-center gap-4 text-xs">
@@ -861,8 +862,59 @@ export default function HostDashboardPage() {
                         </select>
                       </div>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <div><label className="text-xs text-gray-400 font-medium mb-1 block">Start Date &amp; Time (EAT) *</label><input type="datetime-local" value={createForm.start_date} onChange={e => setCreateForm({...createForm, start_date: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
-                        <div><label className="text-xs text-gray-400 font-medium mb-1 block">End Date &amp; Time (EAT) *</label><input type="datetime-local" value={createForm.end_date} onChange={e => setCreateForm({...createForm, end_date: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
+                        <div><label className="text-xs text-gray-400 font-medium mb-1 block">Start Date &amp; Time *</label><input type="datetime-local" value={createForm.start_date} onChange={e => setCreateForm({...createForm, start_date: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
+                        <div><label className="text-xs text-gray-400 font-medium mb-1 block">End Date &amp; Time *</label><input type="datetime-local" value={createForm.end_date} onChange={e => setCreateForm({...createForm, end_date: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
+                      </div>
+                      {/* Timezone */}
+                      <div>
+                        <label className="text-xs text-gray-400 font-medium mb-1 block">Timezone</label>
+                        <select value={createForm.timezone} onChange={e => setCreateForm({...createForm, timezone: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm focus:border-royal/50 outline-none">
+                          <optgroup label="Africa" className="bg-[#0f1629]">
+                            <option value="Africa/Nairobi" className="bg-[#0f1629]">East Africa (Nairobi) UTC+3</option>
+                            <option value="Africa/Lagos" className="bg-[#0f1629]">West Africa (Lagos) UTC+1</option>
+                            <option value="Africa/Cairo" className="bg-[#0f1629]">Egypt (Cairo) UTC+2</option>
+                            <option value="Africa/Johannesburg" className="bg-[#0f1629]">South Africa (Johannesburg) UTC+2</option>
+                            <option value="Africa/Casablanca" className="bg-[#0f1629]">Morocco (Casablanca) UTC+1</option>
+                          </optgroup>
+                          <optgroup label="Middle East" className="bg-[#0f1629]">
+                            <option value="Asia/Dubai" className="bg-[#0f1629]">UAE (Dubai) UTC+4</option>
+                            <option value="Asia/Riyadh" className="bg-[#0f1629]">Saudi Arabia (Riyadh) UTC+3</option>
+                            <option value="Asia/Tehran" className="bg-[#0f1629]">Iran (Tehran) UTC+3:30</option>
+                            <option value="Asia/Istanbul" className="bg-[#0f1629]">Turkey (Istanbul) UTC+3</option>
+                          </optgroup>
+                          <optgroup label="Asia" className="bg-[#0f1629]">
+                            <option value="Asia/Kolkata" className="bg-[#0f1629]">India (Kolkata) UTC+5:30</option>
+                            <option value="Asia/Karachi" className="bg-[#0f1629]">Pakistan (Karachi) UTC+5</option>
+                            <option value="Asia/Bangkok" className="bg-[#0f1629]">Thailand (Bangkok) UTC+7</option>
+                            <option value="Asia/Singapore" className="bg-[#0f1629]">Singapore UTC+8</option>
+                            <option value="Asia/Shanghai" className="bg-[#0f1629]">China (Shanghai) UTC+8</option>
+                            <option value="Asia/Tokyo" className="bg-[#0f1629]">Japan (Tokyo) UTC+9</option>
+                            <option value="Asia/Manila" className="bg-[#0f1629]">Philippines (Manila) UTC+8</option>
+                          </optgroup>
+                          <optgroup label="Europe" className="bg-[#0f1629]">
+                            <option value="Europe/London" className="bg-[#0f1629]">UK (London) UTC+0/+1</option>
+                            <option value="Europe/Paris" className="bg-[#0f1629]">Central Europe (Paris) UTC+1/+2</option>
+                            <option value="Europe/Berlin" className="bg-[#0f1629]">Germany (Berlin) UTC+1/+2</option>
+                            <option value="Europe/Moscow" className="bg-[#0f1629]">Russia (Moscow) UTC+3</option>
+                          </optgroup>
+                          <optgroup label="Americas" className="bg-[#0f1629]">
+                            <option value="America/New_York" className="bg-[#0f1629]">US Eastern (New York) UTC-5/-4</option>
+                            <option value="America/Chicago" className="bg-[#0f1629]">US Central (Chicago) UTC-6/-5</option>
+                            <option value="America/Denver" className="bg-[#0f1629]">US Mountain (Denver) UTC-7/-6</option>
+                            <option value="America/Los_Angeles" className="bg-[#0f1629]">US Pacific (Los Angeles) UTC-8/-7</option>
+                            <option value="America/Toronto" className="bg-[#0f1629]">Canada Eastern (Toronto) UTC-5/-4</option>
+                            <option value="America/Sao_Paulo" className="bg-[#0f1629]">Brazil (Sao Paulo) UTC-3</option>
+                            <option value="America/Mexico_City" className="bg-[#0f1629]">Mexico (Mexico City) UTC-6/-5</option>
+                          </optgroup>
+                          <optgroup label="Oceania" className="bg-[#0f1629]">
+                            <option value="Australia/Sydney" className="bg-[#0f1629]">Australia Eastern (Sydney) UTC+10/+11</option>
+                            <option value="Pacific/Auckland" className="bg-[#0f1629]">New Zealand (Auckland) UTC+12/+13</option>
+                          </optgroup>
+                          <optgroup label="UTC" className="bg-[#0f1629]">
+                            <option value="UTC" className="bg-[#0f1629]">UTC (Coordinated Universal Time)</option>
+                          </optgroup>
+                        </select>
+                        <p className="text-[10px] text-gray-500 mt-1">All challenge times (start, end, trade display) will use this timezone</p>
                       </div>
                       <p className="text-[10px] text-gray-500 -mt-2">Registration closes automatically when challenge starts</p>
                       {/* Deposit Mode */}
@@ -982,6 +1034,7 @@ export default function HostDashboardPage() {
                       <div className="flex justify-between py-2 border-b border-white/5"><span className="text-xs text-gray-500">Title</span><span className="text-xs text-white font-medium">{createForm.title}</span></div>
                       <div className="flex justify-between py-2 border-b border-white/5"><span className="text-xs text-gray-500">Type</span><span className="text-xs text-white font-medium capitalize">{createForm.type}</span></div>
                       <div className="flex justify-between py-2 border-b border-white/5"><span className="text-xs text-gray-500">Deposit Mode</span><span className="text-xs text-white font-medium capitalize">{createForm.deposit_mode.replace('_', ' ')}</span></div>
+                      <div className="flex justify-between py-2 border-b border-white/5"><span className="text-xs text-gray-500">Timezone</span><span className="text-xs text-white font-medium">{createForm.timezone.replace('_', ' ').split('/').pop()}</span></div>
                       <div className="flex justify-between py-2 border-b border-white/5"><span className="text-xs text-gray-500">Period</span><span className="text-xs text-white font-medium">{createForm.start_date ? new Date(createForm.start_date).toLocaleDateString() : '—'} → {createForm.end_date ? new Date(createForm.end_date).toLocaleDateString() : '—'}</span></div>
                       {createForm.real_prizes && <div className="flex justify-between py-2 border-b border-white/5"><span className="text-xs text-gray-500">Real Prizes</span><span className="text-xs text-white font-medium">${createForm.real_prizes}</span></div>}
                       {createForm.demo_prizes && <div className="flex justify-between py-2 border-b border-white/5"><span className="text-xs text-gray-500">Demo Prizes</span><span className="text-xs text-white font-medium">${createForm.demo_prizes}</span></div>}

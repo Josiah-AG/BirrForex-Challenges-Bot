@@ -1558,7 +1558,7 @@ app.get('/api/host/challenge/:id/overview', hostAuthMiddleware, async (req: any,
     // Verify this challenge belongs to the host
     const challenge = await db.query(
       `SELECT id, title, type, status, start_date, end_date, starting_balance, target_balance,
-              deposit_mode, target_percent, real_winners_count, demo_winners_count, prize_pool_text
+              deposit_mode, target_percent, real_winners_count, demo_winners_count, prize_pool_text, timezone
        FROM trading_challenges WHERE id = $1 AND host_id = $2`,
       [challengeId, req.hostAccount.hostId]
     );
@@ -1597,7 +1597,7 @@ app.get('/api/host/challenge/:id/overview', hostAuthMiddleware, async (req: any,
         startDate: c.start_date, endDate: c.end_date,
         startingBalance: c.starting_balance, targetBalance: c.target_balance,
         depositMode: c.deposit_mode, targetPercent: c.target_percent,
-        prizePoolText: c.prize_pool_text,
+        prizePoolText: c.prize_pool_text, timezone: c.timezone || 'Africa/Nairobi',
       },
       participants: {
         total: parseInt(counts.rows[0].total),
@@ -2185,6 +2185,7 @@ app.post('/api/host/challenges', hostAuthMiddleware, async (req: any, res) => {
       title, type, start_date, end_date, starting_balance, target_balance,
       deposit_mode, target_percent, prize_pool_text,
       real_winners_count, demo_winners_count, real_prizes, demo_prizes,
+      timezone,
     } = req.body;
 
     if (!title || !type || !start_date || !end_date || !starting_balance) {
@@ -2198,9 +2199,9 @@ app.post('/api/host/challenges', hostAuthMiddleware, async (req: any, res) => {
        (title, type, status, start_date, end_date, registration_deadline, starting_balance, target_balance,
         prize_pool_text, real_winners_count, demo_winners_count, real_prizes, demo_prizes,
         source, team_only, announcement_posted, evaluation_type,
-        pull_times, pull_interval_hours, first_pull_time, deposit_mode, target_percent, host_id)
+        pull_times, pull_interval_hours, first_pull_time, deposit_mode, target_percent, host_id, timezone)
        VALUES ($1, $2, 'pending_approval', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-        'winnerpip', false, false, 'winnerpip', $13, 4, '00:00', $14, $15, $16)
+        'winnerpip', false, false, 'winnerpip', $13, 4, '00:00', $14, $15, $16, $17)
        RETURNING id`,
       [
         title, type, start_date, end_date, start_date,
@@ -2209,6 +2210,7 @@ app.post('/api/host/challenges', hostAuthMiddleware, async (req: any, res) => {
         JSON.stringify(real_prizes || []), JSON.stringify(demo_prizes || []),
         JSON.stringify(['00:00','04:00','08:00','12:00','16:00','20:00']),
         deposit_mode || 'fixed', target_percent || null, req.hostAccount.hostId,
+        timezone || 'Africa/Nairobi',
       ]
     );
     const challengeId = insertResult.rows[0].id;
@@ -2240,7 +2242,8 @@ app.post('/api/host/challenges', hostAuthMiddleware, async (req: any, res) => {
           `<b>Target:</b> ${targetDisplay}\n` +
           (real_prizes?.length ? `<b>Real Prizes:</b> ${real_prizes.map((p: any) => `$${p}`).join(', ')}\n` : '') +
           (demo_prizes?.length ? `<b>Demo Prizes:</b> ${demo_prizes.map((p: any) => `$${p}`).join(', ')}\n` : '') +
-          `<b>Registration:</b> ${req.body.registration_mode === 'winnerpip' ? 'Online (WinnerPip)' : 'Manual (CSV)'}\n\n` +
+          `<b>Registration:</b> ${req.body.registration_mode === 'winnerpip' ? 'Online (WinnerPip)' : 'Manual (CSV)'}\n` +
+          `<b>Timezone:</b> ${timezone || 'Africa/Nairobi'}\n\n` +
           `⚠️ Confirm to create this challenge.`,
           {
             parse_mode: 'HTML',

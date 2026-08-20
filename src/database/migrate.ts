@@ -475,6 +475,10 @@ async function migrate() {
     await db.query(`CREATE INDEX IF NOT EXISTS idx_trading_challenges_host ON trading_challenges(host_id);`).catch(() => {});
     console.log('✅ Host mode schema OK');
 
+    // Timezone support — per-challenge timezone (default EAT for existing challenges)
+    await db.query(`ALTER TABLE trading_challenges ADD COLUMN IF NOT EXISTS timezone VARCHAR(50) DEFAULT 'Africa/Nairobi';`).catch(() => {});
+    console.log('✅ Timezone column OK');
+
     console.log('✅ Database migration completed successfully!');
     process.exit(0);
   } catch (error) {
