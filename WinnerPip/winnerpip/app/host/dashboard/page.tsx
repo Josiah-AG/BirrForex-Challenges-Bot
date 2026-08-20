@@ -58,8 +58,8 @@ export default function HostDashboardPage() {
     max_lot_size: 0.02, max_open_trades: 3, pair_limit: 2,
     stop_loss_required: true, max_risk_dollars: 5, max_risk_mode: 'fixed',
     max_risk_percent: 10, daily_loss_cap: 10, daily_loss_mode: 'fixed',
-    daily_loss_percent: 20, max_hold_hours: 24, min_trade_duration_minutes: null,
-    weekend_trading: false, min_active_days: 7, min_total_trades: null,
+    daily_loss_percent: 20, max_hold_hours: 24, min_trade_duration_minutes: 2,
+    weekend_trading: false, min_active_days: 7, min_total_trades: 10,
     only_cent_account: false, allow_professional: false,
     rules_enabled: { max_lot_size: true, max_open_trades: true, pair_limit: true, stop_loss_required: true, daily_loss_cap: true, max_hold_hours: true, min_trade_duration: true, weekend_trading: true, min_active_days: true, min_total_trades: true },
   });
@@ -185,8 +185,8 @@ export default function HostDashboardPage() {
             max_lot_size: 0.02, max_open_trades: 3, pair_limit: 2,
             stop_loss_required: true, max_risk_dollars: 5, max_risk_mode: 'fixed',
             max_risk_percent: 10, daily_loss_cap: 10, daily_loss_mode: 'fixed',
-            daily_loss_percent: 20, max_hold_hours: 24, min_trade_duration_minutes: null,
-            weekend_trading: false, min_active_days: 7, min_total_trades: null,
+            daily_loss_percent: 20, max_hold_hours: 24, min_trade_duration_minutes: 2,
+            weekend_trading: false, min_active_days: 7, min_total_trades: 10,
             only_cent_account: false, allow_professional: false,
             rules_enabled: { max_lot_size: true, max_open_trades: true, pair_limit: true, stop_loss_required: true, daily_loss_cap: true, max_hold_hours: true, min_trade_duration: true, weekend_trading: true, min_active_days: true, min_total_trades: true },
           };

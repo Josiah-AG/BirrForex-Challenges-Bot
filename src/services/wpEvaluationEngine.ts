@@ -1855,8 +1855,8 @@ export class WpEvaluationEngine {
       max_risk_mode: 'fixed', max_risk_percent: null,
       daily_loss_cap: 10,
       daily_loss_mode: 'fixed', daily_loss_percent: null,
-      max_hold_hours: 24, min_trade_duration_minutes: null,
-      weekend_trading: false, min_active_days: 7, min_total_trades: null,
+      max_hold_hours: 24, min_trade_duration_minutes: 2,
+      weekend_trading: false, min_active_days: 7, min_total_trades: 10,
       only_cent_account: false, allow_professional: false,
       rules_enabled: {
         max_lot_size: true,

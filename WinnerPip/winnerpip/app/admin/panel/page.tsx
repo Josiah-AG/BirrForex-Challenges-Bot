@@ -42,10 +42,10 @@ export default function AdminDashboard() {
     daily_loss_mode: 'fixed' as 'fixed' | 'percentage',
     daily_loss_percent: 20,
     max_hold_hours: 24,
-    min_trade_duration_minutes: null as number | null,
+    min_trade_duration_minutes: 2 as number | null,
     weekend_trading: false,
     min_active_days: 7,
-    min_total_trades: null as number | null,
+    min_total_trades: 10 as number | null,
     only_cent_account: false,
     rules_enabled: {
       max_lot_size: true,
@@ -189,10 +189,10 @@ export default function AdminDashboard() {
               daily_loss_mode: data.rules.daily_loss_mode ?? 'fixed',
               daily_loss_percent: data.rules.daily_loss_percent ?? 20,
               max_hold_hours: data.rules.max_hold_hours ?? 24,
-              min_trade_duration_minutes: data.rules.min_trade_duration_minutes ?? null,
+              min_trade_duration_minutes: data.rules.min_trade_duration_minutes ?? 2,
               weekend_trading: data.rules.weekend_trading ?? false,
               min_active_days: data.rules.min_active_days ?? 7,
-              min_total_trades: data.rules.min_total_trades ?? null,
+              min_total_trades: data.rules.min_total_trades ?? 10,
               only_cent_account: data.rules.only_cent_account ?? false,
               rules_enabled: data.rules.rules_enabled ?? {
                 max_lot_size: true,
@@ -2369,10 +2369,10 @@ function CreateChallengePanel({ onCreated }: { onCreated: (id: number) => void }
     daily_loss_mode: 'fixed' as 'fixed' | 'percentage',
     daily_loss_percent: 20,
     max_hold_hours: 24,
-    min_trade_duration_minutes: null as number | null,
+    min_trade_duration_minutes: 2 as number | null,
     weekend_trading: false,
     min_active_days: 7,
-    min_total_trades: null as number | null,
+    min_total_trades: 10 as number | null,
     only_cent_account: false,
     allow_professional: false,
     rules_enabled: {
@@ -2424,6 +2424,7 @@ function CreateChallengePanel({ onCreated }: { onCreated: (id: number) => void }
           pull_times: pullTimes,
           pull_interval_hours: intervalHours,
           first_pull_time: form.first_pull_time,
+          rules,
         }),
       });
       if (!res.ok) { const d = await res.json(); setError(d.error || "Failed"); setSaving(false); return; }

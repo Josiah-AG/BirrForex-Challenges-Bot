@@ -137,6 +137,15 @@ export async function executeCreate(data: any): Promise<{ success: boolean; chal
         data.host_id || null,
       ]
     );
+
+    // Save rules if provided
+    if (data.rules && result.rows[0]?.id) {
+      try {
+        const { evaluationEngine } = require('./wpEvaluationEngine');
+        await evaluationEngine.saveRules(result.rows[0].id, data.rules);
+      } catch (_e) { /* silent — rules can be set later */ }
+    }
+
     return { success: true, challenge: result.rows[0] };
   } catch (error) {
     return { success: false, error: (error as Error).message };

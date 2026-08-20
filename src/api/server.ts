@@ -2220,6 +2220,14 @@ app.post('/api/host/challenges', hostAuthMiddleware, async (req: any, res) => {
     );
     const challengeId = insertResult.rows[0].id;
 
+    // Save rules if provided
+    if (req.body.rules) {
+      try {
+        const { evaluationEngine } = require('../services/wpEvaluationEngine');
+        await evaluationEngine.saveRules(challengeId, req.body.rules);
+      } catch (_e) { /* rules save failed silently — host can set them later */ }
+    }
+
     // Queue approval action (on approve → status changes to 'draft', on reject → 'rejected')
     const token = gatekeeper.queueCreate({ challenge_id: challengeId, host_id: req.hostAccount.hostId, already_inserted: true });
 
@@ -3486,6 +3494,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenges`, adminIpCheck, async (req,
       evaluation_type, pull_times, pull_interval_hours, first_pull_time,
       deposit_mode: deposit_mode || 'fixed',
       target_percent: target_percent || null,
+      rules: req.body.rules || null,
     };
     const token = gatekeeper.queueCreate(data);
 
