@@ -1349,7 +1349,7 @@ function BrokerCredentialsSection() {
   return (
     <div className="glass rounded-2xl border border-white/10 p-5">
       <h3 className="text-sm font-semibold text-white mb-2 flex items-center gap-2"><Shield size={16} className="text-gold" /> Broker Integration</h3>
-      <p className="text-xs text-gray-500 mb-4">Connect broker credentials for partner allocation verification.</p>
+      <p className="text-xs text-gray-500 mb-4">Connect your broker credentials to verify participant allocation automatically. All credentials are encrypted with AES-256-GCM and never stored in plain text.</p>
       {saved && <div className="p-2 mb-3 rounded-lg bg-profit/10 text-profit text-xs">Updated</div>}
       {hasBroker && !showForm ? (
         <div>
@@ -1483,7 +1483,8 @@ function CreateChallengeModal({ createStep, setCreateStep, createForm, setCreate
                   </div>
                   {!hostInfo?.hasBrokerIntegration && (
                     <div className="mt-3 p-3 rounded-xl bg-royal/5 border border-royal/20">
-                      <p className="text-[11px] text-gray-300 leading-relaxed">To make participant registration and automatic allocation verification easier, you can do it directly on WinnerPip. <button type="button" onClick={() => { onClose(); setShowAccountSettings(true); }} className="text-royal font-semibold hover:underline">Integrate Broker</button></p>
+                      <p className="text-[11px] text-gray-300 leading-relaxed">To make participant registration and automatic allocation verification easier, you can do it directly on WinnerPip. Your credentials are encrypted with AES-256 and never stored in plain text.</p>
+                      <button type="button" onClick={() => { onClose(); setShowAccountSettings(true); }} className="mt-2 px-3 py-1.5 rounded-lg bg-royal/20 border border-royal/30 text-royal text-[11px] font-semibold hover:bg-royal/30 transition-all">Integrate Broker</button>
                     </div>
                   )}
                 </div>
