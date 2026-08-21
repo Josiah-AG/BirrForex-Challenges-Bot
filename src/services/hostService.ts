@@ -80,7 +80,7 @@ class HostService {
   async getAllHostsWithStats(): Promise<HostWithStats[]> {
     const result = await db.query(
       `SELECT h.id, h.display_name, h.email, h.has_broker_integration, h.active,
-              h.max_concurrent_challenges, h.created_at, h.last_login_at,
+              h.max_concurrent_challenges, h.created_at, h.last_login_at, h.contact_link,
               COALESCE(c_active.cnt, 0) as active_challenges,
               COALESCE(c_total.cnt, 0) as total_challenges,
               COALESCE(l.cnt, 0) as total_logins,

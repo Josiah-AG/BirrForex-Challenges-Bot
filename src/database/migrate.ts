@@ -487,6 +487,10 @@ async function migrate() {
     await db.query(`ALTER TABLE host_csv_rows ADD COLUMN IF NOT EXISTS email VARCHAR(255);`).catch(() => {});
     console.log('✅ host_csv_rows email column OK');
 
+    // Contact link for hosts (support URL shown in emails)
+    await db.query(`ALTER TABLE hosts ADD COLUMN IF NOT EXISTS contact_link VARCHAR(500);`).catch(() => {});
+    console.log('✅ hosts contact_link column OK');
+
     console.log('✅ Database migration completed successfully!');
     process.exit(0);
   } catch (error) {

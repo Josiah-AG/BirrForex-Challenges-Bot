@@ -76,11 +76,16 @@ class EmailService {
     accountNumber: string;
     accountType: string;
     hostName?: string;
+    hostLink?: string;
     balance?: string;
   }): Promise<boolean> {
     if (!this.isConfigured()) return false;
     try {
-      const hostedBy = data.hostName ? `<p style="color: #6b7280; font-size: 12px; margin: 0;">Hosted by <strong>${data.hostName}</strong></p>` : '';
+      const hostedBy = data.hostName
+        ? (data.hostLink
+          ? `<p style="color: #6b7280; font-size: 12px; margin: 4px 0 0;">Hosted by <a href="${data.hostLink}" style="color: #6366f1; text-decoration: underline; font-weight: 600;">${data.hostName}</a></p>`
+          : `<p style="color: #6b7280; font-size: 12px; margin: 4px 0 0;">Hosted by <strong>${data.hostName}</strong></p>`)
+        : '';
       const balanceRow = data.balance ? `<tr><td style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; color: #64748b; font-size: 13px;">Balance</td><td style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; color: #16a34a; font-size: 13px; text-align: right; font-weight: 600;">${data.balance}</td></tr>` : '';
       const content = `
         <h2 style="color: #16a34a; font-size: 20px; margin: 0 0 8px; font-weight: 700;">Registration Confirmed</h2>
@@ -159,12 +164,13 @@ class EmailService {
     challengeTitle: string;
     reason: string;
     hostName?: string;
+    hostLink?: string;
   }): Promise<boolean> {
     if (!this.isConfigured()) return false;
     try {
-      const contactLine = data.hostName
-        ? `If you believe this is an error, please contact <strong>${data.hostName}</strong> for more information.`
-        : `If you believe this is an error, please contact the challenge host for more information.`;
+      const hostDisplay = data.hostName
+        ? (data.hostLink ? `<a href="${data.hostLink}" style="color: #6366f1; text-decoration: underline; font-weight: 600;">${data.hostName}</a>` : `<strong>${data.hostName}</strong>`)
+        : 'the challenge host';
       const content = `
         <h2 style="color: #dc2626; font-size: 20px; margin: 0 0 8px; font-weight: 700;">Disqualified</h2>
         <p style="color: #374151; font-size: 15px; line-height: 1.6; margin: 0 0 24px;">
@@ -177,7 +183,7 @@ class EmailService {
         </div>
 
         <p style="color: #6b7280; font-size: 13px; margin: 0; line-height: 1.5;">
-          ${contactLine}
+          If you believe this is an error, please contact ${hostDisplay} for more information.
         </p>
       `;
       await resend.emails.send({ from: FROM_ADDRESS, to, subject: `Disqualified — ${data.challengeTitle}`, html: wrapEmail(content) });
@@ -272,12 +278,13 @@ class EmailService {
     challengeTitle: string;
     reason: string;
     hostName?: string;
+    hostLink?: string;
   }): Promise<boolean> {
     if (!this.isConfigured()) return false;
     try {
-      const contactLine = data.hostName
-        ? `If you believe this is an error, please contact <strong>${data.hostName}</strong> for more information.`
-        : `If you believe this is an error, please contact the challenge host for more information.`;
+      const hostDisplay = data.hostName
+        ? (data.hostLink ? `<a href="${data.hostLink}" style="color: #6366f1; text-decoration: underline; font-weight: 600;">${data.hostName}</a>` : `<strong>${data.hostName}</strong>`)
+        : 'the challenge host';
       const content = `
         <h2 style="color: #d97706; font-size: 20px; margin: 0 0 8px; font-weight: 700;">Registration Removed</h2>
         <p style="color: #374151; font-size: 15px; line-height: 1.6; margin: 0 0 24px;">
@@ -290,7 +297,7 @@ class EmailService {
         </div>
 
         <p style="color: #6b7280; font-size: 13px; margin: 0; line-height: 1.5;">
-          ${contactLine}
+          If you believe this is an error, please contact ${hostDisplay} for more information.
         </p>
       `;
       await resend.emails.send({ from: FROM_ADDRESS, to, subject: `Registration Removed — ${data.challengeTitle}`, html: wrapEmail(content) });

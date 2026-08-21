@@ -1771,6 +1771,8 @@ function HostsManagementPanel() {
   const [resetPasswordModal, setResetPasswordModal] = useState<any>(null);
   const [newPassword, setNewPassword] = useState("");
   const [actionResult, setActionResult] = useState("");
+  const [editModal, setEditModal] = useState<any>(null);
+  const [editForm, setEditForm] = useState({ displayName: "", contactLink: "" });
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
   const secretPath = process.env.NEXT_PUBLIC_ADMIN_PATH || "";
@@ -1963,6 +1965,7 @@ function HostsManagementPanel() {
 
                   {/* Actions */}
                   <div className="flex gap-2 flex-wrap pt-2">
+                    <button onClick={() => { setEditModal(host); setEditForm({ displayName: host.display_name, contactLink: host.contact_link || "" }); }} className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-royal/10 text-royal border border-royal/20 hover:bg-royal/20 transition-all" disabled={actionLoading}>Edit</button>
                     <button onClick={() => { setResetPasswordModal(host); setNewPassword(""); }} className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-gold/10 text-gold border border-gold/20 hover:bg-gold/20 transition-all" disabled={actionLoading}><Key size={12} className="inline mr-1" />Reset Password</button>
                     <button onClick={() => handleDeactivate(host.id, host.active)} className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${host.active ? "bg-loss/10 text-loss border border-loss/20 hover:bg-loss/20" : "bg-profit/10 text-profit border border-profit/20 hover:bg-profit/20"}`} disabled={actionLoading}>{host.active ? "Deactivate" : "Activate"}</button>
                     <button onClick={() => handleDelete(host.id, host.display_name)} className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-red-900/20 text-red-400 border border-red-500/20 hover:bg-red-900/40 transition-all" disabled={actionLoading}>Delete</button>
@@ -2048,6 +2051,51 @@ function HostsManagementPanel() {
               <button onClick={() => setResetPasswordModal(null)} className="flex-1 py-2.5 rounded-xl bg-white/5 border border-white/10 text-gray-300 text-sm font-medium hover:bg-white/10 transition-all">Cancel</button>
               <button onClick={handleResetPassword} disabled={actionLoading || newPassword.length < 8} className="flex-1 py-2.5 rounded-xl bg-gold text-black text-sm font-semibold hover:bg-gold/90 disabled:opacity-40 transition-all flex items-center justify-center gap-2">
                 {actionLoading ? <Loader2 size={14} className="animate-spin" /> : null}Reset
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Host Modal */}
+      {editModal && (
+        <div className="fixed inset-0 bg-[#0a0e1a]/95 z-50 flex items-center justify-center p-6" onClick={() => setEditModal(null)}>
+          <div className="bg-[#1a2235] rounded-2xl w-full max-w-sm border border-white/15 shadow-2xl shadow-black/80" onClick={e => e.stopPropagation()}>
+            <div className="px-6 pt-6 pb-4">
+              <div className="flex items-center gap-3 mb-5">
+                <div className="w-10 h-10 rounded-xl bg-royal/15 border border-royal/20 flex items-center justify-center flex-shrink-0">
+                  <Users size={18} className="text-royal" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white leading-tight">Edit Host</h3>
+                  <p className="text-[11px] text-gray-500 mt-0.5">{editModal.email}</p>
+                </div>
+              </div>
+              <div className="space-y-3">
+                <div>
+                  <label className="text-[11px] text-gray-400 font-medium mb-1.5 block">Display Name</label>
+                  <input value={editForm.displayName} onChange={e => setEditForm(f => ({...f, displayName: e.target.value}))} className="w-full px-3.5 py-2.5 rounded-xl bg-[#0a0e1a] border border-white/10 text-white text-sm placeholder:text-gray-600 focus:border-royal/50 outline-none transition-all" placeholder="Host display name" />
+                </div>
+                <div>
+                  <label className="text-[11px] text-gray-400 font-medium mb-1.5 block">Contact / Support Link</label>
+                  <input value={editForm.contactLink} onChange={e => setEditForm(f => ({...f, contactLink: e.target.value}))} className="w-full px-3.5 py-2.5 rounded-xl bg-[#0a0e1a] border border-white/10 text-white text-sm placeholder:text-gray-600 focus:border-royal/50 outline-none transition-all" placeholder="https://t.me/hostname or support URL" />
+                  <p className="text-[10px] text-gray-600 mt-1">Shown in participant emails as a clickable link</p>
+                </div>
+              </div>
+            </div>
+            <div className="px-6 pb-6 pt-2 flex gap-3">
+              <button onClick={() => setEditModal(null)} className="flex-1 py-2.5 rounded-xl bg-white/5 border border-white/10 text-gray-300 text-sm font-medium hover:bg-white/10 transition-all">Cancel</button>
+              <button onClick={async () => {
+                setActionLoading(true);
+                try {
+                  const res = await fetch(`${apiUrl}/api/admin/${secretPath}/hosts/${editModal.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ displayName: editForm.displayName, contactLink: editForm.contactLink }) });
+                  if (res.ok) { setActionResult("Host updated"); setEditModal(null); fetchHosts(); }
+                  else { const d = await res.json(); setActionResult(d.error || "Update failed"); }
+                } catch { setActionResult("Network error"); }
+                setActionLoading(false);
+                setTimeout(() => setActionResult(""), 3000);
+              }} disabled={actionLoading || !editForm.displayName.trim()} className="flex-1 py-2.5 rounded-xl bg-royal text-white text-sm font-semibold hover:bg-royal/90 disabled:opacity-40 transition-all flex items-center justify-center gap-2">
+                {actionLoading ? <Loader2 size={14} className="animate-spin" /> : null}Save
               </button>
             </div>
           </div>
