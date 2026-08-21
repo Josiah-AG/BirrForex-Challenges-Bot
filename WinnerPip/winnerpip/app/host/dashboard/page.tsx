@@ -438,7 +438,8 @@ export default function HostDashboardPage() {
           {/* ===== PARTICIPANTS ===== */}
           {activeTab === "participants" && (
             <div className="space-y-6">
-              {/* CSV Upload Section */}
+              {/* CSV Upload Section — only for manual registration mode */}
+              {selectedChallenge?.registration_mode !== 'winnerpip' && (
               <div className="glass rounded-2xl border border-white/10 p-5">
                 <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2"><FileText size={16} className="text-gold" /> Upload Participants (CSV)</h3>
                 <p className="text-[10px] text-gray-500 mb-3">Upload a CSV file with columns: nickname, email, account_type (demo/real), account_number, server, investor_password</p>
@@ -522,10 +523,11 @@ export default function HostDashboardPage() {
                 </div>}
                 {csvResult?.error && <div className="mt-3 p-3 rounded-lg bg-loss/5 border border-loss/20"><p className="text-xs text-loss font-semibold mb-1">{csvResult.error}</p>{csvResult.details?.length > 0 && <div className="space-y-1.5 mt-2">{csvResult.details.map((d: string, i: number) => <div key={i} className="flex items-start gap-2 text-[10px]"><span className="text-loss/60 mt-0.5">&#10005;</span><span className="text-gray-300">{d}</span></div>)}</div>}</div>}
 
-                {/* Upload History & Status */}
+                {/* Upload History & Status — collapsible */}
                 {csvStatus?.uploads?.length > 0 && (
-                  <div className="mt-4 space-y-2">
-                    <p className="text-[10px] text-gray-400 font-semibold uppercase">Upload History</p>
+                  <details className="mt-4">
+                    <summary className="text-[10px] text-gray-400 font-semibold uppercase cursor-pointer hover:text-gray-300">Upload History ({csvStatus.uploads.length})</summary>
+                    <div className="mt-2 space-y-2">
                     {csvStatus.uploads.map((u: any) => (
                       <div key={u.id} className={`p-3 rounded-lg border ${u.status === 'processed' ? 'bg-profit/5 border-profit/20' : u.status === 'pending' ? 'bg-gold/5 border-gold/20' : 'bg-white/5 border-white/10'}`}>
                         <div className="flex items-center justify-between">
@@ -555,8 +557,10 @@ export default function HostDashboardPage() {
                       </details>
                     )}
                   </div>
+                  </details>
                 )}
               </div>
+              )}
 
               {/* Search Bar */}
               <div className="glass rounded-2xl border border-white/10 p-5">
