@@ -22,6 +22,7 @@ function LoginForm() {
   const [challengeTitle, setChallengeTitle] = useState("");
   const [isHosted, setIsHosted] = useState(false);
   const [registrationMode, setRegistrationMode] = useState<string | null>(null);
+  const [hostDisplayName, setHostDisplayName] = useState("");
 
   const botUsername = "birrforex_challenge_bot";
   const discordInvite = process.env.NEXT_PUBLIC_DISCORD_INVITE || "https://discord.gg/birrforex";
@@ -41,6 +42,7 @@ function LoginForm() {
           if (challenge?.hostId) {
             setIsHosted(true);
             setRegistrationMode(challenge.registrationMode || 'manual');
+            setHostDisplayName(challenge.hostDisplayName || 'the challenge host');
           }
         })
         .catch(() => {});
@@ -238,7 +240,7 @@ function LoginForm() {
                   </>
                 ) : (
                   <p className="text-center text-xs text-gray-500">
-                    Registration is managed by the challenge host. If you&apos;ve been registered, sign in above with your MT5 account credentials.
+                    Registration is managed by <span className="text-white font-medium">{hostDisplayName}</span>. If you haven&apos;t registered yet, contact {hostDisplayName} and register first. Once registered, sign in above with your MT5 account credentials.
                   </p>
                 )
               ) : (
