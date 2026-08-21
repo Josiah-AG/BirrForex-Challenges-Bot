@@ -2182,6 +2182,9 @@ app.post('/api/host/challenge/:id/upload-csv', hostAuthMiddleware, async (req: a
               }
             }
 
+            // Remove any previously removed registration with same account/email to avoid unique constraint
+            await db.query(`DELETE FROM trading_registrations WHERE challenge_id=$1 AND status='removed' AND (account_number=$2 OR (email IS NOT NULL AND email=$3))`, [challengeId, row.account_number, row.email || '']);
+
             const reg = await db.query(
               `INSERT INTO trading_registrations (challenge_id, user_id, username, nickname, account_type, account_subtype, email, account_number, mt5_server, investor_password, is_cent, source, connection_verified, registered_at)
                VALUES ($1, $2, NULL, $3, $4, $5, $6, $7, $8, $9, $10, 'csv', true, NOW()) RETURNING id`,
