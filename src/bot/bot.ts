@@ -603,15 +603,60 @@ export class Bot {
           await ctx.answerCbQuery('Approving — verification starting...');
           await ctx.editMessageText(`⏳ <b>CSV Upload #${uploadId}</b> — Verifying accounts...`, { parse_mode: 'HTML' });
           try {
-            const apiUrl = `http://localhost:${process.env.PORT || 3001}`;
-            const ADMIN_SECRET_PATH = process.env.ADMIN_SECRET_PATH || process.env.ADMIN_PATH || '';
-            const res = await fetch(`${apiUrl}/api/admin/${ADMIN_SECRET_PATH}/host-csv/${uploadId}/approve`, { method: 'POST' });
-            const result: any = await res.json();
-            if (result.success) {
-              await ctx.editMessageText(`✅ <b>CSV Upload #${uploadId} Processed</b>\n\n✓ Verified: ${result.verified}\n✗ Failed: ${result.failed}`, { parse_mode: 'HTML' });
-            } else {
-              await ctx.editMessageText(`❌ <b>CSV Approval Failed</b>\n\n${result.error || 'Unknown error'}`, { parse_mode: 'HTML' });
+            // Direct DB call instead of HTTP to avoid localhost issues on Railway
+            const upload = await db.query(
+              `SELECT u.*, c.starting_balance, c.type as challenge_type, c.deposit_mode
+               FROM host_csv_uploads u
+               JOIN trading_challenges c ON u.challenge_id = c.id
+               WHERE u.id = $1 AND u.status = 'pending'`, [uploadId]);
+            if (!upload.rows[0]) {
+              await ctx.editMessageText(`❌ <b>CSV #${uploadId}</b> — Upload not found or already processed.`, { parse_mode: 'HTML' });
+              return;
             }
+            const challengeId = upload.rows[0].challenge_id;
+            await db.query(`UPDATE host_csv_uploads SET status = 'processing', approved_at = NOW() WHERE id = $1`, [uploadId]);
+            const rows = await db.query(`SELECT * FROM host_csv_rows WHERE upload_id = $1 ORDER BY id`, [uploadId]);
+            let verifiedCount = 0, failedCount = 0;
+            const { vpsService, fuzzyMatchServer } = require('../services/vpsService');
+            const processedNicknames = new Set<string>();
+
+            for (const row of rows.rows) {
+              try {
+                const matchedServer = fuzzyMatchServer(row.mt5_server, row.account_type) || row.mt5_server;
+                // Duplicate account check
+                const existing = await db.query(`SELECT 1 FROM trading_registrations WHERE challenge_id = $1 AND account_number = $2 AND (status IS NULL OR status != 'removed')`, [challengeId, row.account_number]);
+                if (existing.rows.length > 0) { await db.query(`UPDATE host_csv_rows SET status = 'failed', error_message = 'Account already registered' WHERE id = $1`, [row.id]); failedCount++; continue; }
+                // Duplicate nickname check
+                const nickLower = (row.nickname || '').trim().toLowerCase();
+                if (processedNicknames.has(nickLower)) { await db.query(`UPDATE host_csv_rows SET status = 'failed', error_message = 'Duplicate nickname' WHERE id = $1`, [row.id]); failedCount++; continue; }
+                const existingNick = await db.query(`SELECT 1 FROM trading_registrations WHERE challenge_id = $1 AND LOWER(nickname) = $2 AND (status IS NULL OR status != 'removed')`, [challengeId, nickLower]);
+                if (existingNick.rows.length > 0) { await db.query(`UPDATE host_csv_rows SET status = 'failed', error_message = 'Nickname taken' WHERE id = $1`, [row.id]); failedCount++; continue; }
+                processedNicknames.add(nickLower);
+                // VPS verify
+                const result = await vpsService.verifyConnection(row.account_number, matchedServer, row.investor_password);
+                if (!result.success) {
+                  const errMsg = result.status === 'invalid_credentials' ? 'Invalid credentials' : result.status === 'timeout' ? 'Connection timed out' : (result.message || 'Verification failed');
+                  await db.query(`UPDATE host_csv_rows SET status = 'failed', error_message = $1 WHERE id = $2`, [errMsg, row.id]);
+                  failedCount++; continue;
+                }
+                const isCent = ['USC', 'USCENT'].includes((result.currency || '').toUpperCase());
+                const accountSubtype = result.account_subtype || 'standard';
+                // Register
+                const reg = await db.query(
+                  `INSERT INTO trading_registrations (challenge_id, user_id, username, nickname, account_type, account_subtype, email, account_number, mt5_server, investor_password, is_cent, source, connection_verified, registered_at)
+                   VALUES ($1, 0, NULL, $2, $3, $4, $5, $6, $7, $8, $9, 'csv', true, NOW()) RETURNING id`,
+                  [challengeId, row.nickname, row.account_type, accountSubtype, row.email || null, row.account_number, matchedServer, row.investor_password, isCent]
+                );
+                await db.query(`UPDATE host_csv_rows SET status = 'verified', registration_id = $1 WHERE id = $2`, [reg.rows[0].id, row.id]);
+                verifiedCount++;
+                await new Promise(r => setTimeout(r, 800));
+              } catch (rowErr) {
+                await db.query(`UPDATE host_csv_rows SET status = 'failed', error_message = $1 WHERE id = $2`, [(rowErr as Error).message, row.id]);
+                failedCount++;
+              }
+            }
+            await db.query(`UPDATE host_csv_uploads SET status = 'processed', verified_count = $1, failed_count = $2, processed_at = NOW() WHERE id = $3`, [verifiedCount, failedCount, uploadId]);
+            await ctx.editMessageText(`✅ <b>CSV Upload #${uploadId} Processed</b>\n\n✓ Verified: ${verifiedCount}\n✗ Failed: ${failedCount}`, { parse_mode: 'HTML' });
           } catch (err) {
             await ctx.editMessageText(`❌ <b>CSV Approval Error</b>\n\n${(err as Error).message}`, { parse_mode: 'HTML' });
           }
