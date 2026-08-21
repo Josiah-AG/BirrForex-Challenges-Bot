@@ -2141,13 +2141,13 @@ app.post('/api/host/challenge/:id/upload-csv', hostAuthMiddleware, async (req: a
           try {
             const matchedServer = fuzzyMatchServer(row.mt5_server, row.account_type) || row.mt5_server;
             // Duplicate account
-            const existing = await db.query(`SELECT 1 FROM trading_registrations WHERE challenge_id = $1 AND account_number = $2 AND (status IS NULL OR status != 'removed')`, [challengeId, row.account_number]);
-            if (existing.rows.length > 0) { await db.query(`UPDATE host_csv_rows SET status = 'failed', error_message = 'Account already registered' WHERE id = $1`, [row.id]); failedCount++; continue; }
+            const existing = await db.query(`SELECT nickname FROM trading_registrations WHERE challenge_id = $1 AND account_number = $2 AND (status IS NULL OR status != 'removed')`, [challengeId, row.account_number]);
+            if (existing.rows.length > 0) { await db.query(`UPDATE host_csv_rows SET status = 'failed', error_message = $1 WHERE id = $2`, [`Account #${row.account_number} already registered (as "${existing.rows[0].nickname}")`, row.id]); failedCount++; continue; }
             // Duplicate nickname
             const nickLower = (row.nickname || '').trim().toLowerCase();
-            if (processedNicknames.has(nickLower)) { await db.query(`UPDATE host_csv_rows SET status = 'failed', error_message = 'Duplicate nickname in this upload' WHERE id = $1`, [row.id]); failedCount++; continue; }
-            const existingNick = await db.query(`SELECT 1 FROM trading_registrations WHERE challenge_id = $1 AND LOWER(nickname) = $2 AND (status IS NULL OR status != 'removed')`, [challengeId, nickLower]);
-            if (existingNick.rows.length > 0) { await db.query(`UPDATE host_csv_rows SET status = 'failed', error_message = 'Nickname already taken' WHERE id = $1`, [row.id]); failedCount++; continue; }
+            if (processedNicknames.has(nickLower)) { await db.query(`UPDATE host_csv_rows SET status = 'failed', error_message = $1 WHERE id = $2`, [`Nickname "${row.nickname}" already used earlier in this upload`, row.id]); failedCount++; continue; }
+            const existingNick = await db.query(`SELECT account_number FROM trading_registrations WHERE challenge_id = $1 AND LOWER(nickname) = $2 AND (status IS NULL OR status != 'removed')`, [challengeId, nickLower]);
+            if (existingNick.rows.length > 0) { await db.query(`UPDATE host_csv_rows SET status = 'failed', error_message = $1 WHERE id = $2`, [`Nickname "${row.nickname}" already taken (acct #${existingNick.rows[0].account_number})`, row.id]); failedCount++; continue; }
             processedNicknames.add(nickLower);
             // VPS verify
             const result = await vpsService.verifyConnection(row.account_number, matchedServer, row.investor_password);
@@ -2171,10 +2171,10 @@ app.post('/api/host/challenge/:id/upload-csv', hostAuthMiddleware, async (req: a
             const rowIndex = rows.rows.indexOf(row) + 1;
             // Parse PostgreSQL duplicate key errors into friendly messages
             if (errMsg.includes('duplicate key') || errMsg.includes('unique constraint')) {
-              if (errMsg.includes('account_number')) errMsg = `Row ${rowIndex}: Account #${row.account_number} is already registered in this challenge`;
-              else if (errMsg.includes('email')) errMsg = `Row ${rowIndex}: Email "${row.email}" is already registered`;
-              else if (errMsg.includes('nickname')) errMsg = `Row ${rowIndex}: Nickname "${row.nickname}" is already taken`;
-              else errMsg = `Row ${rowIndex}: "${row.nickname}" (Acct #${row.account_number}) — duplicate entry, already registered`;
+              if (errMsg.includes('account_number')) errMsg = `Row ${rowIndex}: Account #${row.account_number} already registered in this challenge`;
+              else if (errMsg.includes('email')) errMsg = `Row ${rowIndex}: Email "${row.email}" already registered in this challenge`;
+              else if (errMsg.includes('nickname')) errMsg = `Row ${rowIndex}: Nickname "${row.nickname}" already taken in this challenge`;
+              else errMsg = `Row ${rowIndex}: "${row.nickname}" (Acct #${row.account_number}) already exists in this challenge`;
             } else {
               errMsg = `Row ${rowIndex}: ${errMsg}`;
             }
