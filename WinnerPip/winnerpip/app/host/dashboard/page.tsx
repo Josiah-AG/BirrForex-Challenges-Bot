@@ -389,7 +389,7 @@ export default function HostDashboardPage() {
             </div>
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 mb-6">
               <StatCard icon={<Target size={16} />} label="Total Balance" value={`$${Number(overview.realBalance || 0).toFixed(2)}`} sub={`Real: $${Number(overview.realBalance || 0).toFixed(2)} | Demo: $${Number(overview.demoBalance || 0).toFixed(2)}`} color="text-profit" />
-              <StatCard icon={<Zap size={16} />} label="Updates Today" value={String(overview.pullsToday || 0)} sub="" color="text-royal" />
+              <StatCard icon={<Zap size={16} />} label="Updates Today" value={String(overview.pullsToday || 0)} sub={`Next: ${(() => { const now = new Date(Date.now() + 3*60*60*1000); const h = now.getUTCHours(); const schedule = [0,4,8,12,16,20]; const next = schedule.find(s => s > h); return next !== undefined ? `${String(next).padStart(2,"0")}:00 EAT` : "00:00 EAT"; })()}`} color="text-royal" />
               <StatCard icon={<Shield size={16} />} label="Update Success" value={String(overview.pullsSuccess || 0)} sub={`Failed: ${overview.pullsFailed || 0} | PW Changed: ${overview.passwordChanged || 0}`} color="text-profit" />
               <StatCard icon={<Clock size={16} />} label="Last Update" value={overview.lastPullTime || "—"} sub={`${overview.pullsSuccess || 0} ok · ${overview.pullsFailed || 0} failed`} color="text-gray-300" />
             </div>
