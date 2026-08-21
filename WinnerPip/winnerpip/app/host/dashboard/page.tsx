@@ -156,6 +156,7 @@ export default function HostDashboardPage() {
             topViolations: data.topViolations || [],
             realBalance: data.realBalance || 0,
             demoBalance: data.demoBalance || 0,
+            totalBalance: data.totalBalance || (Number(data.realBalance || 0) + Number(data.demoBalance || 0)),
             onlyCentAccount: data.onlyCentAccount || false,
             metrics: data.metrics || null,
           });
@@ -387,7 +388,7 @@ export default function HostDashboardPage() {
               <StatCard icon={<Trophy size={16} />} label="Above Target" value={String(overview.aboveTarget || 0)} sub={`${overview.totalParticipants > 0 ? ((overview.aboveTarget / overview.totalParticipants) * 100).toFixed(1) : 0}% qualified`} color="text-gold" />
             </div>
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 mb-6">
-              <StatCard icon={<Target size={16} />} label="Total Balance" value={`$${Number(Number(overview.realBalance || 0) + Number(overview.demoBalance || 0)).toFixed(2)}`} sub={`Real: $${Number(overview.realBalance || 0).toFixed(2)} | Demo: $${Number(overview.demoBalance || 0).toFixed(2)}`} color="text-profit" />
+              <StatCard icon={<Target size={16} />} label="Total Balance" value={`$${Number(overview.totalBalance || 0).toFixed(2)}`} sub={`Real: $${Number(overview.realBalance || 0).toFixed(2)} | Demo: $${Number(overview.demoBalance || 0).toFixed(2)}`} color="text-profit" />
               <StatCard icon={<Zap size={16} />} label="Updates Today" value={String(overview.pullsToday || 0)} sub="" color="text-royal" />
               <StatCard icon={<Shield size={16} />} label="Update Success" value={String(overview.pullsSuccess || 0)} sub={`Failed: ${overview.pullsFailed || 0} | PW Changed: ${overview.passwordChanged || 0}`} color="text-profit" />
               <StatCard icon={<Clock size={16} />} label="Last Update" value={overview.lastPullTime || "—"} sub={`${overview.pullsSuccess || 0} ok · ${overview.pullsFailed || 0} failed`} color="text-gray-300" />

@@ -198,25 +198,32 @@ router.get('/challenge/:id/full-overview', async (req: any, res: Response) => {
       metrics.combined = await buildMetricsForCategory(null);
     }
 
-    // Balance totals — divide cent balances by 100 to show in USD (matching admin)
+    // Balance totals — matching admin exactly (no leaderboard JOIN, only registrations)
     const balanceData = await db.query(
       `SELECT
         COALESCE(SUM(
-          CASE WHEN r.account_type='real' THEN
+          CASE WHEN r.is_cent
+            THEN COALESCE(r.last_known_balance, r.registration_balance, 0) / 100
+            ELSE COALESCE(r.last_known_balance, r.registration_balance, 0)
+          END
+        ), 0) as total_balance,
+        COALESCE(SUM(
+          CASE WHEN r.account_type = 'real' THEN
             CASE WHEN r.is_cent
-              THEN COALESCE(l.current_balance, r.last_known_balance, 0) / 100
-              ELSE COALESCE(l.current_balance, r.last_known_balance, 0)
+              THEN COALESCE(r.last_known_balance, r.registration_balance, 0) / 100
+              ELSE COALESCE(r.last_known_balance, r.registration_balance, 0)
             END
           ELSE 0 END
         ), 0) as real_balance,
         COALESCE(SUM(
-          CASE WHEN r.account_type='demo' THEN
-            COALESCE(l.current_balance, r.last_known_balance, 0)
-          ELSE 0 END
+          CASE WHEN r.account_type = 'demo'
+            THEN COALESCE(r.last_known_balance, r.registration_balance, 0)
+            ELSE 0 END
         ), 0) as demo_balance
        FROM trading_registrations r
-       LEFT JOIN wp_leaderboard l ON l.registration_id = r.id AND l.challenge_id = r.challenge_id
-       WHERE r.challenge_id=$1 AND (r.status IS NULL OR r.status != 'removed') AND (r.disqualified IS NULL OR r.disqualified = false)`, [challengeId]);
+       WHERE r.challenge_id = $1
+         AND r.disqualified = false
+         AND r.investor_password IS NOT NULL`, [challengeId]);
 
     return res.json({
       challenge: c,
@@ -239,6 +246,7 @@ router.get('/challenge/:id/full-overview', async (req: any, res: Response) => {
       topViolations: topViolations.rows.map((v: any) => ({ rule: v.rule, count: parseInt(v.cnt) })),
       realBalance: parseFloat(balanceData.rows[0]?.real_balance || '0'),
       demoBalance: parseFloat(balanceData.rows[0]?.demo_balance || '0'),
+      totalBalance: parseFloat(balanceData.rows[0]?.total_balance || '0'),
       onlyCentAccount,
       metrics,
     });
