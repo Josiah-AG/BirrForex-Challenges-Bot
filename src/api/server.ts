@@ -2168,12 +2168,15 @@ app.post('/api/host/challenge/:id/upload-csv', hostAuthMiddleware, async (req: a
             await new Promise(r => setTimeout(r, 800));
           } catch (rowErr) {
             let errMsg = (rowErr as Error).message;
+            const rowIndex = rows.rows.indexOf(row) + 1;
             // Parse PostgreSQL duplicate key errors into friendly messages
             if (errMsg.includes('duplicate key') || errMsg.includes('unique constraint')) {
-              if (errMsg.includes('account_number')) errMsg = `Account #${row.account_number} is already registered in this challenge`;
-              else if (errMsg.includes('email')) errMsg = `Email ${row.email || ''} is already registered`;
-              else if (errMsg.includes('nickname')) errMsg = `Nickname "${row.nickname}" is already taken`;
-              else errMsg = 'Duplicate entry — this account or nickname already exists';
+              if (errMsg.includes('account_number')) errMsg = `Row ${rowIndex}: Account #${row.account_number} is already registered in this challenge`;
+              else if (errMsg.includes('email')) errMsg = `Row ${rowIndex}: Email "${row.email}" is already registered`;
+              else if (errMsg.includes('nickname')) errMsg = `Row ${rowIndex}: Nickname "${row.nickname}" is already taken`;
+              else errMsg = `Row ${rowIndex}: "${row.nickname}" (Acct #${row.account_number}) — duplicate entry, already registered`;
+            } else {
+              errMsg = `Row ${rowIndex}: ${errMsg}`;
             }
             await db.query(`UPDATE host_csv_rows SET status = 'failed', error_message = $1 WHERE id = $2`, [errMsg, row.id]);
             failedCount++;
@@ -7454,11 +7457,14 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/host-csv/:uploadId/approve`, adminIpCh
         await new Promise(r => setTimeout(r, 1000));
       } catch (rowErr) {
         let errMsg = (rowErr as Error).message;
+        const rowIndex = rows.rows.indexOf(row) + 1;
         if (errMsg.includes('duplicate key') || errMsg.includes('unique constraint')) {
-          if (errMsg.includes('account_number')) errMsg = `Account #${row.account_number} is already registered`;
-          else if (errMsg.includes('email')) errMsg = `Email ${row.email || ''} is already registered`;
-          else if (errMsg.includes('nickname')) errMsg = `Nickname "${row.nickname}" is already taken`;
-          else errMsg = 'Duplicate entry — already exists';
+          if (errMsg.includes('account_number')) errMsg = `Row ${rowIndex}: Account #${row.account_number} is already registered`;
+          else if (errMsg.includes('email')) errMsg = `Row ${rowIndex}: Email "${row.email}" is already registered`;
+          else if (errMsg.includes('nickname')) errMsg = `Row ${rowIndex}: Nickname "${row.nickname}" is already taken`;
+          else errMsg = `Row ${rowIndex}: "${row.nickname}" (Acct #${row.account_number}) — duplicate entry`;
+        } else {
+          errMsg = `Row ${rowIndex}: ${errMsg}`;
         }
         await db.query(`UPDATE host_csv_rows SET status = 'failed', error_message = $1 WHERE id = $2`, [errMsg, row.id]);
         failedCount++;
