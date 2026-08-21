@@ -75,16 +75,128 @@ router.get('/challenge/:id/full-overview', async (req: any, res: Response) => {
       `SELECT parameters->>'only_cent_account' as only_cent FROM wp_challenge_rules WHERE challenge_id=$1 AND rule_code='config'`, [challengeId]);
     const onlyCentAccount = centCheck.rows[0]?.only_cent === 'true';
 
-    // Basic metrics (matching admin overview Trading Insights)
-    const blownReal = await db.query(`SELECT COUNT(*) as cnt FROM wp_leaderboard WHERE challenge_id=$1 AND zero_balance_at IS NOT NULL AND account_type='real'`, [challengeId]);
-    const blownDemo = await db.query(`SELECT COUNT(*) as cnt FROM wp_leaderboard WHERE challenge_id=$1 AND zero_balance_at IS NOT NULL AND account_type='demo'`, [challengeId]);
-    const dqReal = await db.query(`SELECT COUNT(*) as cnt FROM wp_leaderboard WHERE challenge_id=$1 AND is_disqualified=true AND account_type='real'`, [challengeId]);
-    const dqDemo = await db.query(`SELECT COUNT(*) as cnt FROM wp_leaderboard WHERE challenge_id=$1 AND is_disqualified=true AND account_type='demo'`, [challengeId]);
-    const avgTradesReal = await db.query(`SELECT ROUND(AVG(total_trades)) as avg FROM wp_leaderboard WHERE challenge_id=$1 AND account_type='real' AND total_trades > 0`, [challengeId]);
-    const avgTradesDemo = await db.query(`SELECT ROUND(AVG(total_trades)) as avg FROM wp_leaderboard WHERE challenge_id=$1 AND account_type='demo' AND total_trades > 0`, [challengeId]);
-
+    // Basic metrics (matching admin overview Trading Insights — full version)
     const challengeType = c.type || 'hybrid';
     const metrics: any = { challengeType };
+
+    const buildMetricsForCategory = async (category: string | null) => {
+      const catJoin = category ? ` AND r.account_type = '${category}'` : '';
+      const catWhere = category ? ` AND t.registration_id IN (SELECT id FROM trading_registrations WHERE challenge_id = ${challengeId} AND account_type = '${category}')` : '';
+
+      const maxProfit = await db.query(
+        `SELECT t.profit, t.symbol, r.nickname, r.is_cent
+         FROM wp_trades t JOIN trading_registrations r ON t.registration_id = r.id
+         WHERE t.challenge_id = $1 AND t.is_qualified = true${catWhere}
+         ORDER BY t.profit DESC LIMIT 1`, [challengeId]);
+
+      const maxLoss = await db.query(
+        `SELECT t.profit, t.symbol, r.nickname, r.is_cent
+         FROM wp_trades t JOIN trading_registrations r ON t.registration_id = r.id
+         WHERE t.challenge_id = $1${catWhere}
+         ORDER BY t.profit ASC LIMIT 1`, [challengeId]);
+
+      const bestQualWin = await db.query(
+        `SELECT r.nickname,
+                (SELECT COUNT(*) FROM wp_trades t2 WHERE t2.registration_id = l.registration_id AND t2.challenge_id = $1) as total_trades,
+                CASE WHEN (SELECT COUNT(*) FROM wp_trades t2 WHERE t2.registration_id = l.registration_id AND t2.challenge_id = $1 AND t2.is_qualified = true) > 0 THEN
+                  LEAST(100, ROUND(
+                    (SELECT COUNT(*)::numeric FROM wp_trades t2 WHERE t2.registration_id = l.registration_id AND t2.challenge_id = $1 AND t2.is_qualified = true AND t2.profit > 0)
+                    / NULLIF((SELECT COUNT(*) FROM wp_trades t2 WHERE t2.registration_id = l.registration_id AND t2.challenge_id = $1 AND t2.is_qualified = true), 0) * 100))
+                ELSE 0 END as qualified_win_rate
+         FROM wp_leaderboard l JOIN trading_registrations r ON l.registration_id = r.id
+         WHERE l.challenge_id = $1 AND (r.disqualified IS NULL OR r.disqualified = false)${catJoin}
+         AND (SELECT COUNT(*) FROM wp_trades t2 WHERE t2.registration_id = l.registration_id AND t2.challenge_id = $1) >= 5
+         ORDER BY qualified_win_rate DESC, total_trades DESC LIMIT 1`, [challengeId]);
+
+      const bestOverallWin = await db.query(
+        `SELECT r.nickname,
+                (SELECT COUNT(*) FROM wp_trades t2 WHERE t2.registration_id = l.registration_id AND t2.challenge_id = $1) as total_trades,
+                CASE WHEN (SELECT COUNT(*) FROM wp_trades t2 WHERE t2.registration_id = l.registration_id AND t2.challenge_id = $1) >= 5 THEN
+                  LEAST(100, ROUND(
+                    (SELECT COUNT(*)::numeric FROM wp_trades t2 WHERE t2.registration_id = l.registration_id AND t2.challenge_id = $1 AND t2.profit > 0)
+                    / NULLIF((SELECT COUNT(*) FROM wp_trades t2 WHERE t2.registration_id = l.registration_id AND t2.challenge_id = $1), 0) * 100))
+                ELSE 0 END as overall_win_rate
+         FROM wp_leaderboard l JOIN trading_registrations r ON l.registration_id = r.id
+         WHERE l.challenge_id = $1 AND (r.disqualified IS NULL OR r.disqualified = false)${catJoin}
+         AND (SELECT COUNT(*) FROM wp_trades t2 WHERE t2.registration_id = l.registration_id AND t2.challenge_id = $1) >= 5
+         ORDER BY overall_win_rate DESC, total_trades DESC LIMIT 1`, [challengeId]);
+
+      const mostPair = await db.query(
+        `SELECT REGEXP_REPLACE(symbol, '[a-z]$', '') as symbol, COUNT(*) as trade_count, COALESCE(SUM(volume), 0) as total_lots
+         FROM wp_trades t WHERE challenge_id = $1${catWhere}
+         GROUP BY REGEXP_REPLACE(symbol, '[a-z]$', '') ORDER BY trade_count DESC LIMIT 1`, [challengeId]);
+
+      const leastPair = await db.query(
+        `SELECT REGEXP_REPLACE(symbol, '[a-z]$', '') as symbol, COUNT(*) as trade_count, COALESCE(SUM(volume), 0) as total_lots
+         FROM wp_trades t WHERE challenge_id = $1${catWhere}
+         GROUP BY REGEXP_REPLACE(symbol, '[a-z]$', '') ORDER BY trade_count ASC LIMIT 1`, [challengeId]);
+
+      const blown = await db.query(
+        `SELECT COUNT(*) as cnt FROM wp_leaderboard l
+         JOIN trading_registrations r ON l.registration_id = r.id
+         WHERE l.challenge_id = $1 AND (l.zero_balance_at IS NOT NULL OR (l.total_trades > 0 AND l.current_balance <= 0))${catJoin}`, [challengeId]);
+
+      const disqualified = await db.query(
+        `SELECT COUNT(*) as cnt FROM trading_registrations r
+         WHERE r.challenge_id = $1 AND r.disqualified = true${catJoin}`, [challengeId]);
+
+      const mostDay = await db.query(
+        `SELECT DATE(close_time) as day, COUNT(*) as trade_count
+         FROM wp_trades t WHERE challenge_id = $1${catWhere}
+         GROUP BY DATE(close_time) ORDER BY trade_count DESC LIMIT 1`, [challengeId]);
+
+      const leastDay = await db.query(
+        `SELECT DATE(close_time) as day, COUNT(*) as trade_count
+         FROM wp_trades t WHERE challenge_id = $1${catWhere}
+         GROUP BY DATE(close_time) ORDER BY trade_count ASC LIMIT 1`, [challengeId]);
+
+      const avgTrades = await db.query(
+        `SELECT ROUND(AVG(total_trades), 1) as avg_trades FROM wp_leaderboard l
+         JOIN trading_registrations r ON l.registration_id = r.id
+         WHERE l.challenge_id = $1 AND l.total_trades > 0${catJoin}`, [challengeId]);
+
+      const rkrQuery = await db.query(
+        `SELECT r.nickname, l.qualified_trades, l.total_trades,
+                ROUND((l.qualified_trades::numeric / NULLIF(l.total_trades, 0)) * 100) as rkr
+         FROM wp_leaderboard l JOIN trading_registrations r ON l.registration_id = r.id
+         WHERE l.challenge_id = $1 AND l.total_trades > 0 AND (r.disqualified IS NULL OR r.disqualified = false)${catJoin}
+         ORDER BY rkr DESC, l.adjusted_balance DESC`, [challengeId]);
+
+      let bestRuleKeeping: any = null;
+      let worstRuleKeeping: any = null;
+      if (rkrQuery.rows.length > 0) {
+        const bestRkr = parseInt(rkrQuery.rows[0].rkr || '0');
+        const bestTied = rkrQuery.rows.filter((r: any) => parseInt(r.rkr || '0') === bestRkr);
+        bestRuleKeeping = { rkr: bestRkr, nickname: bestTied[0].nickname, tiedCount: bestTied.length };
+        const sortedAsc = [...rkrQuery.rows].sort((a: any, b: any) => parseInt(a.rkr || '0') - parseInt(b.rkr || '0'));
+        const worstRkr = parseInt(sortedAsc[0].rkr || '0');
+        const worstTied = sortedAsc.filter((r: any) => parseInt(r.rkr || '0') === worstRkr);
+        worstRuleKeeping = { rkr: worstRkr, nickname: worstTied[0].nickname, tiedCount: worstTied.length };
+      }
+
+      return {
+        maxProfitTrade: maxProfit.rows[0] ? { profit: parseFloat(maxProfit.rows[0].profit), symbol: maxProfit.rows[0].symbol, nickname: maxProfit.rows[0].nickname, isCent: maxProfit.rows[0].is_cent || false } : null,
+        maxLossTrade: maxLoss.rows[0] ? { profit: parseFloat(maxLoss.rows[0].profit), symbol: maxLoss.rows[0].symbol, nickname: maxLoss.rows[0].nickname, isCent: maxLoss.rows[0].is_cent || false } : null,
+        bestQualifiedWinRate: bestQualWin.rows[0] ? { winRate: parseInt(bestQualWin.rows[0].qualified_win_rate || '0'), nickname: bestQualWin.rows[0].nickname, trades: parseInt(bestQualWin.rows[0].total_trades) } : null,
+        bestOverallWinRate: bestOverallWin.rows[0] ? { winRate: parseInt(bestOverallWin.rows[0].overall_win_rate || '0'), nickname: bestOverallWin.rows[0].nickname, trades: parseInt(bestOverallWin.rows[0].total_trades) } : null,
+        mostTradedPair: mostPair.rows[0] ? { symbol: mostPair.rows[0].symbol, tradeCount: parseInt(mostPair.rows[0].trade_count), totalLots: parseFloat(mostPair.rows[0].total_lots) } : null,
+        leastTradedPair: leastPair.rows[0] ? { symbol: leastPair.rows[0].symbol, tradeCount: parseInt(leastPair.rows[0].trade_count), totalLots: parseFloat(leastPair.rows[0].total_lots) } : null,
+        blownAccounts: parseInt(blown.rows[0]?.cnt || '0'),
+        disqualifiedAccounts: parseInt(disqualified.rows[0]?.cnt || '0'),
+        mostActiveDay: mostDay.rows[0] ? { day: mostDay.rows[0].day, tradeCount: parseInt(mostDay.rows[0].trade_count) } : null,
+        leastActiveDay: leastDay.rows[0] ? { day: leastDay.rows[0].day, tradeCount: parseInt(leastDay.rows[0].trade_count) } : null,
+        avgTradesPerUser: parseFloat(avgTrades.rows[0]?.avg_trades || '0'),
+        bestRuleKeeping,
+        worstRuleKeeping,
+      };
+    };
+
+    if (challengeType === 'hybrid') {
+      metrics.real = await buildMetricsForCategory('real');
+      metrics.demo = await buildMetricsForCategory('demo');
+    } else {
+      metrics.combined = await buildMetricsForCategory(null);
+    }
 
     // Balance totals — divide cent balances by 100 to show in USD (matching admin)
     const balanceData = await db.query(
@@ -105,13 +217,6 @@ router.get('/challenge/:id/full-overview', async (req: any, res: Response) => {
        FROM trading_registrations r
        LEFT JOIN wp_leaderboard l ON l.registration_id = r.id AND l.challenge_id = r.challenge_id
        WHERE r.challenge_id=$1 AND (r.status IS NULL OR r.status != 'removed') AND (r.disqualified IS NULL OR r.disqualified = false)`, [challengeId]);
-
-    if (challengeType === 'hybrid') {
-      metrics.real = { blownAccounts: parseInt(blownReal.rows[0]?.cnt || '0'), disqualifiedAccounts: parseInt(dqReal.rows[0]?.cnt || '0'), avgTradesPerUser: parseInt(avgTradesReal.rows[0]?.avg || '0') };
-      metrics.demo = { blownAccounts: parseInt(blownDemo.rows[0]?.cnt || '0'), disqualifiedAccounts: parseInt(dqDemo.rows[0]?.cnt || '0'), avgTradesPerUser: parseInt(avgTradesDemo.rows[0]?.avg || '0') };
-    } else {
-      metrics.combined = { blownAccounts: parseInt(blownReal.rows[0]?.cnt || '0') + parseInt(blownDemo.rows[0]?.cnt || '0'), disqualifiedAccounts: parseInt(dqReal.rows[0]?.cnt || '0') + parseInt(dqDemo.rows[0]?.cnt || '0'), avgTradesPerUser: parseInt(avgTradesReal.rows[0]?.avg || '0') || parseInt(avgTradesDemo.rows[0]?.avg || '0') };
-    }
 
     return res.json({
       challenge: c,
