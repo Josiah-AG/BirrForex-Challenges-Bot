@@ -254,6 +254,38 @@ class EmailService {
       return false;
     }
   }
+  /**
+   * Send registration removed notification email
+   */
+  async sendUnregistered(to: string, data: {
+    nickname: string;
+    challengeTitle: string;
+    reason: string;
+  }): Promise<boolean> {
+    if (!this.isConfigured()) return false;
+    try {
+      const content = `
+        <h2 style="color: #d97706; font-size: 20px; margin: 0 0 8px; font-weight: 700;">Registration Removed</h2>
+        <p style="color: #374151; font-size: 15px; line-height: 1.6; margin: 0 0 24px;">
+          Hi <strong>${data.nickname}</strong>, your registration for <strong>${data.challengeTitle}</strong> has been removed.
+        </p>
+
+        <div style="background: #fffbeb; border-radius: 8px; padding: 14px 16px; border: 1px solid #fde68a; margin-bottom: 20px;">
+          <p style="color: #64748b; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; margin: 0 0 6px; font-weight: 600;">Reason</p>
+          <p style="color: #92400e; font-size: 14px; margin: 0; line-height: 1.5;">${data.reason}</p>
+        </div>
+
+        <p style="color: #6b7280; font-size: 13px; margin: 0; line-height: 1.5;">
+          If you believe this is an error, please contact the challenge host for more information.
+        </p>
+      `;
+      await resend.emails.send({ from: FROM_ADDRESS, to, subject: `Registration Removed — ${data.challengeTitle}`, html: wrapEmail(content) });
+      return true;
+    } catch (error) {
+      console.error('Email send error (unregistered):', error);
+      return false;
+    }
+  }
 }
 
 export const emailService = new EmailService();

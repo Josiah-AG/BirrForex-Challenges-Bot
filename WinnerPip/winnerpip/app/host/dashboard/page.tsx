@@ -741,7 +741,7 @@ export default function HostDashboardPage() {
                       <button onClick={async () => {
                         if (!actionMessage.trim()) return;
                         const endpoint = actionModal.type === 'unverify' ? 'unverify' : 'disqualify';
-                        const body: any = { registrationId: actionModal.participant.id };
+                        const body: any = { registrationId: actionModal.participant.id, reason: actionMessage };
                         if (actionModal.type === 'disqualify') body.reason = actionMessage;
                         await doAction(`${API_URL}/api/host/challenge/${selectedChallengeId}/${endpoint}`, 'POST', body);
                         setActionModal(null); setActionMessage("");

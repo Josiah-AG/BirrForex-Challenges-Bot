@@ -468,12 +468,31 @@ router.post('/challenge/:id/disqualify', async (req: any, res: Response) => {
   try {
     const { registrationId, reason } = req.body;
     if (!registrationId) return res.status(400).json({ error: 'registrationId required' });
+
+    // Get participant info before DQ (for email)
+    const participant = await db.query(`SELECT nickname, email FROM trading_registrations WHERE id=$1 AND challenge_id=$2`, [registrationId, challengeId]);
+    const challengeInfo = await db.query(`SELECT title FROM trading_challenges WHERE id=$1`, [challengeId]);
+
     await db.query(
       `UPDATE trading_registrations SET disqualified=true, disqualified_reason=$1 WHERE id=$2 AND challenge_id=$3`,
       [reason || 'Disqualified by host', registrationId, challengeId]);
     await db.query(
       `UPDATE wp_leaderboard SET is_disqualified=true, disqualify_reason=$1 WHERE registration_id=$2 AND challenge_id=$3`,
       [reason || 'Disqualified by host', registrationId, challengeId]);
+
+    // Send disqualification email
+    const p = participant.rows[0];
+    if (p?.email) {
+      try {
+        const { emailService } = require('../services/emailService');
+        emailService.sendDisqualification(p.email, {
+          nickname: p.nickname || 'Participant',
+          challengeTitle: challengeInfo.rows[0]?.title || 'Trading Challenge',
+          reason: reason || 'Disqualified by host',
+        });
+      } catch {}
+    }
+
     return res.json({ success: true });
   } catch (error) {
     return res.status(500).json({ error: 'Internal server error' });
@@ -485,11 +504,30 @@ router.post('/challenge/:id/unverify', async (req: any, res: Response) => {
   const challengeId = await verifyOwnership(req, res);
   if (!challengeId) return;
   try {
-    const { registrationId } = req.body;
+    const { registrationId, reason } = req.body;
     if (!registrationId) return res.status(400).json({ error: 'registrationId required' });
+
+    // Get participant info before removal (for email)
+    const participant = await db.query(`SELECT nickname, email FROM trading_registrations WHERE id=$1 AND challenge_id=$2`, [registrationId, challengeId]);
+    const challengeInfo = await db.query(`SELECT title FROM trading_challenges WHERE id=$1`, [challengeId]);
+
     await db.query(`UPDATE trading_registrations SET status='removed' WHERE id=$1 AND challenge_id=$2`, [registrationId, challengeId]);
     await db.query(`DELETE FROM wp_leaderboard WHERE registration_id=$1 AND challenge_id=$2`, [registrationId, challengeId]);
     await db.query(`DELETE FROM wp_leaderboard_staging WHERE registration_id=$1 AND challenge_id=$2`, [registrationId, challengeId]);
+
+    // Send removal email
+    const p = participant.rows[0];
+    if (p?.email) {
+      try {
+        const { emailService } = require('../services/emailService');
+        emailService.sendUnregistered(p.email, {
+          nickname: p.nickname || 'Participant',
+          challengeTitle: challengeInfo.rows[0]?.title || 'Trading Challenge',
+          reason: reason || 'Registration removed by host',
+        });
+      } catch {}
+    }
+
     return res.json({ success: true });
   } catch (error) {
     return res.status(500).json({ error: 'Internal server error' });
