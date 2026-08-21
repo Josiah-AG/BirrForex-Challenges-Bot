@@ -455,12 +455,12 @@ export default function HostDashboardPage() {
                         const dataLines = hasHeader ? lines.slice(1) : lines;
                         const participants = dataLines.filter(l => l.trim()).map(line => {
                           const cols = line.split(',').map(c => c.trim().replace(/^["']|["']$/g, ''));
-                          return { nickname: cols[0], email: cols[1], accountType: cols[2], accountNumber: cols[3], server: cols[4], investorPassword: cols[5] };
+                          return { nickname: cols[0], email: cols[1], accountType: (cols[2] || '').toLowerCase(), accountNumber: cols[3], server: cols[4], investorPassword: cols[5] };
                         }).filter(p => p.nickname && p.accountNumber && p.server && p.investorPassword);
                         if (participants.length === 0) { setCsvResult({ error: 'No valid rows found. Expected: nickname, email, account_type, account_number, server, investor_password' }); setCsvUploading(false); return; }
                         const res = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/upload-csv`, { method: 'POST', headers: headers(), body: JSON.stringify({ participants }) });
                         const data = await res.json();
-                        if (res.ok && data.success) { setCsvResult({ success: true, count: data.totalRows }); } else { setCsvResult({ error: data.error || 'Upload failed' }); }
+                        if (res.ok && data.success) { setCsvResult({ success: true, count: data.totalRows }); } else { setCsvResult({ error: data.error || 'Upload failed', details: data.details || [] }); }
                       } catch { setCsvResult({ error: 'Failed to read file' }); }
                       setCsvUploading(false);
                       e.target.value = '';
@@ -471,7 +471,7 @@ export default function HostDashboardPage() {
                   </label>
                 </div>
                 {csvResult?.success && <p className="text-xs text-profit mt-3">Uploaded {csvResult.count} participants. Pending admin approval for verification.</p>}
-                {csvResult?.error && <p className="text-xs text-loss mt-3">{csvResult.error}</p>}
+                {csvResult?.error && <div className="mt-3"><p className="text-xs text-loss">{csvResult.error}</p>{csvResult.details?.length > 0 && <ul className="mt-1 space-y-0.5">{csvResult.details.map((d: string, i: number) => <li key={i} className="text-[10px] text-loss/80">• {d}</li>)}</ul>}</div>}
 
                 {/* Upload History & Status */}
                 {csvStatus?.uploads?.length > 0 && (

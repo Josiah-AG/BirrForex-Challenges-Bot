@@ -2053,7 +2053,7 @@ app.post('/api/host/challenge/:id/upload-csv', hostAuthMiddleware, async (req: a
     // Verify ownership
     const ownership = await db.query(`SELECT status FROM trading_challenges WHERE id = $1 AND host_id = $2`, [challengeId, req.hostAccount.hostId]);
     if (!ownership.rows[0]) return res.status(404).json({ error: 'Challenge not found' });
-    if (ownership.rows[0].status !== 'registration_open') return res.status(400).json({ error: 'Registration is not open for this challenge' });
+    if (!['draft', 'pending_approval', 'registration_open', 'active'].includes(ownership.rows[0].status)) return res.status(400).json({ error: 'Challenge is not in a state that accepts registrations' });
 
     const { participants } = req.body;
     if (!Array.isArray(participants) || participants.length === 0) {
