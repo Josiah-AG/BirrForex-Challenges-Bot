@@ -76,10 +76,12 @@ class EmailService {
     accountNumber: string;
     accountType: string;
     hostName?: string;
+    balance?: string;
   }): Promise<boolean> {
     if (!this.isConfigured()) return false;
     try {
       const hostedBy = data.hostName ? `<p style="color: #6b7280; font-size: 12px; margin: 0;">Hosted by <strong>${data.hostName}</strong></p>` : '';
+      const balanceRow = data.balance ? `<tr><td style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; color: #64748b; font-size: 13px;">Balance</td><td style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; color: #16a34a; font-size: 13px; text-align: right; font-weight: 600;">${data.balance}</td></tr>` : '';
       const content = `
         <h2 style="color: #16a34a; font-size: 20px; margin: 0 0 8px; font-weight: 700;">Registration Confirmed</h2>
         <p style="color: #374151; font-size: 15px; line-height: 1.6; margin: 0 0 24px;">
@@ -95,6 +97,7 @@ class EmailService {
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom: 20px;">
           <tr><td style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; color: #64748b; font-size: 13px;">Account</td><td style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; color: #111827; font-size: 13px; text-align: right; font-weight: 600;">${data.accountNumber}</td></tr>
           <tr><td style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; color: #64748b; font-size: 13px;">Type</td><td style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; color: #111827; font-size: 13px; text-align: right; font-weight: 600;">${data.accountType.charAt(0).toUpperCase() + data.accountType.slice(1)}</td></tr>
+          ${balanceRow}
           <tr><td style="padding: 10px 0; color: #64748b; font-size: 13px;">Nickname</td><td style="padding: 10px 0; color: #111827; font-size: 13px; text-align: right; font-weight: 600;">${data.nickname}</td></tr>
         </table>
 

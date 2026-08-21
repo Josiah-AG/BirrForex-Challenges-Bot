@@ -655,6 +655,7 @@ app.post('/api/challenges/:id/register', authLimiter, async (req, res) => {
         accountNumber: accountNumber.trim(),
         accountType,
         hostName: challengeData?.host_name || null,
+        balance: isCent ? `${Number(verifyResult.balance || 0).toFixed(2)}¢` : `$${Number(verifyResult.balance || 0).toFixed(2)}`,
       });
     } catch (emailErr) {
       console.error('Registration email failed (non-critical):', emailErr);
@@ -2182,13 +2183,45 @@ app.post('/api/host/challenge/:id/upload-csv', hostAuthMiddleware, async (req: a
               }
             }
 
+            // Deposit/balance validation
+            const balance = result.balance || 0;
+            const challengeData = await db.query(`SELECT starting_balance, deposit_mode FROM trading_challenges WHERE id=$1`, [challengeId]);
+            const startBal = parseFloat(challengeData.rows[0]?.starting_balance || '0');
+            const depositMode = challengeData.rows[0]?.deposit_mode || 'fixed';
+            const effectiveBalance = isCent ? balance / 100 : balance;
+
+            if (row.account_type === 'real' || depositMode !== 'fixed') {
+              if (depositMode === 'fixed' && startBal > 0) {
+                // Fixed: balance must not exceed starting_balance (with 5% tolerance)
+                const maxAllowed = isCent ? startBal * 100 * 1.05 : startBal * 1.05;
+                if (balance > maxAllowed) {
+                  await db.query(`UPDATE host_csv_rows SET status = 'failed', error_message = $1 WHERE id = $2`, [`Balance ${isCent ? balance.toFixed(0) + '¢' : '$' + balance.toFixed(2)} exceeds the allowed deposit of ${isCent ? (startBal * 100).toFixed(0) + '¢' : '$' + startBal.toFixed(2)}`, row.id]);
+                  failedCount++; continue;
+                }
+              } else if (depositMode === 'max_limit' && startBal > 0) {
+                // Max limit: balance must not exceed the cap
+                const maxAllowed = isCent ? startBal * 100 * 1.05 : startBal * 1.05;
+                if (balance > maxAllowed) {
+                  await db.query(`UPDATE host_csv_rows SET status = 'failed', error_message = $1 WHERE id = $2`, [`Balance ${isCent ? balance.toFixed(0) + '¢' : '$' + balance.toFixed(2)} exceeds maximum deposit of ${isCent ? (startBal * 100).toFixed(0) + '¢' : '$' + startBal.toFixed(2)}`, row.id]);
+                  failedCount++; continue;
+                }
+              } else if (depositMode === 'min_limit' && startBal > 0) {
+                // Min limit: balance must be at least the minimum
+                const minRequired = isCent ? startBal * 100 : startBal;
+                if (balance < minRequired) {
+                  await db.query(`UPDATE host_csv_rows SET status = 'failed', error_message = $1 WHERE id = $2`, [`Balance ${isCent ? balance.toFixed(0) + '¢' : '$' + balance.toFixed(2)} is below the minimum deposit of ${isCent ? (startBal * 100).toFixed(0) + '¢' : '$' + startBal.toFixed(2)}`, row.id]);
+                  failedCount++; continue;
+                }
+              }
+            }
+
             // Remove any previously removed registration with same account/email to avoid unique constraint
             await db.query(`DELETE FROM trading_registrations WHERE challenge_id=$1 AND status='removed' AND (account_number=$2 OR (email IS NOT NULL AND email=$3))`, [challengeId, row.account_number, row.email || '']);
 
             const reg = await db.query(
-              `INSERT INTO trading_registrations (challenge_id, user_id, username, nickname, account_type, account_subtype, email, account_number, mt5_server, investor_password, is_cent, source, connection_verified, registered_at)
-               VALUES ($1, $2, NULL, $3, $4, $5, $6, $7, $8, $9, $10, 'csv', true, NOW()) RETURNING id`,
-              [challengeId, -1 * Date.now() - Math.floor(Math.random() * 10000), row.nickname, row.account_type, accountSubtype, row.email || null, row.account_number, matchedServer, row.investor_password, isCent]
+              `INSERT INTO trading_registrations (challenge_id, user_id, username, nickname, account_type, account_subtype, email, account_number, mt5_server, investor_password, is_cent, source, connection_verified, registered_at, registration_balance, last_known_balance)
+               VALUES ($1, $2, NULL, $3, $4, $5, $6, $7, $8, $9, $10, 'csv', true, NOW(), $11, $11) RETURNING id`,
+              [challengeId, -1 * Date.now() - Math.floor(Math.random() * 10000), row.nickname, row.account_type, accountSubtype, row.email || null, row.account_number, matchedServer, row.investor_password, isCent, balance]
             );
             await db.query(`UPDATE host_csv_rows SET status = 'verified', registration_id = $1 WHERE id = $2`, [reg.rows[0].id, row.id]);
             verifiedCount++;
@@ -2204,6 +2237,7 @@ app.post('/api/host/challenge/:id/upload-csv', hostAuthMiddleware, async (req: a
                   accountNumber: row.account_number,
                   accountType: row.account_type,
                   hostName: challengeInfo.rows[0]?.host_name || null,
+                  balance: isCent ? `${balance.toFixed(2)}¢` : `$${balance.toFixed(2)}`,
                 });
               } catch {}
             }
