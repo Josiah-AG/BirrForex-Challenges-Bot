@@ -440,7 +440,7 @@ export default function HostDashboardPage() {
               {/* CSV Upload Section */}
               <div className="glass rounded-2xl border border-white/10 p-5">
                 <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2"><FileText size={16} className="text-gold" /> Upload Participants (CSV)</h3>
-                <p className="text-[10px] text-gray-500 mb-3">Upload a CSV file with columns: nickname, account_type (demo/real), account_number, server, investor_password</p>
+                <p className="text-[10px] text-gray-500 mb-3">Upload a CSV file with columns: nickname, email, account_type (demo/real), account_number, server, investor_password</p>
                 <div className="flex items-center gap-3">
                   <label className="flex-1 cursor-pointer">
                     <input type="file" accept=".csv,.txt" className="hidden" onChange={async (e) => {
@@ -455,9 +455,9 @@ export default function HostDashboardPage() {
                         const dataLines = hasHeader ? lines.slice(1) : lines;
                         const participants = dataLines.filter(l => l.trim()).map(line => {
                           const cols = line.split(',').map(c => c.trim().replace(/^["']|["']$/g, ''));
-                          return { nickname: cols[0], accountType: cols[1], accountNumber: cols[2], server: cols[3], investorPassword: cols[4] };
+                          return { nickname: cols[0], email: cols[1], accountType: cols[2], accountNumber: cols[3], server: cols[4], investorPassword: cols[5] };
                         }).filter(p => p.nickname && p.accountNumber && p.server && p.investorPassword);
-                        if (participants.length === 0) { setCsvResult({ error: 'No valid rows found. Expected: nickname, account_type, account_number, server, investor_password' }); setCsvUploading(false); return; }
+                        if (participants.length === 0) { setCsvResult({ error: 'No valid rows found. Expected: nickname, email, account_type, account_number, server, investor_password' }); setCsvUploading(false); return; }
                         const res = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/upload-csv`, { method: 'POST', headers: headers(), body: JSON.stringify({ participants }) });
                         const data = await res.json();
                         if (res.ok && data.success) { setCsvResult({ success: true, count: data.totalRows }); } else { setCsvResult({ error: data.error || 'Upload failed' }); }

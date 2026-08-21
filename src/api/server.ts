@@ -2100,9 +2100,9 @@ app.post('/api/host/challenge/:id/upload-csv', hostAuthMiddleware, async (req: a
     // Insert rows
     for (const p of participants) {
       await db.query(
-        `INSERT INTO host_csv_rows (upload_id, nickname, account_type, account_number, mt5_server, investor_password)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [uploadId, p.nickname.trim(), p.accountType, p.accountNumber.trim(), p.server.trim(), p.investorPassword.trim()]
+        `INSERT INTO host_csv_rows (upload_id, nickname, account_type, account_number, mt5_server, investor_password, email)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [uploadId, p.nickname.trim(), p.accountType, p.accountNumber.trim(), p.server.trim(), p.investorPassword.trim(), p.email?.trim() || null]
       );
     }
 
@@ -7358,7 +7358,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/host-csv/:uploadId/approve`, adminIpCh
             row.nickname,
             row.account_type,
             accountSubtype,
-            null, // email = null for CSV uploads
+            row.email || null, // email from CSV for notifications
             row.account_number,
             matchedServer,
             row.investor_password,

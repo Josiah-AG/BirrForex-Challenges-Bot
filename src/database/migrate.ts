@@ -483,6 +483,10 @@ async function migrate() {
     await db.query(`ALTER TABLE trading_challenges ADD COLUMN IF NOT EXISTS registration_mode VARCHAR(20) DEFAULT 'manual';`).catch(() => {});
     console.log('✅ registration_mode column OK');
 
+    // Email column on host_csv_rows for notifications
+    await db.query(`ALTER TABLE host_csv_rows ADD COLUMN IF NOT EXISTS email VARCHAR(255);`).catch(() => {});
+    console.log('✅ host_csv_rows email column OK');
+
     console.log('✅ Database migration completed successfully!');
     process.exit(0);
   } catch (error) {
