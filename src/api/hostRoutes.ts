@@ -469,9 +469,9 @@ router.post('/challenge/:id/disqualify', async (req: any, res: Response) => {
     const { registrationId, reason } = req.body;
     if (!registrationId) return res.status(400).json({ error: 'registrationId required' });
 
-    // Get participant info before DQ (for email)
+    // Get participant info + host name
     const participant = await db.query(`SELECT nickname, email FROM trading_registrations WHERE id=$1 AND challenge_id=$2`, [registrationId, challengeId]);
-    const challengeInfo = await db.query(`SELECT title FROM trading_challenges WHERE id=$1`, [challengeId]);
+    const challengeInfo = await db.query(`SELECT c.title, h.display_name as host_name FROM trading_challenges c LEFT JOIN hosts h ON h.id = c.host_id WHERE c.id=$1`, [challengeId]);
 
     await db.query(
       `UPDATE trading_registrations SET disqualified=true, disqualified_reason=$1 WHERE id=$2 AND challenge_id=$3`,
@@ -489,6 +489,7 @@ router.post('/challenge/:id/disqualify', async (req: any, res: Response) => {
           nickname: p.nickname || 'Participant',
           challengeTitle: challengeInfo.rows[0]?.title || 'Trading Challenge',
           reason: reason || 'Disqualified by host',
+          hostName: challengeInfo.rows[0]?.host_name || null,
         });
       } catch {}
     }
@@ -507,9 +508,9 @@ router.post('/challenge/:id/unverify', async (req: any, res: Response) => {
     const { registrationId, reason } = req.body;
     if (!registrationId) return res.status(400).json({ error: 'registrationId required' });
 
-    // Get participant info before removal (for email)
+    // Get participant info + host name
     const participant = await db.query(`SELECT nickname, email FROM trading_registrations WHERE id=$1 AND challenge_id=$2`, [registrationId, challengeId]);
-    const challengeInfo = await db.query(`SELECT title FROM trading_challenges WHERE id=$1`, [challengeId]);
+    const challengeInfo = await db.query(`SELECT c.title, h.display_name as host_name FROM trading_challenges c LEFT JOIN hosts h ON h.id = c.host_id WHERE c.id=$1`, [challengeId]);
 
     await db.query(`UPDATE trading_registrations SET status='removed' WHERE id=$1 AND challenge_id=$2`, [registrationId, challengeId]);
     await db.query(`DELETE FROM wp_leaderboard WHERE registration_id=$1 AND challenge_id=$2`, [registrationId, challengeId]);
@@ -523,7 +524,8 @@ router.post('/challenge/:id/unverify', async (req: any, res: Response) => {
         emailService.sendUnregistered(p.email, {
           nickname: p.nickname || 'Participant',
           challengeTitle: challengeInfo.rows[0]?.title || 'Trading Challenge',
-          reason: reason || 'Registration removed by host',
+          reason: reason || 'Your registration has been removed',
+          hostName: challengeInfo.rows[0]?.host_name || null,
         });
       } catch {}
     }

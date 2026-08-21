@@ -75,9 +75,11 @@ class EmailService {
     challengeTitle: string;
     accountNumber: string;
     accountType: string;
+    hostName?: string;
   }): Promise<boolean> {
     if (!this.isConfigured()) return false;
     try {
+      const hostedBy = data.hostName ? `<p style="color: #6b7280; font-size: 12px; margin: 0;">Hosted by <strong>${data.hostName}</strong></p>` : '';
       const content = `
         <h2 style="color: #16a34a; font-size: 20px; margin: 0 0 8px; font-weight: 700;">Registration Confirmed</h2>
         <p style="color: #374151; font-size: 15px; line-height: 1.6; margin: 0 0 24px;">
@@ -87,6 +89,7 @@ class EmailService {
         <div style="background: #f8fafc; border-radius: 10px; padding: 16px 20px; border: 1px solid #e2e8f0; margin-bottom: 20px;">
           <p style="color: #6366f1; font-size: 15px; font-weight: 700; margin: 0 0 2px;">${data.challengeTitle}</p>
           <p style="color: #64748b; font-size: 12px; margin: 0;">Your spot is confirmed</p>
+          ${hostedBy}
         </div>
 
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom: 20px;">
@@ -152,9 +155,13 @@ class EmailService {
     nickname: string;
     challengeTitle: string;
     reason: string;
+    hostName?: string;
   }): Promise<boolean> {
     if (!this.isConfigured()) return false;
     try {
+      const contactLine = data.hostName
+        ? `If you believe this is an error, please contact <strong>${data.hostName}</strong> for more information.`
+        : `If you believe this is an error, please contact the challenge host for more information.`;
       const content = `
         <h2 style="color: #dc2626; font-size: 20px; margin: 0 0 8px; font-weight: 700;">Disqualified</h2>
         <p style="color: #374151; font-size: 15px; line-height: 1.6; margin: 0 0 24px;">
@@ -167,7 +174,7 @@ class EmailService {
         </div>
 
         <p style="color: #6b7280; font-size: 13px; margin: 0; line-height: 1.5;">
-          If you believe this is an error, please contact the challenge host for more information.
+          ${contactLine}
         </p>
       `;
       await resend.emails.send({ from: FROM_ADDRESS, to, subject: `Disqualified — ${data.challengeTitle}`, html: wrapEmail(content) });
@@ -261,9 +268,13 @@ class EmailService {
     nickname: string;
     challengeTitle: string;
     reason: string;
+    hostName?: string;
   }): Promise<boolean> {
     if (!this.isConfigured()) return false;
     try {
+      const contactLine = data.hostName
+        ? `If you believe this is an error, please contact <strong>${data.hostName}</strong> for more information.`
+        : `If you believe this is an error, please contact the challenge host for more information.`;
       const content = `
         <h2 style="color: #d97706; font-size: 20px; margin: 0 0 8px; font-weight: 700;">Registration Removed</h2>
         <p style="color: #374151; font-size: 15px; line-height: 1.6; margin: 0 0 24px;">
@@ -276,7 +287,7 @@ class EmailService {
         </div>
 
         <p style="color: #6b7280; font-size: 13px; margin: 0; line-height: 1.5;">
-          If you believe this is an error, please contact the challenge host for more information.
+          ${contactLine}
         </p>
       `;
       await resend.emails.send({ from: FROM_ADDRESS, to, subject: `Registration Removed — ${data.challengeTitle}`, html: wrapEmail(content) });
