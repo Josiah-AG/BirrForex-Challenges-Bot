@@ -644,8 +644,8 @@ export class Bot {
                 // Register
                 const reg = await db.query(
                   `INSERT INTO trading_registrations (challenge_id, user_id, username, nickname, account_type, account_subtype, email, account_number, mt5_server, investor_password, is_cent, source, connection_verified, registered_at)
-                   VALUES ($1, 0, NULL, $2, $3, $4, $5, $6, $7, $8, $9, 'csv', true, NOW()) RETURNING id`,
-                  [challengeId, row.nickname, row.account_type, accountSubtype, row.email || null, row.account_number, matchedServer, row.investor_password, isCent]
+                   VALUES ($1, $2, NULL, $3, $4, $5, $6, $7, $8, $9, $10, 'csv', true, NOW()) RETURNING id`,
+                  [challengeId, -1 * Date.now() - Math.floor(Math.random() * 10000), row.nickname, row.account_type, accountSubtype, row.email || null, row.account_number, matchedServer, row.investor_password, isCent]
                 );
                 await db.query(`UPDATE host_csv_rows SET status = 'verified', registration_id = $1 WHERE id = $2`, [reg.rows[0].id, row.id]);
                 verifiedCount++;
