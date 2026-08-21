@@ -71,13 +71,13 @@ router.get('/challenge/:id/full-overview', async (req: any, res: Response) => {
     const challengeType = c.type || 'hybrid';
     const metrics: any = { challengeType };
 
-    // Balance totals (matching admin)
+    // Balance totals (matching admin) — check leaderboard first, fallback to registrations
     const balanceData = await db.query(
-      `SELECT COALESCE(SUM(CASE WHEN r.account_type='real' THEN l.current_balance ELSE 0 END), 0) as real_balance,
-              COALESCE(SUM(CASE WHEN r.account_type='demo' THEN l.current_balance ELSE 0 END), 0) as demo_balance
-       FROM wp_leaderboard l
-       JOIN trading_registrations r ON r.id = l.registration_id
-       WHERE l.challenge_id=$1 AND l.is_disqualified=false`, [challengeId]);
+      `SELECT COALESCE(SUM(CASE WHEN r.account_type='real' THEN COALESCE(l.current_balance, r.last_known_balance, 0) ELSE 0 END), 0) as real_balance,
+              COALESCE(SUM(CASE WHEN r.account_type='demo' THEN COALESCE(l.current_balance, r.last_known_balance, 0) ELSE 0 END), 0) as demo_balance
+       FROM trading_registrations r
+       LEFT JOIN wp_leaderboard l ON l.registration_id = r.id AND l.challenge_id = r.challenge_id
+       WHERE r.challenge_id=$1 AND (r.status IS NULL OR r.status != 'removed') AND r.disqualified = false`, [challengeId]);
 
     if (challengeType === 'hybrid') {
       metrics.real = { blownAccounts: parseInt(blownReal.rows[0]?.cnt || '0'), disqualifiedAccounts: parseInt(dqReal.rows[0]?.cnt || '0'), avgTradesPerUser: parseInt(avgTradesReal.rows[0]?.avg || '0') };
@@ -244,8 +244,19 @@ router.post('/challenge/:id/check-balance', async (req: any, res: Response) => {
     const { vpsService } = require('../services/vpsService');
     const result = await vpsService.verifyConnection(account_number, mt5_server, investor_password);
     if (result.success) {
+      // Persist balance to DB so it shows on refresh
+      if (result.balance != null) {
+        await db.query(
+          `UPDATE trading_registrations SET last_known_balance = $1, pull_status = 'success', last_pull_at = NOW() WHERE id = $2`,
+          [result.balance, registrationId]
+        );
+      }
       return res.json({ success: true, verified: true, balance: result.balance, equity: result.equity, isCent: is_cent });
     } else {
+      // Mark credential failure if applicable
+      if (result.status === 'invalid_credentials') {
+        await db.query(`UPDATE trading_registrations SET pull_status = 'password_changed' WHERE id = $1`, [registrationId]);
+      }
       return res.json({ success: true, verified: false, error: result.message || 'Connection failed', credential_fail: result.status === 'invalid_credentials' });
     }
   } catch (error) {
