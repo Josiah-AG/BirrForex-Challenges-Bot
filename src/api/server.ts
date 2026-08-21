@@ -421,7 +421,7 @@ app.get('/api/challenges', async (req, res) => {
         `SELECT COUNT(*) as total,
                 COUNT(CASE WHEN account_type = 'demo' THEN 1 END) as demo,
                 COUNT(CASE WHEN account_type = 'real' THEN 1 END) as real
-         FROM trading_registrations WHERE challenge_id = $1`,
+         FROM trading_registrations WHERE challenge_id = $1 AND (status IS NULL OR status != 'removed')`,
         [challenge.id]
       );
       challenge.participants = {
