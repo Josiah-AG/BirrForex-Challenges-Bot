@@ -2072,33 +2072,53 @@ app.post('/api/host/challenge/:id/upload-csv', hostAuthMiddleware, async (req: a
       return res.status(409).json({ error: 'You already have a pending upload awaiting admin approval. Wait for it to be processed or contact admin.' });
     }
 
-    // Validate each row
-    const errors: string[] = [];
+    // Validate — skip empty rows, collect warnings for incomplete rows, keep valid ones
+    const validParticipants: any[] = [];
+    const skippedRows: string[] = [];
     for (let i = 0; i < participants.length; i++) {
       const p = participants[i];
-      if (!p.nickname || !p.accountType || !p.accountNumber || !p.server || !p.investorPassword) {
-        errors.push(`Row ${i + 1}: Missing required fields (nickname, accountType, accountNumber, server, investorPassword)`);
+      // Skip completely empty rows
+      if (!p.nickname && !p.accountNumber && !p.server && !p.investorPassword) continue;
+
+      const missing: string[] = [];
+      if (!p.nickname) missing.push('nickname');
+      if (!p.accountType) missing.push('account_type');
+      if (!p.accountNumber) missing.push('account_number');
+      if (!p.server) missing.push('server');
+      if (!p.investorPassword) missing.push('investor_password');
+
+      if (missing.length > 0) {
+        const identifier = p.nickname || p.accountNumber || p.email || `Row ${i + 1}`;
+        skippedRows.push(`${identifier}: missing ${missing.join(', ')}`);
+        continue;
       }
       if (p.accountType && !['demo', 'real'].includes(p.accountType)) {
-        errors.push(`Row ${i + 1}: accountType must be 'demo' or 'real'`);
+        const identifier = p.nickname || p.accountNumber || `Row ${i + 1}`;
+        skippedRows.push(`${identifier}: account_type must be 'demo' or 'real' (got '${p.accountType}')`);
+        continue;
       }
-      if (p.nickname && (p.nickname.length < 2 || p.nickname.length > 30)) {
-        errors.push(`Row ${i + 1}: nickname must be 2-30 characters`);
+      if (p.nickname.length < 2 || p.nickname.length > 30) {
+        skippedRows.push(`${p.nickname}: nickname must be 2-30 characters`);
+        continue;
       }
+      validParticipants.push(p);
     }
-    if (errors.length > 0) {
-      return res.status(400).json({ error: 'Validation errors', details: errors.slice(0, 10) });
+    if (validParticipants.length === 0) {
+      return res.status(400).json({ error: 'No valid participants found after validation', details: skippedRows.slice(0, 10) });
     }
+
+    // Use validParticipants from here
+    const participantsToProcess = validParticipants;
 
     // Create upload record
     const upload = await db.query(
       `INSERT INTO host_csv_uploads (host_id, challenge_id, total_rows) VALUES ($1, $2, $3) RETURNING id`,
-      [req.hostAccount.hostId, challengeId, participants.length]
+      [req.hostAccount.hostId, challengeId, participantsToProcess.length]
     );
     const uploadId = upload.rows[0].id;
 
     // Insert rows
-    for (const p of participants) {
+    for (const p of participantsToProcess) {
       await db.query(
         `INSERT INTO host_csv_rows (upload_id, nickname, account_type, account_number, mt5_server, investor_password, email)
          VALUES ($1, $2, $3, $4, $5, $6, $7)`,
@@ -2124,7 +2144,7 @@ app.post('/api/host/challenge/:id/upload-csv', hostAuthMiddleware, async (req: a
       }
     } catch {}
 
-    return res.json({ success: true, uploadId, totalRows: participants.length });
+    return res.json({ success: true, uploadId, totalRows: participantsToProcess.length, skipped: skippedRows.length, skippedDetails: skippedRows.slice(0, 10) });
   } catch (error) {
     console.error('Host CSV upload error:', error);
     return res.status(500).json({ error: 'Internal server error' });

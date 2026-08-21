@@ -460,7 +460,7 @@ export default function HostDashboardPage() {
                         if (participants.length === 0) { setCsvResult({ error: 'No valid rows found. Expected: nickname, email, account_type, account_number, server, investor_password' }); setCsvUploading(false); return; }
                         const res = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/upload-csv`, { method: 'POST', headers: headers(), body: JSON.stringify({ participants }) });
                         const data = await res.json();
-                        if (res.ok && data.success) { setCsvResult({ success: true, count: data.totalRows }); } else { setCsvResult({ error: data.error || 'Upload failed', details: data.details || [] }); }
+                        if (res.ok && data.success) { setCsvResult({ success: true, count: data.totalRows, skipped: data.skipped || 0, skippedDetails: data.skippedDetails || [] }); } else { setCsvResult({ error: data.error || 'Upload failed', details: data.details || [] }); }
                       } catch { setCsvResult({ error: 'Failed to read file' }); }
                       setCsvUploading(false);
                       e.target.value = '';
@@ -470,7 +470,7 @@ export default function HostDashboardPage() {
                     </div>
                   </label>
                 </div>
-                {csvResult?.success && <p className="text-xs text-profit mt-3">Uploaded {csvResult.count} participants. Pending admin approval for verification.</p>}
+                {csvResult?.success && <div className="mt-3"><p className="text-xs text-profit">Uploaded {csvResult.count} participants. Pending admin approval for verification.</p>{csvResult.skipped > 0 && <div className="mt-2"><p className="text-[10px] text-gold">{csvResult.skipped} row(s) skipped:</p><ul className="mt-1 space-y-0.5">{csvResult.skippedDetails.map((d: string, i: number) => <li key={i} className="text-[10px] text-gold/80">• {d}</li>)}</ul></div>}</div>}
                 {csvResult?.error && <div className="mt-3"><p className="text-xs text-loss">{csvResult.error}</p>{csvResult.details?.length > 0 && <ul className="mt-1 space-y-0.5">{csvResult.details.map((d: string, i: number) => <li key={i} className="text-[10px] text-loss/80">• {d}</li>)}</ul>}</div>}
 
                 {/* Upload History & Status */}
