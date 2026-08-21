@@ -296,8 +296,43 @@ router.delete('/challenge/:id', async (req: any, res: Response) => {
   const challengeId = await verifyOwnership(req, res);
   if (!challengeId) return;
   try {
-    await db.query(`UPDATE trading_challenges SET status='deleted', updated_at=NOW() WHERE id=$1`, [challengeId]);
-    return res.json({ success: true });
+    const challenge = await db.query(`SELECT status, title FROM trading_challenges WHERE id=$1`, [challengeId]);
+    const status = challenge.rows[0]?.status;
+
+    // Draft challenges can be deleted directly by the host
+    if (status === 'draft' || status === 'pending_approval' || status === 'rejected') {
+      await db.query(`UPDATE trading_challenges SET status='deleted', updated_at=NOW() WHERE id=$1`, [challengeId]);
+      return res.json({ success: true });
+    }
+
+    // Active/registration_open/reviewing/completed need admin approval
+    try {
+      const config = require('../../src/config').default || require('../../src/config');
+      const { getTelegram } = require('../../src/bot/bot');
+      const telegram = getTelegram();
+      if (telegram) {
+        const { Markup } = require('telegraf');
+        const gatekeeper = require('../../src/services/challengeGatekeeper');
+        const token = gatekeeper.queueStatusChange({
+          challenge_id: challengeId,
+          new_status: 'deleted',
+          hostName: req.hostAccount?.displayName || 'Host',
+        });
+        await telegram.sendMessage(
+          config.adminUserId,
+          `🗑️ <b>Host Deletion Request</b>\n\n<b>Host:</b> ${req.hostAccount?.displayName || 'Unknown'}\n<b>Challenge:</b> ${challenge.rows[0]?.title || challengeId}\n<b>Current Status:</b> ${status}\n\n⚠️ This challenge has participants/activity. Approve deletion?`,
+          {
+            parse_mode: 'HTML',
+            ...Markup.inlineKeyboard([
+              [Markup.button.callback('✅ Delete', `gate_approve_${token}`)],
+              [Markup.button.callback('❌ Keep', `gate_reject_${token}`)],
+            ]),
+          }
+        );
+      }
+    } catch (_e) { /* silent */ }
+
+    return res.json({ success: true, pending: true, message: 'Deletion request sent to admin for approval.' });
   } catch (error) {
     return res.status(500).json({ error: 'Internal server error' });
   }
