@@ -32,6 +32,7 @@ export default function HostDashboardPage() {
 
   // Rules state
   const [rulesConfig, setRulesConfig] = useState<any>(null);
+  const [savedRulesSnapshot, setSavedRulesSnapshot] = useState<any>(null);
   const [rulesLocked, setRulesLocked] = useState(false);
   const [rulesLoading, setRulesLoading] = useState(false);
   const [rulesSaving, setRulesSaving] = useState(false);
@@ -192,6 +193,7 @@ export default function HostDashboardPage() {
             rules_enabled: { max_lot_size: true, max_open_trades: true, pair_limit: true, stop_loss_required: true, daily_loss_cap: true, max_hold_hours: true, min_trade_duration: true, weekend_trading: true, min_active_days: true, min_total_trades: true },
           };
           setRulesConfig(d.rules || defaultRules);
+          setSavedRulesSnapshot(JSON.parse(JSON.stringify(d.rules || defaultRules)));
           setRulesLocked(d.locked || false);
         }
         setRulesLoading(false);
@@ -992,17 +994,23 @@ export default function HostDashboardPage() {
 
               {/* Save */}
               {!rulesLocked && rulesConfig && (
+                (() => {
+                  const rulesChanged = savedRulesSnapshot !== null && JSON.stringify(rulesConfig) !== JSON.stringify(savedRulesSnapshot);
+                  return (
                 <div className="mt-6 flex justify-end">
                   <button onClick={async () => {
+                    if (!rulesChanged) return;
                     setRulesSaving(true);
                     try {
                       const res = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/rules`, { method: "PUT", headers: headers(), body: JSON.stringify(rulesConfig) });
-                      if (res.ok) { setRulesSaved(true); setTimeout(() => setRulesSaved(false), 3000); }
+                      if (res.ok) { setRulesSaved(true); setSavedRulesSnapshot(JSON.parse(JSON.stringify(rulesConfig))); setTimeout(() => setRulesSaved(false), 3000); }
                       else { const d = await res.json(); alert(d.error || "Failed to save rules"); }
                     } catch { alert("Connection error"); }
                     setRulesSaving(false);
-                  }} disabled={rulesSaving} className={`px-8 py-3 rounded-xl font-semibold text-sm transition-all ${rulesSaved ? "bg-profit/20 text-profit border border-profit/30" : "bg-gradient-to-r from-royal to-purple-600 hover:opacity-90 text-white shadow-lg shadow-royal/20"}`}>{rulesSaving ? "Saving..." : rulesSaved ? "&#10003; Rules Saved" : "Save Rules"}</button>
+                  }} disabled={rulesSaving || !rulesChanged} className={`px-8 py-3 rounded-xl font-semibold text-sm transition-all ${rulesSaved ? "bg-profit/20 text-profit border border-profit/30 cursor-not-allowed" : rulesChanged ? "bg-gradient-to-r from-royal to-purple-600 hover:opacity-90 text-white shadow-lg shadow-royal/20" : "bg-white/5 text-gray-500 border border-white/10 cursor-not-allowed opacity-50"}`}>{rulesSaving ? "Saving..." : rulesSaved ? "\u2713 Rules Saved" : rulesChanged ? "Save Rules" : "No Changes"}</button>
                 </div>
+                  );
+                })()
               )}
             </div>
           )}
