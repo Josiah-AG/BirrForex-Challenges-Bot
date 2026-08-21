@@ -2158,6 +2158,29 @@ app.post('/api/host/challenge/:id/upload-csv', hostAuthMiddleware, async (req: a
             }
             const isCent = ['USC', 'USCENT'].includes((result.currency || '').toUpperCase());
             const accountSubtype = result.account_subtype || 'standard';
+
+            // Professional account validation (matching Telegram bot logic)
+            const isPro = accountSubtype === 'pro' || accountSubtype === 'raw_spread' || accountSubtype === 'zero';
+            if (isPro) {
+              // Check if allow_professional is enabled for this challenge
+              const rulesCheck = await db.query(`SELECT parameters FROM wp_challenge_rules WHERE challenge_id=$1 AND rule_code='config'`, [challengeId]);
+              const allowPro = rulesCheck.rows[0]?.parameters?.allow_professional || false;
+              if (!allowPro) {
+                await db.query(`UPDATE host_csv_rows SET status = 'failed', error_message = $1 WHERE id = $2`, [`Professional account type (${accountSubtype}) not allowed — only Standard accounts accepted`, row.id]);
+                failedCount++; continue;
+              }
+            }
+
+            // Cent account validation
+            if (row.account_type === 'real') {
+              const rulesCheck2 = await db.query(`SELECT parameters FROM wp_challenge_rules WHERE challenge_id=$1 AND rule_code='config'`, [challengeId]);
+              const onlyCent = rulesCheck2.rows[0]?.parameters?.only_cent_account || false;
+              if (onlyCent && !isCent) {
+                await db.query(`UPDATE host_csv_rows SET status = 'failed', error_message = $1 WHERE id = $2`, ['Only cent accounts allowed for real category', row.id]);
+                failedCount++; continue;
+              }
+            }
+
             const reg = await db.query(
               `INSERT INTO trading_registrations (challenge_id, user_id, username, nickname, account_type, account_subtype, email, account_number, mt5_server, investor_password, is_cent, source, connection_verified, registered_at)
                VALUES ($1, $2, NULL, $3, $4, $5, $6, $7, $8, $9, $10, 'csv', true, NOW()) RETURNING id`,

@@ -156,6 +156,7 @@ export default function HostDashboardPage() {
             topViolations: data.topViolations || [],
             realBalance: data.realBalance || 0,
             demoBalance: data.demoBalance || 0,
+            onlyCentAccount: data.onlyCentAccount || false,
             metrics: data.metrics || null,
           });
         } else {
@@ -260,6 +261,16 @@ export default function HostDashboardPage() {
   };
 
   const fmtTime = (d: string) => d ? new Date(d).toLocaleString("en-US", { timeZone: challengeTz, month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: true }) : "—";
+
+  // Currency helper — shows ¢ for cent accounts, $ otherwise (matching admin)
+  const isCentChallenge = (rulesConfig?.only_cent_account || overview?.onlyCentAccount) && selectedChallenge?.type !== 'demo';
+  const cur = (amount: number | string | null | undefined, userIsCent?: boolean) => {
+    if (amount == null) return "—";
+    const num = Number(amount);
+    if (isNaN(num)) return "—";
+    const showCent = userIsCent !== undefined ? userIsCent : isCentChallenge;
+    return showCent ? `${num.toFixed(2)}¢` : `$${num.toFixed(2)}`;
+  };
 
   const handleSearch = async () => {
     if (!searchQuery.trim() || !selectedChallengeId) return;
@@ -376,7 +387,7 @@ export default function HostDashboardPage() {
               <StatCard icon={<Trophy size={16} />} label="Above Target" value={String(overview.aboveTarget || 0)} sub={`${overview.totalParticipants > 0 ? ((overview.aboveTarget / overview.totalParticipants) * 100).toFixed(1) : 0}% qualified`} color="text-gold" />
             </div>
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 mb-6">
-              <StatCard icon={<Target size={16} />} label="Total Balance" value={`$${Number(overview.realBalance || 0).toFixed(2)}`} sub={`Real: $${Number(overview.realBalance || 0).toFixed(2)} | Demo: $${Number(overview.demoBalance || 0).toFixed(2)}`} color="text-profit" />
+              <StatCard icon={<Target size={16} />} label="Total Balance" value={cur(Number(overview.realBalance || 0) + Number(overview.demoBalance || 0))} sub={`Real: ${cur(overview.realBalance)} | Demo: ${cur(overview.demoBalance)}`} color="text-profit" />
               <StatCard icon={<Zap size={16} />} label="Updates Today" value={String(overview.pullsToday || 0)} sub="" color="text-royal" />
               <StatCard icon={<Shield size={16} />} label="Update Success" value={String(overview.pullsSuccess || 0)} sub={`Failed: ${overview.pullsFailed || 0} | PW Changed: ${overview.passwordChanged || 0}`} color="text-profit" />
               <StatCard icon={<Clock size={16} />} label="Last Update" value={overview.lastPullTime || "—"} sub={`${overview.pullsSuccess || 0} ok · ${overview.pullsFailed || 0} failed`} color="text-gray-300" />
@@ -603,9 +614,9 @@ export default function HostDashboardPage() {
                     <button onClick={() => { setFoundUser(null); setSearchPerformed(false); setSearchQuery(""); }} className="p-2 hover:bg-white/10 rounded-lg"><X size={18} className="text-gray-400" /></button>
                   </div>
                   <div className="p-5 grid grid-cols-2 md:grid-cols-4 gap-3">
-                    <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500">Balance</p><p className="text-lg font-bold text-white">${Number(foundUser.balance || 0).toFixed(2)}</p></div>
-                    <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500">Qualified Profit</p><p className="text-lg font-bold text-profit">${Number(foundUser.qualifiedProfit || 0).toFixed(2)}</p></div>
-                    <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500">Profit Removed</p><p className="text-lg font-bold text-loss">${Number(foundUser.profitRemoved || 0).toFixed(2)}</p></div>
+                    <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500">Balance</p><p className="text-lg font-bold text-white">{cur(foundUser.balance || foundUser.lastKnownBalance || 0, foundUser.isCent)}</p></div>
+                    <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500">Qualified Profit</p><p className="text-lg font-bold text-profit">{cur(foundUser.qualifiedProfit || 0, foundUser.isCent)}</p></div>
+                    <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500">Profit Removed</p><p className="text-lg font-bold text-loss">{cur(foundUser.profitRemoved || 0, foundUser.isCent)}</p></div>
                     <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500">Win Rate</p><p className="text-lg font-bold text-white">{foundUser.winRate || "N/A"}</p></div>
                     <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500">Trades</p><p className="text-lg font-bold text-white">{foundUser.totalTrades || 0}</p></div>
                     <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500">Flagged</p><p className={`text-lg font-bold ${(foundUser.flaggedTrades || 0) > 0 ? "text-loss" : "text-profit"}`}>{foundUser.flaggedTrades || 0}</p></div>
@@ -678,8 +689,8 @@ export default function HostDashboardPage() {
                             <td className="py-2 px-3 text-xs text-gray-400 max-w-[120px] truncate">{p.email || "—"}</td>
                             <td className="py-2 px-3 text-xs text-gray-300">{p.accountNumber}</td>
                             <td className="py-2 px-3"><span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${p.accountType === "real" ? "bg-gold/10 text-gold" : "bg-royal/10 text-royal"}`}>{p.accountType}</span></td>
-                            <td className="py-2 px-3 text-right"><span className="text-sm text-white font-medium">{p.lastKnownBalance ? `$${parseFloat(p.lastKnownBalance).toFixed(2)}` : "—"}</span></td>
-                            <td className={`py-2 px-3 text-right text-sm font-medium ${(p.qualifiedProfit ?? 0) >= 0 ? "text-profit" : "text-loss"}`}>{p.qualifiedProfit != null ? `$${Number(p.qualifiedProfit).toFixed(2)}` : "—"}</td>
+                            <td className="py-2 px-3 text-right"><span className="text-sm text-white font-medium">{p.lastKnownBalance ? cur(p.lastKnownBalance, p.isCent) : "—"}</span>{p.lastPullAt && <p className="text-[9px] text-gray-500">{(() => { const d = new Date(p.lastPullAt); return d.toLocaleTimeString("en-US", { timeZone: challengeTz, hour: "2-digit", minute: "2-digit", hour12: false }) + " " + (challengeTz.includes("Nairobi") ? "EAT" : ""); })()}</p>}</td>
+                            <td className={`py-2 px-3 text-right text-sm font-medium ${(p.qualifiedProfit ?? 0) >= 0 ? "text-profit" : "text-loss"}`}>{p.qualifiedProfit != null ? cur(p.qualifiedProfit, p.isCent) : "—"}</td>
                             <td className="py-2 px-3 text-center text-xs text-gray-400">{p.totalTrades || 0}</td>
                             <td className="py-2 px-3 text-center" onClick={(e) => e.stopPropagation()}>
                               <div className="flex items-center justify-center gap-1">
@@ -765,12 +776,12 @@ export default function HostDashboardPage() {
                       <td className="py-3 px-4"><p className="text-xs text-gray-300 font-mono">{e.accountNumber || "—"}</p></td>
                       <td className="py-3 px-4"><span className={`px-2 py-1 rounded text-[10px] font-semibold ${e.accountType === "real" ? "bg-gold/10 text-gold" : "bg-royal/10 text-royal"}`}>{e.accountType}</span></td>
                       <td className="py-3 px-4 text-right">
-                        <p className={`text-sm font-bold ${e.isDisqualified ? "text-loss" : e.isWithdrawn ? "text-gray-500" : isWinner ? "text-profit" : "text-white"}`}>{e.isDisqualified ? "DQ" : e.isWithdrawn ? "Exited" : e.growthPercent > 0 ? `+${e.growthPercent.toFixed(1)}%` : `$${Number(e.adjustedBalance || 0).toFixed(2)}`}</p>
-                        {!e.isDisqualified && !e.isWithdrawn && <p className="text-[10px] text-gray-500 mt-0.5">${Number(e.currentBalance || e.adjustedBalance || 0).toFixed(2)}</p>}
+                        <p className={`text-sm font-bold ${e.isDisqualified ? "text-loss" : e.isWithdrawn ? "text-gray-500" : isWinner ? "text-profit" : "text-white"}`}>{e.isDisqualified ? "DQ" : e.isWithdrawn ? "Exited" : e.growthPercent > 0 ? `+${e.growthPercent.toFixed(1)}%` : cur(e.adjustedBalance || 0, e.isCent)}</p>
+                        {!e.isDisqualified && !e.isWithdrawn && <p className="text-[10px] text-gray-500 mt-0.5">{cur(e.currentBalance || e.adjustedBalance || 0, e.isCent)}</p>}
                       </td>
                       <td className="py-3 px-4 text-center text-sm text-gray-400">{e.totalTrades || 0}</td>
                       <td className="py-3 px-4 text-center text-sm text-gray-400">{(e.totalTrades || 0) > 0 ? `${Math.round(((e.qualifiedTrades || 0) / e.totalTrades) * 100)}%` : "—"}</td>
-                      <td className="py-3 px-4 text-center text-sm text-royal">{(e.totalTrades || 0) > 0 ? `$${Number(e.qualifiedProfit || 0).toFixed(2)}` : "—"}</td>
+                      <td className="py-3 px-4 text-center text-sm text-royal">{(e.totalTrades || 0) > 0 ? cur(e.qualifiedProfit || 0, e.isCent) : "—"}</td>
                       <td className="py-3 px-4 text-center"><span className={(e.flaggedTrades || 0) > 0 ? "text-loss font-bold" : "text-gray-500"}>{e.flaggedTrades || 0}</span></td>
                     </tr>
                     );
@@ -1283,9 +1294,9 @@ export default function HostDashboardPage() {
               ) : (
                 <div className="grid grid-cols-2 gap-3">
                   <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Rank</p><p className="text-2xl font-bold gradient-text">#{selectedParticipant.rank || "—"}</p></div>
-                  <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Balance</p><p className="text-2xl font-bold text-white">${Number(selectedParticipant.adjustedBalance || selectedParticipant.lastKnownBalance || 0).toFixed(2)}</p></div>
-                  <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Profit</p><p className={`text-lg font-bold ${Number(selectedParticipant.qualifiedProfit || 0) >= 0 ? "text-profit" : "text-loss"}`}>${Number(selectedParticipant.qualifiedProfit || 0).toFixed(2)}</p></div>
-                  <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Gross</p><p className="text-lg font-bold text-white">${Number(selectedParticipant.grossProfit || 0).toFixed(2)}</p></div>
+                  <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Balance</p><p className="text-2xl font-bold text-white">{cur(selectedParticipant.adjustedBalance || selectedParticipant.lastKnownBalance || 0, selectedParticipant.isCent)}</p></div>
+                  <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Profit</p><p className={`text-lg font-bold ${Number(selectedParticipant.qualifiedProfit || 0) >= 0 ? "text-profit" : "text-loss"}`}>{cur(selectedParticipant.qualifiedProfit || 0, selectedParticipant.isCent)}</p></div>
+                  <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Gross</p><p className="text-lg font-bold text-white">{cur(selectedParticipant.grossProfit || 0, selectedParticipant.isCent)}</p></div>
                   <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Trades</p><p className="text-lg font-bold text-white">{selectedParticipant.totalTrades || 0}</p></div>
                   <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Flagged</p><p className={`text-lg font-bold ${(selectedParticipant.flaggedTrades || 0) > 0 ? "text-loss" : "text-profit"}`}>{selectedParticipant.flaggedTrades || 0}</p><p className="text-[10px] text-gray-500 mt-0.5">RKR: <span className="text-white font-semibold">{(selectedParticipant.totalTrades || 0) > 0 ? `${Math.round(((selectedParticipant.qualifiedTrades || 0) / selectedParticipant.totalTrades) * 100)}%` : "—"}</span></p></div>
                 </div>
@@ -1321,7 +1332,7 @@ export default function HostDashboardPage() {
               {(selectedParticipantTrades.length > 0 || selectedParticipantBalanceOps.length > 0) && (() => {
                 const fmtEAT = (d: string) => d ? new Date(new Date(d).getTime() + 3*60*60*1000).toISOString().substring(11,16) : '';
                 const fmtDateEAT = (d: string) => { const dt = new Date(new Date(d).getTime() + 3*60*60*1000); return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); };
-                const c = (v: number) => `$${Number(v).toFixed(2)}`;
+                const c = (v: number) => cur(v, selectedParticipant?.isCent);
                 const opMeta: Record<string, { icon: string; label: string; bg: string; border: string; textColor: string; sign: (a: number) => string }> = {
                   deposit:    { icon: '💰', label: 'Deposit',    bg: 'bg-profit/10', border: 'border-profit/20', textColor: 'text-profit',      sign: () => '+' },
                   withdrawal: { icon: '🚪', label: 'Withdrawal', bg: 'bg-loss/10',   border: 'border-loss/20',   textColor: 'text-loss',        sign: () => '-' },
@@ -1434,7 +1445,7 @@ export default function HostDashboardPage() {
       {selectedTrade && (() => {
         const t = selectedTrade;
         const fmtEAT = (s: string) => s ? new Date(new Date(s).getTime()+3*60*60*1000).toISOString().substring(0,16).replace("T"," ")+" EAT" : "—";
-        const cur = (v: number) => `$${Number(v).toFixed(2)}`;
+        const c = (v: number) => cur(v, selectedParticipant?.isCent);
         const violations: string[] = t.violations ? (typeof t.violations === 'string' ? JSON.parse(t.violations) : (Array.isArray(t.violations) ? t.violations : [])) : [];
         const isQualified = t.is_qualified !== false && t.isQualified !== false;
         return (

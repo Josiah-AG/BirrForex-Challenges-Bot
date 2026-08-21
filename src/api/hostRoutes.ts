@@ -70,6 +70,11 @@ router.get('/challenge/:id/full-overview', async (req: any, res: Response) => {
     const totalTrades = parseInt(trades.rows[0]?.total || '0');
     const totalViolations = parseInt(trades.rows[0]?.flagged || '0');
 
+    // Check if challenge rules have only_cent_account enabled
+    const centCheck = await db.query(
+      `SELECT parameters->>'only_cent_account' as only_cent FROM wp_challenge_rules WHERE challenge_id=$1 AND rule_code='config'`, [challengeId]);
+    const onlyCentAccount = centCheck.rows[0]?.only_cent === 'true';
+
     // Basic metrics (matching admin overview Trading Insights)
     const blownReal = await db.query(`SELECT COUNT(*) as cnt FROM wp_leaderboard WHERE challenge_id=$1 AND zero_balance_at IS NOT NULL AND account_type='real'`, [challengeId]);
     const blownDemo = await db.query(`SELECT COUNT(*) as cnt FROM wp_leaderboard WHERE challenge_id=$1 AND zero_balance_at IS NOT NULL AND account_type='demo'`, [challengeId]);
@@ -117,6 +122,7 @@ router.get('/challenge/:id/full-overview', async (req: any, res: Response) => {
       topViolations: topViolations.rows.map((v: any) => ({ rule: v.rule, count: parseInt(v.cnt) })),
       realBalance: parseFloat(balanceData.rows[0]?.real_balance || '0'),
       demoBalance: parseFloat(balanceData.rows[0]?.demo_balance || '0'),
+      onlyCentAccount,
       metrics,
     });
   } catch (error) {
