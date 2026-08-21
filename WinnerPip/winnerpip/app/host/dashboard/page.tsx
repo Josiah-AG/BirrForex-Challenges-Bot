@@ -1236,30 +1236,67 @@ export default function HostDashboardPage() {
 
       {/* Participant Detail Modal */}
       {selectedParticipant && (
-        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4" onClick={() => setSelectedParticipant(null)}>
-          <div className="bg-[#1a2235] rounded-2xl max-w-md w-full max-h-[80vh] overflow-y-auto border border-white/15" onClick={e => e.stopPropagation()}>
-            <div className="sticky top-0 bg-[#1a2235] p-4 border-b border-white/10 flex items-center justify-between rounded-t-2xl">
-              <h3 className="text-lg font-bold text-white">{selectedParticipant.nickname}</h3>
-              <button onClick={() => setSelectedParticipant(null)} className="p-2 hover:bg-white/10 rounded-lg"><X size={16} className="text-gray-400" /></button>
-            </div>
-            <div className="p-4 space-y-3">
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                <div className="bg-white/5 rounded-lg p-2"><span className="text-gray-500">Account:</span> <span className="text-white">{selectedParticipant.accountNumber}</span></div>
-                <div className="bg-white/5 rounded-lg p-2"><span className="text-gray-500">Type:</span> <span className="text-white">{selectedParticipant.accountType}</span></div>
-                <div className="bg-white/5 rounded-lg p-2"><span className="text-gray-500">Balance:</span> <span className="text-white">${parseFloat(selectedParticipant.lastKnownBalance || 0).toFixed(2)}</span></div>
-                <div className="bg-white/5 rounded-lg p-2"><span className="text-gray-500">Status:</span> <span className={selectedParticipant.disqualified ? "text-loss" : "text-profit"}>{selectedParticipant.disqualified ? "DQ" : "Active"}</span></div>
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-hidden" onClick={() => setSelectedParticipant(null)}>
+          <div className="glass rounded-2xl max-w-md w-full max-h-[85vh] overflow-y-auto border border-white/10" onClick={e => e.stopPropagation()}>
+            <div className="sticky top-0 glass p-4 border-b border-white/10 flex items-center justify-between z-10 rounded-t-2xl">
+              <div>
+                <div className="flex items-center gap-2"><h3 className="text-lg font-bold text-white">{selectedParticipant.nickname}</h3><span className={`px-2 py-0.5 rounded text-[10px] font-bold ${selectedParticipant.accountType === "real" ? "bg-gold/20 text-gold" : "bg-royal/20 text-royal"}`}>{selectedParticipant.accountType}</span>{selectedParticipant.isDisqualified || selectedParticipant.disqualified ? <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-loss/20 text-loss">DQ</span> : selectedParticipant.rank ? <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-profit/20 text-profit">#{selectedParticipant.rank}</span> : null}</div>
+                <p className="text-xs text-gray-500 mt-0.5">{selectedParticipant.email || selectedParticipant.accountNumber}</p>
               </div>
-              <h4 className="text-xs font-semibold text-gray-400 mt-4">Recent Trades</h4>
-              {selectedParticipantTrades.length === 0 ? <p className="text-xs text-gray-600">No trades</p> : (
-                <div className="space-y-1 max-h-60 overflow-y-auto">
-                  {selectedParticipantTrades.slice(0, 20).map((t: any) => (
-                    <div key={t.ticket} className={`flex items-center justify-between p-2 rounded-lg text-xs ${t.is_qualified ? 'bg-white/5' : 'bg-loss/5'}`}>
-                      <div><span className="text-white font-medium">{t.symbol}</span> <span className="text-gray-500">{t.volume} lots</span></div>
-                      <span className={`font-semibold ${t.profit >= 0 ? 'text-profit' : 'text-loss'}`}>${parseFloat(t.profit).toFixed(2)}</span>
-                    </div>
-                  ))}
+              <button onClick={() => setSelectedParticipant(null)} className="p-2 hover:bg-white/10 rounded-lg"><X size={18} className="text-gray-400" /></button>
+            </div>
+            <div className="p-5 space-y-4">
+              {selectedParticipant.isDisqualified || selectedParticipant.disqualified ? (
+                <div className="p-4 rounded-xl bg-loss/10 border border-loss/20">
+                  <p className="text-xs text-gray-400 mb-1">Disqualified</p>
+                  <p className="text-sm text-white">{selectedParticipant.disqualifyReason || selectedParticipant.disqualified_reason || "No reason provided"}</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Rank</p><p className="text-2xl font-bold gradient-text">#{selectedParticipant.rank || "—"}</p></div>
+                  <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Balance</p><p className="text-2xl font-bold text-white">${Number(selectedParticipant.adjustedBalance || selectedParticipant.lastKnownBalance || 0).toFixed(2)}</p></div>
+                  <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Profit</p><p className={`text-lg font-bold ${Number(selectedParticipant.qualifiedProfit || 0) >= 0 ? "text-profit" : "text-loss"}`}>${Number(selectedParticipant.qualifiedProfit || 0).toFixed(2)}</p></div>
+                  <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Trades</p><p className="text-lg font-bold text-white">{selectedParticipant.totalTrades || 0}</p></div>
+                  <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Flagged</p><p className={`text-lg font-bold ${(selectedParticipant.flaggedTrades || 0) > 0 ? "text-loss" : "text-profit"}`}>{selectedParticipant.flaggedTrades || 0}</p></div>
+                  <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Active Days</p><p className="text-lg font-bold text-white">{selectedParticipant.activeDays || 0}</p></div>
                 </div>
               )}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500">Account #</p><p className="text-sm font-semibold text-white">{selectedParticipant.accountNumber}</p></div>
+                <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500">Server</p><p className="text-sm font-semibold text-white">{selectedParticipant.mt5_server || selectedParticipant.server || "—"}</p></div>
+                <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500">Email</p><p className="text-sm font-semibold text-white truncate">{selectedParticipant.email || "—"}</p></div>
+                <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500">Registered</p><p className="text-sm font-semibold text-white">{selectedParticipant.registered_at || selectedParticipant.registeredAt ? fmtTime(selectedParticipant.registered_at || selectedParticipant.registeredAt) : "—"}</p></div>
+              </div>
+              {/* Trades */}
+              <div>
+                <p className="text-xs font-semibold text-gray-400 mb-2">Recent Trades</p>
+                {selectedParticipantTrades.length === 0 ? <p className="text-sm text-gray-500">No trades yet</p> : (
+                  <div className="space-y-1.5 max-h-60 overflow-y-auto">
+                    {selectedParticipantTrades.slice(0, 30).map((t: any) => (
+                      <div key={t.ticket} className={`flex items-center justify-between p-2.5 rounded-lg text-xs ${t.is_qualified === false ? 'bg-loss/5 border border-loss/10' : 'bg-white/5'}`}>
+                        <div className="flex items-center gap-2">
+                          <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${t.type?.toLowerCase() === 'buy' ? 'bg-profit/20 text-profit' : 'bg-loss/20 text-loss'}`}>{t.type || '—'}</span>
+                          <div><p className="text-white font-medium">{t.symbol}</p><p className="text-[10px] text-gray-500">{t.volume} lots</p></div>
+                        </div>
+                        <div className="text-right">
+                          <p className={`font-bold ${t.profit >= 0 ? 'text-profit' : 'text-loss'}`}>${parseFloat(t.profit || 0).toFixed(2)}</p>
+                          {t.is_qualified === false && <p className="text-[9px] text-loss">flagged</p>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              {/* Actions */}
+              <div className="border-t border-white/10 pt-4 space-y-2">
+                <p className="text-[10px] text-gray-500 uppercase tracking-wider font-semibold mb-2">Actions</p>
+                <div className="flex flex-wrap gap-2">
+                  <button onClick={async () => { const id = selectedParticipant.id || selectedParticipant.registrationId; if (!id) return; try { const r = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/re-evaluate-user`, { method: "POST", headers: headers(), body: JSON.stringify({ registrationId: id }) }); const d = await r.json(); alert(d.success ? "Re-evaluation complete" : (d.error || "Failed")); } catch { alert("Error"); } }} className="px-3 py-2 rounded-lg bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 text-xs font-semibold hover:bg-cyan-500/20 transition-all">Re-evaluate</button>
+                  {!(selectedParticipant.isDisqualified || selectedParticipant.disqualified) && <button onClick={() => { const id = selectedParticipant.id || selectedParticipant.registrationId; if (!id) return; const reason = prompt("DQ Reason:"); if (!reason) return; doAction(`${API_URL}/api/host/challenge/${selectedChallengeId}/disqualify`, 'POST', { registrationId: id, reason }); setSelectedParticipant(null); }} className="px-3 py-2 rounded-lg bg-loss/10 border border-loss/30 text-loss text-xs font-semibold hover:bg-loss/20 transition-all">Disqualify</button>}
+                  <button onClick={() => { const id = selectedParticipant.id || selectedParticipant.registrationId; if (!id) return; if (!confirm(`Remove ${selectedParticipant.nickname}?`)) return; doAction(`${API_URL}/api/host/challenge/${selectedChallengeId}/unverify`, 'POST', { registrationId: id }); setSelectedParticipant(null); }} className="px-3 py-2 rounded-lg bg-gray-500/10 border border-gray-500/30 text-gray-400 text-xs font-semibold hover:bg-gray-500/20 transition-all">Remove</button>
+                </div>
+                <button onClick={() => { setActiveTab("leaderboard"); setLeaderboardCategory(selectedParticipant.accountType === 'demo' ? 'demo' : 'real'); setSelectedParticipant(null); }} className="w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-gold/20 border border-gold/30 hover:bg-gold/30 text-gold font-semibold transition-all text-sm mt-2"><Trophy size={16} />View on Leaderboard</button>
+              </div>
             </div>
           </div>
         </div>
