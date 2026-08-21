@@ -512,7 +512,7 @@ router.post('/challenge/:id/unverify', async (req: any, res: Response) => {
     const participant = await db.query(`SELECT nickname, email FROM trading_registrations WHERE id=$1 AND challenge_id=$2`, [registrationId, challengeId]);
     const challengeInfo = await db.query(`SELECT c.title, h.display_name as host_name FROM trading_challenges c LEFT JOIN hosts h ON h.id = c.host_id WHERE c.id=$1`, [challengeId]);
 
-    await db.query(`UPDATE trading_registrations SET status='removed', email=NULL, account_number = account_number || '_removed_' || id::text WHERE id=$1 AND challenge_id=$2`, [registrationId, challengeId]);
+    await db.query(`UPDATE trading_registrations SET status='removed', email = 'removed_' || id::text || '_' || email, account_number = account_number || '_removed_' || id::text WHERE id=$1 AND challenge_id=$2`, [registrationId, challengeId]);
     await db.query(`DELETE FROM wp_leaderboard WHERE registration_id=$1 AND challenge_id=$2`, [registrationId, challengeId]);
     await db.query(`DELETE FROM wp_leaderboard_staging WHERE registration_id=$1 AND challenge_id=$2`, [registrationId, challengeId]);
 
