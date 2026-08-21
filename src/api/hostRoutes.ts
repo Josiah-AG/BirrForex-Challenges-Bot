@@ -30,13 +30,19 @@ router.get('/challenge/:id/full-overview', async (req: any, res: Response) => {
               COUNT(CASE WHEN account_type='demo' THEN 1 END) as demo,
               COUNT(CASE WHEN account_type='real' THEN 1 END) as real,
               COUNT(CASE WHEN disqualified=true THEN 1 END) as disqualified
-       FROM trading_registrations WHERE challenge_id=$1 AND (status IS NULL OR status != 'removed')`, [challengeId]);
+       FROM trading_registrations WHERE challenge_id=$1 AND (status IS NULL OR status NOT IN ('removed', 'rejected'))`, [challengeId]);
 
     const trades = await db.query(
       `SELECT COUNT(*) as total,
               COUNT(CASE WHEN is_qualified=false THEN 1 END) as flagged,
-              COALESCE(SUM(volume), 0) as total_volume
-       FROM wp_trades WHERE challenge_id=$1`, [challengeId]);
+              COALESCE(SUM(volume), 0) as total_volume,
+              COUNT(CASE WHEN r.account_type='demo' THEN 1 END) as demo_trades,
+              COUNT(CASE WHEN r.account_type='real' THEN 1 END) as real_trades,
+              COALESCE(SUM(CASE WHEN r.account_type='demo' THEN t.volume END), 0) as demo_volume,
+              COALESCE(SUM(CASE WHEN r.account_type='real' THEN t.volume END), 0) as real_volume
+       FROM wp_trades t
+       JOIN trading_registrations r ON t.registration_id = r.id
+       WHERE t.challenge_id=$1`, [challengeId]);
 
     const aboveTarget = await db.query(
       `SELECT COUNT(*) as cnt FROM wp_leaderboard WHERE challenge_id=$1 AND is_qualified=true AND is_disqualified=false`, [challengeId]);
@@ -93,6 +99,11 @@ router.get('/challenge/:id/full-overview', async (req: any, res: Response) => {
       realParticipants: parseInt(participants.rows[0]?.real || '0'),
       disqualified: parseInt(participants.rows[0]?.disqualified || '0'),
       totalTrades,
+      demoTrades: parseInt(trades.rows[0]?.demo_trades || '0'),
+      realTrades: parseInt(trades.rows[0]?.real_trades || '0'),
+      totalVolume: parseFloat(trades.rows[0]?.total_volume || '0').toFixed(2),
+      demoVolume: parseFloat(trades.rows[0]?.demo_volume || '0').toFixed(2),
+      realVolume: parseFloat(trades.rows[0]?.real_volume || '0').toFixed(2),
       totalViolations,
       violationRate: totalTrades > 0 ? ((totalViolations / totalTrades) * 100).toFixed(1) : '0',
       aboveTarget: parseInt(aboveTarget.rows[0]?.cnt || '0'),

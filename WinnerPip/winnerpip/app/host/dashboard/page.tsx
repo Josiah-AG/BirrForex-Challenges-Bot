@@ -140,6 +140,11 @@ export default function HostDashboardPage() {
             realParticipants: data.realParticipants || 0,
             disqualified: data.disqualified || 0,
             totalTrades: data.totalTrades || 0,
+            demoTrades: data.demoTrades || 0,
+            realTrades: data.realTrades || 0,
+            totalVolume: data.totalVolume || '0',
+            demoVolume: data.demoVolume || '0',
+            realVolume: data.realVolume || '0',
             totalViolations: data.totalViolations || 0,
             violationRate: data.violationRate || '0',
             aboveTarget: data.aboveTarget || 0,
@@ -366,7 +371,7 @@ export default function HostDashboardPage() {
 
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 mb-6">
               <StatCard icon={<Users size={16} />} label="Participants" value={(overview.totalParticipants || 0).toLocaleString()} sub={`Demo: ${overview.demoParticipants || 0} | Real: ${overview.realParticipants || 0}`} color="text-royal" />
-              <StatCard icon={<Activity size={16} />} label="Total Trades" value={(overview.totalTrades || 0).toLocaleString()} sub={`Flagged: ${overview.totalViolations || 0}`} color="text-white" />
+              <StatCard icon={<Activity size={16} />} label="Total Trades" value={(overview.totalTrades || 0).toLocaleString()} sub={`Demo: ${overview.demoTrades || 0} (${overview.demoVolume || 0} lots) | Real: ${overview.realTrades || 0} (${overview.realVolume || 0} lots)`} color="text-white" />
               <StatCard icon={<AlertTriangle size={16} />} label="Violations" value={String(overview.totalViolations || 0)} sub={`${overview.violationRate || 0}% violation rate`} color="text-loss" />
               <StatCard icon={<Trophy size={16} />} label="Above Target" value={String(overview.aboveTarget || 0)} sub={`${overview.totalParticipants > 0 ? ((overview.aboveTarget / overview.totalParticipants) * 100).toFixed(1) : 0}% qualified`} color="text-gold" />
             </div>
