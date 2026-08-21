@@ -70,6 +70,15 @@ router.get('/challenge/:id/full-overview', async (req: any, res: Response) => {
 
     const challengeType = c.type || 'hybrid';
     const metrics: any = { challengeType };
+
+    // Balance totals (matching admin)
+    const balanceData = await db.query(
+      `SELECT COALESCE(SUM(CASE WHEN r.account_type='real' THEN l.current_balance ELSE 0 END), 0) as real_balance,
+              COALESCE(SUM(CASE WHEN r.account_type='demo' THEN l.current_balance ELSE 0 END), 0) as demo_balance
+       FROM wp_leaderboard l
+       JOIN trading_registrations r ON r.id = l.registration_id
+       WHERE l.challenge_id=$1 AND l.is_disqualified=false`, [challengeId]);
+
     if (challengeType === 'hybrid') {
       metrics.real = { blownAccounts: parseInt(blownReal.rows[0]?.cnt || '0'), disqualifiedAccounts: parseInt(dqReal.rows[0]?.cnt || '0'), avgTradesPerUser: parseInt(avgTradesReal.rows[0]?.avg || '0') };
       metrics.demo = { blownAccounts: parseInt(blownDemo.rows[0]?.cnt || '0'), disqualifiedAccounts: parseInt(dqDemo.rows[0]?.cnt || '0'), avgTradesPerUser: parseInt(avgTradesDemo.rows[0]?.avg || '0') };
@@ -91,6 +100,8 @@ router.get('/challenge/:id/full-overview', async (req: any, res: Response) => {
       pullsToday: parseInt(pullsToday.rows[0]?.cnt || '0'),
       lastPull: lastPull.rows[0] || null,
       topViolations: topViolations.rows.map((v: any) => ({ rule: v.rule, count: parseInt(v.cnt) })),
+      realBalance: parseFloat(balanceData.rows[0]?.real_balance || '0'),
+      demoBalance: parseFloat(balanceData.rows[0]?.demo_balance || '0'),
       metrics,
     });
   } catch (error) {

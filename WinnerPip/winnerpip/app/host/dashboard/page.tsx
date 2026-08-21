@@ -149,6 +149,8 @@ export default function HostDashboardPage() {
             pullsFailed: data.lastPull?.failed || 0,
             lastPullTime: data.lastPull?.started_at ? fmtTime(data.lastPull.started_at) : "—",
             topViolations: data.topViolations || [],
+            realBalance: data.realBalance || 0,
+            demoBalance: data.demoBalance || 0,
             metrics: data.metrics || null,
           });
         } else {
@@ -369,7 +371,7 @@ export default function HostDashboardPage() {
               <StatCard icon={<Trophy size={16} />} label="Above Target" value={String(overview.aboveTarget || 0)} sub={`${overview.totalParticipants > 0 ? ((overview.aboveTarget / overview.totalParticipants) * 100).toFixed(1) : 0}% qualified`} color="text-gold" />
             </div>
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 mb-6">
-              <StatCard icon={<Target size={16} />} label="Disqualified" value={String(overview.disqualified || 0)} sub="rule violations" color="text-loss" />
+              <StatCard icon={<Target size={16} />} label="Total Balance" value={`$${Number(overview.realBalance || 0).toFixed(2)}`} sub={`Real: $${Number(overview.realBalance || 0).toFixed(2)} | Demo: $${Number(overview.demoBalance || 0).toFixed(2)}`} color="text-profit" />
               <StatCard icon={<Zap size={16} />} label="Updates Today" value={String(overview.pullsToday || 0)} sub="" color="text-royal" />
               <StatCard icon={<Shield size={16} />} label="Update Success" value={String(overview.pullsSuccess || 0)} sub={`Failed: ${overview.pullsFailed || 0} | PW Changed: ${overview.passwordChanged || 0}`} color="text-profit" />
               <StatCard icon={<Clock size={16} />} label="Last Update" value={overview.lastPullTime || "—"} sub={`${overview.pullsSuccess || 0} ok · ${overview.pullsFailed || 0} failed`} color="text-gray-300" />
@@ -676,7 +678,7 @@ export default function HostDashboardPage() {
                             <td className="py-2 px-3 text-center text-xs text-gray-400">{p.totalTrades || 0}</td>
                             <td className="py-2 px-3 text-center" onClick={(e) => e.stopPropagation()}>
                               <div className="flex items-center justify-center gap-1">
-                                <button onClick={async (ev) => { ev.stopPropagation(); const btn = ev.currentTarget; btn.textContent = '⏳'; try { const r = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/check-balance`, { method: "POST", headers: headers(), body: JSON.stringify({ registrationId: p.id }) }); const d = await r.json(); setVerifyPopup(d); btn.textContent = d.verified ? '✅' : '❌'; } catch { btn.textContent = '❌'; } setTimeout(() => { btn.textContent = '🛡️'; }, 4000); }} title="Verify Connection" className="p-1.5 rounded-lg hover:bg-amber-500/20 text-gray-400 hover:text-amber-400 transition-all text-xs">🛡️</button>
+                                <button onClick={async (ev) => { ev.stopPropagation(); const btn = ev.currentTarget; btn.textContent = '⏳'; try { const r = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/check-balance`, { method: "POST", headers: headers(), body: JSON.stringify({ registrationId: p.id }) }); const d = await r.json(); setVerifyPopup(d); btn.textContent = d.verified ? '✅' : '❌'; if (d.verified && d.balance != null) { setParticipants(prev => prev.map(pt => pt.id === p.id ? { ...pt, lastKnownBalance: d.balance } : pt)); } } catch { btn.textContent = '❌'; } setTimeout(() => { btn.textContent = '🛡️'; }, 4000); }} title="Verify Connection" className="p-1.5 rounded-lg hover:bg-amber-500/20 text-gray-400 hover:text-amber-400 transition-all text-xs">🛡️</button>
                                 {!p.disqualified && <button onClick={() => setActionModal({ type: 'disqualify', participant: p })} title="Disqualify" className="p-1.5 rounded-lg hover:bg-loss/20 text-gray-400 hover:text-loss transition-all"><Ban size={14} /></button>}
                                 <button onClick={() => setActionModal({ type: 'unverify', participant: p })} title="Remove Registration" className="p-1.5 rounded-lg hover:bg-orange-500/20 text-gray-400 hover:text-orange-400 transition-all"><UserMinus size={14} /></button>
                               </div>
