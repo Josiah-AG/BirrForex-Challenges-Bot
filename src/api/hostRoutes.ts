@@ -56,10 +56,14 @@ router.get('/challenge/:id/full-overview', async (req: any, res: Response) => {
     const pullsToday = await db.query(
       `SELECT COUNT(*) as cnt FROM wp_pull_batches WHERE challenge_id=$1 AND started_at::date = CURRENT_DATE`, [challengeId]);
 
-    // Top violations
+    // Top violations (violations is stored as JSON string, not pg array)
     const topViolations = await db.query(
-      `SELECT unnest(violations) as rule, COUNT(*) as cnt
-       FROM wp_trades WHERE challenge_id=$1 AND is_qualified=false AND violations IS NOT NULL AND array_length(violations, 1) > 0
+      `SELECT rule, COUNT(*) as cnt FROM (
+         SELECT trim(unnest(string_to_array(
+           regexp_replace(violations::text, '\\[|\\]|"', '', 'g'), ','
+         ))) as rule
+         FROM wp_trades WHERE challenge_id=$1 AND is_qualified=false AND violations IS NOT NULL AND violations != '[]'
+       ) sub WHERE length(rule) > 2
        GROUP BY rule ORDER BY cnt DESC LIMIT 8`, [challengeId]);
 
     const totalParticipants = parseInt(participants.rows[0]?.total || '0');
@@ -83,7 +87,7 @@ router.get('/challenge/:id/full-overview', async (req: any, res: Response) => {
               COALESCE(SUM(CASE WHEN r.account_type='demo' THEN COALESCE(l.current_balance, r.last_known_balance, 0) ELSE 0 END), 0) as demo_balance
        FROM trading_registrations r
        LEFT JOIN wp_leaderboard l ON l.registration_id = r.id AND l.challenge_id = r.challenge_id
-       WHERE r.challenge_id=$1 AND (r.status IS NULL OR r.status != 'removed') AND r.disqualified = false`, [challengeId]);
+       WHERE r.challenge_id=$1 AND (r.status IS NULL OR r.status != 'removed') AND (r.disqualified IS NULL OR r.disqualified = false)`, [challengeId]);
 
     if (challengeType === 'hybrid') {
       metrics.real = { blownAccounts: parseInt(blownReal.rows[0]?.cnt || '0'), disqualifiedAccounts: parseInt(dqReal.rows[0]?.cnt || '0'), avgTradesPerUser: parseInt(avgTradesReal.rows[0]?.avg || '0') };
