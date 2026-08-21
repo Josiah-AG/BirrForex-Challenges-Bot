@@ -593,6 +593,39 @@ export class Bot {
         return;
       }
 
+      // CSV Upload approval callbacks
+      if (data && data.startsWith('csv_')) {
+        if (!isAdmin(ctx.from!.id)) { await ctx.answerCbQuery('Not authorized'); return; }
+        const uploadId = parseInt(data.replace('csv_approve_', '').replace('csv_reject_', ''));
+        if (!uploadId || isNaN(uploadId)) { await ctx.answerCbQuery('Invalid upload ID'); return; }
+
+        if (data.startsWith('csv_approve_')) {
+          await ctx.answerCbQuery('Approving — verification starting...');
+          await ctx.editMessageText(`⏳ <b>CSV Upload #${uploadId}</b> — Verifying accounts...`, { parse_mode: 'HTML' });
+          try {
+            const apiUrl = `http://localhost:${process.env.PORT || 3001}`;
+            const ADMIN_SECRET_PATH = process.env.ADMIN_SECRET_PATH || process.env.ADMIN_PATH || '';
+            const res = await fetch(`${apiUrl}/api/admin/${ADMIN_SECRET_PATH}/host-csv/${uploadId}/approve`, { method: 'POST' });
+            const result: any = await res.json();
+            if (result.success) {
+              await ctx.editMessageText(`✅ <b>CSV Upload #${uploadId} Processed</b>\n\n✓ Verified: ${result.verified}\n✗ Failed: ${result.failed}`, { parse_mode: 'HTML' });
+            } else {
+              await ctx.editMessageText(`❌ <b>CSV Approval Failed</b>\n\n${result.error || 'Unknown error'}`, { parse_mode: 'HTML' });
+            }
+          } catch (err) {
+            await ctx.editMessageText(`❌ <b>CSV Approval Error</b>\n\n${(err as Error).message}`, { parse_mode: 'HTML' });
+          }
+          return;
+        }
+        if (data.startsWith('csv_reject_')) {
+          await ctx.answerCbQuery('Rejected');
+          await db.query(`UPDATE host_csv_uploads SET status = 'rejected' WHERE id = $1`, [uploadId]);
+          await ctx.editMessageText(`🚫 <b>CSV Upload #${uploadId} Rejected</b>`, { parse_mode: 'HTML' });
+          return;
+        }
+        return;
+      }
+
       // WP Leaderboard update callbacks
       if (data && data.startsWith('wp_lb_')) {
         if (!isAdmin(ctx.from!.id)) { await ctx.answerCbQuery('Not authorized'); return; }

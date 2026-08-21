@@ -2132,14 +2132,21 @@ app.post('/api/host/challenge/:id/upload-csv', hostAuthMiddleware, async (req: a
       const host = await hostService.getHostById(req.hostAccount.hostId);
       const telegram = getTelegram();
       if (telegram) {
+        const { Markup } = require('telegraf');
         await telegram.sendMessage(
           config.adminUserId,
           `📋 <b>CSV Upload Pending Approval</b>\n\n` +
           `<b>Host:</b> ${host?.display_name || 'Unknown'}\n` +
           `<b>Challenge:</b> ${challengeId}\n` +
-          `<b>Participants:</b> ${participants.length}\n\n` +
-          `Approve via admin panel.`,
-          { parse_mode: 'HTML' }
+          `<b>Participants:</b> ${participantsToProcess.length}\n\n` +
+          `Approve to start verifying accounts via VPS.`,
+          {
+            parse_mode: 'HTML',
+            ...Markup.inlineKeyboard([
+              [Markup.button.callback('✅ Approve & Verify', `csv_approve_${uploadId}`)],
+              [Markup.button.callback('❌ Reject', `csv_reject_${uploadId}`)],
+            ]),
+          }
         );
       }
     } catch {}

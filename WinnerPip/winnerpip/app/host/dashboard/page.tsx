@@ -470,8 +470,8 @@ export default function HostDashboardPage() {
                     </div>
                   </label>
                 </div>
-                {csvResult?.success && <div className="mt-3"><p className="text-xs text-profit">Uploaded {csvResult.count} participants. Pending admin approval for verification.</p>{csvResult.skipped > 0 && <div className="mt-2"><p className="text-[10px] text-gold">{csvResult.skipped} row(s) skipped:</p><ul className="mt-1 space-y-0.5">{csvResult.skippedDetails.map((d: string, i: number) => <li key={i} className="text-[10px] text-gold/80">• {d}</li>)}</ul></div>}</div>}
-                {csvResult?.error && <div className="mt-3"><p className="text-xs text-loss">{csvResult.error}</p>{csvResult.details?.length > 0 && <ul className="mt-1 space-y-0.5">{csvResult.details.map((d: string, i: number) => <li key={i} className="text-[10px] text-loss/80">• {d}</li>)}</ul>}</div>}
+                {csvResult?.success && <div className="mt-3"><p className="text-xs text-profit font-semibold">&#10003; Uploaded {csvResult.count} participants. Pending admin approval for verification.</p>{csvResult.skipped > 0 && <div className="mt-3 p-3 rounded-lg bg-gold/5 border border-gold/20"><p className="text-[10px] text-gold font-semibold mb-2">{csvResult.skipped} row(s) skipped:</p><div className="space-y-1.5">{csvResult.skippedDetails.map((d: string, i: number) => <div key={i} className="flex items-start gap-2 text-[10px]"><span className="text-gold/60 mt-0.5">&#9888;</span><span className="text-gray-300">{d}</span></div>)}</div></div>}</div>}
+                {csvResult?.error && <div className="mt-3 p-3 rounded-lg bg-loss/5 border border-loss/20"><p className="text-xs text-loss font-semibold mb-1">{csvResult.error}</p>{csvResult.details?.length > 0 && <div className="space-y-1.5 mt-2">{csvResult.details.map((d: string, i: number) => <div key={i} className="flex items-start gap-2 text-[10px]"><span className="text-loss/60 mt-0.5">&#10005;</span><span className="text-gray-300">{d}</span></div>)}</div>}</div>}
 
                 {/* Upload History & Status */}
                 {csvStatus?.uploads?.length > 0 && (
