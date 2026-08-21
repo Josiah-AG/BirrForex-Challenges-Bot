@@ -481,10 +481,13 @@ export default function HostDashboardPage() {
                       <div key={u.id} className={`p-3 rounded-lg border ${u.status === 'processed' ? 'bg-profit/5 border-profit/20' : u.status === 'pending' ? 'bg-gold/5 border-gold/20' : 'bg-white/5 border-white/10'}`}>
                         <div className="flex items-center justify-between">
                           <div>
-                            <span className={`text-xs font-semibold ${u.status === 'processed' ? 'text-profit' : u.status === 'pending' ? 'text-gold' : 'text-gray-300'}`}>{u.status === 'processed' ? 'Processed' : u.status === 'pending' ? 'Pending Approval' : u.status}</span>
+                            <span className={`text-xs font-semibold ${u.status === 'processed' ? 'text-profit' : u.status === 'pending' ? 'text-gold' : u.status === 'rejected' || u.status === 'cancelled' ? 'text-loss' : 'text-gray-300'}`}>{u.status === 'processed' ? 'Processed' : u.status === 'pending' ? 'Pending Approval' : u.status === 'cancelled' ? 'Cancelled' : u.status === 'rejected' ? 'Rejected' : u.status}</span>
                             <p className="text-[10px] text-gray-500 mt-0.5">{u.total_rows} rows &bull; {u.uploaded_at ? fmtTime(u.uploaded_at) : ''}</p>
                           </div>
-                          {u.status === 'processed' && <span className="text-[10px] text-gray-400">{u.verified_count} verified &bull; {u.failed_count} failed</span>}
+                          <div className="flex items-center gap-2">
+                            {u.status === 'processed' && <span className="text-[10px] text-gray-400">{u.verified_count} verified &bull; {u.failed_count} failed</span>}
+                            {u.status === 'pending' && <button onClick={async () => { if (!confirm('Cancel this pending upload?')) return; try { await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/csv-upload/${u.id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${getToken()}` } }); fetchTabData(); } catch {} }} className="text-[10px] text-loss font-semibold px-2 py-1 rounded bg-loss/10 border border-loss/20 hover:bg-loss/20 transition-all">Cancel</button>}
+                          </div>
                         </div>
                       </div>
                     ))}

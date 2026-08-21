@@ -291,6 +291,27 @@ router.patch('/challenge/:id/direct-status', async (req: any, res: Response) => 
   }
 });
 
+// ==================== CANCEL PENDING CSV ====================
+router.delete('/challenge/:id/csv-upload/:uploadId', async (req: any, res: Response) => {
+  const challengeId = await verifyOwnership(req, res);
+  if (!challengeId) return;
+  try {
+    const uploadId = parseInt(req.params.uploadId);
+    if (!uploadId || isNaN(uploadId)) return res.status(400).json({ error: 'Invalid upload ID' });
+    // Only cancel if pending and belongs to this host+challenge
+    const result = await db.query(
+      `UPDATE host_csv_uploads SET status = 'cancelled' WHERE id = $1 AND challenge_id = $2 AND host_id = $3 AND status = 'pending' RETURNING id`,
+      [uploadId, challengeId, req.hostAccount.hostId]
+    );
+    if (!result.rows[0]) return res.status(404).json({ error: 'No pending upload found' });
+    // Clean up rows
+    await db.query(`DELETE FROM host_csv_rows WHERE upload_id = $1`, [uploadId]);
+    return res.json({ success: true });
+  } catch (error) {
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // ==================== DELETE CHALLENGE ====================
 router.delete('/challenge/:id', async (req: any, res: Response) => {
   const challengeId = await verifyOwnership(req, res);
