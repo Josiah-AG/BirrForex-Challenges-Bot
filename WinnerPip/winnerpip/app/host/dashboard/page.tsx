@@ -967,20 +967,8 @@ export default function HostDashboardPage() {
                   {/* Toggles */}
                   <div className="space-y-4 md:col-span-2">
                     <div className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10">
-                      <div className="flex items-center gap-2">
-                        <div><p className="text-sm text-white font-medium">Stop Loss Required</p><p className="text-[10px] text-gray-500">All trades must have SL within risk limit</p></div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button onClick={() => !rulesLocked && setRulesConfig({...rulesConfig, rules_enabled: {...rulesConfig.rules_enabled, stop_loss_required: !rulesConfig.rules_enabled?.stop_loss_required}})} className={`w-10 h-5 rounded-full transition-all ${rulesConfig.rules_enabled?.stop_loss_required ? "bg-royal" : "bg-white/20"}`}><div className={`w-4 h-4 bg-white rounded-full transition-transform ${rulesConfig.rules_enabled?.stop_loss_required ? "translate-x-5" : "translate-x-0.5"}`}></div></button>
-                        <button onClick={() => !rulesLocked && rulesConfig.rules_enabled?.stop_loss_required && setRulesConfig({...rulesConfig, stop_loss_required: !rulesConfig.stop_loss_required})} className={`w-12 h-6 rounded-full transition-all ${rulesConfig.stop_loss_required && rulesConfig.rules_enabled?.stop_loss_required ? "bg-profit" : "bg-white/20"} ${!rulesConfig.rules_enabled?.stop_loss_required ? "opacity-40" : ""}`}><div className={`w-5 h-5 bg-white rounded-full transition-transform ${rulesConfig.stop_loss_required && rulesConfig.rules_enabled?.stop_loss_required ? "translate-x-6" : "translate-x-0.5"}`}></div></button>
-                      </div>
-                    </div>
-                    <div className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10">
-                      <div><p className="text-sm text-white font-medium">Weekend Trading</p><p className="text-[10px] text-gray-500">Allow trading on weekends (crypto pairs)</p></div>
-                      <div className="flex items-center gap-2">
-                        <button onClick={() => !rulesLocked && setRulesConfig({...rulesConfig, rules_enabled: {...rulesConfig.rules_enabled, weekend_trading: !rulesConfig.rules_enabled?.weekend_trading}})} className={`w-10 h-5 rounded-full transition-all ${rulesConfig.rules_enabled?.weekend_trading ? "bg-royal" : "bg-white/20"}`}><div className={`w-4 h-4 bg-white rounded-full transition-transform ${rulesConfig.rules_enabled?.weekend_trading ? "translate-x-5" : "translate-x-0.5"}`}></div></button>
-                        <button onClick={() => !rulesLocked && rulesConfig.rules_enabled?.weekend_trading && setRulesConfig({...rulesConfig, weekend_trading: !rulesConfig.weekend_trading})} className={`w-12 h-6 rounded-full transition-all ${rulesConfig.weekend_trading && rulesConfig.rules_enabled?.weekend_trading ? "bg-profit" : "bg-white/20"} ${!rulesConfig.rules_enabled?.weekend_trading ? "opacity-40" : ""}`}><div className={`w-5 h-5 bg-white rounded-full transition-transform ${rulesConfig.weekend_trading && rulesConfig.rules_enabled?.weekend_trading ? "translate-x-6" : "translate-x-0.5"}`}></div></button>
-                      </div>
+                      <div><p className="text-sm text-white font-medium">Prohibit Weekend Trading</p><p className="text-[10px] text-gray-500">When ON, crypto trades on weekends are flagged</p></div>
+                      <button onClick={() => !rulesLocked && setRulesConfig({...rulesConfig, rules_enabled: {...rulesConfig.rules_enabled, weekend_trading: !rulesConfig.rules_enabled?.weekend_trading}})} className={`w-12 h-6 rounded-full transition-all ${rulesConfig.rules_enabled?.weekend_trading ? "bg-profit" : "bg-white/20"}`}><div className={`w-5 h-5 bg-white rounded-full transition-transform ${rulesConfig.rules_enabled?.weekend_trading ? "translate-x-6" : "translate-x-0.5"}`}></div></button>
                     </div>
                     <div className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10">
                       <div><p className="text-sm text-white font-medium">Only Cent Account</p><p className="text-[10px] text-gray-500">Real category requires cent accounts only</p></div>
@@ -1604,14 +1592,13 @@ function CreateChallengeModal({ createStep, setCreateStep, createForm, setCreate
                   <input type="number" value={createRules.min_total_trades || ""} onChange={e => setCreateRules({...createRules, min_total_trades: parseInt(e.target.value) || null})} disabled={!createRules.rules_enabled.min_total_trades} className={`w-20 p-2 rounded-lg bg-white/10 border border-white/10 text-white text-sm text-center outline-none ${!createRules.rules_enabled.min_total_trades ? "cursor-not-allowed" : ""}`} />
                 </div>
 
-                {/* Weekend Trading (toggle with enable) */}
-                <div className={`flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10 ${!createRules.rules_enabled.weekend_trading ? "opacity-50" : ""}`}>
+                {/* Prohibit Weekend Trading */}
+                <div className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10">
                   <div className="flex items-center gap-2">
-                    <button type="button" onClick={() => setCreateRules({...createRules, rules_enabled: {...createRules.rules_enabled, weekend_trading: !createRules.rules_enabled.weekend_trading}})} className={`w-9 h-5 rounded-full transition-all flex-shrink-0 ${createRules.rules_enabled.weekend_trading ? "bg-royal" : "bg-white/20"}`}><div className={`w-4 h-4 bg-white rounded-full transition-transform ${createRules.rules_enabled.weekend_trading ? "translate-x-4" : "translate-x-0.5"}`}></div></button>
-                    <p className="text-sm text-white font-medium">Weekend Trading</p>
-                    <Tip text="Controls crypto trades on weekends. When OFF (and enabled), weekend crypto trades are flagged." />
+                    <p className="text-sm text-white font-medium">Prohibit Weekend Trading</p>
+                    <Tip text="When ON, crypto trades on weekends are flagged and profits removed. Forex markets are closed on weekends anyway." />
                   </div>
-                  <button type="button" onClick={() => createRules.rules_enabled.weekend_trading && setCreateRules({...createRules, weekend_trading: !createRules.weekend_trading})} className={`w-12 h-6 rounded-full transition-all ${createRules.weekend_trading && createRules.rules_enabled.weekend_trading ? "bg-profit" : "bg-white/20"} ${!createRules.rules_enabled.weekend_trading ? "cursor-not-allowed" : ""}`}><div className={`w-5 h-5 bg-white rounded-full transition-transform ${createRules.weekend_trading && createRules.rules_enabled.weekend_trading ? "translate-x-6" : "translate-x-0.5"}`}></div></button>
+                  <button type="button" onClick={() => setCreateRules({...createRules, rules_enabled: {...createRules.rules_enabled, weekend_trading: !createRules.rules_enabled.weekend_trading}})} className={`w-12 h-6 rounded-full transition-all ${createRules.rules_enabled.weekend_trading ? "bg-profit" : "bg-white/20"}`}><div className={`w-5 h-5 bg-white rounded-full transition-transform ${createRules.rules_enabled.weekend_trading ? "translate-x-6" : "translate-x-0.5"}`}></div></button>
                 </div>
 
                 {/* Only Cent Account */}
@@ -1670,7 +1657,7 @@ function CreateChallengeModal({ createStep, setCreateStep, createForm, setCreate
                   {createRules.rules_enabled.min_trade_duration && <div className="flex justify-between py-1.5"><span className="text-gray-500">Min Duration</span><span className="text-white">{createRules.min_trade_duration_minutes}min</span></div>}
                   {createRules.rules_enabled.min_active_days && <div className="flex justify-between py-1.5"><span className="text-gray-500">Min Active Days</span><span className="text-white">{createRules.min_active_days}</span></div>}
                   {createRules.rules_enabled.min_total_trades && <div className="flex justify-between py-1.5"><span className="text-gray-500">Min Total Trades</span><span className="text-white">{createRules.min_total_trades}</span></div>}
-                  {createRules.rules_enabled.weekend_trading && <div className="flex justify-between py-1.5"><span className="text-gray-500">Weekend Trading</span><span className="text-white">{createRules.weekend_trading ? "Allowed" : "Not Allowed"}</span></div>}
+                  {createRules.rules_enabled.weekend_trading && <div className="flex justify-between py-1.5"><span className="text-gray-500">Weekend Trading</span><span className="text-white">Prohibited</span></div>}
                   {createRules.only_cent_account && <div className="flex justify-between py-1.5"><span className="text-gray-500">Cent Account</span><span className="text-white">Required</span></div>}
                   {createRules.allow_professional && <div className="flex justify-between py-1.5"><span className="text-gray-500">Professional Accounts</span><span className="text-white">Allowed</span></div>}
                 </div>

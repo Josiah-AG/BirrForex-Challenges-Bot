@@ -1296,41 +1296,17 @@ export default function AdminDashboard() {
                 <div className="space-y-4">
                   <div className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10">
                     <div className="flex items-center gap-2">
-                      <div><p className="text-sm text-white font-medium">Stop Loss Required</p><p className="text-[10px] text-gray-500">All trades must have SL within risk limit</p></div>
+                      <div><p className="text-sm text-white font-medium">Prohibit Weekend Trading</p><p className="text-[10px] text-gray-500">When ON, crypto trades on weekends are flagged</p></div>
                       <div className="relative group">
                         <span className="cursor-help text-gray-500 hover:text-royal transition-colors text-xs">ⓘ</span>
                         <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-[#1a1a2e] border border-white/20 rounded-lg text-xs text-gray-300 w-56 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity z-50 shadow-xl">
-                          Enforces stop loss verification using M1 candle data. Two layers: checks declared SL width vs max risk, then verifies SL was real (not placed after price moved). Fake SLs get flagged.
+                          When enabled, crypto trades opened or closed on weekends are flagged and profits removed. Forex/commodity pairs are excluded since markets are closed anyway.
                         </div>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <button onClick={() => !rulesLocked && setRulesConfig({ ...rulesConfig, rules_enabled: { ...rulesConfig.rules_enabled, stop_loss_required: !rulesConfig.rules_enabled.stop_loss_required } })} className={`w-10 h-5 rounded-full transition-all ${rulesConfig.rules_enabled.stop_loss_required ? "bg-royal" : "bg-white/20"}`} title="Enable/disable this rule">
-                        <div className={`w-4 h-4 bg-white rounded-full transition-transform ${rulesConfig.rules_enabled.stop_loss_required ? "translate-x-5" : "translate-x-0.5"}`}></div>
-                      </button>
-                      <button onClick={() => !rulesLocked && rulesConfig.rules_enabled.stop_loss_required && setRulesConfig({ ...rulesConfig, stop_loss_required: !rulesConfig.stop_loss_required })} className={`w-12 h-6 rounded-full transition-all ${rulesConfig.stop_loss_required && rulesConfig.rules_enabled.stop_loss_required ? "bg-profit" : "bg-white/20"} ${!rulesConfig.rules_enabled.stop_loss_required ? "opacity-40" : ""}`}>
-                        <div className={`w-5 h-5 bg-white rounded-full transition-transform ${rulesConfig.stop_loss_required && rulesConfig.rules_enabled.stop_loss_required ? "translate-x-6" : "translate-x-0.5"}`}></div>
-                      </button>
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10">
-                    <div className="flex items-center gap-2">
-                      <div><p className="text-sm text-white font-medium">Weekend Trading</p><p className="text-[10px] text-gray-500">Allow trading on weekends (crypto pairs)</p></div>
-                      <div className="relative group">
-                        <span className="cursor-help text-gray-500 hover:text-royal transition-colors text-xs">ⓘ</span>
-                        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-[#1a1a2e] border border-white/20 rounded-lg text-xs text-gray-300 w-56 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity z-50 shadow-xl">
-                          Controls whether crypto trades on weekends are allowed. When OFF, weekend crypto trades are flagged. Forex/commodity pairs are excluded from this check since markets are closed on weekends anyway.
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button onClick={() => !rulesLocked && setRulesConfig({ ...rulesConfig, rules_enabled: { ...rulesConfig.rules_enabled, weekend_trading: !rulesConfig.rules_enabled.weekend_trading } })} className={`w-10 h-5 rounded-full transition-all ${rulesConfig.rules_enabled.weekend_trading ? "bg-royal" : "bg-white/20"}`} title="Enable/disable this rule">
-                        <div className={`w-4 h-4 bg-white rounded-full transition-transform ${rulesConfig.rules_enabled.weekend_trading ? "translate-x-5" : "translate-x-0.5"}`}></div>
-                      </button>
-                      <button onClick={() => !rulesLocked && rulesConfig.rules_enabled.weekend_trading && setRulesConfig({ ...rulesConfig, weekend_trading: !rulesConfig.weekend_trading })} className={`w-12 h-6 rounded-full transition-all ${rulesConfig.weekend_trading && rulesConfig.rules_enabled.weekend_trading ? "bg-profit" : "bg-white/20"} ${!rulesConfig.rules_enabled.weekend_trading ? "opacity-40" : ""}`}>
-                        <div className={`w-5 h-5 bg-white rounded-full transition-transform ${rulesConfig.weekend_trading && rulesConfig.rules_enabled.weekend_trading ? "translate-x-6" : "translate-x-0.5"}`}></div>
-                      </button>
-                    </div>
+                    <button onClick={() => !rulesLocked && setRulesConfig({ ...rulesConfig, rules_enabled: { ...rulesConfig.rules_enabled, weekend_trading: !rulesConfig.rules_enabled.weekend_trading } })} className={`w-12 h-6 rounded-full transition-all ${rulesConfig.rules_enabled.weekend_trading ? "bg-profit" : "bg-white/20"}`}>
+                      <div className={`w-5 h-5 bg-white rounded-full transition-transform ${rulesConfig.rules_enabled.weekend_trading ? "translate-x-6" : "translate-x-0.5"}`}></div>
+                    </button>
                   </div>
                   <div className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10">
                     <div className="flex items-center gap-2">
@@ -2570,7 +2546,7 @@ function CreateChallengePanel({ onCreated }: { onCreated: (id: number) => void }
               <RuleInputWithToggle label="Min Trade Duration (min)" tooltip="Minimum time a trade must be held. Trades closed faster than this are flagged and profits removed. Prevents ultra-short scalping." value={rules.min_trade_duration_minutes || 0} enabled={rules.rules_enabled.min_trade_duration} onValueChange={v => setRules({...rules, min_trade_duration_minutes: v || null})} onToggle={() => setRules({...rules, rules_enabled: {...rules.rules_enabled, min_trade_duration: !rules.rules_enabled.min_trade_duration}})} />
               <RuleInputWithToggle label="Min Active Days" tooltip="Minimum distinct trading days to qualify for prizes. Users who can't reach this are DQ'd before challenge end." value={rules.min_active_days} enabled={rules.rules_enabled.min_active_days} onValueChange={v => setRules({...rules, min_active_days: v})} onToggle={() => setRules({...rules, rules_enabled: {...rules.rules_enabled, min_active_days: !rules.rules_enabled.min_active_days}})} />
               <RuleInputWithToggle label="Min Total Trades" tooltip="Minimum total number of trades to qualify. Users see a blue flag until met. At challenge end, users who haven't met this are disqualified." value={rules.min_total_trades || 0} enabled={rules.rules_enabled.min_total_trades} onValueChange={v => setRules({...rules, min_total_trades: v || null})} onToggle={() => setRules({...rules, rules_enabled: {...rules.rules_enabled, min_total_trades: !rules.rules_enabled.min_total_trades}})} />
-              <RuleToggleWithTooltip label="Weekend Trading" tooltip="Controls crypto trades on weekends. When OFF (and enabled), weekend crypto trades are flagged. Forex excluded." value={rules.weekend_trading} enabled={rules.rules_enabled.weekend_trading} onValueChange={v => setRules({...rules, weekend_trading: v})} onToggle={() => setRules({...rules, rules_enabled: {...rules.rules_enabled, weekend_trading: !rules.rules_enabled.weekend_trading}})} />
+              <RuleToggle label="Prohibit Weekend Trading" value={rules.rules_enabled.weekend_trading} onChange={v => setRules({...rules, rules_enabled: {...rules.rules_enabled, weekend_trading: v}})} />
               <RuleToggle label="Only Cent Account (Real)" value={rules.only_cent_account} onChange={v => setRules({...rules, only_cent_account: v, ...(v ? { allow_professional: false } : {})})} />
               {!rules.only_cent_account && <RuleToggle label="Allow Professional Accounts (Pro/Zero/Raw)" value={rules.allow_professional || false} onChange={v => setRules({...rules, allow_professional: v})} />}
             </div>
