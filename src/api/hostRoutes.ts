@@ -220,6 +220,28 @@ router.post('/challenge/:id/force-update-rank', async (req: any, res: Response) 
   }
 });
 
+// ==================== CHECK BALANCE (Verify Connection) ====================
+router.post('/challenge/:id/check-balance', async (req: any, res: Response) => {
+  const challengeId = await verifyOwnership(req, res);
+  if (!challengeId) return;
+  try {
+    const { registrationId } = req.body;
+    if (!registrationId) return res.status(400).json({ error: 'registrationId required' });
+    const reg = await db.query(`SELECT account_number, mt5_server, investor_password, is_cent FROM trading_registrations WHERE id = $1 AND challenge_id = $2`, [registrationId, challengeId]);
+    if (!reg.rows[0]) return res.status(404).json({ error: 'Registration not found' });
+    const { account_number, mt5_server, investor_password, is_cent } = reg.rows[0];
+    const { vpsService } = require('../services/vpsService');
+    const result = await vpsService.verifyConnection(account_number, mt5_server, investor_password);
+    if (result.success) {
+      return res.json({ success: true, verified: true, balance: result.balance, equity: result.equity, isCent: is_cent });
+    } else {
+      return res.json({ success: true, verified: false, error: result.message || 'Connection failed', credential_fail: result.status === 'invalid_credentials' });
+    }
+  } catch (error) {
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // ==================== RE-EVALUATE USER ====================
 router.post('/challenge/:id/re-evaluate-user', async (req: any, res: Response) => {
   const challengeId = await verifyOwnership(req, res);
