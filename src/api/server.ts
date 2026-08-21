@@ -2063,13 +2063,13 @@ app.post('/api/host/challenge/:id/upload-csv', hostAuthMiddleware, async (req: a
       return res.status(400).json({ error: 'Maximum 500 participants per upload' });
     }
 
-    // Check for existing pending upload
-    const existingPending = await db.query(
-      `SELECT id FROM host_csv_uploads WHERE challenge_id = $1 AND host_id = $2 AND status = 'pending'`,
+    // Check for existing processing upload (prevent concurrent verifications)
+    const existingProcessing = await db.query(
+      `SELECT id FROM host_csv_uploads WHERE challenge_id = $1 AND host_id = $2 AND status = 'processing'`,
       [challengeId, req.hostAccount.hostId]
     );
-    if (existingPending.rows.length > 0) {
-      return res.status(409).json({ error: 'You already have a pending upload awaiting admin approval. Wait for it to be processed or contact admin.' });
+    if (existingProcessing.rows.length > 0) {
+      return res.status(409).json({ error: 'A verification is already in progress. Wait for it to complete.' });
     }
 
     // Validate — skip empty rows, collect warnings for incomplete rows, keep valid ones
@@ -2126,30 +2126,56 @@ app.post('/api/host/challenge/:id/upload-csv', hostAuthMiddleware, async (req: a
       );
     }
 
-    // Notify admin via Telegram
-    try {
-      const { hostService } = require('../services/hostService');
-      const host = await hostService.getHostById(req.hostAccount.hostId);
-      const telegram = getTelegram();
-      if (telegram) {
-        const { Markup } = require('telegraf');
-        await telegram.sendMessage(
-          config.adminUserId,
-          `📋 <b>CSV Upload Pending Approval</b>\n\n` +
-          `<b>Host:</b> ${host?.display_name || 'Unknown'}\n` +
-          `<b>Challenge:</b> ${challengeId}\n` +
-          `<b>Participants:</b> ${participantsToProcess.length}\n\n` +
-          `Approve to start verifying accounts via VPS.`,
-          {
-            parse_mode: 'HTML',
-            ...Markup.inlineKeyboard([
-              [Markup.button.callback('✅ Approve & Verify', `csv_approve_${uploadId}`)],
-              [Markup.button.callback('❌ Reject', `csv_reject_${uploadId}`)],
-            ]),
+    // Start verification immediately in background (no admin approval needed)
+    await db.query(`UPDATE host_csv_uploads SET status = 'processing' WHERE id = $1`, [uploadId]);
+
+    // Background verification (async — don't await)
+    (async () => {
+      try {
+        const { vpsService, fuzzyMatchServer } = require('../services/vpsService');
+        const rows = await db.query(`SELECT * FROM host_csv_rows WHERE upload_id = $1 ORDER BY id`, [uploadId]);
+        let verifiedCount = 0, failedCount = 0;
+        const processedNicknames = new Set<string>();
+
+        for (const row of rows.rows) {
+          try {
+            const matchedServer = fuzzyMatchServer(row.mt5_server, row.account_type) || row.mt5_server;
+            // Duplicate account
+            const existing = await db.query(`SELECT 1 FROM trading_registrations WHERE challenge_id = $1 AND account_number = $2 AND (status IS NULL OR status != 'removed')`, [challengeId, row.account_number]);
+            if (existing.rows.length > 0) { await db.query(`UPDATE host_csv_rows SET status = 'failed', error_message = 'Account already registered' WHERE id = $1`, [row.id]); failedCount++; continue; }
+            // Duplicate nickname
+            const nickLower = (row.nickname || '').trim().toLowerCase();
+            if (processedNicknames.has(nickLower)) { await db.query(`UPDATE host_csv_rows SET status = 'failed', error_message = 'Duplicate nickname in this upload' WHERE id = $1`, [row.id]); failedCount++; continue; }
+            const existingNick = await db.query(`SELECT 1 FROM trading_registrations WHERE challenge_id = $1 AND LOWER(nickname) = $2 AND (status IS NULL OR status != 'removed')`, [challengeId, nickLower]);
+            if (existingNick.rows.length > 0) { await db.query(`UPDATE host_csv_rows SET status = 'failed', error_message = 'Nickname already taken' WHERE id = $1`, [row.id]); failedCount++; continue; }
+            processedNicknames.add(nickLower);
+            // VPS verify
+            const result = await vpsService.verifyConnection(row.account_number, matchedServer, row.investor_password);
+            if (!result.success) {
+              const errMsg = result.status === 'invalid_credentials' ? 'Invalid credentials (password/server wrong)' : result.status === 'server_not_found' ? `Server "${row.mt5_server}" not found` : result.status === 'timeout' ? 'Connection timed out' : (result.message || 'Verification failed');
+              await db.query(`UPDATE host_csv_rows SET status = 'failed', error_message = $1 WHERE id = $2`, [errMsg, row.id]);
+              failedCount++; continue;
+            }
+            const isCent = ['USC', 'USCENT'].includes((result.currency || '').toUpperCase());
+            const accountSubtype = result.account_subtype || 'standard';
+            const reg = await db.query(
+              `INSERT INTO trading_registrations (challenge_id, user_id, username, nickname, account_type, account_subtype, email, account_number, mt5_server, investor_password, is_cent, source, connection_verified, registered_at)
+               VALUES ($1, 0, NULL, $2, $3, $4, $5, $6, $7, $8, $9, 'csv', true, NOW()) RETURNING id`,
+              [challengeId, row.nickname, row.account_type, accountSubtype, row.email || null, row.account_number, matchedServer, row.investor_password, isCent]
+            );
+            await db.query(`UPDATE host_csv_rows SET status = 'verified', registration_id = $1 WHERE id = $2`, [reg.rows[0].id, row.id]);
+            verifiedCount++;
+            await new Promise(r => setTimeout(r, 800));
+          } catch (rowErr) {
+            await db.query(`UPDATE host_csv_rows SET status = 'failed', error_message = $1 WHERE id = $2`, [(rowErr as Error).message, row.id]);
+            failedCount++;
           }
-        );
+        }
+        await db.query(`UPDATE host_csv_uploads SET status = 'processed', verified_count = $1, failed_count = $2, processed_at = NOW() WHERE id = $3`, [verifiedCount, failedCount, uploadId]);
+      } catch (err) {
+        await db.query(`UPDATE host_csv_uploads SET status = 'failed', processed_at = NOW() WHERE id = $1`, [uploadId]).catch(() => {});
       }
-    } catch {}
+    })();
 
     return res.json({ success: true, uploadId, totalRows: participantsToProcess.length, skipped: skippedRows.length, skippedDetails: skippedRows.slice(0, 10) });
   } catch (error) {

@@ -83,6 +83,7 @@ export default function HostDashboardPage() {
   const [csvUploading, setCsvUploading] = useState(false);
   const [csvResult, setCsvResult] = useState<any>(null);
   const [csvStatus, setCsvStatus] = useState<any>(null);
+  const [csvProgress, setCsvProgress] = useState<any>(null);
 
   const getToken = () => localStorage.getItem("host_token") || "";
   const headers = () => ({ Authorization: `Bearer ${getToken()}`, 'Content-Type': 'application/json' });
@@ -460,7 +461,22 @@ export default function HostDashboardPage() {
                         if (participants.length === 0) { setCsvResult({ error: 'No valid rows found. Expected: nickname, email, account_type, account_number, server, investor_password' }); setCsvUploading(false); return; }
                         const res = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/upload-csv`, { method: 'POST', headers: headers(), body: JSON.stringify({ participants }) });
                         const data = await res.json();
-                        if (res.ok && data.success) { setCsvResult({ success: true, count: data.totalRows, skipped: data.skipped || 0, skippedDetails: data.skippedDetails || [] }); } else { setCsvResult({ error: data.error || 'Upload failed', details: data.details || [] }); }
+                        if (res.ok && data.success) {
+                          setCsvResult({ success: true, count: data.totalRows, skipped: data.skipped || 0, skippedDetails: data.skippedDetails || [] });
+                          // Start polling for verification progress
+                          setCsvProgress({ status: 'processing', total: data.totalRows, processed: 0, verified: 0, failed: 0 });
+                          const pollId = data.uploadId;
+                          const poll = setInterval(async () => {
+                            try {
+                              const pr = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/csv-progress/${pollId}`, { headers: { Authorization: `Bearer ${getToken()}` } });
+                              if (pr.ok) {
+                                const pg = await pr.json();
+                                setCsvProgress(pg);
+                                if (pg.status === 'processed' || pg.status === 'failed') { clearInterval(poll); fetchTabData(); }
+                              }
+                            } catch {}
+                          }, 2000);
+                        } else { setCsvResult({ error: data.error || 'Upload failed', details: data.details || [] }); }
                       } catch { setCsvResult({ error: 'Failed to read file' }); }
                       setCsvUploading(false);
                       e.target.value = '';
@@ -470,7 +486,40 @@ export default function HostDashboardPage() {
                     </div>
                   </label>
                 </div>
-                {csvResult?.success && <div className="mt-3"><p className="text-xs text-profit font-semibold">&#10003; Uploaded {csvResult.count} participants. Pending admin approval for verification.</p>{csvResult.skipped > 0 && <div className="mt-3 p-3 rounded-lg bg-gold/5 border border-gold/20"><p className="text-[10px] text-gold font-semibold mb-2">{csvResult.skipped} row(s) skipped:</p><div className="space-y-1.5">{csvResult.skippedDetails.map((d: string, i: number) => <div key={i} className="flex items-start gap-2 text-[10px]"><span className="text-gold/60 mt-0.5">&#9888;</span><span className="text-gray-300">{d}</span></div>)}</div></div>}</div>}
+                {csvResult?.success && <div className="mt-3">
+                  {csvProgress && csvProgress.status === 'processing' && (
+                    <div className="p-3 rounded-lg bg-royal/5 border border-royal/20">
+                      <div className="flex items-center justify-between mb-2"><p className="text-xs text-royal font-semibold">Verifying accounts...</p><span className="text-[10px] text-gray-400">{csvProgress.processed}/{csvProgress.total}</span></div>
+                      <div className="w-full h-2 bg-white/10 rounded-full overflow-hidden"><div className="h-full bg-royal rounded-full transition-all" style={{ width: `${csvProgress.total > 0 ? (csvProgress.processed / csvProgress.total) * 100 : 0}%` }} /></div>
+                    </div>
+                  )}
+                  {csvProgress && (csvProgress.status === 'processed' || csvProgress.status === 'failed') && (
+                    <div className="space-y-3">
+                      <div className="p-3 rounded-lg bg-profit/5 border border-profit/20">
+                        <p className="text-xs text-profit font-semibold">Verification Complete</p>
+                        <div className="flex gap-4 mt-2">
+                          <span className="text-xs text-profit">&#10003; {csvProgress.verified} verified</span>
+                          {csvProgress.failed > 0 && <span className="text-xs text-loss">&#10005; {csvProgress.failed} failed</span>}
+                        </div>
+                      </div>
+                      {csvProgress.rowDetails?.length > 0 && (
+                        <div className="p-3 rounded-lg bg-white/5 border border-white/10 max-h-64 overflow-y-auto">
+                          <p className="text-[10px] text-gray-400 font-semibold uppercase mb-2">Per-Account Results</p>
+                          <div className="space-y-1.5">
+                            {csvProgress.rowDetails.map((r: any, i: number) => (
+                              <div key={i} className={`flex items-center justify-between p-2 rounded-lg text-[11px] ${r.status === 'verified' ? 'bg-profit/5' : 'bg-loss/5'}`}>
+                                <div><span className="text-white font-medium">{r.nickname}</span><span className="text-gray-500 ml-2">{r.account_number} ({r.account_type})</span></div>
+                                <span className={r.status === 'verified' ? 'text-profit font-semibold' : 'text-loss'}>{r.status === 'verified' ? 'Verified' : r.error_message}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {!csvProgress && <p className="text-xs text-profit font-semibold">&#10003; Uploaded {csvResult.count} participants. Verifying...</p>}
+                  {csvResult.skipped > 0 && <div className="mt-3 p-3 rounded-lg bg-gold/5 border border-gold/20"><p className="text-[10px] text-gold font-semibold mb-2">{csvResult.skipped} row(s) skipped before upload:</p><div className="space-y-1.5">{csvResult.skippedDetails.map((d: string, i: number) => <div key={i} className="flex items-start gap-2 text-[10px]"><span className="text-gold/60 mt-0.5">&#9888;</span><span className="text-gray-300">{d}</span></div>)}</div></div>}
+                </div>}
                 {csvResult?.error && <div className="mt-3 p-3 rounded-lg bg-loss/5 border border-loss/20"><p className="text-xs text-loss font-semibold mb-1">{csvResult.error}</p>{csvResult.details?.length > 0 && <div className="space-y-1.5 mt-2">{csvResult.details.map((d: string, i: number) => <div key={i} className="flex items-start gap-2 text-[10px]"><span className="text-loss/60 mt-0.5">&#10005;</span><span className="text-gray-300">{d}</span></div>)}</div>}</div>}
 
                 {/* Upload History & Status */}

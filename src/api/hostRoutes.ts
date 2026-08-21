@@ -291,6 +291,37 @@ router.patch('/challenge/:id/direct-status', async (req: any, res: Response) => 
   }
 });
 
+// ==================== CSV PROGRESS ====================
+router.get('/challenge/:id/csv-progress/:uploadId', async (req: any, res: Response) => {
+  const challengeId = await verifyOwnership(req, res);
+  if (!challengeId) return;
+  try {
+    const uploadId = parseInt(req.params.uploadId);
+    const upload = await db.query(`SELECT status, total_rows, verified_count, failed_count FROM host_csv_uploads WHERE id = $1 AND challenge_id = $2`, [uploadId, challengeId]);
+    if (!upload.rows[0]) return res.status(404).json({ error: 'Upload not found' });
+    const u = upload.rows[0];
+    // Count processed rows so far
+    const processed = await db.query(`SELECT COUNT(*) as cnt FROM host_csv_rows WHERE upload_id = $1 AND status != 'pending'`, [uploadId]);
+    const processedCount = parseInt(processed.rows[0].cnt);
+    // If done, get row details
+    let rowDetails: any[] = [];
+    if (u.status === 'processed' || u.status === 'failed') {
+      const rows = await db.query(`SELECT nickname, account_number, account_type, status, error_message FROM host_csv_rows WHERE upload_id = $1 ORDER BY id`, [uploadId]);
+      rowDetails = rows.rows;
+    }
+    return res.json({
+      status: u.status,
+      total: u.total_rows,
+      processed: processedCount,
+      verified: u.verified_count || 0,
+      failed: u.failed_count || 0,
+      rowDetails,
+    });
+  } catch (error) {
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // ==================== CANCEL PENDING CSV ====================
 router.delete('/challenge/:id/csv-upload/:uploadId', async (req: any, res: Response) => {
   const challengeId = await verifyOwnership(req, res);
