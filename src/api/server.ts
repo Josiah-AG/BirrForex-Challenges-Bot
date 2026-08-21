@@ -7306,6 +7306,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/host-csv/:uploadId/approve`, adminIpCh
 
     let verifiedCount = 0;
     let failedCount = 0;
+    const processedNicknames = new Set<string>();
 
     const { vpsService, fuzzyMatchServer } = require('../services/vpsService');
 
@@ -7314,7 +7315,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/host-csv/:uploadId/approve`, adminIpCh
         // Fuzzy match server
         const matchedServer = fuzzyMatchServer(row.mt5_server, row.account_type) || row.mt5_server;
 
-        // Check duplicate
+        // Check duplicate account number
         const existing = await db.query(
           `SELECT 1 FROM trading_registrations WHERE challenge_id = $1 AND account_number = $2 AND (status IS NULL OR status != 'removed')`,
           [challengeId, row.account_number]
@@ -7324,6 +7325,24 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/host-csv/:uploadId/approve`, adminIpCh
           failedCount++;
           continue;
         }
+
+        // Check duplicate nickname (within this upload + existing registrations)
+        const nickLower = (row.nickname || '').trim().toLowerCase();
+        if (processedNicknames.has(nickLower)) {
+          await db.query(`UPDATE host_csv_rows SET status = 'failed', error_message = 'Duplicate nickname in this upload' WHERE id = $1`, [row.id]);
+          failedCount++;
+          continue;
+        }
+        const existingNick = await db.query(
+          `SELECT 1 FROM trading_registrations WHERE challenge_id = $1 AND LOWER(nickname) = $2 AND (status IS NULL OR status != 'removed')`,
+          [challengeId, nickLower]
+        );
+        if (existingNick.rows.length > 0) {
+          await db.query(`UPDATE host_csv_rows SET status = 'failed', error_message = 'Nickname already taken in this challenge' WHERE id = $1`, [row.id]);
+          failedCount++;
+          continue;
+        }
+        processedNicknames.add(nickLower);
 
         // Verify VPS connection
         const result = await vpsService.verifyConnection(row.account_number, matchedServer, row.investor_password);
