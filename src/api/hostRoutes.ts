@@ -30,22 +30,48 @@ router.get('/challenge/:id/full-overview', async (req: any, res: Response) => {
               COUNT(CASE WHEN account_type='demo' THEN 1 END) as demo,
               COUNT(CASE WHEN account_type='real' THEN 1 END) as real,
               COUNT(CASE WHEN disqualified=true THEN 1 END) as disqualified
-       FROM trading_registrations WHERE challenge_id=$1 AND (status IS NULL OR status NOT IN ('removed', 'rejected'))`, [challengeId]);
+       FROM trading_registrations WHERE challenge_id=$1 AND (status IS NULL OR status != 'removed')`, [challengeId]);
 
+    // Trade stats — only count trades within challenge period (matching admin)
+    const cStart = c.start_date;
+    const cEnd = c.end_date;
+    let tradeFilter = '';
+    const tradeParams: any[] = [challengeId];
+    if (cStart) {
+      const graceStart = new Date(new Date(cStart).getTime() - 3 * 60 * 60 * 1000);
+      tradeFilter += ` AND t.close_time >= $2`;
+      tradeParams.push(graceStart.toISOString());
+    }
+    if (cEnd) {
+      tradeFilter += ` AND t.close_time <= $${tradeParams.length + 1}`;
+      tradeParams.push(new Date(cEnd).toISOString());
+    }
     const trades = await db.query(
-      `SELECT COUNT(*) as total,
-              COUNT(CASE WHEN is_qualified=false THEN 1 END) as flagged,
-              COALESCE(SUM(volume), 0) as total_volume,
-              COUNT(CASE WHEN r.account_type='demo' THEN 1 END) as demo_trades,
-              COUNT(CASE WHEN r.account_type='real' THEN 1 END) as real_trades,
-              COALESCE(SUM(CASE WHEN r.account_type='demo' THEN t.volume END), 0) as demo_volume,
-              COALESCE(SUM(CASE WHEN r.account_type='real' THEN t.volume END), 0) as real_volume
+      `SELECT
+        COUNT(*) as total,
+        COALESCE(SUM(t.volume),0) as total_volume,
+        COUNT(CASE WHEN t.is_qualified=false THEN 1 END) as flagged,
+        COUNT(CASE WHEN r.account_type='demo' THEN 1 END) as demo_trades,
+        COUNT(CASE WHEN r.account_type='real' THEN 1 END) as real_trades,
+        COALESCE(SUM(CASE WHEN r.account_type='demo' THEN CASE WHEN r.is_cent THEN t.volume/100.0 ELSE t.volume END END),0) as demo_volume,
+        COALESCE(SUM(CASE WHEN r.account_type='real' THEN CASE WHEN r.is_cent THEN t.volume/100.0 ELSE t.volume END END),0) as real_volume
        FROM wp_trades t
        JOIN trading_registrations r ON t.registration_id = r.id
-       WHERE t.challenge_id=$1`, [challengeId]);
+       WHERE t.challenge_id=$1${tradeFilter}`, tradeParams);
 
+    // Above target — cent-aware comparison (matching admin)
     const aboveTarget = await db.query(
-      `SELECT COUNT(*) as cnt FROM wp_leaderboard WHERE challenge_id=$1 AND is_qualified=true AND is_disqualified=false`, [challengeId]);
+      `SELECT COUNT(*) as cnt
+       FROM wp_leaderboard l
+       JOIN trading_challenges tc ON tc.id = l.challenge_id
+       JOIN trading_registrations r ON r.id = l.registration_id
+       WHERE l.challenge_id=$1
+         AND (r.disqualified IS NULL OR r.disqualified = false)
+         AND (r.status IS NULL OR r.status != 'removed')
+         AND CASE WHEN COALESCE(r.is_cent, false)
+               THEN l.adjusted_balance >= tc.target_balance * 100
+               ELSE l.adjusted_balance >= tc.target_balance
+             END`, [challengeId]);
 
     const pwChanged = await db.query(
       `SELECT COUNT(*) as cnt FROM trading_registrations WHERE challenge_id=$1 AND pull_status='password_changed'`, [challengeId]);
@@ -53,8 +79,10 @@ router.get('/challenge/:id/full-overview', async (req: any, res: Response) => {
     const lastPull = await db.query(
       `SELECT started_at, completed_at, successful, failed, total_accounts, status FROM wp_pull_batches WHERE challenge_id=$1 ORDER BY started_at DESC LIMIT 1`, [challengeId]);
 
+    // Pull stats — last 24 hours (matching admin)
     const pullsToday = await db.query(
-      `SELECT COUNT(*) as cnt FROM wp_pull_batches WHERE challenge_id=$1 AND started_at::date = CURRENT_DATE`, [challengeId]);
+      `SELECT COUNT(*) as cnt, COALESCE(SUM(successful),0) as total_success, COALESCE(SUM(failed),0) as total_failed
+       FROM wp_pull_batches WHERE challenge_id=$1 AND started_at > NOW() - INTERVAL '24 hours'`, [challengeId]);
 
     // Top violations (violations is stored as JSON string, not pg array)
     const topViolations = await db.query(
@@ -242,6 +270,8 @@ router.get('/challenge/:id/full-overview', async (req: any, res: Response) => {
       aboveTarget: parseInt(aboveTarget.rows[0]?.cnt || '0'),
       passwordChanged: parseInt(pwChanged.rows[0]?.cnt || '0'),
       pullsToday: parseInt(pullsToday.rows[0]?.cnt || '0'),
+      pullsSuccess: parseInt(pullsToday.rows[0]?.total_success || '0'),
+      pullsFailed: parseInt(pullsToday.rows[0]?.total_failed || '0'),
       lastPull: lastPull.rows[0] || null,
       topViolations: topViolations.rows.map((v: any) => ({ rule: v.rule, count: parseInt(v.cnt) })),
       realBalance: parseFloat(balanceData.rows[0]?.real_balance || '0'),
