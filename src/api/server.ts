@@ -2167,7 +2167,15 @@ app.post('/api/host/challenge/:id/upload-csv', hostAuthMiddleware, async (req: a
             verifiedCount++;
             await new Promise(r => setTimeout(r, 800));
           } catch (rowErr) {
-            await db.query(`UPDATE host_csv_rows SET status = 'failed', error_message = $1 WHERE id = $2`, [(rowErr as Error).message, row.id]);
+            let errMsg = (rowErr as Error).message;
+            // Parse PostgreSQL duplicate key errors into friendly messages
+            if (errMsg.includes('duplicate key') || errMsg.includes('unique constraint')) {
+              if (errMsg.includes('account_number')) errMsg = `Account #${row.account_number} is already registered in this challenge`;
+              else if (errMsg.includes('email')) errMsg = `Email ${row.email || ''} is already registered`;
+              else if (errMsg.includes('nickname')) errMsg = `Nickname "${row.nickname}" is already taken`;
+              else errMsg = 'Duplicate entry — this account or nickname already exists';
+            }
+            await db.query(`UPDATE host_csv_rows SET status = 'failed', error_message = $1 WHERE id = $2`, [errMsg, row.id]);
             failedCount++;
           }
         }
@@ -7445,7 +7453,14 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/host-csv/:uploadId/approve`, adminIpCh
         // Small delay between verifications to not overwhelm VPS
         await new Promise(r => setTimeout(r, 1000));
       } catch (rowErr) {
-        await db.query(`UPDATE host_csv_rows SET status = 'failed', error_message = $1 WHERE id = $2`, [(rowErr as Error).message, row.id]);
+        let errMsg = (rowErr as Error).message;
+        if (errMsg.includes('duplicate key') || errMsg.includes('unique constraint')) {
+          if (errMsg.includes('account_number')) errMsg = `Account #${row.account_number} is already registered`;
+          else if (errMsg.includes('email')) errMsg = `Email ${row.email || ''} is already registered`;
+          else if (errMsg.includes('nickname')) errMsg = `Nickname "${row.nickname}" is already taken`;
+          else errMsg = 'Duplicate entry — already exists';
+        }
+        await db.query(`UPDATE host_csv_rows SET status = 'failed', error_message = $1 WHERE id = $2`, [errMsg, row.id]);
         failedCount++;
       }
     }
