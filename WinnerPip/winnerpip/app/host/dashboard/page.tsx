@@ -7,6 +7,7 @@ import {
   LogOut, Loader2, ChevronDown, Target, Activity, Shield, X,
   AlertTriangle, Zap, Clock, TrendingUp, Key, UserMinus, Ban,
 } from "lucide-react";
+import BalanceChart from "@/components/BalanceChart";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
 
@@ -29,6 +30,9 @@ export default function HostDashboardPage() {
   const [failedAccounts, setFailedAccounts] = useState<any>(null);
   const [selectedParticipant, setSelectedParticipant] = useState<any>(null);
   const [selectedParticipantTrades, setSelectedParticipantTrades] = useState<any[]>([]);
+  const [selectedParticipantBalanceOps, setSelectedParticipantBalanceOps] = useState<any[]>([]);
+  const [selectedTrade, setSelectedTrade] = useState<any>(null);
+  const [verifyPopup, setVerifyPopup] = useState<any>(null);
 
   // Rules state
   const [rulesConfig, setRulesConfig] = useState<any>(null);
@@ -217,13 +221,20 @@ export default function HostDashboardPage() {
 
   useEffect(() => { fetchTabData(); }, [fetchTabData]);
 
+  // Lock scroll on modal
+  useEffect(() => {
+    if (selectedParticipant) document.body.style.overflow = "hidden";
+    else document.body.style.overflow = "";
+    return () => { document.body.style.overflow = ""; };
+  }, [selectedParticipant]);
+
   // Fetch participant trades
   useEffect(() => {
-    if (!selectedParticipant || !selectedChallengeId) { setSelectedParticipantTrades([]); return; }
+    if (!selectedParticipant || !selectedChallengeId) { setSelectedParticipantTrades([]); setSelectedParticipantBalanceOps([]); return; }
     fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/user-trades?nickname=${encodeURIComponent(selectedParticipant.nickname)}`, { headers: { Authorization: `Bearer ${getToken()}` } })
-      .then(r => r.ok ? r.json() : { trades: [] })
-      .then(d => setSelectedParticipantTrades(d.trades || []))
-      .catch(() => setSelectedParticipantTrades([]));
+      .then(r => r.ok ? r.json() : { trades: [], balanceOps: [] })
+      .then(d => { setSelectedParticipantTrades(d.trades || []); setSelectedParticipantBalanceOps(d.balanceOps || []); })
+      .catch(() => { setSelectedParticipantTrades([]); setSelectedParticipantBalanceOps([]); });
   }, [selectedParticipant, selectedChallengeId]);
 
   const handleLogout = () => { localStorage.removeItem("host_token"); localStorage.removeItem("host_info"); window.location.href = "/host/login"; };
@@ -665,7 +676,7 @@ export default function HostDashboardPage() {
                             <td className="py-2 px-3 text-center text-xs text-gray-400">{p.totalTrades || 0}</td>
                             <td className="py-2 px-3 text-center" onClick={(e) => e.stopPropagation()}>
                               <div className="flex items-center justify-center gap-1">
-                                <button onClick={async (ev) => { ev.stopPropagation(); const btn = ev.currentTarget; btn.textContent = '⏳'; try { const r = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/check-balance`, { method: "POST", headers: headers(), body: JSON.stringify({ registrationId: p.id }) }); const d = await r.json(); if (d.verified) { btn.textContent = '✅'; btn.title = `$${Number(d.balance).toFixed(2)}`; } else { btn.textContent = '❌'; btn.title = d.credential_fail ? 'Password changed' : 'Failed'; } } catch { btn.textContent = '❌'; } setTimeout(() => { btn.textContent = '🛡️'; btn.title = 'Check Balance'; }, 4000); }} title="Check Balance" className="p-1.5 rounded-lg hover:bg-amber-500/20 text-gray-400 hover:text-amber-400 transition-all text-xs">🛡️</button>
+                                <button onClick={async (ev) => { ev.stopPropagation(); const btn = ev.currentTarget; btn.textContent = '⏳'; try { const r = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/check-balance`, { method: "POST", headers: headers(), body: JSON.stringify({ registrationId: p.id }) }); const d = await r.json(); setVerifyPopup(d); btn.textContent = d.verified ? '✅' : '❌'; } catch { btn.textContent = '❌'; } setTimeout(() => { btn.textContent = '🛡️'; }, 4000); }} title="Verify Connection" className="p-1.5 rounded-lg hover:bg-amber-500/20 text-gray-400 hover:text-amber-400 transition-all text-xs">🛡️</button>
                                 {!p.disqualified && <button onClick={() => setActionModal({ type: 'disqualify', participant: p })} title="Disqualify" className="p-1.5 rounded-lg hover:bg-loss/20 text-gray-400 hover:text-loss transition-all"><Ban size={14} /></button>}
                                 <button onClick={() => setActionModal({ type: 'unverify', participant: p })} title="Remove Registration" className="p-1.5 rounded-lg hover:bg-orange-500/20 text-gray-400 hover:text-orange-400 transition-all"><UserMinus size={14} /></button>
                               </div>
@@ -1240,13 +1251,23 @@ export default function HostDashboardPage() {
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-hidden" onClick={() => setSelectedParticipant(null)}>
           <div className="glass rounded-2xl max-w-md w-full max-h-[85vh] overflow-y-auto border border-white/10" onClick={e => e.stopPropagation()}>
             <div className="sticky top-0 glass p-4 border-b border-white/10 flex items-center justify-between z-10 rounded-t-2xl">
-              <div>
-                <div className="flex items-center gap-2"><h3 className="text-lg font-bold text-white">{selectedParticipant.nickname}</h3><span className={`px-2 py-0.5 rounded text-[10px] font-bold ${selectedParticipant.accountType === "real" ? "bg-gold/20 text-gold" : "bg-royal/20 text-royal"}`}>{selectedParticipant.accountType}</span>{selectedParticipant.isDisqualified || selectedParticipant.disqualified ? <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-loss/20 text-loss">DQ</span> : selectedParticipant.rank ? <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-profit/20 text-profit">#{selectedParticipant.rank}</span> : null}</div>
-                <p className="text-xs text-gray-500 mt-0.5">{selectedParticipant.email || selectedParticipant.accountNumber}</p>
-              </div>
+              <h3 className="text-lg font-bold text-white">{selectedParticipant.nickname}</h3>
               <button onClick={() => setSelectedParticipant(null)} className="p-2 hover:bg-white/10 rounded-lg"><X size={18} className="text-gray-400" /></button>
             </div>
             <div className="p-5 space-y-4">
+              {selectedParticipant.isWithdrawn && (
+                <div className="p-4 rounded-xl bg-gray-500/10 border border-gray-500/20">
+                  <p className="text-xs text-gray-400 mb-1">🚪 Account Exited</p>
+                  <p className="text-sm text-white">User withdrew all funds and is out of the challenge.</p>
+                  {selectedParticipant.totalWithdrawn > 0 && <p className="text-xs text-gray-500 mt-1">Total withdrawn: ${Number(selectedParticipant.totalWithdrawn).toFixed(2)}</p>}
+                </div>
+              )}
+              {selectedParticipant.isBlown && !selectedParticipant.isWithdrawn && (
+                <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20">
+                  <p className="text-xs text-gray-400 mb-1">💀 Account Blown</p>
+                  <p className="text-sm text-white">Balance hit zero from trading losses.</p>
+                </div>
+              )}
               {selectedParticipant.isDisqualified || selectedParticipant.disqualified ? (
                 <div className="p-4 rounded-xl bg-loss/10 border border-loss/20">
                   <p className="text-xs text-gray-400 mb-1">Disqualified</p>
@@ -1257,49 +1278,226 @@ export default function HostDashboardPage() {
                   <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Rank</p><p className="text-2xl font-bold gradient-text">#{selectedParticipant.rank || "—"}</p></div>
                   <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Balance</p><p className="text-2xl font-bold text-white">${Number(selectedParticipant.adjustedBalance || selectedParticipant.lastKnownBalance || 0).toFixed(2)}</p></div>
                   <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Profit</p><p className={`text-lg font-bold ${Number(selectedParticipant.qualifiedProfit || 0) >= 0 ? "text-profit" : "text-loss"}`}>${Number(selectedParticipant.qualifiedProfit || 0).toFixed(2)}</p></div>
+                  <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Gross</p><p className="text-lg font-bold text-white">${Number(selectedParticipant.grossProfit || 0).toFixed(2)}</p></div>
                   <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Trades</p><p className="text-lg font-bold text-white">{selectedParticipant.totalTrades || 0}</p></div>
-                  <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Flagged</p><p className={`text-lg font-bold ${(selectedParticipant.flaggedTrades || 0) > 0 ? "text-loss" : "text-profit"}`}>{selectedParticipant.flaggedTrades || 0}</p></div>
-                  <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Active Days</p><p className="text-lg font-bold text-white">{selectedParticipant.activeDays || 0}</p></div>
+                  <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Flagged</p><p className={`text-lg font-bold ${(selectedParticipant.flaggedTrades || 0) > 0 ? "text-loss" : "text-profit"}`}>{selectedParticipant.flaggedTrades || 0}</p><p className="text-[10px] text-gray-500 mt-0.5">RKR: <span className="text-white font-semibold">{(selectedParticipant.totalTrades || 0) > 0 ? `${Math.round(((selectedParticipant.qualifiedTrades || 0) / selectedParticipant.totalTrades) * 100)}%` : "—"}</span></p></div>
                 </div>
               )}
-              <div className="grid grid-cols-2 gap-3">
-                <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500">Account #</p><p className="text-sm font-semibold text-white">{selectedParticipant.accountNumber}</p></div>
-                <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500">Server</p><p className="text-sm font-semibold text-white">{selectedParticipant.mt5_server || selectedParticipant.server || "—"}</p></div>
-                <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500">Email</p><p className="text-sm font-semibold text-white truncate">{selectedParticipant.email || "—"}</p></div>
-                <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500">Registered</p><p className="text-sm font-semibold text-white">{selectedParticipant.registered_at || selectedParticipant.registeredAt ? fmtTime(selectedParticipant.registered_at || selectedParticipant.registeredAt) : "—"}</p></div>
-              </div>
-              {/* Trades */}
-              <div>
-                <p className="text-xs font-semibold text-gray-400 mb-2">Recent Trades</p>
-                {selectedParticipantTrades.length === 0 ? <p className="text-sm text-gray-500">No trades yet</p> : (
-                  <div className="space-y-1.5 max-h-60 overflow-y-auto">
-                    {selectedParticipantTrades.slice(0, 30).map((t: any) => (
-                      <div key={t.ticket} className={`flex items-center justify-between p-2.5 rounded-lg text-xs ${t.is_qualified === false ? 'bg-loss/5 border border-loss/10' : 'bg-white/5'}`}>
-                        <div className="flex items-center gap-2">
-                          <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${t.type?.toLowerCase() === 'buy' ? 'bg-profit/20 text-profit' : 'bg-loss/20 text-loss'}`}>{t.type || '—'}</span>
-                          <div><p className="text-white font-medium">{t.symbol}</p><p className="text-[10px] text-gray-500">{t.volume} lots</p></div>
-                        </div>
-                        <div className="text-right">
-                          <p className={`font-bold ${t.profit >= 0 ? 'text-profit' : 'text-loss'}`}>${parseFloat(t.profit || 0).toFixed(2)}</p>
-                          {t.is_qualified === false && <p className="text-[9px] text-loss">flagged</p>}
-                        </div>
-                      </div>
-                    ))}
+              {/* ACCOUNT GROWTH CHART */}
+              {(selectedParticipant.totalTrades || 0) > 0 && (selectedParticipant.registrationId || selectedParticipant.id) && (
+                <BalanceChart
+                  registrationId={selectedParticipant.registrationId || selectedParticipant.id}
+                  challengeId={selectedChallengeId!}
+                  adminSecretPath={process.env.NEXT_PUBLIC_ADMIN_PATH || ""}
+                  isCent={selectedParticipant.isCent || false}
+                  height={160}
+                />
+              )}
+              <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Account Type</p><span className={`px-3 py-1 rounded text-xs font-semibold ${selectedParticipant.accountType === "real" ? "bg-gold/10 text-gold" : "bg-royal/10 text-royal"}`}>{selectedParticipant.accountType}</span></div>
+              {/* Win Rate & Avg RR */}
+              {selectedParticipantTrades.length > 0 && (() => {
+                const _wins = selectedParticipantTrades.filter((t: any) => t.profit > 0 && t.is_qualified !== false);
+                const _losses = selectedParticipantTrades.filter((t: any) => t.profit < 0);
+                const _decided = _wins.length + _losses.length;
+                const _wr = _decided > 0 ? Math.round((_wins.length / _decided) * 100) : 0;
+                const _aw = _wins.length > 0 ? _wins.reduce((s: number, t: any) => s + Number(t.profit), 0) / _wins.length : 0;
+                const _al = _losses.length > 0 ? Math.abs(_losses.reduce((s: number, t: any) => s + Number(t.profit), 0) / _losses.length) : 0;
+                const _rr = _al > 0 ? _aw / _al : 0;
+                return (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500 mb-1">Win Rate (Qualified)</p><p className={`text-lg font-bold ${_wr >= 50 ? "text-profit" : "text-loss"}`}>{_wr}%</p></div>
+                    <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500 mb-1">Avg RR</p><p className="text-lg font-bold text-royal">{_rr > 0 ? _rr.toFixed(2) : "—"}</p></div>
                   </div>
-                )}
-              </div>
+                );
+              })()}
+              {/* Trade History with Balance Ops */}
+              {(selectedParticipantTrades.length > 0 || selectedParticipantBalanceOps.length > 0) && (() => {
+                const fmtEAT = (d: string) => d ? new Date(new Date(d).getTime() + 3*60*60*1000).toISOString().substring(11,16) : '';
+                const fmtDateEAT = (d: string) => { const dt = new Date(new Date(d).getTime() + 3*60*60*1000); return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); };
+                const c = (v: number) => `$${Number(v).toFixed(2)}`;
+                const opMeta: Record<string, { icon: string; label: string; bg: string; border: string; textColor: string; sign: (a: number) => string }> = {
+                  deposit:    { icon: '💰', label: 'Deposit',    bg: 'bg-profit/10', border: 'border-profit/20', textColor: 'text-profit',      sign: () => '+' },
+                  withdrawal: { icon: '🚪', label: 'Withdrawal', bg: 'bg-loss/10',   border: 'border-loss/20',   textColor: 'text-loss',        sign: () => '-' },
+                  swap:       { icon: '🔄', label: 'Swap',       bg: 'bg-amber-500/10', border: 'border-amber-500/20', textColor: 'text-amber-400', sign: (a) => a < 0 ? '-' : '+' },
+                  dividend:   { icon: '📊', label: 'Dividend',   bg: 'bg-royal/10',  border: 'border-royal/20',  textColor: 'text-royal',       sign: () => '+' },
+                };
+                // Build unified feed
+                type FeedItem = { sortTime: number } & ({ kind: 'trade'; trade: any } | { kind: 'op'; op: any });
+                const feed: FeedItem[] = [];
+                for (const t of selectedParticipantTrades) {
+                  feed.push({ kind: 'trade', trade: t, sortTime: new Date(t.close_time || t.closeTime || 0).getTime() });
+                }
+                for (const op of selectedParticipantBalanceOps) {
+                  feed.push({ kind: 'op', op, sortTime: new Date(op.time || op.closeTime || 0).getTime() });
+                }
+                feed.sort((a, b) => b.sortTime - a.sortTime);
+                return (
+                  <div className="mt-2">
+                    <p className="text-xs font-semibold text-gray-400 mb-2">Account History · {selectedParticipantTrades.length} trade{selectedParticipantTrades.length !== 1 ? 's' : ''}</p>
+                    <div className="space-y-2 max-h-[360px] overflow-y-auto">
+                      {feed.map((item, idx) => {
+                        if (item.kind === 'op') {
+                          const op = item.op;
+                          const opType = op.type || op.opType || 'deposit';
+                          const isPostStart = selectedChallenge?.start_date && new Date(op.time || op.closeTime) >= new Date(selectedChallenge.start_date);
+                          const isDeposit = opType === 'deposit';
+                          const meta = (isDeposit && isPostStart)
+                            ? { icon: '⚠️', label: 'Deposit (Post-Start)', bg: 'bg-loss/10', border: 'border-loss/20', textColor: 'text-loss', sign: () => '+' }
+                            : (opMeta[opType] || opMeta.deposit);
+                          return (
+                            <div key={`op-${op.ticket || idx}`} className={`flex items-center justify-between py-2 px-3 rounded-lg border ${meta.bg} ${meta.border}`}>
+                              <div>
+                                <p className="text-xs text-white font-medium">{meta.icon} {meta.label}</p>
+                                <p className="text-[10px] text-gray-500">{fmtDateEAT(op.time || op.closeTime)} {fmtEAT(op.time || op.closeTime)} EAT</p>
+                              </div>
+                              <p className={`text-xs font-bold ${meta.textColor}`}>{meta.sign(Number(op.amount))}{c(Math.abs(Number(op.amount)))}</p>
+                            </div>
+                          );
+                        }
+                        const t = item.trade;
+                        const tradeType = t.trade_type || t.type || '';
+                        const closeTime = t.close_time || t.closeTime || '';
+                        const openTime = t.open_time || t.openTime || '';
+                        const isQualified = t.is_qualified !== false && t.isQualified !== false;
+                        const violations = t.violations ? (typeof t.violations === 'string' ? JSON.parse(t.violations) : t.violations) : [];
+                        return (
+                          <div key={`t-${t.ticket}-${idx}`} onClick={() => setSelectedTrade(t)} className={`py-2 px-3 rounded-lg cursor-pointer hover:brightness-125 transition-all ${!isQualified ? 'bg-loss/10 border border-loss/20' : 'bg-white/5'}`}>
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${tradeType.toLowerCase() === 'buy' ? 'bg-profit/20 text-profit' : 'bg-loss/20 text-loss'}`}>{tradeType}</span>
+                                <div>
+                                  <p className="text-xs text-white font-medium">{t.symbol}</p>
+                                  <p className="text-[10px] text-gray-500">{openTime ? fmtDateEAT(openTime) : ''} {openTime ? fmtEAT(openTime) : ''} → {closeTime ? fmtEAT(closeTime) : ''}</p>
+                                </div>
+                              </div>
+                              <div className="text-right">
+                                <p className={`text-xs font-bold ${Number(t.profit) >= 0 ? 'text-profit' : 'text-loss'}`}>{c(Number(t.profit))}</p>
+                                <p className="text-[10px] text-gray-500">{t.volume} lot {!isQualified ? <span className="text-loss">🚩</span> : null}</p>
+                              </div>
+                            </div>
+                            {!isQualified && violations.length > 0 && <p className="text-[10px] text-loss mt-1 pl-7">⚠️ {violations[0]}</p>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
+              {/* Export MT5 Trade History */}
+              {(selectedParticipant.registrationId || selectedParticipant.id) && (
+                <button
+                  onClick={async () => {
+                    try {
+                      const regId = selectedParticipant.registrationId || selectedParticipant.id;
+                      const res = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/export-user-trades?registration_id=${regId}`, { headers: { Authorization: `Bearer ${getToken()}` } });
+                      if (!res.ok) { alert("Export failed"); return; }
+                      const data = await res.json();
+                      const html = generateTradesHTML(data);
+                      const blob = new Blob([html], { type: "text/html" });
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement("a");
+                      a.href = url;
+                      a.download = `${data.user?.nickname || selectedParticipant.nickname || "trades"}_MT5_history.html`;
+                      a.click();
+                      URL.revokeObjectURL(url);
+                    } catch { alert("Export failed"); }
+                  }}
+                  className="w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 text-gray-300 font-semibold transition-all text-sm"
+                >
+                  <FileText size={14} /> Export MT5 Trade History
+                </button>
+              )}
               {/* Actions */}
               <div className="border-t border-white/10 pt-4 space-y-2">
                 <p className="text-[10px] text-gray-500 uppercase tracking-wider font-semibold mb-2">Actions</p>
                 <div className="flex flex-wrap gap-2">
                   <button onClick={async () => { const id = selectedParticipant.id || selectedParticipant.registrationId; if (!id) return; const btn = document.activeElement as HTMLButtonElement; btn.textContent = '⏳'; try { const r = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/check-balance`, { method: "POST", headers: headers(), body: JSON.stringify({ registrationId: id }) }); const d = await r.json(); if (d.verified) { btn.textContent = `✅ $${Number(d.balance).toFixed(2)}`; } else { btn.textContent = `❌ ${d.credential_fail ? 'PW changed' : 'Failed'}`; } } catch { btn.textContent = '❌ Error'; } setTimeout(() => { btn.textContent = '🛡️ Check Balance'; }, 5000); }} className="px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-semibold hover:bg-amber-500/20 transition-all">🛡️ Check Balance</button>
-                  <button onClick={async () => { const id = selectedParticipant.id || selectedParticipant.registrationId; if (!id) return; try { const r = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/re-evaluate-user`, { method: "POST", headers: headers(), body: JSON.stringify({ registrationId: id }) }); const d = await r.json(); alert(d.success ? "Re-evaluation complete" : (d.error || "Failed")); } catch { alert("Error"); } }} className="px-3 py-2 rounded-lg bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 text-xs font-semibold hover:bg-cyan-500/20 transition-all">Re-evaluate</button>
-                  {!(selectedParticipant.isDisqualified || selectedParticipant.disqualified) && <button onClick={() => { const id = selectedParticipant.id || selectedParticipant.registrationId; if (!id) return; const reason = prompt("DQ Reason:"); if (!reason) return; doAction(`${API_URL}/api/host/challenge/${selectedChallengeId}/disqualify`, 'POST', { registrationId: id, reason }); setSelectedParticipant(null); }} className="px-3 py-2 rounded-lg bg-loss/10 border border-loss/30 text-loss text-xs font-semibold hover:bg-loss/20 transition-all">Disqualify</button>}
-                  <button onClick={() => { const id = selectedParticipant.id || selectedParticipant.registrationId; if (!id) return; if (!confirm(`Remove ${selectedParticipant.nickname}?`)) return; doAction(`${API_URL}/api/host/challenge/${selectedChallengeId}/unverify`, 'POST', { registrationId: id }); setSelectedParticipant(null); }} className="px-3 py-2 rounded-lg bg-gray-500/10 border border-gray-500/30 text-gray-400 text-xs font-semibold hover:bg-gray-500/20 transition-all">Remove</button>
+                  <button onClick={async () => { const id = selectedParticipant.id || selectedParticipant.registrationId; if (!id) return; try { const r = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/re-evaluate-user`, { method: "POST", headers: headers(), body: JSON.stringify({ registrationId: id }) }); const d = await r.json(); alert(d.success ? "Re-evaluation complete" : (d.error || "Failed")); } catch { alert("Error"); } }} className="px-3 py-2 rounded-lg bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 text-xs font-semibold hover:bg-cyan-500/20 transition-all">🔄 Re-evaluate</button>
+                  {!(selectedParticipant.isDisqualified || selectedParticipant.disqualified) && <button onClick={() => { const id = selectedParticipant.id || selectedParticipant.registrationId; if (!id) return; const reason = prompt("DQ Reason:"); if (!reason) return; doAction(`${API_URL}/api/host/challenge/${selectedChallengeId}/disqualify`, 'POST', { registrationId: id, reason }); setSelectedParticipant(null); }} className="px-3 py-2 rounded-lg bg-loss/10 border border-loss/30 text-loss text-xs font-semibold hover:bg-loss/20 transition-all">🚫 Disqualify</button>}
+                  <button onClick={() => { const id = selectedParticipant.id || selectedParticipant.registrationId; if (!id) return; if (!confirm(`Remove ${selectedParticipant.nickname}?`)) return; doAction(`${API_URL}/api/host/challenge/${selectedChallengeId}/unverify`, 'POST', { registrationId: id }); setSelectedParticipant(null); }} className="px-3 py-2 rounded-lg bg-gray-500/10 border border-gray-500/30 text-gray-400 text-xs font-semibold hover:bg-gray-500/20 transition-all">🗑️ Remove</button>
                 </div>
                 <button onClick={() => { setActiveTab("leaderboard"); setLeaderboardCategory(selectedParticipant.accountType === 'demo' ? 'demo' : 'real'); setSelectedParticipant(null); }} className="w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-gold/20 border border-gold/30 hover:bg-gold/30 text-gold font-semibold transition-all text-sm mt-2"><Trophy size={16} />View on Leaderboard</button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Trade Detail Modal */}
+      {selectedTrade && (() => {
+        const t = selectedTrade;
+        const fmtEAT = (s: string) => s ? new Date(new Date(s).getTime()+3*60*60*1000).toISOString().substring(0,16).replace("T"," ")+" EAT" : "—";
+        const cur = (v: number) => `$${Number(v).toFixed(2)}`;
+        const violations: string[] = t.violations ? (typeof t.violations === 'string' ? JSON.parse(t.violations) : (Array.isArray(t.violations) ? t.violations : [])) : [];
+        const isQualified = t.is_qualified !== false && t.isQualified !== false;
+        return (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[60] flex items-center justify-center p-4" onClick={() => setSelectedTrade(null)}>
+            <div className="bg-[#111827] rounded-2xl border border-white/10 p-5 max-w-sm w-full shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-bold text-white">Ticket #{t.ticket}</h3>
+                  <p className="text-[10px] text-gray-500 mt-0.5">{t.symbol} · {(t.trade_type || t.type || '').toUpperCase()} · {selectedParticipant?.nickname}</p>
+                </div>
+                <button onClick={() => setSelectedTrade(null)} className="p-2 hover:bg-white/10 rounded-lg"><X size={16} className="text-gray-400" /></button>
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Direction</p><span className={`px-2 py-0.5 rounded font-bold text-[10px] ${(t.trade_type || t.type || '').toLowerCase()==='buy' ? 'bg-profit/20 text-profit' : 'bg-loss/20 text-loss'}`}>{(t.trade_type || t.type || '').toUpperCase()}</span></div>
+                <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Lots</p><p className="text-white font-semibold">{Number(t.volume).toFixed(2)}</p></div>
+                <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Open</p><p className="text-white">{t.open_price || t.openPrice}</p><p className="text-[10px] text-gray-500">{fmtEAT(t.open_time || t.openTime)}</p></div>
+                <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Close</p><p className="text-white">{t.close_price || t.closePrice}</p><p className="text-[10px] text-gray-500">{fmtEAT(t.close_time || t.closeTime)}</p></div>
+                <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Stop Loss</p>{(t.stop_loss || t.stopLoss) ? <p className="text-white">{t.stop_loss || t.stopLoss}</p> : <p className="text-gray-500">—</p>}</div>
+                <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Take Profit</p>{(t.take_profit || t.takeProfit) ? <p className="text-white">{t.take_profit || t.takeProfit}</p> : <p className="text-gray-500">—</p>}</div>
+                <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Profit</p><p className={`font-bold ${Number(t.profit) >= 0 ? 'text-profit' : 'text-loss'}`}>{cur(Number(t.profit))}</p></div>
+                <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Commission</p><p className="text-gray-300">{cur(Number(t.commission ?? 0))}</p></div>
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Status</p><p className={`font-semibold ${!isQualified ? 'text-loss' : 'text-profit'}`}>{!isQualified ? '🚩 Flagged' : '✓ Qualified'}</p></div>
+                <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Swap</p><p className="text-gray-300">{cur(Number(t.swap ?? 0))}</p></div>
+              </div>
+              {violations.length > 0 && (
+                <div className="bg-loss/10 border border-loss/20 rounded-xl p-3 space-y-1">
+                  <p className="text-[10px] text-loss font-semibold mb-1">Violations</p>
+                  {violations.map((v: string, i: number) => <p key={i} className="text-[10px] text-loss/80">⚠️ {v}</p>)}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Verify Popup Modal */}
+      {verifyPopup && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4" style={{zIndex:99999}} onClick={() => setVerifyPopup(null)}>
+          <div className="bg-[#111827] rounded-2xl border border-white/10 p-6 max-w-sm w-full shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-bold text-white">Connection Verification</h3>
+              <button onClick={() => setVerifyPopup(null)} className="p-1 hover:bg-white/10 rounded-lg"><X size={16} className="text-gray-400" /></button>
+            </div>
+            <div className={`p-4 rounded-xl mb-4 ${verifyPopup.verified ? "bg-profit/10 border border-profit/30" : "bg-loss/10 border border-loss/30"}`}>
+              <p className={`text-lg font-bold text-center ${verifyPopup.verified ? "text-profit" : "text-loss"}`}>{verifyPopup.verified ? "✅ Verified" : "❌ Failed"}</p>
+            </div>
+            {verifyPopup.verified && (
+              <div className="space-y-2">
+                {(verifyPopup.balance != null) ? (
+                  <>
+                    <div className="flex justify-between p-3 bg-white/5 rounded-lg"><span className="text-xs text-gray-400">Balance</span><span className="text-sm text-white font-bold">${Number(verifyPopup.balance).toFixed(2)}</span></div>
+                    {verifyPopup.equity != null && <div className="flex justify-between p-3 bg-white/5 rounded-lg"><span className="text-xs text-gray-400">Equity</span><span className="text-sm text-white font-bold">${Number(verifyPopup.equity).toFixed(2)}</span></div>}
+                  </>
+                ) : (
+                  <div className="p-3 bg-white/5 rounded-lg text-center">
+                    <p className="text-xs text-gray-400">✅ Credentials are valid — account is accessible</p>
+                    <p className="text-[10px] text-gray-500 mt-1">Balance will show after the next update cycle</p>
+                  </div>
+                )}
+              </div>
+            )}
+            {!verifyPopup.verified && (
+              <div>
+                <p className="text-sm text-loss mb-2">{verifyPopup.error || "Unknown error"}</p>
+                {verifyPopup.credentialIssue && <p className="text-[10px] text-gold mt-1">⚠️ Credential issue — password may have changed</p>}
+              </div>
+            )}
+            <button onClick={() => setVerifyPopup(null)} className="w-full mt-4 py-2.5 rounded-xl bg-white/10 border border-white/10 text-gray-300 text-sm font-semibold hover:bg-white/20 transition-all">Close</button>
           </div>
         </div>
       )}
@@ -1794,6 +1992,14 @@ function hostDownloadStatsHTML(challenge: any, stats: any) {
   const s = stats;
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${challenge.title} - Stats</title><style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Inter',system-ui,sans-serif;background:#0a0e1a}.page{width:1080px;min-height:1920px;padding:80px 60px;display:flex;flex-direction:column;background:linear-gradient(160deg,#0a0e1a 0%,#0f172a 40%,#0a0e1a 100%);position:relative;overflow:hidden}.glow{position:absolute;width:700px;height:700px;border-radius:50%;filter:blur(180px);opacity:0.12}.glow1{top:-300px;right:-200px;background:#F5B400}.glow2{bottom:-300px;left:-200px;background:#16C784}.glow3{top:50%;left:50%;transform:translate(-50%,-50%);background:#1F6FEB;opacity:0.05;width:900px;height:900px}.header{text-align:center;margin-bottom:50px}.title{font-size:38px;font-weight:800;color:#fff;margin-bottom:6px;letter-spacing:-0.5px}.subtitle{font-size:15px;color:#64748b;font-weight:500;letter-spacing:1px;text-transform:uppercase}.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;max-width:920px;margin:0 auto;width:100%}.card{padding:28px 30px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);border-radius:20px}.card.full{grid-column:span 2}.card.highlight{border-color:rgba(22,199,132,0.25);background:rgba(22,199,132,0.03)}.card-label{font-size:12px;color:#64748b;font-weight:600;text-transform:uppercase;letter-spacing:1.2px;margin-bottom:10px}.card-value{font-size:32px;font-weight:800;color:#fff}.card-value.green{color:#16C784}.card-value.small{font-size:20px;font-weight:700}.dual{display:flex;gap:40px;align-items:center}.dual-item{flex:1}.tag{display:inline-block;padding:3px 10px;border-radius:6px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-right:8px}.tag.real{background:rgba(249,115,22,0.15);color:#fb923c}.tag.demo{background:rgba(59,130,246,0.15);color:#60a5fa}.footer{text-align:center;margin-top:auto;padding-top:50px}.brand{font-size:14px;font-weight:600;color:#334155;letter-spacing:2px;text-transform:uppercase}</style></head><body><div class="page"><div class="glow glow1"></div><div class="glow glow2"></div><div class="glow glow3"></div><div class="header"><div style="display:flex;align-items:center;justify-content:center;gap:20px;margin-bottom:16px"><img src="https://winnerpip.com/winnerpip-icon.png" style="width:52px;height:52px;border-radius:12px" onerror="this.style.display='none'" /></div><div class="title">${challenge.title || 'Trading Challenge'}</div><div class="subtitle">Challenge Statistics</div></div><div class="grid"><div class="card highlight"><div class="card-label">Total Participants</div><div class="card-value green">${s.totalParticipants || 0}</div></div><div class="card"><div class="card-label">Total Trades</div><div class="card-value">${s.totalTrades || 0}</div></div>${s.challengeType === 'hybrid' ? `<div class="card"><div class="card-label">Participants</div><div class="dual"><div class="dual-item"><span class="tag real">Real</span><span class="card-value small">${s.realParticipants || 0}</span></div><div class="dual-item"><span class="tag demo">Demo</span><span class="card-value small">${s.demoParticipants || 0}</span></div></div></div><div class="card highlight"><div class="card-label">Above Target</div><div class="dual"><div class="dual-item"><span class="tag real">Real</span><span class="card-value small green">${s.realAboveTarget || 0}</span></div><div class="dual-item"><span class="tag demo">Demo</span><span class="card-value small green">${s.demoAboveTarget || 0}</span></div></div></div><div class="card full"><div class="card-label">Blown / Disqualified</div><div class="dual"><div class="dual-item"><span class="tag real">Real</span><span class="card-value small" style="color:#f87171">${s.blownReal || 0} 💀 / ${s.dqReal || 0} 🚫</span></div><div class="dual-item"><span class="tag demo">Demo</span><span class="card-value small" style="color:#f87171">${s.blownDemo || 0} 💀 / ${s.dqDemo || 0} 🚫</span></div></div></div>` : `<div class="card highlight"><div class="card-label">Above Target</div><div class="card-value green">${s.realAboveTarget || s.demoAboveTarget || 0}</div></div><div class="card"><div class="card-label">Blown / Disqualified</div><div class="dual"><div class="dual-item"><span class="card-value small" style="color:#f87171">${(s.blownReal||0)+(s.blownDemo||0)} 💀</span></div><div class="dual-item"><span class="card-value small" style="color:#f87171">${(s.dqReal||0)+(s.dqDemo||0)} 🚫</span></div></div></div>`}</div><div class="footer"><div class="brand">WinnerPip</div></div></div></body></html>`;
   const blob = new Blob([html], { type: 'text/html' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `${(challenge.title || 'challenge').replace(/\s+/g, '_')}_stats.html`; a.click(); URL.revokeObjectURL(url);
+}
+
+function generateTradesHTML(data: any): string {
+  const user = data.user || {};
+  const trades = data.trades || [];
+  const fmtEAT = (s: string) => s ? new Date(new Date(s).getTime()+3*60*60*1000).toISOString().substring(0,16).replace("T"," ") : "—";
+  const rows = trades.map((t: any) => `<tr class="${t.is_qualified === false ? 'flagged' : ''}"><td>${t.ticket}</td><td>${fmtEAT(t.open_time)}</td><td>${t.trade_type || t.type}</td><td>${t.symbol}</td><td>${t.volume}</td><td>${t.open_price}</td><td>${t.stop_loss || '—'}</td><td>${t.take_profit || '—'}</td><td>${fmtEAT(t.close_time)}</td><td>${t.close_price}</td><td>${t.commission || 0}</td><td>${t.swap || 0}</td><td class="${Number(t.profit) >= 0 ? 'profit' : 'loss'}">${Number(t.profit).toFixed(2)}</td></tr>`).join('');
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${user.nickname || 'User'} - Trade History</title><style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:system-ui,sans-serif;background:#0f172a;color:#e2e8f0;padding:20px}h1{font-size:18px;margin-bottom:4px}p.sub{font-size:12px;color:#64748b;margin-bottom:16px}table{width:100%;border-collapse:collapse;font-size:11px}th{background:#1e293b;padding:8px 6px;text-align:left;border-bottom:1px solid #334155;color:#94a3b8;text-transform:uppercase;font-size:10px}td{padding:6px;border-bottom:1px solid #1e293b}.flagged td{background:rgba(239,68,68,0.05)}.profit{color:#22c55e;font-weight:600}.loss{color:#ef4444;font-weight:600}</style></head><body><h1>${user.nickname || 'User'} — MT5 Trade History</h1><p class="sub">Account: ${user.accountNumber || '—'} | Type: ${user.accountType || '—'} | Trades: ${trades.length}</p><table><thead><tr><th>Ticket</th><th>Open Time</th><th>Type</th><th>Symbol</th><th>Volume</th><th>Open</th><th>SL</th><th>TP</th><th>Close Time</th><th>Close</th><th>Comm</th><th>Swap</th><th>Profit</th></tr></thead><tbody>${rows}</tbody></table></body></html>`;
 }
 
 function hostDownloadRulesHTML(challenge: any, rulesList: string[], isCent: boolean) {
