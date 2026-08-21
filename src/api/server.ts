@@ -2188,6 +2188,21 @@ app.post('/api/host/challenge/:id/upload-csv', hostAuthMiddleware, async (req: a
             );
             await db.query(`UPDATE host_csv_rows SET status = 'verified', registration_id = $1 WHERE id = $2`, [reg.rows[0].id, row.id]);
             verifiedCount++;
+
+            // Send registration confirmation email for hosted challenges
+            if (row.email) {
+              try {
+                const challengeInfo = await db.query(`SELECT title FROM trading_challenges WHERE id = $1`, [challengeId]);
+                const { emailService } = require('../services/emailService');
+                emailService.sendRegistrationConfirmation(row.email, {
+                  nickname: row.nickname,
+                  challengeTitle: challengeInfo.rows[0]?.title || 'Trading Challenge',
+                  accountNumber: row.account_number,
+                  accountType: row.account_type,
+                });
+              } catch {}
+            }
+
             await new Promise(r => setTimeout(r, 800));
           } catch (rowErr) {
             let errMsg = (rowErr as Error).message;
@@ -7475,6 +7490,20 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/host-csv/:uploadId/approve`, adminIpCh
 
         await db.query(`UPDATE host_csv_rows SET status = 'verified', registration_id = $1 WHERE id = $2`, [reg.rows[0].id, row.id]);
         verifiedCount++;
+
+        // Send registration confirmation email for hosted challenges
+        if (row.email) {
+          try {
+            const challengeInfo2 = await db.query(`SELECT title FROM trading_challenges WHERE id = $1`, [challengeId]);
+            const { emailService } = require('../services/emailService');
+            emailService.sendRegistrationConfirmation(row.email, {
+              nickname: row.nickname,
+              challengeTitle: challengeInfo2.rows[0]?.title || 'Trading Challenge',
+              accountNumber: row.account_number,
+              accountType: row.account_type,
+            });
+          } catch {}
+        }
 
         // Small delay between verifications to not overwhelm VPS
         await new Promise(r => setTimeout(r, 1000));
