@@ -2266,7 +2266,7 @@ function AccountChangeBanner({ challengeId, challengeType, currentAccountNumber,
       if (res.ok && data.success) {
         setSuccess(true);
         localStorage.setItem("wp_login_pass", newAcct.investorPassword);
-        setTimeout(() => window.location.reload(), 2000);
+        setTimeout(() => window.location.reload(), 10000);
       } else { setError(data.error || "Failed to update"); }
     } catch { setError("Connection error. Please try again."); }
     setLoading(false);
@@ -2302,7 +2302,7 @@ function AccountChangeBanner({ challengeId, challengeType, currentAccountNumber,
                 <p className="text-sm text-white"><span className="text-gray-400">Password:</span> <span className="font-bold text-gold">Your new investor password</span></p>
               </div>
             </div>
-            <p className="text-[10px] text-gray-500 mt-3">Reloading...</p>
+            <button onClick={() => window.location.reload()} className="mt-4 px-6 py-2.5 rounded-xl bg-royal text-white font-semibold text-sm hover:opacity-90 transition-all">Got it</button>
           </div>
         ) : mode === "idle" ? (
           <>
