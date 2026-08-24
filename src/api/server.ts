@@ -1552,7 +1552,7 @@ app.post('/api/host/change-password', hostAuthMiddleware, async (req: any, res) 
     if (!host) return res.status(404).json({ error: 'Host not found' });
 
     // Verify current password
-    const bcrypt = require('bcryptjs');
+    const bcrypt = require('bcrypt');
     const isValid = await bcrypt.compare(currentPassword, host.password_hash);
     if (!isValid) return res.status(401).json({ error: 'Current password is incorrect' });
 
