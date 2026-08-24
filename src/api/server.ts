@@ -693,6 +693,20 @@ app.post('/api/challenges/:id/verify-mt5', authLimiter, async (req, res) => {
     // Deposit validation
     const startBal = parseFloat(challenge.rows[0].starting_balance || '0');
     const depositMode = challenge.rows[0].deposit_mode || 'fixed';
+
+    // Demo accounts: for fixed mode, balance must match starting balance (±5% tolerance)
+    if (accountType === 'demo' && startBal > 0 && depositMode === 'fixed') {
+      const maxAllowed = startBal * 1.05;
+      const minAllowed = startBal * 0.95;
+      if (balance > maxAllowed) {
+        return res.status(400).json({ error: `Your demo balance ($${balance.toFixed(2)}) exceeds the required starting balance of $${startBal.toFixed(2)}. Please create a demo account with exactly $${startBal.toFixed(0)} balance.` });
+      }
+      if (balance < minAllowed) {
+        return res.status(400).json({ error: `Your demo balance ($${balance.toFixed(2)}) is below the required starting balance of $${startBal.toFixed(2)}. Please create a demo account with exactly $${startBal.toFixed(0)} balance.` });
+      }
+    }
+
+    // Real accounts: validate based on deposit mode
     if (accountType === 'real' && startBal > 0) {
       if (depositMode === 'fixed') {
         const maxAllowed = isCent ? startBal * 100 * 1.05 : startBal * 1.05;
@@ -1118,6 +1132,18 @@ app.post('/api/challenges/:id/change-registration', authLimiter, async (req: any
     // Deposit validation
     const startBal = parseFloat(challenge.rows[0].starting_balance || '0');
     const depositMode = challenge.rows[0].deposit_mode || 'fixed';
+
+    // Demo: fixed mode requires exact balance (±5%)
+    if (newAccountType === 'demo' && startBal > 0 && depositMode === 'fixed') {
+      if (balance > startBal * 1.05) {
+        return res.status(400).json({ error: `Demo balance ($${balance.toFixed(2)}) exceeds the required $${startBal.toFixed(2)}. Use a demo account with exactly $${startBal.toFixed(0)} balance.` });
+      }
+      if (balance < startBal * 0.95) {
+        return res.status(400).json({ error: `Demo balance ($${balance.toFixed(2)}) is below the required $${startBal.toFixed(2)}. Use a demo account with exactly $${startBal.toFixed(0)} balance.` });
+      }
+    }
+
+    // Real: validate based on deposit mode
     if (newAccountType === 'real' && startBal > 0) {
       if (depositMode === 'fixed' || depositMode === 'max_limit') {
         const maxAllowed = isCent ? startBal * 100 * 1.05 : startBal * 1.05;
