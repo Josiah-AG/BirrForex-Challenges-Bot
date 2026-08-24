@@ -4,7 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { useParams } from "next/navigation";
 import { Input } from "@/components/ui/input";
-import { TrendingUp, Trophy, AlertTriangle, Target, Activity, ArrowLeft, FileText, Clock, ChevronDown, ChevronUp, Shield, Award, Hash, Key, Loader2, MessageCircle, ArrowRight, X, RefreshCw, LogOut } from "lucide-react";
+import { TrendingUp, Trophy, AlertTriangle, Target, Activity, ArrowLeft, FileText, Clock, ChevronDown, ChevronUp, Shield, Award, Hash, Key, Loader2, MessageCircle, ArrowRight, X, RefreshCw, LogOut, Users, CheckCircle } from "lucide-react";
 import BalanceChart from "@/components/BalanceChart";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
@@ -66,6 +66,17 @@ export default function ChallengeDashboard() {
   const [loginError, setLoginError] = useState("");
   const [loginLoading, setLoginLoading] = useState(false);
 
+  // Pre-auth challenge info (for showing Register button before login)
+  const [preAuthChallenge, setPreAuthChallenge] = useState<{ hostId?: number; registrationMode?: string; status?: string; type?: string; title?: string } | null>(null);
+  const [showRegWizard, setShowRegWizard] = useState(false);
+  const [regForm, setRegForm] = useState({ email: "", nickname: "", accountNumber: "", mt5Server: "", investorPassword: "", accountType: "demo" });
+  const [regStep, setRegStep] = useState(1);
+  const [regLoading, setRegLoading] = useState(false);
+  const [regError, setRegError] = useState("");
+  const [regSuccess, setRegSuccess] = useState(false);
+  const [mt5Verified, setMt5Verified] = useState(false);
+  const [mt5VerifyData, setMt5VerifyData] = useState<{ balance?: number; isCent?: boolean; server?: string; accountSubtype?: string } | null>(null);
+
   // Data state
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -111,6 +122,22 @@ export default function ChallengeDashboard() {
       setLoading(false);
     }
   }, []);
+
+  // Fetch basic challenge info (pre-auth) to show Register button
+  useEffect(() => {
+    if (!params.id) return;
+    const fetchPreAuth = async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/challenges?include_past=false`);
+        if (res.ok) {
+          const data = await res.json();
+          const c = (data.challenges || []).find((ch: any) => ch.id === Number(params.id));
+          if (c) setPreAuthChallenge({ hostId: c.hostId, registrationMode: c.registrationMode, status: c.displayStatus || c.status, type: c.type, title: c.title });
+        }
+      } catch {}
+    };
+    fetchPreAuth();
+  }, [params.id]);
 
   // Fetch dashboard data when logged in
   const fetchDashboard = useCallback(async () => {
@@ -540,7 +567,14 @@ export default function ChallengeDashboard() {
               <p className="text-gray-400 text-sm mb-8">Sign in to view your dashboard or register to join</p>
               <div className="space-y-3">
                 <button onClick={() => setShowLogin(true)} className="w-full flex items-center justify-center gap-2 p-4 rounded-xl bg-gradient-brand hover:opacity-90 text-white font-semibold transition-all shadow-lg shadow-royal/20"><Key size={18} />Sign In with Account</button>
-                <a href={`https://t.me/${botUsername}?start=tc_register_${params.id}`} target="_blank" rel="noopener noreferrer" className="w-full flex items-center justify-center gap-2 p-4 rounded-xl bg-[#2AABEE]/20 border border-[#2AABEE]/30 hover:bg-[#2AABEE]/30 text-[#2AABEE] font-semibold transition-all"><MessageCircle size={18} />Register via Telegram</a>
+                {preAuthChallenge?.hostId && preAuthChallenge.registrationMode === 'winnerpip' && preAuthChallenge.status === 'registration_open' ? (
+                  <button onClick={() => {
+                    setRegForm({ email: "", nickname: "", accountNumber: "", mt5Server: "", investorPassword: "", accountType: preAuthChallenge.type === 'real' ? 'real' : preAuthChallenge.type === 'demo' ? 'demo' : 'demo' });
+                    setRegStep(1); setRegError(""); setRegSuccess(false); setMt5Verified(false); setMt5VerifyData(null); setShowRegWizard(true);
+                  }} className="w-full flex items-center justify-center gap-2 p-4 rounded-xl bg-profit/20 border border-profit/30 hover:bg-profit/30 text-profit font-semibold transition-all"><Users size={18} />Register Now</button>
+                ) : (
+                  <a href={`https://t.me/${botUsername}?start=tc_register_${params.id}`} target="_blank" rel="noopener noreferrer" className="w-full flex items-center justify-center gap-2 p-4 rounded-xl bg-[#2AABEE]/20 border border-[#2AABEE]/30 hover:bg-[#2AABEE]/30 text-[#2AABEE] font-semibold transition-all"><MessageCircle size={18} />Register via Telegram</a>
+                )}
               </div>
             </div>
           </div>
@@ -1773,6 +1807,235 @@ export default function ChallengeDashboard() {
               <div className="bg-white/5 border border-white/10 rounded-xl p-4 mt-4">
                 <p className="text-xs text-gray-400"><span className="text-loss font-semibold">Penalty:</span> Profits from flagged trades are removed from your qualified balance. Losses from flagged trades still count. Repeated or severe violations may result in disqualification.</p>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Registration Wizard Modal (for hosted winnerpip challenges) */}
+      {showRegWizard && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => !regLoading && setShowRegWizard(false)}>
+          <div className="bg-[#1a2235] rounded-2xl max-w-md w-full max-h-[90vh] overflow-y-auto border border-white/15 shadow-2xl" onClick={e => e.stopPropagation()}>
+            {/* Header */}
+            <div className="sticky top-0 bg-[#1a2235] px-6 pt-5 pb-4 border-b border-white/10 z-10 rounded-t-2xl">
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <h3 className="text-lg font-bold text-white">Join Challenge</h3>
+                  <p className="text-xs text-gray-500 mt-0.5">{preAuthChallenge?.title || ''}</p>
+                </div>
+                <button onClick={() => !regLoading && setShowRegWizard(false)} className="p-2 hover:bg-white/10 rounded-lg"><X size={18} className="text-gray-400" /></button>
+              </div>
+              {!regSuccess && (
+                <div className="flex gap-1.5">
+                  {[1,2,3,4,5].map(s => (
+                    <div key={s} className={`flex-1 h-1.5 rounded-full transition-all duration-300 ${s < regStep ? "bg-profit" : s === regStep ? "bg-royal" : "bg-white/10"}`} />
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="px-6 py-5">
+              {/* Success */}
+              {regSuccess ? (
+                <div className="text-center py-6">
+                  <div className="w-20 h-20 rounded-full bg-profit/10 border-2 border-profit/30 flex items-center justify-center mx-auto mb-5">
+                    <CheckCircle className="w-10 h-10 text-profit" />
+                  </div>
+                  <h3 className="text-xl font-bold text-white mb-2">Registration Complete!</h3>
+                  <p className="text-gray-400 text-sm mb-1">Your MT5 account has been verified and connected.</p>
+                  <p className="text-gray-500 text-xs mb-6">A confirmation email has been sent to <span className="text-gray-300">{regForm.email}</span></p>
+                  <div className="bg-white/5 rounded-xl p-4 border border-white/10 mb-6 text-left">
+                    <p className="text-xs text-gray-400 font-semibold uppercase tracking-wider mb-2">How to Sign In</p>
+                    <div className="space-y-2">
+                      <div className="flex items-start gap-2"><span className="text-royal text-xs font-bold mt-0.5">1.</span><p className="text-xs text-gray-300">Use your <strong className="text-white">MT5 Account Number</strong> as username</p></div>
+                      <div className="flex items-start gap-2"><span className="text-royal text-xs font-bold mt-0.5">2.</span><p className="text-xs text-gray-300">Use your <strong className="text-white">Investor Password</strong> as password</p></div>
+                    </div>
+                  </div>
+                  <button onClick={() => { setShowRegWizard(false); setShowLogin(true); }} className="inline-flex items-center gap-2 px-8 py-3 rounded-xl bg-gradient-brand text-white font-semibold text-sm hover:opacity-90 transition-all">Sign In Now <ArrowRight size={16} /></button>
+                </div>
+              ) : (
+                <>
+                  {regError && <div className="p-3 rounded-xl bg-loss/10 border border-loss/30 mb-4"><p className="text-sm text-loss">{regError}</p></div>}
+
+                  {/* Step 1: Email */}
+                  {regStep === 1 && (
+                    <div className="space-y-4">
+                      <div className="text-center mb-2">
+                        <p className="text-xs text-gray-400">Step 1 of 5</p>
+                        <p className="text-sm font-semibold text-white">Your Exness Email</p>
+                        <p className="text-[11px] text-gray-500 mt-1">We&apos;ll verify your account is allocated under the required partnership</p>
+                      </div>
+                      <div>
+                        <label className="block text-xs text-gray-400 font-medium mb-1.5">Exness Account Email *</label>
+                        <input type="email" value={regForm.email} onChange={e => setRegForm({...regForm, email: e.target.value})} className="w-full p-3.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none focus:border-royal/50 transition-all" placeholder="your@email.com" disabled={regLoading} />
+                        <p className="text-[10px] text-gray-600 mt-1">This must be the email linked to your Exness trading account</p>
+                      </div>
+                      <button onClick={async () => {
+                        if (!regForm.email || !regForm.email.includes('@')) { setRegError("Please enter a valid email address"); return; }
+                        setRegError(""); setRegLoading(true);
+                        try {
+                          const res = await fetch(`${API_URL}/api/challenges/${params.id}/check-allocation`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: regForm.email }) });
+                          const data = await res.json();
+                          if (res.ok && data.success) { setRegStep(2); } else { setRegError(data.error || "Allocation check failed"); }
+                        } catch { setRegError("Could not connect to server. Please try again."); }
+                        setRegLoading(false);
+                      }} disabled={regLoading} className="w-full py-3.5 rounded-xl bg-royal text-white font-semibold text-sm hover:opacity-90 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+                        {regLoading ? <><Loader2 size={16} className="animate-spin" /> Verifying...</> : "Verify Email"}
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Step 2: Username */}
+                  {regStep === 2 && (
+                    <div className="space-y-4">
+                      <div className="text-center mb-2">
+                        <p className="text-xs text-gray-400">Step 2 of 5</p>
+                        <p className="text-sm font-semibold text-white">Choose a Username</p>
+                        <p className="text-[11px] text-gray-500 mt-1">This will be your display name on the leaderboard</p>
+                      </div>
+                      <div>
+                        <label className="block text-xs text-gray-400 font-medium mb-1.5">Username (nickname) *</label>
+                        <input type="text" value={regForm.nickname} onChange={e => setRegForm({...regForm, nickname: e.target.value})} className="w-full p-3.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none focus:border-royal/50 transition-all" placeholder="Your leaderboard display name" disabled={regLoading} />
+                        <p className="text-[10px] text-gray-600 mt-1">2-30 characters · Shown publicly on the leaderboard</p>
+                      </div>
+                      <div className="flex gap-3 mt-2">
+                        <button onClick={() => { setRegStep(1); setRegError(""); }} disabled={regLoading} className="flex-1 py-3 rounded-xl bg-white/5 border border-white/10 text-gray-300 font-medium text-sm hover:bg-white/10 transition-all disabled:opacity-50">Back</button>
+                        <button onClick={async () => {
+                          if (!regForm.nickname || regForm.nickname.length < 2 || regForm.nickname.length > 30) { setRegError("Username must be 2-30 characters"); return; }
+                          setRegError(""); setRegLoading(true);
+                          try {
+                            const res = await fetch(`${API_URL}/api/challenges/${params.id}/check-username`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nickname: regForm.nickname }) });
+                            const data = await res.json();
+                            if (res.ok && data.success) { setRegStep(3); } else { setRegError(data.error || "Username check failed"); }
+                          } catch { setRegError("Could not connect to server. Please try again."); }
+                          setRegLoading(false);
+                        }} disabled={regLoading} className="flex-1 py-3 rounded-xl bg-royal text-white font-semibold text-sm hover:opacity-90 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+                          {regLoading ? <><Loader2 size={14} className="animate-spin" /> Checking...</> : "Next"}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Step 3: Category */}
+                  {regStep === 3 && (
+                    <div className="space-y-4">
+                      <div className="text-center mb-2">
+                        <p className="text-xs text-gray-400">Step 3 of 5</p>
+                        <p className="text-sm font-semibold text-white">Account Category</p>
+                        <p className="text-[11px] text-gray-500 mt-1">{preAuthChallenge?.type === 'hybrid' ? 'Choose which type of account you will use' : `This challenge is ${preAuthChallenge?.type}-only`}</p>
+                      </div>
+                      {preAuthChallenge?.type === 'hybrid' ? (
+                        <div className="grid grid-cols-2 gap-3">
+                          <button type="button" onClick={() => setRegForm({...regForm, accountType: 'demo'})} className={`p-4 rounded-xl border text-center transition-all ${regForm.accountType === 'demo' ? 'border-royal bg-royal/10 text-royal ring-1 ring-royal/30' : 'border-white/20 text-gray-400 hover:border-white/30'}`}>
+                            <p className="text-base font-semibold">Demo</p><p className="text-[11px] opacity-70 mt-1">Practice account</p>
+                          </button>
+                          <button type="button" onClick={() => setRegForm({...regForm, accountType: 'real'})} className={`p-4 rounded-xl border text-center transition-all ${regForm.accountType === 'real' ? 'border-gold bg-gold/10 text-gold ring-1 ring-gold/30' : 'border-white/20 text-gray-400 hover:border-white/30'}`}>
+                            <p className="text-base font-semibold">Real</p><p className="text-[11px] opacity-70 mt-1">Live account</p>
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="p-4 rounded-xl bg-white/5 border border-white/10 text-center">
+                          <p className={`text-base font-bold ${preAuthChallenge?.type === 'real' ? 'text-gold' : 'text-royal'}`}>{preAuthChallenge?.type === 'real' ? 'Real' : 'Demo'} Account</p>
+                          <p className="text-[11px] text-gray-500 mt-1">This challenge only accepts {preAuthChallenge?.type} accounts</p>
+                        </div>
+                      )}
+                      <div className="flex gap-3 mt-2">
+                        <button onClick={() => { setRegStep(2); setRegError(""); }} className="flex-1 py-3 rounded-xl bg-white/5 border border-white/10 text-gray-300 font-medium text-sm hover:bg-white/10 transition-all">Back</button>
+                        <button onClick={() => { setRegError(""); setRegStep(4); }} className="flex-1 py-3 rounded-xl bg-royal text-white font-semibold text-sm hover:opacity-90 transition-all">Next</button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Step 4: MT5 Verify */}
+                  {regStep === 4 && (
+                    <div className="space-y-4">
+                      <div className="text-center mb-2">
+                        <p className="text-xs text-gray-400">Step 4 of 5</p>
+                        <p className="text-sm font-semibold text-white">MT5 Account Verification</p>
+                        <p className="text-[11px] text-gray-500 mt-1">Enter your MT5 credentials — we&apos;ll verify the connection in real-time</p>
+                      </div>
+                      <div>
+                        <label className="block text-xs text-gray-400 font-medium mb-1.5">Account Number *</label>
+                        <input type="text" value={regForm.accountNumber} onChange={e => { setRegForm({...regForm, accountNumber: e.target.value}); setMt5Verified(false); }} className="w-full p-3.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none focus:border-royal/50 transition-all" placeholder="e.g., 12345678" disabled={regLoading} />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-gray-400 font-medium mb-1.5">MT5 Server *</label>
+                        <input type="text" value={regForm.mt5Server} onChange={e => { setRegForm({...regForm, mt5Server: e.target.value}); setMt5Verified(false); }} className="w-full p-3.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none focus:border-royal/50 transition-all" placeholder="e.g., Exness-MT5Trial9" disabled={regLoading} />
+                        <p className="text-[10px] text-gray-600 mt-1">Found in MT5 → File → Login to Trade Account</p>
+                      </div>
+                      <div>
+                        <label className="block text-xs text-gray-400 font-medium mb-1.5">Investor Password *</label>
+                        <input type="password" value={regForm.investorPassword} onChange={e => { setRegForm({...regForm, investorPassword: e.target.value}); setMt5Verified(false); }} className="w-full p-3.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none focus:border-royal/50 transition-all" placeholder="Read-only investor password" disabled={regLoading} />
+                        <div className="flex items-start gap-1.5 mt-2 p-2.5 rounded-lg bg-profit/5 border border-profit/20">
+                          <span className="text-profit text-xs mt-0.5">🔒</span>
+                          <p className="text-[10px] text-gray-400 leading-relaxed">This is your <strong className="text-gray-300">read-only</strong> investor password. It cannot trade or access your funds.</p>
+                        </div>
+                      </div>
+                      {mt5Verified && mt5VerifyData && (
+                        <div className="p-3 rounded-xl bg-profit/10 border border-profit/30">
+                          <div className="flex items-center gap-2 mb-2"><CheckCircle size={14} className="text-profit" /><span className="text-xs font-semibold text-profit">Account Verified</span></div>
+                          <div className="grid grid-cols-2 gap-2 text-[11px]">
+                            <div><span className="text-gray-500">Balance:</span> <span className="text-white font-medium">{mt5VerifyData.isCent ? `${mt5VerifyData.balance?.toFixed(0)}¢` : `$${mt5VerifyData.balance?.toFixed(2)}`}</span></div>
+                            <div><span className="text-gray-500">Type:</span> <span className="text-white font-medium capitalize">{mt5VerifyData.accountSubtype || 'Standard'}{mt5VerifyData.isCent ? ' (Cent)' : ''}</span></div>
+                          </div>
+                        </div>
+                      )}
+                      <div className="flex gap-3 mt-2">
+                        <button onClick={() => { setRegStep(3); setRegError(""); }} disabled={regLoading} className="flex-1 py-3 rounded-xl bg-white/5 border border-white/10 text-gray-300 font-medium text-sm hover:bg-white/10 transition-all disabled:opacity-50">Back</button>
+                        <button onClick={async () => {
+                          if (!regForm.accountNumber || !regForm.mt5Server || !regForm.investorPassword) { setRegError("Please fill in all fields"); return; }
+                          setRegError(""); setRegLoading(true);
+                          try {
+                            const res = await fetch(`${API_URL}/api/challenges/${params.id}/verify-mt5`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ accountNumber: regForm.accountNumber, mt5Server: regForm.mt5Server, investorPassword: regForm.investorPassword, accountType: regForm.accountType, email: regForm.email }) });
+                            const data = await res.json();
+                            if (res.ok && data.success) { setMt5Verified(true); setMt5VerifyData({ balance: data.balance, isCent: data.isCent, server: data.server, accountSubtype: data.accountSubtype }); setRegStep(5); }
+                            else { setRegError(data.error || "Verification failed."); }
+                          } catch { setRegError("Could not connect to server. Please try again."); }
+                          setRegLoading(false);
+                        }} disabled={regLoading} className="flex-1 py-3 rounded-xl bg-royal text-white font-semibold text-sm hover:opacity-90 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+                          {regLoading ? <><Loader2 size={14} className="animate-spin" /> Verifying...</> : "Verify Account"}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Step 5: Review */}
+                  {regStep === 5 && (
+                    <div className="space-y-4">
+                      <div className="text-center mb-2">
+                        <p className="text-xs text-gray-400">Step 5 of 5</p>
+                        <p className="text-sm font-semibold text-white">Review & Confirm</p>
+                      </div>
+                      <div className="space-y-2 bg-white/5 rounded-xl p-4 border border-white/10">
+                        <div className="flex justify-between text-xs"><span className="text-gray-500">Email</span><span className="text-white font-medium truncate ml-3 max-w-[200px]">{regForm.email}</span></div>
+                        <div className="flex justify-between text-xs"><span className="text-gray-500">Username</span><span className="text-white font-medium">{regForm.nickname}</span></div>
+                        <div className="flex justify-between text-xs"><span className="text-gray-500">Category</span><span className={`font-medium capitalize ${regForm.accountType === 'real' ? 'text-gold' : 'text-royal'}`}>{regForm.accountType}</span></div>
+                        <div className="border-t border-white/10 my-2" />
+                        <div className="flex justify-between text-xs"><span className="text-gray-500">Account</span><span className="text-white font-medium">{regForm.accountNumber}</span></div>
+                        <div className="flex justify-between text-xs"><span className="text-gray-500">Server</span><span className="text-white font-medium">{mt5VerifyData?.server || regForm.mt5Server}</span></div>
+                        <div className="flex justify-between text-xs"><span className="text-gray-500">Balance</span><span className="text-profit font-medium">{mt5VerifyData?.isCent ? `${mt5VerifyData.balance?.toFixed(0)}¢` : `$${mt5VerifyData?.balance?.toFixed(2)}`}</span></div>
+                        <div className="flex justify-between text-xs"><span className="text-gray-500">Status</span><span className="text-profit font-medium flex items-center gap-1"><CheckCircle size={11} /> Verified</span></div>
+                      </div>
+                      <div className="flex gap-3">
+                        <button onClick={() => { setRegStep(4); setRegError(""); }} disabled={regLoading} className="flex-1 py-3 rounded-xl bg-white/5 border border-white/10 text-gray-300 font-medium text-sm hover:bg-white/10 transition-all disabled:opacity-50">Back</button>
+                        <button onClick={async () => {
+                          setRegError(""); setRegLoading(true);
+                          try {
+                            const res = await fetch(`${API_URL}/api/challenges/${params.id}/register`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(regForm) });
+                            const data = await res.json();
+                            if (res.ok && data.success) { setRegSuccess(true); }
+                            else { setRegError(data.error || "Registration failed."); }
+                          } catch { setRegError("Could not connect to server. Please try again."); }
+                          setRegLoading(false);
+                        }} disabled={regLoading} className="flex-1 py-3 rounded-xl bg-gradient-brand text-white font-semibold text-sm hover:opacity-90 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+                          {regLoading ? <><Loader2 size={14} className="animate-spin" /> Submitting...</> : "Confirm & Register"}
+                        </button>
+                      </div>
+                      <p className="text-[10px] text-gray-600 text-center">By registering, you agree to the challenge rules.</p>
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           </div>
         </div>

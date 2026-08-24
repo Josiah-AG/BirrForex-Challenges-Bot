@@ -173,12 +173,6 @@ export default function ChallengesPage() {
           if (isPast) return handlePastChallengeClick(challenge);
           const ds = challenge.displayStatus || challenge.status;
           if (ds === 'coming_soon' || ds === 'draft') { setShowNotOpenPopup(true); return; }
-          if (challenge.hostId && challenge.registrationMode === 'winnerpip' && (ds === 'registration_open')) {
-            setRegisterChallenge(challenge);
-            setRegForm({ email: "", nickname: "", accountNumber: "", mt5Server: "", investorPassword: "", accountType: challenge.type === 'real' ? 'real' : challenge.type === 'demo' ? 'demo' : 'demo' });
-            setRegStep(1); setRegError(""); setRegSuccess(false); setRegResult(null); setMt5Verified(false); setMt5VerifyData(null);
-            return;
-          }
           handleChallengeClick(challenge);
         }}
         className="text-left w-full glass-hover card-glow rounded-2xl group shadow-[0_12px_40px_rgba(0,0,0,0.4)] border border-white/20 relative overflow-hidden"
