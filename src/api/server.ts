@@ -694,33 +694,40 @@ app.post('/api/challenges/:id/verify-mt5', authLimiter, async (req, res) => {
     const startBal = parseFloat(challenge.rows[0].starting_balance || '0');
     const depositMode = challenge.rows[0].deposit_mode || 'fixed';
 
-    // Demo accounts: for fixed mode, balance must match starting balance (±5% tolerance)
+    // Demo accounts: for fixed mode, balance must match starting balance exactly (1% tolerance for rounding)
     if (accountType === 'demo' && startBal > 0 && depositMode === 'fixed') {
-      const maxAllowed = startBal * 1.05;
-      const minAllowed = startBal * 0.95;
-      if (balance > maxAllowed) {
-        return res.status(400).json({ error: `Your demo balance ($${balance.toFixed(2)}) exceeds the required starting balance of $${startBal.toFixed(2)}. Please create a demo account with exactly $${startBal.toFixed(0)} balance.` });
+      const expectedBalance = isCent ? startBal * 100 : startBal;
+      const tolerance = expectedBalance * 0.01;
+      if (Math.abs(balance - expectedBalance) > tolerance) {
+        const displayExpected = isCent ? `${(startBal * 100).toFixed(0)}¢ ($${startBal})` : `$${startBal.toFixed(2)}`;
+        const displayActual = isCent ? `${balance.toFixed(0)}¢` : `$${balance.toFixed(2)}`;
+        return res.status(400).json({ error: `Your demo balance (${displayActual}) does not match the required starting balance of ${displayExpected}. Please create a demo account with exactly $${startBal.toFixed(0)} balance.` });
       }
-      if (balance < minAllowed) {
-        return res.status(400).json({ error: `Your demo balance ($${balance.toFixed(2)}) is below the required starting balance of $${startBal.toFixed(2)}. Please create a demo account with exactly $${startBal.toFixed(0)} balance.` });
+    } else if (accountType === 'demo' && startBal > 0 && depositMode === 'max_limit') {
+      const expectedBalance = isCent ? startBal * 100 : startBal;
+      const tolerance = expectedBalance * 0.01;
+      if (balance > expectedBalance + tolerance) {
+        const displayExpected = isCent ? `${(startBal * 100).toFixed(0)}¢` : `$${startBal.toFixed(2)}`;
+        return res.status(400).json({ error: `Your demo balance exceeds the maximum of ${displayExpected}.` });
+      }
+    } else if (accountType === 'demo' && startBal > 0 && depositMode === 'min_limit') {
+      const expectedBalance = isCent ? startBal * 100 : startBal;
+      const tolerance = expectedBalance * 0.01;
+      if (balance < expectedBalance - tolerance) {
+        const displayExpected = isCent ? `${(startBal * 100).toFixed(0)}¢` : `$${startBal.toFixed(2)}`;
+        return res.status(400).json({ error: `Your demo balance is below the minimum of ${displayExpected}.` });
       }
     }
 
-    // Real accounts: validate based on deposit mode
+    // Real accounts: validate based on deposit mode (no tolerance — straight comparison)
     if (accountType === 'real' && startBal > 0) {
-      if (depositMode === 'fixed') {
-        const maxAllowed = isCent ? startBal * 100 * 1.05 : startBal * 1.05;
-        if (balance > maxAllowed) {
+      const compareBalance = isCent ? startBal * 100 : startBal;
+      if (depositMode === 'fixed' || depositMode === 'max_limit') {
+        if (balance > compareBalance) {
           return res.status(400).json({ error: `Your balance (${isCent ? balance.toFixed(0) + '¢' : '$' + balance.toFixed(2)}) exceeds the allowed deposit of ${isCent ? (startBal * 100).toFixed(0) + '¢' : '$' + startBal.toFixed(2)}. Please adjust your balance before registering.` });
         }
-      } else if (depositMode === 'max_limit') {
-        const maxAllowed = isCent ? startBal * 100 * 1.05 : startBal * 1.05;
-        if (balance > maxAllowed) {
-          return res.status(400).json({ error: `Your balance (${isCent ? balance.toFixed(0) + '¢' : '$' + balance.toFixed(2)}) exceeds the maximum deposit of ${isCent ? (startBal * 100).toFixed(0) + '¢' : '$' + startBal.toFixed(2)}.` });
-        }
       } else if (depositMode === 'min_limit') {
-        const minRequired = isCent ? startBal * 100 : startBal;
-        if (balance < minRequired) {
+        if (balance < compareBalance) {
           return res.status(400).json({ error: `Your balance (${isCent ? balance.toFixed(0) + '¢' : '$' + balance.toFixed(2)}) is below the minimum deposit of ${isCent ? (startBal * 100).toFixed(0) + '¢' : '$' + startBal.toFixed(2)}.` });
         }
       }
@@ -1133,26 +1140,34 @@ app.post('/api/challenges/:id/change-registration', authLimiter, async (req: any
     const startBal = parseFloat(challenge.rows[0].starting_balance || '0');
     const depositMode = challenge.rows[0].deposit_mode || 'fixed';
 
-    // Demo: fixed mode requires exact balance (±5%)
+    // Demo: fixed mode requires exact balance (1% tolerance)
     if (newAccountType === 'demo' && startBal > 0 && depositMode === 'fixed') {
-      if (balance > startBal * 1.05) {
-        return res.status(400).json({ error: `Demo balance ($${balance.toFixed(2)}) exceeds the required $${startBal.toFixed(2)}. Use a demo account with exactly $${startBal.toFixed(0)} balance.` });
+      const expectedBalance = isCent ? startBal * 100 : startBal;
+      const tolerance = expectedBalance * 0.01;
+      if (Math.abs(balance - expectedBalance) > tolerance) {
+        return res.status(400).json({ error: `Demo balance does not match the required starting balance of $${startBal.toFixed(2)}. Create a demo account with exactly $${startBal.toFixed(0)}.` });
       }
-      if (balance < startBal * 0.95) {
-        return res.status(400).json({ error: `Demo balance ($${balance.toFixed(2)}) is below the required $${startBal.toFixed(2)}. Use a demo account with exactly $${startBal.toFixed(0)} balance.` });
+    } else if (newAccountType === 'demo' && startBal > 0 && depositMode === 'max_limit') {
+      const expectedBalance = isCent ? startBal * 100 : startBal;
+      if (balance > expectedBalance * 1.01) {
+        return res.status(400).json({ error: `Demo balance exceeds the maximum of $${startBal.toFixed(2)}.` });
+      }
+    } else if (newAccountType === 'demo' && startBal > 0 && depositMode === 'min_limit') {
+      const expectedBalance = isCent ? startBal * 100 : startBal;
+      if (balance < expectedBalance * 0.99) {
+        return res.status(400).json({ error: `Demo balance is below the minimum of $${startBal.toFixed(2)}.` });
       }
     }
 
-    // Real: validate based on deposit mode
+    // Real: validate based on deposit mode (no tolerance)
     if (newAccountType === 'real' && startBal > 0) {
+      const compareBalance = isCent ? startBal * 100 : startBal;
       if (depositMode === 'fixed' || depositMode === 'max_limit') {
-        const maxAllowed = isCent ? startBal * 100 * 1.05 : startBal * 1.05;
-        if (balance > maxAllowed) {
+        if (balance > compareBalance) {
           return res.status(400).json({ error: `Balance exceeds the allowed limit.` });
         }
       } else if (depositMode === 'min_limit') {
-        const minRequired = isCent ? startBal * 100 : startBal;
-        if (balance < minRequired) {
+        if (balance < compareBalance) {
           return res.status(400).json({ error: `Balance is below the minimum deposit requirement.` });
         }
       }
