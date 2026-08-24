@@ -545,8 +545,8 @@ export default function ChallengeDashboard() {
 
       <div className="container mx-auto px-4 py-6 max-w-6xl relative">
 
-        {/* LOADING STATE */}
-        {loading && (
+        {/* LOADING STATE — hide when register mode waiting for wizard */}
+        {loading && !(searchParams.get('register') === 'true') && (
           <div className="flex items-center justify-center py-20">
             <div className="text-center">
               <Loader2 className="w-8 h-8 text-royal animate-spin mx-auto mb-3" />
@@ -570,7 +570,7 @@ export default function ChallengeDashboard() {
         )}
 
         {/* AUTH GATE */}
-        {!loading && !isLoggedIn && !showLogin && !showRegWizard && (
+        {!loading && !isLoggedIn && !showLogin && !showRegWizard && !(searchParams.get('register') === 'true') && (
           <div className="max-w-md mx-auto py-12">
             <div className="glass rounded-3xl border border-white/10 p-8 text-center">
               <Trophy className="w-12 h-12 text-gold mx-auto mb-4" />
