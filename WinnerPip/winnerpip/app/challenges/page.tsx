@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import {
@@ -743,15 +743,8 @@ export default function ChallengesPage() {
 
                       <div>
                         <label className="block text-xs text-gray-400 font-medium mb-1.5">MT5 Server *</label>
-                        <input
-                          type="text"
-                          value={regForm.mt5Server}
-                          onChange={e => { setRegForm({...regForm, mt5Server: e.target.value}); setMt5Verified(false); }}
-                          className="w-full p-3.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none focus:border-royal/50 transition-all"
-                          placeholder="e.g., Exness-MT5Trial9"
-                          disabled={regLoading}
-                        />
-                        <p className="text-[10px] text-gray-600 mt-1">Found in MT5 → File → Login to Trade Account</p>
+                        <ServerDropdown value={regForm.mt5Server} accountType={regForm.accountType} onChange={v => { setRegForm({...regForm, mt5Server: v}); setMt5Verified(false); }} disabled={regLoading} />
+                        <p className="text-[10px] text-gray-600 mt-1">Select or type your server name</p>
                       </div>
 
                       <div>
@@ -895,6 +888,65 @@ export default function ChallengesPage() {
               )}
             </div>
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ==================== SERVER DROPDOWN ====================
+const MT5_SERVERS_LIST = {
+  demo: ['Exness-MT5Trial2','Exness-MT5Trial3','Exness-MT5Trial4','Exness-MT5Trial5','Exness-MT5Trial6','Exness-MT5Trial7','Exness-MT5Trial8','Exness-MT5Trial9','Exness-MT5Trial10','Exness-MT5Trial11','Exness-MT5Trial12','Exness-MT5Trial13','Exness-MT5Trial14'],
+  real: ['Exness-MT5Real2','Exness-MT5Real3','Exness-MT5Real4','Exness-MT5Real5','Exness-MT5Real6','Exness-MT5Real7','Exness-MT5Real8','Exness-MT5Real9','Exness-MT5Real10','Exness-MT5Real11','Exness-MT5Real12','Exness-MT5Real13','Exness-MT5Real14','Exness-MT5Real15','Exness-MT5Real16','Exness-MT5Real17','Exness-MT5Real18','Exness-MT5Real19','Exness-MT5Real20','Exness-MT5Real21','Exness-MT5Real22','Exness-MT5Real23','Exness-MT5Real24','Exness-MT5Real25','Exness-MT5Real26','Exness-MT5Real27','Exness-MT5Real28','Exness-MT5Real29','Exness-MT5Real30'],
+};
+
+function ServerDropdown({ value, accountType, onChange, disabled }: { value: string; accountType: string; onChange: (v: string) => void; disabled?: boolean }) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState(value);
+  const ref = useRef<HTMLDivElement>(null);
+
+  const servers = accountType === 'real' ? MT5_SERVERS_LIST.real : MT5_SERVERS_LIST.demo;
+
+  const filtered = servers.filter(s => {
+    if (!search) return true;
+    const q = search.toLowerCase().replace(/[-_\s]/g, '');
+    const sNorm = s.toLowerCase().replace(/[-_\s]/g, '');
+    const numMatch = q.match(/\d+$/);
+    if (numMatch && s.endsWith(numMatch[0])) return true;
+    return sNorm.includes(q) || q.includes(sNorm.slice(-3));
+  });
+
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, []);
+
+  useEffect(() => { setSearch(value); }, [value]);
+
+  return (
+    <div className="relative" ref={ref}>
+      <input
+        type="text"
+        value={search}
+        onChange={e => { setSearch(e.target.value); onChange(e.target.value); setOpen(true); }}
+        onFocus={() => setOpen(true)}
+        className="w-full p-3.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none focus:border-royal/50 transition-all"
+        placeholder={accountType === 'demo' ? 'e.g., Exness-MT5Trial9' : 'e.g., Exness-MT5Real21'}
+        disabled={disabled}
+      />
+      {open && filtered.length > 0 && (
+        <div className="absolute z-50 mt-1 w-full max-h-40 overflow-y-auto rounded-xl bg-[#1a2235] border border-white/15 shadow-xl">
+          {filtered.map(s => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => { onChange(s); setSearch(s); setOpen(false); }}
+              className={`w-full text-left px-4 py-2.5 text-sm hover:bg-royal/20 transition-all ${s === value ? 'bg-royal/10 text-royal font-medium' : 'text-gray-300'}`}
+            >
+              {s}
+            </button>
+          ))}
         </div>
       )}
     </div>
