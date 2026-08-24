@@ -170,7 +170,9 @@ export default function ChallengesPage() {
         key={challenge.id}
         onClick={() => {
           if (isPast) return handlePastChallengeClick(challenge);
-          if (challenge.hostId && challenge.registrationMode === 'winnerpip' && (challenge.displayStatus === 'registration_open' || challenge.status === 'registration_open')) {
+          const ds = challenge.displayStatus || challenge.status;
+          if (ds === 'coming_soon' || ds === 'draft') return; // No action for upcoming challenges
+          if (challenge.hostId && challenge.registrationMode === 'winnerpip' && (ds === 'registration_open')) {
             setRegisterChallenge(challenge);
             setRegForm({ email: "", nickname: "", accountNumber: "", mt5Server: "", investorPassword: "", accountType: challenge.type === 'real' ? 'real' : challenge.type === 'demo' ? 'demo' : 'demo' });
             setRegStep(1); setRegError(""); setRegSuccess(false); setRegResult(null); setMt5Verified(false); setMt5VerifyData(null);
@@ -209,11 +211,11 @@ export default function ChallengesPage() {
               )}
               {challenge.hostId && challenge.hostDisplayName && (
                 challenge.hostMainLink ? (
-                  <a href={challenge.hostMainLink} target="_blank" rel="noopener noreferrer" className="px-3 py-1.5 rounded-full bg-royal/20 text-royal border border-royal/30 text-xs font-semibold hover:bg-royal/30 transition-all">
+                  <a href={challenge.hostMainLink} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="px-3 py-1.5 rounded-full bg-gold/20 text-gold border border-gold/30 text-xs font-semibold hover:bg-gold/30 transition-all">
                     Hosted by {challenge.hostDisplayName}
                   </a>
                 ) : (
-                  <span className="px-3 py-1.5 rounded-full bg-royal/20 text-royal border border-royal/30 text-xs font-semibold">
+                  <span className="px-3 py-1.5 rounded-full bg-gold/20 text-gold border border-gold/30 text-xs font-semibold">
                     Hosted by {challenge.hostDisplayName}
                   </span>
                 )
@@ -296,7 +298,7 @@ export default function ChallengesPage() {
                 if (ds === "registration_open" && challenge.hostId && challenge.registrationMode === 'manual') return "View Challenge";
                 if (ds === "registration_open") return "Join Challenge";
                 if (ds === "ongoing" || ds === "active") return "View Dashboard";
-                if (ds === "coming_soon") return "Coming Soon";
+                if (ds === "coming_soon" || ds === "draft") return "Registration Opening Soon";
                 return "View Details";
               })()}
             </span>
