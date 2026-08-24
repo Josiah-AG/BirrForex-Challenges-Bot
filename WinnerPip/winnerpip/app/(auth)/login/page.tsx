@@ -23,6 +23,7 @@ function LoginForm() {
   const [isHosted, setIsHosted] = useState(false);
   const [registrationMode, setRegistrationMode] = useState<string | null>(null);
   const [hostDisplayName, setHostDisplayName] = useState("");
+  const [challengeInfoLoaded, setChallengeInfoLoaded] = useState(!challengeId); // If no challengeId, nothing to load
 
   const botUsername = "birrforex_challenge_bot";
   const discordInvite = process.env.NEXT_PUBLIC_DISCORD_INVITE || "https://discord.gg/birrforex";
@@ -44,8 +45,9 @@ function LoginForm() {
             setRegistrationMode(challenge.registrationMode || 'manual');
             setHostDisplayName(challenge.hostDisplayName || 'the challenge host');
           }
+          setChallengeInfoLoaded(true);
         })
-        .catch(() => {});
+        .catch(() => { setChallengeInfoLoaded(true); });
     }
   });
 
@@ -198,7 +200,11 @@ function LoginForm() {
 
             {/* Register section */}
             <div className="mt-8 pt-6 border-t border-white/10">
-              {isTeamOnly ? (
+              {!challengeInfoLoaded ? (
+                <div className="flex items-center justify-center py-4">
+                  <Loader2 className="w-5 h-5 text-gray-500 animate-spin" />
+                </div>
+              ) : isTeamOnly ? (
                 <>
                   <div className="flex items-start gap-3 p-4 rounded-xl bg-royal/10 border border-royal/30 mb-4">
                     <Users className="w-5 h-5 text-royal flex-shrink-0 mt-0.5" />

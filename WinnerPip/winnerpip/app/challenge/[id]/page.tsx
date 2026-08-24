@@ -570,7 +570,7 @@ export default function ChallengeDashboard() {
         )}
 
         {/* AUTH GATE */}
-        {!loading && !isLoggedIn && !showLogin && (
+        {!loading && !isLoggedIn && !showLogin && !showRegWizard && (
           <div className="max-w-md mx-auto py-12">
             <div className="glass rounded-3xl border border-white/10 p-8 text-center">
               <Trophy className="w-12 h-12 text-gold mx-auto mb-4" />
@@ -1825,7 +1825,7 @@ export default function ChallengeDashboard() {
 
       {/* Registration Wizard Modal (for hosted winnerpip challenges) */}
       {showRegWizard && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => !regLoading && setShowRegWizard(false)}>
+        <div className="fixed inset-0 bg-black/90 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => { if (!regLoading) window.location.href = '/challenges'; }}>
           <div className="bg-[#1a2235] rounded-2xl max-w-md w-full max-h-[90vh] overflow-y-auto border border-white/15 shadow-2xl" onClick={e => e.stopPropagation()}>
             {/* Header */}
             <div className="sticky top-0 bg-[#1a2235] px-6 pt-5 pb-4 border-b border-white/10 z-10 rounded-t-2xl">
@@ -1834,7 +1834,7 @@ export default function ChallengeDashboard() {
                   <h3 className="text-lg font-bold text-white">Join Challenge</h3>
                   <p className="text-xs text-gray-500 mt-0.5">{preAuthChallenge?.title || ''}</p>
                 </div>
-                <button onClick={() => !regLoading && setShowRegWizard(false)} className="p-2 hover:bg-white/10 rounded-lg"><X size={18} className="text-gray-400" /></button>
+                <button onClick={() => { if (!regLoading) window.location.href = '/challenges'; }} className="p-2 hover:bg-white/10 rounded-lg"><X size={18} className="text-gray-400" /></button>
               </div>
               {!regSuccess && (
                 <div className="flex gap-1.5">
