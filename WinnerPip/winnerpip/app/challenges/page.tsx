@@ -64,6 +64,7 @@ export default function ChallengesPage() {
   // Registration modal state
   const [registerChallenge, setRegisterChallenge] = useState<Challenge | null>(null);
   const [regForm, setRegForm] = useState({ email: "", nickname: "", accountNumber: "", mt5Server: "", investorPassword: "", accountType: "demo" });
+  const [regStep, setRegStep] = useState(1);
   const [regLoading, setRegLoading] = useState(false);
   const [regError, setRegError] = useState("");
   const [regSuccess, setRegSuccess] = useState(false);
@@ -169,7 +170,7 @@ export default function ChallengesPage() {
           if (challenge.hostId && challenge.registrationMode === 'winnerpip' && (challenge.displayStatus === 'registration_open' || challenge.status === 'registration_open')) {
             setRegisterChallenge(challenge);
             setRegForm({ email: "", nickname: "", accountNumber: "", mt5Server: "", investorPassword: "", accountType: challenge.type === 'real' ? 'real' : 'demo' });
-            setRegError(""); setRegSuccess(false);
+            setRegStep(1); setRegError(""); setRegSuccess(false);
             return;
           }
           handleChallengeClick(challenge);
@@ -483,92 +484,156 @@ export default function ChallengesPage() {
         </div>
       )}
 
-      {/* Registration Modal */}
+      {/* Registration Modal — Multi-Step Wizard */}
       {registerChallenge && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => !regLoading && setRegisterChallenge(null)}>
-          <div className="glass rounded-2xl max-w-md w-full max-h-[90vh] overflow-y-auto border border-white/10" onClick={e => e.stopPropagation()}>
-            <div className="sticky top-0 glass p-4 border-b border-white/10 flex items-center justify-between z-10 rounded-t-2xl">
-              <div>
-                <h3 className="text-lg font-bold text-white">Register</h3>
-                <p className="text-xs text-gray-500">{registerChallenge.title}</p>
+          <div className="bg-[#1a2235] rounded-2xl max-w-md w-full max-h-[90vh] overflow-y-auto border border-white/15 shadow-2xl" onClick={e => e.stopPropagation()}>
+            {/* Header */}
+            <div className="sticky top-0 bg-[#1a2235] px-6 pt-5 pb-4 border-b border-white/10 z-10 rounded-t-2xl">
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <h3 className="text-lg font-bold text-white">Join Challenge</h3>
+                  <p className="text-xs text-gray-500 mt-0.5">{registerChallenge.title}{registerChallenge.hostDisplayName ? ` · ${registerChallenge.hostDisplayName}` : ''}</p>
+                </div>
+                <button onClick={() => !regLoading && setRegisterChallenge(null)} className="p-2 hover:bg-white/10 rounded-lg"><X size={18} className="text-gray-400" /></button>
               </div>
-              <button onClick={() => !regLoading && setRegisterChallenge(null)} className="p-2 hover:bg-white/10 rounded-lg">
-                <X size={18} className="text-gray-400" />
-              </button>
+              {!regSuccess && <div className="flex gap-2">{[1,2,3].map(s => <div key={s} className={`flex-1 h-1.5 rounded-full transition-all ${s <= regStep ? "bg-royal" : "bg-white/10"}`} />)}</div>}
             </div>
 
-            <div className="p-5">
+            <div className="px-6 py-5">
+              {/* Success State */}
               {regSuccess ? (
-                <div className="text-center py-8">
-                  <CheckCircle className="w-14 h-14 text-profit mx-auto mb-4" />
-                  <h3 className="text-lg font-bold text-white mb-2">Registration Successful!</h3>
-                  <p className="text-gray-400 text-sm">Your account has been verified and connected. You&apos;ll receive a confirmation email shortly.</p>
-                  <button onClick={() => setRegisterChallenge(null)} className="mt-6 px-6 py-2.5 rounded-xl bg-royal/20 text-royal font-semibold text-sm border border-royal/30">Done</button>
+                <div className="text-center py-6">
+                  <div className="w-16 h-16 rounded-full bg-profit/10 border-2 border-profit/30 flex items-center justify-center mx-auto mb-4">
+                    <CheckCircle className="w-8 h-8 text-profit" />
+                  </div>
+                  <h3 className="text-lg font-bold text-white mb-2">You&apos;re In!</h3>
+                  <p className="text-gray-400 text-sm mb-1">Your account has been verified and connected.</p>
+                  <p className="text-gray-500 text-xs">You&apos;ll receive a confirmation email shortly.</p>
+                  <button onClick={() => setRegisterChallenge(null)} className="mt-6 px-8 py-2.5 rounded-xl bg-royal/20 text-royal font-semibold text-sm border border-royal/30 hover:bg-royal/30 transition-all">Done</button>
                 </div>
               ) : (
-                <form onSubmit={async (e) => {
-                  e.preventDefault();
-                  setRegError(""); setRegLoading(true);
-                  try {
-                    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
-                    const res = await fetch(`${apiUrl}/api/challenges/${registerChallenge.id}/register`, {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify(regForm),
-                    });
-                    const data = await res.json();
-                    if (res.ok && data.success) {
-                      setRegSuccess(true);
-                    } else {
-                      setRegError(data.error || "Registration failed");
-                    }
-                  } catch { setRegError("Could not connect to server"); }
-                  setRegLoading(false);
-                }} className="space-y-4">
-                  {regError && <div className="p-3 rounded-xl bg-loss/10 border border-loss/30"><p className="text-sm text-loss">{regError}</p></div>}
+                <>
+                  {regError && <div className="p-3 rounded-xl bg-loss/10 border border-loss/30 mb-4"><p className="text-sm text-loss">{regError}</p></div>}
 
-                  <div>
-                    <label className="block text-xs text-gray-400 font-medium mb-1">Exness Email *</label>
-                    <input type="email" required value={regForm.email} onChange={e => setRegForm({...regForm, email: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none focus:border-royal/50" placeholder="your@email.com" />
-                  </div>
+                  {/* Step 1: Identity */}
+                  {regStep === 1 && (
+                    <div className="space-y-4">
+                      <div className="text-center mb-2">
+                        <p className="text-xs text-gray-400">Step 1 of 3</p>
+                        <p className="text-sm font-semibold text-white">Your Information</p>
+                      </div>
 
-                  <div>
-                    <label className="block text-xs text-gray-400 font-medium mb-1">Nickname *</label>
-                    <input type="text" required minLength={2} maxLength={30} value={regForm.nickname} onChange={e => setRegForm({...regForm, nickname: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none focus:border-royal/50" placeholder="Your display name" />
-                  </div>
+                      <div>
+                        <label className="block text-xs text-gray-400 font-medium mb-1.5">Email Address *</label>
+                        <input type="email" value={regForm.email} onChange={e => setRegForm({...regForm, email: e.target.value})} className="w-full p-3.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none focus:border-royal/50 transition-all" placeholder="your@email.com" />
+                        <p className="text-[10px] text-gray-600 mt-1">Used for challenge notifications</p>
+                      </div>
 
-                  <div>
-                    <label className="block text-xs text-gray-400 font-medium mb-1">Account Number *</label>
-                    <input type="text" required value={regForm.accountNumber} onChange={e => setRegForm({...regForm, accountNumber: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none focus:border-royal/50" placeholder="MT5 account number" />
-                  </div>
+                      <div>
+                        <label className="block text-xs text-gray-400 font-medium mb-1.5">Username (nickname) *</label>
+                        <input type="text" value={regForm.nickname} onChange={e => setRegForm({...regForm, nickname: e.target.value})} className="w-full p-3.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none focus:border-royal/50 transition-all" placeholder="Your leaderboard display name" />
+                        <p className="text-[10px] text-gray-600 mt-1">2-30 characters · Shown publicly on the leaderboard</p>
+                      </div>
 
-                  <div>
-                    <label className="block text-xs text-gray-400 font-medium mb-1">MT5 Server *</label>
-                    <input type="text" required value={regForm.mt5Server} onChange={e => setRegForm({...regForm, mt5Server: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none focus:border-royal/50" placeholder="e.g., Exness-MT5Trial9" />
-                  </div>
+                      {registerChallenge.type === 'hybrid' && (
+                        <div>
+                          <label className="block text-xs text-gray-400 font-medium mb-1.5">Account Category *</label>
+                          <div className="grid grid-cols-2 gap-3">
+                            <button type="button" onClick={() => setRegForm({...regForm, accountType: 'demo'})} className={`p-3 rounded-xl border text-center transition-all ${regForm.accountType === 'demo' ? 'border-royal bg-royal/10 text-royal' : 'border-white/20 text-gray-400 hover:border-white/30'}`}>
+                              <p className="text-sm font-semibold">Demo</p>
+                              <p className="text-[10px] opacity-70 mt-0.5">Practice account</p>
+                            </button>
+                            <button type="button" onClick={() => setRegForm({...regForm, accountType: 'real'})} className={`p-3 rounded-xl border text-center transition-all ${regForm.accountType === 'real' ? 'border-gold bg-gold/10 text-gold' : 'border-white/20 text-gray-400 hover:border-white/30'}`}>
+                              <p className="text-sm font-semibold">Real</p>
+                              <p className="text-[10px] opacity-70 mt-0.5">Live account</p>
+                            </button>
+                          </div>
+                        </div>
+                      )}
 
-                  <div>
-                    <label className="block text-xs text-gray-400 font-medium mb-1">Investor Password *</label>
-                    <input type="password" required value={regForm.investorPassword} onChange={e => setRegForm({...regForm, investorPassword: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none focus:border-royal/50" placeholder="Read-only investor password" />
-                    <p className="text-[10px] text-gray-500 mt-1.5 flex items-start gap-1"><span className="text-profit">&#128274;</span> This is your MT5 read-only password — it only allows viewing trades. It cannot be used to trade, withdraw, or access your funds in any way.</p>
-                  </div>
+                      <button onClick={() => { if (!regForm.email || !regForm.nickname) { setRegError("Please fill in all fields"); return; } if (regForm.nickname.length < 2 || regForm.nickname.length > 30) { setRegError("Username must be 2-30 characters"); return; } setRegError(""); setRegStep(2); }} className="w-full py-3.5 rounded-xl bg-royal text-white font-semibold text-sm hover:opacity-90 transition-all mt-2">Next</button>
+                    </div>
+                  )}
 
-                  {registerChallenge.type === 'hybrid' && (
-                    <div>
-                      <label className="block text-xs text-gray-400 font-medium mb-1">Account Type *</label>
-                      <div className="grid grid-cols-2 gap-2">
-                        <button type="button" onClick={() => setRegForm({...regForm, accountType: 'demo'})} className={`p-2.5 rounded-xl border text-sm font-semibold transition-all ${regForm.accountType === 'demo' ? 'border-royal bg-royal/10 text-royal' : 'border-white/20 text-gray-400'}`}>Demo</button>
-                        <button type="button" onClick={() => setRegForm({...regForm, accountType: 'real'})} className={`p-2.5 rounded-xl border text-sm font-semibold transition-all ${regForm.accountType === 'real' ? 'border-gold bg-gold/10 text-gold' : 'border-white/20 text-gray-400'}`}>Real</button>
+                  {/* Step 2: MT5 Credentials */}
+                  {regStep === 2 && (
+                    <div className="space-y-4">
+                      <div className="text-center mb-2">
+                        <p className="text-xs text-gray-400">Step 2 of 3</p>
+                        <p className="text-sm font-semibold text-white">MT5 Account Details</p>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs text-gray-400 font-medium mb-1.5">Account Number *</label>
+                        <input type="text" value={regForm.accountNumber} onChange={e => setRegForm({...regForm, accountNumber: e.target.value})} className="w-full p-3.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none focus:border-royal/50 transition-all" placeholder="e.g., 12345678" />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs text-gray-400 font-medium mb-1.5">MT5 Server *</label>
+                        <input type="text" value={regForm.mt5Server} onChange={e => setRegForm({...regForm, mt5Server: e.target.value})} className="w-full p-3.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none focus:border-royal/50 transition-all" placeholder="e.g., Exness-MT5Trial9" />
+                        <p className="text-[10px] text-gray-600 mt-1">Found in MT5 → File → Login to Trade Account</p>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs text-gray-400 font-medium mb-1.5">Investor Password *</label>
+                        <input type="password" value={regForm.investorPassword} onChange={e => setRegForm({...regForm, investorPassword: e.target.value})} className="w-full p-3.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none focus:border-royal/50 transition-all" placeholder="Read-only investor password" />
+                        <div className="flex items-start gap-1.5 mt-2 p-2.5 rounded-lg bg-profit/5 border border-profit/20">
+                          <span className="text-profit text-xs mt-0.5">🔒</span>
+                          <p className="text-[10px] text-gray-400 leading-relaxed">This is your <strong className="text-gray-300">read-only</strong> investor password. It only allows viewing trade history — it cannot trade, withdraw, or access your funds.</p>
+                        </div>
+                      </div>
+
+                      <div className="flex gap-3 mt-2">
+                        <button onClick={() => setRegStep(1)} className="flex-1 py-3 rounded-xl bg-white/5 border border-white/10 text-gray-300 font-medium text-sm hover:bg-white/10 transition-all">Back</button>
+                        <button onClick={() => { if (!regForm.accountNumber || !regForm.mt5Server || !regForm.investorPassword) { setRegError("Please fill in all fields"); return; } setRegError(""); setRegStep(3); }} className="flex-1 py-3 rounded-xl bg-royal text-white font-semibold text-sm hover:opacity-90 transition-all">Next</button>
                       </div>
                     </div>
                   )}
 
-                  <button type="submit" disabled={regLoading} className="w-full py-3 rounded-xl bg-gradient-brand text-white font-semibold text-sm hover:opacity-90 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
-                    {regLoading ? <><Loader2 size={16} className="animate-spin" /> Verifying...</> : "Register"}
-                  </button>
+                  {/* Step 3: Review & Submit */}
+                  {regStep === 3 && (
+                    <div className="space-y-4">
+                      <div className="text-center mb-2">
+                        <p className="text-xs text-gray-400">Step 3 of 3</p>
+                        <p className="text-sm font-semibold text-white">Review & Submit</p>
+                      </div>
 
-                  <p className="text-[10px] text-gray-500 text-center">We use read-only investor passwords only — your account funds and trading ability are never at risk.</p>
-                </form>
+                      <div className="space-y-2 bg-white/5 rounded-xl p-4 border border-white/10">
+                        <div className="flex justify-between text-xs"><span className="text-gray-500">Email</span><span className="text-white font-medium">{regForm.email}</span></div>
+                        <div className="flex justify-between text-xs"><span className="text-gray-500">Username</span><span className="text-white font-medium">{regForm.nickname}</span></div>
+                        <div className="flex justify-between text-xs"><span className="text-gray-500">Category</span><span className={`font-medium ${regForm.accountType === 'real' ? 'text-gold' : 'text-royal'}`}>{regForm.accountType}</span></div>
+                        <div className="border-t border-white/10 my-2" />
+                        <div className="flex justify-between text-xs"><span className="text-gray-500">Account</span><span className="text-white font-medium">{regForm.accountNumber}</span></div>
+                        <div className="flex justify-between text-xs"><span className="text-gray-500">Server</span><span className="text-white font-medium">{regForm.mt5Server}</span></div>
+                        <div className="flex justify-between text-xs"><span className="text-gray-500">Password</span><span className="text-gray-400">••••••••</span></div>
+                      </div>
+
+                      <div className="flex gap-3">
+                        <button onClick={() => setRegStep(2)} disabled={regLoading} className="flex-1 py-3 rounded-xl bg-white/5 border border-white/10 text-gray-300 font-medium text-sm hover:bg-white/10 transition-all disabled:opacity-50">Back</button>
+                        <button onClick={async () => {
+                          setRegError(""); setRegLoading(true);
+                          try {
+                            const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+                            const res = await fetch(`${apiUrl}/api/challenges/${registerChallenge.id}/register`, {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify(regForm),
+                            });
+                            const data = await res.json();
+                            if (res.ok && data.success) { setRegSuccess(true); }
+                            else { setRegError(data.error || "Registration failed. Please check your details and try again."); }
+                          } catch { setRegError("Could not connect to server. Please try again."); }
+                          setRegLoading(false);
+                        }} disabled={regLoading} className="flex-1 py-3 rounded-xl bg-gradient-brand text-white font-semibold text-sm hover:opacity-90 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+                          {regLoading ? <><Loader2 size={16} className="animate-spin" /> Verifying...</> : "Register"}
+                        </button>
+                      </div>
+
+                      <p className="text-[10px] text-gray-600 text-center">By registering, you agree to the challenge terms. Your investor password provides read-only access only.</p>
+                    </div>
+                  )}
+                </>
               )}
             </div>
           </div>
