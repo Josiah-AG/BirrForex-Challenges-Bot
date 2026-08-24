@@ -2011,7 +2011,10 @@ function HostsManagementPanel() {
                 </div>
                 <div>
                   <label className="text-[11px] text-gray-400 font-medium mb-1.5 block">Password <span className="text-gray-600">(min 8 characters)</span></label>
-                  <input type="text" value={createForm.password} onChange={e => setCreateForm(p => ({ ...p, password: e.target.value }))} className="w-full px-3.5 py-2.5 rounded-xl bg-[#0a0e1a] border border-white/10 text-white text-sm placeholder:text-gray-600 focus:border-royal/50 focus:ring-1 focus:ring-royal/20 outline-none transition-all" placeholder="Initial password" />
+                  <div className="flex gap-2">
+                    <input type="text" value={createForm.password} onChange={e => setCreateForm(p => ({ ...p, password: e.target.value }))} className="flex-1 px-3.5 py-2.5 rounded-xl bg-[#0a0e1a] border border-white/10 text-white text-sm placeholder:text-gray-600 focus:border-royal/50 focus:ring-1 focus:ring-royal/20 outline-none transition-all" placeholder="Initial password" />
+                    <button type="button" onClick={() => { const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$%'; let pw = ''; for (let i = 0; i < 12; i++) pw += chars[Math.floor(Math.random() * chars.length)]; setCreateForm(p => ({ ...p, password: pw })); }} className="px-3 py-2.5 rounded-xl bg-royal/10 border border-royal/20 text-royal text-xs font-semibold hover:bg-royal/20 transition-all whitespace-nowrap">Generate</button>
+                  </div>
                 </div>
                 <div>
                   <label className="text-[11px] text-gray-400 font-medium mb-1.5 block">Main Link <span className="text-gray-600">(optional)</span></label>
