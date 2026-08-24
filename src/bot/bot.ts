@@ -1153,6 +1153,11 @@ export class Bot {
         await this.runTestPost(ctx, 'module');
         return;
       }
+      if (data === 'test_module_and_post') {
+        await ctx.answerCbQuery('Module + Morning Post...');
+        await this.runTestPost(ctx, 'module_and_post');
+        return;
+      }
       if (data === 'test_morning') {
         await ctx.answerCbQuery('Sending morning posts...');
         await this.runTestPost(ctx, 'morning');
@@ -1842,6 +1847,7 @@ Use the buttons below to manage challenges:`;
     await ctx.reply('🧪 TEST POSTS\n\nSelect which posts to test:', 
       Markup.inlineKeyboard([
         [Markup.button.callback('📖 Module PDF Forward', 'test_module')],
+        [Markup.button.callback('📖+📢 Module + Main Post', 'test_module_and_post')],
         [Markup.button.callback('1️⃣ Morning Posts (12 PM)', 'test_morning')],
         [Markup.button.callback('2️⃣ 2-Hour Reminder', 'test_2hour')],
         [Markup.button.callback('3️⃣ 30-Min Reminder', 'test_30min')],
@@ -1864,6 +1870,12 @@ Use the buttons below to manage challenges:`;
         await ctx.editMessageText('📤 Forwarding module PDF...');
         await this.scheduler.forwardModulePDF();
         await ctx.reply('✅ Module PDF forwarded to main channel!');
+      } else if (type === 'module_and_post') {
+        await ctx.editMessageText('📤 Forwarding module + morning post...');
+        await this.scheduler.forwardModulePDF();
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        await this.scheduler.sendMorningPosts();
+        await ctx.reply('✅ Module forwarded + Morning post sent (with link embedded)!');
       } else if (type === 'morning') {
         await ctx.editMessageText('📤 Sending morning posts...');
         await this.scheduler.sendMorningPosts();
