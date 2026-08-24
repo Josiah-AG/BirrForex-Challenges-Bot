@@ -7325,6 +7325,15 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/hosts`, adminIpCheck, async (req, res)
     if (mainLink || supportLink) {
       await db.query(`UPDATE hosts SET main_link = $1, support_link = $2 WHERE id = $3`, [mainLink || null, supportLink || null, host.id]);
     }
+
+    // Send welcome email with credentials
+    try {
+      const { emailService } = require('../services/emailService');
+      await emailService.sendHostWelcome(email, { displayName, email, password });
+    } catch (emailErr) {
+      console.error('Host welcome email failed (non-critical):', emailErr);
+    }
+
     return res.json({ success: true, host });
   } catch (error) {
     console.error('Admin create host error:', error);

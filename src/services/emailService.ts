@@ -308,6 +308,51 @@ class EmailService {
       return false;
     }
   }
+  /**
+   * Send host welcome email with login credentials
+   */
+  async sendHostWelcome(to: string, data: {
+    displayName: string;
+    email: string;
+    password: string;
+    loginUrl?: string;
+  }): Promise<boolean> {
+    if (!this.isConfigured()) return false;
+    try {
+      const loginUrl = data.loginUrl || 'https://winnerpip.com/host/login';
+      const content = `
+        <h2 style="color: #6366f1; font-size: 20px; margin: 0 0 8px; font-weight: 700;">Welcome to WinnerPip!</h2>
+        <p style="color: #374151; font-size: 15px; line-height: 1.6; margin: 0 0 24px;">
+          Hi <strong>${data.displayName}</strong>, your host account has been created. You can now create and manage trading challenges on WinnerPip.
+        </p>
+
+        <div style="background: #f8fafc; border-radius: 10px; padding: 20px; border: 1px solid #e2e8f0; margin-bottom: 24px;">
+          <p style="color: #64748b; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; margin: 0 0 12px; font-weight: 600;">Your Login Credentials</p>
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+            <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px;">Email</td><td style="padding: 8px 0; color: #111827; font-size: 13px; text-align: right; font-weight: 600;">${data.email}</td></tr>
+            <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px;">Password</td><td style="padding: 8px 0; color: #111827; font-size: 13px; text-align: right; font-weight: 600; font-family: monospace;">${data.password}</td></tr>
+          </table>
+        </div>
+
+        <div style="text-align: center; margin-bottom: 24px;">
+          <a href="${loginUrl}" style="display: inline-block; background: linear-gradient(135deg, #6366f1, #8b5cf6); color: #ffffff; padding: 14px 32px; border-radius: 10px; text-decoration: none; font-size: 14px; font-weight: 600;">Login to Dashboard</a>
+        </div>
+
+        <div style="background: #fffbeb; border-radius: 8px; padding: 14px 16px; border: 1px solid #fde68a; margin-bottom: 20px;">
+          <p style="color: #92400e; font-size: 12px; margin: 0; line-height: 1.5;">⚠️ Please change your password after first login. Keep these credentials secure and do not share them.</p>
+        </div>
+
+        <p style="color: #6b7280; font-size: 13px; margin: 0; line-height: 1.5;">
+          Need help getting started? Visit <a href="https://winnerpip.com/host" style="color: #6366f1; text-decoration: underline;">winnerpip.com/host</a> for more information.
+        </p>
+      `;
+      await resend.emails.send({ from: FROM_ADDRESS, to, subject: `Welcome to WinnerPip — Your Host Account is Ready`, html: wrapEmail(content) });
+      return true;
+    } catch (error) {
+      console.error('Email send error (host welcome):', error);
+      return false;
+    }
+  }
 }
 
 export const emailService = new EmailService();
