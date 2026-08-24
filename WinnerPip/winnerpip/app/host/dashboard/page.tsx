@@ -313,6 +313,8 @@ export default function HostDashboardPage() {
             <h2 className="text-lg font-bold text-white">Account Settings</h2>
             <button onClick={() => setShowAccountSettings(false)} className="text-xs text-gray-400 hover:text-white">Back</button>
           </div>
+          <ChangePasswordSection getToken={getToken} />
+          <div className="mt-4" />
           <BrokerCredentialsSection />
         </div>
       ) : (
@@ -1629,6 +1631,40 @@ function ScreeningTab({ challengeId, getToken }: { challengeId: number; getToken
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+function ChangePasswordSection({ getToken }: { getToken: () => string }) {
+  const [form, setForm] = useState({ currentPassword: "", newPassword: "", confirmPassword: "" });
+  const [saving, setSaving] = useState(false);
+  const [result, setResult] = useState("");
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
+
+  const handleChange = async () => {
+    if (form.newPassword.length < 8) { setResult("❌ New password must be at least 8 characters"); return; }
+    if (form.newPassword !== form.confirmPassword) { setResult("❌ Passwords don't match"); return; }
+    setSaving(true); setResult("");
+    try {
+      const res = await fetch(`${apiUrl}/api/host/change-password`, { method: "POST", headers: { Authorization: `Bearer ${getToken()}`, "Content-Type": "application/json" }, body: JSON.stringify({ currentPassword: form.currentPassword, newPassword: form.newPassword }) });
+      const data = await res.json();
+      if (res.ok && data.success) { setResult("✅ Password changed successfully"); setForm({ currentPassword: "", newPassword: "", confirmPassword: "" }); }
+      else setResult(`❌ ${data.error || "Failed to change password"}`);
+    } catch { setResult("❌ Network error"); }
+    setSaving(false);
+    setTimeout(() => setResult(""), 5000);
+  };
+
+  return (
+    <div className="glass rounded-2xl border border-white/10 p-5">
+      <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2"><Key size={16} className="text-gold" /> Change Password</h3>
+      {result && <p className={`text-xs mb-3 ${result.startsWith("✅") ? "text-profit" : "text-loss"}`}>{result}</p>}
+      <div className="space-y-3">
+        <div><label className="text-xs text-gray-400 mb-1 block">Current Password</label><input type="password" value={form.currentPassword} onChange={e => setForm(p => ({...p, currentPassword: e.target.value}))} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
+        <div><label className="text-xs text-gray-400 mb-1 block">New Password</label><input type="password" value={form.newPassword} onChange={e => setForm(p => ({...p, newPassword: e.target.value}))} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
+        <div><label className="text-xs text-gray-400 mb-1 block">Confirm New Password</label><input type="password" value={form.confirmPassword} onChange={e => setForm(p => ({...p, confirmPassword: e.target.value}))} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
+        <button onClick={handleChange} disabled={saving || !form.currentPassword || !form.newPassword || !form.confirmPassword} className="px-5 py-2.5 rounded-xl bg-gold/10 text-gold text-sm font-semibold border border-gold/20 hover:bg-gold/20 disabled:opacity-40 transition-all">{saving ? "Saving..." : "Change Password"}</button>
+      </div>
     </div>
   );
 }

@@ -1537,6 +1537,36 @@ app.post('/api/host/verify-token', async (req, res) => {
   }
 });
 
+/**
+ * POST /api/host/change-password
+ * Body: { currentPassword, newPassword }
+ */
+app.post('/api/host/change-password', hostAuthMiddleware, async (req: any, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword) return res.status(400).json({ error: 'Both current and new password required' });
+    if (newPassword.length < 8) return res.status(400).json({ error: 'New password must be at least 8 characters' });
+
+    const { hostService } = require('../services/hostService');
+    const host = await hostService.getHostById(req.hostAccount.hostId);
+    if (!host) return res.status(404).json({ error: 'Host not found' });
+
+    // Verify current password
+    const bcrypt = require('bcryptjs');
+    const isValid = await bcrypt.compare(currentPassword, host.password_hash);
+    if (!isValid) return res.status(401).json({ error: 'Current password is incorrect' });
+
+    // Update password
+    const newHash = await bcrypt.hash(newPassword, 12);
+    await db.query(`UPDATE hosts SET password_hash = $1 WHERE id = $2`, [newHash, req.hostAccount.hostId]);
+
+    return res.json({ success: true });
+  } catch (error) {
+    console.error('Host change password error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // ==================== HOST DASHBOARD API (Protected by hostAuthMiddleware) ====================
 
 // Mount host dashboard routes (full admin-level functionality scoped to host's challenges)
