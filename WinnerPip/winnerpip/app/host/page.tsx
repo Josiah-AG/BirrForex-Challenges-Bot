@@ -38,7 +38,7 @@ export default function HostLandingPage() {
           <span className="gradient-text">Trading Competitions</span>
         </h1>
         <p className="text-gray-400 text-lg md:text-xl max-w-2xl mx-auto mb-10 leading-relaxed">
-          WinnerPip gives you the infrastructure to host professional trading challenges. Automated tracking, real-time leaderboards, and fair evaluation. You focus on your community, we handle the tech.
+          WinnerPip gives you the infrastructure to host professional trading challenges. Automated tracking, live leaderboards, and fair evaluation. You focus on your community, we handle the tech.
         </p>
         <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
           <Link href="/host/register" className="px-8 py-3.5 rounded-xl bg-gradient-brand text-white font-semibold hover:opacity-90 transition-all flex items-center gap-2">
@@ -61,8 +61,8 @@ export default function HostLandingPage() {
           />
           <FeatureCard
             icon={<Trophy className="w-7 h-7 text-gold" />}
-            title="Real-Time Leaderboard"
-            description="Participants see their rank update throughout the challenge. Transparent, fair, and engaging for your community."
+            title="Live Leaderboard"
+            description="Participants see their rank update multiple times a day throughout the challenge. Transparent, fair, and engaging for your community."
           />
           <FeatureCard
             icon={<Shield className="w-7 h-7 text-profit" />}
