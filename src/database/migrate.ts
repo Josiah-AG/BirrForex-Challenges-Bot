@@ -496,6 +496,9 @@ async function migrate() {
     await db.query(`UPDATE hosts SET support_link = contact_link WHERE support_link IS NULL AND contact_link IS NOT NULL;`).catch(() => {});
     console.log('✅ hosts contact_link/support_link/main_link columns OK');
 
+    // Registration blocked flag — set when host removes broker integration while having open registrations
+    await db.query(`ALTER TABLE hosts ADD COLUMN IF NOT EXISTS registration_blocked BOOLEAN DEFAULT FALSE;`).catch(() => {});
+
     // Quiz system redesign — BirrForex Academy fields
     await db.query(`ALTER TABLE challenges ADD COLUMN IF NOT EXISTS youtube_link TEXT;`).catch(() => {});
     await db.query(`ALTER TABLE challenges ADD COLUMN IF NOT EXISTS module_tag VARCHAR(50);`).catch(() => {});

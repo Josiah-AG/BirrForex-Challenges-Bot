@@ -565,6 +565,10 @@ export default function ChallengesPage() {
                         <p className="text-sm text-loss">
                           Your account is not allocated under {allocError.hostMainLink ? <a href={allocError.hostMainLink.startsWith('http') ? allocError.hostMainLink : `https://${allocError.hostMainLink}`} target="_blank" rel="noopener noreferrer" className="font-bold underline">{allocError.hostName}</a> : <span className="font-bold">{allocError.hostName}</span>}. Please contact {allocError.hostSupportLink ? <a href={allocError.hostSupportLink.startsWith('http') ? allocError.hostSupportLink : `https://${allocError.hostSupportLink}`} target="_blank" rel="noopener noreferrer" className="font-bold underline">{allocError.hostName} Support</a> : <span className="font-bold">{allocError.hostName} Support</span>} to guide you on how to register under their link.
                         </p>
+                      ) : regError === 'registration_blocked' && allocError ? (
+                        <p className="text-sm text-loss">
+                          Registrations are temporarily paused by {allocError.hostMainLink ? <a href={allocError.hostMainLink.startsWith('http') ? allocError.hostMainLink : `https://${allocError.hostMainLink}`} target="_blank" rel="noopener noreferrer" className="font-bold underline">{allocError.hostName}</a> : <span className="font-bold">{allocError.hostName}</span>}. Please try again later or contact {allocError.hostSupportLink ? <a href={allocError.hostSupportLink.startsWith('http') ? allocError.hostSupportLink : `https://${allocError.hostSupportLink}`} target="_blank" rel="noopener noreferrer" className="font-bold underline">{allocError.hostName} Support</a> : <span className="font-bold">{allocError.hostName} Support</span>} for assistance.
+                        </p>
                       ) : (
                         <p className="text-sm text-loss">{regError}</p>
                       )}
@@ -605,9 +609,9 @@ export default function ChallengesPage() {
                             });
                             const data = await res.json();
                             if (res.ok && data.success) { setRegStep(2); setAllocError(null); }
-                            else if (data.error === 'allocation_failed') {
+                            else if (data.error === 'allocation_failed' || data.error === 'registration_blocked') {
                               setAllocError({ hostName: data.hostName, hostMainLink: data.hostMainLink, hostSupportLink: data.hostSupportLink });
-                              setRegError('allocation_failed');
+                              setRegError(data.error);
                             }
                             else { setRegError(data.error || "Allocation check failed"); setAllocError(null); }
                           } catch { setRegError("Could not connect to server. Please try again."); setAllocError(null); }

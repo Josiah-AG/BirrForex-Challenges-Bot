@@ -1716,7 +1716,23 @@ function BrokerCredentialsSection() {
           </div>
           <div className="flex gap-2">
             <button onClick={() => setShowForm(true)} className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-white/5 text-gray-300 border border-white/10">Update</button>
-            <button onClick={async () => { if(!confirm("Remove broker integration?")) return; await fetch(`${apiUrl}/api/host/broker-credentials`, { method: "DELETE", headers: { Authorization: `Bearer ${getToken()}` } }); setHasBroker(false); setMaskedEmail(null); }} className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-loss/10 text-loss border border-loss/20">Remove Integration</button>
+            <button onClick={async () => {
+              // Pre-check what will be affected
+              try {
+                const checkRes = await fetch(`${apiUrl}/api/host/broker-removal-check`, { headers: { Authorization: `Bearer ${getToken()}` } });
+                const checkData = await checkRes.json();
+                let confirmMsg = "Are you sure you want to remove broker integration?";
+                if (checkData.warnings && checkData.warnings.length > 0) {
+                  confirmMsg = "⚠️ Warning:\n\n" + checkData.warnings.join("\n\n") + "\n\nAre you sure you want to continue?";
+                }
+                if (!confirm(confirmMsg)) return;
+              } catch {
+                if (!confirm("Remove broker integration? This may affect active challenges.")) return;
+              }
+              // Proceed with removal
+              await fetch(`${apiUrl}/api/host/broker-credentials`, { method: "DELETE", headers: { Authorization: `Bearer ${getToken()}` } });
+              setHasBroker(false); setMaskedEmail(null);
+            }} className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-loss/10 text-loss border border-loss/20">Remove Integration</button>
           </div>
         </div>
       ) : (

@@ -544,6 +544,24 @@ app.post('/api/challenges/:id/check-allocation', authLimiter, async (req, res) =
     // Check broker allocation
     const { hostService } = require('../services/hostService');
     const credentials = await hostService.getBrokerCredentials(hostId);
+
+    // Check if registration is blocked (host removed broker integration)
+    if (!credentials) {
+      const blockedCheck = await db.query(
+        `SELECT registration_blocked, display_name, main_link, support_link FROM hosts WHERE id = $1`,
+        [hostId]);
+      if (blockedCheck.rows[0]?.registration_blocked) {
+        const h = blockedCheck.rows[0];
+        return res.status(400).json({
+          error: 'registration_blocked',
+          message: 'Registrations are temporarily blocked by the host.',
+          hostName: h.display_name || 'the challenge host',
+          hostMainLink: h.main_link || null,
+          hostSupportLink: h.support_link || null,
+        });
+      }
+    }
+
     if (credentials) {
       // Fetch host info for error messages
       const hostInfo = await db.query(`SELECT display_name, main_link, support_link FROM hosts WHERE id = $1`, [hostId]);
@@ -2315,6 +2333,9 @@ app.post('/api/host/broker-credentials', hostAuthMiddleware, async (req: any, re
     const { hostService } = require('../services/hostService');
     await hostService.setBrokerCredentials(req.hostAccount.hostId, { brokerEmail, brokerPassword, brokerApiKey: '' });
 
+    // Unblock registration if it was blocked
+    await db.query(`UPDATE hosts SET registration_blocked = false WHERE id = $1`, [req.hostAccount.hostId]);
+
     return res.json({ success: true, email: brokerEmail });
   } catch (error) {
     console.error('Host broker credentials save error:', error);
@@ -2323,14 +2344,66 @@ app.post('/api/host/broker-credentials', hostAuthMiddleware, async (req: any, re
 });
 
 /**
+ * GET /api/host/broker-removal-check
+ * Pre-check what happens if broker is removed (for frontend warning)
+ */
+app.get('/api/host/broker-removal-check', hostAuthMiddleware, async (req: any, res) => {
+  try {
+    const hostId = req.hostAccount.hostId;
+    const openChallenges = await db.query(
+      `SELECT id, title FROM trading_challenges WHERE host_id = $1 AND status = 'registration_open'`, [hostId]);
+    const activeChallenges = await db.query(
+      `SELECT id, title FROM trading_challenges WHERE host_id = $1 AND status = 'active'`, [hostId]);
+
+    const warnings: string[] = [];
+    if (openChallenges.rows.length > 0) {
+      warnings.push(`New registrations will be blocked for ${openChallenges.rows.length} challenge(s) with open registration.`);
+    }
+    if (activeChallenges.rows.length > 0) {
+      warnings.push(`Daily partnership verification will be disabled for ${activeChallenges.rows.length} running challenge(s). Participants who change their allocation will no longer be detected.`);
+    }
+
+    return res.json({
+      hasOpenChallenges: openChallenges.rows.length > 0,
+      hasActiveChallenges: activeChallenges.rows.length > 0,
+      openChallenges: openChallenges.rows.map((c: any) => c.title),
+      activeChallenges: activeChallenges.rows.map((c: any) => c.title),
+      warnings,
+      safe: warnings.length === 0,
+    });
+  } catch (error) {
+    return res.status(500).json({ error: 'Check failed' });
+  }
+});
+
+/**
  * DELETE /api/host/broker-credentials
- * Remove broker integration
+ * Remove broker integration (with blocking for open registrations)
  */
 app.delete('/api/host/broker-credentials', hostAuthMiddleware, async (req: any, res) => {
   try {
+    const hostId = req.hostAccount.hostId;
     const { hostService } = require('../services/hostService');
-    await hostService.removeBrokerCredentials(req.hostAccount.hostId);
-    return res.json({ success: true });
+
+    // Check affected challenges
+    const openChallenges = await db.query(
+      `SELECT id, title FROM trading_challenges WHERE host_id = $1 AND status = 'registration_open'`, [hostId]);
+    const activeChallenges = await db.query(
+      `SELECT id, title FROM trading_challenges WHERE host_id = $1 AND status = 'active'`, [hostId]);
+
+    // Remove credentials
+    await hostService.removeBrokerCredentials(hostId);
+
+    // Block registration if open challenges exist
+    if (openChallenges.rows.length > 0) {
+      await db.query(`UPDATE hosts SET registration_blocked = true WHERE id = $1`, [hostId]);
+    }
+
+    return res.json({
+      success: true,
+      registrationBlocked: openChallenges.rows.length > 0,
+      dailyCheckDisabled: activeChallenges.rows.length > 0,
+    });
   } catch (error) {
     console.error('Host broker credentials remove error:', error);
     return res.status(500).json({ error: 'Internal server error' });
