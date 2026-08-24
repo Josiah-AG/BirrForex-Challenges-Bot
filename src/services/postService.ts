@@ -11,7 +11,7 @@ export class PostService {
   generateMainChannelPost(challenge: Challenge, numQuestions: number, moduleMessageLink?: string) {
     const youtubeLink = (challenge as any).youtube_link || challenge.topic_link;
     const pdfLine = moduleMessageLink
-      ? `\n👉<a href="${moduleMessageLink}">You can find the PDF Module here too</a>👈\n`
+      ? `\n👉<a href="${moduleMessageLink}">You can find the PDF Module here</a>👈\n`
       : '';
 
     const text = `<b>📚 BirrForex Academy | Forex ከዜሮ እስከ ፕሮፌሽናል</b>
