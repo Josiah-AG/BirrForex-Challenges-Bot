@@ -30,7 +30,7 @@ interface LeaderboardEntry {
   isMe?: boolean;
 }
 interface ChallengeInfo {
-  id: number; title: string; status: string;
+  id: number; title: string; status: string; type?: string;
   startDate: string; endDate: string; timezone?: string;
   startingBalance: number; myStartingBalance?: number; targetBalance: number;
   winnersCount: number; realWinnersCount: number; demoWinnersCount: number;
@@ -268,6 +268,7 @@ export default function ChallengeDashboard() {
       if (res.ok) {
         const d = await res.json();
         localStorage.setItem("wp_token", d.token);
+        localStorage.setItem("wp_login_pass", loginPassword);
         if (d.user) localStorage.setItem("wp_user", JSON.stringify(d.user));
         setIsLoggedIn(true); setShowLogin(false);
       } else {
@@ -497,7 +498,7 @@ export default function ChallengeDashboard() {
             {isLoggedIn && (
               <div className="flex items-center gap-2">
                 <button onClick={() => setShowRules(true)} className="flex items-center gap-2 px-3 py-2 glass border border-royal/30 text-royal hover:bg-royal/10 rounded-xl transition-all text-sm"><FileText size={14} /><span className="hidden sm:inline">Rules</span></button>
-                <button onClick={() => { localStorage.removeItem("wp_token"); localStorage.removeItem("wp_user"); window.location.href = "/"; }} className="flex items-center gap-2 px-3 py-2 glass border border-white/10 text-gray-400 hover:text-white hover:bg-white/10 rounded-xl transition-all text-sm"><LogOut size={14} /><span className="hidden sm:inline">Logout</span></button>
+                <button onClick={() => { localStorage.removeItem("wp_token"); localStorage.removeItem("wp_user"); localStorage.removeItem("wp_login_pass"); window.location.href = "/"; }} className="flex items-center gap-2 px-3 py-2 glass border border-white/10 text-gray-400 hover:text-white hover:bg-white/10 rounded-xl transition-all text-sm"><LogOut size={14} /><span className="hidden sm:inline">Logout</span></button>
               </div>
             )}
           </div>
@@ -875,6 +876,17 @@ export default function ChallengeDashboard() {
           {/* PASSWORD UPDATE BANNER */}
           {myStats.pullStatus === "password_changed" && (
             <PasswordUpdateBanner accountType={myStats.accountType} />
+          )}
+
+          {/* ACCOUNT CHANGE BANNER — pre-start only for hosted challenges */}
+          {isNotStarted && challenge && (
+            <AccountChangeBanner
+              challengeId={challenge.id}
+              challengeType={challenge.type === 'hybrid' ? 'hybrid' : (challenge.type === 'real' ? 'real' : 'demo')}
+              currentAccountNumber={myStats.accountNumber}
+              currentAccountType={myStats.accountType}
+              investorPassword={typeof window !== 'undefined' ? localStorage.getItem('wp_login_pass') || '' : ''}
+            />
           )}
 
           {/* DISQUALIFIED BANNER (dismissable) */}
@@ -1891,6 +1903,154 @@ function DismissableBanner({ type, reason }: { type: "dq" | "blown"; reason?: st
           <h3 className="text-sm font-bold text-gray-300">Your account balance reached $0</h3>
           <p className="text-xs text-gray-500 mt-1">Your account data is preserved. You can still view the leaderboard.</p>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ==================== ACCOUNT CHANGE BANNER ====================
+function AccountChangeBanner({ challengeId, challengeType, currentAccountNumber, currentAccountType, investorPassword }: {
+  challengeId: number; challengeType: string; currentAccountNumber: string; currentAccountType: string; investorPassword: string;
+}) {
+  const [minimized, setMinimized] = useState(false);
+  const [mode, setMode] = useState<"idle" | "category" | "account">("idle");
+  const [newCategory, setNewCategory] = useState(currentAccountType === "demo" ? "real" : "demo");
+  const [newAcct, setNewAcct] = useState({ accountNumber: "", server: "", investorPassword: "" });
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+
+  const handleChangeCategory = async () => {
+    setLoading(true); setResult(null);
+    try {
+      const res = await fetch(`${API_URL}/api/challenges/${challengeId}/change-category`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accountNumber: currentAccountNumber, investorPassword, newCategory }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setResult({ type: "success", message: data.message || "Category changed!" });
+        setTimeout(() => window.location.reload(), 1500);
+      } else { setResult({ type: "error", message: data.error || "Failed to change category" }); }
+    } catch { setResult({ type: "error", message: "Connection error. Please try again." }); }
+    setLoading(false);
+  };
+
+  const handleChangeAccount = async () => {
+    if (!newAcct.accountNumber || !newAcct.server || !newAcct.investorPassword) {
+      setResult({ type: "error", message: "Please fill in all fields" }); return;
+    }
+    setLoading(true); setResult(null);
+    try {
+      const res = await fetch(`${API_URL}/api/challenges/${challengeId}/change-account`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          currentAccountNumber, investorPassword,
+          newAccountNumber: newAcct.accountNumber,
+          newServer: newAcct.server,
+          newInvestorPassword: newAcct.investorPassword,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setResult({ type: "success", message: data.message || "Account updated!" });
+        localStorage.setItem("wp_login_pass", newAcct.investorPassword);
+        setTimeout(() => window.location.reload(), 1500);
+      } else { setResult({ type: "error", message: data.error || "Failed to change account" }); }
+    } catch { setResult({ type: "error", message: "Connection error. Please try again." }); }
+    setLoading(false);
+  };
+
+  if (minimized) {
+    return (
+      <button
+        onClick={() => setMinimized(false)}
+        className="mb-3 w-full p-2.5 rounded-xl bg-royal/5 border border-royal/20 flex items-center justify-between hover:bg-royal/10 transition-all"
+      >
+        <div className="flex items-center gap-2">
+          <RefreshCw size={13} className="text-royal" />
+          <span className="text-xs text-royal font-medium">Change account or category</span>
+        </div>
+        <ChevronDown size={14} className="text-royal" />
+      </button>
+    );
+  }
+
+  return (
+    <div className="mb-4 glass rounded-2xl border border-royal/20 bg-royal/5 overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-royal/10">
+        <div className="flex items-center gap-2">
+          <RefreshCw size={14} className="text-royal" />
+          <p className="text-sm font-semibold text-royal">Account Settings</p>
+        </div>
+        <button onClick={() => setMinimized(true)} className="p-1 hover:bg-white/10 rounded-lg">
+          <ChevronUp size={14} className="text-gray-400" />
+        </button>
+      </div>
+
+      <div className="px-4 py-3 space-y-3">
+        <p className="text-xs text-gray-400">You can make changes before the challenge starts. These options will be locked once the challenge is active.</p>
+
+        {/* Idle — show buttons */}
+        {mode === "idle" && (
+          <div className="flex flex-col sm:flex-row gap-2">
+            {challengeType === "hybrid" && (
+              <button onClick={() => { setMode("category"); setResult(null); }} className="flex-1 px-4 py-2.5 rounded-xl bg-gold/10 border border-gold/20 text-gold text-xs font-semibold hover:bg-gold/20 transition-all">
+                Change Category ({currentAccountType} → {currentAccountType === "demo" ? "real" : "demo"})
+              </button>
+            )}
+            <button onClick={() => { setMode("account"); setResult(null); }} className="flex-1 px-4 py-2.5 rounded-xl bg-royal/10 border border-royal/20 text-royal text-xs font-semibold hover:bg-royal/20 transition-all">
+              Change Account Number
+            </button>
+          </div>
+        )}
+
+        {/* Category change */}
+        {mode === "category" && (
+          <div className="space-y-3">
+            <div className="p-3 rounded-xl bg-white/5 border border-white/10">
+              <p className="text-xs text-gray-400 mb-2">Switch from <span className="font-bold text-white capitalize">{currentAccountType}</span> to:</p>
+              <div className="grid grid-cols-2 gap-2">
+                <button onClick={() => setNewCategory("demo")} className={`p-2.5 rounded-lg border text-center text-xs font-semibold transition-all ${newCategory === "demo" ? "border-royal bg-royal/10 text-royal" : "border-white/20 text-gray-500"}`}>Demo</button>
+                <button onClick={() => setNewCategory("real")} className={`p-2.5 rounded-lg border text-center text-xs font-semibold transition-all ${newCategory === "real" ? "border-gold bg-gold/10 text-gold" : "border-white/20 text-gray-500"}`}>Real</button>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => setMode("idle")} disabled={loading} className="flex-1 py-2.5 rounded-xl bg-white/5 border border-white/10 text-gray-400 text-xs font-medium hover:bg-white/10 transition-all disabled:opacity-50">Cancel</button>
+              <button onClick={handleChangeCategory} disabled={loading || newCategory === currentAccountType} className="flex-1 py-2.5 rounded-xl bg-royal text-white text-xs font-semibold hover:opacity-90 transition-all disabled:opacity-50 flex items-center justify-center gap-1.5">
+                {loading ? <Loader2 size={12} className="animate-spin" /> : null}
+                {loading ? "Changing..." : "Confirm Change"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Account change */}
+        {mode === "account" && (
+          <div className="space-y-3">
+            <div className="space-y-2">
+              <input type="text" placeholder="New Account Number" value={newAcct.accountNumber} onChange={e => setNewAcct({...newAcct, accountNumber: e.target.value})} className="w-full p-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-xs outline-none focus:border-royal/50 transition-all" disabled={loading} />
+              <input type="text" placeholder="MT5 Server (e.g., Exness-MT5Trial9)" value={newAcct.server} onChange={e => setNewAcct({...newAcct, server: e.target.value})} className="w-full p-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-xs outline-none focus:border-royal/50 transition-all" disabled={loading} />
+              <input type="password" placeholder="Investor Password" value={newAcct.investorPassword} onChange={e => setNewAcct({...newAcct, investorPassword: e.target.value})} className="w-full p-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-xs outline-none focus:border-royal/50 transition-all" disabled={loading} />
+            </div>
+            <p className="text-[10px] text-gray-600">New account will be verified via MT5 before the change is applied.</p>
+            <div className="flex gap-2">
+              <button onClick={() => setMode("idle")} disabled={loading} className="flex-1 py-2.5 rounded-xl bg-white/5 border border-white/10 text-gray-400 text-xs font-medium hover:bg-white/10 transition-all disabled:opacity-50">Cancel</button>
+              <button onClick={handleChangeAccount} disabled={loading} className="flex-1 py-2.5 rounded-xl bg-royal text-white text-xs font-semibold hover:opacity-90 transition-all disabled:opacity-50 flex items-center justify-center gap-1.5">
+                {loading ? <Loader2 size={12} className="animate-spin" /> : null}
+                {loading ? "Verifying..." : "Verify & Update"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Result */}
+        {result && (
+          <div className={`p-2.5 rounded-xl text-xs font-medium ${result.type === "success" ? "bg-profit/10 border border-profit/30 text-profit" : "bg-loss/10 border border-loss/30 text-loss"}`}>
+            {result.message}
+          </div>
+        )}
       </div>
     </div>
   );
