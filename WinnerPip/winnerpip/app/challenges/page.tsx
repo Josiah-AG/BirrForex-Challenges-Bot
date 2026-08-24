@@ -562,9 +562,10 @@ export default function ChallengesPage() {
                   {regError && (
                     <div className="p-3 rounded-xl bg-loss/10 border border-loss/30 mb-4">
                       {regError === 'allocation_failed' && allocError ? (
-                        <p className="text-sm text-loss">
-                          Your account is not allocated under {allocError.hostMainLink ? <a href={allocError.hostMainLink.startsWith('http') ? allocError.hostMainLink : `https://${allocError.hostMainLink}`} target="_blank" rel="noopener noreferrer" className="font-bold underline">{allocError.hostName}</a> : <span className="font-bold">{allocError.hostName}</span>}. Please contact {allocError.hostSupportLink ? <a href={allocError.hostSupportLink.startsWith('http') ? allocError.hostSupportLink : `https://${allocError.hostSupportLink}`} target="_blank" rel="noopener noreferrer" className="font-bold underline">{allocError.hostName} Support</a> : <span className="font-bold">{allocError.hostName} Support</span>} to guide you on how to register under their link.
-                        </p>
+                        <div className="text-sm text-loss space-y-2">
+                          <p>Please double-check your email spelling. If it is correct, your account is not allocated under {allocError.hostMainLink ? <a href={allocError.hostMainLink.startsWith('http') ? allocError.hostMainLink : `https://${allocError.hostMainLink}`} target="_blank" rel="noopener noreferrer" className="font-bold underline">{allocError.hostName}</a> : <span className="font-bold">{allocError.hostName}</span>}.</p>
+                          <p>Contact {allocError.hostSupportLink ? <a href={allocError.hostSupportLink.startsWith('http') ? allocError.hostSupportLink : `https://${allocError.hostSupportLink}`} target="_blank" rel="noopener noreferrer" className="font-bold underline">{allocError.hostName} Support</a> : <span className="font-bold">{allocError.hostName} Support</span>} to guide you on how to register under their link.</p>
+                        </div>
                       ) : regError === 'registration_blocked' && allocError ? (
                         <p className="text-sm text-loss">
                           Registrations are temporarily paused by {allocError.hostMainLink ? <a href={allocError.hostMainLink.startsWith('http') ? allocError.hostMainLink : `https://${allocError.hostMainLink}`} target="_blank" rel="noopener noreferrer" className="font-bold underline">{allocError.hostName}</a> : <span className="font-bold">{allocError.hostName}</span>}. Please try again later or contact {allocError.hostSupportLink ? <a href={allocError.hostSupportLink.startsWith('http') ? allocError.hostSupportLink : `https://${allocError.hostSupportLink}`} target="_blank" rel="noopener noreferrer" className="font-bold underline">{allocError.hostName} Support</a> : <span className="font-bold">{allocError.hostName} Support</span>} for assistance.
@@ -589,7 +590,7 @@ export default function ChallengesPage() {
                         <input
                           type="email"
                           value={regForm.email}
-                          onChange={e => setRegForm({...regForm, email: e.target.value})}
+                          onChange={e => { setRegForm({...regForm, email: e.target.value}); if (regError) setRegError(""); }}
                           className="w-full p-3.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none focus:border-royal/50 transition-all"
                           placeholder="your@email.com"
                           disabled={regLoading}

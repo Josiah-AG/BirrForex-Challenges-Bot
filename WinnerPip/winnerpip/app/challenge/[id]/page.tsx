@@ -1870,9 +1870,10 @@ export default function ChallengeDashboard() {
                   {regError && (
                     <div className="p-3 rounded-xl bg-loss/10 border border-loss/30 mb-4">
                       {regError === 'allocation_failed' && allocError ? (
-                        <p className="text-sm text-loss">
-                          Your account is not allocated under {allocError.hostMainLink ? <a href={allocError.hostMainLink.startsWith('http') ? allocError.hostMainLink : `https://${allocError.hostMainLink}`} target="_blank" rel="noopener noreferrer" className="font-bold underline">{allocError.hostName}</a> : <span className="font-bold">{allocError.hostName}</span>}. Please contact {allocError.hostSupportLink ? <a href={allocError.hostSupportLink.startsWith('http') ? allocError.hostSupportLink : `https://${allocError.hostSupportLink}`} target="_blank" rel="noopener noreferrer" className="font-bold underline">{allocError.hostName} Support</a> : <span className="font-bold">{allocError.hostName} Support</span>} to guide you on how to register under their link.
-                        </p>
+                        <div className="text-sm text-loss space-y-2">
+                          <p>Please double-check your email spelling. If it is correct, your account is not allocated under {allocError.hostMainLink ? <a href={allocError.hostMainLink.startsWith('http') ? allocError.hostMainLink : `https://${allocError.hostMainLink}`} target="_blank" rel="noopener noreferrer" className="font-bold underline">{allocError.hostName}</a> : <span className="font-bold">{allocError.hostName}</span>}.</p>
+                          <p>Contact {allocError.hostSupportLink ? <a href={allocError.hostSupportLink.startsWith('http') ? allocError.hostSupportLink : `https://${allocError.hostSupportLink}`} target="_blank" rel="noopener noreferrer" className="font-bold underline">{allocError.hostName} Support</a> : <span className="font-bold">{allocError.hostName} Support</span>} to guide you on how to register under their link.</p>
+                        </div>
                       ) : regError === 'registration_blocked' && allocError ? (
                         <p className="text-sm text-loss">
                           Registrations are temporarily paused by {allocError.hostMainLink ? <a href={allocError.hostMainLink.startsWith('http') ? allocError.hostMainLink : `https://${allocError.hostMainLink}`} target="_blank" rel="noopener noreferrer" className="font-bold underline">{allocError.hostName}</a> : <span className="font-bold">{allocError.hostName}</span>}. Please try again later or contact {allocError.hostSupportLink ? <a href={allocError.hostSupportLink.startsWith('http') ? allocError.hostSupportLink : `https://${allocError.hostSupportLink}`} target="_blank" rel="noopener noreferrer" className="font-bold underline">{allocError.hostName} Support</a> : <span className="font-bold">{allocError.hostName} Support</span>} for assistance.
@@ -1893,7 +1894,7 @@ export default function ChallengeDashboard() {
                       </div>
                       <div>
                         <label className="block text-xs text-gray-400 font-medium mb-1.5">Exness Account Email *</label>
-                        <input type="email" value={regForm.email} onChange={e => setRegForm({...regForm, email: e.target.value})} className="w-full p-3.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none focus:border-royal/50 transition-all" placeholder="your@email.com" disabled={regLoading} />
+                        <input type="email" value={regForm.email} onChange={e => { setRegForm({...regForm, email: e.target.value}); if (regError) setRegError(""); }} className="w-full p-3.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none focus:border-royal/50 transition-all" placeholder="your@email.com" disabled={regLoading} />
                         <p className="text-[10px] text-gray-600 mt-1">This must be the email linked to your Exness trading account</p>
                       </div>
                       <button onClick={async () => {
