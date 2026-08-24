@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { Input } from "@/components/ui/input";
 import { TrendingUp, Trophy, AlertTriangle, Target, Activity, ArrowLeft, FileText, Clock, ChevronDown, ChevronUp, Shield, Award, Hash, Key, Loader2, MessageCircle, ArrowRight, X, RefreshCw, LogOut, Users, CheckCircle } from "lucide-react";
 import BalanceChart from "@/components/BalanceChart";
@@ -49,6 +49,7 @@ interface MyStats {
 
 export default function ChallengeDashboard() {
   const params = useParams();
+  const searchParams = useSearchParams();
   const [showRules, setShowRules] = useState(false);
   const [activeTab, setActiveTab] = useState<"trades" | "leaderboard" | "violations">("trades");
   const [selectedTrade, setSelectedTrade] = useState<Trade | null>(null);
@@ -138,6 +139,16 @@ export default function ChallengeDashboard() {
     };
     fetchPreAuth();
   }, [params.id]);
+
+  // Auto-open registration wizard if ?register=true is in URL
+  useEffect(() => {
+    if (searchParams.get('register') === 'true' && preAuthChallenge && !isLoggedIn && !showRegWizard) {
+      if (preAuthChallenge.hostId && preAuthChallenge.registrationMode === 'winnerpip' && preAuthChallenge.status === 'registration_open') {
+        setRegForm({ email: "", nickname: "", accountNumber: "", mt5Server: "", investorPassword: "", accountType: preAuthChallenge.type === 'real' ? 'real' : preAuthChallenge.type === 'demo' ? 'demo' : 'demo' });
+        setRegStep(1); setRegError(""); setRegSuccess(false); setMt5Verified(false); setMt5VerifyData(null); setShowRegWizard(true);
+      }
+    }
+  }, [preAuthChallenge, searchParams, isLoggedIn]);
 
   // Fetch dashboard data when logged in
   const fetchDashboard = useCallback(async () => {
@@ -571,7 +582,7 @@ export default function ChallengeDashboard() {
                   <button onClick={() => {
                     setRegForm({ email: "", nickname: "", accountNumber: "", mt5Server: "", investorPassword: "", accountType: preAuthChallenge.type === 'real' ? 'real' : preAuthChallenge.type === 'demo' ? 'demo' : 'demo' });
                     setRegStep(1); setRegError(""); setRegSuccess(false); setMt5Verified(false); setMt5VerifyData(null); setShowRegWizard(true);
-                  }} className="w-full flex items-center justify-center gap-2 p-4 rounded-xl bg-profit/20 border border-profit/30 hover:bg-profit/30 text-profit font-semibold transition-all"><Users size={18} />Register Now</button>
+                  }} className="w-full flex items-center justify-center gap-2 p-4 rounded-xl bg-royal/20 border border-royal/30 hover:bg-royal/30 text-royal font-semibold transition-all"><Users size={18} />Register Now</button>
                 ) : (
                   <a href={`https://t.me/${botUsername}?start=tc_register_${params.id}`} target="_blank" rel="noopener noreferrer" className="w-full flex items-center justify-center gap-2 p-4 rounded-xl bg-[#2AABEE]/20 border border-[#2AABEE]/30 hover:bg-[#2AABEE]/30 text-[#2AABEE] font-semibold transition-all"><MessageCircle size={18} />Register via Telegram</a>
                 )}
