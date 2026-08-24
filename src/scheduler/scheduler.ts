@@ -202,10 +202,10 @@ export class Scheduler {
       const { db } = require('../database/db');
       await db.query(
         `UPDATE challenges SET module_message_id = $1 WHERE id = $2`,
-        [copiedMessage.message_id, challengeId]
+        [copiedMessage.message_id, challenge.id]
       );
 
-      console.log(`✅ Module #${moduleTag} forwarded to main channel (msg ${copiedMessage.message_id}) for challenge ${challengeId}`);
+      console.log(`✅ Module #${moduleTag} forwarded to main channel (msg ${copiedMessage.message_id}) for challenge ${challenge.id}`);
     } catch (error) {
       console.error(`Error forwarding module PDF for challenge ${challengeId}:`, error);
     }
