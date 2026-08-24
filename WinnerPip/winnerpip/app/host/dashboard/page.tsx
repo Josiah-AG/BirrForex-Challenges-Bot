@@ -1692,8 +1692,8 @@ function BrokerCredentialsSection() {
     try {
       const res = await fetch(`${apiUrl}/api/host/broker-credentials`, { method: "POST", headers: { Authorization: `Bearer ${getToken()}`, "Content-Type": "application/json" }, body: JSON.stringify(form) });
       const d = await res.json();
-      if (res.ok && d.success) { setSaved(true); setHasBroker(true); setShowForm(false); setMaskedEmail(d.email ? d.email.substring(0, 2) + '***@' + d.email.split('@')[1] : null); setForm({ brokerEmail: "", brokerPassword: "" }); }
-      else { setError(d.error || "Failed"); }
+      if (res.ok && d.success) { setError(""); setSaved(true); setTimeout(() => { setHasBroker(true); setShowForm(false); setMaskedEmail(d.email ? d.email.substring(0, 2) + '***@' + d.email.split('@')[1] : null); setForm({ brokerEmail: "", brokerPassword: "" }); }, 1500); }
+      else { setError(d.error || "Authentication failed"); }
     } catch { setError("Network error"); }
     setSaving(false); setTimeout(() => setSaved(false), 3000);
   };
@@ -1704,7 +1704,7 @@ function BrokerCredentialsSection() {
     <div className="glass rounded-2xl border border-white/10 p-5">
       <h3 className="text-sm font-semibold text-white mb-2 flex items-center gap-2"><Shield size={16} className="text-gold" /> Broker Integration</h3>
       <p className="text-xs text-gray-500 mb-4">Connect your broker credentials to verify participant allocation automatically. All credentials are encrypted with AES-256-GCM and never stored in plain text.</p>
-      {saved && <div className="p-2 mb-3 rounded-lg bg-profit/10 text-profit text-xs">Updated</div>}
+      {saved && <div className="p-2 mb-3 rounded-lg bg-profit/10 text-profit text-xs font-semibold">✅ Credentials verified & connected successfully</div>}
       {hasBroker && !showForm ? (
         <div>
           <div className="flex items-center gap-3 p-3 rounded-xl bg-profit/5 border border-profit/20 mb-3">

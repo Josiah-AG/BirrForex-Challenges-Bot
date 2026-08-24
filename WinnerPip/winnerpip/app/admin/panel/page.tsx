@@ -1912,7 +1912,7 @@ function HostsManagementPanel() {
                 <div className="flex items-center gap-3">
                   <div className={`w-2.5 h-2.5 rounded-full ${host.active ? "bg-profit" : "bg-gray-500"}`} />
                   <div>
-                    <p className="text-sm font-bold text-white">{host.display_name}</p>
+                    <p className="text-sm font-bold text-white">{host.display_name}{host.has_broker_integration && <span className="ml-2 text-[10px] text-profit font-semibold bg-profit/10 px-1.5 py-0.5 rounded">✓ Broker</span>}</p>
                     <p className="text-xs text-gray-400">{host.email}</p>
                   </div>
                 </div>
