@@ -71,6 +71,7 @@ export default function ChallengesPage() {
   const [regResult, setRegResult] = useState<{ id?: number; balance?: number; isCent?: boolean; server?: string } | null>(null);
   const [mt5Verified, setMt5Verified] = useState(false);
   const [mt5VerifyData, setMt5VerifyData] = useState<{ balance?: number; isCent?: boolean; server?: string; accountSubtype?: string } | null>(null);
+  const [showNotOpenPopup, setShowNotOpenPopup] = useState(false);
 
   useEffect(() => {
     const fetchChallenges = async () => {
@@ -171,7 +172,7 @@ export default function ChallengesPage() {
         onClick={() => {
           if (isPast) return handlePastChallengeClick(challenge);
           const ds = challenge.displayStatus || challenge.status;
-          if (ds === 'coming_soon' || ds === 'draft') return; // No action for upcoming challenges
+          if (ds === 'coming_soon' || ds === 'draft') { setShowNotOpenPopup(true); return; }
           if (challenge.hostId && challenge.registrationMode === 'winnerpip' && (ds === 'registration_open')) {
             setRegisterChallenge(challenge);
             setRegForm({ email: "", nickname: "", accountNumber: "", mt5Server: "", investorPassword: "", accountType: challenge.type === 'real' ? 'real' : challenge.type === 'demo' ? 'demo' : 'demo' });
@@ -211,7 +212,7 @@ export default function ChallengesPage() {
               )}
               {challenge.hostId && challenge.hostDisplayName && (
                 challenge.hostMainLink ? (
-                  <a href={challenge.hostMainLink} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="px-3 py-1.5 rounded-full bg-gold/20 text-gold border border-gold/30 text-xs font-semibold hover:bg-gold/30 transition-all">
+                  <a href={challenge.hostMainLink.startsWith('http') ? challenge.hostMainLink : `https://${challenge.hostMainLink}`} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="px-3 py-1.5 rounded-full bg-gold/20 text-gold border border-gold/30 text-xs font-semibold hover:bg-gold/30 transition-all">
                     Hosted by {challenge.hostDisplayName}
                   </a>
                 ) : (
@@ -485,6 +486,20 @@ export default function ChallengesPage() {
                 </div>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Registration Not Open Popup */}
+      {showNotOpenPopup && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setShowNotOpenPopup(false)}>
+          <div className="bg-[#1a2235] rounded-2xl max-w-sm w-full border border-white/15 shadow-2xl p-6 text-center" onClick={e => e.stopPropagation()}>
+            <div className="w-14 h-14 rounded-full bg-gold/10 border-2 border-gold/30 flex items-center justify-center mx-auto mb-4">
+              <Calendar size={24} className="text-gold" />
+            </div>
+            <h3 className="text-lg font-bold text-white mb-2">Registration Not Open Yet</h3>
+            <p className="text-sm text-gray-400 mb-5">Registration will open soon. Stay tuned for updates!</p>
+            <button onClick={() => setShowNotOpenPopup(false)} className="px-6 py-2.5 rounded-xl bg-white/10 border border-white/20 text-gray-300 font-medium text-sm hover:bg-white/15 transition-all">Got it</button>
           </div>
         </div>
       )}
