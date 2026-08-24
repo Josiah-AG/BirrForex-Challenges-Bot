@@ -15,9 +15,9 @@ Get ready to test your forex knowledge and win prizes!
 Use the menu below to get started!`,
 
   // Challenge welcome when user joins from channel
-  challengeWelcome: (challenge: Challenge, numQuestions: number) => `🎯 Welcome to BirrForex Challenge!
+  challengeWelcome: (challenge: Challenge, numQuestions: number) => `📚 Welcome to BirrForex Academy Challenge!
 
-📊 Topic: ${challenge.topic}
+📊 Section: ${challenge.topic}
 ⏰ Time Limit: ${config.challengeDurationMinutes} minutes from your first answer
 📝 Questions: ${numQuestions} multiple choice
 

@@ -40,6 +40,18 @@ export class QuizHandler {
       return;
     }
 
+    // Block session restart — if user already has an active session, don't allow recreation
+    const existingSession = sessionService.getSession(telegramId, challengeId);
+    if (existingSession) {
+      await ctx.reply('⚠️ You already started this quiz. Continue where you left off!');
+      // Re-send current question
+      const questions = await challengeService.getQuestions(challengeId);
+      if (questions.length > 0 && existingSession.current_question < questions.length) {
+        await this.sendQuestion(ctx, challengeId, questions, existingSession.current_question);
+      }
+      return;
+    }
+
     // Get or create user
     await userService.getOrCreateUser(telegramId, username, ctx.from!.first_name, ctx.from!.last_name);
 

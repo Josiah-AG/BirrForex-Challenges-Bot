@@ -25,11 +25,21 @@ export class NotificationService {
       }
 
       const day = challenge.day;
-      const text = `🔔 <b>BirrForex Weekly Challenge - ${day} Round Today</b>
+      const challengeTime = challenge.challenge_time ? challenge.challenge_time.substring(0, 5) : '20:00';
+      const [h, m] = challengeTime.split(':').map(Number);
+      const ampm = h >= 12 ? 'PM' : 'AM';
+      const displayHour = h > 12 ? h - 12 : h === 0 ? 12 : h;
+      const timeDisplay = `${displayHour}:${m.toString().padStart(2, '0')} ${ampm} EAT`;
 
-The challenge goes live at 8:00 PM EAT!
+      const text = `🔔 <b>BirrForex Academy — Q&A Challenge Today!</b>
 
-Visit the main channel for details.`;
+📚 <i>Forex ከዜሮ እስከ ፕሮፌሽናል</i>
+
+🎬 New section: <b>${challenge.topic}</b>
+
+The challenge goes live at <b>${timeDisplay}</b>!
+
+👉 Watch the video and read the module on <b>@BirrForex</b> to prepare.`;
 
       const keyboard = Markup.inlineKeyboard([
         [Markup.button.url('📢 Visit Main Channel', 'https://t.me/BirrForex')],

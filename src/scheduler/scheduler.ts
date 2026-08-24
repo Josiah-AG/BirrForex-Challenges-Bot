@@ -58,7 +58,7 @@ export class Scheduler {
   /**
    * Send morning posts
    */
-  private async sendMorningPosts() {
+  async sendMorningPosts() {
     try {
       const today = new Date();
       const challenges = await challengeService.getChallengesByDate(today);
@@ -94,8 +94,14 @@ export class Scheduler {
       const questions = await challengeService.getQuestions(challenge.id);
       const botInfo = await this.bot.bot.telegram.getMe();
 
+      // Build module message link if module was forwarded
+      const moduleMessageId = (challenge as any).module_message_id;
+      const moduleMessageLink = moduleMessageId
+        ? `https://t.me/${config.mainChannelUsername}/${moduleMessageId}`
+        : undefined;
+
       // Main channel post with image
-      const mainPost = postService.generateMainChannelPost(challenge, questions.length);
+      const mainPost = postService.generateMainChannelPost(challenge, questions.length, moduleMessageLink);
       
       try {
         // Try to send with image
@@ -129,6 +135,79 @@ export class Scheduler {
       console.log(`✅ Morning posts sent for challenge ${challengeId}`);
     } catch (error) {
       console.error(`Error sending morning posts for challenge ${challengeId}:`, error);
+    }
+  }
+
+  /**
+   * Forward PDF module from submission channel to main channel
+   */
+  async forwardModulePDF(challengeId?: number) {
+    try {
+      let challenge;
+      if (challengeId) {
+        challenge = await challengeService.getChallengeById(challengeId);
+      } else {
+        const today = new Date();
+        challenge = await challengeService.getChallengeByDate(today);
+      }
+      if (!challenge) return;
+
+      const moduleTag = (challenge as any).module_tag;
+      if (!moduleTag) {
+        console.log(`⚠️ No module_tag set for challenge ${challengeId}, skipping PDF forward`);
+        return;
+      }
+
+      // Search submission channel for message with matching #module_tag
+      // We use getChat to get the channel, then search recent messages
+      const searchTag = `#${moduleTag}`;
+      let foundMessageId: number | null = null;
+
+      // Search last 50 messages in submission channel for the tag
+      try {
+        // Use bot's getUpdates history or search channel messages
+        // Since Telegram Bot API doesn't have a search method, we'll look through recent channel history
+        // The bot should have received these as channel_post updates — check DB or use a workaround
+        
+        // Alternative: Use getChatHistory via the unofficial approach
+        // For now, use the stored approach — admin provides module_tag, bot searches
+        const { db } = require('../database/db');
+        const stored = await db.query(
+          `SELECT message_id FROM quiz_module_messages WHERE tag = $1 ORDER BY created_at DESC LIMIT 1`,
+          [moduleTag]
+        );
+        
+        if (stored.rows[0]) {
+          foundMessageId = stored.rows[0].message_id;
+        }
+      } catch {
+        // Table might not exist yet — try direct channel access
+      }
+
+      if (!foundMessageId) {
+        console.log(`⚠️ Module #${moduleTag} not found in submission channel for challenge ${challengeId}`);
+        return;
+      }
+
+      // Copy message to main channel (no "forwarded" label)
+      const caption = postService.generateModuleCaption(challenge);
+      const copiedMessage = await this.bot.bot.telegram.copyMessage(
+        config.mainChannelId,
+        config.submissionChannelId,
+        foundMessageId,
+        { caption, parse_mode: 'HTML' }
+      );
+
+      // Store the copied message ID for linking in the announcement post
+      const { db } = require('../database/db');
+      await db.query(
+        `UPDATE challenges SET module_message_id = $1 WHERE id = $2`,
+        [copiedMessage.message_id, challengeId]
+      );
+
+      console.log(`✅ Module #${moduleTag} forwarded to main channel (msg ${copiedMessage.message_id}) for challenge ${challengeId}`);
+    } catch (error) {
+      console.error(`Error forwarding module PDF for challenge ${challengeId}:`, error);
     }
   }
 
@@ -251,8 +330,13 @@ export class Scheduler {
           await this.send30MinReminder(challenge.id);
         }
 
-        // Morning post (10:00 AM EAT on challenge day)
-        if (currentDateStr2 === challengeDateStr && currentTime === '10:00' && challenge.status === 'scheduled') {
+        // Module forwarding (11:59 AM EAT on challenge day — 1 min before announcement)
+        if (currentDateStr2 === challengeDateStr && currentTime === '11:59' && challenge.status === 'scheduled') {
+          await this.forwardModulePDF(challenge.id);
+        }
+
+        // Morning post (12:00 PM EAT on challenge day)
+        if (currentDateStr2 === challengeDateStr && currentTime === '12:00' && challenge.status === 'scheduled') {
           await this.sendMorningPostsForChallenge(challenge.id);
         }
 
@@ -299,7 +383,7 @@ export class Scheduler {
   /**
    * Send 2-hour reminder
    */
-  private async send2HourReminder(challengeId?: number) {
+  async send2HourReminder(challengeId?: number) {
     try {
       let challenge;
       if (challengeId) {
@@ -327,7 +411,7 @@ export class Scheduler {
   /**
    * Send 30-minute reminder
    */
-  private async send30MinReminder(challengeId?: number) {
+  async send30MinReminder(challengeId?: number) {
     try {
       let challenge;
       if (challengeId) {
@@ -355,7 +439,7 @@ export class Scheduler {
   /**
    * Start challenge
    */
-  private async startChallenge(challengeId?: number) {
+  async startChallenge(challengeId?: number) {
     try {
       let challenge;
       if (challengeId) {
@@ -461,7 +545,7 @@ export class Scheduler {
   /**
    * End challenge and post results
    */
-  private async endChallenge(challengeId?: number) {
+  async endChallenge(challengeId?: number) {
     try {
       let challenge;
       if (challengeId) {

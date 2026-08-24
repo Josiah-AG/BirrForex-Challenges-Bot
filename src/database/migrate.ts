@@ -491,6 +491,21 @@ async function migrate() {
     await db.query(`ALTER TABLE hosts ADD COLUMN IF NOT EXISTS contact_link VARCHAR(500);`).catch(() => {});
     console.log('✅ hosts contact_link column OK');
 
+    // Quiz system redesign — BirrForex Academy fields
+    await db.query(`ALTER TABLE challenges ADD COLUMN IF NOT EXISTS youtube_link TEXT;`).catch(() => {});
+    await db.query(`ALTER TABLE challenges ADD COLUMN IF NOT EXISTS module_tag VARCHAR(50);`).catch(() => {});
+    await db.query(`ALTER TABLE challenges ADD COLUMN IF NOT EXISTS next_challenge_date VARCHAR(100);`).catch(() => {});
+    await db.query(`ALTER TABLE challenges ADD COLUMN IF NOT EXISTS module_message_id BIGINT;`).catch(() => {});
+    await db.query(`CREATE TABLE IF NOT EXISTS quiz_module_messages (
+      id SERIAL PRIMARY KEY,
+      tag VARCHAR(50) NOT NULL,
+      message_id BIGINT NOT NULL,
+      channel_id BIGINT NOT NULL,
+      created_at TIMESTAMP DEFAULT NOW()
+    );`).catch(() => {});
+    await db.query(`CREATE INDEX IF NOT EXISTS idx_quiz_module_tag ON quiz_module_messages(tag);`).catch(() => {});
+    console.log('✅ Quiz Academy columns OK');
+
     console.log('✅ Database migration completed successfully!');
     process.exit(0);
   } catch (error) {

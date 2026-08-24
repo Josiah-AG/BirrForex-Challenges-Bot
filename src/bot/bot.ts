@@ -1148,6 +1148,11 @@ export class Bot {
       }
 
       // Test post callbacks
+      if (data === 'test_module') {
+        await ctx.answerCbQuery('Forwarding module PDF...');
+        await this.runTestPost(ctx, 'module');
+        return;
+      }
       if (data === 'test_morning') {
         await ctx.answerCbQuery('Sending morning posts...');
         await this.runTestPost(ctx, 'morning');
@@ -1451,6 +1456,38 @@ export class Bot {
       }
     });
 
+    // Channel post handler — track module PDFs posted to submission channel
+    this.bot.on('channel_post', async (ctx) => {
+      try {
+        const post = ctx.channelPost;
+        if (!post) return;
+        
+        const chatId = post.chat.id;
+        // Only track messages from submission channel
+        if (String(chatId) !== String(config.submissionChannelId)) return;
+
+        // Check if caption contains a module tag (#module_X)
+        const caption = (post as any).caption || (post as any).text || '';
+        const tagMatch = caption.match(/#(module_\d+)/i);
+        if (!tagMatch) return;
+
+        const tag = tagMatch[1].toLowerCase();
+        const messageId = post.message_id;
+
+        // Store in DB for later retrieval by scheduler
+        const { db } = require('../database/db');
+        await db.query(
+          `INSERT INTO quiz_module_messages (tag, message_id, channel_id) VALUES ($1, $2, $3)
+           ON CONFLICT DO NOTHING`,
+          [tag, messageId, chatId]
+        );
+
+        console.log(`📖 Module tracked: #${tag} (msg ${messageId}) in submission channel`);
+      } catch (error) {
+        // Silent — don't crash on channel post errors
+      }
+    });
+
     // Error handler
     this.bot.catch((err, ctx) => {
       console.error('Bot error:', err);
@@ -1685,9 +1722,9 @@ Use the buttons below to manage challenges:`;
         }
 
         let text = `<b>✅ CORRECT ANSWERS</b>
-  <i>${challenge.day} Challenge - ${new Date(challenge.date).toDateString()}</i>
+  <i>BirrForex Academy — ${challenge.day} Challenge</i>
 
-  <b>Topic:</b> ${challenge.topic}
+  <b>Section:</b> ${challenge.topic}
 
   ━━━━━━━━━━━━━━━━━━━━
 
@@ -1706,7 +1743,7 @@ Use the buttons below to manage challenges:`;
   <b>📚 Study these for next time!</b>`;
 
         const keyboard = Markup.inlineKeyboard([
-          [Markup.button.url(`📊 Rewatch: ${challenge.topic}`, challenge.topic_link)]
+          [Markup.button.url(`🎬 Watch: ${challenge.topic}`, (challenge as any).youtube_link || challenge.topic_link)]
         ]);
 
         await ctx.reply(text, { 
@@ -1740,7 +1777,7 @@ Use the buttons below to manage challenges:`;
         }
 
         const text = `<b>🏅 YOUR RANK</b>
-  <i>${challenge.day} Challenge - ${new Date(challenge.date).toDateString()}</i>
+  <i>BirrForex Academy — ${challenge.day} Challenge</i>
 
   ━━━━━━━━━━━━━━━━━━━━
 
@@ -1804,11 +1841,12 @@ Use the buttons below to manage challenges:`;
 
     await ctx.reply('🧪 TEST POSTS\n\nSelect which posts to test:', 
       Markup.inlineKeyboard([
-        [Markup.button.callback('1️⃣ Morning Posts (10 AM)', 'test_morning')],
-        [Markup.button.callback('2️⃣ 2-Hour Reminder (12 PM)', 'test_2hour')],
-        [Markup.button.callback('3️⃣ 30-Min Reminder (1:30 PM)', 'test_30min')],
-        [Markup.button.callback('4️⃣ Challenge Live (2 PM)', 'test_live')],
-        [Markup.button.callback('5️⃣ Challenge End & Results (2:10 PM)', 'test_end')],
+        [Markup.button.callback('📖 Module PDF Forward', 'test_module')],
+        [Markup.button.callback('1️⃣ Morning Posts (12 PM)', 'test_morning')],
+        [Markup.button.callback('2️⃣ 2-Hour Reminder', 'test_2hour')],
+        [Markup.button.callback('3️⃣ 30-Min Reminder', 'test_30min')],
+        [Markup.button.callback('4️⃣ Challenge Live', 'test_live')],
+        [Markup.button.callback('5️⃣ Challenge End & Results', 'test_end')],
         [Markup.button.callback('🚀 Run All Posts in Sequence', 'test_all')],
         [Markup.button.callback('❌ Cancel', 'test_cancel')],
       ])
@@ -1822,7 +1860,11 @@ Use the buttons below to manage challenges:`;
     }
 
     try {
-      if (type === 'morning') {
+      if (type === 'module') {
+        await ctx.editMessageText('📤 Forwarding module PDF...');
+        await this.scheduler.forwardModulePDF();
+        await ctx.reply('✅ Module PDF forwarded to main channel!');
+      } else if (type === 'morning') {
         await ctx.editMessageText('📤 Sending morning posts...');
         await this.scheduler.sendMorningPosts();
         await ctx.reply('✅ Morning posts sent to both channels!');
@@ -1844,6 +1886,10 @@ Use the buttons below to manage challenges:`;
         await ctx.reply('✅ Challenge ended and results posted!');
       } else if (type === 'all') {
         await ctx.editMessageText('📤 Running all posts in sequence...\n\nThis will take about 30 seconds.');
+        
+        await ctx.reply('0️⃣ Forwarding module PDF...');
+        await this.scheduler.forwardModulePDF();
+        await new Promise(resolve => setTimeout(resolve, 3000));
         
         await ctx.reply('1️⃣ Sending morning posts...');
         await this.scheduler.sendMorningPosts();

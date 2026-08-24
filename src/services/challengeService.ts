@@ -13,13 +13,16 @@ export class ChallengeService {
     topicLink: string,
     challengeTime: string = '20:00',
     prizeAmount?: number,
-    numWinners?: number
+    numWinners?: number,
+    youtubeLink?: string,
+    moduleTag?: string,
+    nextChallengeDate?: string
   ): Promise<Challenge> {
     const result = await db.query(
-      `INSERT INTO challenges (day, date, topic, short_text, topic_link, challenge_time, prize_amount, num_winners, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'scheduled')
+      `INSERT INTO challenges (day, date, topic, short_text, topic_link, challenge_time, prize_amount, num_winners, status, youtube_link, module_tag, next_challenge_date)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'scheduled', $9, $10, $11)
        RETURNING *`,
-      [day, date, topic, shortText, topicLink, challengeTime, prizeAmount || 20, numWinners || 1]
+      [day, date, topic, shortText, topicLink, challengeTime, prizeAmount || 20, numWinners || 1, youtubeLink || topicLink, moduleTag || null, nextChallengeDate || null]
     );
 
     return result.rows[0];

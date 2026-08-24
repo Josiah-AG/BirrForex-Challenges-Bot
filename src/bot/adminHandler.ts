@@ -249,11 +249,18 @@ export class AdminHandler {
       case 'enter_short_text':
         session.data.short_text = text;
         session.step = 'enter_topic_link';
-        await ctx.reply('🔗 Topic Link\n\nEnter the reference link (YouTube, website, etc.):');
+        await ctx.reply('🎬 YouTube Video Link\n\nEnter the YouTube video link for this section:');
         break;
 
       case 'enter_topic_link':
         session.data.topic_link = text;
+        session.data.youtube_link = text;
+        session.step = 'enter_module_tag';
+        await ctx.reply('📖 Module Tag\n\nEnter the module tag (e.g., module_1, module_2) — must match the #tag on the PDF in the submission channel:');
+        break;
+
+      case 'enter_module_tag':
+        session.data.module_tag = text.replace('#', '').trim();
         session.step = 'enter_num_winners';
         await ctx.reply('🏆 Number of Winners\n\nHow many winners? (1-5):');
         break;
@@ -277,10 +284,16 @@ export class AdminHandler {
           return;
         }
         session.data.prize_amount = prize;
+        session.step = 'enter_next_challenge_date';
+        await ctx.reply('📅 Next Challenge Date\n\nEnter when the next challenge will be (shown in results post):\n\nExample: "Thursday, July 9" or "Next Monday"');
+        break;
+      }
+
+      case 'enter_next_challenge_date':
+        session.data.next_challenge_date = text;
         session.step = 'enter_num_questions';
         await ctx.reply('📝 Number of Questions\n\nHow many questions? (3-10):');
         break;
-      }
 
       case 'enter_num_questions':
         const numQuestions = parseInt(text);
@@ -374,16 +387,18 @@ export class AdminHandler {
     thirtyMinBefore.setHours(hours, minutes - 30, 0, 0);
     const thirtyMinTime = `${thirtyMinBefore.getHours().toString().padStart(2, '0')}:${thirtyMinBefore.getMinutes().toString().padStart(2, '0')}`;
     
-    const summary = `✅ CHALLENGE CREATED!
+    const summary = `✅ CHALLENGE READY!
 
 📊 Summary:
 • Day: ${data.day.charAt(0).toUpperCase() + data.day.slice(1)}
-• Topic: ${data.topic}
+• Section: ${data.topic}
+• Module: #${data.module_tag}
 • Questions: ${data.num_questions}
-• Posting Time: ${challengeTime}
+• Challenge Time: ${challengeTime} EAT
+• Next Challenge: ${data.next_challenge_date || '—'}
 
 📅 Scheduled Posts:
-• 10:00 AM - Announcement (both channels)
+• 12:00 PM - Module PDF + Announcement (both channels)
 • ${twoHourTime} - 2 hour reminder
 • ${thirtyMinTime} - 30 min reminder
 • ${challengeTime} - Challenge goes live`;
@@ -427,7 +442,10 @@ export class AdminHandler {
         data.topic_link,
         challengeTime,
         data.prize_amount,
-        data.num_winners
+        data.num_winners,
+        data.youtube_link,
+        data.module_tag,
+        data.next_challenge_date
       );
 
       // Add questions
