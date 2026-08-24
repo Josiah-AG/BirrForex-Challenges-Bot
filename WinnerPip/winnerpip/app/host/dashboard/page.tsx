@@ -1677,12 +1677,13 @@ function BrokerCredentialsSection() {
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
   const [showForm, setShowForm] = useState(false);
+  const [maskedEmail, setMaskedEmail] = useState<string | null>(null);
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
   const getToken = () => localStorage.getItem("host_token") || "";
 
   useEffect(() => {
     fetch(`${apiUrl}/api/host/broker-status`, { headers: { Authorization: `Bearer ${getToken()}` } })
-      .then(r => r.json()).then(data => { setHasBroker(data.hasBrokerIntegration || false); setLoading(false); }).catch(() => setLoading(false));
+      .then(r => r.json()).then(data => { setHasBroker(data.hasBrokerIntegration || false); setMaskedEmail(data.maskedEmail || null); setLoading(false); }).catch(() => setLoading(false));
   }, []);
 
   const handleSave = async () => {
@@ -1690,8 +1691,9 @@ function BrokerCredentialsSection() {
     setSaving(true); setError("");
     try {
       const res = await fetch(`${apiUrl}/api/host/broker-credentials`, { method: "POST", headers: { Authorization: `Bearer ${getToken()}`, "Content-Type": "application/json" }, body: JSON.stringify(form) });
-      if (res.ok) { setSaved(true); setHasBroker(true); setShowForm(false); setForm({ brokerEmail: "", brokerPassword: "" }); }
-      else { const d = await res.json(); setError(d.error || "Failed"); }
+      const d = await res.json();
+      if (res.ok && d.success) { setSaved(true); setHasBroker(true); setShowForm(false); setMaskedEmail(d.email ? d.email.substring(0, 2) + '***@' + d.email.split('@')[1] : null); setForm({ brokerEmail: "", brokerPassword: "" }); }
+      else { setError(d.error || "Failed"); }
     } catch { setError("Network error"); }
     setSaving(false); setTimeout(() => setSaved(false), 3000);
   };
@@ -1705,10 +1707,16 @@ function BrokerCredentialsSection() {
       {saved && <div className="p-2 mb-3 rounded-lg bg-profit/10 text-profit text-xs">Updated</div>}
       {hasBroker && !showForm ? (
         <div>
-          <div className="flex items-center gap-3 p-3 rounded-xl bg-profit/5 border border-profit/20 mb-3"><div className="w-2.5 h-2.5 rounded-full bg-profit" /><p className="text-sm text-profit font-medium">Active</p></div>
+          <div className="flex items-center gap-3 p-3 rounded-xl bg-profit/5 border border-profit/20 mb-3">
+            <div className="w-2.5 h-2.5 rounded-full bg-profit" />
+            <div>
+              <p className="text-sm text-profit font-medium">Broker Integrated</p>
+              {maskedEmail && <p className="text-xs text-gray-400 mt-0.5">{maskedEmail}</p>}
+            </div>
+          </div>
           <div className="flex gap-2">
             <button onClick={() => setShowForm(true)} className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-white/5 text-gray-300 border border-white/10">Update</button>
-            <button onClick={async () => { if(!confirm("Remove broker credentials?")) return; await fetch(`${apiUrl}/api/host/broker-credentials`, { method: "DELETE", headers: { Authorization: `Bearer ${getToken()}` } }); setHasBroker(false); }} className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-loss/10 text-loss border border-loss/20">Remove</button>
+            <button onClick={async () => { if(!confirm("Remove broker integration?")) return; await fetch(`${apiUrl}/api/host/broker-credentials`, { method: "DELETE", headers: { Authorization: `Bearer ${getToken()}` } }); setHasBroker(false); setMaskedEmail(null); }} className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-loss/10 text-loss border border-loss/20">Remove Integration</button>
           </div>
         </div>
       ) : (

@@ -1551,9 +1551,13 @@ app.post('/api/host/change-password', hostAuthMiddleware, async (req: any, res) 
     const host = await hostService.getHostById(req.hostAccount.hostId);
     if (!host) return res.status(404).json({ error: 'Host not found' });
 
-    // Verify current password
+    // Verify current password — query password_hash directly (not included in getHostById for security)
     const bcrypt = require('bcrypt');
-    const isValid = await bcrypt.compare(currentPassword, host.password_hash);
+    const hashResult = await db.query(`SELECT password_hash FROM hosts WHERE id = $1`, [req.hostAccount.hostId]);
+    const passwordHash = hashResult.rows[0]?.password_hash;
+    if (!passwordHash) return res.status(500).json({ error: 'Account error' });
+
+    const isValid = await bcrypt.compare(currentPassword, passwordHash);
     if (!isValid) return res.status(401).json({ error: 'Current password is incorrect' });
 
     // Update password
@@ -1924,7 +1928,20 @@ app.get('/api/host/broker-status', hostAuthMiddleware, async (req: any, res) => 
     const host = await hostService.getHostById(req.hostAccount.hostId);
     if (!host) return res.status(404).json({ error: 'Host not found' });
 
-    return res.json({ hasBrokerIntegration: host.has_broker_integration });
+    // Get masked email if broker is integrated
+    let maskedEmail = null;
+    if (host.has_broker_integration) {
+      try {
+        const creds = await hostService.getBrokerCredentials(req.hostAccount.hostId);
+        if (creds?.email) {
+          const email = creds.email;
+          const [local, domain] = email.split('@');
+          maskedEmail = local.substring(0, 2) + '***' + (local.length > 4 ? local.slice(-1) : '') + '@' + domain;
+        }
+      } catch {}
+    }
+
+    return res.json({ hasBrokerIntegration: host.has_broker_integration, maskedEmail });
   } catch (error) {
     console.error('Host broker status error:', error);
     return res.status(500).json({ error: 'Internal server error' });
@@ -1943,10 +1960,29 @@ app.post('/api/host/broker-credentials', hostAuthMiddleware, async (req: any, re
       return res.status(400).json({ error: 'Broker email and password are required' });
     }
 
+    // Test credentials with Exness API before saving
+    try {
+      const axios = require('axios');
+      const authRes = await axios.post('https://my.exnessaffiliates.com/api/v2/auth/', {
+        login: brokerEmail,
+        password: brokerPassword,
+      }, { timeout: 15000 });
+
+      if (!authRes.data?.token) {
+        return res.status(400).json({ error: 'Authentication failed — invalid email or password' });
+      }
+    } catch (authErr: any) {
+      const status = authErr.response?.status;
+      if (status === 401 || status === 403) {
+        return res.status(400).json({ error: 'Authentication failed — invalid email or password' });
+      }
+      return res.status(400).json({ error: 'Could not connect to broker API. Please try again.' });
+    }
+
     const { hostService } = require('../services/hostService');
     await hostService.setBrokerCredentials(req.hostAccount.hostId, { brokerEmail, brokerPassword, brokerApiKey: '' });
 
-    return res.json({ success: true });
+    return res.json({ success: true, email: brokerEmail });
   } catch (error) {
     console.error('Host broker credentials save error:', error);
     return res.status(500).json({ error: 'Internal server error' });
