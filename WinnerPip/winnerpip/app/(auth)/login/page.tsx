@@ -228,14 +228,14 @@ function LoginForm() {
                   <>
                     <p className="text-center text-sm text-gray-400 mb-4">Haven&apos;t registered yet?</p>
                     <a
-                      href="/challenges"
-                      className="w-full flex items-center justify-center gap-2 p-4 rounded-xl bg-royal/20 border border-royal/30 hover:bg-royal/30 text-royal font-semibold transition-all text-sm"
+                      href={challengeId ? `/challenge/${challengeId}` : '/challenges'}
+                      className="w-full flex items-center justify-center gap-2 p-4 rounded-xl bg-profit/20 border border-profit/30 hover:bg-profit/30 text-profit font-semibold transition-all text-sm"
                     >
-                      Register on WinnerPip
+                      Register Now
                       <ArrowRight size={14} />
                     </a>
                     <p className="text-center text-xs text-gray-500 mt-3">
-                      Find this challenge on the challenges page and click Register Now.
+                      You&apos;ll be guided through a quick 5-step verification process.
                     </p>
                   </>
                 ) : (
