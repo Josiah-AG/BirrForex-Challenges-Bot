@@ -1194,7 +1194,7 @@ export default function ChallengeDashboard() {
               </div>
               {leaderboardPreStart && challenge && (
                 <div className="px-4 py-3 bg-amber-500/5 border-b border-amber-500/20">
-                  <p className="text-xs text-amber-300"><span className="font-semibold">⚠️ Balance must be ≤ ${challenge.startingBalance.toLocaleString()}</span> before the challenge starts. Users with balance above the maximum allowed starting balance will be automatically disqualified.</p>
+                  <p className="text-xs text-amber-300"><span className="font-semibold">⚠️ Balance must be ≤ {formatBalance(challenge.startingBalance, myStats.accountType, effectiveIsCent)}</span> before the challenge starts. Users with balance above the maximum allowed starting balance will be automatically disqualified.</p>
                 </div>
               )}
               {leaderboardLoading ? (
@@ -1417,7 +1417,7 @@ export default function ChallengeDashboard() {
             </div>
             {leaderboardPreStart && challenge && (
               <div className="px-4 py-3 bg-amber-500/5 border-b border-amber-500/20">
-                <p className="text-xs text-amber-300"><span className="font-semibold">⚠️ Balance must be ≤ ${challenge.startingBalance.toLocaleString()}</span> before the challenge starts. Users with balance above the maximum will be disqualified.</p>
+                <p className="text-xs text-amber-300"><span className="font-semibold">⚠️ Balance must be ≤ {formatBalance(challenge.startingBalance, myStats?.accountType || 'real', effectiveIsCent)}</span> before the challenge starts. Users with balance above the maximum will be disqualified.</p>
               </div>
             )}
             {!selectedUser ? (
