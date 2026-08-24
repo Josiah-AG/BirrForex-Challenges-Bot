@@ -719,6 +719,8 @@ app.post('/api/challenges/:id/verify-mt5', authLimiter, async (req, res) => {
       isCent,
       accountSubtype,
       server: serverToUse,
+      depositMode: challenge.rows[0].deposit_mode || 'fixed',
+      startingBalance: parseFloat(challenge.rows[0].starting_balance || '0'),
     });
   } catch (error) {
     console.error('Verify MT5 error:', error);

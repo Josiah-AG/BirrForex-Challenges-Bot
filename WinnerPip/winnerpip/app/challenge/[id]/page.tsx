@@ -76,7 +76,7 @@ export default function ChallengeDashboard() {
   const [regError, setRegError] = useState("");
   const [regSuccess, setRegSuccess] = useState(false);
   const [mt5Verified, setMt5Verified] = useState(false);
-  const [mt5VerifyData, setMt5VerifyData] = useState<{ balance?: number; isCent?: boolean; server?: string; accountSubtype?: string } | null>(null);
+  const [mt5VerifyData, setMt5VerifyData] = useState<{ balance?: number; isCent?: boolean; server?: string; accountSubtype?: string; depositMode?: string; startingBalance?: number } | null>(null);
   const [allocError, setAllocError] = useState<{ hostName?: string; hostMainLink?: string; hostSupportLink?: string } | null>(null);
 
   // Data state
@@ -2020,7 +2020,7 @@ export default function ChallengeDashboard() {
                           try {
                             const res = await fetch(`${API_URL}/api/challenges/${params.id}/verify-mt5`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ accountNumber: regForm.accountNumber, mt5Server: regForm.mt5Server, investorPassword: regForm.investorPassword, accountType: regForm.accountType, email: regForm.email }) });
                             const data = await res.json();
-                            if (res.ok && data.success) { setMt5Verified(true); setMt5VerifyData({ balance: data.balance, isCent: data.isCent, server: data.server, accountSubtype: data.accountSubtype }); setRegStep(5); }
+                            if (res.ok && data.success) { setMt5Verified(true); setMt5VerifyData({ balance: data.balance, isCent: data.isCent, server: data.server, accountSubtype: data.accountSubtype, depositMode: data.depositMode, startingBalance: data.startingBalance }); setRegStep(5); }
                             else { setRegError(data.error || "Verification failed."); }
                           } catch { setRegError("Could not connect to server. Please try again."); }
                           setRegLoading(false);
@@ -2048,6 +2048,16 @@ export default function ChallengeDashboard() {
                         <div className="flex justify-between text-xs"><span className="text-gray-500">Balance</span><span className="text-profit font-medium">{mt5VerifyData?.isCent ? `${mt5VerifyData.balance?.toFixed(0)}¢` : `$${mt5VerifyData?.balance?.toFixed(2)}`}</span></div>
                         <div className="flex justify-between text-xs"><span className="text-gray-500">Status</span><span className="text-profit font-medium flex items-center gap-1"><CheckCircle size={11} /> Verified</span></div>
                       </div>
+                      {/* Low balance warning for fixed real challenges */}
+                      {mt5VerifyData?.depositMode === 'fixed' && regForm.accountType === 'real' && mt5VerifyData.startingBalance && mt5VerifyData.balance !== undefined && (() => {
+                        const requiredBal = mt5VerifyData.isCent ? mt5VerifyData.startingBalance * 100 : mt5VerifyData.startingBalance;
+                        return mt5VerifyData.balance < requiredBal;
+                      })() && (
+                        <div className="p-3 rounded-xl bg-gold/10 border border-gold/30">
+                          <p className="text-xs text-gold font-semibold mb-1">⚠️ Balance Below Deposit Limit</p>
+                          <p className="text-[11px] text-gray-300">Your balance ({mt5VerifyData.isCent ? `${mt5VerifyData.balance?.toFixed(0)}¢` : `$${mt5VerifyData.balance?.toFixed(2)}`}) is lower than the required deposit of {mt5VerifyData.isCent ? `${(mt5VerifyData.startingBalance! * 100).toFixed(0)}¢` : `$${mt5VerifyData.startingBalance?.toFixed(2)}`}. You can still register, but the target remains the same. Top up your account before the challenge starts for the best chance.</p>
+                        </div>
+                      )}
                       <div className="flex gap-3">
                         <button onClick={() => { setRegStep(4); setRegError(""); }} disabled={regLoading} className="flex-1 py-3 rounded-xl bg-white/5 border border-white/10 text-gray-300 font-medium text-sm hover:bg-white/10 transition-all disabled:opacity-50">Back</button>
                         <button onClick={async () => {
