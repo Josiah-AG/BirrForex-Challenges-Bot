@@ -77,6 +77,7 @@ export default function ChallengeDashboard() {
   const [regSuccess, setRegSuccess] = useState(false);
   const [mt5Verified, setMt5Verified] = useState(false);
   const [mt5VerifyData, setMt5VerifyData] = useState<{ balance?: number; isCent?: boolean; server?: string; accountSubtype?: string } | null>(null);
+  const [allocError, setAllocError] = useState<{ hostName?: string; hostMainLink?: string; hostSupportLink?: string } | null>(null);
 
   // Data state
   const [loading, setLoading] = useState(true);
@@ -1866,7 +1867,17 @@ export default function ChallengeDashboard() {
                 </div>
               ) : (
                 <>
-                  {regError && <div className="p-3 rounded-xl bg-loss/10 border border-loss/30 mb-4"><p className="text-sm text-loss">{regError}</p></div>}
+                  {regError && (
+                    <div className="p-3 rounded-xl bg-loss/10 border border-loss/30 mb-4">
+                      {regError === 'allocation_failed' && allocError ? (
+                        <p className="text-sm text-loss">
+                          Your account is not allocated under {allocError.hostMainLink ? <a href={allocError.hostMainLink.startsWith('http') ? allocError.hostMainLink : `https://${allocError.hostMainLink}`} target="_blank" rel="noopener noreferrer" className="font-bold underline">{allocError.hostName}</a> : <span className="font-bold">{allocError.hostName}</span>}. Please contact {allocError.hostSupportLink ? <a href={allocError.hostSupportLink.startsWith('http') ? allocError.hostSupportLink : `https://${allocError.hostSupportLink}`} target="_blank" rel="noopener noreferrer" className="font-bold underline">{allocError.hostName} Support</a> : <span className="font-bold">{allocError.hostName} Support</span>} to guide you on how to register under their link.
+                        </p>
+                      ) : (
+                        <p className="text-sm text-loss">{regError}</p>
+                      )}
+                    </div>
+                  )}
 
                   {/* Step 1: Email */}
                   {regStep === 1 && (
@@ -1887,8 +1898,13 @@ export default function ChallengeDashboard() {
                         try {
                           const res = await fetch(`${API_URL}/api/challenges/${params.id}/check-allocation`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: regForm.email }) });
                           const data = await res.json();
-                          if (res.ok && data.success) { setRegStep(2); } else { setRegError(data.error || "Allocation check failed"); }
-                        } catch { setRegError("Could not connect to server. Please try again."); }
+                          if (res.ok && data.success) { setRegStep(2); setAllocError(null); }
+                          else if (data.error === 'allocation_failed') {
+                            setAllocError({ hostName: data.hostName, hostMainLink: data.hostMainLink, hostSupportLink: data.hostSupportLink });
+                            setRegError('allocation_failed');
+                          }
+                          else { setRegError(data.error || "Allocation check failed"); setAllocError(null); }
+                        } catch { setRegError("Could not connect to server. Please try again."); setAllocError(null); }
                         setRegLoading(false);
                       }} disabled={regLoading} className="w-full py-3.5 rounded-xl bg-royal text-white font-semibold text-sm hover:opacity-90 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
                         {regLoading ? <><Loader2 size={16} className="animate-spin" /> Verifying...</> : "Verify Email"}

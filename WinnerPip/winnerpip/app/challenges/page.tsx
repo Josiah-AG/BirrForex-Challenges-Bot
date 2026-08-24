@@ -72,6 +72,7 @@ export default function ChallengesPage() {
   const [mt5Verified, setMt5Verified] = useState(false);
   const [mt5VerifyData, setMt5VerifyData] = useState<{ balance?: number; isCent?: boolean; server?: string; accountSubtype?: string } | null>(null);
   const [showNotOpenPopup, setShowNotOpenPopup] = useState(false);
+  const [allocError, setAllocError] = useState<{ hostName?: string; hostMainLink?: string; hostSupportLink?: string } | null>(null);
 
   useEffect(() => {
     const fetchChallenges = async () => {
@@ -560,7 +561,13 @@ export default function ChallengesPage() {
                 <>
                   {regError && (
                     <div className="p-3 rounded-xl bg-loss/10 border border-loss/30 mb-4">
-                      <p className="text-sm text-loss">{regError}</p>
+                      {regError === 'allocation_failed' && allocError ? (
+                        <p className="text-sm text-loss">
+                          Your account is not allocated under {allocError.hostMainLink ? <a href={allocError.hostMainLink.startsWith('http') ? allocError.hostMainLink : `https://${allocError.hostMainLink}`} target="_blank" rel="noopener noreferrer" className="font-bold underline">{allocError.hostName}</a> : <span className="font-bold">{allocError.hostName}</span>}. Please contact {allocError.hostSupportLink ? <a href={allocError.hostSupportLink.startsWith('http') ? allocError.hostSupportLink : `https://${allocError.hostSupportLink}`} target="_blank" rel="noopener noreferrer" className="font-bold underline">{allocError.hostName} Support</a> : <span className="font-bold">{allocError.hostName} Support</span>} to guide you on how to register under their link.
+                        </p>
+                      ) : (
+                        <p className="text-sm text-loss">{regError}</p>
+                      )}
                     </div>
                   )}
 
@@ -597,9 +604,13 @@ export default function ChallengesPage() {
                               body: JSON.stringify({ email: regForm.email }),
                             });
                             const data = await res.json();
-                            if (res.ok && data.success) { setRegStep(2); }
-                            else { setRegError(data.error || "Allocation check failed"); }
-                          } catch { setRegError("Could not connect to server. Please try again."); }
+                            if (res.ok && data.success) { setRegStep(2); setAllocError(null); }
+                            else if (data.error === 'allocation_failed') {
+                              setAllocError({ hostName: data.hostName, hostMainLink: data.hostMainLink, hostSupportLink: data.hostSupportLink });
+                              setRegError('allocation_failed');
+                            }
+                            else { setRegError(data.error || "Allocation check failed"); setAllocError(null); }
+                          } catch { setRegError("Could not connect to server. Please try again."); setAllocError(null); }
                           setRegLoading(false);
                         }}
                         disabled={regLoading}

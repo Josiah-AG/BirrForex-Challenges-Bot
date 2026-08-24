@@ -545,6 +545,11 @@ app.post('/api/challenges/:id/check-allocation', authLimiter, async (req, res) =
     const { hostService } = require('../services/hostService');
     const credentials = await hostService.getBrokerCredentials(hostId);
     if (credentials) {
+      // Fetch host info for error messages
+      const hostInfo = await db.query(`SELECT display_name, main_link, support_link FROM hosts WHERE id = $1`, [hostId]);
+      const hostName = hostInfo.rows[0]?.display_name || 'the challenge host';
+      const hostMainLink = hostInfo.rows[0]?.main_link || null;
+      const hostSupportLink = hostInfo.rows[0]?.support_link || null;
       try {
         const axios = require('axios');
         const authRes = await axios.post('https://my.exnessaffiliates.com/api/v2/auth/', {
@@ -556,7 +561,13 @@ app.post('/api/challenges/:id/check-allocation', authLimiter, async (req, res) =
             email: email.toLowerCase().trim(),
           }, { headers: { Authorization: `JWT ${brokerToken}`, 'Content-Type': 'application/json' }, timeout: 10000 });
           if (allocRes.data?.affiliation !== true) {
-            return res.status(400).json({ error: 'Your account is not allocated under the required partnership. Please contact the challenge host for instructions on how to register under their link.' });
+            return res.status(400).json({
+              error: 'allocation_failed',
+              message: `Your account is not allocated under ${hostName}.`,
+              hostName,
+              hostMainLink,
+              hostSupportLink,
+            });
           }
         }
       } catch (allocErr: any) {
