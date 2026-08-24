@@ -77,13 +77,14 @@ class EmailService {
     accountType: string;
     hostName?: string;
     hostLink?: string;
+    hostMainLink?: string;
     balance?: string;
   }): Promise<boolean> {
     if (!this.isConfigured()) return false;
     try {
       const hostedBy = data.hostName
-        ? (data.hostLink
-          ? `<p style="color: #6b7280; font-size: 12px; margin: 4px 0 0;">Hosted by <a href="${data.hostLink}" style="color: #6366f1; text-decoration: underline; font-weight: 600;">${data.hostName}</a></p>`
+        ? (data.hostMainLink
+          ? `<p style="color: #6b7280; font-size: 12px; margin: 4px 0 0;">Hosted by <a href="${data.hostMainLink}" style="color: #6366f1; text-decoration: underline; font-weight: 600;">${data.hostName}</a></p>`
           : `<p style="color: #6b7280; font-size: 12px; margin: 4px 0 0;">Hosted by <strong>${data.hostName}</strong></p>`)
         : '';
       const balanceRow = data.balance ? `<tr><td style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; color: #64748b; font-size: 13px;">Balance</td><td style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; color: #16a34a; font-size: 13px; text-align: right; font-weight: 600;">${data.balance}</td></tr>` : '';

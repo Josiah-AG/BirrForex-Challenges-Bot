@@ -347,7 +347,7 @@ app.get('/api/challenges', async (req, res) => {
               c.real_winners_count, c.demo_winners_count, c.real_prizes, c.demo_prizes, c.prize_pool_text,
               c.pdf_url, c.video_url, c.announcement_posted, c.evaluation_type, c.winners_posted_at,
               c.source, c.team_only, c.registration_deadline, c.host_id, c.registration_mode,
-              h.display_name as host_display_name
+              h.display_name as host_display_name, h.main_link as host_main_link
        FROM trading_challenges c
        LEFT JOIN hosts h ON c.host_id = h.id
        WHERE c.status != 'deleted'
@@ -411,6 +411,7 @@ app.get('/api/challenges', async (req, res) => {
         registrationDeadline: c.registration_deadline,
         hostId: c.host_id || null,
         hostDisplayName: c.host_display_name || null,
+        hostMainLink: c.host_main_link || null,
         registrationMode: c.registration_mode || (c.host_id ? 'manual' : null),
       });
     }
@@ -648,14 +649,15 @@ app.post('/api/challenges/:id/register', authLimiter, async (req, res) => {
     // Send confirmation email
     try {
       const { emailService } = require('../services/emailService');
-      const challengeData = (await db.query(`SELECT c.title, h.display_name as host_name, h.contact_link as host_link FROM trading_challenges c LEFT JOIN hosts h ON h.id = c.host_id WHERE c.id = $1`, [challengeId])).rows[0];
+      const challengeData = (await db.query(`SELECT c.title, h.display_name as host_name, h.support_link as host_support_link, h.main_link as host_main_link FROM trading_challenges c LEFT JOIN hosts h ON h.id = c.host_id WHERE c.id = $1`, [challengeId])).rows[0];
       await emailService.sendRegistrationConfirmation(email.toLowerCase().trim(), {
         nickname: nickname.trim(),
         challengeTitle: challengeData?.title || '',
         accountNumber: accountNumber.trim(),
         accountType,
         hostName: challengeData?.host_name || null,
-        hostLink: challengeData?.host_link || null,
+        hostLink: challengeData?.host_support_link || null,
+        hostMainLink: challengeData?.host_main_link || null,
         balance: isCent ? `${Number(verifyResult.balance || 0).toFixed(2)}¢` : `$${Number(verifyResult.balance || 0).toFixed(2)}`,
       });
     } catch (emailErr) {
@@ -2230,7 +2232,7 @@ app.post('/api/host/challenge/:id/upload-csv', hostAuthMiddleware, async (req: a
             // Send registration confirmation email for hosted challenges
             if (row.email) {
               try {
-                const challengeInfo = await db.query(`SELECT c.title, h.display_name as host_name, h.contact_link as host_link FROM trading_challenges c LEFT JOIN hosts h ON h.id = c.host_id WHERE c.id = $1`, [challengeId]);
+                const challengeInfo = await db.query(`SELECT c.title, h.display_name as host_name, h.support_link as host_support_link, h.main_link as host_main_link FROM trading_challenges c LEFT JOIN hosts h ON h.id = c.host_id WHERE c.id = $1`, [challengeId]);
                 const { emailService } = require('../services/emailService');
                 emailService.sendRegistrationConfirmation(row.email, {
                   nickname: row.nickname,
@@ -2238,7 +2240,8 @@ app.post('/api/host/challenge/:id/upload-csv', hostAuthMiddleware, async (req: a
                   accountNumber: row.account_number,
                   accountType: row.account_type,
                   hostName: challengeInfo.rows[0]?.host_name || null,
-                  hostLink: challengeInfo.rows[0]?.host_link || null,
+                  hostLink: challengeInfo.rows[0]?.host_support_link || null,
+                  hostMainLink: challengeInfo.rows[0]?.host_main_link || null,
                   balance: isCent ? `${balance.toFixed(2)}¢` : `$${balance.toFixed(2)}`,
                 });
               } catch {}
@@ -7300,7 +7303,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/hosts`, adminIpCheck, async (req, res) 
  */
 app.post(`/api/admin/${ADMIN_SECRET_PATH}/hosts`, adminIpCheck, async (req, res) => {
   try {
-    const { displayName, email, password } = req.body;
+    const { displayName, email, password, mainLink, supportLink } = req.body;
     if (!displayName || !email || !password) {
       return res.status(400).json({ error: 'Missing required fields: displayName, email, password' });
     }
@@ -7317,6 +7320,11 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/hosts`, adminIpCheck, async (req, res)
     }
 
     const host = await hostService.createHost({ displayName, email, password });
+
+    // Save links if provided
+    if (mainLink || supportLink) {
+      await db.query(`UPDATE hosts SET main_link = $1, support_link = $2 WHERE id = $3`, [mainLink || null, supportLink || null, host.id]);
+    }
     return res.json({ success: true, host });
   } catch (error) {
     console.error('Admin create host error:', error);
@@ -7354,7 +7362,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/hosts/:hostId`, adminIpCheck, async (re
 app.patch(`/api/admin/${ADMIN_SECRET_PATH}/hosts/:hostId`, adminIpCheck, async (req, res) => {
   try {
     const hostId = parseInt(req.params.hostId);
-    const { displayName, active, contactLink } = req.body;
+    const { displayName, active, contactLink, supportLink, mainLink } = req.body;
     const { hostService } = require('../services/hostService');
 
     const host = await hostService.getHostById(hostId);
@@ -7368,6 +7376,12 @@ app.patch(`/api/admin/${ADMIN_SECRET_PATH}/hosts/:hostId`, adminIpCheck, async (
     }
     if (contactLink !== undefined) {
       await db.query(`UPDATE hosts SET contact_link = $1 WHERE id = $2`, [contactLink || null, hostId]);
+    }
+    if (supportLink !== undefined) {
+      await db.query(`UPDATE hosts SET support_link = $1 WHERE id = $2`, [supportLink || null, hostId]);
+    }
+    if (mainLink !== undefined) {
+      await db.query(`UPDATE hosts SET main_link = $1 WHERE id = $2`, [mainLink || null, hostId]);
     }
 
     return res.json({ success: true });
@@ -7538,7 +7552,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/host-csv/:uploadId/approve`, adminIpCh
         // Send registration confirmation email for hosted challenges
         if (row.email) {
           try {
-            const challengeInfo2 = await db.query(`SELECT c.title, h.display_name as host_name, h.contact_link as host_link FROM trading_challenges c LEFT JOIN hosts h ON h.id = c.host_id WHERE c.id = $1`, [challengeId]);
+            const challengeInfo2 = await db.query(`SELECT c.title, h.display_name as host_name, h.support_link as host_support_link, h.main_link as host_main_link FROM trading_challenges c LEFT JOIN hosts h ON h.id = c.host_id WHERE c.id = $1`, [challengeId]);
             const { emailService } = require('../services/emailService');
             emailService.sendRegistrationConfirmation(row.email, {
               nickname: row.nickname,
@@ -7546,7 +7560,8 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/host-csv/:uploadId/approve`, adminIpCh
               accountNumber: row.account_number,
               accountType: row.account_type,
               hostName: challengeInfo2.rows[0]?.host_name || null,
-              hostLink: challengeInfo2.rows[0]?.host_link || null,
+              hostLink: challengeInfo2.rows[0]?.host_support_link || null,
+              hostMainLink: challengeInfo2.rows[0]?.host_main_link || null,
             });
           } catch {}
         }

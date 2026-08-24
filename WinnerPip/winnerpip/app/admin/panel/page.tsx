@@ -1761,7 +1761,7 @@ function HostsManagementPanel() {
   const [hosts, setHosts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [createForm, setCreateForm] = useState({ displayName: "", email: "", password: "" });
+  const [createForm, setCreateForm] = useState({ displayName: "", email: "", password: "", mainLink: "", supportLink: "" });
   const [createLoading, setCreateLoading] = useState(false);
   const [createError, setCreateError] = useState("");
   const [selectedHost, setSelectedHost] = useState<any>(null);
@@ -1772,7 +1772,7 @@ function HostsManagementPanel() {
   const [newPassword, setNewPassword] = useState("");
   const [actionResult, setActionResult] = useState("");
   const [editModal, setEditModal] = useState<any>(null);
-  const [editForm, setEditForm] = useState({ displayName: "", contactLink: "" });
+  const [editForm, setEditForm] = useState({ displayName: "", mainLink: "", supportLink: "" });
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
   const secretPath = process.env.NEXT_PUBLIC_ADMIN_PATH || "";
@@ -1803,7 +1803,7 @@ function HostsManagementPanel() {
       const data = await res.json();
       if (res.ok && data.success) {
         setShowCreateModal(false);
-        setCreateForm({ displayName: "", email: "", password: "" });
+        setCreateForm({ displayName: "", email: "", password: "", mainLink: "", supportLink: "" });
         fetchHosts();
       } else {
         setCreateError(data.error || "Failed to create host");
@@ -1965,7 +1965,7 @@ function HostsManagementPanel() {
 
                   {/* Actions */}
                   <div className="flex gap-2 flex-wrap pt-2">
-                    <button onClick={() => { setEditModal(host); setEditForm({ displayName: host.display_name, contactLink: host.contact_link || "" }); }} className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-royal/10 text-royal border border-royal/20 hover:bg-royal/20 transition-all" disabled={actionLoading}>Edit</button>
+                    <button onClick={() => { setEditModal(host); setEditForm({ displayName: host.display_name, mainLink: host.main_link || "", supportLink: host.support_link || host.contact_link || "" }); }} className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-royal/10 text-royal border border-royal/20 hover:bg-royal/20 transition-all" disabled={actionLoading}>Edit</button>
                     <button onClick={() => { setResetPasswordModal(host); setNewPassword(""); }} className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-gold/10 text-gold border border-gold/20 hover:bg-gold/20 transition-all" disabled={actionLoading}><Key size={12} className="inline mr-1" />Reset Password</button>
                     <button onClick={() => handleDeactivate(host.id, host.active)} className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${host.active ? "bg-loss/10 text-loss border border-loss/20 hover:bg-loss/20" : "bg-profit/10 text-profit border border-profit/20 hover:bg-profit/20"}`} disabled={actionLoading}>{host.active ? "Deactivate" : "Activate"}</button>
                     <button onClick={() => handleDelete(host.id, host.display_name)} className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-red-900/20 text-red-400 border border-red-500/20 hover:bg-red-900/40 transition-all" disabled={actionLoading}>Delete</button>
@@ -2012,6 +2012,14 @@ function HostsManagementPanel() {
                 <div>
                   <label className="text-[11px] text-gray-400 font-medium mb-1.5 block">Password <span className="text-gray-600">(min 8 characters)</span></label>
                   <input type="text" value={createForm.password} onChange={e => setCreateForm(p => ({ ...p, password: e.target.value }))} className="w-full px-3.5 py-2.5 rounded-xl bg-[#0a0e1a] border border-white/10 text-white text-sm placeholder:text-gray-600 focus:border-royal/50 focus:ring-1 focus:ring-royal/20 outline-none transition-all" placeholder="Initial password" />
+                </div>
+                <div>
+                  <label className="text-[11px] text-gray-400 font-medium mb-1.5 block">Main Link <span className="text-gray-600">(optional)</span></label>
+                  <input type="text" value={createForm.mainLink} onChange={e => setCreateForm(p => ({ ...p, mainLink: e.target.value }))} className="w-full px-3.5 py-2.5 rounded-xl bg-[#0a0e1a] border border-white/10 text-white text-sm placeholder:text-gray-600 focus:border-royal/50 focus:ring-1 focus:ring-royal/20 outline-none transition-all" placeholder="https://t.me/channelname" />
+                </div>
+                <div>
+                  <label className="text-[11px] text-gray-400 font-medium mb-1.5 block">Support Link <span className="text-gray-600">(optional)</span></label>
+                  <input type="text" value={createForm.supportLink} onChange={e => setCreateForm(p => ({ ...p, supportLink: e.target.value }))} className="w-full px-3.5 py-2.5 rounded-xl bg-[#0a0e1a] border border-white/10 text-white text-sm placeholder:text-gray-600 focus:border-royal/50 focus:ring-1 focus:ring-royal/20 outline-none transition-all" placeholder="https://t.me/support" />
                 </div>
               </div>
             </div>
@@ -2077,9 +2085,14 @@ function HostsManagementPanel() {
                   <input value={editForm.displayName} onChange={e => setEditForm(f => ({...f, displayName: e.target.value}))} className="w-full px-3.5 py-2.5 rounded-xl bg-[#0a0e1a] border border-white/10 text-white text-sm placeholder:text-gray-600 focus:border-royal/50 outline-none transition-all" placeholder="Host display name" />
                 </div>
                 <div>
-                  <label className="text-[11px] text-gray-400 font-medium mb-1.5 block">Contact / Support Link</label>
-                  <input value={editForm.contactLink} onChange={e => setEditForm(f => ({...f, contactLink: e.target.value}))} className="w-full px-3.5 py-2.5 rounded-xl bg-[#0a0e1a] border border-white/10 text-white text-sm placeholder:text-gray-600 focus:border-royal/50 outline-none transition-all" placeholder="https://t.me/hostname or support URL" />
-                  <p className="text-[10px] text-gray-600 mt-1">Shown in participant emails as a clickable link</p>
+                  <label className="text-[11px] text-gray-400 font-medium mb-1.5 block">Main Link <span className="text-gray-600">(brand/channel)</span></label>
+                  <input value={editForm.mainLink} onChange={e => setEditForm(f => ({...f, mainLink: e.target.value}))} className="w-full px-3.5 py-2.5 rounded-xl bg-[#0a0e1a] border border-white/10 text-white text-sm placeholder:text-gray-600 focus:border-royal/50 outline-none transition-all" placeholder="https://t.me/channelname" />
+                  <p className="text-[10px] text-gray-600 mt-1">Shown on challenge cards and brand displays</p>
+                </div>
+                <div>
+                  <label className="text-[11px] text-gray-400 font-medium mb-1.5 block">Support Link <span className="text-gray-600">(contact/help)</span></label>
+                  <input value={editForm.supportLink} onChange={e => setEditForm(f => ({...f, supportLink: e.target.value}))} className="w-full px-3.5 py-2.5 rounded-xl bg-[#0a0e1a] border border-white/10 text-white text-sm placeholder:text-gray-600 focus:border-royal/50 outline-none transition-all" placeholder="https://t.me/support or support URL" />
+                  <p className="text-[10px] text-gray-600 mt-1">Shown in emails for participant support</p>
                 </div>
               </div>
             </div>
@@ -2088,7 +2101,7 @@ function HostsManagementPanel() {
               <button onClick={async () => {
                 setActionLoading(true);
                 try {
-                  const res = await fetch(`${apiUrl}/api/admin/${secretPath}/hosts/${editModal.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ displayName: editForm.displayName, contactLink: editForm.contactLink }) });
+                  const res = await fetch(`${apiUrl}/api/admin/${secretPath}/hosts/${editModal.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ displayName: editForm.displayName, supportLink: editForm.supportLink, mainLink: editForm.mainLink }) });
                   if (res.ok) { setActionResult("Host updated"); setEditModal(null); fetchHosts(); }
                   else { const d = await res.json(); setActionResult(d.error || "Update failed"); }
                 } catch { setActionResult("Network error"); }

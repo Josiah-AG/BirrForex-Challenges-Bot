@@ -489,7 +489,12 @@ async function migrate() {
 
     // Contact link for hosts (support URL shown in emails)
     await db.query(`ALTER TABLE hosts ADD COLUMN IF NOT EXISTS contact_link VARCHAR(500);`).catch(() => {});
-    console.log('✅ hosts contact_link column OK');
+    // Rename contact_link to support_link and add main_link
+    await db.query(`ALTER TABLE hosts ADD COLUMN IF NOT EXISTS support_link VARCHAR(500);`).catch(() => {});
+    await db.query(`ALTER TABLE hosts ADD COLUMN IF NOT EXISTS main_link VARCHAR(500);`).catch(() => {});
+    // Migrate old contact_link data to support_link
+    await db.query(`UPDATE hosts SET support_link = contact_link WHERE support_link IS NULL AND contact_link IS NOT NULL;`).catch(() => {});
+    console.log('✅ hosts contact_link/support_link/main_link columns OK');
 
     // Quiz system redesign — BirrForex Academy fields
     await db.query(`ALTER TABLE challenges ADD COLUMN IF NOT EXISTS youtube_link TEXT;`).catch(() => {});

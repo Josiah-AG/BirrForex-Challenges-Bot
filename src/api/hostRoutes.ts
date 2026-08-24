@@ -471,7 +471,7 @@ router.post('/challenge/:id/disqualify', async (req: any, res: Response) => {
 
     // Get participant info + host name
     const participant = await db.query(`SELECT nickname, email FROM trading_registrations WHERE id=$1 AND challenge_id=$2`, [registrationId, challengeId]);
-    const challengeInfo = await db.query(`SELECT c.title, h.display_name as host_name, h.contact_link as host_link FROM trading_challenges c LEFT JOIN hosts h ON h.id = c.host_id WHERE c.id=$1`, [challengeId]);
+    const challengeInfo = await db.query(`SELECT c.title, h.display_name as host_name, h.support_link as host_support_link, h.main_link as host_main_link FROM trading_challenges c LEFT JOIN hosts h ON h.id = c.host_id WHERE c.id=$1`, [challengeId]);
 
     await db.query(
       `UPDATE trading_registrations SET disqualified=true, disqualified_reason=$1 WHERE id=$2 AND challenge_id=$3`,
@@ -490,7 +490,8 @@ router.post('/challenge/:id/disqualify', async (req: any, res: Response) => {
           challengeTitle: challengeInfo.rows[0]?.title || 'Trading Challenge',
           reason: reason || 'Disqualified by host',
           hostName: challengeInfo.rows[0]?.host_name || null,
-          hostLink: challengeInfo.rows[0]?.host_link || null,
+          hostLink: challengeInfo.rows[0]?.host_support_link || null,
+          hostMainLink: challengeInfo.rows[0]?.host_main_link || null,
         });
       } catch {}
     }
@@ -511,7 +512,7 @@ router.post('/challenge/:id/unverify', async (req: any, res: Response) => {
 
     // Get participant info + host name
     const participant = await db.query(`SELECT nickname, email FROM trading_registrations WHERE id=$1 AND challenge_id=$2`, [registrationId, challengeId]);
-    const challengeInfo = await db.query(`SELECT c.title, h.display_name as host_name, h.contact_link as host_link FROM trading_challenges c LEFT JOIN hosts h ON h.id = c.host_id WHERE c.id=$1`, [challengeId]);
+    const challengeInfo = await db.query(`SELECT c.title, h.display_name as host_name, h.support_link as host_support_link, h.main_link as host_main_link FROM trading_challenges c LEFT JOIN hosts h ON h.id = c.host_id WHERE c.id=$1`, [challengeId]);
 
     await db.query(`UPDATE trading_registrations SET status='removed', email = 'removed_' || id::text || '_' || email, account_number = account_number || '_removed_' || id::text WHERE id=$1 AND challenge_id=$2`, [registrationId, challengeId]);
     await db.query(`DELETE FROM wp_leaderboard WHERE registration_id=$1 AND challenge_id=$2`, [registrationId, challengeId]);
@@ -527,7 +528,8 @@ router.post('/challenge/:id/unverify', async (req: any, res: Response) => {
           challengeTitle: challengeInfo.rows[0]?.title || 'Trading Challenge',
           reason: reason || 'Your registration has been removed',
           hostName: challengeInfo.rows[0]?.host_name || null,
-          hostLink: challengeInfo.rows[0]?.host_link || null,
+          hostLink: challengeInfo.rows[0]?.host_support_link || null,
+          hostMainLink: challengeInfo.rows[0]?.host_main_link || null,
         });
       } catch {}
     }

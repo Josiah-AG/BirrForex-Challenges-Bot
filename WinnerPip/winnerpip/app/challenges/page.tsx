@@ -34,6 +34,7 @@ interface Challenge {
   registrationDeadline?: string;
   hostId?: number | null;
   hostDisplayName?: string | null;
+  hostMainLink?: string | null;
   registrationMode?: string | null;
 }
 
@@ -203,9 +204,15 @@ export default function ChallengesPage() {
                 </span>
               )}
               {challenge.hostId && challenge.hostDisplayName && (
-                <span className="px-3 py-1.5 rounded-full bg-royal/20 text-royal border border-royal/30 text-xs font-semibold">
-                  Hosted by {challenge.hostDisplayName}
-                </span>
+                challenge.hostMainLink ? (
+                  <a href={challenge.hostMainLink} target="_blank" rel="noopener noreferrer" className="px-3 py-1.5 rounded-full bg-royal/20 text-royal border border-royal/30 text-xs font-semibold hover:bg-royal/30 transition-all">
+                    Hosted by {challenge.hostDisplayName}
+                  </a>
+                ) : (
+                  <span className="px-3 py-1.5 rounded-full bg-royal/20 text-royal border border-royal/30 text-xs font-semibold">
+                    Hosted by {challenge.hostDisplayName}
+                  </span>
+                )
               )}
             </div>
           </div>
