@@ -1792,6 +1792,7 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
       },
       me: {
         nickname: registration.nickname,
+        email: registration.email || '',
         accountNumber: registration.account_number,
         accountType: registration.account_type,
         accountSubtype: registration.account_subtype || null,

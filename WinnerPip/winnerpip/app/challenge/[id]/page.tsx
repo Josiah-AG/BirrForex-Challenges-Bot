@@ -37,7 +37,7 @@ interface ChallengeInfo {
   onlyCentAccount?: boolean;
 }
 interface MyStats {
-  nickname: string; accountNumber: string; accountType: string; accountSubtype: string | null; server: string;
+  nickname: string; email: string; accountNumber: string; accountType: string; accountSubtype: string | null; server: string;
   rank: number | null; currentBalance: number; adjustedBalance: number;
   qualifiedProfit: number; grossProfit: number; profitRemoved: number;
   totalTrades: number; qualifiedTrades: number; flaggedTrades: number;
@@ -180,6 +180,7 @@ export default function ChallengeDashboard() {
       setChallenge(data.challenge);
       const statsObj = {
         nickname: data.me.nickname,
+        email: data.me.email || '',
         accountNumber: data.me.accountNumber,
         accountType: data.me.accountType,
         accountSubtype: data.me.accountSubtype || null,
@@ -932,7 +933,7 @@ export default function ChallengeDashboard() {
               currentAccountNumber={myStats.accountNumber}
               currentAccountType={myStats.accountType}
               currentNickname={myStats.nickname}
-              currentEmail={(JSON.parse(localStorage.getItem('wp_user') || '{}'))?.email || ''}
+              currentEmail={myStats.email}
               investorPassword={typeof window !== 'undefined' ? localStorage.getItem('wp_login_pass') || '' : ''}
             />
           )}
