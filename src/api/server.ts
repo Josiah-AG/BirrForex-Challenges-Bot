@@ -1034,6 +1034,148 @@ app.post('/api/challenges/:id/change-account', authLimiter, async (req, res) => 
 });
 
 /**
+ * POST /api/challenges/:id/change-registration
+ * Full re-registration: replaces existing registration with new MT5 details + optionally new category
+ * Used for category change (requires full new credentials) or account change
+ * Body: { currentAccountNumber, currentInvestorPassword, newAccountNumber, newServer, newInvestorPassword, newAccountType, email }
+ * Verifies new account, checks allocation (if real), then atomically replaces old registration
+ */
+app.post('/api/challenges/:id/change-registration', authLimiter, async (req: any, res) => {
+  try {
+    const challengeId = parseInt(req.params.id as string);
+    const { currentAccountNumber, currentInvestorPassword, newAccountNumber, newServer, newInvestorPassword, newAccountType, email } = req.body;
+    if (!currentAccountNumber || !currentInvestorPassword || !newAccountNumber || !newServer || !newInvestorPassword || !newAccountType) {
+      return res.status(400).json({ error: 'All fields are required' });
+    }
+
+    const challenge = await db.query(
+      `SELECT id, host_id, status, type, starting_balance, deposit_mode FROM trading_challenges WHERE id = $1`, [challengeId]);
+    if (!challenge.rows[0]) return res.status(404).json({ error: 'Challenge not found' });
+    if (challenge.rows[0].status !== 'registration_open' && challenge.rows[0].status !== 'scheduled') {
+      return res.status(400).json({ error: 'Changes are only allowed before the challenge starts' });
+    }
+
+    // Find existing registration
+    const reg = await db.query(
+      `SELECT id, nickname, email, investor_password, account_type FROM trading_registrations WHERE challenge_id = $1 AND account_number = $2 AND (status IS NULL OR status != 'removed')`,
+      [challengeId, currentAccountNumber.trim()]);
+    if (!reg.rows[0]) return res.status(404).json({ error: 'Registration not found' });
+    if (reg.rows[0].investor_password !== currentInvestorPassword.trim()) {
+      return res.status(401).json({ error: 'Invalid investor password' });
+    }
+
+    const existingRegId = reg.rows[0].id;
+    const nickname = reg.rows[0].nickname;
+    const regEmail = email || reg.rows[0].email;
+
+    // Check new account not already registered by someone else
+    const existingNew = await db.query(
+      `SELECT id FROM trading_registrations WHERE challenge_id = $1 AND account_number = $2 AND (status IS NULL OR status != 'removed') AND id != $3`,
+      [challengeId, newAccountNumber.trim(), existingRegId]);
+    if (existingNew.rows.length > 0) {
+      return res.status(409).json({ error: 'New account number is already registered in this challenge' });
+    }
+
+    // Verify new account via VPS
+    const { fuzzyMatchServer, vpsService } = require('../services/vpsService');
+    const matchedServer = fuzzyMatchServer(newServer.trim(), newAccountType);
+    const serverToUse = matchedServer || newServer.trim();
+    const verifyResult = await vpsService.verifyConnection(newAccountNumber.trim(), serverToUse, newInvestorPassword.trim());
+    if (!verifyResult.success) {
+      const errorMessages: Record<string, string> = {
+        'invalid_credentials': 'Invalid account number, server, or investor password.',
+        'server_not_found': `Server "${newServer}" not found.`,
+        'timeout': 'Connection timed out. Please try again.',
+        'api_error': 'Verification service temporarily unavailable.',
+      };
+      return res.status(400).json({ error: errorMessages[verifyResult.status] || verifyResult.message || 'Verification failed' });
+    }
+
+    const currency = (verifyResult.currency || '').toUpperCase();
+    const isCent = currency === 'USC' || currency === 'USCENT';
+    const accountSubtype = verifyResult.account_subtype || 'standard';
+    const balance = verifyResult.balance || 0;
+
+    // Pro account check
+    const isPro = accountSubtype === 'pro' || accountSubtype === 'raw_spread' || accountSubtype === 'zero';
+    if (isPro) {
+      const rulesCheck = await db.query(`SELECT parameters FROM wp_challenge_rules WHERE challenge_id=$1 AND rule_code='config'`, [challengeId]);
+      const allowPro = rulesCheck.rows[0]?.parameters?.allow_professional || false;
+      if (!allowPro) {
+        return res.status(400).json({ error: `Professional account type (${accountSubtype}) is not allowed for this challenge.` });
+      }
+    }
+
+    // Cent check for real
+    if (newAccountType === 'real') {
+      const rulesCheck2 = await db.query(`SELECT parameters FROM wp_challenge_rules WHERE challenge_id=$1 AND rule_code='config'`, [challengeId]);
+      const onlyCent = rulesCheck2.rows[0]?.parameters?.only_cent_account || false;
+      if (onlyCent && !isCent) {
+        return res.status(400).json({ error: 'This challenge requires cent accounts only for the real category.' });
+      }
+    }
+
+    // Deposit validation
+    const startBal = parseFloat(challenge.rows[0].starting_balance || '0');
+    const depositMode = challenge.rows[0].deposit_mode || 'fixed';
+    if (newAccountType === 'real' && startBal > 0) {
+      if (depositMode === 'fixed' || depositMode === 'max_limit') {
+        const maxAllowed = isCent ? startBal * 100 * 1.05 : startBal * 1.05;
+        if (balance > maxAllowed) {
+          return res.status(400).json({ error: `Balance exceeds the allowed limit.` });
+        }
+      } else if (depositMode === 'min_limit') {
+        const minRequired = isCent ? startBal * 100 : startBal;
+        if (balance < minRequired) {
+          return res.status(400).json({ error: `Balance is below the minimum deposit requirement.` });
+        }
+      }
+    }
+
+    // Allocation check for real accounts on hosted challenges
+    const hostId = challenge.rows[0].host_id;
+    if (hostId && newAccountType === 'real' && regEmail) {
+      const { hostService } = require('../services/hostService');
+      const credentials = await hostService.getBrokerCredentials(hostId);
+      if (credentials) {
+        try {
+          const axios = require('axios');
+          const authRes = await axios.post('https://my.exnessaffiliates.com/api/v2/auth/', {
+            login: credentials.email, password: credentials.password,
+          }, { timeout: 15000 });
+          const brokerToken = authRes.data?.token;
+          if (brokerToken) {
+            const allocRes = await axios.post('https://my.exnessaffiliates.com/api/partner/affiliation/', {
+              email: regEmail.toLowerCase().trim(),
+            }, { headers: { Authorization: `JWT ${brokerToken}`, 'Content-Type': 'application/json' }, timeout: 10000 });
+            if (allocRes.data?.affiliation !== true) {
+              return res.status(400).json({ error: 'Account not allocated under the required partnership.' });
+            }
+          }
+        } catch (allocErr: any) {
+          console.warn('Allocation check on change-registration failed:', (allocErr as Error).message);
+        }
+      }
+    }
+
+    // Atomically update the registration
+    await db.query(
+      `UPDATE trading_registrations SET account_number = $1, mt5_server = $2, investor_password = $3, account_type = $4, is_cent = $5, last_known_balance = $6, account_subtype = $7 WHERE id = $8`,
+      [newAccountNumber.trim(), serverToUse, newInvestorPassword.trim(), newAccountType, isCent, balance, accountSubtype, existingRegId]);
+
+    return res.json({
+      success: true,
+      message: `Registration updated to ${newAccountType} account.`,
+      balance, isCent, server: serverToUse, accountSubtype,
+      depositMode, startingBalance: startBal,
+    });
+  } catch (error) {
+    console.error('Change registration error:', error);
+    return res.status(500).json({ error: 'Failed to update registration' });
+  }
+});
+
+/**
  * GET /api/challenges/:id/leaderboard
  * Returns leaderboard for a challenge (public)
  */

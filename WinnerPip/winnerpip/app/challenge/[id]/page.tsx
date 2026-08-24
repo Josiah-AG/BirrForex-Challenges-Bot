@@ -931,6 +931,8 @@ export default function ChallengeDashboard() {
               challengeType={challenge.type === 'hybrid' ? 'hybrid' : (challenge.type === 'real' ? 'real' : 'demo')}
               currentAccountNumber={myStats.accountNumber}
               currentAccountType={myStats.accountType}
+              currentNickname={myStats.nickname}
+              currentEmail={(JSON.parse(localStorage.getItem('wp_user') || '{}'))?.email || ''}
               investorPassword={typeof window !== 'undefined' ? localStorage.getItem('wp_login_pass') || '' : ''}
             />
           )}
@@ -2214,68 +2216,67 @@ function DismissableBanner({ type, reason }: { type: "dq" | "blown"; reason?: st
 }
 
 // ==================== ACCOUNT CHANGE BANNER ====================
-function AccountChangeBanner({ challengeId, challengeType, currentAccountNumber, currentAccountType, investorPassword }: {
-  challengeId: number; challengeType: string; currentAccountNumber: string; currentAccountType: string; investorPassword: string;
+function AccountChangeBanner({ challengeId, challengeType, currentAccountNumber, currentAccountType, currentNickname, currentEmail, investorPassword }: {
+  challengeId: number; challengeType: string; currentAccountNumber: string; currentAccountType: string; currentNickname: string; currentEmail: string; investorPassword: string;
 }) {
   const [minimized, setMinimized] = useState(false);
   const [mode, setMode] = useState<"idle" | "category" | "account">("idle");
-  const [newCategory, setNewCategory] = useState(currentAccountType === "demo" ? "real" : "demo");
+  const [step, setStep] = useState<"warning" | "mt5" | "review">("warning");
   const [newAcct, setNewAcct] = useState({ accountNumber: "", server: "", investorPassword: "" });
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const [error, setError] = useState("");
+  const [verifyData, setVerifyData] = useState<{ balance?: number; isCent?: boolean; server?: string; accountSubtype?: string; depositMode?: string; startingBalance?: number } | null>(null);
+  const [success, setSuccess] = useState(false);
   const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
 
-  const handleChangeCategory = async () => {
-    setLoading(true); setResult(null);
+  const newCategory = currentAccountType === "demo" ? "real" : "demo";
+
+  const handleVerify = async () => {
+    if (!newAcct.accountNumber || !newAcct.server || !newAcct.investorPassword) { setError("Please fill in all fields"); return; }
+    setError(""); setLoading(true);
     try {
-      const res = await fetch(`${API_URL}/api/challenges/${challengeId}/change-category`, {
+      const targetType = mode === "category" ? newCategory : currentAccountType;
+      const res = await fetch(`${API_URL}/api/challenges/${challengeId}/verify-mt5`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ accountNumber: currentAccountNumber, investorPassword, newCategory }),
+        body: JSON.stringify({ accountNumber: newAcct.accountNumber, mt5Server: newAcct.server, investorPassword: newAcct.investorPassword, accountType: targetType, email: currentEmail }),
       });
       const data = await res.json();
       if (res.ok && data.success) {
-        setResult({ type: "success", message: data.message || "Category changed!" });
-        setTimeout(() => window.location.reload(), 1500);
-      } else { setResult({ type: "error", message: data.error || "Failed to change category" }); }
-    } catch { setResult({ type: "error", message: "Connection error. Please try again." }); }
+        setVerifyData({ balance: data.balance, isCent: data.isCent, server: data.server, accountSubtype: data.accountSubtype, depositMode: data.depositMode, startingBalance: data.startingBalance });
+        setStep("review");
+      } else { setError(data.error || "Verification failed"); }
+    } catch { setError("Connection error. Please try again."); }
     setLoading(false);
   };
 
-  const handleChangeAccount = async () => {
-    if (!newAcct.accountNumber || !newAcct.server || !newAcct.investorPassword) {
-      setResult({ type: "error", message: "Please fill in all fields" }); return;
-    }
-    setLoading(true); setResult(null);
+  const handleSubmit = async () => {
+    setError(""); setLoading(true);
     try {
-      const res = await fetch(`${API_URL}/api/challenges/${challengeId}/change-account`, {
+      const targetType = mode === "category" ? newCategory : currentAccountType;
+      const res = await fetch(`${API_URL}/api/challenges/${challengeId}/change-registration`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          currentAccountNumber, investorPassword,
-          newAccountNumber: newAcct.accountNumber,
-          newServer: newAcct.server,
-          newInvestorPassword: newAcct.investorPassword,
+          currentAccountNumber, currentInvestorPassword: investorPassword,
+          newAccountNumber: newAcct.accountNumber, newServer: newAcct.server, newInvestorPassword: newAcct.investorPassword,
+          newAccountType: targetType, email: currentEmail,
         }),
       });
       const data = await res.json();
       if (res.ok && data.success) {
-        setResult({ type: "success", message: data.message || "Account updated!" });
+        setSuccess(true);
         localStorage.setItem("wp_login_pass", newAcct.investorPassword);
-        setTimeout(() => window.location.reload(), 1500);
-      } else { setResult({ type: "error", message: data.error || "Failed to change account" }); }
-    } catch { setResult({ type: "error", message: "Connection error. Please try again." }); }
+        setTimeout(() => window.location.reload(), 2000);
+      } else { setError(data.error || "Failed to update"); }
+    } catch { setError("Connection error. Please try again."); }
     setLoading(false);
   };
 
+  const resetFlow = () => { setMode("idle"); setStep("warning"); setNewAcct({ accountNumber: "", server: "", investorPassword: "" }); setError(""); setVerifyData(null); setSuccess(false); };
+
   if (minimized) {
     return (
-      <button
-        onClick={() => setMinimized(false)}
-        className="mb-3 w-full p-2.5 rounded-xl bg-royal/5 border border-royal/20 flex items-center justify-between hover:bg-royal/10 transition-all"
-      >
-        <div className="flex items-center gap-2">
-          <RefreshCw size={13} className="text-royal" />
-          <span className="text-xs text-royal font-medium">Change account or category</span>
-        </div>
+      <button onClick={() => setMinimized(false)} className="mb-3 w-full p-2.5 rounded-xl bg-royal/5 border border-royal/20 flex items-center justify-between hover:bg-royal/10 transition-all">
+        <div className="flex items-center gap-2"><RefreshCw size={13} className="text-royal" /><span className="text-xs text-royal font-medium">Change account or category</span></div>
         <ChevronDown size={14} className="text-royal" />
       </button>
     );
@@ -2283,78 +2284,96 @@ function AccountChangeBanner({ challengeId, challengeType, currentAccountNumber,
 
   return (
     <div className="mb-4 glass rounded-2xl border border-royal/20 bg-royal/5 overflow-hidden">
-      {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-royal/10">
-        <div className="flex items-center gap-2">
-          <RefreshCw size={14} className="text-royal" />
-          <p className="text-sm font-semibold text-royal">Account Settings</p>
-        </div>
-        <button onClick={() => setMinimized(true)} className="p-1 hover:bg-white/10 rounded-lg">
-          <ChevronUp size={14} className="text-gray-400" />
-        </button>
+        <div className="flex items-center gap-2"><RefreshCw size={14} className="text-royal" /><p className="text-sm font-semibold text-royal">Account Settings</p></div>
+        <button onClick={() => setMinimized(true)} className="p-1 hover:bg-white/10 rounded-lg"><ChevronUp size={14} className="text-gray-400" /></button>
       </div>
 
       <div className="px-4 py-3 space-y-3">
-        <p className="text-xs text-gray-400">You can make changes before the challenge starts. These options will be locked once the challenge is active.</p>
-
-        {/* Idle — show buttons */}
-        {mode === "idle" && (
-          <div className="flex flex-col sm:flex-row gap-2">
-            {challengeType === "hybrid" && (
-              <button onClick={() => { setMode("category"); setResult(null); }} className="flex-1 px-4 py-2.5 rounded-xl bg-gold/10 border border-gold/20 text-gold text-xs font-semibold hover:bg-gold/20 transition-all">
-                Change Category ({currentAccountType} → {currentAccountType === "demo" ? "real" : "demo"})
-              </button>
-            )}
-            <button onClick={() => { setMode("account"); setResult(null); }} className="flex-1 px-4 py-2.5 rounded-xl bg-royal/10 border border-royal/20 text-royal text-xs font-semibold hover:bg-royal/20 transition-all">
-              Change Account Number
-            </button>
+        {success ? (
+          <div className="text-center py-3">
+            <p className="text-sm text-profit font-semibold">✅ Registration updated successfully!</p>
+            <p className="text-[10px] text-gray-400 mt-1">Reloading...</p>
           </div>
-        )}
+        ) : mode === "idle" ? (
+          <>
+            <p className="text-xs text-gray-400">You can make changes before the challenge starts. These options will be locked once active.</p>
+            <div className="flex flex-col sm:flex-row gap-2">
+              {challengeType === "hybrid" && (
+                <button onClick={() => { setMode("category"); setStep("warning"); setError(""); }} className="flex-1 px-4 py-2.5 rounded-xl bg-gold/10 border border-gold/20 text-gold text-xs font-semibold hover:bg-gold/20 transition-all">
+                  Change Category ({currentAccountType} → {newCategory})
+                </button>
+              )}
+              <button onClick={() => { setMode("account"); setStep("mt5"); setError(""); }} className="flex-1 px-4 py-2.5 rounded-xl bg-royal/10 border border-royal/20 text-royal text-xs font-semibold hover:bg-royal/20 transition-all">
+                Change Account Number
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            {error && <div className="p-2.5 rounded-xl bg-loss/10 border border-loss/30 text-xs text-loss">{error}</div>}
 
-        {/* Category change */}
-        {mode === "category" && (
-          <div className="space-y-3">
-            <div className="p-3 rounded-xl bg-white/5 border border-white/10">
-              <p className="text-xs text-gray-400 mb-2">Switch from <span className="font-bold text-white capitalize">{currentAccountType}</span> to:</p>
-              <div className="grid grid-cols-2 gap-2">
-                <button onClick={() => setNewCategory("demo")} className={`p-2.5 rounded-lg border text-center text-xs font-semibold transition-all ${newCategory === "demo" ? "border-royal bg-royal/10 text-royal" : "border-white/20 text-gray-500"}`}>Demo</button>
-                <button onClick={() => setNewCategory("real")} className={`p-2.5 rounded-lg border text-center text-xs font-semibold transition-all ${newCategory === "real" ? "border-gold bg-gold/10 text-gold" : "border-white/20 text-gray-500"}`}>Real</button>
+            {/* Category change: Warning step */}
+            {mode === "category" && step === "warning" && (
+              <div className="space-y-3">
+                <div className="p-3 rounded-xl bg-gold/10 border border-gold/30">
+                  <p className="text-xs text-gold font-semibold mb-1">⚠️ Category Change</p>
+                  <p className="text-[11px] text-gray-300">Changing from <strong className="text-white capitalize">{currentAccountType}</strong> to <strong className="text-white capitalize">{newCategory}</strong> requires new MT5 credentials. Your current registration will be replaced with the new account.</p>
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={resetFlow} className="flex-1 py-2.5 rounded-xl bg-white/5 border border-white/10 text-gray-400 text-xs font-medium hover:bg-white/10 transition-all">Cancel</button>
+                  <button onClick={() => setStep("mt5")} className="flex-1 py-2.5 rounded-xl bg-royal text-white text-xs font-semibold hover:opacity-90 transition-all">Continue</button>
+                </div>
               </div>
-            </div>
-            <div className="flex gap-2">
-              <button onClick={() => setMode("idle")} disabled={loading} className="flex-1 py-2.5 rounded-xl bg-white/5 border border-white/10 text-gray-400 text-xs font-medium hover:bg-white/10 transition-all disabled:opacity-50">Cancel</button>
-              <button onClick={handleChangeCategory} disabled={loading || newCategory === currentAccountType} className="flex-1 py-2.5 rounded-xl bg-royal text-white text-xs font-semibold hover:opacity-90 transition-all disabled:opacity-50 flex items-center justify-center gap-1.5">
-                {loading ? <Loader2 size={12} className="animate-spin" /> : null}
-                {loading ? "Changing..." : "Confirm Change"}
-              </button>
-            </div>
-          </div>
-        )}
+            )}
 
-        {/* Account change */}
-        {mode === "account" && (
-          <div className="space-y-3">
-            <div className="space-y-2">
-              <input type="text" placeholder="New Account Number" value={newAcct.accountNumber} onChange={e => setNewAcct({...newAcct, accountNumber: e.target.value})} className="w-full p-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-xs outline-none focus:border-royal/50 transition-all" disabled={loading} />
-              <input type="text" placeholder="MT5 Server (e.g., Exness-MT5Trial9)" value={newAcct.server} onChange={e => setNewAcct({...newAcct, server: e.target.value})} className="w-full p-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-xs outline-none focus:border-royal/50 transition-all" disabled={loading} />
-              <input type="password" placeholder="Investor Password" value={newAcct.investorPassword} onChange={e => setNewAcct({...newAcct, investorPassword: e.target.value})} className="w-full p-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-xs outline-none focus:border-royal/50 transition-all" disabled={loading} />
-            </div>
-            <p className="text-[10px] text-gray-600">New account will be verified via MT5 before the change is applied.</p>
-            <div className="flex gap-2">
-              <button onClick={() => setMode("idle")} disabled={loading} className="flex-1 py-2.5 rounded-xl bg-white/5 border border-white/10 text-gray-400 text-xs font-medium hover:bg-white/10 transition-all disabled:opacity-50">Cancel</button>
-              <button onClick={handleChangeAccount} disabled={loading} className="flex-1 py-2.5 rounded-xl bg-royal text-white text-xs font-semibold hover:opacity-90 transition-all disabled:opacity-50 flex items-center justify-center gap-1.5">
-                {loading ? <Loader2 size={12} className="animate-spin" /> : null}
-                {loading ? "Verifying..." : "Verify & Update"}
-              </button>
-            </div>
-          </div>
-        )}
+            {/* MT5 credentials step (both flows) */}
+            {step === "mt5" && (
+              <div className="space-y-2">
+                <p className="text-xs text-gray-400 font-medium">{mode === "category" ? `New ${newCategory} account credentials:` : "New account credentials:"}</p>
+                <input type="text" placeholder="Account Number" value={newAcct.accountNumber} onChange={e => { setNewAcct({...newAcct, accountNumber: e.target.value}); setError(""); }} className="w-full p-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-xs outline-none focus:border-royal/50 transition-all" disabled={loading} />
+                <ServerDropdown value={newAcct.server} accountType={mode === "category" ? newCategory : currentAccountType} onChange={v => { setNewAcct({...newAcct, server: v}); setError(""); }} disabled={loading} />
+                <input type="password" placeholder="Investor Password" value={newAcct.investorPassword} onChange={e => { setNewAcct({...newAcct, investorPassword: e.target.value}); setError(""); }} className="w-full p-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-xs outline-none focus:border-royal/50 transition-all" disabled={loading} />
+                <div className="flex gap-2 pt-1">
+                  <button onClick={resetFlow} disabled={loading} className="flex-1 py-2.5 rounded-xl bg-white/5 border border-white/10 text-gray-400 text-xs font-medium hover:bg-white/10 transition-all disabled:opacity-50">Cancel</button>
+                  <button onClick={handleVerify} disabled={loading} className="flex-1 py-2.5 rounded-xl bg-royal text-white text-xs font-semibold hover:opacity-90 transition-all disabled:opacity-50 flex items-center justify-center gap-1.5">
+                    {loading ? <Loader2 size={12} className="animate-spin" /> : null}{loading ? "Verifying..." : "Verify"}
+                  </button>
+                </div>
+              </div>
+            )}
 
-        {/* Result */}
-        {result && (
-          <div className={`p-2.5 rounded-xl text-xs font-medium ${result.type === "success" ? "bg-profit/10 border border-profit/30 text-profit" : "bg-loss/10 border border-loss/30 text-loss"}`}>
-            {result.message}
-          </div>
+            {/* Review step (both flows) */}
+            {step === "review" && verifyData && (
+              <div className="space-y-3">
+                <div className="space-y-1.5 bg-white/5 rounded-xl p-3 border border-white/10 text-[11px]">
+                  <div className="flex justify-between"><span className="text-gray-500">Email</span><span className="text-white font-medium truncate ml-2 max-w-[160px]">{currentEmail}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-500">Username</span><span className="text-white font-medium">{currentNickname}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-500">Category</span><span className={`font-medium capitalize ${(mode === 'category' ? newCategory : currentAccountType) === 'real' ? 'text-gold' : 'text-royal'}`}>{mode === 'category' ? newCategory : currentAccountType}</span></div>
+                  <div className="border-t border-white/10 my-1.5" />
+                  <div className="flex justify-between"><span className="text-gray-500">Account</span><span className="text-white font-medium">{newAcct.accountNumber}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-500">Server</span><span className="text-white font-medium">{verifyData.server}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-500">Balance</span><span className="text-profit font-medium">{verifyData.isCent ? `${verifyData.balance?.toFixed(0)}¢` : `$${verifyData.balance?.toFixed(2)}`}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-500">Type</span><span className="text-white font-medium capitalize">{verifyData.accountSubtype}{verifyData.isCent ? ' (Cent)' : ''}</span></div>
+                </div>
+                {/* Low balance warning for fixed real */}
+                {verifyData.depositMode === 'fixed' && (mode === 'category' ? newCategory : currentAccountType) === 'real' && verifyData.startingBalance && verifyData.balance !== undefined && (() => {
+                  const req = verifyData.isCent ? verifyData.startingBalance! * 100 : verifyData.startingBalance!;
+                  return verifyData.balance! < req;
+                })() && (
+                  <div className="p-2.5 rounded-xl bg-gold/10 border border-gold/30">
+                    <p className="text-[10px] text-gold">⚠️ Balance is below the deposit limit. You can continue but the target stays the same. Top up before challenge starts.</p>
+                  </div>
+                )}
+                <div className="flex gap-2">
+                  <button onClick={() => setStep("mt5")} disabled={loading} className="flex-1 py-2.5 rounded-xl bg-white/5 border border-white/10 text-gray-400 text-xs font-medium hover:bg-white/10 transition-all disabled:opacity-50">Back</button>
+                  <button onClick={handleSubmit} disabled={loading} className="flex-1 py-2.5 rounded-xl bg-gradient-brand text-white text-xs font-semibold hover:opacity-90 transition-all disabled:opacity-50 flex items-center justify-center gap-1.5">
+                    {loading ? <Loader2 size={12} className="animate-spin" /> : null}{loading ? "Updating..." : "Confirm & Update"}
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>
