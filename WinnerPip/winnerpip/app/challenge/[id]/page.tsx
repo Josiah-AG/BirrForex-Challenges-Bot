@@ -2293,10 +2293,15 @@ function AccountChangeBanner({ challengeId, challengeType, currentAccountNumber,
         {success ? (
           <div className="text-center py-3">
             <p className="text-sm text-profit font-semibold">✅ Registration updated successfully!</p>
-            <div className="mt-2 p-2.5 rounded-xl bg-royal/10 border border-royal/20 text-left">
-              <p className="text-[11px] text-gray-300">From your next login, use your <strong className="text-white">new account number</strong> and <strong className="text-white">new investor password</strong> to sign in.</p>
+            <div className="mt-3 p-4 rounded-xl bg-gold/10 border-2 border-gold/40">
+              <p className="text-xs text-gold font-bold uppercase tracking-wider mb-2">⚠️ Important</p>
+              <p className="text-sm text-white font-semibold">From your next login, sign in with:</p>
+              <div className="mt-2 space-y-1.5">
+                <p className="text-sm text-white"><span className="text-gray-400">Account:</span> <span className="font-bold text-gold">{newAcct.accountNumber}</span></p>
+                <p className="text-sm text-white"><span className="text-gray-400">Password:</span> <span className="font-bold text-gold">Your new investor password</span></p>
+              </div>
             </div>
-            <p className="text-[10px] text-gray-500 mt-2">Reloading...</p>
+            <p className="text-[10px] text-gray-500 mt-3">Reloading...</p>
           </div>
         ) : mode === "idle" ? (
           <>
