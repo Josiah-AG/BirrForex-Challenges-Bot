@@ -41,7 +41,7 @@ export class QuizHandler {
     }
 
     // Block session restart — if user already has an active session, don't allow recreation
-    const existingSession = sessionService.getSession(telegramId, challengeId);
+    const existingSession = await sessionService.getSession(telegramId, challengeId);
     if (existingSession) {
       await ctx.reply('⚠️ You already started this quiz. Continue where you left off!');
       // Re-send current question
@@ -69,7 +69,7 @@ export class QuizHandler {
     }));
 
     // Create session
-    sessionService.createSession(telegramId, challengeId, shuffledOptions);
+    await sessionService.createSession(telegramId, challengeId, shuffledOptions);
 
     // Send welcome message
     await ctx.reply(
@@ -85,7 +85,7 @@ export class QuizHandler {
     const telegramId = ctx.from!.id;
 
     // Get session
-    const session = sessionService.getSession(telegramId, challengeId);
+    const session = await sessionService.getSession(telegramId, challengeId);
     if (!session) {
       await ctx.reply('❌ Session expired. Please start again.');
       return;
@@ -103,7 +103,7 @@ export class QuizHandler {
    */
   async sendQuestion(ctx: Context, challengeId: number, questions: Question[], questionIndex: number) {
     const telegramId = ctx.from!.id;
-    const session = sessionService.getSession(telegramId, challengeId);
+    const session = await sessionService.getSession(telegramId, challengeId);
     
     if (!session) {
       await ctx.reply('❌ Session expired.');
@@ -171,7 +171,7 @@ export class QuizHandler {
    */
   async handleAnswer(ctx: Context, challengeId: number, questionId: number, selectedAnswer: string) {
     const telegramId = ctx.from!.id;
-    const session = sessionService.getSession(telegramId, challengeId);
+    const session = await sessionService.getSession(telegramId, challengeId);
 
     if (!session) {
       await ctx.answerCbQuery('Session expired');
@@ -197,13 +197,13 @@ export class QuizHandler {
       is_correct: isCorrect,
     };
 
-    sessionService.recordAnswer(telegramId, challengeId, answer);
+    await sessionService.recordAnswer(telegramId, challengeId, answer);
 
     // Answer callback
     await ctx.answerCbQuery('✓ Answer recorded');
 
     // Check if more questions
-    const currentQuestion = sessionService.getCurrentQuestion(telegramId, challengeId);
+    const currentQuestion = await sessionService.getCurrentQuestion(telegramId, challengeId);
     
     if (currentQuestion < questions.length) {
       // Send next question with silent retries (3 attempts, 1s apart)
@@ -235,7 +235,7 @@ export class QuizHandler {
   async completeQuiz(ctx: Context, challengeId: number) {
     const telegramId = ctx.from!.id;
     const username = ctx.from!.username;
-    const session = sessionService.getSession(telegramId, challengeId);
+    const session = await sessionService.getSession(telegramId, challengeId);
 
     if (!session) {
       await ctx.reply('❌ Session not found.');
@@ -289,7 +289,7 @@ export class QuizHandler {
     }
 
     // Delete session
-    sessionService.deleteSession(telegramId, challengeId);
+    await sessionService.deleteSession(telegramId, challengeId);
 
     // Send completion message
     if (score === totalQuestions) {

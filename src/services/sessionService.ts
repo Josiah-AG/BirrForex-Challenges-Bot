@@ -1,117 +1,114 @@
+import { db } from '../database/db';
 import { UserSession, Answer, ShuffledOptions } from '../types';
 
 /**
- * In-memory session storage for active quiz participants
- * In production, consider using Redis for scalability
+ * PostgreSQL-backed session storage for active quiz participants.
+ * Survives bot restarts and deploys.
  */
 class SessionService {
-  private sessions: Map<string, UserSession> = new Map();
 
   /**
-   * Create session key
+   * Create new session (upsert — replaces if exists)
    */
-  private getKey(telegramId: number, challengeId: number): string {
-    return `${telegramId}_${challengeId}`;
-  }
-
-  /**
-   * Create new session
-   */
-  createSession(telegramId: number, challengeId: number, shuffledOptions: ShuffledOptions[]): void {
-    const key = this.getKey(telegramId, challengeId);
-    this.sessions.set(key, {
-      telegram_id: telegramId,
-      challenge_id: challengeId,
-      current_question: 0,
-      started_at: new Date(),
-      answers: [],
-      shuffled_options: shuffledOptions,
-    });
+  async createSession(telegramId: number, challengeId: number, shuffledOptions: ShuffledOptions[]): Promise<void> {
+    await db.query(
+      `INSERT INTO quiz_sessions (telegram_id, challenge_id, current_question, answers, shuffled_options, started_at)
+       VALUES ($1, $2, 0, '[]'::jsonb, $3::jsonb, NOW())
+       ON CONFLICT (telegram_id, challenge_id) DO UPDATE SET
+         current_question = 0, answers = '[]'::jsonb, shuffled_options = $3::jsonb, started_at = NOW()`,
+      [telegramId, challengeId, JSON.stringify(shuffledOptions)]
+    );
   }
 
   /**
    * Get session
    */
-  getSession(telegramId: number, challengeId: number): UserSession | null {
-    const key = this.getKey(telegramId, challengeId);
-    return this.sessions.get(key) || null;
+  async getSession(telegramId: number, challengeId: number): Promise<UserSession | null> {
+    const result = await db.query(
+      `SELECT telegram_id, challenge_id, current_question, answers, shuffled_options, started_at
+       FROM quiz_sessions WHERE telegram_id = $1 AND challenge_id = $2`,
+      [telegramId, challengeId]
+    );
+    if (!result.rows[0]) return null;
+    const row = result.rows[0];
+    return {
+      telegram_id: Number(row.telegram_id),
+      challenge_id: row.challenge_id,
+      current_question: row.current_question,
+      started_at: new Date(row.started_at),
+      answers: row.answers || [],
+      shuffled_options: row.shuffled_options || [],
+    };
   }
 
   /**
-   * Record answer
+   * Record answer and advance question
    */
-  recordAnswer(telegramId: number, challengeId: number, answer: Answer): void {
-    const session = this.getSession(telegramId, challengeId);
-    if (!session) return;
-
-    session.answers.push(answer);
-    session.current_question++;
+  async recordAnswer(telegramId: number, challengeId: number, answer: Answer): Promise<void> {
+    await db.query(
+      `UPDATE quiz_sessions
+       SET answers = answers || $3::jsonb, current_question = current_question + 1
+       WHERE telegram_id = $1 AND challenge_id = $2`,
+      [telegramId, challengeId, JSON.stringify([answer])]
+    );
   }
 
   /**
    * Get current question number
    */
-  getCurrentQuestion(telegramId: number, challengeId: number): number {
-    const session = this.getSession(telegramId, challengeId);
-    return session?.current_question || 0;
+  async getCurrentQuestion(telegramId: number, challengeId: number): Promise<number> {
+    const result = await db.query(
+      `SELECT current_question FROM quiz_sessions WHERE telegram_id = $1 AND challenge_id = $2`,
+      [telegramId, challengeId]
+    );
+    return result.rows[0]?.current_question || 0;
   }
 
   /**
    * Check if session exists
    */
-  hasSession(telegramId: number, challengeId: number): boolean {
-    const key = this.getKey(telegramId, challengeId);
-    return this.sessions.has(key);
+  async hasSession(telegramId: number, challengeId: number): Promise<boolean> {
+    const result = await db.query(
+      `SELECT 1 FROM quiz_sessions WHERE telegram_id = $1 AND challenge_id = $2`,
+      [telegramId, challengeId]
+    );
+    return result.rows.length > 0;
   }
 
   /**
    * Delete session
    */
-  deleteSession(telegramId: number, challengeId: number): void {
-    const key = this.getKey(telegramId, challengeId);
-    this.sessions.delete(key);
+  async deleteSession(telegramId: number, challengeId: number): Promise<void> {
+    await db.query(
+      `DELETE FROM quiz_sessions WHERE telegram_id = $1 AND challenge_id = $2`,
+      [telegramId, challengeId]
+    );
   }
 
   /**
    * Clear all sessions for a challenge
    */
-  clearChallengeSessions(challengeId: number): void {
-    const keysToDelete: string[] = [];
-    
-    this.sessions.forEach((session, key) => {
-      if (session.challenge_id === challengeId) {
-        keysToDelete.push(key);
-      }
-    });
-
-    keysToDelete.forEach(key => this.sessions.delete(key));
+  async clearChallengeSessions(challengeId: number): Promise<void> {
+    await db.query(`DELETE FROM quiz_sessions WHERE challenge_id = $1`, [challengeId]);
   }
 
   /**
    * Get all active sessions count
    */
-  getActiveSessionsCount(): number {
-    return this.sessions.size;
+  async getActiveSessionsCount(): Promise<number> {
+    const result = await db.query(`SELECT COUNT(*) as cnt FROM quiz_sessions`);
+    return parseInt(result.rows[0]?.cnt || '0');
   }
 
   /**
    * Clean up expired sessions (older than 30 minutes)
    */
-  cleanupExpiredSessions(): void {
-    const now = new Date();
-    const keysToDelete: string[] = [];
-
-    this.sessions.forEach((session, key) => {
-      const minutesPassed = (now.getTime() - session.started_at.getTime()) / (1000 * 60);
-      if (minutesPassed > 30) {
-        keysToDelete.push(key);
-      }
-    });
-
-    keysToDelete.forEach(key => this.sessions.delete(key));
-    
-    if (keysToDelete.length > 0) {
-      console.log(`Cleaned up ${keysToDelete.length} expired sessions`);
+  async cleanupExpiredSessions(): Promise<void> {
+    const result = await db.query(
+      `DELETE FROM quiz_sessions WHERE started_at < NOW() - INTERVAL '30 minutes'`
+    );
+    if (result.rowCount && result.rowCount > 0) {
+      console.log(`Cleaned up ${result.rowCount} expired quiz sessions`);
     }
   }
 }

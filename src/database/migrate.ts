@@ -514,6 +514,18 @@ async function migrate() {
     await db.query(`CREATE INDEX IF NOT EXISTS idx_quiz_module_tag ON quiz_module_messages(tag);`).catch(() => {});
     console.log('✅ Quiz Academy columns OK');
 
+    // Quiz sessions table — persistent session storage (survives restarts)
+    await db.query(`CREATE TABLE IF NOT EXISTS quiz_sessions (
+      telegram_id BIGINT NOT NULL,
+      challenge_id INTEGER NOT NULL,
+      current_question INTEGER DEFAULT 0,
+      answers JSONB DEFAULT '[]'::jsonb,
+      shuffled_options JSONB DEFAULT '[]'::jsonb,
+      started_at TIMESTAMP DEFAULT NOW(),
+      PRIMARY KEY (telegram_id, challenge_id)
+    );`).catch(() => {});
+    console.log('✅ quiz_sessions table OK');
+
     console.log('✅ Database migration completed successfully!');
     process.exit(0);
   } catch (error) {
