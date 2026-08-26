@@ -2673,8 +2673,35 @@ function hostDownloadRulesHTML(challenge: any, rulesList: string[], isCent: bool
 // ==================== CREDENTIAL FAILURES PANEL ====================
 function CredentialFailuresPanel({ failedAccounts, doAction, selectedChallengeId }: { failedAccounts: any; doAction: any; selectedChallengeId: number }) {
   const [expanded, setExpanded] = useState(false);
+  const [retrying, setRetrying] = useState(false);
+  const [retryProgress, setRetryProgress] = useState<{ current: number; total: number; recovered: number; stillFailing: number; etaSeconds?: number } | null>(null);
   const count = failedAccounts?.credentialFailures?.length || 0;
   const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+  const getToken = () => localStorage.getItem("host_token") || "";
+
+  const handleRetryAll = async () => {
+    setRetrying(true); setRetryProgress({ current: 0, total: count, recovered: 0, stillFailing: 0 });
+    try {
+      const res = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/retry-all-credentials`, { method: "POST", headers: { Authorization: `Bearer ${getToken()}`, "Content-Type": "application/json" } });
+      const data = await res.json();
+      if (!data.started) { setRetrying(false); setRetryProgress(null); return; }
+      // Poll progress
+      const poll = setInterval(async () => {
+        try {
+          const sr = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/retry-all-status`, { headers: { Authorization: `Bearer ${getToken()}` } });
+          const status = await sr.json();
+          if (!status.running) {
+            clearInterval(poll);
+            setRetryProgress({ current: status.total, total: status.total, recovered: status.recovered, stillFailing: status.stillFailing });
+            setRetrying(false);
+            setTimeout(() => setRetryProgress(null), 5000);
+            return;
+          }
+          setRetryProgress({ current: status.current, total: status.total, recovered: status.recovered, stillFailing: status.stillFailing, etaSeconds: status.etaSeconds });
+        } catch {}
+      }, 2000);
+    } catch { setRetrying(false); setRetryProgress(null); }
+  };
 
   return (
     <div className="glass rounded-2xl border border-white/10 overflow-hidden">
@@ -2690,8 +2717,19 @@ function CredentialFailuresPanel({ failedAccounts, doAction, selectedChallengeId
             <>
               <div className="flex items-center justify-between mt-3 mb-3">
                 <p className="text-[10px] text-gray-500">{count} account{count !== 1 ? 's' : ''} with credential issues</p>
-                <button onClick={() => doAction(`${API_URL}/api/host/challenge/${selectedChallengeId}/retry-credentials`)} className="text-[10px] text-gold font-bold px-3 py-1.5 rounded-lg bg-gold/10 border border-gold/20 hover:bg-gold/20 transition-all">🔄 Retry All</button>
+                <button onClick={handleRetryAll} disabled={retrying} className="text-[10px] text-gold font-bold px-3 py-1.5 rounded-lg bg-gold/10 border border-gold/20 hover:bg-gold/20 transition-all disabled:opacity-50">{retrying ? '⏳ Retrying...' : '🔄 Retry All'}</button>
               </div>
+              {retryProgress && (
+                <div className="mb-3 p-3 rounded-xl bg-gold/5 border border-gold/20">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-[10px] text-gold font-semibold">{retryProgress.current}/{retryProgress.total}</span>
+                    <span className="text-[10px] text-gray-500">✅ {retryProgress.recovered} recovered · ❌ {retryProgress.stillFailing} failed{retryProgress.etaSeconds ? ` · ~${retryProgress.etaSeconds}s left` : ''}</span>
+                  </div>
+                  <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
+                    <div className="h-full rounded-full bg-gold transition-all duration-500" style={{ width: `${retryProgress.total > 0 ? (retryProgress.current / retryProgress.total * 100) : 0}%` }} />
+                  </div>
+                </div>
+              )}
               <div className="space-y-2 max-h-80 overflow-y-auto">
               {failedAccounts.credentialFailures.map((f: any) => (
                 <div key={f.id} className="p-3 rounded-lg bg-loss/5 border border-loss/10">

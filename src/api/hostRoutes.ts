@@ -840,6 +840,66 @@ router.post('/challenge/:id/retry-credentials', async (req: any, res: Response) 
   }
 });
 
+// ==================== RETRY ALL CREDENTIAL FAILURES (with progress) ====================
+let hostCredRetryState: { running: boolean; total: number; current: number; recovered: number; stillFailing: number; startedAt: number } | null = null;
+
+router.post('/challenge/:id/retry-all-credentials', async (req: any, res: Response) => {
+  const challengeId = await verifyOwnership(req, res);
+  if (!challengeId) return;
+  try {
+    if (hostCredRetryState?.running) return res.json({ success: false, error: 'Retry already in progress' });
+
+    const failed = await db.query(
+      `SELECT id, account_number, mt5_server, investor_password, nickname, email
+       FROM trading_registrations
+       WHERE challenge_id=$1 AND disqualified=false AND pull_status='password_changed' AND investor_password IS NOT NULL
+       ORDER BY last_pull_at DESC NULLS LAST`, [challengeId]);
+
+    if (failed.rows.length === 0) return res.json({ success: true, total: 0, message: 'No credential failures' });
+
+    const total = failed.rows.length;
+    hostCredRetryState = { running: true, total, current: 0, recovered: 0, stillFailing: 0, startedAt: Date.now() };
+    res.json({ success: true, started: true, total });
+
+    // Background: verify each one via VPS
+    (async () => {
+      const { vpsService } = require('../services/vpsService');
+      for (const reg of failed.rows) {
+        if (!hostCredRetryState?.running) break;
+        try {
+          const result = await vpsService.verifyConnection(reg.account_number, reg.mt5_server, reg.investor_password);
+          if (result.success) {
+            await db.query(`UPDATE trading_registrations SET pull_status='success', pull_error=NULL, last_known_balance=$1, last_pull_at=NOW() WHERE id=$2`, [result.balance || 0, reg.id]);
+            hostCredRetryState.recovered++;
+          } else {
+            hostCredRetryState.stillFailing++;
+          }
+        } catch { hostCredRetryState.stillFailing++; }
+        hostCredRetryState.current++;
+      }
+      hostCredRetryState.running = false;
+    })();
+  } catch { if (hostCredRetryState) hostCredRetryState.running = false; return res.status(500).json({ error: 'Failed' }); }
+});
+
+router.get('/challenge/:id/retry-all-status', async (req: any, res: Response) => {
+  const challengeId = await verifyOwnership(req, res);
+  if (!challengeId) return;
+  if (!hostCredRetryState) return res.json({ running: false });
+  const elapsed = Date.now() - hostCredRetryState.startedAt;
+  const msPerAccount = hostCredRetryState.current > 0 ? elapsed / hostCredRetryState.current : 0;
+  const remaining = hostCredRetryState.total - hostCredRetryState.current;
+  const etaSeconds = msPerAccount > 0 ? Math.round((msPerAccount * remaining) / 1000) : null;
+  return res.json({
+    running: hostCredRetryState.running,
+    total: hostCredRetryState.total,
+    current: hostCredRetryState.current,
+    recovered: hostCredRetryState.recovered,
+    stillFailing: hostCredRetryState.stillFailing,
+    etaSeconds, elapsed: Math.round(elapsed / 1000),
+  });
+});
+
 // ==================== PULL HISTORY (Updates tab) ====================
 router.get('/challenge/:id/pull-history', async (req: any, res: Response) => {
   const challengeId = await verifyOwnership(req, res);
