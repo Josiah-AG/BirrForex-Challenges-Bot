@@ -241,10 +241,7 @@ export default function HostDashboardPage() {
   // Fetch participant trades
   useEffect(() => {
     if (!selectedParticipant || !selectedChallengeId) { setSelectedParticipantTrades([]); setSelectedParticipantBalanceOps([]); return; }
-    const params = new URLSearchParams();
-    if (selectedParticipant.nickname) params.set('nickname', selectedParticipant.nickname);
-    if (selectedParticipant.registrationId) params.set('registration_id', String(selectedParticipant.registrationId));
-    fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/user-trades?${params.toString()}`, { headers: { Authorization: `Bearer ${getToken()}` } })
+    fetch(`${API_URL}/api/challenges/${selectedChallengeId}/user-trades?nickname=${encodeURIComponent(selectedParticipant.nickname)}`)
       .then(r => r.ok ? r.json() : { trades: [], balanceOps: [] })
       .then(d => { setSelectedParticipantTrades(d.trades || []); setSelectedParticipantBalanceOps(d.balanceOps || []); })
       .catch(() => { setSelectedParticipantTrades([]); setSelectedParticipantBalanceOps([]); });
@@ -1518,16 +1515,6 @@ export default function HostDashboardPage() {
                   <FileText size={14} /> Export MT5 Trade History
                 </button>
               )}
-              {/* Actions */}
-              <div className="border-t border-white/10 pt-4 space-y-2">
-                <p className="text-[10px] text-gray-500 uppercase tracking-wider font-semibold mb-2">Actions</p>
-                <div className="flex flex-wrap gap-2">
-                  <button onClick={async () => { const id = selectedParticipant.id || selectedParticipant.registrationId; if (!id) return; const btn = document.activeElement as HTMLButtonElement; btn.textContent = '⏳'; try { const r = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/check-balance`, { method: "POST", headers: headers(), body: JSON.stringify({ registrationId: id }) }); const d = await r.json(); if (d.verified) { btn.textContent = `✅ ${cur(Number(d.balance), selectedParticipant.isCent)}`; } else { btn.textContent = `❌ ${d.credential_fail ? 'PW changed' : 'Failed'}`; } } catch { btn.textContent = '❌ Error'; } setTimeout(() => { btn.textContent = '🛡️ Check Balance'; }, 5000); }} className="px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-semibold hover:bg-amber-500/20 transition-all">🛡️ Check Balance</button>
-                  <button onClick={async () => { const id = selectedParticipant.id || selectedParticipant.registrationId; if (!id) return; try { const r = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/re-evaluate-user`, { method: "POST", headers: headers(), body: JSON.stringify({ registrationId: id }) }); const d = await r.json(); alert(d.success ? "Re-evaluation complete" : (d.error || "Failed")); } catch { alert("Error"); } }} className="px-3 py-2 rounded-lg bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 text-xs font-semibold hover:bg-cyan-500/20 transition-all">🔄 Re-evaluate</button>
-                  {!(selectedParticipant.isDisqualified || selectedParticipant.disqualified) && <button onClick={() => { const id = selectedParticipant.id || selectedParticipant.registrationId; if (!id) return; const reason = prompt("DQ Reason:"); if (!reason) return; doAction(`${API_URL}/api/host/challenge/${selectedChallengeId}/disqualify`, 'POST', { registrationId: id, reason }); setSelectedParticipant(null); }} className="px-3 py-2 rounded-lg bg-loss/10 border border-loss/30 text-loss text-xs font-semibold hover:bg-loss/20 transition-all">🚫 Disqualify</button>}
-                  <button onClick={() => { const id = selectedParticipant.id || selectedParticipant.registrationId; if (!id) return; if (!confirm(`Remove ${selectedParticipant.nickname}?`)) return; doAction(`${API_URL}/api/host/challenge/${selectedChallengeId}/unverify`, 'POST', { registrationId: id }); setSelectedParticipant(null); }} className="px-3 py-2 rounded-lg bg-gray-500/10 border border-gray-500/30 text-gray-400 text-xs font-semibold hover:bg-gray-500/20 transition-all">🗑️ Remove</button>
-                </div>
-              </div>
             </div>
           </div>
         </div>
