@@ -85,14 +85,38 @@ router.get('/challenge/:id/full-overview', async (req: any, res: Response) => {
        FROM wp_pull_batches WHERE challenge_id=$1 AND started_at > NOW() - INTERVAL '24 hours'`, [challengeId]);
 
     // Top violations (violations is stored as JSON string, not pg array)
-    const topViolations = await db.query(
+    const rawViolations = await db.query(
       `SELECT rule, COUNT(*) as cnt FROM (
          SELECT trim(unnest(string_to_array(
            regexp_replace(violations::text, '\\[|\\]|"', '', 'g'), ','
          ))) as rule
          FROM wp_trades WHERE challenge_id=$1 AND is_qualified=false AND violations IS NOT NULL AND violations != '[]'
        ) sub WHERE length(rule) > 2
-       GROUP BY rule ORDER BY cnt DESC LIMIT 8`, [challengeId]);
+       GROUP BY rule ORDER BY cnt DESC LIMIT 30`, [challengeId]);
+
+    // Categorize violations (matching admin client-side logic)
+    const categorize = (rule: string): string => {
+      if (/daily.*drawdown breach/i.test(rule)) return 'Daily drawdown breach';
+      if (/exceeded max \d+ simultaneous open trades/i.test(rule)) return 'Simultaneous open trades limit';
+      if (/exceeded max \d+ simultaneous \S+ trades/i.test(rule)) return 'Simultaneous pair limit';
+      if (/declared sl risk/i.test(rule)) return 'SL risk too wide';
+      if (/fake sl|price.*max.*risk/i.test(rule)) return 'Fake SL detected';
+      if (/max risk candle check could not be verified/i.test(rule)) return 'SL check unverifiable';
+      if (/lot size.*exceeds max/i.test(rule)) return 'Lot size exceeded';
+      if (/held.*exceeds max.*h/i.test(rule)) return 'Max hold time exceeded';
+      if (/weekend trading/i.test(rule)) return 'Weekend trading';
+      if (/below minimum.*min/i.test(rule)) return rule.replace(/\s*\(.*\)\s*$/, '').trim();
+      return rule.replace(/\s*\(also open:.*\)\s*$/i, '').replace(/\s*\(.*\)\s*$/, '').trim();
+    };
+    const categorized: Record<string, number> = {};
+    for (const v of rawViolations.rows) {
+      const cat = categorize(v.rule);
+      categorized[cat] = (categorized[cat] || 0) + parseInt(v.cnt);
+    }
+    const topViolations = Object.entries(categorized)
+      .map(([rule, count]) => ({ rule, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5);
 
     const totalParticipants = parseInt(participants.rows[0]?.total || '0');
     const totalTrades = parseInt(trades.rows[0]?.total || '0');
@@ -273,7 +297,7 @@ router.get('/challenge/:id/full-overview', async (req: any, res: Response) => {
       pullsSuccess: parseInt(pullsToday.rows[0]?.total_success || '0'),
       pullsFailed: parseInt(pullsToday.rows[0]?.total_failed || '0'),
       lastPull: lastPull.rows[0] || null,
-      topViolations: topViolations.rows.map((v: any) => ({ rule: v.rule, count: parseInt(v.cnt) })),
+      topViolations: topViolations,
       realBalance: parseFloat(balanceData.rows[0]?.real_balance || '0'),
       demoBalance: parseFloat(balanceData.rows[0]?.demo_balance || '0'),
       totalBalance: parseFloat(balanceData.rows[0]?.total_balance || '0'),
