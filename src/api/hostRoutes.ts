@@ -504,25 +504,29 @@ router.post('/challenge/:id/check-balance', async (req: any, res: Response) => {
   const challengeId = await verifyOwnership(req, res);
   if (!challengeId) return;
   try {
-    const { registrationId } = req.body;
+    const { registrationId, newPassword } = req.body;
     if (!registrationId) return res.status(400).json({ error: 'registrationId required' });
     const reg = await db.query(`SELECT account_number, mt5_server, investor_password, is_cent FROM trading_registrations WHERE id = $1 AND challenge_id = $2`, [registrationId, challengeId]);
     if (!reg.rows[0]) return res.status(404).json({ error: 'Registration not found' });
     const { account_number, mt5_server, investor_password, is_cent } = reg.rows[0];
+    const passwordToUse = newPassword || investor_password;
     const { vpsService } = require('../services/vpsService');
-    const result = await vpsService.verifyConnection(account_number, mt5_server, investor_password);
+    const result = await vpsService.verifyConnection(account_number, mt5_server, passwordToUse);
     if (result.success) {
-      // Persist balance to DB so it shows on refresh
-      if (result.balance != null) {
+      // Persist balance + update password if new one was provided
+      if (newPassword) {
+        await db.query(
+          `UPDATE trading_registrations SET last_known_balance = $1, pull_status = 'success', pull_error = NULL, investor_password = $2, connection_verified = true, connection_verified_at = NOW(), last_pull_at = NOW() WHERE id = $3`,
+          [result.balance, newPassword, registrationId]);
+      } else {
         await db.query(
           `UPDATE trading_registrations SET last_known_balance = $1, pull_status = 'success', last_pull_at = NOW() WHERE id = $2`,
-          [result.balance, registrationId]
-        );
+          [result.balance, registrationId]);
       }
-      return res.json({ success: true, verified: true, balance: result.balance, equity: result.equity, isCent: is_cent });
+      return res.json({ success: true, verified: true, balance: result.balance, equity: result.equity, isCent: is_cent, passwordUpdated: !!newPassword });
     } else {
       // Mark credential failure if applicable
-      if (result.status === 'invalid_credentials') {
+      if (result.status === 'invalid_credentials' && !newPassword) {
         await db.query(`UPDATE trading_registrations SET pull_status = 'password_changed' WHERE id = $1`, [registrationId]);
       }
       return res.json({ success: true, verified: false, error: result.message || 'Connection failed', credential_fail: result.status === 'invalid_credentials' });
