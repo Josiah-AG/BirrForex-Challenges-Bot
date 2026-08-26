@@ -863,40 +863,14 @@ export default function HostDashboardPage() {
                   <button onClick={() => doAction(`${API_URL}/api/host/challenge/${selectedChallengeId}/force-update-rank`)} disabled={actionLoading} className="px-4 py-2.5 rounded-lg bg-profit/20 text-profit text-xs font-semibold border border-profit/30 hover:bg-profit/30 disabled:opacity-50 transition-all">Full Update (Non-DQ)</button>
                   <button onClick={() => doAction(`${API_URL}/api/host/challenge/${selectedChallengeId}/force-update`)} disabled={actionLoading} className="px-4 py-2.5 rounded-lg bg-gold/20 text-gold text-xs font-semibold border border-gold/30 hover:bg-gold/30 disabled:opacity-50 transition-all">Full Update + Evaluate + Rank</button>
                   <button onClick={() => doAction(`${API_URL}/api/host/challenge/${selectedChallengeId}/re-evaluate-user`, 'POST', {})} disabled={actionLoading} className="px-4 py-2.5 rounded-lg bg-cyan-500/20 text-cyan-400 text-xs font-semibold border border-cyan-500/30 hover:bg-cyan-500/30 disabled:opacity-50 transition-all">Evaluate Only</button>
+                  <IndividualPullBtn challengeId={selectedChallengeId!} getToken={getToken} />
                   <button onClick={() => doAction(`${API_URL}/api/host/challenge/${selectedChallengeId}/retry-credentials`)} disabled={actionLoading} className="px-4 py-2.5 rounded-lg bg-amber-500/20 text-amber-400 text-xs font-semibold border border-amber-500/30 hover:bg-amber-500/30 disabled:opacity-50 transition-all">Retry All Failed</button>
                 </div>
                 <p className="text-[10px] text-gray-500 mt-3">Updates run automatically 6x/day. Use these for manual triggers between scheduled runs.</p>
               </div>
 
-              {/* Credential Failures — always visible */}
-              <div className="glass rounded-2xl border border-white/10 p-5">
-                <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2"><Key size={16} className="text-loss" /> Credential Failures {failedAccounts?.credentialFailures?.length > 0 ? `(${failedAccounts.credentialFailures.length})` : ''}</h3>
-                {(!failedAccounts?.credentialFailures || failedAccounts.credentialFailures.length === 0) ? (
-                  <p className="text-xs text-gray-500 text-center py-3">No credential failures — all accounts connecting successfully.</p>
-                ) : (
-                  <div className="space-y-2 max-h-80 overflow-y-auto">
-                    {failedAccounts.credentialFailures.map((f: any) => (
-                      <div key={f.id} className="p-3 rounded-lg bg-loss/5 border border-loss/10">
-                        <div className="flex items-center justify-between">
-                          <div className="min-w-0">
-                            <p className="text-sm text-white font-medium">{f.nickname} <span className="text-gray-500 text-[10px]">#{f.account_number}</span></p>
-                            <p className="text-[10px] text-gray-500">{f.email || '—'} · {f.mt5_server}</p>
-                            {f.pull_error && <p className="text-[10px] text-loss mt-0.5 truncate max-w-[250px]">{f.pull_error}</p>}
-                            {f.last_pull_at && <p className="text-[10px] text-gray-600 mt-0.5">Last: {fmtTime(f.last_pull_at)}</p>}
-                          </div>
-                          <div className="flex gap-1.5 flex-shrink-0">
-                            <button onClick={() => doAction(`${API_URL}/api/host/challenge/${selectedChallengeId}/retry-credentials`, 'POST', { registrationId: f.id })} className="text-[10px] text-gold font-semibold px-2 py-1.5 rounded-lg bg-gold/10 border border-gold/20 hover:bg-gold/20 transition-all">🔄 Retry</button>
-                            <button onClick={async () => { const pw = prompt("Enter new investor password:"); if (!pw) return; await doAction(`${API_URL}/api/host/challenge/${selectedChallengeId}/check-balance`, 'POST', { registrationId: f.id, newPassword: pw }); }} className="text-[10px] text-royal font-semibold px-2 py-1.5 rounded-lg bg-royal/10 border border-royal/20 hover:bg-royal/20 transition-all">🔑 Update PW</button>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Update Individual Account */}
-              <IndividualPullPanel challengeId={selectedChallengeId!} getToken={getToken} />
+              {/* Credential Failures — collapsed by default */}
+              <CredentialFailuresPanel failedAccounts={failedAccounts} doAction={doAction} selectedChallengeId={selectedChallengeId!} />
 
               {/* Update History */}
               <div className="glass rounded-2xl border border-white/10 p-5">
@@ -2111,9 +2085,50 @@ function hostDownloadRulesHTML(challenge: any, rulesList: string[], isCent: bool
   const blob = new Blob([html], { type: 'text/html' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `${(challenge.title || 'challenge').replace(/\s+/g, '_')}_rules.html`; a.click(); URL.revokeObjectURL(url);
 }
 
-// ==================== INDIVIDUAL PULL PANEL ====================
-function IndividualPullPanel({ challengeId, getToken }: { challengeId: number; getToken: () => string }) {
+// ==================== CREDENTIAL FAILURES PANEL ====================
+function CredentialFailuresPanel({ failedAccounts, doAction, selectedChallengeId }: { failedAccounts: any; doAction: any; selectedChallengeId: number }) {
   const [expanded, setExpanded] = useState(false);
+  const count = failedAccounts?.credentialFailures?.length || 0;
+  const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+
+  return (
+    <div className="glass rounded-2xl border border-white/10 overflow-hidden">
+      <button onClick={() => setExpanded(!expanded)} className="w-full p-4 flex items-center justify-between hover:bg-white/5 transition-all">
+        <span className="text-sm font-semibold text-white flex items-center gap-2"><Key size={16} className="text-loss" /> Credential Failures {count > 0 && <span className="px-2 py-0.5 rounded-full bg-loss/20 text-loss text-[10px] font-bold">{count}</span>}</span>
+        <ChevronDown size={16} className={`text-gray-400 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+      </button>
+      {expanded && (
+        <div className="px-5 pb-5 border-t border-white/5">
+          {count === 0 ? (
+            <p className="text-xs text-gray-500 text-center py-3">No credential failures — all accounts connecting successfully.</p>
+          ) : (
+            <div className="space-y-2 max-h-80 overflow-y-auto mt-3">
+              {failedAccounts.credentialFailures.map((f: any) => (
+                <div key={f.id} className="p-3 rounded-lg bg-loss/5 border border-loss/10">
+                  <div className="flex items-center justify-between">
+                    <div className="min-w-0">
+                      <p className="text-sm text-white font-medium">{f.nickname} <span className="text-gray-500 text-[10px]">#{f.account_number}</span></p>
+                      <p className="text-[10px] text-gray-500">{f.email || '—'} · {f.mt5_server}</p>
+                      {f.pull_error && <p className="text-[10px] text-loss mt-0.5 truncate max-w-[250px]">{f.pull_error}</p>}
+                    </div>
+                    <div className="flex gap-1.5 flex-shrink-0">
+                      <button onClick={() => doAction(`${API_URL}/api/host/challenge/${selectedChallengeId}/retry-credentials`, 'POST', { registrationId: f.id })} className="text-[10px] text-gold font-semibold px-2 py-1.5 rounded-lg bg-gold/10 border border-gold/20 hover:bg-gold/20 transition-all">🔄 Retry</button>
+                      <button onClick={async () => { const pw = prompt("Enter new investor password:"); if (!pw) return; await doAction(`${API_URL}/api/host/challenge/${selectedChallengeId}/check-balance`, 'POST', { registrationId: f.id, newPassword: pw }); }} className="text-[10px] text-royal font-semibold px-2 py-1.5 rounded-lg bg-royal/10 border border-royal/20 hover:bg-royal/20 transition-all">🔑 Update PW</button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ==================== INDIVIDUAL PULL BUTTON + INLINE PANEL ====================
+function IndividualPullBtn({ challengeId, getToken }: { challengeId: number; getToken: () => string }) {
+  const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [searching, setSearching] = useState(false);
   const [user, setUser] = useState<any>(null);
@@ -2141,83 +2156,60 @@ function IndividualPullPanel({ challengeId, getToken }: { challengeId: number; g
         method: "POST", headers: { Authorization: `Bearer ${getToken()}`, "Content-Type": "application/json" },
         body: JSON.stringify({ registrationId: user.id }),
       });
-      // Poll for result
       for (let i = 0; i < 60; i++) {
         await new Promise(r => setTimeout(r, 3000));
         const res = await fetch(`${API_URL}/api/host/challenge/${challengeId}/pull-single-status?registrationId=${user.id}`, { headers: { Authorization: `Bearer ${getToken()}` } });
         const data = await res.json();
         if (data.done) { setPullResult(data); break; }
       }
-    } catch (err) { setPullResult({ done: true, success: false, errorMessage: 'Connection error' }); }
+    } catch { setPullResult({ done: true, success: false, errorMessage: 'Connection error' }); }
     setPulling(false);
   };
 
-  if (!expanded) {
-    return (
-      <button onClick={() => setExpanded(true)} className="w-full glass rounded-2xl border border-royal/20 p-4 flex items-center justify-between hover:bg-royal/5 transition-all">
-        <span className="text-sm font-semibold text-royal flex items-center gap-2"><Target size={16} /> Update Individual Account</span>
-        <ChevronDown size={16} className="text-royal" />
-      </button>
-    );
+  if (!open) {
+    return <button onClick={() => setOpen(true)} className="px-4 py-2.5 rounded-lg bg-purple-500/20 text-purple-400 text-xs font-semibold border border-purple-500/30 hover:bg-purple-500/30 transition-all">Update Individual</button>;
   }
 
   return (
-    <div className="glass rounded-2xl border border-royal/20 p-5">
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-semibold text-white flex items-center gap-2"><Target size={16} className="text-royal" /> Update Individual Account</h3>
-        <button onClick={() => { setExpanded(false); setUser(null); setPullResult(null); setSearch(""); setNotFound(false); }} className="text-[10px] text-gray-500 hover:text-white transition-all">Close</button>
+    <div className="w-full mt-3 p-4 rounded-xl bg-white/5 border border-royal/20 space-y-3">
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-semibold text-royal">Update Individual Account</p>
+        <button onClick={() => { setOpen(false); setUser(null); setPullResult(null); setSearch(""); setNotFound(false); }} className="text-[10px] text-gray-500 hover:text-white">Close</button>
       </div>
-      <div className="flex gap-2 mb-4">
-        <input type="text" value={search} onChange={e => setSearch(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleSearch()} placeholder="Search by email, account number, or nickname" className="flex-1 p-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-xs outline-none focus:border-royal/50 transition-all" />
-        <button onClick={handleSearch} disabled={searching || !search.trim()} className="px-4 py-2.5 rounded-xl bg-royal/20 text-royal text-xs font-semibold border border-royal/30 hover:bg-royal/30 disabled:opacity-50 transition-all">
-          {searching ? "..." : "Find"}
-        </button>
+      <div className="flex gap-2">
+        <input type="text" value={search} onChange={e => setSearch(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleSearch()} placeholder="Email, account number, or nickname" className="flex-1 p-2.5 rounded-lg bg-white/5 border border-white/10 text-white text-xs outline-none focus:border-royal/50" />
+        <button onClick={handleSearch} disabled={searching} className="px-3 py-2 rounded-lg bg-royal/20 text-royal text-xs font-semibold border border-royal/30 hover:bg-royal/30 disabled:opacity-50">{searching ? "..." : "Find"}</button>
       </div>
-
-      {notFound && <p className="text-xs text-gray-500 text-center py-3">No participant found with that search.</p>}
-
+      {notFound && <p className="text-[10px] text-gray-500 text-center">No participant found.</p>}
       {user && !pullResult && (
-        <div className="p-4 rounded-xl bg-white/5 border border-white/10 space-y-3">
+        <div className="p-3 rounded-lg bg-white/5 border border-white/10 space-y-2">
           <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-bold text-white">{user.nickname}</p>
-              <p className="text-[10px] text-gray-500">{user.email} · #{user.accountNumber} · {user.server}</p>
-            </div>
+            <div><p className="text-sm font-bold text-white">{user.nickname}</p><p className="text-[10px] text-gray-500">{user.email} · #{user.accountNumber}</p></div>
             {user.disqualified && <span className="px-2 py-0.5 rounded-full bg-loss/20 text-loss text-[10px] font-bold">DQ</span>}
           </div>
           <div className="grid grid-cols-3 gap-2 text-center">
-            <div className="bg-white/5 rounded-lg p-2"><p className="text-[9px] text-gray-500">Rank</p><p className="text-sm font-bold text-white">{user.rank ? `#${user.rank}` : "—"}</p></div>
-            <div className="bg-white/5 rounded-lg p-2"><p className="text-[9px] text-gray-500">Trades</p><p className="text-sm font-bold text-white">{user.totalTrades}</p></div>
-            <div className="bg-white/5 rounded-lg p-2"><p className="text-[9px] text-gray-500">Balance</p><p className="text-sm font-bold text-profit">{user.isCent ? `${user.adjustedBalance?.toFixed(0)}¢` : `$${user.adjustedBalance?.toFixed(2)}`}</p></div>
+            <div className="bg-white/5 rounded p-1.5"><p className="text-[8px] text-gray-500">Rank</p><p className="text-xs font-bold text-white">{user.rank ? `#${user.rank}` : "—"}</p></div>
+            <div className="bg-white/5 rounded p-1.5"><p className="text-[8px] text-gray-500">Trades</p><p className="text-xs font-bold text-white">{user.totalTrades}</p></div>
+            <div className="bg-white/5 rounded p-1.5"><p className="text-[8px] text-gray-500">Balance</p><p className="text-xs font-bold text-profit">{user.isCent ? `${user.adjustedBalance?.toFixed(0)}¢` : `$${user.adjustedBalance?.toFixed(2)}`}</p></div>
           </div>
           {user.disqualifiedReason && <p className="text-[10px] text-loss">DQ: {user.disqualifiedReason}</p>}
-          <button onClick={handlePull} disabled={pulling} className="w-full py-2.5 rounded-xl bg-gradient-to-r from-royal to-purple-600 text-white text-xs font-semibold hover:opacity-90 disabled:opacity-50 transition-all flex items-center justify-center gap-2">
-            {pulling ? <><Loader2 size={12} className="animate-spin" /> Updating full history & evaluating (30-60s)...</> : "⚡ Update This Account"}
+          <button onClick={handlePull} disabled={pulling} className="w-full py-2 rounded-lg bg-gradient-to-r from-royal to-purple-600 text-white text-[10px] font-semibold hover:opacity-90 disabled:opacity-50 flex items-center justify-center gap-1.5">
+            {pulling ? <><Loader2 size={10} className="animate-spin" /> Updating (30-60s)...</> : "⚡ Update This Account"}
           </button>
         </div>
       )}
-
       {pullResult && (
-        <div className={`p-4 rounded-xl border ${pullResult.success ? 'bg-profit/5 border-profit/30' : 'bg-loss/5 border-loss/30'}`}>
-          <p className={`text-sm font-bold mb-2 ${pullResult.success ? 'text-profit' : 'text-loss'}`}>{pullResult.success ? '✅ Update Complete' : '❌ Update Failed'}</p>
+        <div className={`p-3 rounded-lg border ${pullResult.success ? 'bg-profit/5 border-profit/30' : 'bg-loss/5 border-loss/30'}`}>
+          <p className={`text-xs font-bold mb-1.5 ${pullResult.success ? 'text-profit' : 'text-loss'}`}>{pullResult.success ? '✅ Complete' : '❌ Failed'}</p>
           {pullResult.success ? (
-            <div className="space-y-2">
-              <div className="grid grid-cols-4 gap-2 text-center">
-                <div className="bg-white/5 rounded-lg p-2"><p className="text-[9px] text-gray-500">Trades</p><p className="text-xs font-bold text-white">{pullResult.tradesFound}</p></div>
-                <div className="bg-white/5 rounded-lg p-2"><p className="text-[9px] text-gray-500">New</p><p className="text-xs font-bold text-profit">+{pullResult.tradesAdded}</p></div>
-                <div className="bg-white/5 rounded-lg p-2"><p className="text-[9px] text-gray-500">Flagged</p><p className="text-xs font-bold text-loss">{pullResult.faultsFound}</p></div>
-                <div className="bg-white/5 rounded-lg p-2"><p className="text-[9px] text-gray-500">Rank</p><p className="text-xs font-bold text-white">{pullResult.prevRank ? `#${pullResult.prevRank}` : '—'} → {pullResult.newRank ? `#${pullResult.newRank}` : '—'}</p></div>
-              </div>
-              <div className="flex justify-between text-[10px] text-gray-400 pt-1">
-                <span>Adj. Balance: <span className="text-white font-medium">{user?.isCent ? `${pullResult.adjustedBalance?.toFixed(0)}¢` : `$${pullResult.adjustedBalance?.toFixed(2)}`}</span></span>
-                <span>Gross: <span className="text-white font-medium">{user?.isCent ? `${pullResult.grossBalance?.toFixed(0)}¢` : `$${pullResult.grossBalance?.toFixed(2)}`}</span></span>
-              </div>
-              {pullResult.isDisqualified && <p className="text-[10px] text-loss mt-1">⚠️ DQ: {pullResult.dqReason}</p>}
+            <div className="grid grid-cols-4 gap-1.5 text-center">
+              <div className="bg-white/5 rounded p-1.5"><p className="text-[8px] text-gray-500">Trades</p><p className="text-[10px] font-bold text-white">{pullResult.tradesFound}</p></div>
+              <div className="bg-white/5 rounded p-1.5"><p className="text-[8px] text-gray-500">New</p><p className="text-[10px] font-bold text-profit">+{pullResult.tradesAdded}</p></div>
+              <div className="bg-white/5 rounded p-1.5"><p className="text-[8px] text-gray-500">Flagged</p><p className="text-[10px] font-bold text-loss">{pullResult.faultsFound}</p></div>
+              <div className="bg-white/5 rounded p-1.5"><p className="text-[8px] text-gray-500">Rank</p><p className="text-[10px] font-bold text-white">{pullResult.prevRank || '—'}→{pullResult.newRank || '—'}</p></div>
             </div>
-          ) : (
-            <p className="text-xs text-gray-400">{pullResult.errorMessage || 'Unknown error'}</p>
-          )}
-          <button onClick={() => { setPullResult(null); setUser(null); setSearch(""); }} className="mt-3 w-full py-2 rounded-xl bg-white/5 border border-white/10 text-gray-400 text-xs font-medium hover:bg-white/10 transition-all">Done</button>
+          ) : <p className="text-[10px] text-gray-400">{pullResult.errorMessage}</p>}
+          <button onClick={() => { setPullResult(null); setUser(null); setSearch(""); }} className="mt-2 w-full py-1.5 rounded-lg bg-white/5 border border-white/10 text-gray-400 text-[10px] hover:bg-white/10">Done</button>
         </div>
       )}
     </div>
