@@ -3831,7 +3831,9 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
         };
         const categorized: Record<string, number> = {};
         for (const r of violationRows.rows) {
-          const cat = categorize((r.rule || '').trim());
+          const rule = (r.rule || '').trim();
+          if (!rule || rule.length < 3 || /^#\d+/.test(rule) || /^\d+\)/.test(rule)) continue;
+          const cat = categorize(rule);
           if (cat.length > 2) categorized[cat] = (categorized[cat] || 0) + parseInt(r.cnt);
         }
         const sorted = Object.entries(categorized).map(([rule, count]) => ({ rule, count })).sort((a, b) => b.count - a.count);

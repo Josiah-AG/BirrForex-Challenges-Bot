@@ -110,7 +110,11 @@ router.get('/challenge/:id/full-overview', async (req: any, res: Response) => {
     };
     const categorized: Record<string, number> = {};
     for (const v of rawViolations.rows) {
-      const cat = categorize(v.rule);
+      const rule = (v.rule || '').trim();
+      // Skip ticket references that leaked from comma-split of "(also open: #123, #456)"
+      if (!rule || rule.length < 3 || /^#\d+/.test(rule) || /^\d+\)/.test(rule)) continue;
+      const cat = categorize(rule);
+      if (cat.length < 3) continue;
       categorized[cat] = (categorized[cat] || 0) + parseInt(v.cnt);
     }
     const topViolations = Object.entries(categorized)
