@@ -353,6 +353,21 @@ router.get('/challenge/:id/full-participants', async (req: any, res: Response) =
        ORDER BY r.registered_at DESC
        LIMIT $${params.length + 1} OFFSET $${params.length + 2}`, [...params, limit, offset]);
 
+    // If search returned results, fetch recent trades for the first match
+    let recentTradesMap: Record<number, any[]> = {};
+    if (search && result.rows.length > 0) {
+      for (const p of result.rows.slice(0, 1)) {
+        const trades = await db.query(
+          `SELECT symbol, trade_type, volume, profit, is_qualified, violations
+           FROM wp_trades WHERE challenge_id=$1 AND registration_id=$2
+           ORDER BY close_time DESC LIMIT 10`, [challengeId, p.id]);
+        recentTradesMap[p.id] = trades.rows.map((t: any) => ({
+          symbol: t.symbol, type: t.trade_type, volume: parseFloat(t.volume),
+          profit: parseFloat(t.profit), isQualified: t.is_qualified, violations: t.violations || [],
+        }));
+      }
+    }
+
     return res.json({
       participants: result.rows.map((p: any) => ({
         id: p.id, nickname: p.nickname, username: p.username, email: p.email,
@@ -373,6 +388,7 @@ router.get('/challenge/:id/full-participants', async (req: any, res: Response) =
         totalTrades: p.total_trades || 0, qualifiedTrades: p.qualified_trades || 0,
         flaggedTrades: p.flagged_trades || 0, activeDays: p.active_days || 0,
         partnerStatus: 'OK',
+        recentTrades: recentTradesMap[p.id] || null,
       })),
       pagination: { page, total, totalPages: Math.ceil(total / limit) },
     });
