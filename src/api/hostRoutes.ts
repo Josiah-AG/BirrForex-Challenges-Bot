@@ -281,6 +281,11 @@ router.get('/challenge/:id/full-overview', async (req: any, res: Response) => {
          AND r.disqualified = false
          AND r.investor_password IS NOT NULL`, [challengeId]);
 
+    // Unique instruments count
+    const instrumentsResult = await db.query(
+      `SELECT COUNT(DISTINCT REGEXP_REPLACE(symbol, '[a-z]$', '')) as cnt FROM wp_trades WHERE challenge_id=$1`, [challengeId]);
+    const instrumentsCount = parseInt(instrumentsResult.rows[0]?.cnt || '0');
+
     return res.json({
       challenge: c,
       totalParticipants,
@@ -302,6 +307,7 @@ router.get('/challenge/:id/full-overview', async (req: any, res: Response) => {
       pullsFailed: parseInt(pullsToday.rows[0]?.total_failed || '0'),
       lastPull: lastPull.rows[0] || null,
       topViolations: topViolations,
+      instrumentsCount,
       realBalance: parseFloat(balanceData.rows[0]?.real_balance || '0'),
       demoBalance: parseFloat(balanceData.rows[0]?.demo_balance || '0'),
       totalBalance: parseFloat(balanceData.rows[0]?.total_balance || '0'),

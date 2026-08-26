@@ -1309,7 +1309,7 @@ export default function HostDashboardPage() {
                           demoBestWinRate: md.bestOverallWinRate ? { nickname: md.bestOverallWinRate.nickname, rate: `${Math.min(100, md.bestOverallWinRate.winRate)}%` } : null,
                           realBestRKR: m.bestRuleKeeping || null, realWorstRKR: m.worstRuleKeeping || null,
                           demoBestRKR: md.bestRuleKeeping || null, demoWorstRKR: md.worstRuleKeeping || null,
-                          instrumentsCount: data.instrumentsCount || (m.mostTradedPair ? 1 : 0),
+                          instrumentsCount: data.instrumentsCount || 0,
                           topInstruments: m.topInstruments || md.topInstruments || [],
                           mostBrokenRule: data.topViolations?.[0] || null,
                           mostActiveDay: m.mostActiveDay || md.mostActiveDay || null,
@@ -2303,8 +2303,8 @@ body{font-family:'Inter',system-ui,-apple-system,sans-serif;background:#0a0e1a}
   </div>
   <div class="card">
     <div class="card-label">📅 Most Active Day</div>
-    <div class="card-value small">${s.mostActiveDay?.day || '—'}</div>
-    ${s.mostActiveDay ? `<div style="margin-top:8px;font-size:12px;color:#64748b">${s.mostActiveDay.trades} trades</div>` : ''}
+    <div class="card-value small">${s.mostActiveDay?.day ? new Date(s.mostActiveDay.day).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) : '—'}</div>
+    ${s.mostActiveDay ? `<div style="margin-top:8px;font-size:12px;color:#64748b">${s.mostActiveDay.tradeCount || s.mostActiveDay.trades || 0} trades</div>` : ''}
   </div>
 </div>
 <div class="footer"><div class="brand">BirrForex • WinnerPip</div></div>
