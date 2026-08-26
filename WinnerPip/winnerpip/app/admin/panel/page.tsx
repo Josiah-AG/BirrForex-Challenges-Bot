@@ -3976,8 +3976,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
         </div>
         <div className="flex flex-wrap gap-3">
           <button onClick={handleForcePull} className="px-4 py-2.5 rounded-xl bg-royal/20 border border-royal/30 text-royal text-xs font-bold hover:bg-royal/30 transition-all">⚡ Force Pull Now</button>
-          <button onClick={handleForcePullRank} className="px-4 py-2.5 rounded-xl bg-profit/20 border border-profit/30 text-profit text-xs font-bold hover:bg-profit/30 transition-all">⚡ Full Pull (Non-DQ)</button>
-          <button onClick={handleFullPull} className="px-4 py-2.5 rounded-xl bg-gold/20 border border-gold/30 text-gold text-xs font-bold hover:bg-gold/30 transition-all">🔄 Full Pull + Evaluate + Rank</button>
+          <button onClick={handleFullPull} className="px-4 py-2.5 rounded-xl bg-profit/20 border border-profit/30 text-profit text-xs font-bold hover:bg-profit/30 transition-all">🔄 Full Pull + Evaluate + Rank</button>
           <button onClick={handleFullPullAll} className="px-4 py-2.5 rounded-xl bg-amber-500/20 border border-amber-500/30 text-amber-400 text-xs font-bold hover:bg-amber-500/30 transition-all">🔄 Full Pull (All incl. DQ)</button>
           <button onClick={handleFullPullReplace} className="px-4 py-2.5 rounded-xl bg-loss/20 border border-loss/30 text-loss text-xs font-bold hover:bg-loss/30 transition-all">🗑️ Full Pull (Replace)</button>
           <button onClick={fetchFailed} disabled={loadingFailed} className="px-4 py-2.5 rounded-xl bg-loss/10 border border-loss/30 text-loss text-xs font-bold hover:bg-loss/20 transition-all">{loadingFailed ? "Loading..." : "🔍 View Failed Accounts"}</button>
