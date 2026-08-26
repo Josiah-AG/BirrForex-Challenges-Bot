@@ -241,7 +241,8 @@ export default function HostDashboardPage() {
   // Fetch participant trades
   useEffect(() => {
     if (!selectedParticipant || !selectedChallengeId) { setSelectedParticipantTrades([]); setSelectedParticipantBalanceOps([]); return; }
-    fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/user-trades?nickname=${encodeURIComponent(selectedParticipant.nickname)}`, { headers: { Authorization: `Bearer ${getToken()}` } })
+    const searchParam = selectedParticipant.registrationId ? `registration_id=${selectedParticipant.registrationId}` : `nickname=${encodeURIComponent(selectedParticipant.nickname)}`;
+    fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/user-trades?${searchParam}`, { headers: { Authorization: `Bearer ${getToken()}` } })
       .then(r => r.ok ? r.json() : { trades: [], balanceOps: [] })
       .then(d => { setSelectedParticipantTrades(d.trades || []); setSelectedParticipantBalanceOps(d.balanceOps || []); })
       .catch(() => { setSelectedParticipantTrades([]); setSelectedParticipantBalanceOps([]); });

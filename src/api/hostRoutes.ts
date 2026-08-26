@@ -742,12 +742,18 @@ router.get('/challenge/:id/user-trades', async (req: any, res: Response) => {
   if (!challengeId) return;
   try {
     const nickname = req.query.nickname as string;
-    if (!nickname) return res.status(400).json({ error: 'nickname required' });
+    const regIdParam = req.query.registration_id as string;
+    let registrationId: number | null = null;
 
-    const reg = await db.query(
-      `SELECT id FROM trading_registrations WHERE challenge_id=$1 AND nickname=$2 AND (status IS NULL OR status != 'removed')`, [challengeId, nickname]);
-    if (!reg.rows[0]) return res.json({ trades: [], balanceOps: [] });
-    const registrationId = reg.rows[0].id;
+    if (regIdParam) {
+      registrationId = parseInt(regIdParam);
+    } else if (nickname) {
+      const reg = await db.query(
+        `SELECT id FROM trading_registrations WHERE challenge_id=$1 AND nickname=$2 AND (status IS NULL OR status != 'removed')`, [challengeId, nickname]);
+      registrationId = reg.rows[0]?.id || null;
+    }
+
+    if (!registrationId) return res.json({ trades: [], balanceOps: [] });
 
     const trades = await db.query(
       `SELECT ticket, symbol, trade_type, volume, open_time, close_time, open_price, close_price,
