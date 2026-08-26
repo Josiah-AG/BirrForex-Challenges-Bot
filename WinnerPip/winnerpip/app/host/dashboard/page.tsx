@@ -729,7 +729,7 @@ export default function HostDashboardPage() {
                           if (participantFilter === 'password_changed') return p.pullStatus === 'password_changed';
                           return true;
                         }).map((p) => (
-                          <tr key={p.id} className={`border-b border-white/5 hover:bg-white/5 cursor-pointer transition-colors ${p.disqualified ? "opacity-50 bg-loss/5" : ""}`} onClick={() => setSelectedParticipant(p)}>
+                          <tr key={p.id} className={`border-b border-white/5 hover:bg-white/5 cursor-pointer transition-colors ${p.disqualified ? "opacity-50 bg-loss/5" : ""}`} onClick={() => { setFoundUser(p); setSearchPerformed(true); }}>
                             <td className="py-2 px-3 text-xs text-gray-500">{p.rank || "—"}</td>
                             <td className="py-2 px-3 text-sm text-white font-medium">{p.nickname || "—"}</td>
                             <td className="py-2 px-3 text-xs text-gray-400 max-w-[120px] truncate">{p.email || "—"}</td>
