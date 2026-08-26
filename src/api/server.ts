@@ -2293,7 +2293,7 @@ app.get('/api/host/challenge/:id/leaderboard', hostAuthMiddleware, async (req: a
     }
 
     const result = await db.query(
-      `SELECT l.nickname, l.account_type, l.rank, l.rank_change, l.current_balance, l.adjusted_balance,
+      `SELECT l.nickname, l.account_type, l.rank, l.current_balance, l.adjusted_balance,
               l.qualified_profit, l.gross_profit, l.profit_removed, l.total_trades,
               l.qualified_trades, l.flagged_trades, l.is_qualified, l.is_disqualified,
               l.disqualify_reason, l.growth_percent, l.last_trade_time,
@@ -2319,7 +2319,7 @@ app.get('/api/host/challenge/:id/leaderboard', hostAuthMiddleware, async (req: a
         accountSubtype: r.account_subtype || null,
         server: r.mt5_server || '',
         rank: r.rank,
-        rankChange: r.rank_change || null,
+        rankChange: null,
         currentBalance: parseFloat(r.current_balance),
         adjustedBalance: parseFloat(r.adjusted_balance),
         qualifiedProfit: parseFloat(r.qualified_profit),
