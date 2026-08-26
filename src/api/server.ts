@@ -1044,7 +1044,14 @@ app.post('/api/challenges/:id/change-account', authLimiter, async (req, res) => 
 
     // Update registration
     await db.query(
-      `UPDATE trading_registrations SET account_number = $1, mt5_server = $2, investor_password = $3, is_cent = $4, last_known_balance = $5 WHERE id = $6`,
+      `UPDATE trading_registrations SET
+        account_number = $1, mt5_server = $2, investor_password = $3, is_cent = $4,
+        last_known_balance = $5, registration_balance = $5, actual_starting_balance = NULL,
+        connection_verified = true, connection_verified_at = NOW(),
+        pull_status = NULL, pull_error = NULL, last_pull_at = NULL,
+        disqualified = false, disqualified_at = NULL, disqualified_reason = NULL,
+        balance_warning = false
+       WHERE id = $6`,
       [newAccountNumber.trim(), serverToUse, newInvestorPassword.trim(), isCent, balance, reg.rows[0].id]);
 
     return res.json({ success: true, message: 'Account updated successfully', balance, isCent, server: serverToUse });
@@ -1199,9 +1206,17 @@ app.post('/api/challenges/:id/change-registration', authLimiter, async (req: any
       }
     }
 
-    // Atomically update the registration
+    // Fully reset the registration — clear all old balance/status data
     await db.query(
-      `UPDATE trading_registrations SET account_number = $1, mt5_server = $2, investor_password = $3, account_type = $4, is_cent = $5, last_known_balance = $6, account_subtype = $7 WHERE id = $8`,
+      `UPDATE trading_registrations SET
+        account_number = $1, mt5_server = $2, investor_password = $3, account_type = $4,
+        is_cent = $5, last_known_balance = $6, account_subtype = $7,
+        registration_balance = $6, actual_starting_balance = NULL,
+        connection_verified = true, connection_verified_at = NOW(),
+        pull_status = NULL, pull_error = NULL, last_pull_at = NULL,
+        disqualified = false, disqualified_at = NULL, disqualified_reason = NULL,
+        balance_warning = false
+       WHERE id = $8`,
       [newAccountNumber.trim(), serverToUse, newInvestorPassword.trim(), newAccountType, isCent, balance, accountSubtype, existingRegId]);
 
     return res.json({
