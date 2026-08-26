@@ -2293,11 +2293,14 @@ app.get('/api/host/challenge/:id/leaderboard', hostAuthMiddleware, async (req: a
     }
 
     const result = await db.query(
-      `SELECT l.nickname, l.account_type, l.rank, l.current_balance, l.adjusted_balance,
+      `SELECT l.nickname, l.account_type, l.rank, l.rank_change, l.current_balance, l.adjusted_balance,
               l.qualified_profit, l.gross_profit, l.profit_removed, l.total_trades,
               l.qualified_trades, l.flagged_trades, l.is_qualified, l.is_disqualified,
               l.disqualify_reason, l.growth_percent, l.last_trade_time,
+              l.total_withdrawn, l.is_withdrawn, l.zero_balance_at,
               COALESCE(l.is_cent, false) as is_cent,
+              l.registration_id,
+              r.account_number, r.email, r.mt5_server, r.account_subtype,
               r.disqualified as reg_disqualified, r.disqualified_reason as reg_dq_reason
        FROM wp_leaderboard l
        JOIN trading_registrations r ON l.registration_id = r.id
@@ -2310,8 +2313,13 @@ app.get('/api/host/challenge/:id/leaderboard', hostAuthMiddleware, async (req: a
     return res.json({
       leaderboard: result.rows.map((r: any) => ({
         nickname: r.nickname,
+        email: r.email || '',
+        accountNumber: r.account_number || '',
         accountType: r.account_type,
+        accountSubtype: r.account_subtype || null,
+        server: r.mt5_server || '',
         rank: r.rank,
+        rankChange: r.rank_change || null,
         currentBalance: parseFloat(r.current_balance),
         adjustedBalance: parseFloat(r.adjusted_balance),
         qualifiedProfit: parseFloat(r.qualified_profit),
@@ -2326,6 +2334,10 @@ app.get('/api/host/challenge/:id/leaderboard', hostAuthMiddleware, async (req: a
         growthPercent: parseFloat(r.growth_percent) || 0,
         isCent: r.is_cent,
         lastTradeTime: r.last_trade_time,
+        totalWithdrawn: parseFloat(r.total_withdrawn || '0'),
+        isWithdrawn: r.is_withdrawn || false,
+        isBlown: r.zero_balance_at != null || (r.total_trades > 0 && parseFloat(r.current_balance) <= 0),
+        registrationId: r.registration_id,
       })),
     });
   } catch (error) {
