@@ -746,10 +746,13 @@ router.get('/challenge/:id/user-trades', async (req: any, res: Response) => {
     let registrationId: number | null = null;
 
     if (regIdParam) {
-      registrationId = parseInt(regIdParam);
-    } else if (nickname) {
+      // Verify this registration belongs to this challenge
+      const regCheck = await db.query(`SELECT id FROM trading_registrations WHERE id = $1 AND challenge_id = $2`, [parseInt(regIdParam), challengeId]);
+      registrationId = regCheck.rows[0]?.id || null;
+    }
+    if (!registrationId && nickname) {
       const reg = await db.query(
-        `SELECT id FROM trading_registrations WHERE challenge_id=$1 AND nickname=$2 AND (status IS NULL OR status != 'removed')`, [challengeId, nickname]);
+        `SELECT id FROM trading_registrations WHERE challenge_id=$1 AND nickname=$2`, [challengeId, nickname]);
       registrationId = reg.rows[0]?.id || null;
     }
 

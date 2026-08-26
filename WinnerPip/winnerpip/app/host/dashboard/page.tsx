@@ -241,8 +241,10 @@ export default function HostDashboardPage() {
   // Fetch participant trades
   useEffect(() => {
     if (!selectedParticipant || !selectedChallengeId) { setSelectedParticipantTrades([]); setSelectedParticipantBalanceOps([]); return; }
-    const searchParam = selectedParticipant.registrationId ? `registration_id=${selectedParticipant.registrationId}` : `nickname=${encodeURIComponent(selectedParticipant.nickname)}`;
-    fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/user-trades?${searchParam}`, { headers: { Authorization: `Bearer ${getToken()}` } })
+    const params = new URLSearchParams();
+    if (selectedParticipant.nickname) params.set('nickname', selectedParticipant.nickname);
+    if (selectedParticipant.registrationId) params.set('registration_id', String(selectedParticipant.registrationId));
+    fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/user-trades?${params.toString()}`, { headers: { Authorization: `Bearer ${getToken()}` } })
       .then(r => r.ok ? r.json() : { trades: [], balanceOps: [] })
       .then(d => { setSelectedParticipantTrades(d.trades || []); setSelectedParticipantBalanceOps(d.balanceOps || []); })
       .catch(() => { setSelectedParticipantTrades([]); setSelectedParticipantBalanceOps([]); });
