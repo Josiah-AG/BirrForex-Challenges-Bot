@@ -86,13 +86,12 @@ router.get('/challenge/:id/full-overview', async (req: any, res: Response) => {
 
     // Top violations (violations is stored as JSON string, not pg array)
     const rawViolations = await db.query(
-      `SELECT rule, COUNT(*) as cnt FROM (
-         SELECT trim(unnest(string_to_array(
-           regexp_replace(violations::text, '\\[|\\]|"', '', 'g'), ','
-         ))) as rule
-         FROM wp_trades WHERE challenge_id=$1 AND is_qualified=false AND violations IS NOT NULL AND violations != '[]'
-       ) sub WHERE length(rule) > 2
-       GROUP BY rule ORDER BY cnt DESC LIMIT 30`, [challengeId]);
+      `SELECT trim(unnest(string_to_array(
+           regexp_replace(t.violations::text, '\\[|\\]|"', '', 'g'), ','
+         ))) as rule, r.nickname
+       FROM wp_trades t
+       JOIN trading_registrations r ON t.registration_id = r.id
+       WHERE t.challenge_id=$1 AND t.is_qualified=false AND t.violations IS NOT NULL AND t.violations != '[]'`, [challengeId]);
 
     // Categorize violations (matching admin client-side logic)
     const categorize = (rule: string): string => {
@@ -108,17 +107,18 @@ router.get('/challenge/:id/full-overview', async (req: any, res: Response) => {
       if (/below minimum.*min/i.test(rule)) return rule.replace(/\s*\(.*\)\s*$/, '').trim();
       return rule.replace(/\s*\(also open:.*\)\s*$/i, '').replace(/\s*\(.*\)\s*$/, '').trim();
     };
-    const categorized: Record<string, number> = {};
+    const categorizedMap: Record<string, { count: number; details: { nickname: string; detail: string }[] }> = {};
     for (const v of rawViolations.rows) {
       const rule = (v.rule || '').trim();
-      // Skip ticket references that leaked from comma-split of "(also open: #123, #456)"
       if (!rule || rule.length < 3 || /^#\d+/.test(rule) || /^\d+\)/.test(rule)) continue;
       const cat = categorize(rule);
       if (cat.length < 3) continue;
-      categorized[cat] = (categorized[cat] || 0) + parseInt(v.cnt);
+      if (!categorizedMap[cat]) categorizedMap[cat] = { count: 0, details: [] };
+      categorizedMap[cat].count++;
+      categorizedMap[cat].details.push({ nickname: v.nickname || '', detail: rule });
     }
-    const topViolations = Object.entries(categorized)
-      .map(([rule, count]) => ({ rule, count }))
+    const topViolations = Object.entries(categorizedMap)
+      .map(([rule, { count, details }]) => ({ rule, count, details: details.slice(0, 10) }))
       .sort((a, b) => b.count - a.count)
       .slice(0, 5);
 
