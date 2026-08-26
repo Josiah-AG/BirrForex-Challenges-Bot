@@ -2687,7 +2687,12 @@ function CredentialFailuresPanel({ failedAccounts, doAction, selectedChallengeId
           {count === 0 ? (
             <p className="text-xs text-gray-500 text-center py-3">No credential failures — all accounts connecting successfully.</p>
           ) : (
-            <div className="space-y-2 max-h-80 overflow-y-auto mt-3">
+            <>
+              <div className="flex items-center justify-between mt-3 mb-3">
+                <p className="text-[10px] text-gray-500">{count} account{count !== 1 ? 's' : ''} with credential issues</p>
+                <button onClick={() => doAction(`${API_URL}/api/host/challenge/${selectedChallengeId}/retry-credentials`)} className="text-[10px] text-gold font-bold px-3 py-1.5 rounded-lg bg-gold/10 border border-gold/20 hover:bg-gold/20 transition-all">🔄 Retry All</button>
+              </div>
+              <div className="space-y-2 max-h-80 overflow-y-auto">
               {failedAccounts.credentialFailures.map((f: any) => (
                 <div key={f.id} className="p-3 rounded-lg bg-loss/5 border border-loss/10">
                   <div className="flex items-center justify-between">
@@ -2704,6 +2709,7 @@ function CredentialFailuresPanel({ failedAccounts, doAction, selectedChallengeId
                 </div>
               ))}
             </div>
+            </>
           )}
         </div>
       )}
