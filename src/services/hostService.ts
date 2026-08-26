@@ -219,7 +219,7 @@ class HostService {
   async getHostChallenges(hostId: number): Promise<any[]> {
     const result = await db.query(
       `SELECT id, title, type, status, start_date, end_date, starting_balance, target_balance,
-              deposit_mode, target_percent, timezone, created_at
+              deposit_mode, target_percent, timezone, registration_mode, created_at
        FROM trading_challenges
        WHERE host_id = $1
        ORDER BY created_at DESC`,

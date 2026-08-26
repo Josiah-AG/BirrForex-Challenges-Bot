@@ -247,6 +247,15 @@ export default function HostDashboardPage() {
       .catch(() => { setSelectedParticipantTrades([]); setSelectedParticipantBalanceOps([]); });
   }, [selectedParticipant, selectedChallengeId]);
 
+  // Fetch recent trades when foundUser is set (from clicking participant row)
+  useEffect(() => {
+    if (!foundUser || !selectedChallengeId || foundUser.recentTrades) return;
+    fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/full-participants?search=${encodeURIComponent(foundUser.nickname || foundUser.accountNumber || '')}`, { headers: { Authorization: `Bearer ${getToken()}` } })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.participants?.[0]?.recentTrades) setFoundUser((prev: any) => ({ ...prev, recentTrades: d.participants[0].recentTrades })); })
+      .catch(() => {});
+  }, [foundUser, selectedChallengeId]);
+
   const handleLogout = () => { localStorage.removeItem("host_token"); localStorage.removeItem("host_info"); window.location.href = "/host/login"; };
 
   // Action handlers
