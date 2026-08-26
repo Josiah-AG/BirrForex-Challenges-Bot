@@ -2062,6 +2062,32 @@ export class VpsPullScheduler {
         console.error(`Could not queue Discord DM for user ${failure.userId}:`, e);
       }
     }
+
+    // Notify via email (for winnerpip/web-registered users)
+    if (source === 'winnerpip') {
+      try {
+        const regData = await db.query(
+          `SELECT r.email, r.nickname, c.title as challenge_title, c.id as challenge_id,
+                  h.display_name as host_name, h.support_link as host_link
+           FROM trading_registrations r
+           JOIN trading_challenges c ON c.id = r.challenge_id
+           LEFT JOIN hosts h ON h.id = c.host_id
+           WHERE r.id = $1`, [failure.registrationId]);
+        if (regData.rows[0]?.email) {
+          const { emailService } = require('../services/emailService');
+          await emailService.sendCredentialFailure(regData.rows[0].email, {
+            nickname: regData.rows[0].nickname,
+            challengeTitle: regData.rows[0].challenge_title,
+            challengeId: regData.rows[0].challenge_id,
+            hostName: regData.rows[0].host_name || null,
+            hostLink: regData.rows[0].host_link || null,
+          });
+          console.log(`📧 Credential failure email sent to ${regData.rows[0].email}`);
+        }
+      } catch (e) {
+        console.error(`Could not send credential failure email for reg ${failure.registrationId}:`, e);
+      }
+    }
   }
 
   // ==================== CREDENTIAL RECOVERY ====================

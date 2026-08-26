@@ -1842,8 +1842,8 @@ export class TradingScheduler {
                   [reg.id, reg.account_number, `Balance ${currency}${balance.toFixed(2)} exceeds limit ${currency}${limit.toFixed(2)}`]
                 );
 
-                // Web-registered users (no Telegram) — send email
-                if ((reg.source === 'winnerpip' || !reg.user_id || reg.user_id === 0) && reg.email) {
+                // Web-registered users (no Telegram) — send email (skip for hosted challenges — they can't register over-balance)
+                if ((reg.source === 'winnerpip' || !reg.user_id || reg.user_id === 0) && reg.email && !(challenge as any).host_id) {
                   try {
                     const { emailService } = require('../services/emailService');
                     const startDate = toEAT(challenge.start_date);

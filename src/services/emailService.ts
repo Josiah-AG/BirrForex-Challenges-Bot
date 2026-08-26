@@ -110,6 +110,10 @@ class EmailService {
         <p style="color: #6b7280; font-size: 13px; margin: 0; line-height: 1.5;">
           Your account has been verified and connected. You'll receive updates about the challenge via email.
         </p>
+
+        <div style="text-align: center; margin-top: 20px;">
+          <a href="https://winnerpip.com/challenges" style="display: inline-block; background: linear-gradient(135deg, #6366f1, #8b5cf6); color: #ffffff; padding: 12px 28px; border-radius: 10px; text-decoration: none; font-size: 13px; font-weight: 600;">Log in to Dashboard</a>
+        </div>
       `;
       await resend.emails.send({ from: FROM_ADDRESS, to, subject: `Registration Confirmed — ${data.challengeTitle}`, html: wrapEmail(content) });
       return true;
@@ -219,6 +223,10 @@ class EmailService {
         <p style="color: #6b7280; font-size: 13px; margin: 0; line-height: 1.6;">
           Trade according to the challenge rules. Your performance is being tracked automatically. Good luck!
         </p>
+
+        <div style="text-align: center; margin-top: 20px;">
+          <a href="https://winnerpip.com/challenges" style="display: inline-block; background: linear-gradient(135deg, #6366f1, #8b5cf6); color: #ffffff; padding: 12px 28px; border-radius: 10px; text-decoration: none; font-size: 13px; font-weight: 600;">Log in to Dashboard</a>
+        </div>
       `;
       await resend.emails.send({ from: FROM_ADDRESS, to, subject: `Challenge Started — ${data.challengeTitle}`, html: wrapEmail(content) });
       return true;
@@ -247,6 +255,10 @@ class EmailService {
           <p style="color: #374151; font-size: 14px; margin: 0; line-height: 1.6;">
             Final results and the leaderboard are now available. Visit the challenge page to see the winners and your final ranking.
           </p>
+        </div>
+
+        <div style="text-align: center; margin-bottom: 20px;">
+          <a href="https://winnerpip.com/challenges" style="display: inline-block; background: linear-gradient(135deg, #6366f1, #8b5cf6); color: #ffffff; padding: 12px 28px; border-radius: 10px; text-decoration: none; font-size: 13px; font-weight: 600;">View Results</a>
         </div>
       `;
       await resend.emails.send({ from: FROM_ADDRESS, to, subject: `Challenge Ended — ${data.challengeTitle}`, html: wrapEmail(content) });
@@ -308,6 +320,56 @@ class EmailService {
       return false;
     }
   }
+  /**
+   * Send credential failure notification email
+   */
+  async sendCredentialFailure(to: string, data: {
+    nickname: string;
+    challengeTitle: string;
+    challengeId: number;
+    hostName?: string;
+    hostLink?: string;
+  }): Promise<boolean> {
+    if (!this.isConfigured()) return false;
+    try {
+      const dashboardUrl = `https://winnerpip.com/challenge/${data.challengeId}`;
+      const hostDisplay = data.hostName
+        ? (data.hostLink ? `<a href="${data.hostLink}" style="color: #6366f1; text-decoration: underline; font-weight: 600;">${data.hostName}</a>` : `<strong>${data.hostName}</strong>`)
+        : 'the challenge host';
+      const content = `
+        <h2 style="color: #d97706; font-size: 20px; margin: 0 0 8px; font-weight: 700;">&#9888;&#65039; Account Access Issue</h2>
+        <p style="color: #374151; font-size: 15px; line-height: 1.6; margin: 0 0 24px;">
+          Hi <strong>${data.nickname}</strong>, we could not access your MT5 account for <strong>${data.challengeTitle}</strong>.
+        </p>
+
+        <div style="background: #fffbeb; border-radius: 10px; padding: 16px 20px; border: 1px solid #fde68a; margin-bottom: 20px;">
+          <p style="color: #92400e; font-size: 14px; font-weight: 600; margin: 0 0 8px;">What happened?</p>
+          <p style="color: #78350f; font-size: 13px; margin: 0; line-height: 1.5;">
+            Your investor password appears to have been changed or your account is no longer accessible. Without access, your trades cannot be tracked.
+          </p>
+        </div>
+
+        <div style="background: #f0fdf4; border-radius: 8px; padding: 14px 16px; border: 1px solid #bbf7d0; margin-bottom: 20px;">
+          <p style="color: #166534; font-size: 13px; font-weight: 600; margin: 0 0 4px;">How to fix:</p>
+          <p style="color: #374151; font-size: 13px; margin: 0; line-height: 1.5;">Log in to your dashboard and update your investor password under Account Settings.</p>
+        </div>
+
+        <div style="text-align: center; margin-bottom: 24px;">
+          <a href="${dashboardUrl}" style="display: inline-block; background: linear-gradient(135deg, #6366f1, #8b5cf6); color: #ffffff; padding: 14px 32px; border-radius: 10px; text-decoration: none; font-size: 14px; font-weight: 600;">Log in to Dashboard</a>
+        </div>
+
+        <p style="color: #6b7280; font-size: 13px; margin: 0; line-height: 1.5;">
+          If you need help, please contact ${hostDisplay}.
+        </p>
+      `;
+      await resend.emails.send({ from: FROM_ADDRESS, to, subject: `Action Required — Account Access Issue`, html: wrapEmail(content) });
+      return true;
+    } catch (error) {
+      console.error('Email send error (credential failure):', error);
+      return false;
+    }
+  }
+
   /**
    * Send host welcome email with login credentials
    */
