@@ -439,6 +439,28 @@ router.post('/challenge/:id/force-update', async (req: any, res: Response) => {
   }
 });
 
+// ==================== FULL UPDATE ALL (including DQ) ====================
+router.post('/challenge/:id/force-update-all', async (req: any, res: Response) => {
+  const challengeId = await verifyOwnership(req, res);
+  if (!challengeId) return;
+  try {
+    const challenge = await db.query(`SELECT status FROM trading_challenges WHERE id=$1`, [challengeId]);
+    if (!['active', 'reviewing'].includes(challenge.rows[0]?.status)) {
+      return res.status(400).json({ error: 'Challenge must be active or reviewing' });
+    }
+    await db.query(
+      `UPDATE trading_registrations SET last_pull_at = NULL
+       WHERE challenge_id = $1
+         AND investor_password IS NOT NULL AND connection_verified = true
+         AND (pull_status IS NULL OR pull_status NOT IN ('password_changed'))`, [challengeId]);
+    const globalScheduler = (global as any).__vpsPullScheduler;
+    if (globalScheduler) globalScheduler.runPullCycleForChallenge(challengeId).catch(() => {});
+    return res.json({ success: true, message: 'Full update (all accounts) started' });
+  } catch (error) {
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // ==================== FORCE UPDATE NON-DQ ====================
 router.post('/challenge/:id/force-update-rank', async (req: any, res: Response) => {
   const challengeId = await verifyOwnership(req, res);
