@@ -6144,6 +6144,41 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/full-pull`, adminIpCheck
 
 
 /**
+ * POST /api/admin/:secretPath/challenge/:id/full-pull-all
+ * Full pull including DQ'd accounts — resets last_pull_at for ALL accounts.
+ */
+app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/full-pull-all`, adminIpCheck, async (req, res) => {
+  try {
+    const challengeId = parseInt(req.params.id as string);
+    const globalScheduler = (global as any).__vpsPullScheduler;
+    if (!globalScheduler) {
+      return res.json({ success: false, message: 'Pull scheduler not initialized yet' });
+    }
+
+    await db.query(
+      `UPDATE trading_registrations SET last_pull_at = NULL
+       WHERE challenge_id = $1 AND investor_password IS NOT NULL
+         AND connection_verified = true
+         AND (pull_status IS NULL OR pull_status NOT IN ('password_changed'))`,
+      [challengeId]
+    );
+
+    globalScheduler.runPullCycleForChallenge(challengeId).then(async () => {
+      try {
+        const { leaderboardService } = require('../services/leaderboardService');
+        await leaderboardService.flushStagingToLive(challengeId);
+        await leaderboardService.ensureAllParticipantsHaveEntries(challengeId);
+        await leaderboardService.updateRankings(challengeId);
+      } catch (e) { console.error('Full pull all rank update error:', e); }
+    }).catch((e: any) => console.error('Full pull all error:', e));
+
+    return res.json({ success: true, message: 'Full pull (ALL accounts incl. DQ) started. Will evaluate + rank after.' });
+  } catch (error) {
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
  * POST /api/admin/:secretPath/challenge/:id/full-pull-replace
  * Full Pull (REPLACE) — deletes ALL existing trades, deals, and balance ops for this challenge,
  * then pulls fresh from VPS. Guarantees clean data with no stale/corrupt values.

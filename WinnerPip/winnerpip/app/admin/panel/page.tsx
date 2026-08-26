@@ -3656,6 +3656,15 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
     } catch (_e) { setActionMsg("❌ Connection error"); }
   };
 
+  const handleFullPullAll = async () => {
+    setActionMsg("⏳ Starting full pull (ALL accounts incl. DQ)...");
+    try {
+      const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/full-pull-all`, { method: "POST" });
+      if (res.ok) { const data = await res.json(); setActionMsg(`✅ ${data.message}`); startPolling(); }
+      else setActionMsg("❌ Failed to trigger pull");
+    } catch (_e) { setActionMsg("❌ Connection error"); }
+  };
+
   const handleCheckPreStartBalances = async () => {
     setRetrying("prestart");
     setActionMsg("⏳ Starting pre-start balance check...");
@@ -3969,6 +3978,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
           <button onClick={handleForcePull} className="px-4 py-2.5 rounded-xl bg-royal/20 border border-royal/30 text-royal text-xs font-bold hover:bg-royal/30 transition-all">⚡ Force Pull Now</button>
           <button onClick={handleForcePullRank} className="px-4 py-2.5 rounded-xl bg-profit/20 border border-profit/30 text-profit text-xs font-bold hover:bg-profit/30 transition-all">⚡ Full Pull (Non-DQ)</button>
           <button onClick={handleFullPull} className="px-4 py-2.5 rounded-xl bg-gold/20 border border-gold/30 text-gold text-xs font-bold hover:bg-gold/30 transition-all">🔄 Full Pull + Evaluate + Rank</button>
+          <button onClick={handleFullPullAll} className="px-4 py-2.5 rounded-xl bg-amber-500/20 border border-amber-500/30 text-amber-400 text-xs font-bold hover:bg-amber-500/30 transition-all">🔄 Full Pull (All incl. DQ)</button>
           <button onClick={handleFullPullReplace} className="px-4 py-2.5 rounded-xl bg-loss/20 border border-loss/30 text-loss text-xs font-bold hover:bg-loss/30 transition-all">🗑️ Full Pull (Replace)</button>
           <button onClick={fetchFailed} disabled={loadingFailed} className="px-4 py-2.5 rounded-xl bg-loss/10 border border-loss/30 text-loss text-xs font-bold hover:bg-loss/20 transition-all">{loadingFailed ? "Loading..." : "🔍 View Failed Accounts"}</button>
           <button onClick={handleRetryAll} disabled={retrying === "all" || failedAccounts.length === 0} className="px-4 py-2.5 rounded-xl bg-gold/10 border border-gold/30 text-gold text-xs font-bold hover:bg-gold/20 transition-all disabled:opacity-50">{retrying === "all" ? "Retrying..." : "🔄 Retry All Failed"}</button>
