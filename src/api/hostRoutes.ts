@@ -763,4 +763,155 @@ router.get('/challenge/:id/user-trades', async (req: any, res: Response) => {
   }
 });
 
+// ==================== FIND USER ====================
+router.get('/challenge/:id/finduser', async (req: any, res: Response) => {
+  const challengeId = await verifyOwnership(req, res);
+  if (!challengeId) return;
+  try {
+    const q = (req.query.q as string || '').trim().toLowerCase().replace(/^@/, '');
+    if (!q) return res.status(400).json({ error: 'Search query required' });
+
+    const result = await db.query(
+      `SELECT r.id, r.nickname, r.username, r.email, r.account_number,
+              r.account_type, r.mt5_server, r.registered_at, r.last_pull_at, r.pull_status,
+              r.disqualified, r.disqualified_reason, r.is_cent,
+              r.registration_balance, r.last_known_balance,
+              l.rank, l.current_balance, l.adjusted_balance, l.qualified_profit, l.gross_profit,
+              l.profit_removed, l.total_trades, l.qualified_trades, l.flagged_trades, l.active_days
+       FROM trading_registrations r
+       LEFT JOIN wp_leaderboard l ON r.id = l.registration_id
+       WHERE r.challenge_id = $1 AND (status IS NULL OR status != 'removed') AND (
+         LOWER(r.email) = $2 OR r.account_number = $2 OR LOWER(r.nickname) = $2
+       ) LIMIT 1`,
+      [challengeId, q]
+    );
+    if (result.rows.length === 0) return res.json({ found: false });
+    const r = result.rows[0];
+    return res.json({
+      found: true,
+      user: {
+        id: r.id, nickname: r.nickname, email: r.email, accountNumber: r.account_number,
+        accountType: r.account_type, server: r.mt5_server, isCent: r.is_cent || false,
+        rank: r.rank || null,
+        adjustedBalance: r.adjusted_balance != null ? parseFloat(r.adjusted_balance) : 0,
+        currentBalance: r.current_balance != null ? parseFloat(r.current_balance) : (r.last_known_balance != null ? parseFloat(r.last_known_balance) : 0),
+        qualifiedProfit: r.qualified_profit != null ? parseFloat(r.qualified_profit) : 0,
+        totalTrades: r.total_trades || 0, qualifiedTrades: r.qualified_trades || 0,
+        flaggedTrades: r.flagged_trades || 0, activeDays: r.active_days || 0,
+        lastPull: r.last_pull_at, pullStatus: r.pull_status,
+        disqualified: r.disqualified, disqualifiedReason: r.disqualified_reason,
+      },
+    });
+  } catch (error) {
+    return res.status(500).json({ error: 'Search failed' });
+  }
+});
+
+// ==================== PULL SINGLE ACCOUNT ====================
+const hostPullResults = new Map<number, any>();
+
+router.post('/challenge/:id/pull-single-account', async (req: any, res: Response) => {
+  const challengeId = await verifyOwnership(req, res);
+  if (!challengeId) return;
+  try {
+    const { registrationId } = req.body;
+    if (!registrationId) return res.status(400).json({ error: 'registrationId required' });
+
+    // Verify registration belongs to this challenge
+    const reg = await db.query(
+      `SELECT id FROM trading_registrations WHERE id = $1 AND challenge_id = $2`, [registrationId, challengeId]);
+    if (!reg.rows[0]) return res.status(404).json({ error: 'Registration not found' });
+
+    // Snapshot before
+    const before = await db.query(
+      `SELECT l.rank as prev_rank, (SELECT COUNT(*) FROM wp_trades WHERE registration_id = $1) as trade_count
+       FROM trading_registrations r LEFT JOIN wp_leaderboard l ON l.registration_id = r.id
+       WHERE r.id = $1`, [registrationId]);
+    const prevRank = before.rows[0]?.prev_rank;
+    const prevTradeCount = parseInt(before.rows[0]?.trade_count || '0');
+
+    // NULL out last_pull_at to force full pull
+    await db.query(`UPDATE trading_registrations SET last_pull_at = NULL WHERE id = $1`, [registrationId]);
+
+    const scheduler = (global as any).__vpsPullScheduler;
+    if (!scheduler) return res.status(503).json({ error: 'Pull scheduler not ready' });
+
+    hostPullResults.delete(registrationId);
+    res.json({ success: true, started: true });
+
+    // Background pull
+    (async () => {
+      try {
+        const pullResult = await scheduler.retrySingleAccount(registrationId, challengeId);
+
+        // Clear data-based DQs if pull succeeded
+        if (pullResult.success) {
+          const dqCheck = await db.query(`SELECT disqualified, disqualified_reason FROM trading_registrations WHERE id = $1`, [registrationId]);
+          const dqReason = dqCheck.rows[0]?.disqualified_reason || '';
+          const isDataDQ = dqCheck.rows[0]?.disqualified && (
+            dqReason.toLowerCase().includes('starting balance') || dqReason.toLowerCase().includes('exceeds allowed') ||
+            dqReason.toLowerCase().includes('active trading days') || dqReason.toLowerCase().includes('cannot meet minimum')
+          );
+          if (isDataDQ) {
+            await db.query(`UPDATE trading_registrations SET disqualified = false, disqualified_at = NULL, disqualified_reason = NULL WHERE id = $1`, [registrationId]);
+            await db.query(`UPDATE wp_leaderboard SET is_disqualified = false, disqualify_reason = NULL WHERE registration_id = $1`, [registrationId]);
+          }
+        }
+
+        // Get after state
+        const after = await db.query(
+          `SELECT l.rank, l.total_trades, l.qualified_trades, l.flagged_trades, l.adjusted_balance, l.current_balance, l.qualified_profit, l.gross_profit, l.profit_removed,
+                  r.disqualified, r.disqualified_reason
+           FROM trading_registrations r LEFT JOIN wp_leaderboard l ON l.registration_id = r.id WHERE r.id = $1`, [registrationId]);
+        const a = after.rows[0] || {};
+
+        hostPullResults.set(registrationId, {
+          done: true, success: pullResult.success,
+          errorMessage: pullResult.success ? null : (pullResult.error || 'Pull failed'),
+          tradesFound: a.total_trades || 0,
+          tradesAdded: Math.max(0, (a.total_trades || 0) - prevTradeCount),
+          faultsFound: a.flagged_trades || 0,
+          prevRank, newRank: a.rank || null,
+          adjustedBalance: a.adjusted_balance ? parseFloat(a.adjusted_balance) : 0,
+          grossBalance: a.current_balance ? parseFloat(a.current_balance) : 0,
+          isDisqualified: a.disqualified || false,
+          dqReason: a.disqualified_reason || null,
+        });
+      } catch (error) {
+        hostPullResults.set(registrationId, { done: true, success: false, errorMessage: String(error) });
+      }
+    })();
+  } catch (error) {
+    return res.status(500).json({ error: 'Pull failed' });
+  }
+});
+
+router.get('/challenge/:id/pull-single-status', async (req: any, res: Response) => {
+  const challengeId = await verifyOwnership(req, res);
+  if (!challengeId) return;
+  const registrationId = parseInt(req.query.registrationId as string);
+  if (!registrationId) return res.status(400).json({ error: 'registrationId required' });
+  const result = hostPullResults.get(registrationId);
+  if (!result) return res.json({ done: false });
+  return res.json(result);
+});
+
+router.post('/challenge/:id/approve-pull', async (req: any, res: Response) => {
+  const challengeId = await verifyOwnership(req, res);
+  if (!challengeId) return;
+  const { registrationId } = req.body;
+  // Pull already applied inline — just clear the result cache
+  hostPullResults.delete(registrationId);
+  return res.json({ success: true });
+});
+
+router.post('/challenge/:id/reject-pull', async (req: any, res: Response) => {
+  const challengeId = await verifyOwnership(req, res);
+  if (!challengeId) return;
+  // For host, pulls are auto-applied (no staging). Reject is a no-op acknowledgment.
+  const { registrationId } = req.body;
+  hostPullResults.delete(registrationId);
+  return res.json({ success: true });
+});
+
 export default router;

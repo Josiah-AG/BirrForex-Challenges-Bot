@@ -872,22 +872,29 @@ export default function HostDashboardPage() {
               {failedAccounts?.credentialFailures?.length > 0 && (
                 <div className="glass rounded-2xl border border-loss/20 p-5">
                   <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2"><Key size={16} className="text-loss" /> Credential Failures ({failedAccounts.credentialFailures.length})</h3>
-                  <div className="space-y-2">
+                  <div className="space-y-2 max-h-80 overflow-y-auto">
                     {failedAccounts.credentialFailures.map((f: any) => (
-                      <div key={f.id} className="flex items-center justify-between p-3 rounded-lg bg-loss/5 border border-loss/10">
-                        <div>
-                          <p className="text-sm text-white font-medium">{f.nickname}</p>
-                          <p className="text-[10px] text-gray-500">{f.account_number} &bull; {f.mt5_server}</p>
-                        </div>
-                        <div className="flex gap-2">
-                          <button onClick={() => doAction(`${API_URL}/api/host/challenge/${selectedChallengeId}/retry-credentials`, 'POST', { registrationId: f.id })} className="text-[10px] text-gold font-semibold px-2.5 py-1.5 rounded-lg bg-gold/10 border border-gold/20 hover:bg-gold/20 transition-all">Retry</button>
-                          <button onClick={() => doAction(`${API_URL}/api/host/challenge/${selectedChallengeId}/re-evaluate-user`, 'POST', { registrationId: f.id })} className="text-[10px] text-royal font-semibold px-2.5 py-1.5 rounded-lg bg-royal/10 border border-royal/20 hover:bg-royal/20 transition-all">Re-evaluate</button>
+                      <div key={f.id} className="p-3 rounded-lg bg-loss/5 border border-loss/10">
+                        <div className="flex items-center justify-between">
+                          <div className="min-w-0">
+                            <p className="text-sm text-white font-medium">{f.nickname} <span className="text-gray-500 text-[10px]">#{f.account_number}</span></p>
+                            <p className="text-[10px] text-gray-500">{f.email || '—'} · {f.mt5_server}</p>
+                            {f.pull_error && <p className="text-[10px] text-loss mt-0.5 truncate max-w-[250px]">{f.pull_error}</p>}
+                            {f.last_pull_at && <p className="text-[10px] text-gray-600 mt-0.5">Last: {fmtTime(f.last_pull_at)}</p>}
+                          </div>
+                          <div className="flex gap-1.5 flex-shrink-0">
+                            <button onClick={() => doAction(`${API_URL}/api/host/challenge/${selectedChallengeId}/retry-credentials`, 'POST', { registrationId: f.id })} className="text-[10px] text-gold font-semibold px-2 py-1.5 rounded-lg bg-gold/10 border border-gold/20 hover:bg-gold/20 transition-all">🔄 Retry</button>
+                            <button onClick={async () => { const pw = prompt("Enter new investor password:"); if (!pw) return; await doAction(`${API_URL}/api/host/challenge/${selectedChallengeId}/check-balance`, 'POST', { registrationId: f.id, newPassword: pw }); }} className="text-[10px] text-royal font-semibold px-2 py-1.5 rounded-lg bg-royal/10 border border-royal/20 hover:bg-royal/20 transition-all">🔑 Update PW</button>
+                          </div>
                         </div>
                       </div>
                     ))}
                   </div>
                 </div>
               )}
+
+              {/* Individual Account Pull */}
+              <IndividualPullPanel challengeId={selectedChallengeId!} getToken={getToken} />
 
               {/* Update History */}
               <div className="glass rounded-2xl border border-white/10 p-5">
@@ -2100,4 +2107,104 @@ function hostDownloadRulesHTML(challenge: any, rulesList: string[], isCent: bool
   const endDate = challenge.end_date ? new Date(challenge.end_date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) : '—';
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${challenge.title} - Rules</title><style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Inter',system-ui,sans-serif;background:#0a0e1a}.page{width:1080px;height:1920px;padding:80px;display:flex;flex-direction:column;justify-content:center;background:linear-gradient(135deg,#0a0e1a 0%,#111827 50%,#0a0e1a 100%);position:relative;overflow:hidden;page-break-after:always}.page.landscape{width:1920px;height:1080px;padding:60px 100px}.glow{position:absolute;width:600px;height:600px;border-radius:50%;filter:blur(150px);opacity:0.15}.glow1{top:-200px;right:-100px;background:#1F6FEB}.glow2{bottom:-200px;left:-100px;background:#F5B400}.header{text-align:center;margin-bottom:60px}.title{font-size:48px;font-weight:800;color:#fff;margin-bottom:12px}.subtitle{font-size:20px;color:#94a3b8;font-weight:500}.badge{display:inline-block;padding:8px 20px;border-radius:20px;background:rgba(31,111,235,0.2);border:1px solid rgba(31,111,235,0.4);color:#1F6FEB;font-size:14px;font-weight:700;margin-top:16px}.info-row{display:flex;justify-content:center;gap:40px;margin-bottom:50px}.info-item{text-align:center}.info-label{font-size:13px;color:#64748b;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px}.info-value{font-size:28px;font-weight:700;color:#fff}.info-value.gold{color:#F5B400}.rules-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;max-width:800px;margin:0 auto}.page.landscape .rules-grid{grid-template-columns:1fr 1fr 1fr;max-width:1400px}.rule-card{background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:16px;padding:24px;display:flex;align-items:center;gap:16px}.rule-card.centered{grid-column:1/-1;max-width:400px;margin:0 auto}.page.landscape .rule-card.centered{max-width:450px}.rule-num{width:36px;height:36px;border-radius:10px;background:rgba(31,111,235,0.2);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:#1F6FEB;flex-shrink:0}.rule-text{font-size:16px;color:#e2e8f0;font-weight:500}.footer{text-align:center;margin-top:auto;padding-top:40px}.footer-text{font-size:14px;color:#475569}.brand{font-size:16px;font-weight:700;color:#64748b;margin-top:8px}</style></head><body><div class="page"><div class="glow glow1"></div><div class="glow glow2"></div><div class="header"><div style="display:flex;align-items:center;justify-content:center;gap:16px;margin-bottom:14px"><img src="https://winnerpip.com/winnerpip-icon.png" style="width:44px;height:44px;border-radius:10px" onerror="this.style.display='none'" /></div><div class="title">${challenge.title || 'Trading Challenge'}</div><div class="subtitle">Challenge Rules</div>${isCent ? '<div class="badge">CENT ACCOUNT ONLY</div>' : ''}</div><div class="info-row"><div class="info-item"><div class="info-label">Starting Balance</div><div class="info-value">${unit}${challenge.starting_balance || 0}</div></div><div class="info-item"><div class="info-label">Target</div><div class="info-value gold">${unit}${challenge.target_balance || 0}</div></div><div class="info-item"><div class="info-label">Period</div><div class="info-value" style="font-size:20px">${startDate} → ${endDate}</div></div></div><div class="rules-grid">${rulesList.map((r, i) => `<div class="rule-card${i === rulesList.length - 1 && rulesList.length % 2 !== 0 ? " centered" : ""}"><div class="rule-num">${i + 1}</div><div class="rule-text">${r}</div></div>`).join('')}</div><div class="footer"><div class="footer-text">Trades that break the rules will have profits removed. Losses still count.</div><div class="brand">WinnerPip</div></div></div><div class="page landscape"><div class="glow glow1"></div><div class="glow glow2"></div><div class="header"><div style="display:flex;align-items:center;justify-content:center;gap:16px;margin-bottom:14px"><img src="https://winnerpip.com/winnerpip-icon.png" style="width:52px;height:52px;border-radius:10px" onerror="this.style.display='none'" /></div><div class="title" style="font-size:42px">${challenge.title || 'Trading Challenge'}</div><div class="subtitle">Challenge Rules</div>${isCent ? '<div class="badge">CENT ACCOUNT ONLY</div>' : ''}</div><div class="info-row"><div class="info-item"><div class="info-label">Starting Balance</div><div class="info-value">${unit}${challenge.starting_balance || 0}</div></div><div class="info-item"><div class="info-label">Target</div><div class="info-value gold">${unit}${challenge.target_balance || 0}</div></div><div class="info-item"><div class="info-label">Period</div><div class="info-value" style="font-size:20px">${startDate} → ${endDate}</div></div></div><div class="rules-grid">${rulesList.map((r, i) => `<div class="rule-card${i === rulesList.length - 1 && rulesList.length % 2 !== 0 ? " centered" : ""}"><div class="rule-num">${i + 1}</div><div class="rule-text">${r}</div></div>`).join('')}</div><div class="footer"><div class="footer-text">Trades that break the rules will have profits removed. Losses still count.</div><div class="brand">WinnerPip</div></div></div></body></html>`;
   const blob = new Blob([html], { type: 'text/html' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `${(challenge.title || 'challenge').replace(/\s+/g, '_')}_rules.html`; a.click(); URL.revokeObjectURL(url);
+}
+
+// ==================== INDIVIDUAL PULL PANEL ====================
+function IndividualPullPanel({ challengeId, getToken }: { challengeId: number; getToken: () => string }) {
+  const [search, setSearch] = useState("");
+  const [searching, setSearching] = useState(false);
+  const [user, setUser] = useState<any>(null);
+  const [notFound, setNotFound] = useState(false);
+  const [pulling, setPulling] = useState(false);
+  const [pullResult, setPullResult] = useState<any>(null);
+  const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+
+  const handleSearch = async () => {
+    if (!search.trim()) return;
+    setSearching(true); setUser(null); setNotFound(false); setPullResult(null);
+    try {
+      const res = await fetch(`${API_URL}/api/host/challenge/${challengeId}/finduser?q=${encodeURIComponent(search.trim())}`, { headers: { Authorization: `Bearer ${getToken()}` } });
+      const data = await res.json();
+      if (data.found) { setUser(data.user); } else { setNotFound(true); }
+    } catch { setNotFound(true); }
+    setSearching(false);
+  };
+
+  const handlePull = async () => {
+    if (!user) return;
+    setPulling(true); setPullResult(null);
+    try {
+      await fetch(`${API_URL}/api/host/challenge/${challengeId}/pull-single-account`, {
+        method: "POST", headers: { Authorization: `Bearer ${getToken()}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ registrationId: user.id }),
+      });
+      // Poll for result
+      for (let i = 0; i < 60; i++) {
+        await new Promise(r => setTimeout(r, 3000));
+        const res = await fetch(`${API_URL}/api/host/challenge/${challengeId}/pull-single-status?registrationId=${user.id}`, { headers: { Authorization: `Bearer ${getToken()}` } });
+        const data = await res.json();
+        if (data.done) { setPullResult(data); break; }
+      }
+    } catch (err) { setPullResult({ done: true, success: false, errorMessage: 'Connection error' }); }
+    setPulling(false);
+  };
+
+  return (
+    <div className="glass rounded-2xl border border-white/10 p-5">
+      <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2"><Target size={16} className="text-royal" /> Pull Individual Account</h3>
+      <div className="flex gap-2 mb-4">
+        <input type="text" value={search} onChange={e => setSearch(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleSearch()} placeholder="Search by email, account number, or nickname" className="flex-1 p-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-xs outline-none focus:border-royal/50 transition-all" />
+        <button onClick={handleSearch} disabled={searching || !search.trim()} className="px-4 py-2.5 rounded-xl bg-royal/20 text-royal text-xs font-semibold border border-royal/30 hover:bg-royal/30 disabled:opacity-50 transition-all">
+          {searching ? "..." : "Find"}
+        </button>
+      </div>
+
+      {notFound && <p className="text-xs text-gray-500 text-center py-3">No participant found with that search.</p>}
+
+      {user && !pullResult && (
+        <div className="p-4 rounded-xl bg-white/5 border border-white/10 space-y-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-bold text-white">{user.nickname}</p>
+              <p className="text-[10px] text-gray-500">{user.email} · #{user.accountNumber} · {user.server}</p>
+            </div>
+            {user.disqualified && <span className="px-2 py-0.5 rounded-full bg-loss/20 text-loss text-[10px] font-bold">DQ</span>}
+          </div>
+          <div className="grid grid-cols-3 gap-2 text-center">
+            <div className="bg-white/5 rounded-lg p-2"><p className="text-[9px] text-gray-500">Rank</p><p className="text-sm font-bold text-white">{user.rank ? `#${user.rank}` : "—"}</p></div>
+            <div className="bg-white/5 rounded-lg p-2"><p className="text-[9px] text-gray-500">Trades</p><p className="text-sm font-bold text-white">{user.totalTrades}</p></div>
+            <div className="bg-white/5 rounded-lg p-2"><p className="text-[9px] text-gray-500">Balance</p><p className="text-sm font-bold text-profit">{user.isCent ? `${user.adjustedBalance?.toFixed(0)}¢` : `$${user.adjustedBalance?.toFixed(2)}`}</p></div>
+          </div>
+          {user.disqualifiedReason && <p className="text-[10px] text-loss">DQ: {user.disqualifiedReason}</p>}
+          <button onClick={handlePull} disabled={pulling} className="w-full py-2.5 rounded-xl bg-gradient-to-r from-royal to-purple-600 text-white text-xs font-semibold hover:opacity-90 disabled:opacity-50 transition-all flex items-center justify-center gap-2">
+            {pulling ? <><Loader2 size={12} className="animate-spin" /> Pulling full history & evaluating (30-60s)...</> : "⚡ Pull This Account"}
+          </button>
+        </div>
+      )}
+
+      {pullResult && (
+        <div className={`p-4 rounded-xl border ${pullResult.success ? 'bg-profit/5 border-profit/30' : 'bg-loss/5 border-loss/30'}`}>
+          <p className={`text-sm font-bold mb-2 ${pullResult.success ? 'text-profit' : 'text-loss'}`}>{pullResult.success ? '✅ Pull Complete' : '❌ Pull Failed'}</p>
+          {pullResult.success ? (
+            <div className="space-y-2">
+              <div className="grid grid-cols-4 gap-2 text-center">
+                <div className="bg-white/5 rounded-lg p-2"><p className="text-[9px] text-gray-500">Trades</p><p className="text-xs font-bold text-white">{pullResult.tradesFound}</p></div>
+                <div className="bg-white/5 rounded-lg p-2"><p className="text-[9px] text-gray-500">New</p><p className="text-xs font-bold text-profit">+{pullResult.tradesAdded}</p></div>
+                <div className="bg-white/5 rounded-lg p-2"><p className="text-[9px] text-gray-500">Flagged</p><p className="text-xs font-bold text-loss">{pullResult.faultsFound}</p></div>
+                <div className="bg-white/5 rounded-lg p-2"><p className="text-[9px] text-gray-500">Rank</p><p className="text-xs font-bold text-white">{pullResult.prevRank ? `#${pullResult.prevRank}` : '—'} → {pullResult.newRank ? `#${pullResult.newRank}` : '—'}</p></div>
+              </div>
+              <div className="flex justify-between text-[10px] text-gray-400 pt-1">
+                <span>Adj. Balance: <span className="text-white font-medium">{user?.isCent ? `${pullResult.adjustedBalance?.toFixed(0)}¢` : `$${pullResult.adjustedBalance?.toFixed(2)}`}</span></span>
+                <span>Gross: <span className="text-white font-medium">{user?.isCent ? `${pullResult.grossBalance?.toFixed(0)}¢` : `$${pullResult.grossBalance?.toFixed(2)}`}</span></span>
+              </div>
+              {pullResult.isDisqualified && <p className="text-[10px] text-loss mt-1">⚠️ DQ: {pullResult.dqReason}</p>}
+            </div>
+          ) : (
+            <p className="text-xs text-gray-400">{pullResult.errorMessage || 'Unknown error'}</p>
+          )}
+          <button onClick={() => { setPullResult(null); setUser(null); setSearch(""); }} className="mt-3 w-full py-2 rounded-xl bg-white/5 border border-white/10 text-gray-400 text-xs font-medium hover:bg-white/10 transition-all">Done</button>
+        </div>
+      )}
+    </div>
+  );
 }
