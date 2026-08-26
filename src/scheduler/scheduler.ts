@@ -751,9 +751,34 @@ export class Scheduler {
       report += `🏆 WINNERS:\n`;
       
       if (winners.length > 0) {
-        winners.forEach((w, i) => {
-          report += `${i + 1}. ${w.username ? '@' + w.username : (w as any).first_name || 'Participant'} — $${w.prize_amount}\n`;
-        });
+        const { db } = require('../database/db');
+        for (let i = 0; i < winners.length; i++) {
+          const w = winners[i];
+          const displayName = w.username ? '@' + w.username : (w as any).first_name || 'Participant';
+          report += `${i + 1}. ${displayName} — $${w.prize_amount}\n`;
+          report += `   ID: ${w.telegram_id}\n`;
+
+          // Get win history for this user
+          try {
+            const history = await db.query(
+              `SELECT w.challenge_id, c.date FROM winners w
+               JOIN challenges c ON w.challenge_id = c.id
+               WHERE w.telegram_id = $1 AND w.disqualified = false
+               ORDER BY c.date DESC`,
+              [w.telegram_id]
+            );
+            const totalWins = history.rows.length;
+            if (totalWins > 1) {
+              const prevDates = history.rows
+                .filter((h: any) => h.challenge_id !== challengeId)
+                .slice(0, 5)
+                .map((h: any) => new Date(h.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }));
+              report += `   → ${totalWins}${totalWins === 2 ? 'nd' : totalWins === 3 ? 'rd' : 'th'} time winner! Previous: ${prevDates.join(', ')}\n`;
+            } else {
+              report += `   → First time winner!\n`;
+            }
+          } catch { report += `   → Win history unavailable\n`; }
+        }
       } else {
         report += 'No winners\n';
       }
@@ -765,7 +790,7 @@ export class Scheduler {
         report += `\n📋 BACKUP LIST:\n`;
         for (let i = numWinners; i < backupLimit; i++) {
           const backup = perfectScorers[i];
-          report += `${i - numWinners + 1}. ${backup.username ? '@' + backup.username : 'Participant'} - ${backup.completion_time_seconds}s\n`;
+          report += `${i - numWinners + 1}. ${backup.username ? '@' + backup.username : 'Participant'} (ID: ${backup.telegram_id}) - ${backup.completion_time_seconds}s\n`;
         }
       }
 
