@@ -1284,6 +1284,11 @@ export default function HostDashboardPage() {
                       try {
                         const res = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/full-overview`, { headers: { Authorization: `Bearer ${getToken()}` } });
                         const data = await res.json();
+                        const m = data.metrics?.real || {};
+                        const md = data.metrics?.demo || {};
+                        const lb = leaderboard;
+                        const realTop = lb.filter((e: any) => e.accountType === 'real' && !e.isDisqualified).sort((a: any, b: any) => (b.adjustedBalance || 0) - (a.adjustedBalance || 0))[0];
+                        const demoTop = lb.filter((e: any) => e.accountType === 'demo' && !e.isDisqualified).sort((a: any, b: any) => (b.adjustedBalance || 0) - (a.adjustedBalance || 0))[0];
                         hostDownloadStatsHTML({ ...selectedChallenge, ...settingsForm }, {
                           totalParticipants: data.totalParticipants || 0,
                           totalTrades: data.totalTrades || 0,
@@ -1291,11 +1296,23 @@ export default function HostDashboardPage() {
                           demoParticipants: data.demoParticipants || 0,
                           realAboveTarget: data.aboveTarget || 0,
                           demoAboveTarget: 0,
-                          blownReal: data.metrics?.real?.blownAccounts || 0,
-                          blownDemo: data.metrics?.demo?.blownAccounts || 0,
-                          dqReal: data.metrics?.real?.disqualifiedAccounts || 0,
-                          dqDemo: data.metrics?.demo?.disqualifiedAccounts || 0,
+                          blownReal: m.blownAccounts || 0,
+                          blownDemo: md.blownAccounts || 0,
+                          dqReal: m.disqualifiedAccounts || 0,
+                          dqDemo: md.disqualifiedAccounts || 0,
                           challengeType: selectedChallenge?.type || 'hybrid',
+                          realTopBalance: realTop ? { nickname: realTop.nickname, balance: realTop.isCent ? `${realTop.adjustedBalance?.toFixed(0)}¢` : `$${realTop.adjustedBalance?.toFixed(2)}` } : null,
+                          demoTopBalance: demoTop ? { nickname: demoTop.nickname, balance: `$${demoTop.adjustedBalance?.toFixed(2)}` } : null,
+                          realHighestProfit: m.maxProfitTrade ? { nickname: m.maxProfitTrade.nickname, profit: m.maxProfitTrade.isCent ? `${Number(m.maxProfitTrade.profit).toFixed(2)}¢` : `$${Number(m.maxProfitTrade.profit).toFixed(2)}` } : null,
+                          demoHighestProfit: md.maxProfitTrade ? { nickname: md.maxProfitTrade.nickname, profit: `$${Number(md.maxProfitTrade.profit).toFixed(2)}` } : null,
+                          realBestWinRate: m.bestOverallWinRate ? { nickname: m.bestOverallWinRate.nickname, rate: `${Math.min(100, m.bestOverallWinRate.winRate)}%` } : null,
+                          demoBestWinRate: md.bestOverallWinRate ? { nickname: md.bestOverallWinRate.nickname, rate: `${Math.min(100, md.bestOverallWinRate.winRate)}%` } : null,
+                          realBestRKR: m.bestRuleKeeping || null, realWorstRKR: m.worstRuleKeeping || null,
+                          demoBestRKR: md.bestRuleKeeping || null, demoWorstRKR: md.worstRuleKeeping || null,
+                          instrumentsCount: data.instrumentsCount || (m.mostTradedPair ? 1 : 0),
+                          topInstruments: m.topInstruments || md.topInstruments || [],
+                          mostBrokenRule: data.topViolations?.[0] || null,
+                          mostActiveDay: m.mostActiveDay || md.mostActiveDay || null,
                         });
                       } catch { alert("Export failed"); }
                     }} className="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-semibold hover:bg-amber-500/20 transition-all">&#128202; Challenge Stats</button>
@@ -2158,8 +2175,146 @@ function hostDownloadLeaderboardHTML(challenge: any, lb: any[], categoryLabel?: 
 
 function hostDownloadStatsHTML(challenge: any, stats: any) {
   const s = stats;
-  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${challenge.title} - Stats</title><style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Inter',system-ui,sans-serif;background:#0a0e1a}.page{width:1080px;min-height:1920px;padding:80px 60px;display:flex;flex-direction:column;background:linear-gradient(160deg,#0a0e1a 0%,#0f172a 40%,#0a0e1a 100%);position:relative;overflow:hidden}.glow{position:absolute;width:700px;height:700px;border-radius:50%;filter:blur(180px);opacity:0.12}.glow1{top:-300px;right:-200px;background:#F5B400}.glow2{bottom:-300px;left:-200px;background:#16C784}.glow3{top:50%;left:50%;transform:translate(-50%,-50%);background:#1F6FEB;opacity:0.05;width:900px;height:900px}.header{text-align:center;margin-bottom:50px}.title{font-size:38px;font-weight:800;color:#fff;margin-bottom:6px;letter-spacing:-0.5px}.subtitle{font-size:15px;color:#64748b;font-weight:500;letter-spacing:1px;text-transform:uppercase}.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;max-width:920px;margin:0 auto;width:100%}.card{padding:28px 30px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);border-radius:20px}.card.full{grid-column:span 2}.card.highlight{border-color:rgba(22,199,132,0.25);background:rgba(22,199,132,0.03)}.card-label{font-size:12px;color:#64748b;font-weight:600;text-transform:uppercase;letter-spacing:1.2px;margin-bottom:10px}.card-value{font-size:32px;font-weight:800;color:#fff}.card-value.green{color:#16C784}.card-value.small{font-size:20px;font-weight:700}.dual{display:flex;gap:40px;align-items:center}.dual-item{flex:1}.tag{display:inline-block;padding:3px 10px;border-radius:6px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-right:8px}.tag.real{background:rgba(249,115,22,0.15);color:#fb923c}.tag.demo{background:rgba(59,130,246,0.15);color:#60a5fa}.footer{text-align:center;margin-top:auto;padding-top:50px}.brand{font-size:14px;font-weight:600;color:#334155;letter-spacing:2px;text-transform:uppercase}</style></head><body><div class="page"><div class="glow glow1"></div><div class="glow glow2"></div><div class="glow glow3"></div><div class="header"><div style="display:flex;align-items:center;justify-content:center;gap:20px;margin-bottom:16px"><img src="https://winnerpip.com/winnerpip-icon.png" style="width:52px;height:52px;border-radius:12px" onerror="this.style.display='none'" /></div><div class="title">${challenge.title || 'Trading Challenge'}</div><div class="subtitle">Challenge Statistics</div></div><div class="grid"><div class="card highlight"><div class="card-label">Total Participants</div><div class="card-value green">${s.totalParticipants || 0}</div></div><div class="card"><div class="card-label">Total Trades</div><div class="card-value">${s.totalTrades || 0}</div></div>${s.challengeType === 'hybrid' ? `<div class="card"><div class="card-label">Participants</div><div class="dual"><div class="dual-item"><span class="tag real">Real</span><span class="card-value small">${s.realParticipants || 0}</span></div><div class="dual-item"><span class="tag demo">Demo</span><span class="card-value small">${s.demoParticipants || 0}</span></div></div></div><div class="card highlight"><div class="card-label">Above Target</div><div class="dual"><div class="dual-item"><span class="tag real">Real</span><span class="card-value small green">${s.realAboveTarget || 0}</span></div><div class="dual-item"><span class="tag demo">Demo</span><span class="card-value small green">${s.demoAboveTarget || 0}</span></div></div></div><div class="card full"><div class="card-label">Blown / Disqualified</div><div class="dual"><div class="dual-item"><span class="tag real">Real</span><span class="card-value small" style="color:#f87171">${s.blownReal || 0} 💀 / ${s.dqReal || 0} 🚫</span></div><div class="dual-item"><span class="tag demo">Demo</span><span class="card-value small" style="color:#f87171">${s.blownDemo || 0} 💀 / ${s.dqDemo || 0} 🚫</span></div></div></div>` : `<div class="card highlight"><div class="card-label">Above Target</div><div class="card-value green">${s.realAboveTarget || s.demoAboveTarget || 0}</div></div><div class="card"><div class="card-label">Blown / Disqualified</div><div class="dual"><div class="dual-item"><span class="card-value small" style="color:#f87171">${(s.blownReal||0)+(s.blownDemo||0)} 💀</span></div><div class="dual-item"><span class="card-value small" style="color:#f87171">${(s.dqReal||0)+(s.dqDemo||0)} 🚫</span></div></div></div>`}</div><div class="footer"><div class="brand">WinnerPip</div></div></div></body></html>`;
-  const blob = new Blob([html], { type: 'text/html' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `${(challenge.title || 'challenge').replace(/\s+/g, '_')}_stats.html`; a.click(); URL.revokeObjectURL(url);
+
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${challenge.title} - Stats</title><style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Inter',system-ui,-apple-system,sans-serif;background:#0a0e1a}
+.page{width:1080px;min-height:1920px;padding:80px 60px;display:flex;flex-direction:column;background:linear-gradient(160deg,#0a0e1a 0%,#0f172a 40%,#0a0e1a 100%);position:relative;overflow:hidden}
+.glow{position:absolute;width:700px;height:700px;border-radius:50%;filter:blur(180px);opacity:0.12}
+.glow1{top:-300px;right:-200px;background:#F5B400}
+.glow2{bottom:-300px;left:-200px;background:#16C784}
+.glow3{top:50%;left:50%;transform:translate(-50%,-50%);background:#1F6FEB;opacity:0.05;width:900px;height:900px}
+.header{text-align:center;margin-bottom:50px}
+.logo{font-size:52px;margin-bottom:12px}
+.title{font-size:38px;font-weight:800;color:#fff;margin-bottom:6px;letter-spacing:-0.5px}
+.subtitle{font-size:15px;color:#64748b;font-weight:500;letter-spacing:1px;text-transform:uppercase}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;max-width:920px;margin:0 auto;width:100%}
+.card{padding:28px 30px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);border-radius:20px;backdrop-filter:blur(10px)}
+.card.full{grid-column:span 2}
+.card.highlight{border-color:rgba(22,199,132,0.25);background:rgba(22,199,132,0.03)}
+.card-label{font-size:12px;color:#64748b;font-weight:600;text-transform:uppercase;letter-spacing:1.2px;margin-bottom:10px}
+.card-value{font-size:32px;font-weight:800;color:#fff}
+.card-value.green{color:#16C784}
+.card-value.gold{color:#F5B400}
+.card-value.small{font-size:20px;font-weight:700}
+.dual{display:flex;gap:40px;align-items:center}
+.dual-item{flex:1}
+.tag{display:inline-block;padding:3px 10px;border-radius:6px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-right:8px}
+.tag.real{background:rgba(249,115,22,0.15);color:#fb923c}
+.tag.demo{background:rgba(59,130,246,0.15);color:#60a5fa}
+.pair-icon{font-size:18px;margin-right:6px}
+.footer{text-align:center;margin-top:auto;padding-top:50px}
+.brand{font-size:14px;font-weight:600;color:#334155;letter-spacing:2px;text-transform:uppercase}
+</style></head><body>
+<div class="page">
+<div class="glow glow1"></div><div class="glow glow2"></div><div class="glow glow3"></div>
+<div class="header">
+  <div style="display:flex;align-items:center;justify-content:center;gap:20px;margin-bottom:16px">
+    <img src="https://winnerpip.com/birrforex-logo.png" style="width:52px;height:52px;border-radius:12px" onerror="this.style.display='none'" />
+    <img src="https://winnerpip.com/winnerpip-icon.png" style="width:52px;height:52px;border-radius:12px" onerror="this.style.display='none'" />
+  </div>
+  <div class="title">${challenge.title || 'Trading Challenge'}</div>
+  <div class="subtitle">Challenge Statistics</div>
+</div>
+<div class="grid">
+  <div class="card highlight">
+    <div class="card-label">Total Participants</div>
+    <div class="card-value green">${s.totalParticipants || 0}</div>
+  </div>
+  <div class="card">
+    <div class="card-label">Total Trades</div>
+    <div class="card-value">${s.totalTrades || 0}</div>
+  </div>
+  ${s.challengeType === 'hybrid' ? `<div class="card">
+    <div class="card-label">Participants</div>
+    <div class="dual">
+      <div class="dual-item"><span class="tag real">Real</span><span class="card-value small">${s.realParticipants || 0}</span></div>
+      <div class="dual-item"><span class="tag demo">Demo</span><span class="card-value small">${s.demoParticipants || 0}</span></div>
+    </div>
+  </div>
+  <div class="card highlight">
+    <div class="card-label">Above Target 🎯</div>
+    <div class="dual">
+      <div class="dual-item"><span class="tag real">Real</span><span class="card-value small green">${s.realAboveTarget || 0}</span></div>
+      <div class="dual-item"><span class="tag demo">Demo</span><span class="card-value small green">${s.demoAboveTarget || 0}</span></div>
+    </div>
+  </div>` : `<div class="card highlight">
+    <div class="card-label">Above Target 🎯</div>
+    <div class="card-value green">${s.realAboveTarget || s.demoAboveTarget || 0}</div>
+  </div>
+  <div class="card">
+    <div class="card-label">💀 Blown / 🚫 Disqualified</div>
+    <div class="dual">
+      <div class="dual-item"><span class="card-value small" style="color:#f87171">${(s.blownReal || 0) + (s.blownDemo || 0)} 💀</span></div>
+      <div class="dual-item"><span class="card-value small" style="color:#f87171">${(s.dqReal || 0) + (s.dqDemo || 0)} 🚫</span></div>
+    </div>
+  </div>`}
+  ${s.challengeType === 'hybrid' ? `<div class="card full">
+    <div class="card-label">💀 Blown / 🚫 Disqualified</div>
+    <div class="dual">
+      <div class="dual-item"><span class="tag real">Real</span><span class="card-value small" style="color:#f87171">${s.blownReal || 0} 💀 / ${s.dqReal || 0} 🚫</span></div>
+      <div class="dual-item"><span class="tag demo">Demo</span><span class="card-value small" style="color:#f87171">${s.blownDemo || 0} 💀 / ${s.dqDemo || 0} 🚫</span></div>
+    </div>
+  </div>` : ''}
+  <div class="card full">
+    <div class="card-label">Top Qualified Balance 💰</div>
+    ${s.challengeType === 'hybrid' ? `<div class="dual">
+      <div class="dual-item"><span class="tag real">Real</span><span class="card-value small">${s.realTopBalance?.nickname || '—'} <span style="color:#16C784">(${s.realTopBalance?.balance || '—'})</span></span></div>
+      <div class="dual-item"><span class="tag demo">Demo</span><span class="card-value small">${s.demoTopBalance?.nickname || '—'} <span style="color:#16C784">(${s.demoTopBalance?.balance || '—'})</span></span></div>
+    </div>` : `<div class="card-value small">${(s.realTopBalance?.nickname || s.demoTopBalance?.nickname || '—')} <span style="color:#16C784">(${s.realTopBalance?.balance || s.demoTopBalance?.balance || '—'})</span></div>`}
+  </div>
+  <div class="card full">
+    <div class="card-label">Highest Single Trade Profit 🔥</div>
+    ${s.challengeType === 'hybrid' ? `<div class="dual">
+      <div class="dual-item"><span class="tag real">Real</span><span class="card-value small">${s.realHighestProfit?.nickname || '—'} <span style="color:#16C784">(${s.realHighestProfit?.profit || '—'})</span></span></div>
+      <div class="dual-item"><span class="tag demo">Demo</span><span class="card-value small">${s.demoHighestProfit?.nickname || '—'} <span style="color:#16C784">(${s.demoHighestProfit?.profit || '—'})</span></span></div>
+    </div>` : `<div class="card-value small">${(s.realHighestProfit?.nickname || s.demoHighestProfit?.nickname || '—')} <span style="color:#16C784">(${s.realHighestProfit?.profit || s.demoHighestProfit?.profit || '—'})</span></div>`}
+  </div>
+  <div class="card full">
+    <div class="card-label">Best Win Rate (Overall) 🏹</div>
+    ${s.challengeType === 'hybrid' ? `<div class="dual">
+      <div class="dual-item"><span class="tag real">Real</span><span class="card-value small">${s.realBestWinRate?.nickname || '—'} <span style="color:#F5B400">(${s.realBestWinRate?.rate || '—'})</span></span></div>
+      <div class="dual-item"><span class="tag demo">Demo</span><span class="card-value small">${s.demoBestWinRate?.nickname || '—'} <span style="color:#F5B400">(${s.demoBestWinRate?.rate || '—'})</span></span></div>
+    </div>` : `<div class="card-value small">${(s.realBestWinRate?.nickname || s.demoBestWinRate?.nickname || '—')} <span style="color:#F5B400">(${s.realBestWinRate?.rate || s.demoBestWinRate?.rate || '—'})</span></div>`}
+  </div>
+  <div class="card">
+    <div class="card-label">Best Rule Keeping 🛡️</div>
+    ${s.challengeType === 'hybrid' ? `<div class="dual">
+      <div class="dual-item"><span class="tag real">Real</span><span class="card-value small" style="color:#16C784">${s.realBestRKR?.rkr ?? '—'}%</span><div style="font-size:11px;color:#94a3b8;margin-top:4px">${s.realBestRKR?.nickname || '—'}${(s.realBestRKR?.tiedCount || 0) > 1 ? ` + ${s.realBestRKR.tiedCount - 1} more` : ''}</div></div>
+      <div class="dual-item"><span class="tag demo">Demo</span><span class="card-value small" style="color:#16C784">${s.demoBestRKR?.rkr ?? '—'}%</span><div style="font-size:11px;color:#94a3b8;margin-top:4px">${s.demoBestRKR?.nickname || '—'}${(s.demoBestRKR?.tiedCount || 0) > 1 ? ` + ${s.demoBestRKR.tiedCount - 1} more` : ''}</div></div>
+    </div>` : `<div class="card-value small" style="color:#16C784">${s.bestRKR?.rkr ?? '—'}%</div><div style="font-size:11px;color:#94a3b8;margin-top:6px">${s.bestRKR?.nickname || '—'}${(s.bestRKR?.tiedCount || 0) > 1 ? ` + ${s.bestRKR.tiedCount - 1} more` : ''}</div>`}
+  </div>
+  <div class="card">
+    <div class="card-label">Worst Rule Keeping ⚡</div>
+    ${s.challengeType === 'hybrid' ? `<div class="dual">
+      <div class="dual-item"><span class="tag real">Real</span><span class="card-value small" style="color:#f87171">${s.realWorstRKR?.rkr ?? '—'}%</span><div style="font-size:11px;color:#94a3b8;margin-top:4px">${s.realWorstRKR?.nickname || '—'}${(s.realWorstRKR?.tiedCount || 0) > 1 ? ` + ${s.realWorstRKR.tiedCount - 1} more` : ''}</div></div>
+      <div class="dual-item"><span class="tag demo">Demo</span><span class="card-value small" style="color:#f87171">${s.demoWorstRKR?.rkr ?? '—'}%</span><div style="font-size:11px;color:#94a3b8;margin-top:4px">${s.demoWorstRKR?.nickname || '—'}${(s.demoWorstRKR?.tiedCount || 0) > 1 ? ` + ${s.demoWorstRKR.tiedCount - 1} more` : ''}</div></div>
+    </div>` : `<div class="card-value small" style="color:#f87171">${s.worstRKR?.rkr ?? '—'}%</div><div style="font-size:11px;color:#94a3b8;margin-top:6px">${s.worstRKR?.nickname || '—'}${(s.worstRKR?.tiedCount || 0) > 1 ? ` + ${s.worstRKR.tiedCount - 1} more` : ''}</div>`}
+  </div>
+  <div class="card full">
+    <div class="card-label">📊 Instruments Traded (${s.instrumentsCount || 0} total)</div>
+    <div class="dual" style="gap:20px">
+      ${(s.topInstruments || []).slice(0, 3).map((inst: any, i: number) => `<div class="dual-item"><span class="card-value small" style="color:${i === 0 ? '#F5B400' : i === 1 ? '#60a5fa' : '#a78bfa'}">${i + 1}. ${inst.symbol}</span><div style="font-size:11px;color:#64748b;margin-top:4px">${inst.tradeCount} trades · ${inst.totalLots.toFixed(2)} lots</div></div>`).join('')}
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-label">Most Broken Rule ⚠️</div>
+    <div class="card-value small" style="color:#f87171;font-size:16px">${s.mostBrokenRule?.rule || '—'} <span style="color:#64748b">(${s.mostBrokenRule?.count || 0}×)</span></div>
+  </div>
+  <div class="card">
+    <div class="card-label">📅 Most Active Day</div>
+    <div class="card-value small">${s.mostActiveDay?.day || '—'}</div>
+    ${s.mostActiveDay ? `<div style="margin-top:8px;font-size:12px;color:#64748b">${s.mostActiveDay.trades} trades</div>` : ''}
+  </div>
+</div>
+<div class="footer"><div class="brand">BirrForex • WinnerPip</div></div>
+</div>
+</body></html>`;
+
+  const blob = new Blob([html], { type: 'text/html' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = `${(challenge.title || 'challenge').replace(/\s+/g, '_')}_stats.html`; a.click();
+  URL.revokeObjectURL(url);
 }
 
 function generateTradesHTML(data: any): string {

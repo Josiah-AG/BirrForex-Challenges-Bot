@@ -3815,11 +3815,29 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
         [challengeId]
       );
       if (violationRows.rows.length > 0) {
-        // Clean up rule names (trim whitespace)
-        const cleaned = violationRows.rows.map((r: any) => ({ rule: (r.rule || '').trim().split(' — ')[0].split(' (')[0].substring(0, 40), count: parseInt(r.cnt) })).filter((r: any) => r.rule.length > 2);
-        if (cleaned.length > 0) {
-          mostBrokenRule = cleaned[0];
-          leastBrokenRule = cleaned[cleaned.length - 1];
+        // Categorize violations (matching admin client-side logic)
+        const categorize = (rule: string): string => {
+          if (/daily.*drawdown breach/i.test(rule)) return 'Daily drawdown breach';
+          if (/exceeded max \d+ simultaneous open trades/i.test(rule)) return 'Simultaneous open trades limit';
+          if (/exceeded max \d+ simultaneous \S+ trades/i.test(rule)) return 'Simultaneous pair limit';
+          if (/declared sl risk/i.test(rule)) return 'SL risk too wide';
+          if (/fake sl|price.*max.*risk/i.test(rule)) return 'Fake SL detected';
+          if (/max risk candle check could not be verified/i.test(rule)) return 'SL check unverifiable';
+          if (/lot size.*exceeds max/i.test(rule)) return 'Lot size exceeded';
+          if (/held.*exceeds max.*h/i.test(rule)) return 'Max hold time exceeded';
+          if (/weekend trading/i.test(rule)) return 'Weekend trading';
+          if (/below minimum.*min/i.test(rule)) return rule.replace(/\s*\(.*\)\s*$/, '').trim();
+          return rule.replace(/\s*\(also open:.*\)\s*$/i, '').replace(/\s*\(.*\)\s*$/, '').trim();
+        };
+        const categorized: Record<string, number> = {};
+        for (const r of violationRows.rows) {
+          const cat = categorize((r.rule || '').trim());
+          if (cat.length > 2) categorized[cat] = (categorized[cat] || 0) + parseInt(r.cnt);
+        }
+        const sorted = Object.entries(categorized).map(([rule, count]) => ({ rule, count })).sort((a, b) => b.count - a.count);
+        if (sorted.length > 0) {
+          mostBrokenRule = sorted[0];
+          leastBrokenRule = sorted[sorted.length - 1];
         }
       }
     } catch {}
