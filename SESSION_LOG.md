@@ -613,3 +613,363 @@ Created `src/api/hostRoutes.ts` mounted at `/api/host` with ownership verificati
   
   Reference: read admin/panel/page.tsx lines 571-1780 for the exact UI patterns to port.
   The host file currently at WinnerPip/winnerpip/app/host/dashboard/page.tsx has the correct API wiring — just needs the JSX within each tab section to be replaced with admin-matching markup.
+
+
+---
+
+## Session 4 — August 21, 2026
+
+### Host Dashboard Visual Parity + Data Accuracy + Email System
+
+Major session focused on making the host dashboard work identically to the admin panel — both visually and in data computation.
+
+### Host Dashboard Rewrite (Visual Parity)
+- **Participant Detail Modal**: Rewritten with BalanceChart (account growth), Gross profit stat, RKR percentage, Win Rate + Avg RR calculation, full trade history with balance operations (deposits/withdrawals/swaps), clickable trades opening Trade Detail Modal, Export MT5 Trade History button
+- **Trade Detail Modal**: New modal showing ticket details, direction, lots, open/close prices+times, SL/TP, profit, commission, swap, violations
+- **Verify Popup Modal**: Top-level modal showing connection verification results with balance/equity
+- **Verify button in participants table**: Now pipes results into popup modal and updates balance in local state
+- **Trading Insights section**: Full metrics matching admin — best/worst trade with cur(), win rates, most traded pair, RKR, active days (per category for hybrid)
+
+### Data Accuracy Fixes (Backend)
+- **Overview crash fixed**: `violations` column is JSON string not PostgreSQL array — `unnest()` crashed endpoint, replaced with `string_to_array(regexp_replace(...))` matching admin
+- **Trade stats date-filtered**: Only counts trades within `start_date - 3h` to `end_date` (was counting ALL trades)
+- **Cent volume division**: Divides cent user volumes by 100 in trade stats (matching admin)
+- **Above Target**: Uses cent-aware comparison (multiplies target×100 for cent users) with proper JOINs
+- **Pull stats**: Uses 24h window with accumulated success/failed counts (was using current-date only)
+- **Balance card**: Shows only real balance as main value (admin pattern), sub shows Real + Demo
+- **Balance query**: Copied exactly from admin — no leaderboard JOIN, only registrations, divides cents by 100, `disqualified=false` + `investor_password IS NOT NULL`
+- **Updates Today card**: Added "Next: HH:00 EAT" sub-text
+
+### Cent Account Detection
+- Per-user `isCent` flag from participant data determines currency format (not challenge-wide)
+- `cur()` helper shows `116.00¢` for cent accounts, `$500.00` for standard
+- Applied to: overview, participants table, leaderboard, detail modal, trade modal, found-user card
+- Cent accounts can participate in ANY challenge — detection is per-user
+
+### Check-Balance Persistence
+- Verify/check-balance endpoint now saves `last_known_balance` + `pull_status` + `last_pull_at` to DB
+- Balance persists across refreshes/tab changes
+- Credential failures also marked (`pull_status = 'password_changed'`)
+
+### CSV Upload Improvements
+- **Deposit validation**: Validates balance against challenge rules (fixed/max_limit/min_limit) with cent awareness + 5% tolerance
+- **Balance saved to DB**: INSERT now includes `registration_balance` and `last_known_balance`
+- **Professional account validation**: Rejects pro/raw_spread/zero accounts if `allow_professional` not enabled
+- **Cent account validation**: Rejects non-cent real accounts if `only_cent_account` enabled
+- **Re-upload after unregister**: Deletes previously removed registrations before INSERT to avoid unique constraint conflicts
+
+### Email System
+- **Registration confirmation**: Sent on CSV upload success + web registration. Shows balance, host name (clickable), account details
+- **Disqualification email**: Sent with actual reason from textarea. Host name is clickable link to contact_link
+- **Removal email**: New `sendUnregistered()` template. Orange header, shows reason, clickable host name
+- **Host contact_link**: New DB column on hosts table. All emails make host name a clickable link to this URL
+- **Admin Edit Host**: New modal in admin panel to edit display_name + contact_link
+
+### Unregister Fix
+- Sets `email = 'removed_<id>_<email>'` and `account_number = '<num>_removed_<id>'` to avoid unique constraint (NOT NULL constraint on email prevented NULLing)
+- Properly allows re-registration of same user after removal
+
+### Other Fixes
+- Challenge card participant count now excludes removed/unregistered (`status != 'removed'`)
+- Host landing page: "Real-Time Leaderboard" → "Live Leaderboard", "multiple times a day" wording
+- `buildMetricsForCategory()` in host overview matches admin exactly (all 12 metric types)
+
+### Files Modified
+- `src/api/hostRoutes.ts` — Full overview rewrite, deposit validation, email integration, unregister fix
+- `src/api/server.ts` — CSV email calls, deposit validation, pro account check, participant count fix, admin host edit endpoint
+- `src/services/emailService.ts` — Updated all templates with hostName/hostLink, added sendUnregistered(), balance in registration email
+- `src/services/hostService.ts` — Added contact_link to getAllHostsWithStats query
+- `src/database/migrate.ts` — Added contact_link column migration
+- `WinnerPip/winnerpip/app/host/dashboard/page.tsx` — Complete visual parity (BalanceChart, trade modal, verify popup, cur() helper, full metrics)
+- `WinnerPip/winnerpip/app/admin/panel/page.tsx` — Edit Host modal (display_name + contact_link)
+- `WinnerPip/winnerpip/app/host/page.tsx` — Landing page wording fix
+
+### Commits (in order)
+- `047f1f5` — Host dashboard admin parity (BalanceChart, trade detail modal, verify popup)
+- `91d194c` — Overview shows Total Balance, verify button updates table
+- `54d3b35` — Check-balance persists to DB, overview balance uses registrations fallback
+- `f0af4c3` — Overview crash fix (JSON violations not pg array)
+- `c65490c` — Trade volume details, rejected status filter
+- `cbacb24` — Cent account detection, pro account validation, last pull time
+- `d34a5f3` — Per-user cent detection, overview balance divides cents by 100
+- `1af7971` — Full admin-matching metrics (buildMetricsForCategory)
+- `1bb8d6e` — Balance query copied exactly from admin
+- `b7b664b` — Total Balance shows only real balance (admin pattern)
+- `7b3488c` — Updates Today "Next: HH:00 EAT" sub-text
+- `90ced7b` — Date-filtered trades, cent volume division, cent-aware above-target, 24h pull stats
+- `45d300d` — Registration confirmation email on CSV upload
+- `558ef69` — DQ and removal emails with reason
+- `5c4c734` — Unregister mangles email/account_number for unique constraint
+- `dd47d4e` — Delete removed registrations before CSV re-insert
+- `11d03c9` — Unregister mangles email (NOT NULL fix)
+- `f22ae73` — Deposit validation, balance saved to DB, balance in email
+- `bd692a8` — Emails show host display name clickable, reason from textarea
+- `c1c4a34` — Host contact_link feature (clickable in emails, admin edit modal, DB migration)
+- `0828b43` — Challenge card participant count excludes removed
+- `15c2e3a` — Host landing page wording fix
+
+### Remaining Work
+- End-to-end test with real host flow (challenge lifecycle: create → approve → open reg → upload CSV → start → pull → evaluate → review → complete)
+- Host leaderboard could include registrationId and rankChange for fuller parity
+- Balance warning emails during challenge (already implemented in scheduler but verify for hosted)
+- Challenge start/end email notifications for hosted participants
+
+---
+
+## Session — August 21, 2026 — Web Registration Wizard + Account Changes
+
+### What Was Done
+
+**5-Step Registration Wizard (WinnerPip hosted challenges):**
+- Step 1: Email → allocation check via broker API (returns rich error with host name/links)
+- Step 2: Username → uniqueness check
+- Step 3: Account category (hybrid picker or locked for single-type)
+- Step 4: MT5 credentials → VPS verification with live balance/type display + server dropdown with fuzzy matching
+- Step 5: Review & confirm (shows all details, low balance warning for fixed real)
+- Success page with sign-in instructions + "Go to Dashboard" link
+
+**Registration Flow UX Fixes:**
+- Card click goes to login page (not directly to wizard)
+- Login page shows "Register Now" button (blue) for winnerpip hosted challenges
+- "Register Now" links to `/challenge/{id}?register=true` → auto-opens wizard on clean background
+- Draft challenges show "Registration Opening Soon" popup on card click
+- No flash of wrong register button (loading state while fetching challenge info)
+- "Hosted by" badge is gold, link uses `stopPropagation()` + `https://` prefix
+
+**Account Change Banner (User Dashboard, pre-start only):**
+- Change Category: warning → MT5 credentials → VPS verify → review → confirm (full re-registration)
+- Change Account: MT5 credentials → VPS verify → review → confirm
+- All checks apply: pro account, cent-only, deposit validation, allocation
+- Review shows email, nickname, new category, account, server, balance, type
+- Success shows bold "Important" notice with new credentials + "Got it" button (10s auto-reload fallback)
+- Email now fetched from database (added `r.email` to dashboard query)
+
+**Deposit Validation (matching admin/telegram exactly):**
+- Demo (fixed): balance must match within 1% tolerance (not 5%)
+- Demo (max_limit): balance must be ≤ limit
+- Demo (min_limit): balance must be ≥ limit
+- Real (fixed/max_limit): balance must be ≤ starting_balance (no tolerance, straight comparison)
+- Real (min_limit): balance must be ≥ starting_balance
+- Low balance warning on review (fixed real, below deposit but allowed)
+
+**Broker Removal Protection:**
+- Pre-check endpoint: `GET /api/host/broker-removal-check`
+- Warning before removal: contextual messages for open/active challenges
+- Registration blocked when broker removed with open registrations
+- Re-integration unblocks automatically
+- Registrants see: "Registrations are temporarily paused by [Host](link). Contact [Host Support](link) for assistance."
+
+**Allocation Error Messages:**
+- "Please double-check your email spelling. If correct, your account is not allocated under [Host Name](link). Contact [Host Support](link) to guide you."
+- Error clears when user edits email
+
+**Cent Display Fix:**
+- Leaderboard deposit warning now uses `formatBalance()` → shows "3000.00¢" not "$3,000"
+- Dashboard API returns `challenge.type` for account change banner
+
+**Server Dropdown:**
+- Searchable dropdown for MT5 server selection
+- Shows demo servers (Trial2-14) for demo, real servers (Real2-30) for real
+- Fuzzy matching: "real21" → Exness-MT5Real21
+
+### Backend Endpoints Added
+- `POST /api/challenges/:id/check-allocation`
+- `POST /api/challenges/:id/check-username`
+- `POST /api/challenges/:id/verify-mt5`
+- `POST /api/challenges/:id/change-category`
+- `POST /api/challenges/:id/change-account`
+- `POST /api/challenges/:id/change-registration` (full re-registration for category change)
+- `GET /api/host/broker-removal-check`
+- DB migration: `registration_blocked` column on hosts table
+
+### Commits (this session)
+- `eecdac5` — 5-step registration wizard + account change banner
+- `84e3d71` — Hosted-by link fix, gold badge, draft CTA
+- `187e62d` — https prefix, draft popup
+- `57301e1` — Card click to login, Register Now on auth gate
+- `4676f75` — Login page register button fix
+- `6e1477f` — Register auto-opens wizard via ?register=true
+- `eb40233` — Clean background for wizard, dismiss → /challenges
+- `5b10dfc` — Hide auth gate when ?register=true
+- `afb4555` — Rich allocation error with host links
+- `395b157` — Broker removal warnings + registration blocking
+- `82e3063` — MT5 server searchable dropdown
+- `21b47da` — Errors stay on step, allocation asks to check email
+- `7262b18` — Low balance warning on review (fixed real)
+- `3fab982` — Proper category/account change flow
+- `dd8ab37` — Leaderboard cent display fix
+- `bdc2622` — Demo exact balance enforcement (initial 5%)
+- `c93bac4` — Match admin logic exactly (1% tolerance)
+- `efc2c2e` — New credentials notice after change
+- `ef64cc4` — Bold prominent credentials notice
+- `a35eb8a` — Email from API not localStorage
+- `e7e6c47` — Add r.email to dashboard SQL query
+- `60d0fd8` — Got it button + 10s auto-reload
+
+### Remaining Work (Web Registration)
+- End-to-end test of full registration flow with real host
+- Test category change and account change with VPS
+- Verify broker removal blocking works in production
+- Login page flash fix may need SSR or skeleton approach for slower connections
+
+---
+
+## Session — August 26, 2026 — Host Dashboard Parity + Quiz Fix + Registration Fixes
+
+### Quiz Fix
+- **Session expired fix**: Migrated quiz sessions from in-memory Map to PostgreSQL (`quiz_sessions` table). Sessions now survive bot restarts/deploys.
+
+### Host Channel Posts Fix
+- Host challenges no longer post to admin Telegram channels (`@BirrForex`, `@BirrForex_Challenges`). Added `host_id` guard to all 7 scheduler functions.
+
+### Registration Wizard Fixes
+- Fixed hosted-by link (`stopPropagation` + `https://` prefix)
+- Gold badge for host branding
+- Draft challenges show "Registration Opening Soon" popup
+- Card click goes to login page; "Register Now" on auth gate
+- Auto-opens wizard via `?register=true` on clean background
+- Rich allocation error with host name/support links
+- Registration blocked when host removes broker (with contextual warnings)
+- MT5 server searchable dropdown (fuzzy matching, demo/real lists)
+- Errors stay on same step, allocation message asks to check email first
+- Low balance warning on review (fixed real)
+- Demo exact balance enforcement (1% tolerance matching admin)
+- Real accounts: no tolerance, straight comparison
+- Change-registration fully resets old balance data
+- "Got it" button + 10s auto-reload on account change success
+- Email fetched from DB (added `r.email` to dashboard query)
+- Leaderboard cent display fix (`formatBalance()` not raw `$3,000`)
+
+### Host Dashboard — Full Admin Parity
+
+**Leaderboard:**
+- API now returns: accountNumber, email, server, rankChange, totalWithdrawn, isWithdrawn, isBlown, registrationId
+- Balance shows dollar amounts with withdrawal deductions (not growth%)
+- Above-target highlighting (lighter green)
+- Winner logic checks balance >= effective target (cent-aware)
+- "withdrew $X" label, Exited/Blown icons
+- Blue minimum trades flag (`📊 X/Y trades`) on both admin and host
+- Fixed empty leaderboard (removed non-existent `rank_change` column)
+
+**Leaderboard User Detail Modal:**
+- Exact admin copy: DQ banner OR stats grid (conditional)
+- Trade history grouped by positionId (partial closes together)
+- Win Rate & Avg RR always shown when trades exist
+- Trades fetch uses public `/api/challenges/:id/user-trades` endpoint (same as admin)
+- Removed action buttons from modal (admin doesn't have them there)
+
+**Participants Tab:**
+- Row click shows inline detail panel (not modal) — matching admin
+- Full stats grid: Balance, Qualified Profit, Profit Removed, Win Rate, Trades, Avg RR, Flagged, Active Days
+- Account details: Account #, Server, Registered (EAT), Last Pull (EAT), Partner
+- Recent Trades list with type badge, symbol, volume, profit
+- View on Leaderboard + Export MT5 Trade History buttons
+- Actions: Check Balance, Re-evaluate, Disqualify, Unregister
+- `full-participants` endpoint now JOINs `wp_leaderboard` for real stats
+- Search support added to endpoint
+- Recent trades fetched on row click (useEffect)
+- CSV Upload hidden for winnerpip registration mode (`registration_mode` added to API)
+
+**Updates Tab:**
+- Credential Failures: collapsed with count badge, expandable, Retry + Update PW
+- Update Individual Account: button in action row, expands inline search
+- Real-time progress bar (Step 1-4) during updates
+- Individual account pull: full admin-style result with trade-level diffs, eval changes, new trades
+- Buttons: Update (Incremental), Full Update + Evaluate + Rank (non-DQ), Full Update (All incl. DQ), Evaluate Only, Update Individual, Retry All Failed
+
+**Top Rule Violations:**
+- Server-side categorization (matching admin): "Simultaneous pair limit" not raw text
+- Ticket IDs filtered out (leaked from comma-split)
+- Expandable with nicknames (details with user names)
+
+**Exports:**
+- MT5 Trade History HTML: admin's full template (position grouping, SL check columns, eval report, violation breakdown)
+- Export endpoint returns camelCase + user/challenge/trades format
+- Challenge Stats HTML: admin's full template (all sections: top balance, highest profit, win rate, rule keeping, instruments, most broken rule, most active day)
+- Most Broken Rule shows categorized name (not ticket ID) in both admin and host
+- Most Active Day formatted as "Wed, Aug 26" (not raw ISO)
+- Instruments count from DB query
+
+**Admin Panel Updates:**
+- Removed redundant "Full Pull (Non-DQ)" button (same as Full Pull + Evaluate + Rank)
+- Added "Full Pull (All incl. DQ)" button
+- Blue minimum trades flag on admin leaderboard too
+
+### Commits (this session)
+- `0cda9dd` — Quiz sessions → PostgreSQL
+- `94c6d96` — Host challenges don't post to admin channels
+- `5eb0fd9` — Change-registration resets old balance data
+- `ba76d3f` — Host credential failures + individual pull
+- `939cd75` — Credential failures collapsed, individual update as button
+- `a168661` — Real-time progress bar for host updates
+- `49aabf0` — Progress bar fills based on step, remove redundant button
+- `610b203` — Individual update full admin-style result with diffs
+- `a50d3e2` — Host leaderboard matches admin (API + frontend)
+- `b171ef7` — Fix empty leaderboard (rank_change column)
+- `b1a57d7` — User detail modal shows all data for DQ'd users
+- `b03888a` — Host modal exact admin copy with trade grouping
+- `bcf3bd8` — Trades fetch uses registrationId
+- `90d977f` — Send both nickname + registration_id
+- `3f3c39b` — Use public user-trades endpoint, remove action buttons
+- `0c1f84c` — Blue minimum trades flag on both leaderboards
+- `046a1e9` — Host Participants tab foundUser panel matches admin
+- `d7d0cdf` — Participant row click shows inline detail (not modal)
+- `af7c77c` — Host MT5 Export HTML matches admin exactly
+- `999b957` — Host export-user-trades returns admin format
+- `efdbcba` — Host top violations categorized
+- `e13eab9` — Filter ticket IDs from violations
+- `593b703` — Challenge stats date format + instruments count
+- `48c531a` — Top violations include details with nicknames
+- `616ab71` — Full Update (All incl. DQ) button
+- `8fa3432` — Rename update buttons
+- `793c1ed` — Admin gets Full Pull (All incl. DQ)
+- `2824d91` — Remove redundant Non-DQ button from admin
+- `b9dac51` — Participant search includes recent trades
+- `43fd248` — Trades load on row click, CSV hidden for winnerpip
+
+
+### Additional Changes (August 26, 2026 continued)
+
+**Quiz Fixes:**
+- Duplicate morning post prevention: `morning_post_sent_at` DB flag checked before sending
+- Countdown restart prevention: `countdown_started_at` DB flag — if bot restarts mid-countdown, it won't re-start
+- Admin winner report: now includes Telegram ID + win history (Xth time winner, previous dates)
+- Quiz sessions persisted in PostgreSQL (survive restarts)
+
+**Email System for Hosted Challenges:**
+- Credential failure email added: "Account Access Issue" with fix instructions + "Log in to Dashboard" button
+- Challenge Started email: has "Log in to Dashboard" button
+- Challenge Ended email: has "View Results" button  
+- Registration Confirmed email: has "Log in to Dashboard" button
+- Balance warning email: skipped for hosted challenges (host_id check added)
+- WinnerPip users (`source='winnerpip'`) now get credential failure email notification
+- No Telegram DMs sent to winnerpip-source users — confirmed
+- Challenge start/end emails fire for all winnerpip users regardless of host_id — confirmed
+
+**Host Credential Failures System:**
+- "Retry All" button inside credential failures panel (separate from action row's "Retry All Failed")
+- Backend: `POST /challenge/:id/retry-all-credentials` — verifies each failed account individually via VPS
+- Backend: `GET /challenge/:id/retry-all-status` — progress polling (running, current, total, recovered, stillFailing, ETA)
+- Frontend: real-time progress bar (gold, shows X/Y + recovered + failed + ETA)
+- "Update PW" button: now properly uses newPassword param to verify via VPS before saving
+- Backend fix: `check-balance` endpoint uses `newPassword` when provided (was ignoring it before)
+- When password fixed (by user or host): `pull_status` resets to 'success', account disappears from failures list
+
+**Admin Pull Buttons Cleanup:**
+- Removed redundant "Full Pull (Non-DQ)" (same as Full Pull + Evaluate + Rank)
+- Added "Full Pull (All incl. DQ)" button on admin
+- Host has 3 buttons: Update (Incremental), Full Update + Evaluate + Rank (non-DQ), Full Update (All incl. DQ)
+
+**Commits (this sub-session):**
+- `aaf02f0` — Quiz duplicate post + countdown restart prevention (DB flags)
+- `e20073d` — Admin winner report with Telegram ID + win history
+- `a4c9718` — Credential failure email + dashboard buttons on all hosted emails
+- `db56275` — check-balance uses newPassword when provided
+- `978ee0c` — Retry All button inside credential failures panel
+- `130fc91` — Host retry-all-credentials with real-time progress (like admin)
+- `793c1ed` — Admin Full Pull (All incl. DQ) button
+- `2824d91` — Remove redundant Non-DQ button from admin
+
+### Status: All Code Complete
+- End-to-end manual testing of full host challenge lifecycle is the only remaining task
+- No further code changes needed unless bugs found during testing
