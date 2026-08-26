@@ -677,15 +677,37 @@ router.get('/challenge/:id/export-user-trades', async (req: any, res: Response) 
     const registrationId = parseInt(req.query.registration_id as string);
     if (!registrationId) return res.status(400).json({ error: 'registration_id required' });
 
-    const reg = await db.query(`SELECT id, nickname, account_number FROM trading_registrations WHERE id=$1 AND challenge_id=$2`, [registrationId, challengeId]);
+    const reg = await db.query(
+      `SELECT r.id, r.nickname, r.account_number, r.account_type, r.is_cent, r.mt5_server,
+              c.title as challenge_title, c.start_date, c.end_date
+       FROM trading_registrations r JOIN trading_challenges c ON c.id = r.challenge_id
+       WHERE r.id=$1 AND r.challenge_id=$2`, [registrationId, challengeId]);
     if (!reg.rows[0]) return res.status(404).json({ error: 'Participant not found' });
+    const r = reg.rows[0];
 
     const trades = await db.query(
       `SELECT ticket, symbol, trade_type, volume, open_time, close_time, open_price, close_price,
-              stop_loss, take_profit, profit, commission, swap, is_qualified, violations, position_id
+              stop_loss, take_profit, profit, commission, swap, is_qualified, violations, position_id,
+              sl_check_result, sl_check_pending, sl_allowed_price, sl_max_adverse_price
        FROM wp_trades WHERE challenge_id=$1 AND registration_id=$2 ORDER BY close_time ASC`, [challengeId, registrationId]);
 
-    return res.json({ participant: reg.rows[0], trades: trades.rows });
+    return res.json({
+      challenge: { title: r.challenge_title, startDate: r.start_date, endDate: r.end_date },
+      user: { nickname: r.nickname, accountNumber: r.account_number, accountType: r.account_type, isCent: r.is_cent || false, server: r.mt5_server },
+      trades: trades.rows.map((t: any) => ({
+        ticket: t.ticket, symbol: t.symbol, type: t.trade_type, volume: parseFloat(t.volume),
+        openTime: t.open_time, closeTime: t.close_time,
+        openPrice: parseFloat(t.open_price), closePrice: parseFloat(t.close_price),
+        stopLoss: t.stop_loss ? parseFloat(t.stop_loss) : null,
+        takeProfit: t.take_profit ? parseFloat(t.take_profit) : null,
+        profit: parseFloat(t.profit), commission: parseFloat(t.commission || 0), swap: parseFloat(t.swap || 0),
+        isQualified: t.is_qualified, violations: t.violations || [],
+        positionId: t.position_id || t.ticket,
+        slCheckResult: t.sl_check_result || null, slCheckPending: t.sl_check_pending || false,
+        slAllowedPrice: t.sl_allowed_price ? parseFloat(t.sl_allowed_price) : null,
+        slMaxAdversePrice: t.sl_max_adverse_price ? parseFloat(t.sl_max_adverse_price) : null,
+      })),
+    });
   } catch (error) {
     return res.status(500).json({ error: 'Internal server error' });
   }
