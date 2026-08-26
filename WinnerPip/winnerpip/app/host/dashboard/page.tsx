@@ -1303,7 +1303,7 @@ export default function HostDashboardPage() {
       </div>
       )}
 
-      {/* Participant Detail Modal */}
+      {/* Participant Detail Modal — exact admin copy */}
       {selectedParticipant && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-hidden" onClick={() => setSelectedParticipant(null)}>
           <div className="glass rounded-2xl max-w-md w-full max-h-[85vh] overflow-y-auto border border-white/10" onClick={e => e.stopPropagation()}>
@@ -1316,7 +1316,7 @@ export default function HostDashboardPage() {
                 <div className="p-4 rounded-xl bg-gray-500/10 border border-gray-500/20">
                   <p className="text-xs text-gray-400 mb-1">🚪 Account Exited</p>
                   <p className="text-sm text-white">User withdrew all funds and is out of the challenge.</p>
-                  {selectedParticipant.totalWithdrawn > 0 && <p className="text-xs text-gray-500 mt-1">Total withdrawn: ${Number(selectedParticipant.totalWithdrawn).toFixed(2)}</p>}
+                  {selectedParticipant.totalWithdrawn > 0 && <p className="text-xs text-gray-500 mt-1">Total withdrawn: {cur(selectedParticipant.totalWithdrawn, selectedParticipant.isCent)}</p>}
                 </div>
               )}
               {selectedParticipant.isBlown && !selectedParticipant.isWithdrawn && (
@@ -1325,21 +1325,21 @@ export default function HostDashboardPage() {
                   <p className="text-sm text-white">Balance hit zero from trading losses.</p>
                 </div>
               )}
-              {(selectedParticipant.isDisqualified || selectedParticipant.disqualified) && (
+              {(selectedParticipant.isDisqualified || selectedParticipant.disqualified) ? (
                 <div className="p-4 rounded-xl bg-loss/10 border border-loss/20">
                   <p className="text-xs text-gray-400 mb-1">Disqualified</p>
                   <p className="text-sm text-white">{selectedParticipant.disqualifyReason || selectedParticipant.disqualified_reason || "No reason provided"}</p>
                 </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Rank</p><p className="text-2xl font-bold gradient-text">#{selectedParticipant.rank || "—"}</p></div>
+                  <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Balance</p><p className="text-2xl font-bold text-white">{cur(selectedParticipant.adjustedBalance, selectedParticipant.isCent)}</p></div>
+                  <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Profit</p><p className={`text-lg font-bold ${(selectedParticipant.qualifiedProfit || 0) >= 0 ? "text-profit" : "text-loss"}`}>{cur(selectedParticipant.qualifiedProfit, selectedParticipant.isCent)}</p></div>
+                  <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Gross</p><p className="text-lg font-bold text-white">{cur(selectedParticipant.grossProfit, selectedParticipant.isCent)}</p></div>
+                  <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Trades</p><p className="text-lg font-bold text-white">{selectedParticipant.totalTrades || 0}</p></div>
+                  <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Flagged</p><p className={`text-lg font-bold ${(selectedParticipant.flaggedTrades || 0) > 0 ? "text-loss" : "text-profit"}`}>{selectedParticipant.flaggedTrades || 0}</p><p className="text-[10px] text-gray-500 mt-0.5">RKR: <span className="text-white font-semibold">{(selectedParticipant.totalTrades || 0) > 0 ? `${Math.round(((selectedParticipant.qualifiedTrades || 0) / selectedParticipant.totalTrades) * 100)}%` : "—"}</span></p></div>
+                </div>
               )}
-              {/* Stats grid — always shown */}
-              <div className="grid grid-cols-2 gap-3">
-                <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Rank</p><p className="text-2xl font-bold gradient-text">#{selectedParticipant.rank || "—"}</p></div>
-                <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Balance</p><p className="text-2xl font-bold text-white">{cur(selectedParticipant.adjustedBalance || selectedParticipant.lastKnownBalance || 0, selectedParticipant.isCent)}</p></div>
-                <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Profit</p><p className={`text-lg font-bold ${Number(selectedParticipant.qualifiedProfit || 0) >= 0 ? "text-profit" : "text-loss"}`}>{cur(selectedParticipant.qualifiedProfit || 0, selectedParticipant.isCent)}</p></div>
-                <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Gross</p><p className="text-lg font-bold text-white">{cur(selectedParticipant.grossProfit || 0, selectedParticipant.isCent)}</p></div>
-                <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Trades</p><p className="text-lg font-bold text-white">{selectedParticipant.totalTrades || 0}</p></div>
-                <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Flagged</p><p className={`text-lg font-bold ${(selectedParticipant.flaggedTrades || 0) > 0 ? "text-loss" : "text-profit"}`}>{selectedParticipant.flaggedTrades || 0}</p><p className="text-[10px] text-gray-500 mt-0.5">RKR: <span className="text-white font-semibold">{(selectedParticipant.totalTrades || 0) > 0 ? `${Math.round(((selectedParticipant.qualifiedTrades || 0) / selectedParticipant.totalTrades) * 100)}%` : "—"}</span></p></div>
-              </div>
               {/* ACCOUNT GROWTH CHART */}
               {(selectedParticipant.totalTrades || 0) > 0 && (selectedParticipant.registrationId || selectedParticipant.id) && (
                 <BalanceChart
@@ -1353,8 +1353,8 @@ export default function HostDashboardPage() {
               <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Account Type</p><span className={`px-3 py-1 rounded text-xs font-semibold ${selectedParticipant.accountType === "real" ? "bg-gold/10 text-gold" : "bg-royal/10 text-royal"}`}>{selectedParticipant.accountType}</span></div>
               {/* Win Rate & Avg RR */}
               {selectedParticipantTrades.length > 0 && (() => {
-                const _wins = selectedParticipantTrades.filter((t: any) => t.profit > 0 && t.is_qualified !== false);
-                const _losses = selectedParticipantTrades.filter((t: any) => t.profit < 0);
+                const _wins = selectedParticipantTrades.filter((t: any) => (t.profit > 0 || Number(t.profit) > 0) && t.is_qualified !== false && t.isQualified !== false);
+                const _losses = selectedParticipantTrades.filter((t: any) => (t.profit < 0 || Number(t.profit) < 0));
                 const _decided = _wins.length + _losses.length;
                 const _wr = _decided > 0 ? Math.round((_wins.length / _decided) * 100) : 0;
                 const _aw = _wins.length > 0 ? _wins.reduce((s: number, t: any) => s + Number(t.profit), 0) / _wins.length : 0;
@@ -1367,7 +1367,7 @@ export default function HostDashboardPage() {
                   </div>
                 );
               })()}
-              {/* Trade History with Balance Ops */}
+              {/* Trade History — grouped by positionId (admin style) */}
               {(selectedParticipantTrades.length > 0 || selectedParticipantBalanceOps.length > 0) && (() => {
                 const fmtEAT = (d: string) => d ? new Date(new Date(d).getTime() + 3*60*60*1000).toISOString().substring(11,16) : '';
                 const fmtDateEAT = (d: string) => { const dt = new Date(new Date(d).getTime() + 3*60*60*1000); return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); };
@@ -1378,19 +1378,27 @@ export default function HostDashboardPage() {
                   swap:       { icon: '🔄', label: 'Swap',       bg: 'bg-amber-500/10', border: 'border-amber-500/20', textColor: 'text-amber-400', sign: (a) => a < 0 ? '-' : '+' },
                   dividend:   { icon: '📊', label: 'Dividend',   bg: 'bg-royal/10',  border: 'border-royal/20',  textColor: 'text-royal',       sign: () => '+' },
                 };
-                // Build unified feed
-                type FeedItem = { sortTime: number } & ({ kind: 'trade'; trade: any } | { kind: 'op'; op: any });
-                const feed: FeedItem[] = [];
+                // Group trades by positionId
+                const posMap = new Map<number, any[]>();
                 for (const t of selectedParticipantTrades) {
-                  feed.push({ kind: 'trade', trade: t, sortTime: new Date(t.close_time || t.closeTime || 0).getTime() });
+                  const key = t.position_id || t.positionId || t.ticket;
+                  if (!posMap.has(key)) posMap.set(key, []);
+                  posMap.get(key)!.push(t);
                 }
+                Array.from(posMap.values()).forEach(g => g.sort((a: any, b: any) => new Date(a.close_time || a.closeTime || 0).getTime() - new Date(b.close_time || b.closeTime || 0).getTime()));
+                type FeedItem = { sortTime: number } & ({ kind: 'trade'; group: any[] } | { kind: 'op'; op: any });
+                const feed: FeedItem[] = [];
+                posMap.forEach(group => {
+                  feed.push({ kind: 'trade', group, sortTime: new Date(group[0].close_time || group[0].closeTime || 0).getTime() });
+                });
                 for (const op of selectedParticipantBalanceOps) {
                   feed.push({ kind: 'op', op, sortTime: new Date(op.time || op.closeTime || 0).getTime() });
                 }
                 feed.sort((a, b) => b.sortTime - a.sortTime);
+                const tradeCount = posMap.size;
                 return (
                   <div className="mt-2">
-                    <p className="text-xs font-semibold text-gray-400 mb-2">Account History · {selectedParticipantTrades.length} trade{selectedParticipantTrades.length !== 1 ? 's' : ''}</p>
+                    <p className="text-xs font-semibold text-gray-400 mb-2">Account History · {tradeCount} trade{tradeCount !== 1 ? 's' : ''}</p>
                     <div className="space-y-2 max-h-[360px] overflow-y-auto">
                       {feed.map((item, idx) => {
                         if (item.kind === 'op') {
@@ -1411,28 +1419,71 @@ export default function HostDashboardPage() {
                             </div>
                           );
                         }
-                        const t = item.trade;
-                        const tradeType = t.trade_type || t.type || '';
-                        const closeTime = t.close_time || t.closeTime || '';
-                        const openTime = t.open_time || t.openTime || '';
-                        const isQualified = t.is_qualified !== false && t.isQualified !== false;
-                        const violations = t.violations ? (typeof t.violations === 'string' ? JSON.parse(t.violations) : t.violations) : [];
-                        return (
-                          <div key={`t-${t.ticket}-${idx}`} onClick={() => setSelectedTrade(t)} className={`py-2 px-3 rounded-lg cursor-pointer hover:brightness-125 transition-all ${!isQualified ? 'bg-loss/10 border border-loss/20' : 'bg-white/5'}`}>
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-2">
-                                <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${tradeType.toLowerCase() === 'buy' ? 'bg-profit/20 text-profit' : 'bg-loss/20 text-loss'}`}>{tradeType}</span>
-                                <div>
-                                  <p className="text-xs text-white font-medium">{t.symbol}</p>
-                                  <p className="text-[10px] text-gray-500">{openTime ? fmtDateEAT(openTime) : ''} {openTime ? fmtEAT(openTime) : ''} → {closeTime ? fmtEAT(closeTime) : ''}</p>
+                        const group = item.group;
+                        if (group.length === 1) {
+                          const t = group[0];
+                          const tradeType = t.trade_type || t.type || '';
+                          const closeTime = t.close_time || t.closeTime || '';
+                          const openTime = t.open_time || t.openTime || '';
+                          const isQualified = t.is_qualified !== false && t.isQualified !== false;
+                          const violations = t.violations ? (typeof t.violations === 'string' ? JSON.parse(t.violations) : t.violations) : [];
+                          return (
+                            <div key={`t-${t.ticket}-${idx}`} onClick={() => setSelectedTrade(t)} className={`py-2 px-3 rounded-lg cursor-pointer hover:brightness-125 transition-all ${!isQualified ? 'bg-loss/10 border border-loss/20' : 'bg-white/5'}`}>
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                  <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${tradeType.toLowerCase() === 'buy' ? 'bg-profit/20 text-profit' : 'bg-loss/20 text-loss'}`}>{tradeType}</span>
+                                  <div>
+                                    <p className="text-xs text-white font-medium">{t.symbol}</p>
+                                    <p className="text-[10px] text-gray-500">{openTime ? fmtDateEAT(openTime) : ''} {openTime ? fmtEAT(openTime) : ''} → {closeTime ? fmtEAT(closeTime) : ''}</p>
+                                  </div>
+                                </div>
+                                <div className="text-right">
+                                  <p className={`text-xs font-bold ${Number(t.profit) >= 0 ? 'text-profit' : 'text-loss'}`}>{c(Number(t.profit))}</p>
+                                  <p className="text-[10px] text-gray-500">{t.volume} lot {!isQualified ? <span className="text-loss">🚩</span> : null}</p>
                                 </div>
                               </div>
-                              <div className="text-right">
-                                <p className={`text-xs font-bold ${Number(t.profit) >= 0 ? 'text-profit' : 'text-loss'}`}>{c(Number(t.profit))}</p>
-                                <p className="text-[10px] text-gray-500">{t.volume} lot {!isQualified ? <span className="text-loss">🚩</span> : null}</p>
+                              {!isQualified && violations.length > 0 && <p className="text-[10px] text-loss mt-1 pl-7">⚠️ {violations[0]}</p>}
+                            </div>
+                          );
+                        }
+                        // Grouped partial closes
+                        const totalProfit = group.reduce((s: number, t: any) => s + Number(t.profit), 0);
+                        const totalVol = group.reduce((s: number, t: any) => s + Number(t.volume), 0);
+                        const anyFlagged = group.some((t: any) => t.is_qualified === false || t.isQualified === false);
+                        const first = group[0];
+                        const firstType = first.trade_type || first.type || '';
+                        const firstOpen = first.open_time || first.openTime || '';
+                        return (
+                          <div key={`g-${first.position_id || first.positionId || first.ticket}-${idx}`} className={`rounded-lg overflow-hidden ${anyFlagged ? 'border border-loss/20' : 'border border-white/10'}`}>
+                            <div onClick={() => setSelectedTrade(first)} className={`py-2 px-3 cursor-pointer hover:brightness-125 transition-all ${anyFlagged ? 'bg-loss/10' : 'bg-white/5'}`}>
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                  <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${firstType.toLowerCase() === 'buy' ? 'bg-profit/20 text-profit' : 'bg-loss/20 text-loss'}`}>{firstType}</span>
+                                  <div>
+                                    <p className="text-xs text-white font-medium">{first.symbol} <span className="text-gray-500 font-normal">{group.length} closes</span></p>
+                                    <p className="text-[10px] text-gray-500">{firstOpen ? fmtDateEAT(firstOpen) : ''} {firstOpen ? fmtEAT(firstOpen) : ''}</p>
+                                  </div>
+                                </div>
+                                <div className="text-right">
+                                  <p className={`text-xs font-bold ${totalProfit >= 0 ? 'text-profit' : 'text-loss'}`}>{c(totalProfit)}</p>
+                                  <p className="text-[10px] text-gray-500">{totalVol.toFixed(2)} lot {anyFlagged ? <span className="text-loss">🚩</span> : null}</p>
+                                </div>
                               </div>
                             </div>
-                            {!isQualified && violations.length > 0 && <p className="text-[10px] text-loss mt-1 pl-7">⚠️ {violations[0]}</p>}
+                            {group.map((t: any) => {
+                              const tClose = t.close_time || t.closeTime || '';
+                              const tIsQual = t.is_qualified !== false && t.isQualified !== false;
+                              const tViolations = t.violations ? (typeof t.violations === 'string' ? JSON.parse(t.violations) : t.violations) : [];
+                              return (
+                                <div key={t.ticket} onClick={() => setSelectedTrade(t)} className={`py-1.5 px-3 pl-6 border-t border-white/5 cursor-pointer hover:brightness-125 transition-all ${!tIsQual ? 'bg-loss/5' : ''}`}>
+                                  <div className="flex items-center justify-between">
+                                    <p className="text-[10px] text-gray-500">└ → {fmtEAT(tClose)} · {t.volume} lot</p>
+                                    <p className={`text-[10px] font-semibold ${Number(t.profit) >= 0 ? 'text-profit' : 'text-loss'}`}>{c(Number(t.profit))}</p>
+                                  </div>
+                                  {!tIsQual && tViolations.length > 0 && <p className="text-[10px] text-loss mt-1 pl-2">⚠️ {tViolations[0]}</p>}
+                                </div>
+                              );
+                            })}
                           </div>
                         );
                       })}
@@ -1468,12 +1519,11 @@ export default function HostDashboardPage() {
               <div className="border-t border-white/10 pt-4 space-y-2">
                 <p className="text-[10px] text-gray-500 uppercase tracking-wider font-semibold mb-2">Actions</p>
                 <div className="flex flex-wrap gap-2">
-                  <button onClick={async () => { const id = selectedParticipant.id || selectedParticipant.registrationId; if (!id) return; const btn = document.activeElement as HTMLButtonElement; btn.textContent = '⏳'; try { const r = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/check-balance`, { method: "POST", headers: headers(), body: JSON.stringify({ registrationId: id }) }); const d = await r.json(); if (d.verified) { btn.textContent = `✅ $${Number(d.balance).toFixed(2)}`; } else { btn.textContent = `❌ ${d.credential_fail ? 'PW changed' : 'Failed'}`; } } catch { btn.textContent = '❌ Error'; } setTimeout(() => { btn.textContent = '🛡️ Check Balance'; }, 5000); }} className="px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-semibold hover:bg-amber-500/20 transition-all">🛡️ Check Balance</button>
+                  <button onClick={async () => { const id = selectedParticipant.id || selectedParticipant.registrationId; if (!id) return; const btn = document.activeElement as HTMLButtonElement; btn.textContent = '⏳'; try { const r = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/check-balance`, { method: "POST", headers: headers(), body: JSON.stringify({ registrationId: id }) }); const d = await r.json(); if (d.verified) { btn.textContent = `✅ ${cur(Number(d.balance), selectedParticipant.isCent)}`; } else { btn.textContent = `❌ ${d.credential_fail ? 'PW changed' : 'Failed'}`; } } catch { btn.textContent = '❌ Error'; } setTimeout(() => { btn.textContent = '🛡️ Check Balance'; }, 5000); }} className="px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-semibold hover:bg-amber-500/20 transition-all">🛡️ Check Balance</button>
                   <button onClick={async () => { const id = selectedParticipant.id || selectedParticipant.registrationId; if (!id) return; try { const r = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/re-evaluate-user`, { method: "POST", headers: headers(), body: JSON.stringify({ registrationId: id }) }); const d = await r.json(); alert(d.success ? "Re-evaluation complete" : (d.error || "Failed")); } catch { alert("Error"); } }} className="px-3 py-2 rounded-lg bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 text-xs font-semibold hover:bg-cyan-500/20 transition-all">🔄 Re-evaluate</button>
                   {!(selectedParticipant.isDisqualified || selectedParticipant.disqualified) && <button onClick={() => { const id = selectedParticipant.id || selectedParticipant.registrationId; if (!id) return; const reason = prompt("DQ Reason:"); if (!reason) return; doAction(`${API_URL}/api/host/challenge/${selectedChallengeId}/disqualify`, 'POST', { registrationId: id, reason }); setSelectedParticipant(null); }} className="px-3 py-2 rounded-lg bg-loss/10 border border-loss/30 text-loss text-xs font-semibold hover:bg-loss/20 transition-all">🚫 Disqualify</button>}
                   <button onClick={() => { const id = selectedParticipant.id || selectedParticipant.registrationId; if (!id) return; if (!confirm(`Remove ${selectedParticipant.nickname}?`)) return; doAction(`${API_URL}/api/host/challenge/${selectedChallengeId}/unverify`, 'POST', { registrationId: id }); setSelectedParticipant(null); }} className="px-3 py-2 rounded-lg bg-gray-500/10 border border-gray-500/30 text-gray-400 text-xs font-semibold hover:bg-gray-500/20 transition-all">🗑️ Remove</button>
                 </div>
-                <button onClick={() => { setActiveTab("leaderboard"); setLeaderboardCategory(selectedParticipant.accountType === 'demo' ? 'demo' : 'real'); setSelectedParticipant(null); }} className="w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-gold/20 border border-gold/30 hover:bg-gold/30 text-gold font-semibold transition-all text-sm mt-2"><Trophy size={16} />View on Leaderboard</button>
               </div>
             </div>
           </div>
