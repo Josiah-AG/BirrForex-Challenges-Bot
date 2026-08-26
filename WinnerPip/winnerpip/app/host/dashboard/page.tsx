@@ -876,12 +876,11 @@ export default function HostDashboardPage() {
               <div className="glass rounded-2xl border border-white/10 p-5">
                 <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2"><RefreshCw size={16} className="text-royal" /> Update Actions</h3>
                 <div className="flex flex-wrap gap-2">
-                  <button onClick={() => doAction(`${API_URL}/api/host/challenge/${selectedChallengeId}/force-update`)} disabled={actionLoading} className="px-4 py-2.5 rounded-lg bg-royal/20 text-royal text-xs font-semibold border border-royal/30 hover:bg-royal/30 disabled:opacity-50 transition-all">Force Update (Incremental)</button>
-                  <button onClick={() => doAction(`${API_URL}/api/host/challenge/${selectedChallengeId}/force-update-rank`)} disabled={actionLoading} className="px-4 py-2.5 rounded-lg bg-profit/20 text-profit text-xs font-semibold border border-profit/30 hover:bg-profit/30 disabled:opacity-50 transition-all">Full Update (Non-DQ)</button>
-                  <button onClick={() => doAction(`${API_URL}/api/host/challenge/${selectedChallengeId}/force-update`)} disabled={actionLoading} className="px-4 py-2.5 rounded-lg bg-gold/20 text-gold text-xs font-semibold border border-gold/30 hover:bg-gold/30 disabled:opacity-50 transition-all">Full Update + Evaluate + Rank</button>
-                  <button onClick={() => doAction(`${API_URL}/api/host/challenge/${selectedChallengeId}/re-evaluate-user`, 'POST', {})} disabled={actionLoading} className="px-4 py-2.5 rounded-lg bg-cyan-500/20 text-cyan-400 text-xs font-semibold border border-cyan-500/30 hover:bg-cyan-500/30 disabled:opacity-50 transition-all">Evaluate Only</button>
+                  <button onClick={() => doAction(`${API_URL}/api/host/challenge/${selectedChallengeId}/force-update`)} disabled={actionLoading || !!pullProgress?.isRunning} className="px-4 py-2.5 rounded-lg bg-royal/20 text-royal text-xs font-semibold border border-royal/30 hover:bg-royal/30 disabled:opacity-50 transition-all">Update (Incremental)</button>
+                  <button onClick={() => doAction(`${API_URL}/api/host/challenge/${selectedChallengeId}/force-update-rank`)} disabled={actionLoading || !!pullProgress?.isRunning} className="px-4 py-2.5 rounded-lg bg-profit/20 text-profit text-xs font-semibold border border-profit/30 hover:bg-profit/30 disabled:opacity-50 transition-all">Full Update (All Accounts)</button>
+                  <button onClick={() => doAction(`${API_URL}/api/host/challenge/${selectedChallengeId}/re-evaluate-user`, 'POST', {})} disabled={actionLoading || !!pullProgress?.isRunning} className="px-4 py-2.5 rounded-lg bg-cyan-500/20 text-cyan-400 text-xs font-semibold border border-cyan-500/30 hover:bg-cyan-500/30 disabled:opacity-50 transition-all">Evaluate Only</button>
                   <IndividualPullBtn challengeId={selectedChallengeId!} getToken={getToken} />
-                  <button onClick={() => doAction(`${API_URL}/api/host/challenge/${selectedChallengeId}/retry-credentials`)} disabled={actionLoading} className="px-4 py-2.5 rounded-lg bg-amber-500/20 text-amber-400 text-xs font-semibold border border-amber-500/30 hover:bg-amber-500/30 disabled:opacity-50 transition-all">Retry All Failed</button>
+                  <button onClick={() => doAction(`${API_URL}/api/host/challenge/${selectedChallengeId}/retry-credentials`)} disabled={actionLoading || !!pullProgress?.isRunning} className="px-4 py-2.5 rounded-lg bg-amber-500/20 text-amber-400 text-xs font-semibold border border-amber-500/30 hover:bg-amber-500/30 disabled:opacity-50 transition-all">Retry All Failed</button>
                 </div>
                 <p className="text-[10px] text-gray-500 mt-3">Updates run automatically 6x/day. Use these for manual triggers between scheduled runs.</p>
                 {actionResult && <p className={`text-xs mt-2 font-semibold ${actionResult.startsWith("✅") ? "text-profit" : actionResult === "Started" ? "text-gold" : "text-loss"}`}>{actionResult}</p>}
@@ -893,7 +892,7 @@ export default function HostDashboardPage() {
                       <span className="text-[10px] text-gray-500">{pullProgress.elapsed}s · {pullProgress.successful || 0} ok · {pullProgress.failed || 0} failed</span>
                     </div>
                     <div className="h-2 bg-white/10 rounded-full overflow-hidden">
-                      <div className="h-full rounded-full bg-gradient-to-r from-royal to-profit transition-all duration-1000" style={{ width: `${pullProgress.percent || 0}%` }} />
+                      <div className="h-full rounded-full bg-gradient-to-r from-royal to-profit transition-all duration-1000" style={{ width: `${Math.max(pullProgress.percent || 0, ((pullProgress.currentStep || 1) - 1) / (pullProgress.totalSteps || 4) * 100 + (pullProgress.percent || 50) / (pullProgress.totalSteps || 4))}%` }} />
                     </div>
                     <div className="flex justify-between mt-1.5">
                       {[1,2,3,4].map(s => (
