@@ -134,8 +134,7 @@ export class TradingScheduler {
   private async checkCountdowns(challenge: TradingChallenge, dateStr: string, timeStr: string, eatTime: Date) {
     if (challenge.status !== 'registration_open') return;
     if ((challenge as any).source === 'discord') return; // Discord challenges post via Discord bot
-
-    // Only between 08:00-08:05 EAT (5 minute window for resilience)
+    if ((challenge as any).host_id) return; // Host challenges don't post to admin channels
     const hour = eatTime.getUTCHours();
     const minute = eatTime.getUTCMinutes();
     if (hour !== 8 || minute > 4) return;
@@ -419,8 +418,8 @@ export class TradingScheduler {
           );
         }
 
-        // Only post to Telegram channels for Telegram-source challenges
-        if ((challenge as any).source !== 'discord') {
+        // Only post to Telegram channels for admin Telegram-source challenges
+        if ((challenge as any).source !== 'discord' && !(challenge as any).host_id) {
           await this.postChallengeStartAnnouncement(challenge);
         }
       }
@@ -471,6 +470,7 @@ export class TradingScheduler {
   private async checkDailyPosts(challenge: TradingChallenge, dateStr: string, timeStr: string, dayOfWeek: number) {
     if (challenge.status !== 'active') return;
     if ((challenge as any).source === 'discord') return; // Discord challenges don't post to Telegram
+    if ((challenge as any).host_id) return; // Host challenges don't post to admin channels
     if (dayOfWeek === 0 || dayOfWeek === 6) return;
 
     const tradingDay = this.getTradingDay(challenge, dateStr);
@@ -624,14 +624,15 @@ export class TradingScheduler {
   }
 
   async endChallenge(challenge: TradingChallenge) {
-    // Skip Telegram posts for Discord-source challenges
+    // Skip Telegram posts for Discord-source or host challenges
     const isDiscord = (challenge as any).source === 'discord';
+    const isHosted = !!(challenge as any).host_id;
 
     // Always use WinnerPip mode: Post "challenge ended, final check in progress" — no automatic submission window
     // Admin can manually open submissions later via /requestsubmission if needed
     await tradingChallengeService.updateChallengeStatus(challenge.id, 'reviewing');
 
-    if (!isDiscord) {
+    if (!isDiscord && !isHosted) {
       const text = `<b>🏁 CHALLENGE IS OVER!</b>\n\n` +
         `<b>${challenge.title}</b> has officially ended!\n\n` +
         `What an incredible journey! We hope you all gained valuable experience and sharpened your trading skills throughout this challenge.\n\n` +
@@ -730,6 +731,7 @@ export class TradingScheduler {
 
   private async checkSubmissionDeadline(challenge: TradingChallenge, dateStr: string, timeStr: string) {
     if (challenge.status !== 'submission_open' || !challenge.submission_deadline) return;
+    if ((challenge as any).host_id) return; // Host challenges don't post to admin channels
 
     const dl = this.toEATStrings(challenge.submission_deadline);
     const hour = parseInt(timeStr.split(':')[0]);
@@ -889,7 +891,7 @@ export class TradingScheduler {
   private async checkAbandonedSessions(challenge: TradingChallenge, eatTime: Date) {
     if (challenge.status !== 'registration_open') return;
     if ((challenge as any).source === 'discord') return;
-
+    if ((challenge as any).host_id) return; // Host challenges don't post to admin channels
     const hour = eatTime.getUTCHours();
     const dateStr = eatTime.toISOString().split('T')[0];
     const key = `${challenge.id}_${dateStr}_${hour}`;
@@ -926,6 +928,7 @@ export class TradingScheduler {
     // Only for registration_open challenges
     if (challenge.status !== 'registration_open') return;
     if ((challenge as any).source === 'discord') return; // Discord engagement handled by Discord bot
+    if ((challenge as any).host_id) return; // Host challenges don't post to admin channels
 
     // Only between 8:30 AM and 9:30 PM EAT
     const hour = eatTime.getUTCHours();
