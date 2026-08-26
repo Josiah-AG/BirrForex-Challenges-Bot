@@ -526,6 +526,10 @@ async function migrate() {
     );`).catch(() => {});
     console.log('✅ quiz_sessions table OK');
 
+    // Deduplication flags for quiz scheduler posts
+    await db.query(`ALTER TABLE challenges ADD COLUMN IF NOT EXISTS morning_post_sent_at TIMESTAMP;`).catch(() => {});
+    await db.query(`ALTER TABLE challenges ADD COLUMN IF NOT EXISTS countdown_started_at TIMESTAMP;`).catch(() => {});
+
     console.log('✅ Database migration completed successfully!');
     process.exit(0);
   } catch (error) {

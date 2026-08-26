@@ -337,7 +337,14 @@ export class Scheduler {
 
         // Morning post (12:00 PM EAT on challenge day)
         if (currentDateStr2 === challengeDateStr && currentTime === '12:00' && challenge.status === 'scheduled') {
-          await this.sendMorningPostsForChallenge(challenge.id);
+          // Deduplication: check if already sent today
+          const { db } = require('../database/db');
+          const sentCheck = await db.query(`SELECT morning_post_sent_at FROM challenges WHERE id = $1`, [challenge.id]);
+          const sentAt = sentCheck.rows[0]?.morning_post_sent_at;
+          if (!sentAt || new Date(sentAt).toISOString().split('T')[0] !== currentDateStr2) {
+            await db.query(`UPDATE challenges SET morning_post_sent_at = NOW() WHERE id = $1`, [challenge.id]);
+            await this.sendMorningPostsForChallenge(challenge.id);
+          }
         }
 
         // User notifications (2:00 PM EAT on challenge day)
@@ -362,7 +369,14 @@ export class Scheduler {
         const fiveMinDateStr = `${fiveMinDate.getFullYear()}-${(fiveMinDate.getMonth()+1).toString().padStart(2,'0')}-${fiveMinDate.getDate().toString().padStart(2,'0')}`;
 
         if (currentDateStr2 === fiveMinDateStr && currentTime === fiveMinTime && challenge.status === 'scheduled') {
-          await this.startCountdown(challenge.id);
+          // Deduplication: check if countdown already started
+          const { db } = require('../database/db');
+          const cdCheck = await db.query(`SELECT countdown_started_at FROM challenges WHERE id = $1`, [challenge.id]);
+          const cdAt = cdCheck.rows[0]?.countdown_started_at;
+          if (!cdAt || new Date(cdAt).toISOString().split('T')[0] !== currentDateStr2) {
+            await db.query(`UPDATE challenges SET countdown_started_at = NOW() WHERE id = $1`, [challenge.id]);
+            await this.startCountdown(challenge.id);
+          }
         }
 
         // Start challenge
