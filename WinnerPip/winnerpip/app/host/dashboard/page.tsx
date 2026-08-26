@@ -73,6 +73,7 @@ export default function HostDashboardPage() {
 
   const [actionLoading, setActionLoading] = useState(false);
   const [actionResult, setActionResult] = useState("");
+  const [pullProgress, setPullProgress] = useState<{ isRunning: boolean; currentStep?: number; totalSteps?: number; percent?: number; elapsed?: number; totalAccounts?: number; successful?: number; failed?: number } | null>(null);
   const [expandedViolation, setExpandedViolation] = useState<string | null>(null);
   const [leaderboardCategory, setLeaderboardCategory] = useState<"all" | "real" | "demo">("all");
   const [participantFilter, setParticipantFilter] = useState("all");
@@ -254,11 +255,27 @@ export default function HostDashboardPage() {
     try {
       const res = await fetch(url, { method, headers: headers(), ...(body ? { body: JSON.stringify(body) } : {}) });
       const data = await res.json();
-      setActionResult(data.success ? "Done" : (data.error || "Failed"));
-    } catch { setActionResult("Network error"); }
+      if (data.success) {
+        setActionResult("Started");
+        // Start polling progress
+        const poll = setInterval(async () => {
+          try {
+            const pRes = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/pull-status`, { headers: headers() });
+            const progress = await pRes.json();
+            setPullProgress(progress);
+            if (!progress.isRunning) { clearInterval(poll); setPullProgress(null); setActionResult("✅ Complete"); fetchTabData(); setTimeout(() => setActionResult(""), 3000); }
+          } catch { clearInterval(poll); setPullProgress(null); }
+        }, 2000);
+        // Also poll immediately
+        setTimeout(async () => {
+          try {
+            const pRes = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/pull-status`, { headers: headers() });
+            setPullProgress(await pRes.json());
+          } catch {}
+        }, 500);
+      } else { setActionResult(data.error || "Failed"); setTimeout(() => setActionResult(""), 3000); }
+    } catch { setActionResult("Network error"); setTimeout(() => setActionResult(""), 3000); }
     setActionLoading(false);
-    setTimeout(() => setActionResult(""), 3000);
-    fetchTabData();
   };
 
   const fmtTime = (d: string) => d ? new Date(d).toLocaleString("en-US", { timeZone: challengeTz, month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: true }) : "—";
@@ -867,6 +884,26 @@ export default function HostDashboardPage() {
                   <button onClick={() => doAction(`${API_URL}/api/host/challenge/${selectedChallengeId}/retry-credentials`)} disabled={actionLoading} className="px-4 py-2.5 rounded-lg bg-amber-500/20 text-amber-400 text-xs font-semibold border border-amber-500/30 hover:bg-amber-500/30 disabled:opacity-50 transition-all">Retry All Failed</button>
                 </div>
                 <p className="text-[10px] text-gray-500 mt-3">Updates run automatically 6x/day. Use these for manual triggers between scheduled runs.</p>
+                {actionResult && <p className={`text-xs mt-2 font-semibold ${actionResult.startsWith("✅") ? "text-profit" : actionResult === "Started" ? "text-gold" : "text-loss"}`}>{actionResult}</p>}
+                {/* Progress bar */}
+                {pullProgress?.isRunning && (
+                  <div className="mt-4 p-3 rounded-xl bg-royal/5 border border-royal/20">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs text-royal font-semibold flex items-center gap-1.5"><Loader2 size={12} className="animate-spin" /> Step {pullProgress.currentStep} of {pullProgress.totalSteps}</span>
+                      <span className="text-[10px] text-gray-500">{pullProgress.elapsed}s · {pullProgress.successful || 0} ok · {pullProgress.failed || 0} failed</span>
+                    </div>
+                    <div className="h-2 bg-white/10 rounded-full overflow-hidden">
+                      <div className="h-full rounded-full bg-gradient-to-r from-royal to-profit transition-all duration-1000" style={{ width: `${pullProgress.percent || 0}%` }} />
+                    </div>
+                    <div className="flex justify-between mt-1.5">
+                      {[1,2,3,4].map(s => (
+                        <span key={s} className={`text-[9px] font-bold ${s < (pullProgress.currentStep || 1) ? 'text-profit' : s === pullProgress.currentStep ? 'text-royal' : 'text-gray-600'}`}>
+                          {s < (pullProgress.currentStep || 1) ? '✓' : ''} Step {s}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Credential Failures — collapsed by default */}

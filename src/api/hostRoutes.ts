@@ -896,6 +896,35 @@ router.get('/challenge/:id/pull-single-status', async (req: any, res: Response) 
   return res.json(result);
 });
 
+// ==================== PULL STATUS (progress) ====================
+router.get('/challenge/:id/pull-status', async (req: any, res: Response) => {
+  const challengeId = await verifyOwnership(req, res);
+  if (!challengeId) return;
+  try {
+    const running = await db.query(
+      `SELECT id, total_accounts, started_at, phase, phase2_total, phase2_processed, successful, failed
+       FROM wp_pull_batches WHERE challenge_id = $1 AND status = 'running' ORDER BY started_at DESC LIMIT 1`,
+      [challengeId]
+    );
+    if (running.rows.length === 0) {
+      // Check last completed
+      const last = await db.query(
+        `SELECT id, total_accounts, successful, failed, status, started_at, completed_at
+         FROM wp_pull_batches WHERE challenge_id = $1 ORDER BY started_at DESC LIMIT 1`, [challengeId]);
+      return res.json({ isRunning: false, lastBatch: last.rows[0] || null });
+    }
+    const b = running.rows[0];
+    const elapsed = Math.round((Date.now() - new Date(b.started_at).getTime()) / 1000);
+    const phase = b.phase || 'pulling';
+    // Map phases to simplified steps
+    const stepMap: Record<string, number> = { pulling: 1, resolving: 2, resolving_nulls: 2, reconciling: 2, balance_reconcile: 2, full_pull_open_price: 2, settling: 3, ohlc: 3, evaluating: 4 };
+    const currentStep = stepMap[phase] || 1;
+    const totalSteps = 4;
+    const percent = b.phase2_total > 0 ? Math.min(100, Math.round((b.phase2_processed / b.phase2_total) * 100)) : (phase === 'pulling' && b.total_accounts > 0 ? Math.min(100, Math.round(((b.successful || 0) + (b.failed || 0)) / b.total_accounts * 100)) : 0);
+    return res.json({ isRunning: true, currentStep, totalSteps, percent, elapsed, totalAccounts: b.total_accounts, successful: b.successful || 0, failed: b.failed || 0 });
+  } catch { return res.json({ isRunning: false }); }
+});
+
 router.post('/challenge/:id/approve-pull', async (req: any, res: Response) => {
   const challengeId = await verifyOwnership(req, res);
   if (!challengeId) return;
