@@ -824,11 +824,20 @@ router.post('/challenge/:id/pull-single-account', async (req: any, res: Response
 
     // Snapshot before
     const before = await db.query(
-      `SELECT l.rank as prev_rank, (SELECT COUNT(*) FROM wp_trades WHERE registration_id = $1) as trade_count
+      `SELECT l.rank as prev_rank, l.qualified_profit, l.gross_profit, l.profit_removed, l.total_trades, l.qualified_trades, l.flagged_trades, l.adjusted_balance, l.current_balance,
+              (SELECT COUNT(*) FROM wp_trades WHERE registration_id = $1) as trade_count
        FROM trading_registrations r LEFT JOIN wp_leaderboard l ON l.registration_id = r.id
        WHERE r.id = $1`, [registrationId]);
     const prevRank = before.rows[0]?.prev_rank;
     const prevTradeCount = parseInt(before.rows[0]?.trade_count || '0');
+    const lbBefore = before.rows[0] || {};
+
+    // Snapshot trades before pull (for diff)
+    const tradesBefore = await db.query(
+      `SELECT id, ticket, position_id, symbol, trade_type, open_price, close_price, open_time, is_qualified, stop_loss
+       FROM wp_trades WHERE challenge_id = $1 AND registration_id = $2 ORDER BY close_time DESC`,
+      [challengeId, registrationId]);
+    const tradeSnapshot = tradesBefore.rows;
 
     // NULL out last_pull_at to force full pull
     await db.query(`UPDATE trading_registrations SET last_pull_at = NULL WHERE id = $1`, [registrationId]);
@@ -865,17 +874,54 @@ router.post('/challenge/:id/pull-single-account', async (req: any, res: Response
            FROM trading_registrations r LEFT JOIN wp_leaderboard l ON l.registration_id = r.id WHERE r.id = $1`, [registrationId]);
         const a = after.rows[0] || {};
 
+        // Build trade-level diff
+        const tradesAfter = await db.query(
+          `SELECT id, ticket, position_id, symbol, trade_type, open_price, close_price, open_time, is_qualified, stop_loss, profit
+           FROM wp_trades WHERE challenge_id = $1 AND registration_id = $2 ORDER BY close_time DESC`,
+          [challengeId, registrationId]);
+
+        const tradeChanges: any[] = [];
+        const newTrades: any[] = [];
+        const beforeMap = new Map(tradeSnapshot.map((t: any) => [String(t.ticket), t]));
+
+        for (const t of tradesAfter.rows) {
+          const old = beforeMap.get(String(t.ticket));
+          if (!old) {
+            newTrades.push({ ticket: t.ticket, symbol: t.symbol, type: t.trade_type, profit: parseFloat(t.profit), isQualified: t.is_qualified });
+          } else {
+            const changes: any = {};
+            if (String(old.open_price) !== String(t.open_price)) changes.open_price = { before: parseFloat(old.open_price), after: parseFloat(t.open_price) };
+            if (String(old.close_price) !== String(t.close_price)) changes.close_price = { before: parseFloat(old.close_price), after: parseFloat(t.close_price) };
+            if (old.is_qualified !== t.is_qualified) changes.is_qualified = { before: old.is_qualified, after: t.is_qualified };
+            if (String(old.stop_loss) !== String(t.stop_loss)) changes.stop_loss = { before: parseFloat(old.stop_loss || 0), after: parseFloat(t.stop_loss || 0) };
+            if (Object.keys(changes).length > 0) tradeChanges.push({ ticket: t.ticket, symbol: t.symbol, positionId: t.position_id, changes });
+          }
+        }
+
+        // Build eval diff
+        const evalDiff: any = {};
+        if (lbBefore.qualified_profit != null && a.qualified_profit != null && parseFloat(lbBefore.qualified_profit) !== parseFloat(a.qualified_profit)) evalDiff.qualifiedProfit = { before: parseFloat(lbBefore.qualified_profit), after: parseFloat(a.qualified_profit) };
+        if (lbBefore.adjusted_balance != null && a.adjusted_balance != null && parseFloat(lbBefore.adjusted_balance) !== parseFloat(a.adjusted_balance)) evalDiff.adjustedBalance = { before: parseFloat(lbBefore.adjusted_balance), after: parseFloat(a.adjusted_balance) };
+        if (lbBefore.current_balance != null && a.current_balance != null && parseFloat(lbBefore.current_balance) !== parseFloat(a.current_balance)) evalDiff.grossBalance = { before: parseFloat(lbBefore.current_balance), after: parseFloat(a.current_balance) };
+        if (lbBefore.flagged_trades != null && a.flagged_trades != null && parseInt(lbBefore.flagged_trades) !== parseInt(a.flagged_trades)) evalDiff.flaggedTrades = { before: parseInt(lbBefore.flagged_trades), after: parseInt(a.flagged_trades) };
+        if (lbBefore.qualified_trades != null && a.qualified_trades != null && parseInt(lbBefore.qualified_trades) !== parseInt(a.qualified_trades)) evalDiff.qualifiedTrades = { before: parseInt(lbBefore.qualified_trades), after: parseInt(a.qualified_trades) };
+        if (lbBefore.profit_removed != null && a.profit_removed != null && parseFloat(lbBefore.profit_removed) !== parseFloat(a.profit_removed)) evalDiff.profitRemoved = { before: parseFloat(lbBefore.profit_removed), after: parseFloat(a.profit_removed) };
+
+        const hasDiff = tradeChanges.length > 0 || newTrades.length > 0 || Object.keys(evalDiff).length > 0;
+
         hostPullResults.set(registrationId, {
           done: true, success: pullResult.success,
           errorMessage: pullResult.success ? null : (pullResult.error || 'Pull failed'),
           tradesFound: a.total_trades || 0,
-          tradesAdded: Math.max(0, (a.total_trades || 0) - prevTradeCount),
+          tradesAdded: newTrades.length,
           faultsFound: a.flagged_trades || 0,
           prevRank, newRank: a.rank || null,
           adjustedBalance: a.adjusted_balance ? parseFloat(a.adjusted_balance) : 0,
           grossBalance: a.current_balance ? parseFloat(a.current_balance) : 0,
           isDisqualified: a.disqualified || false,
           dqReason: a.disqualified_reason || null,
+          hasDiff, tradeChanges, newTrades, evalDiff,
+          pendingApproval: true,
         });
       } catch (error) {
         hostPullResults.set(registrationId, { done: true, success: false, errorMessage: String(error) });

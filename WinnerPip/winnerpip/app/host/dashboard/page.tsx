@@ -2235,17 +2235,73 @@ function IndividualPullBtn({ challengeId, getToken }: { challengeId: number; get
         </div>
       )}
       {pullResult && (
-        <div className={`p-3 rounded-lg border ${pullResult.success ? 'bg-profit/5 border-profit/30' : 'bg-loss/5 border-loss/30'}`}>
-          <p className={`text-xs font-bold mb-1.5 ${pullResult.success ? 'text-profit' : 'text-loss'}`}>{pullResult.success ? '✅ Complete' : '❌ Failed'}</p>
+        <div className={`p-4 rounded-xl border space-y-3 ${pullResult.success ? 'bg-profit/5 border-profit/20' : 'bg-loss/5 border-loss/20'}`}>
           {pullResult.success ? (
-            <div className="grid grid-cols-4 gap-1.5 text-center">
-              <div className="bg-white/5 rounded p-1.5"><p className="text-[8px] text-gray-500">Trades</p><p className="text-[10px] font-bold text-white">{pullResult.tradesFound}</p></div>
-              <div className="bg-white/5 rounded p-1.5"><p className="text-[8px] text-gray-500">New</p><p className="text-[10px] font-bold text-profit">+{pullResult.tradesAdded}</p></div>
-              <div className="bg-white/5 rounded p-1.5"><p className="text-[8px] text-gray-500">Flagged</p><p className="text-[10px] font-bold text-loss">{pullResult.faultsFound}</p></div>
-              <div className="bg-white/5 rounded p-1.5"><p className="text-[8px] text-gray-500">Rank</p><p className="text-[10px] font-bold text-white">{pullResult.prevRank || '—'}→{pullResult.newRank || '—'}</p></div>
-            </div>
-          ) : <p className="text-[10px] text-gray-400">{pullResult.errorMessage}</p>}
-          <button onClick={() => { setPullResult(null); setUser(null); setSearch(""); }} className="mt-2 w-full py-1.5 rounded-lg bg-white/5 border border-white/10 text-gray-400 text-[10px] hover:bg-white/10">Done</button>
+            <>
+              <p className="text-sm font-bold text-profit text-center">✅ Update Complete</p>
+              <div className="grid grid-cols-2 gap-2 text-[11px]">
+                <div className="bg-white/5 rounded-lg p-2 text-center"><p className="text-gray-400">Trades in DB</p><p className="text-white font-bold">{pullResult.tradesFound}</p></div>
+                <div className="bg-white/5 rounded-lg p-2 text-center"><p className="text-gray-400">New Trades Added</p><p className="text-royal font-bold">{pullResult.tradesAdded}</p></div>
+                <div className="bg-white/5 rounded-lg p-2 text-center"><p className="text-gray-400">Faults Found</p><p className="text-loss font-bold">{pullResult.faultsFound}</p></div>
+                <div className="bg-white/5 rounded-lg p-2 text-center"><p className="text-gray-400">Rank</p><p className="text-white font-bold">{pullResult.prevRank ? `#${pullResult.prevRank}` : '—'} → {pullResult.newRank ? `#${pullResult.newRank}` : '—'}</p></div>
+              </div>
+              {/* Trade Data Changes */}
+              {pullResult.tradeChanges && pullResult.tradeChanges.length > 0 && (
+                <div className="bg-royal/5 border border-royal/20 rounded-xl p-3 space-y-1">
+                  <p className="text-[10px] text-royal font-semibold uppercase tracking-wider mb-2">Trade Data Changes ({pullResult.tradeChanges.length})</p>
+                  {pullResult.tradeChanges.slice(0, 10).map((tc: any, i: number) => (
+                    <div key={i} className="bg-white/5 rounded-lg p-2 text-[10px]">
+                      <p className="text-gray-300 font-semibold mb-1">{tc.symbol} · #{tc.ticket}</p>
+                      {tc.changes.open_price && <p className="text-gray-400">Open: <span className="text-gray-500">{tc.changes.open_price.before}</span> → <span className="text-white">{tc.changes.open_price.after}</span></p>}
+                      {tc.changes.close_price && <p className="text-gray-400">Close: <span className="text-gray-500">{tc.changes.close_price.before}</span> → <span className="text-white">{tc.changes.close_price.after}</span></p>}
+                      {tc.changes.is_qualified && <p className="text-gray-400">Status: <span className={tc.changes.is_qualified.before ? "text-profit" : "text-loss"}>{tc.changes.is_qualified.before ? "Qualified" : "Flagged"}</span> → <span className={tc.changes.is_qualified.after ? "text-profit" : "text-loss"}>{tc.changes.is_qualified.after ? "Qualified ✓" : "Flagged ✗"}</span></p>}
+                      {tc.changes.stop_loss && <p className="text-gray-400">SL: {tc.changes.stop_loss.before} → {tc.changes.stop_loss.after}</p>}
+                    </div>
+                  ))}
+                  {pullResult.tradeChanges.length > 10 && <p className="text-[9px] text-gray-500">+{pullResult.tradeChanges.length - 10} more...</p>}
+                </div>
+              )}
+              {/* New Trades */}
+              {pullResult.newTrades && pullResult.newTrades.length > 0 && (
+                <div className="bg-profit/5 border border-profit/20 rounded-xl p-3">
+                  <p className="text-[10px] text-profit font-semibold uppercase tracking-wider mb-2">New Trades ({pullResult.newTrades.length})</p>
+                  {pullResult.newTrades.slice(0, 5).map((nt: any, i: number) => (
+                    <p key={i} className="text-[10px] text-gray-300">#{nt.ticket} · {nt.symbol} · {nt.type} · <span className={nt.profit >= 0 ? "text-profit" : "text-loss"}>${nt.profit.toFixed(2)}</span></p>
+                  ))}
+                </div>
+              )}
+              {/* Eval Changes */}
+              {pullResult.evalDiff && Object.keys(pullResult.evalDiff).length > 0 && (
+                <div className="bg-gold/5 border border-gold/20 rounded-xl p-3 space-y-1">
+                  <p className="text-[10px] text-gold font-semibold uppercase tracking-wider mb-2">Evaluation Changes</p>
+                  {pullResult.evalDiff.qualifiedProfit && <div className="flex justify-between text-[11px]"><span className="text-gray-400">Qualified Profit</span><span><span className="text-gray-500">${pullResult.evalDiff.qualifiedProfit.before.toFixed(2)}</span> → <span className="text-white font-semibold">${pullResult.evalDiff.qualifiedProfit.after.toFixed(2)}</span></span></div>}
+                  {pullResult.evalDiff.adjustedBalance && <div className="flex justify-between text-[11px]"><span className="text-gray-400">Adjusted Balance</span><span><span className="text-gray-500">${pullResult.evalDiff.adjustedBalance.before.toFixed(2)}</span> → <span className="text-white font-semibold">${pullResult.evalDiff.adjustedBalance.after.toFixed(2)}</span></span></div>}
+                  {pullResult.evalDiff.grossBalance && <div className="flex justify-between text-[11px]"><span className="text-gray-400">Gross Balance</span><span><span className="text-gray-500">${pullResult.evalDiff.grossBalance.before.toFixed(2)}</span> → <span className="text-white font-semibold">${pullResult.evalDiff.grossBalance.after.toFixed(2)}</span></span></div>}
+                  {pullResult.evalDiff.flaggedTrades && <div className="flex justify-between text-[11px]"><span className="text-gray-400">Flagged</span><span><span className="text-gray-500">{pullResult.evalDiff.flaggedTrades.before}</span> → <span className={`font-semibold ${pullResult.evalDiff.flaggedTrades.after < pullResult.evalDiff.flaggedTrades.before ? "text-profit" : "text-loss"}`}>{pullResult.evalDiff.flaggedTrades.after}</span></span></div>}
+                  {pullResult.evalDiff.qualifiedTrades && <div className="flex justify-between text-[11px]"><span className="text-gray-400">Qualified</span><span><span className="text-gray-500">{pullResult.evalDiff.qualifiedTrades.before}</span> → <span className="text-white font-semibold">{pullResult.evalDiff.qualifiedTrades.after}</span></span></div>}
+                  {pullResult.evalDiff.profitRemoved && <div className="flex justify-between text-[11px]"><span className="text-gray-400">Profit Removed</span><span><span className="text-gray-500">${pullResult.evalDiff.profitRemoved.before.toFixed(2)}</span> → <span className="text-loss font-semibold">${pullResult.evalDiff.profitRemoved.after.toFixed(2)}</span></span></div>}
+                </div>
+              )}
+              {/* No changes */}
+              {!pullResult.hasDiff && (
+                <div className="bg-white/5 rounded-lg px-3 py-2 text-center space-y-1">
+                  <p className="text-[10px] text-gray-500">No changes detected — data matches existing records.</p>
+                  <div className="grid grid-cols-2 gap-2 text-[10px] mt-2">
+                    <div className="bg-white/5 rounded p-1.5 text-center"><span className="text-gray-500">Adj: </span><span className="text-white font-semibold">${Number(pullResult.adjustedBalance || 0).toFixed(2)}</span></div>
+                    <div className="bg-white/5 rounded p-1.5 text-center"><span className="text-gray-500">Gross: </span><span className="text-white font-semibold">${Number(pullResult.grossBalance || 0).toFixed(2)}</span></div>
+                  </div>
+                </div>
+              )}
+              {pullResult.isDisqualified && <p className="text-[10px] text-loss bg-loss/10 rounded-lg px-3 py-2 text-center">DQ: {pullResult.dqReason}</p>}
+              <button onClick={() => { setPullResult(null); setUser(null); setSearch(""); }} className="w-full py-2 rounded-lg bg-white/5 border border-white/10 text-gray-400 text-[10px] hover:bg-white/10">Done</button>
+            </>
+          ) : (
+            <>
+              <p className="text-sm font-bold text-loss text-center">❌ Update Failed</p>
+              <p className="text-[11px] text-gray-400 text-center">{pullResult.errorMessage || 'Unknown error'}</p>
+              <button onClick={handlePull} disabled={pulling} className="w-full py-2 rounded-lg bg-purple-500/20 border border-purple-500/30 text-purple-300 text-[10px] font-bold hover:bg-purple-500/30 disabled:opacity-50">Retry</button>
+            </>
+          )}
         </div>
       )}
     </div>
