@@ -292,21 +292,32 @@ router.get('/challenge/:id/full-participants', async (req: any, res: Response) =
   if (!challengeId) return;
   try {
     const page = parseInt(req.query.page as string) || 1;
+    const search = (req.query.search as string || '').trim().toLowerCase();
     const limit = 100;
     const offset = (page - 1) * limit;
 
-    const countResult = await db.query(`SELECT COUNT(*) as total FROM trading_registrations WHERE challenge_id=$1 AND (status IS NULL OR status != 'removed')`, [challengeId]);
+    let searchFilter = '';
+    const params: any[] = [challengeId];
+    if (search) {
+      searchFilter = ` AND (LOWER(r.nickname) = $2 OR LOWER(r.email) = $2 OR r.account_number = $2 OR LOWER(r.nickname) LIKE $3)`;
+      params.push(search, `%${search}%`);
+    }
+
+    const countResult = await db.query(`SELECT COUNT(*) as total FROM trading_registrations r WHERE r.challenge_id=$1 AND (r.status IS NULL OR r.status != 'removed')${searchFilter}`, params);
     const total = parseInt(countResult.rows[0].total);
 
     const result = await db.query(
-      `SELECT id, nickname, username, email, account_number, mt5_server, account_type, account_subtype,
-              is_cent, disqualified, disqualified_reason, pull_status, pull_error,
-              connection_verified, registered_at, last_pull_at, last_known_balance, registration_balance,
-              actual_starting_balance, investor_password, source
-       FROM trading_registrations
-       WHERE challenge_id=$1 AND (status IS NULL OR status != 'removed')
-       ORDER BY registered_at DESC
-       LIMIT $2 OFFSET $3`, [challengeId, limit, offset]);
+      `SELECT r.id, r.nickname, r.username, r.email, r.account_number, r.mt5_server, r.account_type, r.account_subtype,
+              r.is_cent, r.disqualified, r.disqualified_reason, r.pull_status, r.pull_error,
+              r.connection_verified, r.registered_at, r.last_pull_at, r.last_known_balance, r.registration_balance,
+              r.actual_starting_balance, r.investor_password, r.source,
+              l.rank, l.adjusted_balance, l.current_balance, l.qualified_profit, l.gross_profit,
+              l.profit_removed, l.total_trades, l.qualified_trades, l.flagged_trades, l.active_days
+       FROM trading_registrations r
+       LEFT JOIN wp_leaderboard l ON r.id = l.registration_id
+       WHERE r.challenge_id=$1 AND (r.status IS NULL OR r.status != 'removed')${searchFilter}
+       ORDER BY r.registered_at DESC
+       LIMIT $${params.length + 1} OFFSET $${params.length + 2}`, [...params, limit, offset]);
 
     return res.json({
       participants: result.rows.map((p: any) => ({
@@ -316,9 +327,18 @@ router.get('/challenge/:id/full-participants', async (req: any, res: Response) =
         isCent: p.is_cent, disqualified: p.disqualified, disqualifiedReason: p.disqualified_reason,
         pullStatus: p.pull_status, pullError: p.pull_error,
         connectionVerified: p.connection_verified, registeredAt: p.registered_at,
-        lastPullAt: p.last_pull_at, lastKnownBalance: p.last_known_balance,
+        lastPull: p.last_pull_at, lastKnownBalance: p.last_known_balance,
         registrationBalance: p.registration_balance, actualStartingBalance: p.actual_starting_balance,
         investorPassword: p.investor_password, source: p.source,
+        rank: p.rank || null,
+        balance: p.adjusted_balance != null ? parseFloat(p.adjusted_balance) : (p.last_known_balance != null ? parseFloat(p.last_known_balance) : 0),
+        adjustedBalance: p.adjusted_balance != null ? parseFloat(p.adjusted_balance) : 0,
+        qualifiedProfit: p.qualified_profit != null ? parseFloat(p.qualified_profit) : 0,
+        grossProfit: p.gross_profit != null ? parseFloat(p.gross_profit) : 0,
+        profitRemoved: p.profit_removed != null ? parseFloat(p.profit_removed) : 0,
+        totalTrades: p.total_trades || 0, qualifiedTrades: p.qualified_trades || 0,
+        flaggedTrades: p.flagged_trades || 0, activeDays: p.active_days || 0,
+        partnerStatus: 'OK',
       })),
       pagination: { page, total, totalPages: Math.ceil(total / limit) },
     });
