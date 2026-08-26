@@ -868,10 +868,12 @@ export default function HostDashboardPage() {
                 <p className="text-[10px] text-gray-500 mt-3">Updates run automatically 6x/day. Use these for manual triggers between scheduled runs.</p>
               </div>
 
-              {/* Credential Failures */}
-              {failedAccounts?.credentialFailures?.length > 0 && (
-                <div className="glass rounded-2xl border border-loss/20 p-5">
-                  <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2"><Key size={16} className="text-loss" /> Credential Failures ({failedAccounts.credentialFailures.length})</h3>
+              {/* Credential Failures — always visible */}
+              <div className="glass rounded-2xl border border-white/10 p-5">
+                <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2"><Key size={16} className="text-loss" /> Credential Failures {failedAccounts?.credentialFailures?.length > 0 ? `(${failedAccounts.credentialFailures.length})` : ''}</h3>
+                {(!failedAccounts?.credentialFailures || failedAccounts.credentialFailures.length === 0) ? (
+                  <p className="text-xs text-gray-500 text-center py-3">No credential failures — all accounts connecting successfully.</p>
+                ) : (
                   <div className="space-y-2 max-h-80 overflow-y-auto">
                     {failedAccounts.credentialFailures.map((f: any) => (
                       <div key={f.id} className="p-3 rounded-lg bg-loss/5 border border-loss/10">
@@ -890,10 +892,10 @@ export default function HostDashboardPage() {
                       </div>
                     ))}
                   </div>
-                </div>
-              )}
+                )}
+              </div>
 
-              {/* Individual Account Pull */}
+              {/* Update Individual Account */}
               <IndividualPullPanel challengeId={selectedChallengeId!} getToken={getToken} />
 
               {/* Update History */}
@@ -2111,6 +2113,7 @@ function hostDownloadRulesHTML(challenge: any, rulesList: string[], isCent: bool
 
 // ==================== INDIVIDUAL PULL PANEL ====================
 function IndividualPullPanel({ challengeId, getToken }: { challengeId: number; getToken: () => string }) {
+  const [expanded, setExpanded] = useState(false);
   const [search, setSearch] = useState("");
   const [searching, setSearching] = useState(false);
   const [user, setUser] = useState<any>(null);
@@ -2149,9 +2152,21 @@ function IndividualPullPanel({ challengeId, getToken }: { challengeId: number; g
     setPulling(false);
   };
 
+  if (!expanded) {
+    return (
+      <button onClick={() => setExpanded(true)} className="w-full glass rounded-2xl border border-royal/20 p-4 flex items-center justify-between hover:bg-royal/5 transition-all">
+        <span className="text-sm font-semibold text-royal flex items-center gap-2"><Target size={16} /> Update Individual Account</span>
+        <ChevronDown size={16} className="text-royal" />
+      </button>
+    );
+  }
+
   return (
-    <div className="glass rounded-2xl border border-white/10 p-5">
-      <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2"><Target size={16} className="text-royal" /> Pull Individual Account</h3>
+    <div className="glass rounded-2xl border border-royal/20 p-5">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-sm font-semibold text-white flex items-center gap-2"><Target size={16} className="text-royal" /> Update Individual Account</h3>
+        <button onClick={() => { setExpanded(false); setUser(null); setPullResult(null); setSearch(""); setNotFound(false); }} className="text-[10px] text-gray-500 hover:text-white transition-all">Close</button>
+      </div>
       <div className="flex gap-2 mb-4">
         <input type="text" value={search} onChange={e => setSearch(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleSearch()} placeholder="Search by email, account number, or nickname" className="flex-1 p-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-xs outline-none focus:border-royal/50 transition-all" />
         <button onClick={handleSearch} disabled={searching || !search.trim()} className="px-4 py-2.5 rounded-xl bg-royal/20 text-royal text-xs font-semibold border border-royal/30 hover:bg-royal/30 disabled:opacity-50 transition-all">
@@ -2177,14 +2192,14 @@ function IndividualPullPanel({ challengeId, getToken }: { challengeId: number; g
           </div>
           {user.disqualifiedReason && <p className="text-[10px] text-loss">DQ: {user.disqualifiedReason}</p>}
           <button onClick={handlePull} disabled={pulling} className="w-full py-2.5 rounded-xl bg-gradient-to-r from-royal to-purple-600 text-white text-xs font-semibold hover:opacity-90 disabled:opacity-50 transition-all flex items-center justify-center gap-2">
-            {pulling ? <><Loader2 size={12} className="animate-spin" /> Pulling full history & evaluating (30-60s)...</> : "⚡ Pull This Account"}
+            {pulling ? <><Loader2 size={12} className="animate-spin" /> Updating full history & evaluating (30-60s)...</> : "⚡ Update This Account"}
           </button>
         </div>
       )}
 
       {pullResult && (
         <div className={`p-4 rounded-xl border ${pullResult.success ? 'bg-profit/5 border-profit/30' : 'bg-loss/5 border-loss/30'}`}>
-          <p className={`text-sm font-bold mb-2 ${pullResult.success ? 'text-profit' : 'text-loss'}`}>{pullResult.success ? '✅ Pull Complete' : '❌ Pull Failed'}</p>
+          <p className={`text-sm font-bold mb-2 ${pullResult.success ? 'text-profit' : 'text-loss'}`}>{pullResult.success ? '✅ Update Complete' : '❌ Update Failed'}</p>
           {pullResult.success ? (
             <div className="space-y-2">
               <div className="grid grid-cols-4 gap-2 text-center">
