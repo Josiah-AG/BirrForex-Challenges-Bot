@@ -984,7 +984,7 @@ export default function HostDashboardPage() {
                         {pullProgress.justCompleted ? (
                           <span className="text-profit">✓ Update Complete</span>
                         ) : (
-                          <><Loader2 size={12} className="animate-spin text-royal" /> <span className="text-royal">{pullProgress.stepLabel || `Step ${pullProgress.currentStep}`}</span> <span className="text-gray-500">({pullProgress.currentStep}/{pullProgress.totalSteps})</span></>
+                          <><Loader2 size={12} className="animate-spin text-royal" /> <span className="text-royal">Step {pullProgress.currentStep}</span> <span className="text-gray-500">of {pullProgress.totalSteps}</span></>
                         )}
                       </span>
                       <span className="text-[10px] text-gray-500 flex items-center gap-2">
@@ -1010,7 +1010,7 @@ export default function HostDashboardPage() {
                     </div>
                     {!pullProgress.justCompleted && (
                       <div className="flex justify-between mt-1.5">
-                        {['Pulling', 'Reconciling', 'Settling', 'Evaluating'].map((label, i) => {
+                        {['Step 1', 'Step 2', 'Step 3', 'Step 4'].map((label, i) => {
                           const step = i + 1;
                           const isDone = step < (pullProgress.currentStep || 1);
                           const isActive = step === pullProgress.currentStep;
@@ -1033,7 +1033,9 @@ export default function HostDashboardPage() {
                 </div>
                 {pullHistory.length === 0 ? <p className="text-gray-500 text-sm text-center py-6">No updates yet</p> : (
                   <div className="space-y-2">
-                    {pullHistory.map((b: any, i: number) => (
+                    {pullHistory.map((b: any, i: number) => {
+                      const durationSec = b.completed_at && b.started_at ? Math.round((new Date(b.completed_at).getTime() - new Date(b.started_at).getTime()) / 1000) : null;
+                      return (
                       <div key={b.id} className="flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/10">
                         <div className="flex items-center gap-3">
                           <div className={`w-2.5 h-2.5 rounded-full ${b.status === 'completed' ? 'bg-profit' : b.status === 'running' ? 'bg-gold animate-pulse' : 'bg-loss'}`} />
@@ -1046,9 +1048,11 @@ export default function HostDashboardPage() {
                           <span className="text-profit font-semibold">{b.successful} ok</span>
                           {b.failed > 0 && <span className="text-loss font-semibold">{b.failed} failed</span>}
                           <span className="text-gray-500">{b.total_accounts} accounts</span>
+                          {durationSec != null && <span className="text-gray-500">{durationSec}s</span>}
                         </div>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
