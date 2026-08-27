@@ -1135,7 +1135,7 @@ router.get('/challenge/:id/pull-status', async (req: any, res: Response) => {
   if (!challengeId) return;
   try {
     const running = await db.query(
-      `SELECT id, total_accounts, started_at, phase, phase2_total, phase2_processed, successful, failed
+      `SELECT id, total_accounts, started_at, phase, phase2_total, phase2_processed, successful, failed, phase_started_at
        FROM wp_pull_batches WHERE challenge_id = $1 AND status = 'running' ORDER BY started_at DESC LIMIT 1`,
       [challengeId]
     );
@@ -1149,12 +1149,54 @@ router.get('/challenge/:id/pull-status', async (req: any, res: Response) => {
     const b = running.rows[0];
     const elapsed = Math.round((Date.now() - new Date(b.started_at).getTime()) / 1000);
     const phase = b.phase || 'pulling';
+
     // Map phases to simplified steps
     const stepMap: Record<string, number> = { pulling: 1, resolving: 2, resolving_nulls: 2, reconciling: 2, balance_reconcile: 2, full_pull_open_price: 2, settling: 3, ohlc: 3, evaluating: 4 };
     const currentStep = stepMap[phase] || 1;
     const totalSteps = 4;
-    const percent = b.phase2_total > 0 ? Math.min(100, Math.round((b.phase2_processed / b.phase2_total) * 100)) : (phase === 'pulling' && b.total_accounts > 0 ? Math.min(100, Math.round(((b.successful || 0) + (b.failed || 0)) / b.total_accounts * 100)) : 0);
-    return res.json({ isRunning: true, currentStep, totalSteps, percent, elapsed, totalAccounts: b.total_accounts, successful: b.successful || 0, failed: b.failed || 0 });
+
+    // Step labels for display
+    const stepLabels: Record<number, string> = { 1: 'Pulling accounts', 2: 'Reconciling', 3: 'Settling', 4: 'Evaluating' };
+    const stepLabel = stepLabels[currentStep] || 'Processing';
+
+    // Compute progress and processed/total for current step
+    let percent = 0;
+    let processed = 0;
+    let total = b.total_accounts || 0;
+
+    if (phase === 'pulling') {
+      processed = (b.successful || 0) + (b.failed || 0);
+      total = b.total_accounts || 1;
+      percent = Math.min(100, Math.round((processed / total) * 100));
+    } else if (b.phase2_total > 0) {
+      processed = b.phase2_processed || 0;
+      total = b.phase2_total;
+      percent = Math.min(100, Math.round((processed / total) * 100));
+    }
+
+    // ETA calculation
+    let etaSeconds: number | null = null;
+    const phaseStartTime = b.phase_started_at ? new Date(b.phase_started_at).getTime() : new Date(b.started_at).getTime();
+    const phaseElapsedMs = Date.now() - phaseStartTime;
+    if (processed > 0 && total > processed) {
+      const msPerItem = phaseElapsedMs / processed;
+      etaSeconds = Math.round((msPerItem * (total - processed)) / 1000);
+    }
+
+    return res.json({
+      isRunning: true,
+      currentStep,
+      totalSteps,
+      stepLabel,
+      percent,
+      processed,
+      total,
+      elapsed,
+      etaSeconds,
+      totalAccounts: b.total_accounts,
+      successful: b.successful || 0,
+      failed: b.failed || 0,
+    });
   } catch { return res.json({ isRunning: false }); }
 });
 

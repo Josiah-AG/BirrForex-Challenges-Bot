@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Image from "next/image";
 import {
   Users, Trophy, FileText, Settings, RefreshCw,
@@ -78,7 +78,8 @@ export default function HostDashboardPage() {
 
   const [actionLoading, setActionLoading] = useState(false);
   const [actionResult, setActionResult] = useState("");
-  const [pullProgress, setPullProgress] = useState<{ isRunning: boolean; currentStep?: number; totalSteps?: number; percent?: number; elapsed?: number; totalAccounts?: number; successful?: number; failed?: number } | null>(null);
+  const [pullProgress, setPullProgress] = useState<{ isRunning: boolean; currentStep?: number; totalSteps?: number; stepLabel?: string; percent?: number; processed?: number; total?: number; elapsed?: number; etaSeconds?: number | null; totalAccounts?: number; successful?: number; failed?: number; justCompleted?: boolean } | null>(null);
+  const pullPollRef = useRef<NodeJS.Timeout | null>(null);
   const [expandedViolation, setExpandedViolation] = useState<string | null>(null);
   const [leaderboardCategory, setLeaderboardCategory] = useState<"all" | "real" | "demo">("all");
   const [participantFilter, setParticipantFilter] = useState("all");
@@ -275,6 +276,56 @@ export default function HostDashboardPage() {
 
   const handleLogout = () => { localStorage.removeItem("host_token"); localStorage.removeItem("host_info"); window.location.href = "/host/login"; };
 
+  // ==================== PULL PROGRESS POLLING ====================
+  // Persistent polling that survives tab changes and page refreshes
+  const startPullPolling = useCallback(() => {
+    if (pullPollRef.current) return; // Already polling
+    if (!selectedChallengeId) return;
+    pullPollRef.current = setInterval(async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/pull-status`, { headers: { Authorization: `Bearer ${getToken()}` } });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.isRunning) {
+          setPullProgress(data);
+        } else {
+          // Operation completed — show briefly then auto-dismiss
+          setPullProgress((prev) => prev?.isRunning ? { ...prev, isRunning: false, justCompleted: true } : null);
+          if (pullPollRef.current) { clearInterval(pullPollRef.current); pullPollRef.current = null; }
+          fetchTabData();
+          setTimeout(() => setPullProgress(null), 3000);
+        }
+      } catch { /* silent — will retry on next interval */ }
+    }, 2000);
+  }, [selectedChallengeId]);
+
+  const stopPullPolling = useCallback(() => {
+    if (pullPollRef.current) { clearInterval(pullPollRef.current); pullPollRef.current = null; }
+  }, []);
+
+  // On mount / challenge change: check if a pull is already running
+  useEffect(() => {
+    if (!isAuth || !selectedChallengeId) return;
+    // Immediate check
+    (async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/pull-status`, { headers: { Authorization: `Bearer ${getToken()}` } });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.isRunning) {
+          setPullProgress(data);
+          startPullPolling();
+        } else {
+          setPullProgress(null);
+        }
+      } catch {}
+    })();
+    return () => stopPullPolling();
+  }, [isAuth, selectedChallengeId, startPullPolling, stopPullPolling]);
+
+  // Cleanup on unmount
+  useEffect(() => { return () => stopPullPolling(); }, [stopPullPolling]);
+
   // Action handlers
   const doAction = async (url: string, method = 'POST', body?: any) => {
     setActionLoading(true);
@@ -283,21 +334,18 @@ export default function HostDashboardPage() {
       const data = await res.json();
       if (data.success) {
         setActionResult("Started");
-        // Start polling progress
-        const poll = setInterval(async () => {
-          try {
-            const pRes = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/pull-status`, { headers: headers() });
-            const progress = await pRes.json();
-            setPullProgress(progress);
-            if (!progress.isRunning) { clearInterval(poll); setPullProgress(null); setActionResult("✅ Complete"); fetchTabData(); setTimeout(() => setActionResult(""), 3000); }
-          } catch { clearInterval(poll); setPullProgress(null); }
-        }, 2000);
-        // Also poll immediately
-        setTimeout(async () => {
-          try {
-            const pRes = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/pull-status`, { headers: headers() });
-            setPullProgress(await pRes.json());
-          } catch {}
+        setTimeout(() => setActionResult(""), 3000);
+        // Start persistent polling (uses ref — survives re-renders and tab changes)
+        stopPullPolling();
+        setTimeout(() => {
+          (async () => {
+            try {
+              const pRes = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/pull-status`, { headers: headers() });
+              const progress = await pRes.json();
+              if (progress.isRunning) setPullProgress(progress);
+            } catch {}
+          })();
+          startPullPolling();
         }, 500);
       } else { setActionResult(data.error || "Failed"); setTimeout(() => setActionResult(""), 3000); }
     } catch { setActionResult("Network error"); setTimeout(() => setActionResult(""), 3000); }
@@ -405,6 +453,39 @@ export default function HostDashboardPage() {
 
           {/* Action toast */}
           {actionResult && <div className="p-3 rounded-lg bg-profit/10 border border-profit/30 text-profit text-sm font-medium mb-4">{actionResult}</div>}
+
+          {/* Persistent Pull Progress Bar — visible on all tabs */}
+          {pullProgress && (
+            <div className={`mb-4 p-4 rounded-xl border transition-all duration-500 ${pullProgress.justCompleted ? 'bg-profit/5 border-profit/20' : 'bg-royal/5 border-royal/20'}`}>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-semibold flex items-center gap-1.5">
+                  {pullProgress.justCompleted ? (
+                    <span className="text-profit">✓ Update Complete</span>
+                  ) : (
+                    <><Loader2 size={12} className="animate-spin text-royal" /> <span className="text-royal">{pullProgress.stepLabel || `Step ${pullProgress.currentStep}`}</span> <span className="text-gray-500">({pullProgress.currentStep}/{pullProgress.totalSteps})</span></>
+                  )}
+                </span>
+                <span className="text-[10px] text-gray-500">
+                  {pullProgress.justCompleted ? `${pullProgress.successful || 0} accounts updated` : (
+                    <>{pullProgress.processed || 0}/{pullProgress.total || pullProgress.totalAccounts || 0} · {pullProgress.elapsed}s{pullProgress.etaSeconds ? ` · ~${pullProgress.etaSeconds}s left` : ''} · {pullProgress.successful || 0} ok · {pullProgress.failed || 0} failed</>
+                  )}
+                </span>
+              </div>
+              <div className="h-2 bg-white/10 rounded-full overflow-hidden">
+                <div className={`h-full rounded-full transition-all duration-1000 ${pullProgress.justCompleted ? 'bg-profit' : 'bg-gradient-to-r from-royal to-purple-500'}`} style={{ width: pullProgress.justCompleted ? '100%' : `${Math.max(2, ((pullProgress.currentStep! - 1) / pullProgress.totalSteps! * 100) + ((pullProgress.percent || 0) / pullProgress.totalSteps!))}%` }} />
+              </div>
+              {!pullProgress.justCompleted && (
+                <div className="flex justify-between mt-1.5">
+                  {['Pulling', 'Reconciling', 'Settling', 'Evaluating'].map((label, i) => {
+                    const step = i + 1;
+                    const isDone = step < (pullProgress.currentStep || 1);
+                    const isActive = step === pullProgress.currentStep;
+                    return <span key={step} className={`text-[9px] font-bold ${isDone ? 'text-profit' : isActive ? 'text-royal' : 'text-gray-600'}`}>{isDone ? '✓ ' : ''}{label}</span>;
+                  })}
+                </div>
+              )}
+            </div>
+          )}
 
           {tabLoading ? <div className="flex justify-center py-16"><Loader2 className="w-6 h-6 text-royal animate-spin" /></div> : (<>
 
@@ -928,25 +1009,7 @@ export default function HostDashboardPage() {
                 </div>
                 <p className="text-[10px] text-gray-500 mt-3">Updates run automatically 6x/day. Use these for manual triggers between scheduled runs.</p>
                 {actionResult && <p className={`text-xs mt-2 font-semibold ${actionResult.startsWith("✅") ? "text-profit" : actionResult === "Started" ? "text-gold" : "text-loss"}`}>{actionResult}</p>}
-                {/* Progress bar */}
-                {pullProgress?.isRunning && (
-                  <div className="mt-4 p-3 rounded-xl bg-royal/5 border border-royal/20">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-xs text-royal font-semibold flex items-center gap-1.5"><Loader2 size={12} className="animate-spin" /> Step {pullProgress.currentStep} of {pullProgress.totalSteps}</span>
-                      <span className="text-[10px] text-gray-500">{pullProgress.elapsed}s · {pullProgress.successful || 0} ok · {pullProgress.failed || 0} failed</span>
-                    </div>
-                    <div className="h-2 bg-white/10 rounded-full overflow-hidden">
-                      <div className="h-full rounded-full bg-gradient-to-r from-royal to-profit transition-all duration-1000" style={{ width: `${Math.max(pullProgress.percent || 0, ((pullProgress.currentStep || 1) - 1) / (pullProgress.totalSteps || 4) * 100 + (pullProgress.percent || 50) / (pullProgress.totalSteps || 4))}%` }} />
-                    </div>
-                    <div className="flex justify-between mt-1.5">
-                      {[1,2,3,4].map(s => (
-                        <span key={s} className={`text-[9px] font-bold ${s < (pullProgress.currentStep || 1) ? 'text-profit' : s === pullProgress.currentStep ? 'text-royal' : 'text-gray-600'}`}>
-                          {s < (pullProgress.currentStep || 1) ? '✓' : ''} Step {s}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
+                {/* Progress bar — now shown at top level, above all tabs */}
               </div>
 
               {/* Credential Failures — collapsed by default */}
@@ -2783,9 +2846,45 @@ function CredentialFailuresPanel({ failedAccounts, doAction, selectedChallengeId
   const [expanded, setExpanded] = useState(false);
   const [retrying, setRetrying] = useState(false);
   const [retryProgress, setRetryProgress] = useState<{ current: number; total: number; recovered: number; stillFailing: number; etaSeconds?: number } | null>(null);
+  const retryPollRef = useRef<NodeJS.Timeout | null>(null);
   const count = failedAccounts?.credentialFailures?.length || 0;
   const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
   const getToken = () => localStorage.getItem("host_token") || "";
+
+  // On mount: check if a retry-all is already running
+  useEffect(() => {
+    (async () => {
+      try {
+        const sr = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/retry-all-status`, { headers: { Authorization: `Bearer ${getToken()}` } });
+        const status = await sr.json();
+        if (status.running) {
+          setRetrying(true);
+          setRetryProgress({ current: status.current, total: status.total, recovered: status.recovered, stillFailing: status.stillFailing, etaSeconds: status.etaSeconds });
+          setExpanded(true);
+          startRetryPolling();
+        }
+      } catch {}
+    })();
+    return () => { if (retryPollRef.current) { clearInterval(retryPollRef.current); retryPollRef.current = null; } };
+  }, [selectedChallengeId]);
+
+  const startRetryPolling = () => {
+    if (retryPollRef.current) return;
+    retryPollRef.current = setInterval(async () => {
+      try {
+        const sr = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/retry-all-status`, { headers: { Authorization: `Bearer ${getToken()}` } });
+        const status = await sr.json();
+        if (!status.running) {
+          if (retryPollRef.current) { clearInterval(retryPollRef.current); retryPollRef.current = null; }
+          setRetryProgress({ current: status.total, total: status.total, recovered: status.recovered, stillFailing: status.stillFailing });
+          setRetrying(false);
+          setTimeout(() => setRetryProgress(null), 5000);
+          return;
+        }
+        setRetryProgress({ current: status.current, total: status.total, recovered: status.recovered, stillFailing: status.stillFailing, etaSeconds: status.etaSeconds });
+      } catch {}
+    }, 2000);
+  };
 
   const handleRetryAll = async () => {
     setRetrying(true); setRetryProgress({ current: 0, total: count, recovered: 0, stillFailing: 0 });
@@ -2793,21 +2892,7 @@ function CredentialFailuresPanel({ failedAccounts, doAction, selectedChallengeId
       const res = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/retry-all-credentials`, { method: "POST", headers: { Authorization: `Bearer ${getToken()}`, "Content-Type": "application/json" } });
       const data = await res.json();
       if (!data.started) { setRetrying(false); setRetryProgress(null); return; }
-      // Poll progress
-      const poll = setInterval(async () => {
-        try {
-          const sr = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/retry-all-status`, { headers: { Authorization: `Bearer ${getToken()}` } });
-          const status = await sr.json();
-          if (!status.running) {
-            clearInterval(poll);
-            setRetryProgress({ current: status.total, total: status.total, recovered: status.recovered, stillFailing: status.stillFailing });
-            setRetrying(false);
-            setTimeout(() => setRetryProgress(null), 5000);
-            return;
-          }
-          setRetryProgress({ current: status.current, total: status.total, recovered: status.recovered, stillFailing: status.stillFailing, etaSeconds: status.etaSeconds });
-        } catch {}
-      }, 2000);
+      startRetryPolling();
     } catch { setRetrying(false); setRetryProgress(null); }
   };
 
