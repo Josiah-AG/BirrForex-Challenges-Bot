@@ -1879,12 +1879,15 @@ export class WpEvaluationEngine {
     return result.rows[0].parameters as RuleConfig;
   }
 
-  async saveRules(challengeId: number, rules: RuleConfig) {
+  async saveRules(challengeId: number, rules: RuleConfig, ruleCode: string = 'config') {
+    const label = ruleCode === 'config_demo' ? 'Demo Category Rules' :
+                  ruleCode === 'config_real' ? 'Real Category Rules' :
+                  'Challenge Rules Configuration';
     await db.query(
       `INSERT INTO wp_challenge_rules (challenge_id, rule_code, rule_label, parameters, penalty, order_number)
-       VALUES ($1, 'config', 'Challenge Rules Configuration', $2, 'flag', 0)
+       VALUES ($1, $3, $4, $2, 'flag', 0)
        ON CONFLICT (challenge_id, rule_code) DO UPDATE SET parameters = $2`,
-      [challengeId, JSON.stringify(rules)]
+      [challengeId, JSON.stringify(rules), ruleCode, label]
     );
   }
 

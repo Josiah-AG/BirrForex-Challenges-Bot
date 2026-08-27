@@ -2399,18 +2399,19 @@ app.get('/api/host/challenge/:id/updates', hostAuthMiddleware, async (req: any, 
 app.get('/api/host/challenge/:id/rules', hostAuthMiddleware, async (req: any, res) => {
   try {
     const challengeId = parseInt(req.params.id);
+    const ruleCode = (req.query.rule_code as string) || 'config';
 
     // Verify ownership
-    const ownership = await db.query(`SELECT status FROM trading_challenges WHERE id = $1 AND host_id = $2`, [challengeId, req.hostAccount.hostId]);
+    const ownership = await db.query(`SELECT status, type, split_category_settings FROM trading_challenges WHERE id = $1 AND host_id = $2`, [challengeId, req.hostAccount.hostId]);
     if (!ownership.rows[0]) return res.status(404).json({ error: 'Challenge not found' });
 
     const { evaluationEngine } = require('../services/wpEvaluationEngine');
-    const rules = await evaluationEngine.loadRules(challengeId);
+    const rules = await evaluationEngine.loadRules(challengeId, ruleCode);
 
     const status = ownership.rows[0].status;
     const locked = !['draft', 'pending_approval', 'registration_open'].includes(status);
 
-    return res.json({ rules: rules || null, locked, challengeStatus: status });
+    return res.json({ rules: rules || null, locked, challengeStatus: status, splitCategorySettings: ownership.rows[0].split_category_settings || false, challengeType: ownership.rows[0].type });
   } catch (error) {
     console.error('Host rules fetch error:', error);
     return res.status(500).json({ error: 'Internal server error' });
@@ -2424,6 +2425,7 @@ app.get('/api/host/challenge/:id/rules', hostAuthMiddleware, async (req: any, re
 app.put('/api/host/challenge/:id/rules', hostAuthMiddleware, async (req: any, res) => {
   try {
     const challengeId = parseInt(req.params.id);
+    const ruleCode = (req.query.rule_code as string) || 'config';
 
     // Verify ownership
     const ownership = await db.query(`SELECT status FROM trading_challenges WHERE id = $1 AND host_id = $2`, [challengeId, req.hostAccount.hostId]);
@@ -2431,13 +2433,13 @@ app.put('/api/host/challenge/:id/rules', hostAuthMiddleware, async (req: any, re
 
     const status = ownership.rows[0].status;
     // Allow saving rules if none exist yet (first-time setup), even if challenge is active
-    const existingRules = await db.query(`SELECT 1 FROM wp_challenge_rules WHERE challenge_id = $1 AND rule_code = 'config'`, [challengeId]);
+    const existingRules = await db.query(`SELECT 1 FROM wp_challenge_rules WHERE challenge_id = $1 AND rule_code = $2`, [challengeId, ruleCode]);
     if (!['draft', 'pending_approval', 'registration_open'].includes(status) && existingRules.rows.length > 0) {
       return res.status(403).json({ error: 'Rules are locked. Cannot modify rules after challenge has started.', locked: true });
     }
 
     const { evaluationEngine } = require('../services/wpEvaluationEngine');
-    await evaluationEngine.saveRules(challengeId, req.body);
+    await evaluationEngine.saveRules(challengeId, req.body, ruleCode);
     return res.json({ success: true });
   } catch (error) {
     console.error('Host rules save error:', error);
@@ -2461,7 +2463,8 @@ app.put('/api/host/challenge/:id/settings', hostAuthMiddleware, async (req: any,
     const fields = req.body;
     // Hosts can only modify a subset of fields
     const allowed = ['title', 'end_date', 'target_balance', 'target_percent',
-      'prize_pool_text', 'real_winners_count', 'demo_winners_count', 'real_prizes', 'demo_prizes'];
+      'prize_pool_text', 'real_winners_count', 'demo_winners_count', 'real_prizes', 'demo_prizes',
+      'split_category_settings', 'demo_starting_balance', 'demo_target_balance', 'real_starting_balance', 'real_target_balance'];
 
     const sets: string[] = [];
     const values: any[] = [];
@@ -3029,7 +3032,8 @@ app.post('/api/host/challenges', hostAuthMiddleware, async (req: any, res) => {
       title, type, start_date, end_date, starting_balance, target_balance,
       deposit_mode, target_percent, prize_pool_text,
       real_winners_count, demo_winners_count, real_prizes, demo_prizes,
-      timezone,
+      timezone, split_category_settings, demo_starting_balance, demo_target_balance,
+      real_starting_balance, real_target_balance,
     } = req.body;
 
     if (!title || !type || !start_date || !end_date || !starting_balance) {
@@ -3043,9 +3047,11 @@ app.post('/api/host/challenges', hostAuthMiddleware, async (req: any, res) => {
        (title, type, status, start_date, end_date, registration_deadline, starting_balance, target_balance,
         prize_pool_text, real_winners_count, demo_winners_count, real_prizes, demo_prizes,
         source, team_only, announcement_posted, evaluation_type,
-        pull_times, pull_interval_hours, first_pull_time, deposit_mode, target_percent, host_id, timezone, registration_mode)
+        pull_times, pull_interval_hours, first_pull_time, deposit_mode, target_percent, host_id, timezone, registration_mode,
+        split_category_settings, demo_starting_balance, demo_target_balance, real_starting_balance, real_target_balance)
        VALUES ($1, $2, 'pending_approval', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-        'winnerpip', false, false, 'winnerpip', $13, 4, '00:00', $14, $15, $16, $17, $18)
+        'winnerpip', false, false, 'winnerpip', $13, 4, '00:00', $14, $15, $16, $17, $18,
+        $19, $20, $21, $22, $23)
        RETURNING id`,
       [
         title, type, start_date, end_date, start_date,
@@ -3056,6 +3062,11 @@ app.post('/api/host/challenges', hostAuthMiddleware, async (req: any, res) => {
         deposit_mode || 'fixed', target_percent || null, req.hostAccount.hostId,
         timezone || 'Africa/Nairobi',
         req.body.registration_mode || 'manual',
+        split_category_settings || false,
+        demo_starting_balance || null,
+        demo_target_balance || null,
+        real_starting_balance || null,
+        real_target_balance || null,
       ]
     );
     const challengeId = insertResult.rows[0].id;
@@ -3206,7 +3217,8 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenges`, adminIpCheck, async (req, 
     const result = await db.query(
       `SELECT id, title, type, status, start_date, end_date, starting_balance, target_balance,
               real_winners_count, demo_winners_count, prize_pool_text, source, team_only,
-              evaluation_type, created_at
+              evaluation_type, created_at,
+              split_category_settings, demo_starting_balance, demo_target_balance, real_starting_balance, real_target_balance
        FROM trading_challenges
        WHERE status != 'deleted'
        ORDER BY created_at DESC`
@@ -3228,6 +3240,11 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenges`, adminIpCheck, async (req, 
       teamOnly: c.team_only || false,
       evaluationType: c.evaluation_type || 'winnerpip',
       createdAt: c.created_at,
+      splitCategorySettings: c.split_category_settings || false,
+      demoStartingBalance: c.demo_starting_balance ? parseFloat(c.demo_starting_balance) : null,
+      demoTargetBalance: c.demo_target_balance ? parseFloat(c.demo_target_balance) : null,
+      realStartingBalance: c.real_starting_balance ? parseFloat(c.real_starting_balance) : null,
+      realTargetBalance: c.real_target_balance ? parseFloat(c.real_target_balance) : null,
     }));
 
     return res.json({ challenges });
@@ -4334,6 +4351,8 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenges`, adminIpCheck, async (req,
       real_prizes, demo_prizes, pdf_url, video_url,
       evaluation_type, pull_times, pull_interval_hours, first_pull_time,
       deposit_mode, target_percent,
+      split_category_settings, demo_starting_balance, demo_target_balance,
+      real_starting_balance, real_target_balance,
     } = req.body;
 
     if (!title || !type || !start_date || !end_date || !starting_balance) {
@@ -4355,6 +4374,11 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenges`, adminIpCheck, async (req,
       deposit_mode: deposit_mode || 'fixed',
       target_percent: target_percent || null,
       rules: req.body.rules || null,
+      split_category_settings: split_category_settings || false,
+      demo_starting_balance: demo_starting_balance || null,
+      demo_target_balance: demo_target_balance || null,
+      real_starting_balance: real_starting_balance || null,
+      real_target_balance: real_target_balance || null,
     };
     const token = gatekeeper.queueCreate(data);
 
@@ -4570,7 +4594,8 @@ app.put(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id`, adminIpCheck, async (re
     const fields = req.body;
     const allowed = ['title', 'type', 'start_date', 'end_date', 'starting_balance', 'target_balance',
       'prize_pool_text', 'real_winners_count', 'demo_winners_count', 'real_prizes', 'demo_prizes',
-      'pdf_url', 'video_url', 'source', 'team_only'];
+      'pdf_url', 'video_url', 'source', 'team_only',
+      'split_category_settings', 'demo_starting_balance', 'demo_target_balance', 'real_starting_balance', 'real_target_balance'];
 
     const sets: string[] = [];
     const values: any[] = [];
@@ -8401,16 +8426,18 @@ app.get('/api/challenges/:id/rules', async (req, res) => {
 app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/rules`, adminIpCheck, async (req, res) => {
   try {
     const challengeId = parseInt(req.params.id);
+    const ruleCode = (req.query.rule_code as string) || 'config';
     const { evaluationEngine } = require('../services/wpEvaluationEngine');
-    const rules = await evaluationEngine.loadRules(challengeId);
+    const rules = await evaluationEngine.loadRules(challengeId, ruleCode);
 
     // Get challenge status to determine if rules are locked
-    const challenge = await db.query('SELECT status, type FROM trading_challenges WHERE id = $1', [challengeId]);
+    const challenge = await db.query('SELECT status, type, split_category_settings FROM trading_challenges WHERE id = $1', [challengeId]);
     const status = challenge.rows[0]?.status || 'draft';
     const challengeType = challenge.rows[0]?.type || 'demo';
+    const splitCategorySettings = challenge.rows[0]?.split_category_settings || false;
     const locked = !['draft', 'registration_open'].includes(status);
 
-    return res.json({ rules: rules || null, locked, challengeStatus: status, challengeType });
+    return res.json({ rules: rules || null, locked, challengeStatus: status, challengeType, splitCategorySettings });
   } catch (error) {
     return res.status(500).json({ error: 'Internal server error' });
   }
@@ -8428,6 +8455,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/rules`, adminIpCheck, asy
 app.put(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/rules`, adminIpCheck, async (req, res) => {
   try {
     const challengeId = parseInt(req.params.id);
+    const ruleCode = (req.query.rule_code as string) || 'config';
 
     // Check if challenge is still editable
     const challenge = await db.query('SELECT status FROM trading_challenges WHERE id = $1', [challengeId]);
@@ -8435,13 +8463,13 @@ app.put(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/rules`, adminIpCheck, asy
 
     const status = challenge.rows[0].status;
     // Allow saving rules if none exist yet (first-time setup), even if challenge is active
-    const existingRules = await db.query(`SELECT 1 FROM wp_challenge_rules WHERE challenge_id = $1 AND rule_code = 'config'`, [challengeId]);
+    const existingRules = await db.query(`SELECT 1 FROM wp_challenge_rules WHERE challenge_id = $1 AND rule_code = $2`, [challengeId, ruleCode]);
     if (!['draft', 'registration_open'].includes(status) && existingRules.rows.length > 0) {
       return res.status(403).json({ error: 'Rules are locked. Cannot modify rules after challenge has started.', locked: true });
     }
 
     const { evaluationEngine } = require('../services/wpEvaluationEngine');
-    await evaluationEngine.saveRules(challengeId, req.body);
+    await evaluationEngine.saveRules(challengeId, req.body, ruleCode);
     return res.json({ success: true });
   } catch (error) {
     console.error('Admin rules save error:', error);

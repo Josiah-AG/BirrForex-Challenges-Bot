@@ -41,6 +41,8 @@ export default function HostDashboardPage() {
   const [rulesLoading, setRulesLoading] = useState(false);
   const [rulesSaving, setRulesSaving] = useState(false);
   const [rulesSaved, setRulesSaved] = useState(false);
+  const [rulesSplit, setRulesSplit] = useState(false);
+  const [rulesCategory, setRulesCategory] = useState<"config" | "config_demo" | "config_real">("config");
 
   // Settings
   const [settingsForm, setSettingsForm] = useState<any>({});
@@ -58,6 +60,9 @@ export default function HostDashboardPage() {
     real_prizes: "", demo_prizes: "",
     registration_mode: "manual" as "winnerpip" | "manual",
     timezone: "Africa/Nairobi",
+    split_category_settings: false,
+    demo_starting_balance: "", demo_target_balance: "",
+    real_starting_balance: "", real_target_balance: "",
   });
   const [createRules, setCreateRules] = useState<any>({
     max_lot_size: 0.02, max_open_trades: 3, pair_limit: 2,
@@ -195,7 +200,8 @@ export default function HostDashboardPage() {
         if (failRes.ok) setFailedAccounts(await failRes.json());
       } else if (activeTab === "rules") {
         setRulesLoading(true);
-        const res = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/rules`, { headers: h });
+        const ruleCode = rulesCategory || 'config';
+        const res = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/rules?rule_code=${ruleCode}`, { headers: h });
         if (res.ok) {
           const d = await res.json();
           const defaultRules = {
@@ -210,6 +216,12 @@ export default function HostDashboardPage() {
           setRulesConfig(d.rules || defaultRules);
           setSavedRulesSnapshot(JSON.parse(JSON.stringify(d.rules || defaultRules)));
           setRulesLocked(d.locked || false);
+          if (d.splitCategorySettings && d.challengeType === 'hybrid') {
+            setRulesSplit(true);
+          } else {
+            setRulesSplit(false);
+            setRulesCategory('config');
+          }
         }
         setRulesLoading(false);
       } else if (activeTab === "settings") {
@@ -222,12 +234,17 @@ export default function HostDashboardPage() {
           starting_balance: ch.starting_balance ?? "30",
           target_balance: ch.target_balance ?? "60",
           prize_pool_text: ch.prize_pool_text || "",
+          split_category_settings: ch.split_category_settings || false,
+          demo_starting_balance: ch.demo_starting_balance ?? "",
+          demo_target_balance: ch.demo_target_balance ?? "",
+          real_starting_balance: ch.real_starting_balance ?? "",
+          real_target_balance: ch.real_target_balance ?? "",
         });
         setSettingsSaved(false);
       }
     } catch {}
     setTabLoading(false);
-  }, [selectedChallengeId, activeTab, isAuth]);
+  }, [selectedChallengeId, activeTab, isAuth, rulesCategory]);
 
   useEffect(() => { fetchTabData(); }, [fetchTabData]);
 
@@ -977,6 +994,15 @@ export default function HostDashboardPage() {
               </div>
               <p className="text-xs text-gray-500 mb-6">{rulesLocked ? "Rules are read-only once a challenge is active." : "Set the rules for this challenge. Leave fields empty for unlimited."}</p>
 
+              {/* Category selector for split rules */}
+              {rulesSplit && (
+                <div className="flex gap-2 mb-5">
+                  <button onClick={() => setRulesCategory('config_demo')} className={`px-4 py-2 rounded-xl text-xs font-semibold transition-all border ${rulesCategory === 'config_demo' ? 'bg-blue-500/15 border-blue-500/40 text-blue-400' : 'bg-white/5 border-white/10 text-gray-400 hover:text-white'}`}>Demo Rules</button>
+                  <button onClick={() => setRulesCategory('config_real')} className={`px-4 py-2 rounded-xl text-xs font-semibold transition-all border ${rulesCategory === 'config_real' ? 'bg-profit/15 border-profit/40 text-profit' : 'bg-white/5 border-white/10 text-gray-400 hover:text-white'}`}>Real Rules</button>
+                  <button onClick={() => setRulesCategory('config')} className={`px-4 py-2 rounded-xl text-xs font-semibold transition-all border ${rulesCategory === 'config' ? 'bg-royal/15 border-royal/40 text-royal' : 'bg-white/5 border-white/10 text-gray-400 hover:text-white'}`}>Shared (Fallback)</button>
+                </div>
+              )}
+
               {rulesLoading ? (
                 <div className="flex items-center justify-center py-12"><Loader2 className="w-6 h-6 text-royal animate-spin" /></div>
               ) : rulesConfig && (
@@ -1150,12 +1176,13 @@ export default function HostDashboardPage() {
                     if (!rulesChanged) return;
                     setRulesSaving(true);
                     try {
-                      const res = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/rules`, { method: "PUT", headers: headers(), body: JSON.stringify(rulesConfig) });
+                      const ruleCode = rulesCategory || 'config';
+                      const res = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/rules?rule_code=${ruleCode}`, { method: "PUT", headers: headers(), body: JSON.stringify(rulesConfig) });
                       if (res.ok) { setRulesSaved(true); setSavedRulesSnapshot(JSON.parse(JSON.stringify(rulesConfig))); setTimeout(() => setRulesSaved(false), 3000); }
                       else { const d = await res.json(); alert(d.error || "Failed to save rules"); }
                     } catch { alert("Connection error"); }
                     setRulesSaving(false);
-                  }} disabled={rulesSaving || !rulesChanged} className={`px-8 py-3 rounded-xl font-semibold text-sm transition-all ${rulesSaved ? "bg-profit/20 text-profit border border-profit/30 cursor-not-allowed" : rulesChanged ? "bg-gradient-to-r from-royal to-purple-600 hover:opacity-90 text-white shadow-lg shadow-royal/20" : "bg-white/5 text-gray-500 border border-white/10 cursor-not-allowed opacity-50"}`}>{rulesSaving ? "Saving..." : rulesSaved ? "\u2713 Rules Saved" : rulesChanged ? "Save Rules" : "No Changes"}</button>
+                  }} disabled={rulesSaving || !rulesChanged} className={`px-8 py-3 rounded-xl font-semibold text-sm transition-all ${rulesSaved ? "bg-profit/20 text-profit border border-profit/30 cursor-not-allowed" : rulesChanged ? "bg-gradient-to-r from-royal to-purple-600 hover:opacity-90 text-white shadow-lg shadow-royal/20" : "bg-white/5 text-gray-500 border border-white/10 cursor-not-allowed opacity-50"}`}>{rulesSaving ? "Saving..." : rulesSaved ? "\u2713 Rules Saved" : rulesChanged ? `Save ${rulesSplit ? (rulesCategory === 'config_demo' ? 'Demo' : rulesCategory === 'config_real' ? 'Real' : 'Shared') + ' ' : ''}Rules` : "No Changes"}</button>
                 </div>
                   );
                 })()
@@ -1192,6 +1219,33 @@ export default function HostDashboardPage() {
                     <div><label className="text-xs text-gray-400 font-medium mb-1 block">Starting Balance ($)</label><input value={settingsForm.starting_balance || ""} onChange={e => setSettingsForm((p: any) => ({...p, starting_balance: e.target.value}))} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
                     <div><label className="text-xs text-gray-400 font-medium mb-1 block">Target Balance ($)</label><input value={settingsForm.target_balance || ""} onChange={e => setSettingsForm((p: any) => ({...p, target_balance: e.target.value}))} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
                   </div>
+
+                  {/* Per-Category Settings (hybrid only) */}
+                  {(settingsForm.type || selectedChallenge?.type) === 'hybrid' && (
+                    <div className="p-3 rounded-xl bg-white/5 border border-white/10 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm text-white font-medium">Different settings per category</p>
+                          <div className="relative group"><span className="cursor-help text-gray-500 hover:text-royal transition-colors text-xs">&#9432;</span><div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-[#1a1a2e] border border-white/20 rounded-lg text-[10px] text-gray-300 w-52 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity z-50 shadow-xl">When ON, Demo and Real participants can have different starting balances and targets.</div></div>
+                        </div>
+                        <button type="button" onClick={() => setSettingsForm((p: any) => ({...p, split_category_settings: !p.split_category_settings}))} className={`w-10 h-5 rounded-full transition-all ${settingsForm.split_category_settings ? "bg-royal" : "bg-white/20"}`}><div className={`w-4 h-4 bg-white rounded-full transition-transform ${settingsForm.split_category_settings ? "translate-x-5" : "translate-x-0.5"}`}></div></button>
+                      </div>
+                      {settingsForm.split_category_settings && (
+                        <div className="space-y-3 pt-2 border-t border-white/10">
+                          <div className="grid grid-cols-2 gap-3">
+                            <div><label className="text-xs text-blue-400 font-medium mb-1 block">Demo Starting ($)</label><input value={settingsForm.demo_starting_balance || ""} onChange={e => setSettingsForm((p: any) => ({...p, demo_starting_balance: e.target.value}))} className="w-full p-2.5 rounded-xl bg-blue-500/5 border border-blue-500/20 text-white text-sm outline-none" placeholder={String(settingsForm.starting_balance || "30")} /></div>
+                            <div><label className="text-xs text-blue-400 font-medium mb-1 block">Demo Target ($)</label><input value={settingsForm.demo_target_balance || ""} onChange={e => setSettingsForm((p: any) => ({...p, demo_target_balance: e.target.value}))} className="w-full p-2.5 rounded-xl bg-blue-500/5 border border-blue-500/20 text-white text-sm outline-none" placeholder={String(settingsForm.target_balance || "60")} /></div>
+                          </div>
+                          <div className="grid grid-cols-2 gap-3">
+                            <div><label className="text-xs text-profit font-medium mb-1 block">Real Starting ($)</label><input value={settingsForm.real_starting_balance || ""} onChange={e => setSettingsForm((p: any) => ({...p, real_starting_balance: e.target.value}))} className="w-full p-2.5 rounded-xl bg-profit/5 border border-profit/20 text-white text-sm outline-none" placeholder={String(settingsForm.starting_balance || "30")} /></div>
+                            <div><label className="text-xs text-profit font-medium mb-1 block">Real Target ($)</label><input value={settingsForm.real_target_balance || ""} onChange={e => setSettingsForm((p: any) => ({...p, real_target_balance: e.target.value}))} className="w-full p-2.5 rounded-xl bg-profit/5 border border-profit/20 text-white text-sm outline-none" placeholder={String(settingsForm.target_balance || "60")} /></div>
+                          </div>
+                          <p className="text-[10px] text-gray-500">Leave empty to use the shared balance above as fallback.</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   <button onClick={async () => {
                     setSettingsSaving(true);
                     const payload: any = {};
@@ -1201,6 +1255,19 @@ export default function HostDashboardPage() {
                     if (settingsForm.start_date) payload.start_date = settingsForm.start_date;
                     if (settingsForm.starting_balance) payload.starting_balance = parseFloat(settingsForm.starting_balance);
                     if (settingsForm.target_balance) payload.target_balance = parseFloat(settingsForm.target_balance);
+                    // Per-category settings
+                    payload.split_category_settings = settingsForm.split_category_settings || false;
+                    if (settingsForm.split_category_settings) {
+                      payload.demo_starting_balance = settingsForm.demo_starting_balance ? parseFloat(settingsForm.demo_starting_balance) : null;
+                      payload.demo_target_balance = settingsForm.demo_target_balance ? parseFloat(settingsForm.demo_target_balance) : null;
+                      payload.real_starting_balance = settingsForm.real_starting_balance ? parseFloat(settingsForm.real_starting_balance) : null;
+                      payload.real_target_balance = settingsForm.real_target_balance ? parseFloat(settingsForm.real_target_balance) : null;
+                    } else {
+                      payload.demo_starting_balance = null;
+                      payload.demo_target_balance = null;
+                      payload.real_starting_balance = null;
+                      payload.real_target_balance = null;
+                    }
                     await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/settings`, { method: "PUT", headers: headers(), body: JSON.stringify(payload) });
                     setSettingsSaved(true); setSettingsSaving(false);
                     setTimeout(() => setSettingsSaved(false), 3000);
@@ -1868,7 +1935,22 @@ function CreateChallengeModal({ createStep, setCreateStep, createForm, setCreate
       const res = await fetch(`${API_URL}/api/host/challenges`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${getToken()}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...createForm, starting_balance: parseFloat(createForm.starting_balance), target_balance: parseFloat(createForm.target_balance), target_percent: createForm.deposit_mode !== 'fixed' ? parseFloat(createForm.target_percent) : null, real_winners_count: parseInt(createForm.real_winners_count) || 0, demo_winners_count: parseInt(createForm.demo_winners_count) || 0, real_prizes: createForm.real_prizes ? createForm.real_prizes.split(',').map((p: string) => p.trim()).filter(Boolean) : [], demo_prizes: createForm.demo_prizes ? createForm.demo_prizes.split(',').map((p: string) => p.trim()).filter(Boolean) : [], rules: createRules }),
+        body: JSON.stringify({
+          ...createForm,
+          starting_balance: parseFloat(createForm.starting_balance),
+          target_balance: parseFloat(createForm.target_balance),
+          target_percent: createForm.deposit_mode !== 'fixed' ? parseFloat(createForm.target_percent) : null,
+          real_winners_count: parseInt(createForm.real_winners_count) || 0,
+          demo_winners_count: parseInt(createForm.demo_winners_count) || 0,
+          real_prizes: createForm.real_prizes ? createForm.real_prizes.split(',').map((p: string) => p.trim()).filter(Boolean) : [],
+          demo_prizes: createForm.demo_prizes ? createForm.demo_prizes.split(',').map((p: string) => p.trim()).filter(Boolean) : [],
+          split_category_settings: createForm.split_category_settings,
+          demo_starting_balance: createForm.split_category_settings ? parseFloat(createForm.demo_starting_balance) || null : null,
+          demo_target_balance: createForm.split_category_settings ? parseFloat(createForm.demo_target_balance) || null : null,
+          real_starting_balance: createForm.split_category_settings ? parseFloat(createForm.real_starting_balance) || null : null,
+          real_target_balance: createForm.split_category_settings ? parseFloat(createForm.real_target_balance) || null : null,
+          rules: createRules,
+        }),
       });
       const data = await res.json();
       if (res.ok && data.success) setCreateResult({ success: true });
@@ -1935,6 +2017,32 @@ function CreateChallengeModal({ createStep, setCreateStep, createForm, setCreate
                     <div><label className="text-xs text-gray-400 mb-1 block">Target Growth (%)</label><input value={createForm.target_percent} onChange={(e: any) => setCreateForm({...createForm, target_percent: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" placeholder="e.g., 100" /></div>
                   )}
                 </div>
+
+                {/* Per-Category Settings Toggle (hybrid only) */}
+                {createForm.type === 'hybrid' && (
+                  <div className="p-3 rounded-xl bg-white/5 border border-white/10 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm text-white font-medium">Different settings per category</p>
+                        <Tip text="When ON, Demo and Real participants can have different starting balances and targets. Useful when demo starts at $30 but real starts at $100." />
+                      </div>
+                      <button type="button" onClick={() => setCreateForm({...createForm, split_category_settings: !createForm.split_category_settings})} className={`w-10 h-5 rounded-full transition-all ${createForm.split_category_settings ? "bg-royal" : "bg-white/20"}`}><div className={`w-4 h-4 bg-white rounded-full transition-transform ${createForm.split_category_settings ? "translate-x-5" : "translate-x-0.5"}`}></div></button>
+                    </div>
+                    {createForm.split_category_settings && (
+                      <div className="space-y-3 pt-2 border-t border-white/10">
+                        <div className="grid grid-cols-2 gap-3">
+                          <div><label className="text-xs text-blue-400 mb-1 block">Demo Starting ($)</label><input value={createForm.demo_starting_balance} onChange={(e: any) => setCreateForm({...createForm, demo_starting_balance: e.target.value})} className="w-full p-2.5 rounded-xl bg-blue-500/5 border border-blue-500/20 text-white text-sm outline-none" placeholder={createForm.starting_balance} /></div>
+                          <div><label className="text-xs text-blue-400 mb-1 block">Demo Target ($)</label><input value={createForm.demo_target_balance} onChange={(e: any) => setCreateForm({...createForm, demo_target_balance: e.target.value})} className="w-full p-2.5 rounded-xl bg-blue-500/5 border border-blue-500/20 text-white text-sm outline-none" placeholder={createForm.target_balance} /></div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div><label className="text-xs text-profit mb-1 block">Real Starting ($)</label><input value={createForm.real_starting_balance} onChange={(e: any) => setCreateForm({...createForm, real_starting_balance: e.target.value})} className="w-full p-2.5 rounded-xl bg-profit/5 border border-profit/20 text-white text-sm outline-none" placeholder={createForm.starting_balance} /></div>
+                          <div><label className="text-xs text-profit mb-1 block">Real Target ($)</label><input value={createForm.real_target_balance} onChange={(e: any) => setCreateForm({...createForm, real_target_balance: e.target.value})} className="w-full p-2.5 rounded-xl bg-profit/5 border border-profit/20 text-white text-sm outline-none" placeholder={createForm.target_balance} /></div>
+                        </div>
+                        <p className="text-[10px] text-gray-500">Leave empty to use the shared balance above as fallback.</p>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Rewards Section */}
                 <div className="border-t border-white/10 pt-4 mt-4">

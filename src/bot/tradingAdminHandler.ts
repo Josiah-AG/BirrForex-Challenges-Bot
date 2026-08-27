@@ -637,6 +637,78 @@ export class TradingAdminHandler {
           return;
         }
         session.data.target_balance = target;
+        // If hybrid, ask about per-category settings
+        if (session.data.type === 'hybrid') {
+          session.step = 'tc_ask_split_category';
+          await ctx.reply('🔀 <b>Different settings per category?</b>\n\nDo you want Demo and Real participants to have different starting balances and targets?\n\nSend <b>yes</b> or <b>no</b>', { parse_mode: 'HTML' });
+        } else {
+          session.step = 'tc_enter_prize_pool_text';
+          await ctx.reply('🏆 Send the <b>Prize Pool</b> text:\n\n<i>This will be displayed on announcement, promo, and countdown posts exactly as you write it.</i>\n\nExample:\n🥇 1st: $400\n🥈 2nd: $350\n🥉 3rd: $300', { parse_mode: 'HTML' });
+        }
+        break;
+      }
+
+      case 'tc_ask_split_category': {
+        const answer = text.toLowerCase().trim();
+        if (answer === 'yes' || answer === 'y') {
+          session.data.split_category_settings = true;
+          session.step = 'tc_enter_demo_starting_balance';
+          await ctx.reply('📘 <b>Demo Starting Balance</b>?\n\n<i>(Leave as shared value: send /skip)</i>', { parse_mode: 'HTML' });
+        } else {
+          session.data.split_category_settings = false;
+          session.step = 'tc_enter_prize_pool_text';
+          await ctx.reply('🏆 Send the <b>Prize Pool</b> text:\n\n<i>This will be displayed on announcement, promo, and countdown posts exactly as you write it.</i>\n\nExample:\n🥇 1st: $400\n🥈 2nd: $350\n🥉 3rd: $300', { parse_mode: 'HTML' });
+        }
+        break;
+      }
+
+      case 'tc_enter_demo_starting_balance': {
+        if (text === '/skip') {
+          session.data.demo_starting_balance = null;
+        } else {
+          const val = parseFloat(text);
+          if (isNaN(val) || val <= 0) { await ctx.reply('❌ Enter a valid number or /skip.'); return; }
+          session.data.demo_starting_balance = val;
+        }
+        session.step = 'tc_enter_demo_target_balance';
+        await ctx.reply('📘 <b>Demo Target Balance</b>?\n\n<i>(Leave as shared value: send /skip)</i>', { parse_mode: 'HTML' });
+        break;
+      }
+
+      case 'tc_enter_demo_target_balance': {
+        if (text === '/skip') {
+          session.data.demo_target_balance = null;
+        } else {
+          const val = parseFloat(text);
+          if (isNaN(val) || val <= 0) { await ctx.reply('❌ Enter a valid number or /skip.'); return; }
+          session.data.demo_target_balance = val;
+        }
+        session.step = 'tc_enter_real_starting_balance';
+        await ctx.reply('📗 <b>Real Starting Balance</b>?\n\n<i>(Leave as shared value: send /skip)</i>', { parse_mode: 'HTML' });
+        break;
+      }
+
+      case 'tc_enter_real_starting_balance': {
+        if (text === '/skip') {
+          session.data.real_starting_balance = null;
+        } else {
+          const val = parseFloat(text);
+          if (isNaN(val) || val <= 0) { await ctx.reply('❌ Enter a valid number or /skip.'); return; }
+          session.data.real_starting_balance = val;
+        }
+        session.step = 'tc_enter_real_target_balance';
+        await ctx.reply('📗 <b>Real Target Balance</b>?\n\n<i>(Leave as shared value: send /skip)</i>', { parse_mode: 'HTML' });
+        break;
+      }
+
+      case 'tc_enter_real_target_balance': {
+        if (text === '/skip') {
+          session.data.real_target_balance = null;
+        } else {
+          const val = parseFloat(text);
+          if (isNaN(val) || val <= 0) { await ctx.reply('❌ Enter a valid number or /skip.'); return; }
+          session.data.real_target_balance = val;
+        }
         session.step = 'tc_enter_prize_pool_text';
         await ctx.reply('🏆 Send the <b>Prize Pool</b> text:\n\n<i>This will be displayed on announcement, promo, and countdown posts exactly as you write it.</i>\n\nExample:\n🥇 1st: $400\n🥈 2nd: $350\n🥉 3rd: $300', { parse_mode: 'HTML' });
         break;
@@ -994,6 +1066,7 @@ export class TradingAdminHandler {
       `📅 <b>Period:</b> ${startStr} → ${endStr}\n` +
       `💰 <b>Starting Balance:</b> $${d.starting_balance}\n` +
       `🎯 <b>Target:</b> $${d.target_balance}\n` +
+      (d.split_category_settings ? `🔀 <b>Per-Category:</b> ON\n  📘 Demo: $${d.demo_starting_balance || d.starting_balance} → $${d.demo_target_balance || d.target_balance}\n  📗 Real: $${d.real_starting_balance || d.starting_balance} → $${d.real_target_balance || d.target_balance}\n` : '') +
       prizesText + '\n' +
       `🏆 <b>Prize Pool:</b> ${d.prize_pool_text ? '✅ Set' : '⏭️ Not set'}\n` +
       `📄 <b>PDF:</b> ${d.pdf_url ? '✅ Linked' : '⏭️ Skipped'}\n` +
@@ -1031,6 +1104,18 @@ export class TradingAdminHandler {
         demo_prizes: d.demo_prizes || [],
         prize_pool_text: d.prize_pool_text,
       });
+
+      // Save per-category settings if enabled
+      if (d.split_category_settings && challenge.id) {
+        await db.query(
+          `UPDATE trading_challenges SET split_category_settings = true,
+           demo_starting_balance = $1, demo_target_balance = $2,
+           real_starting_balance = $3, real_target_balance = $4
+           WHERE id = $5`,
+          [d.demo_starting_balance || null, d.demo_target_balance || null,
+           d.real_starting_balance || null, d.real_target_balance || null, challenge.id]
+        );
+      }
 
       // Save pull schedule
       if (d.pull_times && d.pull_times.length > 0) {

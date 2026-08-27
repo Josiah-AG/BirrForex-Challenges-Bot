@@ -1150,8 +1150,8 @@ export class TradingRegistrationHandler {
     if (result.success) {
       // Get challenge starting balance and target
       const challenge = await tradingChallengeService.getChallengeById(session.data.challenge_id);
-      const startingBalance = Number(challenge?.starting_balance || 30);
-      const targetBalance = Number(challenge?.target_balance || 60);
+      const { resolveCategoryBalances } = require('../utils/categorySettings');
+      const { startingBalance, targetBalance } = resolveCategoryBalances(challenge, session.data.account_type);
       const vpsBalance = result.balance || 0;
       const vpsCurrency = (result.currency || '').toUpperCase();
       const vpsAccountSubtype = result.account_subtype || 'unknown';
@@ -1578,7 +1578,8 @@ export class TradingRegistrationHandler {
 
       // Load challenge
       const challenge = await tradingChallengeService.getChallengeById(session.data.challenge_id);
-      const startingBalance = Number(challenge?.starting_balance || 30);
+      const { resolveCategoryBalances: resolveCatBal2 } = require('../utils/categorySettings');
+      const { startingBalance } = resolveCatBal2(challenge, session.data.account_type);
 
       // Reject non-standard subtypes if pro not allowed
       const isPro2 = subtype === 'pro' || subtype === 'raw_spread' || subtype === 'zero';

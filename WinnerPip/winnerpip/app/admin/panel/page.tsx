@@ -64,6 +64,8 @@ export default function AdminDashboard() {
   const [rulesLocked, setRulesLocked] = useState(false);
   const [savedRulesSnapshot, setSavedRulesSnapshot] = useState<any>(null);
   const [rulesLoading, setRulesLoading] = useState(false);
+  const [adminRulesCategory, setAdminRulesCategory] = useState<"config" | "config_demo" | "config_real">("config");
+  const [adminRulesSplit, setAdminRulesSplit] = useState(false);
   const [overviewData, setOverviewData] = useState<any>(null);
   const [verifyPopup, setVerifyPopup] = useState<any>(null);
 
@@ -172,10 +174,17 @@ export default function AdminDashboard() {
       try {
         const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
         const secretPath = process.env.NEXT_PUBLIC_ADMIN_PATH || "";
-        const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${selectedChallengeId}/rules`);
+        const ruleCode = adminRulesCategory || 'config';
+        const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${selectedChallengeId}/rules?rule_code=${ruleCode}`);
         if (res.ok) {
           const data = await res.json();
           setRulesLocked(data.locked || false);
+          if (data.splitCategorySettings && data.challengeType === 'hybrid') {
+            setAdminRulesSplit(true);
+          } else {
+            setAdminRulesSplit(false);
+            if (adminRulesCategory !== 'config') setAdminRulesCategory('config');
+          }
           if (data.rules) {
             const loaded = {
               max_lot_size: data.rules.max_lot_size ?? 0.02,
@@ -217,7 +226,7 @@ export default function AdminDashboard() {
       setRulesLoading(false);
     };
     fetchRules();
-  }, [isAdmin, activeSection, selectedChallengeId]);
+  }, [isAdmin, activeSection, selectedChallengeId, adminRulesCategory]);
 
   // Fetch participants when tab is active or page changes
   useEffect(() => {
@@ -1094,6 +1103,15 @@ export default function AdminDashboard() {
               {rulesLocked ? "Rules are read-only once a challenge is active. Switch to review status to see them." : "Set the rules for this challenge. Users will see these on their dashboard. Leave fields empty for unlimited."}
             </p>
 
+            {/* Category selector for split rules */}
+            {adminRulesSplit && (
+              <div className="flex gap-2 mb-5">
+                <button onClick={() => setAdminRulesCategory('config_demo')} className={`px-4 py-2 rounded-xl text-xs font-semibold transition-all border ${adminRulesCategory === 'config_demo' ? 'bg-blue-500/15 border-blue-500/40 text-blue-400' : 'bg-white/5 border-white/10 text-gray-400 hover:text-white'}`}>Demo Rules</button>
+                <button onClick={() => setAdminRulesCategory('config_real')} className={`px-4 py-2 rounded-xl text-xs font-semibold transition-all border ${adminRulesCategory === 'config_real' ? 'bg-profit/15 border-profit/40 text-profit' : 'bg-white/5 border-white/10 text-gray-400 hover:text-white'}`}>Real Rules</button>
+                <button onClick={() => setAdminRulesCategory('config')} className={`px-4 py-2 rounded-xl text-xs font-semibold transition-all border ${adminRulesCategory === 'config' ? 'bg-royal/15 border-royal/40 text-royal' : 'bg-white/5 border-white/10 text-gray-400 hover:text-white'}`}>Shared (Fallback)</button>
+              </div>
+            )}
+
             {rulesLoading ? (
               <div className="flex items-center justify-center py-12"><Loader2 className="w-6 h-6 text-royal animate-spin" /></div>
             ) : (
@@ -1350,7 +1368,8 @@ export default function AdminDashboard() {
                       try {
                         const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
                         const secretPath = process.env.NEXT_PUBLIC_ADMIN_PATH || "";
-                        const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${selectedChallengeId}/rules`, {
+                        const ruleCode = adminRulesCategory || 'config';
+                        const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${selectedChallengeId}/rules?rule_code=${ruleCode}`, {
                           method: "PUT", headers: { "Content-Type": "application/json" },
                           body: JSON.stringify(rulesConfig),
                         });
@@ -1372,7 +1391,7 @@ export default function AdminDashboard() {
                             ? "bg-gradient-brand hover:opacity-90 text-white shadow-lg shadow-royal/20"
                             : "bg-white/5 text-gray-500 border border-white/10 cursor-not-allowed opacity-50"
                     }`}>
-                    {rulesLocked ? "🔒 Rules Locked" : justSaved ? "✓ Rules Saved" : rulesChanged ? "Save Rules" : "No Changes"}
+                    {rulesLocked ? "🔒 Rules Locked" : justSaved ? "✓ Rules Saved" : rulesChanged ? `Save ${adminRulesSplit ? (adminRulesCategory === 'config_demo' ? 'Demo' : adminRulesCategory === 'config_real' ? 'Real' : 'Shared') + ' ' : ''}Rules` : "No Changes"}
                   </button>
                 </div>
               );
@@ -2395,6 +2414,11 @@ function CreateChallengePanel({ onCreated }: { onCreated: (id: number) => void }
     evaluation_type: "winnerpip",
     pull_count: "6",
     first_pull_time: "00:00",
+    split_category_settings: false,
+    demo_starting_balance: "",
+    demo_target_balance: "",
+    real_starting_balance: "",
+    real_target_balance: "",
   });
 
   const [rules, setRules] = useState({
@@ -2464,6 +2488,11 @@ function CreateChallengePanel({ onCreated }: { onCreated: (id: number) => void }
           pull_times: pullTimes,
           pull_interval_hours: intervalHours,
           first_pull_time: form.first_pull_time,
+          split_category_settings: form.split_category_settings,
+          demo_starting_balance: form.split_category_settings ? parseFloat(form.demo_starting_balance) || null : null,
+          demo_target_balance: form.split_category_settings ? parseFloat(form.demo_target_balance) || null : null,
+          real_starting_balance: form.split_category_settings ? parseFloat(form.real_starting_balance) || null : null,
+          real_target_balance: form.split_category_settings ? parseFloat(form.real_target_balance) || null : null,
           rules,
         }),
       });
@@ -2573,6 +2602,33 @@ function CreateChallengePanel({ onCreated }: { onCreated: (id: number) => void }
                   <div><label className="text-xs text-gray-400 font-medium mb-1 block">Target Growth (%)</label><input value={form.target_percent} onChange={e => setForm({...form, target_percent: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" placeholder="e.g., 100" /></div>
                 )}
               </div>
+
+              {/* Per-Category Settings Toggle (hybrid only) */}
+              {form.type === 'hybrid' && (
+                <div className="p-3 rounded-xl bg-white/5 border border-white/10 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm text-white font-medium">Different settings per category</p>
+                      <div className="relative group"><span className="cursor-help text-gray-500 hover:text-royal transition-colors text-xs">&#9432;</span><div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-[#1a1a2e] border border-white/20 rounded-lg text-[10px] text-gray-300 w-52 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity z-50 shadow-xl">When ON, Demo and Real participants can have different starting balances and targets. Also enables per-category rules on the Rules tab.</div></div>
+                    </div>
+                    <button type="button" onClick={() => setForm({...form, split_category_settings: !form.split_category_settings})} className={`w-10 h-5 rounded-full transition-all ${form.split_category_settings ? "bg-royal" : "bg-white/20"}`}><div className={`w-4 h-4 bg-white rounded-full transition-transform ${form.split_category_settings ? "translate-x-5" : "translate-x-0.5"}`}></div></button>
+                  </div>
+                  {form.split_category_settings && (
+                    <div className="space-y-3 pt-2 border-t border-white/10">
+                      <div className="grid grid-cols-2 gap-3">
+                        <div><label className="text-xs text-blue-400 font-medium mb-1 block">Demo Starting ($)</label><input value={form.demo_starting_balance} onChange={e => setForm({...form, demo_starting_balance: e.target.value})} className="w-full p-2.5 rounded-xl bg-blue-500/5 border border-blue-500/20 text-white text-sm outline-none" placeholder={form.starting_balance} /></div>
+                        <div><label className="text-xs text-blue-400 font-medium mb-1 block">Demo Target ($)</label><input value={form.demo_target_balance} onChange={e => setForm({...form, demo_target_balance: e.target.value})} className="w-full p-2.5 rounded-xl bg-blue-500/5 border border-blue-500/20 text-white text-sm outline-none" placeholder={form.target_balance} /></div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div><label className="text-xs text-profit font-medium mb-1 block">Real Starting ($)</label><input value={form.real_starting_balance} onChange={e => setForm({...form, real_starting_balance: e.target.value})} className="w-full p-2.5 rounded-xl bg-profit/5 border border-profit/20 text-white text-sm outline-none" placeholder={form.starting_balance} /></div>
+                        <div><label className="text-xs text-profit font-medium mb-1 block">Real Target ($)</label><input value={form.real_target_balance} onChange={e => setForm({...form, real_target_balance: e.target.value})} className="w-full p-2.5 rounded-xl bg-profit/5 border border-profit/20 text-white text-sm outline-none" placeholder={form.target_balance} /></div>
+                      </div>
+                      <p className="text-[10px] text-gray-500">Leave empty to use the shared balance above as fallback.</p>
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div><label className="text-xs text-gray-400 font-medium mb-1 block">Prize Pool Text</label><input value={form.prize_pool_text} onChange={e => setForm({...form, prize_pool_text: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" placeholder="$1,600 Total Prize Pool" /></div>
               <div className="grid grid-cols-2 gap-3">
                 {form.type !== "demo" && <div><label className="text-xs text-gray-400 font-medium mb-1 block">Real Winners #</label><input value={form.real_winners_count} onChange={e => setForm({...form, real_winners_count: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>}
@@ -2634,6 +2690,13 @@ function CreateChallengePanel({ onCreated }: { onCreated: (id: number) => void }
               <ReviewRow label="Deposit Mode" value={form.deposit_mode === 'max_limit' ? 'Max Limit' : form.deposit_mode === 'min_limit' ? 'Min Limit' : 'Fixed'} />
               <ReviewRow label={form.deposit_mode === 'fixed' ? 'Balance' : form.deposit_mode === 'max_limit' ? 'Max Deposit' : 'Min Deposit'} value={rules.only_cent_account && form.type !== "demo" ? `${form.starting_balance}¢` : `$${form.starting_balance}`} />
               <ReviewRow label="Target" value={form.deposit_mode !== 'fixed' ? `${form.target_percent}% growth` : (rules.only_cent_account && form.type !== "demo" ? `${form.target_balance}¢` : `$${form.target_balance}`)} />
+              {form.split_category_settings && form.type === 'hybrid' && (
+                <>
+                  <ReviewRow label="Split Settings" value="ON — per-category balances" />
+                  {form.demo_starting_balance && <ReviewRow label="Demo Balance" value={`$${form.demo_starting_balance} → $${form.demo_target_balance || form.target_balance}`} />}
+                  {form.real_starting_balance && <ReviewRow label="Real Balance" value={`$${form.real_starting_balance} → $${form.real_target_balance || form.target_balance}`} />}
+                </>
+              )}
               <ReviewRow label="Prize Pool" value={form.prize_pool_text || "—"} />
               {form.type !== "demo" && <ReviewRow label="Real Prizes" value={form.real_prizes || "—"} />}
               {form.type !== "real" && <ReviewRow label="Demo Prizes" value={form.demo_prizes || "—"} />}
@@ -2791,6 +2854,11 @@ function ChallengeSettingsPanel({ challengeId, challenges, onRefresh }: { challe
     starting_balance: String(challenge?.startingBalance || 30),
     target_balance: String(challenge?.targetBalance || 60),
     prize_pool_text: challenge?.prizePoolText || "",
+    split_category_settings: challenge?.splitCategorySettings || false,
+    demo_starting_balance: challenge?.demoStartingBalance != null ? String(challenge.demoStartingBalance) : "",
+    demo_target_balance: challenge?.demoTargetBalance != null ? String(challenge.demoTargetBalance) : "",
+    real_starting_balance: challenge?.realStartingBalance != null ? String(challenge.realStartingBalance) : "",
+    real_target_balance: challenge?.realTargetBalance != null ? String(challenge.realTargetBalance) : "",
   });
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
@@ -2810,6 +2878,11 @@ function ChallengeSettingsPanel({ challengeId, challenges, onRefresh }: { challe
           starting_balance: parseFloat(editForm.starting_balance),
           target_balance: parseFloat(editForm.target_balance),
           prize_pool_text: editForm.prize_pool_text,
+          split_category_settings: editForm.split_category_settings,
+          demo_starting_balance: editForm.split_category_settings && editForm.demo_starting_balance ? parseFloat(editForm.demo_starting_balance) : null,
+          demo_target_balance: editForm.split_category_settings && editForm.demo_target_balance ? parseFloat(editForm.demo_target_balance) : null,
+          real_starting_balance: editForm.split_category_settings && editForm.real_starting_balance ? parseFloat(editForm.real_starting_balance) : null,
+          real_target_balance: editForm.split_category_settings && editForm.real_target_balance ? parseFloat(editForm.real_target_balance) : null,
         }),
       });
       if (res.ok) {
@@ -2904,6 +2977,33 @@ function ChallengeSettingsPanel({ challengeId, challenges, onRefresh }: { challe
             <div><label className="text-xs text-gray-400 font-medium mb-1 block">Starting Balance ($)</label><input value={editForm.starting_balance} onChange={e => setEditForm({...editForm, starting_balance: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
             <div><label className="text-xs text-gray-400 font-medium mb-1 block">Target Balance ($)</label><input value={editForm.target_balance} onChange={e => setEditForm({...editForm, target_balance: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
           </div>
+
+          {/* Per-Category Settings (hybrid only) */}
+          {(editForm.type || challenge?.type) === 'hybrid' && (
+            <div className="p-3 rounded-xl bg-white/5 border border-white/10 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <p className="text-sm text-white font-medium">Different settings per category</p>
+                  <div className="relative group"><span className="cursor-help text-gray-500 hover:text-royal transition-colors text-xs">&#9432;</span><div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-[#1a1a2e] border border-white/20 rounded-lg text-[10px] text-gray-300 w-52 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity z-50 shadow-xl">When ON, Demo and Real participants have different starting balances and targets. Also enables per-category rules.</div></div>
+                </div>
+                <button type="button" onClick={() => setEditForm({...editForm, split_category_settings: !editForm.split_category_settings})} className={`w-10 h-5 rounded-full transition-all ${editForm.split_category_settings ? "bg-royal" : "bg-white/20"}`}><div className={`w-4 h-4 bg-white rounded-full transition-transform ${editForm.split_category_settings ? "translate-x-5" : "translate-x-0.5"}`}></div></button>
+              </div>
+              {editForm.split_category_settings && (
+                <div className="space-y-3 pt-2 border-t border-white/10">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div><label className="text-xs text-blue-400 font-medium mb-1 block">Demo Starting ($)</label><input value={editForm.demo_starting_balance} onChange={e => setEditForm({...editForm, demo_starting_balance: e.target.value})} className="w-full p-2.5 rounded-xl bg-blue-500/5 border border-blue-500/20 text-white text-sm outline-none" placeholder={editForm.starting_balance} /></div>
+                    <div><label className="text-xs text-blue-400 font-medium mb-1 block">Demo Target ($)</label><input value={editForm.demo_target_balance} onChange={e => setEditForm({...editForm, demo_target_balance: e.target.value})} className="w-full p-2.5 rounded-xl bg-blue-500/5 border border-blue-500/20 text-white text-sm outline-none" placeholder={editForm.target_balance} /></div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div><label className="text-xs text-profit font-medium mb-1 block">Real Starting ($)</label><input value={editForm.real_starting_balance} onChange={e => setEditForm({...editForm, real_starting_balance: e.target.value})} className="w-full p-2.5 rounded-xl bg-profit/5 border border-profit/20 text-white text-sm outline-none" placeholder={editForm.starting_balance} /></div>
+                    <div><label className="text-xs text-profit font-medium mb-1 block">Real Target ($)</label><input value={editForm.real_target_balance} onChange={e => setEditForm({...editForm, real_target_balance: e.target.value})} className="w-full p-2.5 rounded-xl bg-profit/5 border border-profit/20 text-white text-sm outline-none" placeholder={editForm.target_balance} /></div>
+                  </div>
+                  <p className="text-[10px] text-gray-500">Leave empty to use the shared balance above as fallback.</p>
+                </div>
+              )}
+            </div>
+          )}
+
           <div><label className="text-xs text-gray-400 font-medium mb-1 block">Prize Pool Text</label><input value={editForm.prize_pool_text} onChange={e => setEditForm({...editForm, prize_pool_text: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
           <button onClick={handleSave} disabled={saving} className="w-full py-3 rounded-xl bg-gradient-brand text-white font-semibold hover:opacity-90 transition-all disabled:opacity-50">{saving ? "Saving..." : "Save Changes"}</button>
         </div>
