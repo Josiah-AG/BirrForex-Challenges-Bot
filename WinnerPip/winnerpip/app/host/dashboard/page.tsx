@@ -63,6 +63,8 @@ export default function HostDashboardPage() {
     split_category_settings: false,
     demo_starting_balance: "", demo_target_balance: "",
     real_starting_balance: "", real_target_balance: "",
+    demo_deposit_mode: "fixed", real_deposit_mode: "fixed",
+    demo_target_percent: "100", real_target_percent: "100",
   });
   const [createRules, setCreateRules] = useState<any>({
     max_lot_size: 0.02, max_open_trades: 3, pair_limit: 2,
@@ -73,6 +75,17 @@ export default function HostDashboardPage() {
     only_cent_account: false, allow_professional: false,
     rules_enabled: { max_lot_size: true, max_open_trades: true, pair_limit: true, stop_loss_required: true, daily_loss_cap: true, max_hold_hours: true, min_trade_duration: true, weekend_trading: true, min_active_days: true, min_total_trades: true },
   });
+  const defaultRulesState = {
+    max_lot_size: 0.02, max_open_trades: 3, pair_limit: 2,
+    stop_loss_required: true, max_risk_dollars: 5, max_risk_mode: 'fixed',
+    max_risk_percent: 10, daily_loss_cap: 10, daily_loss_mode: 'fixed',
+    daily_loss_percent: 20, max_hold_hours: 24, min_trade_duration_minutes: 2,
+    weekend_trading: false, min_active_days: 7, min_total_trades: 10,
+    only_cent_account: false, allow_professional: false,
+    rules_enabled: { max_lot_size: true, max_open_trades: true, pair_limit: true, stop_loss_required: true, daily_loss_cap: true, max_hold_hours: true, min_trade_duration: true, weekend_trading: true, min_active_days: true, min_total_trades: true },
+  };
+  const [createRulesDemo, setCreateRulesDemo] = useState<any>({ ...defaultRulesState });
+  const [createRulesReal, setCreateRulesReal] = useState<any>({ ...defaultRulesState });
   const [createLoading, setCreateLoading] = useState(false);
   const [createResult, setCreateResult] = useState<any>(null);
 
@@ -1788,6 +1801,8 @@ export default function HostDashboardPage() {
         createStep={createStep} setCreateStep={setCreateStep}
         createForm={createForm} setCreateForm={setCreateForm}
         createRules={createRules} setCreateRules={setCreateRules}
+        createRulesDemo={createRulesDemo} setCreateRulesDemo={setCreateRulesDemo}
+        createRulesReal={createRulesReal} setCreateRulesReal={setCreateRulesReal}
         createLoading={createLoading} setCreateLoading={setCreateLoading}
         createResult={createResult} setCreateResult={setCreateResult}
         onClose={() => setShowCreateModal(false)}
@@ -2003,7 +2018,7 @@ function BrokerCredentialsSection() {
 }
 
 // Create Challenge Modal (extracted)
-function CreateChallengeModal({ createStep, setCreateStep, createForm, setCreateForm, createRules, setCreateRules, createLoading, setCreateLoading, createResult, setCreateResult, onClose, hostInfo, getToken, setShowAccountSettings, setShowCreateModal }: any) {
+function CreateChallengeModal({ createStep, setCreateStep, createForm, setCreateForm, createRules, setCreateRules, createRulesDemo, setCreateRulesDemo, createRulesReal, setCreateRulesReal, createLoading, setCreateLoading, createResult, setCreateResult, onClose, hostInfo, getToken, setShowAccountSettings, setShowCreateModal }: any) {
   const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
 
   const handleSubmit = async () => {
@@ -2023,10 +2038,16 @@ function CreateChallengeModal({ createStep, setCreateStep, createForm, setCreate
           demo_prizes: createForm.demo_prizes ? createForm.demo_prizes.split(',').map((p: string) => p.trim()).filter(Boolean) : [],
           split_category_settings: createForm.split_category_settings,
           demo_starting_balance: createForm.split_category_settings ? parseFloat(createForm.demo_starting_balance) || null : null,
-          demo_target_balance: createForm.split_category_settings ? parseFloat(createForm.demo_target_balance) || null : null,
+          demo_target_balance: createForm.split_category_settings && createForm.demo_deposit_mode === 'fixed' ? parseFloat(createForm.demo_target_balance) || null : null,
           real_starting_balance: createForm.split_category_settings ? parseFloat(createForm.real_starting_balance) || null : null,
-          real_target_balance: createForm.split_category_settings ? parseFloat(createForm.real_target_balance) || null : null,
-          rules: createRules,
+          real_target_balance: createForm.split_category_settings && createForm.real_deposit_mode === 'fixed' ? parseFloat(createForm.real_target_balance) || null : null,
+          demo_deposit_mode: createForm.split_category_settings ? createForm.demo_deposit_mode : null,
+          real_deposit_mode: createForm.split_category_settings ? createForm.real_deposit_mode : null,
+          demo_target_percent: createForm.split_category_settings && createForm.demo_deposit_mode !== 'fixed' ? parseFloat(createForm.demo_target_percent) || null : null,
+          real_target_percent: createForm.split_category_settings && createForm.real_deposit_mode !== 'fixed' ? parseFloat(createForm.real_target_percent) || null : null,
+          rules: createForm.split_category_settings ? null : createRules,
+          rules_demo: createForm.split_category_settings ? createRulesDemo : null,
+          rules_real: createForm.split_category_settings ? createRulesReal : null,
         }),
       });
       const data = await res.json();
@@ -2072,52 +2093,90 @@ function CreateChallengeModal({ createStep, setCreateStep, createForm, setCreate
                   <div><label className="text-xs text-gray-400 mb-1 block">End Date *</label><input type="datetime-local" value={createForm.end_date} onChange={(e: any) => setCreateForm({...createForm, end_date: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
                 </div>
                 <div><label className="text-xs text-gray-400 mb-1 block">Timezone</label><select value={createForm.timezone} onChange={(e: any) => setCreateForm({...createForm, timezone: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none [&>option]:bg-[#0f1629] [&>option]:text-white"><option value="Africa/Nairobi">East Africa (Nairobi) UTC+3</option><option value="Africa/Lagos">West Africa (Lagos) UTC+1</option><option value="Africa/Cairo">Egypt (Cairo) UTC+2</option><option value="Africa/Johannesburg">South Africa (Johannesburg) UTC+2</option><option value="Asia/Dubai">UAE (Dubai) UTC+4</option><option value="Asia/Riyadh">Saudi Arabia (Riyadh) UTC+3</option><option value="Asia/Kolkata">India (Kolkata) UTC+5:30</option><option value="Asia/Shanghai">China (Shanghai) UTC+8</option><option value="Asia/Tokyo">Japan (Tokyo) UTC+9</option><option value="Asia/Singapore">Singapore UTC+8</option><option value="Europe/London">UK (London) UTC+0/+1</option><option value="Europe/Berlin">Germany (Berlin) UTC+1/+2</option><option value="Europe/Moscow">Russia (Moscow) UTC+3</option><option value="Europe/Istanbul">Turkey (Istanbul) UTC+3</option><option value="America/New_York">US Eastern (New York) UTC-5/-4</option><option value="America/Chicago">US Central (Chicago) UTC-6/-5</option><option value="America/Los_Angeles">US Pacific (LA) UTC-8/-7</option><option value="America/Sao_Paulo">Brazil (Sao Paulo) UTC-3</option><option value="Australia/Sydney">Australia (Sydney) UTC+10/+11</option><option value="Pacific/Auckland">New Zealand (Auckland) UTC+12/+13</option><option value="UTC">UTC</option></select></div>
-                {/* Deposit Mode */}
-                <div>
-                  <label className="text-xs text-gray-400 mb-2 block">Deposit Mode</label>
-                  <div className="grid grid-cols-3 gap-2">
-                    <button type="button" onClick={() => setCreateForm({...createForm, deposit_mode: 'fixed'})} className={`p-2.5 rounded-xl border text-center text-xs font-semibold transition-all ${createForm.deposit_mode === 'fixed' ? 'border-royal bg-royal/10 text-royal' : 'border-white/20 text-gray-400 hover:border-white/30'}`}>Fixed Deposit</button>
-                    <button type="button" onClick={() => setCreateForm({...createForm, deposit_mode: 'max_limit'})} className={`p-2.5 rounded-xl border text-center text-xs font-semibold transition-all ${createForm.deposit_mode === 'max_limit' ? 'border-gold bg-gold/10 text-gold' : 'border-white/20 text-gray-400 hover:border-white/30'}`}>Max Limit</button>
-                    <button type="button" onClick={() => setCreateForm({...createForm, deposit_mode: 'min_limit'})} className={`p-2.5 rounded-xl border text-center text-xs font-semibold transition-all ${createForm.deposit_mode === 'min_limit' ? 'border-profit bg-profit/10 text-profit' : 'border-white/20 text-gray-400 hover:border-white/30'}`}>Min Limit</button>
-                  </div>
-                  <div className="mt-2 p-2.5 rounded-lg bg-white/5 border border-white/5">
-                    {createForm.deposit_mode === 'fixed' && <p className="text-[11px] text-gray-400"><span className="text-royal font-semibold">Fixed Deposit:</span> All participants start with the same balance. Target is a fixed dollar amount. Leaderboard ranked by balance. Best for equal-start competitions.</p>}
-                    {createForm.deposit_mode === 'max_limit' && <p className="text-[11px] text-gray-400"><span className="text-gold font-semibold">Max Limit:</span> Participants can deposit any amount up to a maximum cap. Target is in growth %. SL and drawdown rules must be in %. Leaderboard ranked by growth %. Best for flexible-entry challenges.</p>}
-                    {createForm.deposit_mode === 'min_limit' && <p className="text-[11px] text-gray-400"><span className="text-profit font-semibold">Min Limit:</span> Participants must deposit at least a minimum amount. Target is in growth %. SL and drawdown rules must be in %. Leaderboard ranked by growth %. Best for serious traders.</p>}
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div><label className="text-xs text-gray-400 mb-1 block">Starting Balance ($)</label><input value={createForm.starting_balance} onChange={(e: any) => setCreateForm({...createForm, starting_balance: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
-                  {createForm.deposit_mode === 'fixed' ? (
-                    <div><label className="text-xs text-gray-400 mb-1 block">Target Balance ($)</label><input value={createForm.target_balance} onChange={(e: any) => setCreateForm({...createForm, target_balance: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
-                  ) : (
-                    <div><label className="text-xs text-gray-400 mb-1 block">Target Growth (%)</label><input value={createForm.target_percent} onChange={(e: any) => setCreateForm({...createForm, target_percent: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" placeholder="e.g., 100" /></div>
-                  )}
-                </div>
-
-                {/* Per-Category Settings Toggle (hybrid only) */}
+                {/* Per-Category Split Toggle (hybrid only) */}
                 {createForm.type === 'hybrid' && (
-                  <div className="p-3 rounded-xl bg-white/5 border border-white/10 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <p className="text-sm text-white font-medium">Different settings per category</p>
-                        <Tip text="When ON, Demo and Real participants can have different starting balances and targets. Useful when demo starts at $30 but real starts at $100." />
-                      </div>
-                      <button type="button" onClick={() => setCreateForm({...createForm, split_category_settings: !createForm.split_category_settings})} className={`w-10 h-5 rounded-full transition-all ${createForm.split_category_settings ? "bg-royal" : "bg-white/20"}`}><div className={`w-4 h-4 bg-white rounded-full transition-transform ${createForm.split_category_settings ? "translate-x-5" : "translate-x-0.5"}`}></div></button>
+                  <div className="flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/10">
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm text-white font-medium">Different settings per category</p>
+                      <Tip text="When ON, Demo and Real categories each get their own deposit mode, starting balance, and target. Also enables per-category rules." />
                     </div>
-                    {createForm.split_category_settings && (
-                      <div className="space-y-3 pt-2 border-t border-white/10">
-                        <div className="grid grid-cols-2 gap-3">
-                          <div><label className="text-xs text-blue-400 mb-1 block">Demo Starting ($)</label><input value={createForm.demo_starting_balance} onChange={(e: any) => setCreateForm({...createForm, demo_starting_balance: e.target.value})} className="w-full p-2.5 rounded-xl bg-blue-500/5 border border-blue-500/20 text-white text-sm outline-none" placeholder={createForm.starting_balance} /></div>
-                          <div><label className="text-xs text-blue-400 mb-1 block">Demo Target ($)</label><input value={createForm.demo_target_balance} onChange={(e: any) => setCreateForm({...createForm, demo_target_balance: e.target.value})} className="w-full p-2.5 rounded-xl bg-blue-500/5 border border-blue-500/20 text-white text-sm outline-none" placeholder={createForm.target_balance} /></div>
-                        </div>
-                        <div className="grid grid-cols-2 gap-3">
-                          <div><label className="text-xs text-profit mb-1 block">Real Starting ($)</label><input value={createForm.real_starting_balance} onChange={(e: any) => setCreateForm({...createForm, real_starting_balance: e.target.value})} className="w-full p-2.5 rounded-xl bg-profit/5 border border-profit/20 text-white text-sm outline-none" placeholder={createForm.starting_balance} /></div>
-                          <div><label className="text-xs text-profit mb-1 block">Real Target ($)</label><input value={createForm.real_target_balance} onChange={(e: any) => setCreateForm({...createForm, real_target_balance: e.target.value})} className="w-full p-2.5 rounded-xl bg-profit/5 border border-profit/20 text-white text-sm outline-none" placeholder={createForm.target_balance} /></div>
-                        </div>
-                        <p className="text-[10px] text-gray-500">Leave empty to use the shared balance above as fallback.</p>
-                      </div>
+                    <button type="button" onClick={() => setCreateForm({...createForm, split_category_settings: !createForm.split_category_settings})} className={`w-10 h-5 rounded-full transition-all ${createForm.split_category_settings ? "bg-royal" : "bg-white/20"}`}><div className={`w-4 h-4 bg-white rounded-full transition-transform ${createForm.split_category_settings ? "translate-x-5" : "translate-x-0.5"}`}></div></button>
+                  </div>
+                )}
+
+                {/* Shared Deposit Mode (shown when split is OFF or non-hybrid) */}
+                {!(createForm.type === 'hybrid' && createForm.split_category_settings) && (<>
+                  <div>
+                    <label className="text-xs text-gray-400 mb-2 block">Deposit Mode</label>
+                    <div className="grid grid-cols-3 gap-2">
+                      <button type="button" onClick={() => setCreateForm({...createForm, deposit_mode: 'fixed'})} className={`p-2.5 rounded-xl border text-center text-xs font-semibold transition-all ${createForm.deposit_mode === 'fixed' ? 'border-royal bg-royal/10 text-royal' : 'border-white/20 text-gray-400 hover:border-white/30'}`}>Fixed Deposit</button>
+                      <button type="button" onClick={() => setCreateForm({...createForm, deposit_mode: 'max_limit'})} className={`p-2.5 rounded-xl border text-center text-xs font-semibold transition-all ${createForm.deposit_mode === 'max_limit' ? 'border-gold bg-gold/10 text-gold' : 'border-white/20 text-gray-400 hover:border-white/30'}`}>Max Limit</button>
+                      <button type="button" onClick={() => setCreateForm({...createForm, deposit_mode: 'min_limit'})} className={`p-2.5 rounded-xl border text-center text-xs font-semibold transition-all ${createForm.deposit_mode === 'min_limit' ? 'border-profit bg-profit/10 text-profit' : 'border-white/20 text-gray-400 hover:border-white/30'}`}>Min Limit</button>
+                    </div>
+                    <div className="mt-2 p-2.5 rounded-lg bg-white/5 border border-white/5">
+                      {createForm.deposit_mode === 'fixed' && <p className="text-[11px] text-gray-400"><span className="text-royal font-semibold">Fixed Deposit:</span> All participants start with the same balance. Target is a fixed dollar amount. Leaderboard ranked by balance.</p>}
+                      {createForm.deposit_mode === 'max_limit' && <p className="text-[11px] text-gray-400"><span className="text-gold font-semibold">Max Limit:</span> Participants can deposit up to a maximum cap. Target is growth %. Leaderboard ranked by growth %.</p>}
+                      {createForm.deposit_mode === 'min_limit' && <p className="text-[11px] text-gray-400"><span className="text-profit font-semibold">Min Limit:</span> Participants must deposit at least a minimum. Target is growth %. Leaderboard ranked by growth %.</p>}
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div><label className="text-xs text-gray-400 mb-1 block">Starting Balance ($)</label><input value={createForm.starting_balance} onChange={(e: any) => setCreateForm({...createForm, starting_balance: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
+                    {createForm.deposit_mode === 'fixed' ? (
+                      <div><label className="text-xs text-gray-400 mb-1 block">Target Balance ($)</label><input value={createForm.target_balance} onChange={(e: any) => setCreateForm({...createForm, target_balance: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
+                    ) : (
+                      <div><label className="text-xs text-gray-400 mb-1 block">Target Growth (%)</label><input value={createForm.target_percent} onChange={(e: any) => setCreateForm({...createForm, target_percent: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" placeholder="e.g., 100" /></div>
                     )}
+                  </div>
+                </>)}
+
+                {/* Per-Category Sections (shown when split is ON + hybrid) */}
+                {createForm.type === 'hybrid' && createForm.split_category_settings && (
+                  <div className="space-y-4">
+                    {/* Demo Category */}
+                    <div className="p-4 rounded-xl bg-blue-500/5 border border-blue-500/20 space-y-3">
+                      <p className="text-xs text-blue-400 font-bold uppercase tracking-wider">Demo Category</p>
+                      <div className="grid grid-cols-3 gap-2">
+                        <button type="button" onClick={() => setCreateForm({...createForm, demo_deposit_mode: 'fixed'})} className={`p-2 rounded-lg border text-center text-[11px] font-semibold transition-all ${createForm.demo_deposit_mode === 'fixed' ? 'border-blue-400 bg-blue-500/10 text-blue-400' : 'border-white/20 text-gray-400'}`}>Fixed</button>
+                        <button type="button" onClick={() => setCreateForm({...createForm, demo_deposit_mode: 'max_limit'})} className={`p-2 rounded-lg border text-center text-[11px] font-semibold transition-all ${createForm.demo_deposit_mode === 'max_limit' ? 'border-blue-400 bg-blue-500/10 text-blue-400' : 'border-white/20 text-gray-400'}`}>Max Limit</button>
+                        <button type="button" onClick={() => setCreateForm({...createForm, demo_deposit_mode: 'min_limit'})} className={`p-2 rounded-lg border text-center text-[11px] font-semibold transition-all ${createForm.demo_deposit_mode === 'min_limit' ? 'border-blue-400 bg-blue-500/10 text-blue-400' : 'border-white/20 text-gray-400'}`}>Min Limit</button>
+                      </div>
+                      <div className="p-2 rounded-lg bg-white/5">
+                        {createForm.demo_deposit_mode === 'fixed' && <p className="text-[10px] text-gray-400"><span className="text-blue-400 font-semibold">Fixed:</span> Demo participants start with exact balance. Target is $ amount.</p>}
+                        {createForm.demo_deposit_mode === 'max_limit' && <p className="text-[10px] text-gray-400"><span className="text-blue-400 font-semibold">Max Limit:</span> Demo balance up to cap. Target is growth %.</p>}
+                        {createForm.demo_deposit_mode === 'min_limit' && <p className="text-[10px] text-gray-400"><span className="text-blue-400 font-semibold">Min Limit:</span> Demo balance at least minimum. Target is growth %.</p>}
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div><label className="text-[11px] text-blue-400 mb-1 block">Starting Balance ($)</label><input value={createForm.demo_starting_balance} onChange={(e: any) => setCreateForm({...createForm, demo_starting_balance: e.target.value})} className="w-full p-2.5 rounded-xl bg-white/5 border border-blue-500/20 text-white text-sm outline-none" placeholder="30" /></div>
+                        {createForm.demo_deposit_mode === 'fixed' ? (
+                          <div><label className="text-[11px] text-blue-400 mb-1 block">Target Balance ($)</label><input value={createForm.demo_target_balance} onChange={(e: any) => setCreateForm({...createForm, demo_target_balance: e.target.value})} className="w-full p-2.5 rounded-xl bg-white/5 border border-blue-500/20 text-white text-sm outline-none" placeholder="60" /></div>
+                        ) : (
+                          <div><label className="text-[11px] text-blue-400 mb-1 block">Target Growth (%)</label><input value={createForm.demo_target_percent} onChange={(e: any) => setCreateForm({...createForm, demo_target_percent: e.target.value})} className="w-full p-2.5 rounded-xl bg-white/5 border border-blue-500/20 text-white text-sm outline-none" placeholder="100" /></div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Real Category */}
+                    <div className="p-4 rounded-xl bg-profit/5 border border-profit/20 space-y-3">
+                      <p className="text-xs text-profit font-bold uppercase tracking-wider">Real Category</p>
+                      <div className="grid grid-cols-3 gap-2">
+                        <button type="button" onClick={() => setCreateForm({...createForm, real_deposit_mode: 'fixed'})} className={`p-2 rounded-lg border text-center text-[11px] font-semibold transition-all ${createForm.real_deposit_mode === 'fixed' ? 'border-profit bg-profit/10 text-profit' : 'border-white/20 text-gray-400'}`}>Fixed</button>
+                        <button type="button" onClick={() => setCreateForm({...createForm, real_deposit_mode: 'max_limit'})} className={`p-2 rounded-lg border text-center text-[11px] font-semibold transition-all ${createForm.real_deposit_mode === 'max_limit' ? 'border-profit bg-profit/10 text-profit' : 'border-white/20 text-gray-400'}`}>Max Limit</button>
+                        <button type="button" onClick={() => setCreateForm({...createForm, real_deposit_mode: 'min_limit'})} className={`p-2 rounded-lg border text-center text-[11px] font-semibold transition-all ${createForm.real_deposit_mode === 'min_limit' ? 'border-profit bg-profit/10 text-profit' : 'border-white/20 text-gray-400'}`}>Min Limit</button>
+                      </div>
+                      <div className="p-2 rounded-lg bg-white/5">
+                        {createForm.real_deposit_mode === 'fixed' && <p className="text-[10px] text-gray-400"><span className="text-profit font-semibold">Fixed:</span> Real participants start with exact balance. Target is $ amount.</p>}
+                        {createForm.real_deposit_mode === 'max_limit' && <p className="text-[10px] text-gray-400"><span className="text-profit font-semibold">Max Limit:</span> Real balance up to cap. Target is growth %.</p>}
+                        {createForm.real_deposit_mode === 'min_limit' && <p className="text-[10px] text-gray-400"><span className="text-profit font-semibold">Min Limit:</span> Real balance at least minimum. Target is growth %.</p>}
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div><label className="text-[11px] text-profit mb-1 block">Starting Balance ($)</label><input value={createForm.real_starting_balance} onChange={(e: any) => setCreateForm({...createForm, real_starting_balance: e.target.value})} className="w-full p-2.5 rounded-xl bg-white/5 border border-profit/20 text-white text-sm outline-none" placeholder="100" /></div>
+                        {createForm.real_deposit_mode === 'fixed' ? (
+                          <div><label className="text-[11px] text-profit mb-1 block">Target Balance ($)</label><input value={createForm.real_target_balance} onChange={(e: any) => setCreateForm({...createForm, real_target_balance: e.target.value})} className="w-full p-2.5 rounded-xl bg-white/5 border border-profit/20 text-white text-sm outline-none" placeholder="200" /></div>
+                        ) : (
+                          <div><label className="text-[11px] text-profit mb-1 block">Target Growth (%)</label><input value={createForm.real_target_percent} onChange={(e: any) => setCreateForm({...createForm, real_target_percent: e.target.value})} className="w-full p-2.5 rounded-xl bg-white/5 border border-profit/20 text-white text-sm outline-none" placeholder="100" /></div>
+                        )}
+                      </div>
+                    </div>
                   </div>
                 )}
 
@@ -2160,6 +2219,15 @@ function CreateChallengeModal({ createStep, setCreateStep, createForm, setCreate
             {/* ====== STEP 2: Rules (Admin-style) ====== */}
             {createStep === 2 && (
               <div className="space-y-3">
+                {/* When split is ON, show category tabs for Demo/Real rules */}
+                {createForm.type === 'hybrid' && createForm.split_category_settings ? (
+                  <SplitRulesEditor
+                    rulesDemo={createRulesDemo} setRulesDemo={setCreateRulesDemo}
+                    rulesReal={createRulesReal} setRulesReal={setCreateRulesReal}
+                    Tip={Tip}
+                  />
+                ) : (
+                <>
                 <p className="text-xs text-gray-500 mb-3">Toggle rules ON/OFF. Hover &#9432; for details. Disabled rules won&apos;t be enforced during evaluation.</p>
 
                 {/* Max Lot Size */}
@@ -2297,6 +2365,9 @@ function CreateChallengeModal({ createStep, setCreateStep, createForm, setCreate
                     </div>
                     <button type="button" onClick={() => setCreateRules({...createRules, allow_professional: !createRules.allow_professional})} className={`w-12 h-6 rounded-full transition-all ${createRules.allow_professional ? "bg-profit" : "bg-white/20"}`}><div className={`w-5 h-5 bg-white rounded-full transition-transform ${createRules.allow_professional ? "translate-x-6" : "translate-x-0.5"}`}></div></button>
                   </div>
+                )}
+
+                </>
                 )}
 
                 <div className="flex gap-3 mt-4">
@@ -2853,6 +2924,155 @@ function hostDownloadRulesHTML(challenge: any, rulesList: string[], isCent: bool
   const endDate = challenge.end_date ? new Date(challenge.end_date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) : '—';
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${challenge.title} - Rules</title><style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Inter',system-ui,sans-serif;background:#0a0e1a}.page{width:1080px;height:1920px;padding:80px;display:flex;flex-direction:column;justify-content:center;background:linear-gradient(135deg,#0a0e1a 0%,#111827 50%,#0a0e1a 100%);position:relative;overflow:hidden;page-break-after:always}.page.landscape{width:1920px;height:1080px;padding:60px 100px}.glow{position:absolute;width:600px;height:600px;border-radius:50%;filter:blur(150px);opacity:0.15}.glow1{top:-200px;right:-100px;background:#1F6FEB}.glow2{bottom:-200px;left:-100px;background:#F5B400}.header{text-align:center;margin-bottom:60px}.title{font-size:48px;font-weight:800;color:#fff;margin-bottom:12px}.subtitle{font-size:20px;color:#94a3b8;font-weight:500}.badge{display:inline-block;padding:8px 20px;border-radius:20px;background:rgba(31,111,235,0.2);border:1px solid rgba(31,111,235,0.4);color:#1F6FEB;font-size:14px;font-weight:700;margin-top:16px}.info-row{display:flex;justify-content:center;gap:40px;margin-bottom:50px}.info-item{text-align:center}.info-label{font-size:13px;color:#64748b;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px}.info-value{font-size:28px;font-weight:700;color:#fff}.info-value.gold{color:#F5B400}.rules-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;max-width:800px;margin:0 auto}.page.landscape .rules-grid{grid-template-columns:1fr 1fr 1fr;max-width:1400px}.rule-card{background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:16px;padding:24px;display:flex;align-items:center;gap:16px}.rule-card.centered{grid-column:1/-1;max-width:400px;margin:0 auto}.page.landscape .rule-card.centered{max-width:450px}.rule-num{width:36px;height:36px;border-radius:10px;background:rgba(31,111,235,0.2);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:#1F6FEB;flex-shrink:0}.rule-text{font-size:16px;color:#e2e8f0;font-weight:500}.footer{text-align:center;margin-top:auto;padding-top:40px}.footer-text{font-size:14px;color:#475569}.brand{font-size:16px;font-weight:700;color:#64748b;margin-top:8px}</style></head><body><div class="page"><div class="glow glow1"></div><div class="glow glow2"></div><div class="header"><div style="display:flex;align-items:center;justify-content:center;gap:16px;margin-bottom:14px"><img src="https://winnerpip.com/winnerpip-icon.png" style="width:44px;height:44px;border-radius:10px" onerror="this.style.display='none'" /></div><div class="title">${challenge.title || 'Trading Challenge'}</div><div class="subtitle">Challenge Rules</div>${isCent ? '<div class="badge">CENT ACCOUNT ONLY</div>' : ''}</div><div class="info-row"><div class="info-item"><div class="info-label">Starting Balance</div><div class="info-value">${unit}${challenge.starting_balance || 0}</div></div><div class="info-item"><div class="info-label">Target</div><div class="info-value gold">${unit}${challenge.target_balance || 0}</div></div><div class="info-item"><div class="info-label">Period</div><div class="info-value" style="font-size:20px">${startDate} → ${endDate}</div></div></div><div class="rules-grid">${rulesList.map((r, i) => `<div class="rule-card${i === rulesList.length - 1 && rulesList.length % 2 !== 0 ? " centered" : ""}"><div class="rule-num">${i + 1}</div><div class="rule-text">${r}</div></div>`).join('')}</div><div class="footer"><div class="footer-text">Trades that break the rules will have profits removed. Losses still count.</div><div class="brand">WinnerPip</div></div></div><div class="page landscape"><div class="glow glow1"></div><div class="glow glow2"></div><div class="header"><div style="display:flex;align-items:center;justify-content:center;gap:16px;margin-bottom:14px"><img src="https://winnerpip.com/winnerpip-icon.png" style="width:52px;height:52px;border-radius:10px" onerror="this.style.display='none'" /></div><div class="title" style="font-size:42px">${challenge.title || 'Trading Challenge'}</div><div class="subtitle">Challenge Rules</div>${isCent ? '<div class="badge">CENT ACCOUNT ONLY</div>' : ''}</div><div class="info-row"><div class="info-item"><div class="info-label">Starting Balance</div><div class="info-value">${unit}${challenge.starting_balance || 0}</div></div><div class="info-item"><div class="info-label">Target</div><div class="info-value gold">${unit}${challenge.target_balance || 0}</div></div><div class="info-item"><div class="info-label">Period</div><div class="info-value" style="font-size:20px">${startDate} → ${endDate}</div></div></div><div class="rules-grid">${rulesList.map((r, i) => `<div class="rule-card${i === rulesList.length - 1 && rulesList.length % 2 !== 0 ? " centered" : ""}"><div class="rule-num">${i + 1}</div><div class="rule-text">${r}</div></div>`).join('')}</div><div class="footer"><div class="footer-text">Trades that break the rules will have profits removed. Losses still count.</div><div class="brand">WinnerPip</div></div></div></body></html>`;
   const blob = new Blob([html], { type: 'text/html' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `${(challenge.title || 'challenge').replace(/\s+/g, '_')}_rules.html`; a.click(); URL.revokeObjectURL(url);
+}
+
+// ==================== SPLIT RULES EDITOR (Demo + Real) ====================
+function SplitRulesEditor({ rulesDemo, setRulesDemo, rulesReal, setRulesReal, Tip }: any) {
+  const [activeCategory, setActiveCategory] = useState<'demo' | 'real'>('demo');
+  const rules = activeCategory === 'demo' ? rulesDemo : rulesReal;
+  const setRules = activeCategory === 'demo' ? setRulesDemo : setRulesReal;
+
+  return (
+    <div className="space-y-3">
+      {/* Category tabs */}
+      <div className="flex gap-2 mb-4">
+        <button type="button" onClick={() => setActiveCategory('demo')} className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-all border ${activeCategory === 'demo' ? 'bg-blue-500/15 border-blue-500/40 text-blue-400' : 'bg-white/5 border-white/10 text-gray-400'}`}>Demo Rules</button>
+        <button type="button" onClick={() => setActiveCategory('real')} className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-all border ${activeCategory === 'real' ? 'bg-profit/15 border-profit/40 text-profit' : 'bg-white/5 border-white/10 text-gray-400'}`}>Real Rules</button>
+      </div>
+
+      <p className="text-xs text-gray-500 mb-2">Configure rules for <span className={activeCategory === 'demo' ? 'text-blue-400 font-semibold' : 'text-profit font-semibold'}>{activeCategory === 'demo' ? 'Demo' : 'Real'}</span> participants. Toggle ON/OFF.</p>
+
+      {/* Max Lot Size */}
+      <div className={`flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10 ${!rules.rules_enabled.max_lot_size ? "opacity-50" : ""}`}>
+        <div className="flex items-center gap-2">
+          <button type="button" onClick={() => setRules({...rules, rules_enabled: {...rules.rules_enabled, max_lot_size: !rules.rules_enabled.max_lot_size}})} className={`w-9 h-5 rounded-full transition-all flex-shrink-0 ${rules.rules_enabled.max_lot_size ? "bg-royal" : "bg-white/20"}`}><div className={`w-4 h-4 bg-white rounded-full transition-transform ${rules.rules_enabled.max_lot_size ? "translate-x-4" : "translate-x-0.5"}`}></div></button>
+          <p className="text-sm text-white font-medium">Max Lot Size</p>
+          <Tip text="Maximum lot size per position. Exceeding trades have profits removed." />
+        </div>
+        <input type="number" step="0.01" value={rules.max_lot_size || ""} onChange={e => setRules({...rules, max_lot_size: parseFloat(e.target.value) || 0})} disabled={!rules.rules_enabled.max_lot_size} className={`w-20 p-2 rounded-lg bg-white/10 border border-white/10 text-white text-sm text-center outline-none ${!rules.rules_enabled.max_lot_size ? "cursor-not-allowed" : ""}`} />
+      </div>
+
+      {/* Max Open Trades */}
+      <div className={`flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10 ${!rules.rules_enabled.max_open_trades ? "opacity-50" : ""}`}>
+        <div className="flex items-center gap-2">
+          <button type="button" onClick={() => setRules({...rules, rules_enabled: {...rules.rules_enabled, max_open_trades: !rules.rules_enabled.max_open_trades}})} className={`w-9 h-5 rounded-full transition-all flex-shrink-0 ${rules.rules_enabled.max_open_trades ? "bg-royal" : "bg-white/20"}`}><div className={`w-4 h-4 bg-white rounded-full transition-transform ${rules.rules_enabled.max_open_trades ? "translate-x-4" : "translate-x-0.5"}`}></div></button>
+          <p className="text-sm text-white font-medium">Max Open Trades</p>
+          <Tip text="Max simultaneous open trades. All overlapping trades flagged when exceeded." />
+        </div>
+        <input type="number" value={rules.max_open_trades || ""} onChange={e => setRules({...rules, max_open_trades: parseInt(e.target.value) || 0})} disabled={!rules.rules_enabled.max_open_trades} className={`w-20 p-2 rounded-lg bg-white/10 border border-white/10 text-white text-sm text-center outline-none ${!rules.rules_enabled.max_open_trades ? "cursor-not-allowed" : ""}`} />
+      </div>
+
+      {/* Pair Limit */}
+      <div className={`flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10 ${!rules.rules_enabled.pair_limit ? "opacity-50" : ""}`}>
+        <div className="flex items-center gap-2">
+          <button type="button" onClick={() => setRules({...rules, rules_enabled: {...rules.rules_enabled, pair_limit: !rules.rules_enabled.pair_limit}})} className={`w-9 h-5 rounded-full transition-all flex-shrink-0 ${rules.rules_enabled.pair_limit ? "bg-royal" : "bg-white/20"}`}><div className={`w-4 h-4 bg-white rounded-full transition-transform ${rules.rules_enabled.pair_limit ? "translate-x-4" : "translate-x-0.5"}`}></div></button>
+          <p className="text-sm text-white font-medium">Pair Limit</p>
+          <Tip text="Max trades on same pair open at once." />
+        </div>
+        <input type="number" value={rules.pair_limit || ""} onChange={e => setRules({...rules, pair_limit: parseInt(e.target.value) || 0})} disabled={!rules.rules_enabled.pair_limit} className={`w-20 p-2 rounded-lg bg-white/10 border border-white/10 text-white text-sm text-center outline-none ${!rules.rules_enabled.pair_limit ? "cursor-not-allowed" : ""}`} />
+      </div>
+
+      {/* Max Risk */}
+      <div className={`p-3 bg-white/5 rounded-xl border border-white/10 space-y-2 ${!rules.rules_enabled.stop_loss_required ? "opacity-50" : ""}`}>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={() => setRules({...rules, rules_enabled: {...rules.rules_enabled, stop_loss_required: !rules.rules_enabled.stop_loss_required}})} className={`w-9 h-5 rounded-full transition-all flex-shrink-0 ${rules.rules_enabled.stop_loss_required ? "bg-royal" : "bg-white/20"}`}><div className={`w-4 h-4 bg-white rounded-full transition-transform ${rules.rules_enabled.stop_loss_required ? "translate-x-4" : "translate-x-0.5"}`}></div></button>
+            <p className="text-sm text-white font-medium">Max Risk</p>
+            <Tip text="Max risk per trade by SL distance." />
+          </div>
+          <div className="flex gap-1">
+            <button type="button" onClick={() => setRules({...rules, max_risk_mode: 'fixed'})} className={`px-2 py-1 rounded text-[10px] font-semibold ${rules.max_risk_mode !== 'percentage' ? 'bg-royal/30 text-royal' : 'bg-white/5 text-gray-500'}`}>$</button>
+            <button type="button" onClick={() => setRules({...rules, max_risk_mode: 'percentage'})} className={`px-2 py-1 rounded text-[10px] font-semibold ${rules.max_risk_mode === 'percentage' ? 'bg-gold/30 text-gold' : 'bg-white/5 text-gray-500'}`}>%</button>
+          </div>
+        </div>
+        {rules.max_risk_mode === 'percentage' ? (
+          <input type="number" step="1" value={rules.max_risk_percent || ""} onChange={e => setRules({...rules, max_risk_percent: parseFloat(e.target.value) || 0})} disabled={!rules.rules_enabled.stop_loss_required} className="w-full p-2 rounded-lg bg-white/10 border border-white/10 text-white text-sm outline-none" placeholder="e.g., 10%" />
+        ) : (
+          <input type="number" step="0.5" value={rules.max_risk_dollars || ""} onChange={e => setRules({...rules, max_risk_dollars: parseFloat(e.target.value) || 0})} disabled={!rules.rules_enabled.stop_loss_required} className="w-full p-2 rounded-lg bg-white/10 border border-white/10 text-white text-sm outline-none" placeholder="e.g., $5" />
+        )}
+      </div>
+
+      {/* Daily Loss Cap */}
+      <div className={`p-3 bg-white/5 rounded-xl border border-white/10 space-y-2 ${!rules.rules_enabled.daily_loss_cap ? "opacity-50" : ""}`}>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={() => setRules({...rules, rules_enabled: {...rules.rules_enabled, daily_loss_cap: !rules.rules_enabled.daily_loss_cap}})} className={`w-9 h-5 rounded-full transition-all flex-shrink-0 ${rules.rules_enabled.daily_loss_cap ? "bg-royal" : "bg-white/20"}`}><div className={`w-4 h-4 bg-white rounded-full transition-transform ${rules.rules_enabled.daily_loss_cap ? "translate-x-4" : "translate-x-0.5"}`}></div></button>
+            <p className="text-sm text-white font-medium">Daily Loss Cap</p>
+            <Tip text="Max daily drawdown from day's opening balance." />
+          </div>
+          <div className="flex gap-1">
+            <button type="button" onClick={() => setRules({...rules, daily_loss_mode: 'fixed'})} className={`px-2 py-1 rounded text-[10px] font-semibold ${rules.daily_loss_mode !== 'percentage' ? 'bg-royal/30 text-royal' : 'bg-white/5 text-gray-500'}`}>$</button>
+            <button type="button" onClick={() => setRules({...rules, daily_loss_mode: 'percentage'})} className={`px-2 py-1 rounded text-[10px] font-semibold ${rules.daily_loss_mode === 'percentage' ? 'bg-gold/30 text-gold' : 'bg-white/5 text-gray-500'}`}>%</button>
+          </div>
+        </div>
+        {rules.daily_loss_mode === 'percentage' ? (
+          <input type="number" step="1" value={rules.daily_loss_percent || ""} onChange={e => setRules({...rules, daily_loss_percent: parseFloat(e.target.value) || 0})} disabled={!rules.rules_enabled.daily_loss_cap} className="w-full p-2 rounded-lg bg-white/10 border border-white/10 text-white text-sm outline-none" placeholder="e.g., 20%" />
+        ) : (
+          <input type="number" step="1" value={rules.daily_loss_cap || ""} onChange={e => setRules({...rules, daily_loss_cap: parseFloat(e.target.value) || 0})} disabled={!rules.rules_enabled.daily_loss_cap} className="w-full p-2 rounded-lg bg-white/10 border border-white/10 text-white text-sm outline-none" placeholder="e.g., $10" />
+        )}
+      </div>
+
+      {/* Max Hold Hours */}
+      <div className={`flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10 ${!rules.rules_enabled.max_hold_hours ? "opacity-50" : ""}`}>
+        <div className="flex items-center gap-2">
+          <button type="button" onClick={() => setRules({...rules, rules_enabled: {...rules.rules_enabled, max_hold_hours: !rules.rules_enabled.max_hold_hours}})} className={`w-9 h-5 rounded-full transition-all flex-shrink-0 ${rules.rules_enabled.max_hold_hours ? "bg-royal" : "bg-white/20"}`}><div className={`w-4 h-4 bg-white rounded-full transition-transform ${rules.rules_enabled.max_hold_hours ? "translate-x-4" : "translate-x-0.5"}`}></div></button>
+          <p className="text-sm text-white font-medium">Max Hold (hrs)</p>
+          <Tip text="Max hours a trade can be held." />
+        </div>
+        <input type="number" value={rules.max_hold_hours || ""} onChange={e => setRules({...rules, max_hold_hours: parseInt(e.target.value) || 0})} disabled={!rules.rules_enabled.max_hold_hours} className={`w-20 p-2 rounded-lg bg-white/10 border border-white/10 text-white text-sm text-center outline-none ${!rules.rules_enabled.max_hold_hours ? "cursor-not-allowed" : ""}`} />
+      </div>
+
+      {/* Min Trade Duration */}
+      <div className={`flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10 ${!rules.rules_enabled.min_trade_duration ? "opacity-50" : ""}`}>
+        <div className="flex items-center gap-2">
+          <button type="button" onClick={() => setRules({...rules, rules_enabled: {...rules.rules_enabled, min_trade_duration: !rules.rules_enabled.min_trade_duration}})} className={`w-9 h-5 rounded-full transition-all flex-shrink-0 ${rules.rules_enabled.min_trade_duration ? "bg-royal" : "bg-white/20"}`}><div className={`w-4 h-4 bg-white rounded-full transition-transform ${rules.rules_enabled.min_trade_duration ? "translate-x-4" : "translate-x-0.5"}`}></div></button>
+          <p className="text-sm text-white font-medium">Min Duration (min)</p>
+          <Tip text="Minimum trade hold time in minutes." />
+        </div>
+        <input type="number" value={rules.min_trade_duration_minutes || ""} onChange={e => setRules({...rules, min_trade_duration_minutes: parseInt(e.target.value) || null})} disabled={!rules.rules_enabled.min_trade_duration} className={`w-20 p-2 rounded-lg bg-white/10 border border-white/10 text-white text-sm text-center outline-none ${!rules.rules_enabled.min_trade_duration ? "cursor-not-allowed" : ""}`} />
+      </div>
+
+      {/* Min Active Days */}
+      <div className={`flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10 ${!rules.rules_enabled.min_active_days ? "opacity-50" : ""}`}>
+        <div className="flex items-center gap-2">
+          <button type="button" onClick={() => setRules({...rules, rules_enabled: {...rules.rules_enabled, min_active_days: !rules.rules_enabled.min_active_days}})} className={`w-9 h-5 rounded-full transition-all flex-shrink-0 ${rules.rules_enabled.min_active_days ? "bg-royal" : "bg-white/20"}`}><div className={`w-4 h-4 bg-white rounded-full transition-transform ${rules.rules_enabled.min_active_days ? "translate-x-4" : "translate-x-0.5"}`}></div></button>
+          <p className="text-sm text-white font-medium">Min Active Days</p>
+          <Tip text="Minimum days user must trade to qualify." />
+        </div>
+        <input type="number" value={rules.min_active_days || ""} onChange={e => setRules({...rules, min_active_days: parseInt(e.target.value) || 0})} disabled={!rules.rules_enabled.min_active_days} className={`w-20 p-2 rounded-lg bg-white/10 border border-white/10 text-white text-sm text-center outline-none ${!rules.rules_enabled.min_active_days ? "cursor-not-allowed" : ""}`} />
+      </div>
+
+      {/* Min Total Trades */}
+      <div className={`flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10 ${!rules.rules_enabled.min_total_trades ? "opacity-50" : ""}`}>
+        <div className="flex items-center gap-2">
+          <button type="button" onClick={() => setRules({...rules, rules_enabled: {...rules.rules_enabled, min_total_trades: !rules.rules_enabled.min_total_trades}})} className={`w-9 h-5 rounded-full transition-all flex-shrink-0 ${rules.rules_enabled.min_total_trades ? "bg-royal" : "bg-white/20"}`}><div className={`w-4 h-4 bg-white rounded-full transition-transform ${rules.rules_enabled.min_total_trades ? "translate-x-4" : "translate-x-0.5"}`}></div></button>
+          <p className="text-sm text-white font-medium">Min Total Trades</p>
+          <Tip text="Minimum closed trades to qualify. DQ at end if not met." />
+        </div>
+        <input type="number" value={rules.min_total_trades || ""} onChange={e => setRules({...rules, min_total_trades: parseInt(e.target.value) || null})} disabled={!rules.rules_enabled.min_total_trades} className={`w-20 p-2 rounded-lg bg-white/10 border border-white/10 text-white text-sm text-center outline-none ${!rules.rules_enabled.min_total_trades ? "cursor-not-allowed" : ""}`} />
+      </div>
+
+      {/* Weekend Trading */}
+      <div className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10">
+        <div className="flex items-center gap-2">
+          <p className="text-sm text-white font-medium">Prohibit Weekend Trading</p>
+          <Tip text="When ON, weekend trades are flagged." />
+        </div>
+        <button type="button" onClick={() => setRules({...rules, rules_enabled: {...rules.rules_enabled, weekend_trading: !rules.rules_enabled.weekend_trading}})} className={`w-9 h-5 rounded-full transition-all ${rules.rules_enabled.weekend_trading ? "bg-royal" : "bg-white/20"}`}><div className={`w-4 h-4 bg-white rounded-full transition-transform ${rules.rules_enabled.weekend_trading ? "translate-x-4" : "translate-x-0.5"}`}></div></button>
+      </div>
+
+      {/* Only Cent Account (real only) */}
+      {activeCategory === 'real' && (
+        <div className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10">
+          <div className="flex items-center gap-2">
+            <p className="text-sm text-white font-medium">Only Cent Account</p>
+            <Tip text="Real accounts must be cent accounts." />
+          </div>
+          <button type="button" onClick={() => setRules({...rules, only_cent_account: !rules.only_cent_account})} className={`w-9 h-5 rounded-full transition-all ${rules.only_cent_account ? "bg-royal" : "bg-white/20"}`}><div className={`w-4 h-4 bg-white rounded-full transition-transform ${rules.only_cent_account ? "translate-x-4" : "translate-x-0.5"}`}></div></button>
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ==================== CREDENTIAL FAILURES PANEL ====================

@@ -524,7 +524,7 @@ export class WpEvaluationEngine {
       // If isRealCentOnly: admin entered in cent terms, all users are cent → no conversion
       // If user is NOT cent: admin entered in standard terms → no conversion
 
-      const result = await this.evaluateAccount(challengeId, reg, effectiveRules, effectiveStartBalance, effectiveTargetBalance, depositMode, targetPercent);
+      const result = await this.evaluateAccount(challengeId, reg, effectiveRules, effectiveStartBalance, effectiveTargetBalance, categoryBal.depositMode, categoryBal.targetPercent);
       totalFlagged += result.flaggedCount;
       if (result.isQualified) totalQualified++;
     }
@@ -604,7 +604,7 @@ export class WpEvaluationEngine {
     // If isRealCentOnly: admin entered in cent terms, all users are cent → no conversion
     // If user is NOT cent: admin entered in standard terms → no conversion
 
-    return this.evaluateAccount(challengeId, reg, effectiveRules, effectiveStartBalance, effectiveTargetBalance, depositMode, targetPercent);
+    return this.evaluateAccount(challengeId, reg, effectiveRules, effectiveStartBalance, effectiveTargetBalance, categoryBal.depositMode, categoryBal.targetPercent);
   }
 
   /**

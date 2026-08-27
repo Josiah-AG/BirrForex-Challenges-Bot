@@ -536,6 +536,10 @@ async function migrate() {
     await db.query(`ALTER TABLE trading_challenges ADD COLUMN IF NOT EXISTS demo_target_balance NUMERIC(15,2);`).catch(() => {});
     await db.query(`ALTER TABLE trading_challenges ADD COLUMN IF NOT EXISTS real_starting_balance NUMERIC(15,2);`).catch(() => {});
     await db.query(`ALTER TABLE trading_challenges ADD COLUMN IF NOT EXISTS real_target_balance NUMERIC(15,2);`).catch(() => {});
+    await db.query(`ALTER TABLE trading_challenges ADD COLUMN IF NOT EXISTS demo_deposit_mode VARCHAR(20) DEFAULT 'fixed';`).catch(() => {});
+    await db.query(`ALTER TABLE trading_challenges ADD COLUMN IF NOT EXISTS real_deposit_mode VARCHAR(20) DEFAULT 'fixed';`).catch(() => {});
+    await db.query(`ALTER TABLE trading_challenges ADD COLUMN IF NOT EXISTS demo_target_percent NUMERIC(10,2);`).catch(() => {});
+    await db.query(`ALTER TABLE trading_challenges ADD COLUMN IF NOT EXISTS real_target_percent NUMERIC(10,2);`).catch(() => {});
     console.log('✅ Per-category settings columns OK');
 
     console.log('✅ Database migration completed successfully!');

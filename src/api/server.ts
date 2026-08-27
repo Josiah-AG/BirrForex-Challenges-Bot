@@ -638,7 +638,7 @@ app.post('/api/challenges/:id/verify-mt5', authLimiter, async (req, res) => {
     }
 
     const challenge = await db.query(
-      `SELECT id, host_id, status, type, starting_balance, deposit_mode, split_category_settings, demo_starting_balance, demo_target_balance, real_starting_balance, real_target_balance FROM trading_challenges WHERE id = $1`, [challengeId]);
+      `SELECT id, host_id, status, type, starting_balance, deposit_mode, split_category_settings, demo_starting_balance, demo_target_balance, real_starting_balance, real_target_balance, demo_deposit_mode, real_deposit_mode, demo_target_percent, real_target_percent FROM trading_challenges WHERE id = $1`, [challengeId]);
     if (!challenge.rows[0]) return res.status(404).json({ error: 'Challenge not found' });
     if (challenge.rows[0].status !== 'registration_open') return res.status(400).json({ error: 'Registration is not open' });
 
@@ -773,7 +773,7 @@ app.post('/api/challenges/:id/register', authLimiter, async (req, res) => {
 
     // Check challenge exists and is open for registration
     const challenge = await db.query(
-      `SELECT id, host_id, status, type, starting_balance, deposit_mode, split_category_settings, demo_starting_balance, demo_target_balance, real_starting_balance, real_target_balance FROM trading_challenges WHERE id = $1`,
+      `SELECT id, host_id, status, type, starting_balance, deposit_mode, split_category_settings, demo_starting_balance, demo_target_balance, real_starting_balance, real_target_balance, demo_deposit_mode, real_deposit_mode, demo_target_percent, real_target_percent FROM trading_challenges WHERE id = $1`,
       [challengeId]
     );
     if (!challenge.rows[0]) return res.status(404).json({ error: 'Challenge not found' });
@@ -1079,7 +1079,7 @@ app.post('/api/challenges/:id/change-registration', authLimiter, async (req: any
     }
 
     const challenge = await db.query(
-      `SELECT id, host_id, status, type, starting_balance, deposit_mode, split_category_settings, demo_starting_balance, demo_target_balance, real_starting_balance, real_target_balance FROM trading_challenges WHERE id = $1`, [challengeId]);
+      `SELECT id, host_id, status, type, starting_balance, deposit_mode, split_category_settings, demo_starting_balance, demo_target_balance, real_starting_balance, real_target_balance, demo_deposit_mode, real_deposit_mode, demo_target_percent, real_target_percent FROM trading_challenges WHERE id = $1`, [challengeId]);
     if (!challenge.rows[0]) return res.status(404).json({ error: 'Challenge not found' });
     if (challenge.rows[0].status !== 'registration_open' && challenge.rows[0].status !== 'scheduled') {
       return res.status(400).json({ error: 'Changes are only allowed before the challenge starts' });
@@ -1725,6 +1725,7 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
               c.title, c.status, c.start_date, c.end_date, c.starting_balance, c.target_balance, c.leaderboard_updated_at,
               c.real_winners_count, c.demo_winners_count, c.type as challenge_type, c.timezone,
               c.split_category_settings, c.demo_starting_balance, c.demo_target_balance, c.real_starting_balance, c.real_target_balance,
+              c.demo_deposit_mode, c.real_deposit_mode, c.demo_target_percent, c.real_target_percent, c.deposit_mode, c.target_percent,
               COALESCE((SELECT (parameters->>'only_cent_account')::boolean FROM wp_challenge_rules WHERE challenge_id = c.id AND rule_code = 'config'), false) as only_cent_account
        FROM trading_registrations r
        JOIN trading_challenges c ON r.challenge_id = c.id
@@ -2464,7 +2465,8 @@ app.put('/api/host/challenge/:id/settings', hostAuthMiddleware, async (req: any,
     // Hosts can only modify a subset of fields
     const allowed = ['title', 'end_date', 'target_balance', 'target_percent',
       'prize_pool_text', 'real_winners_count', 'demo_winners_count', 'real_prizes', 'demo_prizes',
-      'split_category_settings', 'demo_starting_balance', 'demo_target_balance', 'real_starting_balance', 'real_target_balance'];
+      'split_category_settings', 'demo_starting_balance', 'demo_target_balance', 'real_starting_balance', 'real_target_balance',
+      'demo_deposit_mode', 'real_deposit_mode', 'demo_target_percent', 'real_target_percent'];
 
     const sets: string[] = [];
     const values: any[] = [];
@@ -3034,6 +3036,7 @@ app.post('/api/host/challenges', hostAuthMiddleware, async (req: any, res) => {
       real_winners_count, demo_winners_count, real_prizes, demo_prizes,
       timezone, split_category_settings, demo_starting_balance, demo_target_balance,
       real_starting_balance, real_target_balance,
+      demo_deposit_mode, real_deposit_mode, demo_target_percent, real_target_percent,
     } = req.body;
 
     if (!title || !type || !start_date || !end_date || !starting_balance) {
@@ -3048,10 +3051,11 @@ app.post('/api/host/challenges', hostAuthMiddleware, async (req: any, res) => {
         prize_pool_text, real_winners_count, demo_winners_count, real_prizes, demo_prizes,
         source, team_only, announcement_posted, evaluation_type,
         pull_times, pull_interval_hours, first_pull_time, deposit_mode, target_percent, host_id, timezone, registration_mode,
-        split_category_settings, demo_starting_balance, demo_target_balance, real_starting_balance, real_target_balance)
+        split_category_settings, demo_starting_balance, demo_target_balance, real_starting_balance, real_target_balance,
+        demo_deposit_mode, real_deposit_mode, demo_target_percent, real_target_percent)
        VALUES ($1, $2, 'pending_approval', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
         'winnerpip', false, false, 'winnerpip', $13, 4, '00:00', $14, $15, $16, $17, $18,
-        $19, $20, $21, $22, $23)
+        $19, $20, $21, $22, $23, $24, $25, $26, $27)
        RETURNING id`,
       [
         title, type, start_date, end_date, start_date,
@@ -3067,6 +3071,10 @@ app.post('/api/host/challenges', hostAuthMiddleware, async (req: any, res) => {
         demo_target_balance || null,
         real_starting_balance || null,
         real_target_balance || null,
+        demo_deposit_mode || null,
+        real_deposit_mode || null,
+        demo_target_percent || null,
+        real_target_percent || null,
       ]
     );
     const challengeId = insertResult.rows[0].id;
@@ -3077,6 +3085,19 @@ app.post('/api/host/challenges', hostAuthMiddleware, async (req: any, res) => {
         const { evaluationEngine } = require('../services/wpEvaluationEngine');
         await evaluationEngine.saveRules(challengeId, req.body.rules);
       } catch (_e) { /* rules save failed silently — host can set them later */ }
+    }
+    // Save per-category rules if provided
+    if (req.body.rules_demo) {
+      try {
+        const { evaluationEngine } = require('../services/wpEvaluationEngine');
+        await evaluationEngine.saveRules(challengeId, req.body.rules_demo, 'config_demo');
+      } catch (_e) {}
+    }
+    if (req.body.rules_real) {
+      try {
+        const { evaluationEngine } = require('../services/wpEvaluationEngine');
+        await evaluationEngine.saveRules(challengeId, req.body.rules_real, 'config_real');
+      } catch (_e) {}
     }
 
     // Queue approval action (on approve → status changes to 'draft', on reject → 'rejected')
@@ -3218,7 +3239,8 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenges`, adminIpCheck, async (req, 
       `SELECT id, title, type, status, start_date, end_date, starting_balance, target_balance,
               real_winners_count, demo_winners_count, prize_pool_text, source, team_only,
               evaluation_type, created_at,
-              split_category_settings, demo_starting_balance, demo_target_balance, real_starting_balance, real_target_balance
+              split_category_settings, demo_starting_balance, demo_target_balance, real_starting_balance, real_target_balance,
+              demo_deposit_mode, real_deposit_mode, demo_target_percent, real_target_percent, deposit_mode, target_percent
        FROM trading_challenges
        WHERE status != 'deleted'
        ORDER BY created_at DESC`
@@ -3245,6 +3267,12 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenges`, adminIpCheck, async (req, 
       demoTargetBalance: c.demo_target_balance ? parseFloat(c.demo_target_balance) : null,
       realStartingBalance: c.real_starting_balance ? parseFloat(c.real_starting_balance) : null,
       realTargetBalance: c.real_target_balance ? parseFloat(c.real_target_balance) : null,
+      demoDepositMode: c.demo_deposit_mode || null,
+      realDepositMode: c.real_deposit_mode || null,
+      demoTargetPercent: c.demo_target_percent ? parseFloat(c.demo_target_percent) : null,
+      realTargetPercent: c.real_target_percent ? parseFloat(c.real_target_percent) : null,
+      depositMode: c.deposit_mode || 'fixed',
+      targetPercent: c.target_percent ? parseFloat(c.target_percent) : null,
     }));
 
     return res.json({ challenges });
@@ -4353,6 +4381,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenges`, adminIpCheck, async (req,
       deposit_mode, target_percent,
       split_category_settings, demo_starting_balance, demo_target_balance,
       real_starting_balance, real_target_balance,
+      demo_deposit_mode, real_deposit_mode, demo_target_percent, real_target_percent,
     } = req.body;
 
     if (!title || !type || !start_date || !end_date || !starting_balance) {
@@ -4379,6 +4408,10 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenges`, adminIpCheck, async (req,
       demo_target_balance: demo_target_balance || null,
       real_starting_balance: real_starting_balance || null,
       real_target_balance: real_target_balance || null,
+      demo_deposit_mode: demo_deposit_mode || null,
+      real_deposit_mode: real_deposit_mode || null,
+      demo_target_percent: demo_target_percent || null,
+      real_target_percent: real_target_percent || null,
     };
     const token = gatekeeper.queueCreate(data);
 
@@ -4595,7 +4628,8 @@ app.put(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id`, adminIpCheck, async (re
     const allowed = ['title', 'type', 'start_date', 'end_date', 'starting_balance', 'target_balance',
       'prize_pool_text', 'real_winners_count', 'demo_winners_count', 'real_prizes', 'demo_prizes',
       'pdf_url', 'video_url', 'source', 'team_only',
-      'split_category_settings', 'demo_starting_balance', 'demo_target_balance', 'real_starting_balance', 'real_target_balance'];
+      'split_category_settings', 'demo_starting_balance', 'demo_target_balance', 'real_starting_balance', 'real_target_balance',
+      'demo_deposit_mode', 'real_deposit_mode', 'demo_target_percent', 'real_target_percent'];
 
     const sets: string[] = [];
     const values: any[] = [];

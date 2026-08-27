@@ -2419,6 +2419,10 @@ function CreateChallengePanel({ onCreated }: { onCreated: (id: number) => void }
     demo_target_balance: "",
     real_starting_balance: "",
     real_target_balance: "",
+    demo_deposit_mode: "fixed",
+    real_deposit_mode: "fixed",
+    demo_target_percent: "100",
+    real_target_percent: "100",
   });
 
   const [rules, setRules] = useState({
@@ -2490,10 +2494,16 @@ function CreateChallengePanel({ onCreated }: { onCreated: (id: number) => void }
           first_pull_time: form.first_pull_time,
           split_category_settings: form.split_category_settings,
           demo_starting_balance: form.split_category_settings ? parseFloat(form.demo_starting_balance) || null : null,
-          demo_target_balance: form.split_category_settings ? parseFloat(form.demo_target_balance) || null : null,
+          demo_target_balance: form.split_category_settings && form.demo_deposit_mode === 'fixed' ? parseFloat(form.demo_target_balance) || null : null,
           real_starting_balance: form.split_category_settings ? parseFloat(form.real_starting_balance) || null : null,
-          real_target_balance: form.split_category_settings ? parseFloat(form.real_target_balance) || null : null,
-          rules,
+          real_target_balance: form.split_category_settings && form.real_deposit_mode === 'fixed' ? parseFloat(form.real_target_balance) || null : null,
+          demo_deposit_mode: form.split_category_settings ? form.demo_deposit_mode : null,
+          real_deposit_mode: form.split_category_settings ? form.real_deposit_mode : null,
+          demo_target_percent: form.split_category_settings && form.demo_deposit_mode !== 'fixed' ? parseFloat(form.demo_target_percent) || null : null,
+          real_target_percent: form.split_category_settings && form.real_deposit_mode !== 'fixed' ? parseFloat(form.real_target_percent) || null : null,
+          rules: form.split_category_settings ? null : rules,
+          rules_demo: form.split_category_settings ? rules : null,
+          rules_real: form.split_category_settings ? rules : null,
         }),
       });
       if (!res.ok) { const d = await res.json(); setError(d.error || "Failed"); setSaving(false); return; }
@@ -2565,30 +2575,30 @@ function CreateChallengePanel({ onCreated }: { onCreated: (id: number) => void }
                 <div><label className="text-xs text-gray-400 font-medium mb-1 block">End Date & Time (EAT) *</label><input type="datetime-local" value={form.end_date} onChange={e => setForm({...form, end_date: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
               </div>
               <p className="text-[10px] text-gray-500 -mt-2">Registration closes automatically when challenge starts</p>
-              {/* Deposit Mode */}
+              {/* Per-Category Split Toggle (hybrid only) */}
+              {form.type === 'hybrid' && (
+                <div className="flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/10">
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm text-white font-medium">Different settings per category</p>
+                    <div className="relative group"><span className="cursor-help text-gray-500 hover:text-royal transition-colors text-xs">&#9432;</span><div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-[#1a1a2e] border border-white/20 rounded-lg text-[10px] text-gray-300 w-52 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity z-50 shadow-xl">When ON, Demo and Real each get their own deposit mode, starting balance, target, and rules.</div></div>
+                  </div>
+                  <button type="button" onClick={() => setForm({...form, split_category_settings: !form.split_category_settings})} className={`w-10 h-5 rounded-full transition-all ${form.split_category_settings ? "bg-royal" : "bg-white/20"}`}><div className={`w-4 h-4 bg-white rounded-full transition-transform ${form.split_category_settings ? "translate-x-5" : "translate-x-0.5"}`}></div></button>
+                </div>
+              )}
+
+              {/* Shared Deposit Mode (when split OFF or non-hybrid) */}
+              {!(form.type === 'hybrid' && form.split_category_settings) && (<>
               <div>
                 <label className="text-xs text-gray-400 font-medium mb-1 block">Deposit Mode</label>
                 <div className="grid grid-cols-3 gap-2">
-                  <button type="button" onClick={() => setForm({...form, deposit_mode: 'fixed'})} className={`p-2.5 rounded-xl border text-center text-xs font-semibold transition-all ${form.deposit_mode === 'fixed' ? 'border-royal bg-royal/10 text-royal' : 'border-white/20 text-gray-400 hover:border-white/30'}`}>
-                    Fixed Deposit
-                  </button>
-                  <button type="button" onClick={() => setForm({...form, deposit_mode: 'max_limit'})} className={`p-2.5 rounded-xl border text-center text-xs font-semibold transition-all ${form.deposit_mode === 'max_limit' ? 'border-gold bg-gold/10 text-gold' : 'border-white/20 text-gray-400 hover:border-white/30'}`}>
-                    Max Limit
-                  </button>
-                  <button type="button" onClick={() => setForm({...form, deposit_mode: 'min_limit'})} className={`p-2.5 rounded-xl border text-center text-xs font-semibold transition-all ${form.deposit_mode === 'min_limit' ? 'border-profit bg-profit/10 text-profit' : 'border-white/20 text-gray-400 hover:border-white/30'}`}>
-                    Min Limit
-                  </button>
+                  <button type="button" onClick={() => setForm({...form, deposit_mode: 'fixed'})} className={`p-2.5 rounded-xl border text-center text-xs font-semibold transition-all ${form.deposit_mode === 'fixed' ? 'border-royal bg-royal/10 text-royal' : 'border-white/20 text-gray-400 hover:border-white/30'}`}>Fixed Deposit</button>
+                  <button type="button" onClick={() => setForm({...form, deposit_mode: 'max_limit'})} className={`p-2.5 rounded-xl border text-center text-xs font-semibold transition-all ${form.deposit_mode === 'max_limit' ? 'border-gold bg-gold/10 text-gold' : 'border-white/20 text-gray-400 hover:border-white/30'}`}>Max Limit</button>
+                  <button type="button" onClick={() => setForm({...form, deposit_mode: 'min_limit'})} className={`p-2.5 rounded-xl border text-center text-xs font-semibold transition-all ${form.deposit_mode === 'min_limit' ? 'border-profit bg-profit/10 text-profit' : 'border-white/20 text-gray-400 hover:border-white/30'}`}>Min Limit</button>
                 </div>
                 <div className="mt-2 p-2.5 rounded-lg bg-white/5 border border-white/5">
-                  {form.deposit_mode === 'fixed' && (
-                    <p className="text-[11px] text-gray-400"><span className="text-royal font-semibold">Fixed Deposit:</span> All participants start with the same balance. Real accounts can register with lower balance but the target remains the same for all. Exceeding the limit = DQ. Target is a fixed dollar amount. SL and drawdown rules can be in $ or %. Leaderboard ranked by balance. <span className="text-gray-500 italic">Best for equal-start competitions.</span></p>
-                  )}
-                  {form.deposit_mode === 'max_limit' && (
-                    <p className="text-[11px] text-gray-400"><span className="text-gold font-semibold">Max Limit:</span> Participants can deposit any amount up to a maximum cap. Target is in growth %. SL and drawdown rules must be in % (auto-scales with each user&apos;s balance). Leaderboard ranked by account growth %. <span className="text-gray-500 italic">Best for flexible-entry challenges where fairness comes from % performance.</span></p>
-                  )}
-                  {form.deposit_mode === 'min_limit' && (
-                    <p className="text-[11px] text-gray-400"><span className="text-profit font-semibold">Min Limit:</span> Participants must deposit at least a minimum amount — no upper limit. Target is in growth %. SL and drawdown rules must be in %. Leaderboard ranked by account growth %. <span className="text-gray-500 italic">Best for serious traders — higher deposit = more skin in the game, but everyone competes on % growth equally.</span></p>
-                  )}
+                  {form.deposit_mode === 'fixed' && <p className="text-[11px] text-gray-400"><span className="text-royal font-semibold">Fixed Deposit:</span> All participants start with the same balance. Target is a fixed dollar amount. Leaderboard ranked by balance.</p>}
+                  {form.deposit_mode === 'max_limit' && <p className="text-[11px] text-gray-400"><span className="text-gold font-semibold">Max Limit:</span> Participants can deposit up to a maximum cap. Target is growth %. Leaderboard ranked by growth %.</p>}
+                  {form.deposit_mode === 'min_limit' && <p className="text-[11px] text-gray-400"><span className="text-profit font-semibold">Min Limit:</span> Participants must deposit at least a minimum. Target is growth %. Leaderboard ranked by growth %.</p>}
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
@@ -2602,30 +2612,45 @@ function CreateChallengePanel({ onCreated }: { onCreated: (id: number) => void }
                   <div><label className="text-xs text-gray-400 font-medium mb-1 block">Target Growth (%)</label><input value={form.target_percent} onChange={e => setForm({...form, target_percent: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" placeholder="e.g., 100" /></div>
                 )}
               </div>
+              </>)}
 
-              {/* Per-Category Settings Toggle (hybrid only) */}
-              {form.type === 'hybrid' && (
-                <div className="p-3 rounded-xl bg-white/5 border border-white/10 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <p className="text-sm text-white font-medium">Different settings per category</p>
-                      <div className="relative group"><span className="cursor-help text-gray-500 hover:text-royal transition-colors text-xs">&#9432;</span><div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-[#1a1a2e] border border-white/20 rounded-lg text-[10px] text-gray-300 w-52 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity z-50 shadow-xl">When ON, Demo and Real participants can have different starting balances and targets. Also enables per-category rules on the Rules tab.</div></div>
+              {/* Per-Category Sections (when split ON + hybrid) */}
+              {form.type === 'hybrid' && form.split_category_settings && (
+                <div className="space-y-4">
+                  {/* Demo */}
+                  <div className="p-4 rounded-xl bg-blue-500/5 border border-blue-500/20 space-y-3">
+                    <p className="text-xs text-blue-400 font-bold uppercase tracking-wider">Demo Category</p>
+                    <div className="grid grid-cols-3 gap-2">
+                      <button type="button" onClick={() => setForm({...form, demo_deposit_mode: 'fixed'})} className={`p-2 rounded-lg border text-center text-[11px] font-semibold transition-all ${form.demo_deposit_mode === 'fixed' ? 'border-blue-400 bg-blue-500/10 text-blue-400' : 'border-white/20 text-gray-400'}`}>Fixed</button>
+                      <button type="button" onClick={() => setForm({...form, demo_deposit_mode: 'max_limit'})} className={`p-2 rounded-lg border text-center text-[11px] font-semibold transition-all ${form.demo_deposit_mode === 'max_limit' ? 'border-blue-400 bg-blue-500/10 text-blue-400' : 'border-white/20 text-gray-400'}`}>Max Limit</button>
+                      <button type="button" onClick={() => setForm({...form, demo_deposit_mode: 'min_limit'})} className={`p-2 rounded-lg border text-center text-[11px] font-semibold transition-all ${form.demo_deposit_mode === 'min_limit' ? 'border-blue-400 bg-blue-500/10 text-blue-400' : 'border-white/20 text-gray-400'}`}>Min Limit</button>
                     </div>
-                    <button type="button" onClick={() => setForm({...form, split_category_settings: !form.split_category_settings})} className={`w-10 h-5 rounded-full transition-all ${form.split_category_settings ? "bg-royal" : "bg-white/20"}`}><div className={`w-4 h-4 bg-white rounded-full transition-transform ${form.split_category_settings ? "translate-x-5" : "translate-x-0.5"}`}></div></button>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div><label className="text-[11px] text-blue-400 mb-1 block">Starting Balance ($)</label><input value={form.demo_starting_balance} onChange={e => setForm({...form, demo_starting_balance: e.target.value})} className="w-full p-2.5 rounded-xl bg-white/5 border border-blue-500/20 text-white text-sm outline-none" placeholder="30" /></div>
+                      {form.demo_deposit_mode === 'fixed' ? (
+                        <div><label className="text-[11px] text-blue-400 mb-1 block">Target Balance ($)</label><input value={form.demo_target_balance} onChange={e => setForm({...form, demo_target_balance: e.target.value})} className="w-full p-2.5 rounded-xl bg-white/5 border border-blue-500/20 text-white text-sm outline-none" placeholder="60" /></div>
+                      ) : (
+                        <div><label className="text-[11px] text-blue-400 mb-1 block">Target Growth (%)</label><input value={form.demo_target_percent} onChange={e => setForm({...form, demo_target_percent: e.target.value})} className="w-full p-2.5 rounded-xl bg-white/5 border border-blue-500/20 text-white text-sm outline-none" placeholder="100" /></div>
+                      )}
+                    </div>
                   </div>
-                  {form.split_category_settings && (
-                    <div className="space-y-3 pt-2 border-t border-white/10">
-                      <div className="grid grid-cols-2 gap-3">
-                        <div><label className="text-xs text-blue-400 font-medium mb-1 block">Demo Starting ($)</label><input value={form.demo_starting_balance} onChange={e => setForm({...form, demo_starting_balance: e.target.value})} className="w-full p-2.5 rounded-xl bg-blue-500/5 border border-blue-500/20 text-white text-sm outline-none" placeholder={form.starting_balance} /></div>
-                        <div><label className="text-xs text-blue-400 font-medium mb-1 block">Demo Target ($)</label><input value={form.demo_target_balance} onChange={e => setForm({...form, demo_target_balance: e.target.value})} className="w-full p-2.5 rounded-xl bg-blue-500/5 border border-blue-500/20 text-white text-sm outline-none" placeholder={form.target_balance} /></div>
-                      </div>
-                      <div className="grid grid-cols-2 gap-3">
-                        <div><label className="text-xs text-profit font-medium mb-1 block">Real Starting ($)</label><input value={form.real_starting_balance} onChange={e => setForm({...form, real_starting_balance: e.target.value})} className="w-full p-2.5 rounded-xl bg-profit/5 border border-profit/20 text-white text-sm outline-none" placeholder={form.starting_balance} /></div>
-                        <div><label className="text-xs text-profit font-medium mb-1 block">Real Target ($)</label><input value={form.real_target_balance} onChange={e => setForm({...form, real_target_balance: e.target.value})} className="w-full p-2.5 rounded-xl bg-profit/5 border border-profit/20 text-white text-sm outline-none" placeholder={form.target_balance} /></div>
-                      </div>
-                      <p className="text-[10px] text-gray-500">Leave empty to use the shared balance above as fallback.</p>
+                  {/* Real */}
+                  <div className="p-4 rounded-xl bg-profit/5 border border-profit/20 space-y-3">
+                    <p className="text-xs text-profit font-bold uppercase tracking-wider">Real Category</p>
+                    <div className="grid grid-cols-3 gap-2">
+                      <button type="button" onClick={() => setForm({...form, real_deposit_mode: 'fixed'})} className={`p-2 rounded-lg border text-center text-[11px] font-semibold transition-all ${form.real_deposit_mode === 'fixed' ? 'border-profit bg-profit/10 text-profit' : 'border-white/20 text-gray-400'}`}>Fixed</button>
+                      <button type="button" onClick={() => setForm({...form, real_deposit_mode: 'max_limit'})} className={`p-2 rounded-lg border text-center text-[11px] font-semibold transition-all ${form.real_deposit_mode === 'max_limit' ? 'border-profit bg-profit/10 text-profit' : 'border-white/20 text-gray-400'}`}>Max Limit</button>
+                      <button type="button" onClick={() => setForm({...form, real_deposit_mode: 'min_limit'})} className={`p-2 rounded-lg border text-center text-[11px] font-semibold transition-all ${form.real_deposit_mode === 'min_limit' ? 'border-profit bg-profit/10 text-profit' : 'border-white/20 text-gray-400'}`}>Min Limit</button>
                     </div>
-                  )}
+                    <div className="grid grid-cols-2 gap-3">
+                      <div><label className="text-[11px] text-profit mb-1 block">Starting Balance ($)</label><input value={form.real_starting_balance} onChange={e => setForm({...form, real_starting_balance: e.target.value})} className="w-full p-2.5 rounded-xl bg-white/5 border border-profit/20 text-white text-sm outline-none" placeholder="100" /></div>
+                      {form.real_deposit_mode === 'fixed' ? (
+                        <div><label className="text-[11px] text-profit mb-1 block">Target Balance ($)</label><input value={form.real_target_balance} onChange={e => setForm({...form, real_target_balance: e.target.value})} className="w-full p-2.5 rounded-xl bg-white/5 border border-profit/20 text-white text-sm outline-none" placeholder="200" /></div>
+                      ) : (
+                        <div><label className="text-[11px] text-profit mb-1 block">Target Growth (%)</label><input value={form.real_target_percent} onChange={e => setForm({...form, real_target_percent: e.target.value})} className="w-full p-2.5 rounded-xl bg-white/5 border border-profit/20 text-white text-sm outline-none" placeholder="100" /></div>
+                      )}
+                    </div>
+                  </div>
                 </div>
               )}
 
