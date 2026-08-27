@@ -2778,17 +2778,29 @@ function CreateChallengePanel({ onCreated }: { onCreated: (id: number) => void }
                 <>
                   <div className="border-t border-white/10 pt-3 mt-3">
                     <p className="text-xs text-blue-400 font-bold uppercase mb-2">Demo Rules</p>
-                    <ReviewRow label="Max Lot" value={String(rulesDemo.max_lot_size)} />
-                    <ReviewRow label="Max Risk" value={rulesDemo.max_risk_mode === 'percentage' ? `${rulesDemo.max_risk_percent}%` : `$${rulesDemo.max_risk_dollars}`} />
-                    <ReviewRow label="Daily Loss" value={rulesDemo.daily_loss_mode === 'percentage' ? `${rulesDemo.daily_loss_percent}%` : `$${rulesDemo.daily_loss_cap}`} />
-                    <ReviewRow label="Min Days" value={String(rulesDemo.min_active_days)} />
+                    {rulesDemo.rules_enabled.max_lot_size && <ReviewRow label="Max Lot Size" value={String(rulesDemo.max_lot_size)} />}
+                    {rulesDemo.rules_enabled.max_open_trades && <ReviewRow label="Max Open Trades" value={String(rulesDemo.max_open_trades)} />}
+                    {rulesDemo.rules_enabled.pair_limit && <ReviewRow label="Pair Limit" value={String(rulesDemo.pair_limit)} />}
+                    {rulesDemo.rules_enabled.stop_loss_required && <ReviewRow label="Max Risk" value={rulesDemo.max_risk_mode === 'percentage' ? `${rulesDemo.max_risk_percent}%` : `$${rulesDemo.max_risk_dollars}`} />}
+                    {rulesDemo.rules_enabled.daily_loss_cap && <ReviewRow label="Daily Loss Cap" value={rulesDemo.daily_loss_mode === 'percentage' ? `${rulesDemo.daily_loss_percent}%` : `$${rulesDemo.daily_loss_cap}`} />}
+                    {rulesDemo.rules_enabled.max_hold_hours && <ReviewRow label="Max Hold" value={`${rulesDemo.max_hold_hours}h`} />}
+                    {rulesDemo.rules_enabled.min_trade_duration && rulesDemo.min_trade_duration_minutes && <ReviewRow label="Min Duration" value={`${rulesDemo.min_trade_duration_minutes}min`} />}
+                    {rulesDemo.rules_enabled.min_active_days && <ReviewRow label="Min Active Days" value={String(rulesDemo.min_active_days)} />}
+                    {rulesDemo.rules_enabled.min_total_trades && rulesDemo.min_total_trades && <ReviewRow label="Min Total Trades" value={String(rulesDemo.min_total_trades)} />}
+                    {rulesDemo.rules_enabled.weekend_trading && <ReviewRow label="Weekend Trading" value="Prohibited" />}
                   </div>
                   <div className="border-t border-white/10 pt-3 mt-3">
                     <p className="text-xs text-profit font-bold uppercase mb-2">Real Rules</p>
-                    <ReviewRow label="Max Lot" value={String(rulesReal.max_lot_size)} />
-                    <ReviewRow label="Max Risk" value={rulesReal.max_risk_mode === 'percentage' ? `${rulesReal.max_risk_percent}%` : `$${rulesReal.max_risk_dollars}`} />
-                    <ReviewRow label="Daily Loss" value={rulesReal.daily_loss_mode === 'percentage' ? `${rulesReal.daily_loss_percent}%` : `$${rulesReal.daily_loss_cap}`} />
-                    <ReviewRow label="Min Days" value={String(rulesReal.min_active_days)} />
+                    {rulesReal.rules_enabled.max_lot_size && <ReviewRow label="Max Lot Size" value={String(rulesReal.max_lot_size)} />}
+                    {rulesReal.rules_enabled.max_open_trades && <ReviewRow label="Max Open Trades" value={String(rulesReal.max_open_trades)} />}
+                    {rulesReal.rules_enabled.pair_limit && <ReviewRow label="Pair Limit" value={String(rulesReal.pair_limit)} />}
+                    {rulesReal.rules_enabled.stop_loss_required && <ReviewRow label="Max Risk" value={rulesReal.max_risk_mode === 'percentage' ? `${rulesReal.max_risk_percent}%` : `$${rulesReal.max_risk_dollars}`} />}
+                    {rulesReal.rules_enabled.daily_loss_cap && <ReviewRow label="Daily Loss Cap" value={rulesReal.daily_loss_mode === 'percentage' ? `${rulesReal.daily_loss_percent}%` : `$${rulesReal.daily_loss_cap}`} />}
+                    {rulesReal.rules_enabled.max_hold_hours && <ReviewRow label="Max Hold" value={`${rulesReal.max_hold_hours}h`} />}
+                    {rulesReal.rules_enabled.min_trade_duration && rulesReal.min_trade_duration_minutes && <ReviewRow label="Min Duration" value={`${rulesReal.min_trade_duration_minutes}min`} />}
+                    {rulesReal.rules_enabled.min_active_days && <ReviewRow label="Min Active Days" value={String(rulesReal.min_active_days)} />}
+                    {rulesReal.rules_enabled.min_total_trades && rulesReal.min_total_trades && <ReviewRow label="Min Total Trades" value={String(rulesReal.min_total_trades)} />}
+                    {rulesReal.rules_enabled.weekend_trading && <ReviewRow label="Weekend Trading" value="Prohibited" />}
                     {rulesReal.only_cent_account && <ReviewRow label="Cent Account" value="Required" />}
                   </div>
                 </>
