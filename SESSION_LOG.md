@@ -973,3 +973,31 @@ Major session focused on making the host dashboard work identically to the admin
 ### Status: All Code Complete
 - End-to-end manual testing of full host challenge lifecycle is the only remaining task
 - No further code changes needed unless bugs found during testing
+
+
+### Per-Category Settings (Split Category) — Backend Complete
+
+**What's done (backend):**
+- DB columns: `split_category_settings`, `demo_starting_balance`, `demo_target_balance`, `real_starting_balance`, `real_target_balance`
+- Core utility: `src/utils/categorySettings.ts` — `resolveCategoryBalances()` + `resolveRuleCode()`
+- Evaluation engine: per-category rules + balances
+- Registration validation: per-category balance checks
+- Pre-start DQ: per-category starting balance
+- User dashboard: per-category target
+- Above-target SQL: per-category comparison
+- Rules: `loadRules(challengeId, ruleCode)` supports `config_demo`/`config_real`
+
+**What's remaining (next session):**
+- Frontend: Host challenge creation form — split toggle + per-category fields
+- Frontend: Host settings page — edit per-category values
+- Frontend: User dashboard — display correct target (already handled by API)
+- Telegram bot: registration handler per-category values + admin creation wizard
+- Admin panel: above-target SQL update (same pattern as host)
+
+**Key design:**
+- Toggle OFF (default): zero behavior change — falls through to existing shared values
+- Toggle ON + hybrid only: resolves per-category with fallback
+- Demo-only/real-only challenges: completely unaffected
+- `SELECT *` queries include new columns automatically
+
+**Commit:** `b9634f8`
