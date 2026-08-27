@@ -19,10 +19,9 @@ export class LeaderboardService {
   async updateRankings(challengeId: number, saveSnapshot = false): Promise<void> {
     console.log(`📊 Leaderboard: Updating rankings for challenge ${challengeId}${saveSnapshot ? ' (saving previous_rank snapshot)' : ''}`);
 
-    // Determine ranking mode based on deposit_mode
-    const challengeInfo = await db.query(`SELECT deposit_mode FROM trading_challenges WHERE id = $1`, [challengeId]);
-    const depositMode = challengeInfo.rows[0]?.deposit_mode || 'fixed';
-    const rankByGrowth = depositMode !== 'fixed'; // max_limit and min_limit rank by growth %
+    // Determine ranking mode based on deposit_mode (per-category when split is ON)
+    const challengeInfo = await db.query(`SELECT * FROM trading_challenges WHERE id = $1`, [challengeId]);
+    const { resolveCategoryBalances } = require('../utils/categorySettings');
 
     // Ensure previous_rank column exists (safe to call multiple times)
     await db.query(`ALTER TABLE wp_leaderboard ADD COLUMN IF NOT EXISTS previous_rank INTEGER`).catch(() => {});
@@ -57,6 +56,8 @@ export class LeaderboardService {
 
     for (const accountType of ['demo', 'real']) {
       let offset = 0;
+      const catDepositMode = resolveCategoryBalances(challengeInfo.rows[0], accountType).depositMode;
+      const rankByGrowth = catDepositMode !== 'fixed';
 
       // Tier 1: qualified/adjusted balance > 0 (whether traded or not). Tier
       // boundary MUST use the same qualified metric as the sort key below

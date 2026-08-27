@@ -1804,7 +1804,9 @@ export class TradingScheduler {
           }
 
           const balance = result.balance as number;
-          const regStartBal2 = rcbSnap(challenge, reg.account_type).startingBalance;
+          const catBal2 = rcbSnap(challenge, reg.account_type);
+          const regStartBal2 = catBal2.startingBalance;
+          const regDepositMode2 = catBal2.depositMode;
           const limit = reg.is_cent ? regStartBal2 * 100 : regStartBal2;
           const tolerance = limit * 0.01;
           const currency = reg.is_cent ? '¢' : '$';
@@ -1817,13 +1819,13 @@ export class TradingScheduler {
           checked++;
 
           // Determine if balance needs a warning based on deposit mode
-          const needsWarning = depositMode2 === 'min_limit'
+          const needsWarning = regDepositMode2 === 'min_limit'
             ? (balance > 0 && balance < limit - tolerance)  // Below minimum
             : (balance > limit + tolerance);                 // Exceeds maximum (fixed + max_limit)
 
           if (needsWarning) {
             // Balance issue — set warning flag and notify
-            const excess = depositMode2 === 'min_limit' ? (limit - balance) : (balance - limit);
+            const excess = regDepositMode2 === 'min_limit' ? (limit - balance) : (balance - limit);
             await db.query(
               `UPDATE trading_registrations SET balance_warning = true WHERE id = $1`,
               [reg.id]

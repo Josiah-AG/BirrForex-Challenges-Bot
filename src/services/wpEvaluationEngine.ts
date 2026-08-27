@@ -465,8 +465,6 @@ export class WpEvaluationEngine {
     const challenge = await db.query(`SELECT starting_balance, target_balance, type, deposit_mode, target_percent, split_category_settings, demo_starting_balance, demo_target_balance, real_starting_balance, real_target_balance FROM trading_challenges WHERE id = $1`, [challengeId]);
     const challengeRow = challenge.rows[0];
     const challengeType = challengeRow?.type;
-    const depositMode = challengeRow?.deposit_mode || 'fixed';
-    const targetPercent = parseFloat(challengeRow?.target_percent || 0) || null;
 
     // Pre-load per-category rules if split is ON
     const isSplit = challengeRow?.split_category_settings === true && challengeType === 'hybrid';
@@ -554,9 +552,6 @@ export class WpEvaluationEngine {
     const challenge = await db.query(`SELECT starting_balance, target_balance, type, deposit_mode, target_percent, split_category_settings, demo_starting_balance, demo_target_balance, real_starting_balance, real_target_balance FROM trading_challenges WHERE id = $1`, [challengeId]);
     const challengeRow = challenge.rows[0];
     const challengeType = challengeRow?.type;
-    const depositMode = challengeRow?.deposit_mode || 'fixed';
-    const targetPercent = parseFloat(challengeRow?.target_percent || 0) || null;
-
     const { resolveCategoryBalances, resolveRuleCode } = require('../utils/categorySettings');
 
     const regResult = await db.query(

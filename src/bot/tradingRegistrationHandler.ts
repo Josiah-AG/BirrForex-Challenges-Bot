@@ -1151,7 +1151,7 @@ export class TradingRegistrationHandler {
       // Get challenge starting balance and target
       const challenge = await tradingChallengeService.getChallengeById(session.data.challenge_id);
       const { resolveCategoryBalances } = require('../utils/categorySettings');
-      const { startingBalance, targetBalance } = resolveCategoryBalances(challenge, session.data.account_type);
+      const { startingBalance, targetBalance, depositMode: depositMode3 } = resolveCategoryBalances(challenge, session.data.account_type);
       const vpsBalance = result.balance || 0;
       const vpsCurrency = (result.currency || '').toUpperCase();
       const vpsAccountSubtype = result.account_subtype || 'unknown';
@@ -1211,9 +1211,6 @@ export class TradingRegistrationHandler {
         displayBalance = vpsBalance;
         compareBalance = startingBalance;
       }
-
-      // Get challenge deposit mode (used by both demo and real balance checks)
-      const depositMode3 = (challenge as any)?.deposit_mode || 'fixed';
 
       // === DEMO ACCOUNT: balance validation depends on deposit mode ===
       if (account_type === 'demo') {

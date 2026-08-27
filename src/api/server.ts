@@ -692,8 +692,9 @@ app.post('/api/challenges/:id/verify-mt5', authLimiter, async (req, res) => {
 
     // Deposit validation
     const { resolveCategoryBalances } = require("../utils/categorySettings");
-    const startBal = resolveCategoryBalances(challenge.rows[0], accountType).startingBalance;
-    const depositMode = challenge.rows[0].deposit_mode || 'fixed';
+    const catBal = resolveCategoryBalances(challenge.rows[0], accountType);
+    const startBal = catBal.startingBalance;
+    const depositMode = catBal.depositMode;
 
     // Demo accounts: for fixed mode, balance must match starting balance exactly (1% tolerance for rounding)
     if (accountType === 'demo' && startBal > 0 && depositMode === 'fixed') {
@@ -741,8 +742,8 @@ app.post('/api/challenges/:id/verify-mt5', authLimiter, async (req, res) => {
       isCent,
       accountSubtype,
       server: serverToUse,
-      depositMode: challenge.rows[0].deposit_mode || 'fixed',
-      startingBalance: parseFloat(challenge.rows[0].starting_balance || '0'),
+      depositMode: depositMode,
+      startingBalance: startBal,
     });
   } catch (error) {
     console.error('Verify MT5 error:', error);
@@ -987,7 +988,7 @@ app.post('/api/challenges/:id/change-account', authLimiter, async (req, res) => 
 
     // Check challenge allows this
     const challenge = await db.query(
-      `SELECT id, status, type, starting_balance, deposit_mode FROM trading_challenges WHERE id = $1`, [challengeId]);
+      `SELECT id, status, type, starting_balance, deposit_mode, split_category_settings, demo_starting_balance, demo_target_balance, real_starting_balance, real_target_balance, demo_deposit_mode, real_deposit_mode, demo_target_percent, real_target_percent FROM trading_challenges WHERE id = $1`, [challengeId]);
     if (!challenge.rows[0]) return res.status(404).json({ error: 'Challenge not found' });
     if (challenge.rows[0].status !== 'registration_open' && challenge.rows[0].status !== 'scheduled') {
       return res.status(400).json({ error: 'Account changes are only allowed before the challenge starts' });
@@ -1028,8 +1029,9 @@ app.post('/api/challenges/:id/change-account', authLimiter, async (req, res) => 
 
     // Deposit validation for real accounts
     const { resolveCategoryBalances: rcb1 } = require('../utils/categorySettings');
-    const startBal = rcb1(challenge.rows[0], accountType).startingBalance;
-    const depositMode = challenge.rows[0].deposit_mode || 'fixed';
+    const catBal1 = rcb1(challenge.rows[0], accountType);
+    const startBal = catBal1.startingBalance;
+    const depositMode = catBal1.depositMode;
     if (accountType === 'real' && startBal > 0) {
       if (depositMode === 'fixed' || depositMode === 'max_limit') {
         const maxAllowed = isCent ? startBal * 100 * 1.05 : startBal * 1.05;
@@ -1147,8 +1149,9 @@ app.post('/api/challenges/:id/change-registration', authLimiter, async (req: any
 
     // Deposit validation
     const { resolveCategoryBalances: rcb2 } = require("../utils/categorySettings");
-    const startBal = rcb2(challenge.rows[0], newAccountType).startingBalance;
-    const depositMode = challenge.rows[0].deposit_mode || 'fixed';
+    const catBal2 = rcb2(challenge.rows[0], newAccountType);
+    const startBal = catBal2.startingBalance;
+    const depositMode = catBal2.depositMode;
 
     // Demo: fixed mode requires exact balance (1% tolerance)
     if (newAccountType === 'demo' && startBal > 0 && depositMode === 'fixed') {
@@ -2885,9 +2888,11 @@ app.post('/api/host/challenge/:id/upload-csv', hostAuthMiddleware, async (req: a
 
             // Deposit/balance validation
             const balance = result.balance || 0;
-            const challengeData = await db.query(`SELECT starting_balance, deposit_mode FROM trading_challenges WHERE id=$1`, [challengeId]);
-            const startBal = parseFloat(challengeData.rows[0]?.starting_balance || '0');
-            const depositMode = challengeData.rows[0]?.deposit_mode || 'fixed';
+            const challengeData = await db.query(`SELECT * FROM trading_challenges WHERE id=$1`, [challengeId]);
+            const { resolveCategoryBalances: rcbCsv } = require('../utils/categorySettings');
+            const catBalCsv = rcbCsv(challengeData.rows[0], row.account_type);
+            const startBal = catBalCsv.startingBalance;
+            const depositMode = catBalCsv.depositMode;
             const effectiveBalance = isCent ? balance / 100 : balance;
 
             if (row.account_type === 'real' || depositMode !== 'fixed') {
