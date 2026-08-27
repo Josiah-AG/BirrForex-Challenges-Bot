@@ -2456,6 +2456,18 @@ function CreateChallengePanel({ onCreated }: { onCreated: (id: number) => void }
       min_total_trades: true,
     } as Record<string, boolean>,
   });
+  const adminDefaultRules = {
+    max_lot_size: 0.02, max_open_trades: 3, pair_limit: 2,
+    stop_loss_required: true, max_risk_dollars: 5, max_risk_mode: 'fixed' as 'fixed' | 'percentage',
+    max_risk_percent: 10, daily_loss_cap: 10, daily_loss_mode: 'fixed' as 'fixed' | 'percentage',
+    daily_loss_percent: 20, max_hold_hours: 24, min_trade_duration_minutes: 2 as number | null,
+    weekend_trading: false, min_active_days: 7, min_total_trades: 10 as number | null,
+    only_cent_account: false, allow_professional: false,
+    rules_enabled: { max_lot_size: true, max_open_trades: true, pair_limit: true, stop_loss_required: true, daily_loss_cap: true, max_hold_hours: true, min_trade_duration: true, weekend_trading: true, min_active_days: true, min_total_trades: true } as Record<string, boolean>,
+  };
+  const [rulesDemo, setRulesDemo] = useState({ ...adminDefaultRules });
+  const [rulesReal, setRulesReal] = useState({ ...adminDefaultRules });
+  const [splitRulesTab, setSplitRulesTab] = useState<'demo' | 'real'>('demo');
 
   const handleCreate = async () => {
     setSaving(true); setError("");
@@ -2502,8 +2514,8 @@ function CreateChallengePanel({ onCreated }: { onCreated: (id: number) => void }
           demo_target_percent: form.split_category_settings && form.demo_deposit_mode !== 'fixed' ? parseFloat(form.demo_target_percent) || null : null,
           real_target_percent: form.split_category_settings && form.real_deposit_mode !== 'fixed' ? parseFloat(form.real_target_percent) || null : null,
           rules: form.split_category_settings ? null : rules,
-          rules_demo: form.split_category_settings ? rules : null,
-          rules_real: form.split_category_settings ? rules : null,
+          rules_demo: form.split_category_settings ? rulesDemo : null,
+          rules_real: form.split_category_settings ? rulesReal : null,
         }),
       });
       if (!res.ok) { const d = await res.json(); setError(d.error || "Failed"); setSaving(false); return; }
@@ -2680,6 +2692,37 @@ function CreateChallengePanel({ onCreated }: { onCreated: (id: number) => void }
         {step === 3 && (
           <div>
             <h3 className="text-xl font-bold text-white mb-4">Challenge Rules</h3>
+
+            {/* Split category tabs */}
+            {form.type === 'hybrid' && form.split_category_settings ? (
+              <>
+              <div className="flex gap-2 mb-4">
+                <button type="button" onClick={() => setSplitRulesTab('demo')} className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-all border ${splitRulesTab === 'demo' ? 'bg-blue-500/15 border-blue-500/40 text-blue-400' : 'bg-white/5 border-white/10 text-gray-400'}`}>Demo Rules</button>
+                <button type="button" onClick={() => setSplitRulesTab('real')} className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-all border ${splitRulesTab === 'real' ? 'bg-profit/15 border-profit/40 text-profit' : 'bg-white/5 border-white/10 text-gray-400'}`}>Real Rules</button>
+              </div>
+              <p className="text-xs text-gray-500 mb-4">Configure rules for <span className={splitRulesTab === 'demo' ? 'text-blue-400 font-semibold' : 'text-profit font-semibold'}>{splitRulesTab === 'demo' ? 'Demo' : 'Real'}</span> participants. Toggle ON/OFF.</p>
+              {(() => {
+                const r = splitRulesTab === 'demo' ? rulesDemo : rulesReal;
+                const setR = splitRulesTab === 'demo' ? setRulesDemo : setRulesReal;
+                return (
+                <div className="space-y-3">
+                  <RuleInputWithToggle label="Max Lot Size" tooltip="Limits the maximum lot size per position." value={r.max_lot_size} enabled={r.rules_enabled.max_lot_size} onValueChange={v => setR({...r, max_lot_size: v})} onToggle={() => setR({...r, rules_enabled: {...r.rules_enabled, max_lot_size: !r.rules_enabled.max_lot_size}})} />
+                  <RuleInputWithToggle label="Max Open Trades" tooltip="Limits simultaneous open trades." value={r.max_open_trades} enabled={r.rules_enabled.max_open_trades} onValueChange={v => setR({...r, max_open_trades: v})} onToggle={() => setR({...r, rules_enabled: {...r.rules_enabled, max_open_trades: !r.rules_enabled.max_open_trades}})} />
+                  <RuleInputWithToggle label="Pair Limit" tooltip="Max trades on the same pair open at once." value={r.pair_limit} enabled={r.rules_enabled.pair_limit} onValueChange={v => setR({...r, pair_limit: v})} onToggle={() => setR({...r, rules_enabled: {...r.rules_enabled, pair_limit: !r.rules_enabled.pair_limit}})} />
+                  <RuleInputWithMode label="Max Risk" tooltip="Max risk per trade by SL distance." value={r.max_risk_mode === 'percentage' ? r.max_risk_percent : r.max_risk_dollars} enabled={r.rules_enabled.stop_loss_required} mode={r.max_risk_mode} onValueChange={v => r.max_risk_mode === 'percentage' ? setR({...r, max_risk_percent: v}) : setR({...r, max_risk_dollars: v})} onToggle={() => setR({...r, rules_enabled: {...r.rules_enabled, stop_loss_required: !r.rules_enabled.stop_loss_required}})} onModeChange={m => setR({...r, max_risk_mode: m})} />
+                  <RuleInputWithMode label="Daily Loss Cap" tooltip="Max drawdown from day's opening balance." value={r.daily_loss_mode === 'percentage' ? r.daily_loss_percent : r.daily_loss_cap} enabled={r.rules_enabled.daily_loss_cap} mode={r.daily_loss_mode} onValueChange={v => r.daily_loss_mode === 'percentage' ? setR({...r, daily_loss_percent: v}) : setR({...r, daily_loss_cap: v})} onToggle={() => setR({...r, rules_enabled: {...r.rules_enabled, daily_loss_cap: !r.rules_enabled.daily_loss_cap}})} onModeChange={m => setR({...r, daily_loss_mode: m})} />
+                  <RuleInputWithToggle label="Max Hold Hours" tooltip="Max time a trade can be held." value={r.max_hold_hours} enabled={r.rules_enabled.max_hold_hours} onValueChange={v => setR({...r, max_hold_hours: v})} onToggle={() => setR({...r, rules_enabled: {...r.rules_enabled, max_hold_hours: !r.rules_enabled.max_hold_hours}})} />
+                  <RuleInputWithToggle label="Min Trade Duration (min)" tooltip="Minimum time a trade must be held." value={r.min_trade_duration_minutes || 0} enabled={r.rules_enabled.min_trade_duration} onValueChange={v => setR({...r, min_trade_duration_minutes: v || null})} onToggle={() => setR({...r, rules_enabled: {...r.rules_enabled, min_trade_duration: !r.rules_enabled.min_trade_duration}})} />
+                  <RuleInputWithToggle label="Min Active Days" tooltip="Minimum distinct trading days to qualify." value={r.min_active_days} enabled={r.rules_enabled.min_active_days} onValueChange={v => setR({...r, min_active_days: v})} onToggle={() => setR({...r, rules_enabled: {...r.rules_enabled, min_active_days: !r.rules_enabled.min_active_days}})} />
+                  <RuleInputWithToggle label="Min Total Trades" tooltip="Minimum total trades to qualify." value={r.min_total_trades || 0} enabled={r.rules_enabled.min_total_trades} onValueChange={v => setR({...r, min_total_trades: v || null})} onToggle={() => setR({...r, rules_enabled: {...r.rules_enabled, min_total_trades: !r.rules_enabled.min_total_trades}})} />
+                  <RuleToggle label="Prohibit Weekend Trading" value={r.rules_enabled.weekend_trading} onChange={v => setR({...r, rules_enabled: {...r.rules_enabled, weekend_trading: v}})} />
+                  {splitRulesTab === 'real' && <RuleToggle label="Only Cent Account (Real)" value={r.only_cent_account} onChange={v => setR({...r, only_cent_account: v})} />}
+                </div>
+                );
+              })()}
+              </>
+            ) : (
+            <>
             <p className="text-xs text-gray-500 mb-4">Toggle rules ON/OFF. Hover ⓘ for details. Disabled rules won&apos;t be enforced during evaluation.</p>
             <div className="space-y-3">
               <RuleInputWithToggle label="Max Lot Size" tooltip="Limits the maximum lot size per position. Trades exceeding this have profits removed." value={rules.max_lot_size} enabled={rules.rules_enabled.max_lot_size} onValueChange={v => setRules({...rules, max_lot_size: v})} onToggle={() => setRules({...rules, rules_enabled: {...rules.rules_enabled, max_lot_size: !rules.rules_enabled.max_lot_size}})} />
@@ -2695,6 +2738,8 @@ function CreateChallengePanel({ onCreated }: { onCreated: (id: number) => void }
               <RuleToggle label="Only Cent Account (Real)" value={rules.only_cent_account} onChange={v => setRules({...rules, only_cent_account: v, ...(v ? { allow_professional: false } : {})})} />
               {!rules.only_cent_account && <RuleToggle label="Allow Professional Accounts (Pro/Zero/Raw)" value={rules.allow_professional || false} onChange={v => setRules({...rules, allow_professional: v})} />}
             </div>
+            </>
+            )}
             <div className="flex gap-3 mt-6">
               <button onClick={() => setStep(2)} className="flex-1 py-3 rounded-xl bg-white/5 border border-white/10 text-gray-400 font-semibold hover:bg-white/10 transition-all">Back</button>
               <button onClick={() => setStep(4)} className="flex-1 py-3 rounded-xl bg-gradient-brand text-white font-semibold hover:opacity-90 transition-all">Review</button>
@@ -2717,14 +2762,38 @@ function CreateChallengePanel({ onCreated }: { onCreated: (id: number) => void }
               <ReviewRow label="Target" value={form.deposit_mode !== 'fixed' ? `${form.target_percent}% growth` : (rules.only_cent_account && form.type !== "demo" ? `${form.target_balance}¢` : `$${form.target_balance}`)} />
               {form.split_category_settings && form.type === 'hybrid' && (
                 <>
-                  <ReviewRow label="Split Settings" value="ON — per-category balances" />
-                  {form.demo_starting_balance && <ReviewRow label="Demo Balance" value={`$${form.demo_starting_balance} → $${form.demo_target_balance || form.target_balance}`} />}
-                  {form.real_starting_balance && <ReviewRow label="Real Balance" value={`$${form.real_starting_balance} → $${form.real_target_balance || form.target_balance}`} />}
+                  <ReviewRow label="Split Settings" value="ON — per-category deposit modes + rules" />
+                  <ReviewRow label="Demo Deposit Mode" value={form.demo_deposit_mode === 'max_limit' ? 'Max Limit' : form.demo_deposit_mode === 'min_limit' ? 'Min Limit' : 'Fixed'} />
+                  {form.demo_starting_balance && <ReviewRow label="Demo Balance" value={`$${form.demo_starting_balance} → ${form.demo_deposit_mode !== 'fixed' ? `${form.demo_target_percent}%` : `$${form.demo_target_balance}`}`} />}
+                  <ReviewRow label="Real Deposit Mode" value={form.real_deposit_mode === 'max_limit' ? 'Max Limit' : form.real_deposit_mode === 'min_limit' ? 'Min Limit' : 'Fixed'} />
+                  {form.real_starting_balance && <ReviewRow label="Real Balance" value={`$${form.real_starting_balance} → ${form.real_deposit_mode !== 'fixed' ? `${form.real_target_percent}%` : `$${form.real_target_balance}`}`} />}
                 </>
               )}
               <ReviewRow label="Prize Pool" value={form.prize_pool_text || "—"} />
               {form.type !== "demo" && <ReviewRow label="Real Prizes" value={form.real_prizes || "—"} />}
               {form.type !== "real" && <ReviewRow label="Demo Prizes" value={form.demo_prizes || "—"} />}
+
+              {/* Rules Review */}
+              {form.split_category_settings && form.type === 'hybrid' ? (
+                <>
+                  <div className="border-t border-white/10 pt-3 mt-3">
+                    <p className="text-xs text-blue-400 font-bold uppercase mb-2">Demo Rules</p>
+                    <ReviewRow label="Max Lot" value={String(rulesDemo.max_lot_size)} />
+                    <ReviewRow label="Max Risk" value={rulesDemo.max_risk_mode === 'percentage' ? `${rulesDemo.max_risk_percent}%` : `$${rulesDemo.max_risk_dollars}`} />
+                    <ReviewRow label="Daily Loss" value={rulesDemo.daily_loss_mode === 'percentage' ? `${rulesDemo.daily_loss_percent}%` : `$${rulesDemo.daily_loss_cap}`} />
+                    <ReviewRow label="Min Days" value={String(rulesDemo.min_active_days)} />
+                  </div>
+                  <div className="border-t border-white/10 pt-3 mt-3">
+                    <p className="text-xs text-profit font-bold uppercase mb-2">Real Rules</p>
+                    <ReviewRow label="Max Lot" value={String(rulesReal.max_lot_size)} />
+                    <ReviewRow label="Max Risk" value={rulesReal.max_risk_mode === 'percentage' ? `${rulesReal.max_risk_percent}%` : `$${rulesReal.max_risk_dollars}`} />
+                    <ReviewRow label="Daily Loss" value={rulesReal.daily_loss_mode === 'percentage' ? `${rulesReal.daily_loss_percent}%` : `$${rulesReal.daily_loss_cap}`} />
+                    <ReviewRow label="Min Days" value={String(rulesReal.min_active_days)} />
+                    {rulesReal.only_cent_account && <ReviewRow label="Cent Account" value="Required" />}
+                  </div>
+                </>
+              ) : (
+                <>
               <ReviewRow label="Max Lot" value={String(rules.max_lot_size)} />
               <ReviewRow label="SL Required" value={rules.stop_loss_required ? "Yes" : "No"} />
               <ReviewRow label="Daily Loss Cap" value={rules.daily_loss_mode === 'percentage' ? `${rules.daily_loss_percent}% of day balance` : (rules.only_cent_account && form.type !== "demo" ? `${rules.daily_loss_cap}¢` : `$${rules.daily_loss_cap}`)} />
@@ -2733,6 +2802,8 @@ function CreateChallengePanel({ onCreated }: { onCreated: (id: number) => void }
               {rules.rules_enabled?.min_trade_duration && rules.min_trade_duration_minutes && <ReviewRow label="Min Trade Duration" value={`${rules.min_trade_duration_minutes} min`} />}
               {rules.rules_enabled?.min_total_trades && rules.min_total_trades && <ReviewRow label="Min Total Trades" value={String(rules.min_total_trades)} />}
               {rules.only_cent_account && <ReviewRow label="Cent Account" value="Required" />}
+                </>
+              )}
             </div>
             {error && <div className="p-3 rounded-xl bg-loss/10 border border-loss/30 mb-4"><p className="text-sm text-loss">{error}</p></div>}
             <div className="flex gap-3">
