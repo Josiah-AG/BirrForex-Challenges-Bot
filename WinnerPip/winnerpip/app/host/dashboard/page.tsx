@@ -454,39 +454,6 @@ export default function HostDashboardPage() {
           {/* Action toast */}
           {actionResult && <div className="p-3 rounded-lg bg-profit/10 border border-profit/30 text-profit text-sm font-medium mb-4">{actionResult}</div>}
 
-          {/* Persistent Pull Progress Bar — visible on all tabs */}
-          {pullProgress && (
-            <div className={`mb-4 p-4 rounded-xl border transition-all duration-500 ${pullProgress.justCompleted ? 'bg-profit/5 border-profit/20' : 'bg-royal/5 border-royal/20'}`}>
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-semibold flex items-center gap-1.5">
-                  {pullProgress.justCompleted ? (
-                    <span className="text-profit">✓ Update Complete</span>
-                  ) : (
-                    <><Loader2 size={12} className="animate-spin text-royal" /> <span className="text-royal">{pullProgress.stepLabel || `Step ${pullProgress.currentStep}`}</span> <span className="text-gray-500">({pullProgress.currentStep}/{pullProgress.totalSteps})</span></>
-                  )}
-                </span>
-                <span className="text-[10px] text-gray-500">
-                  {pullProgress.justCompleted ? `${pullProgress.successful || 0} accounts updated` : (
-                    <>{pullProgress.processed || 0}/{pullProgress.total || pullProgress.totalAccounts || 0} · {pullProgress.elapsed}s{pullProgress.etaSeconds ? ` · ~${pullProgress.etaSeconds}s left` : ''} · {pullProgress.successful || 0} ok · {pullProgress.failed || 0} failed</>
-                  )}
-                </span>
-              </div>
-              <div className="h-2 bg-white/10 rounded-full overflow-hidden">
-                <div className={`h-full rounded-full transition-all duration-1000 ${pullProgress.justCompleted ? 'bg-profit' : 'bg-gradient-to-r from-royal to-purple-500'}`} style={{ width: pullProgress.justCompleted ? '100%' : `${Math.max(2, ((pullProgress.currentStep! - 1) / pullProgress.totalSteps! * 100) + ((pullProgress.percent || 0) / pullProgress.totalSteps!))}%` }} />
-              </div>
-              {!pullProgress.justCompleted && (
-                <div className="flex justify-between mt-1.5">
-                  {['Pulling', 'Reconciling', 'Settling', 'Evaluating'].map((label, i) => {
-                    const step = i + 1;
-                    const isDone = step < (pullProgress.currentStep || 1);
-                    const isActive = step === pullProgress.currentStep;
-                    return <span key={step} className={`text-[9px] font-bold ${isDone ? 'text-profit' : isActive ? 'text-royal' : 'text-gray-600'}`}>{isDone ? '✓ ' : ''}{label}</span>;
-                  })}
-                </div>
-              )}
-            </div>
-          )}
-
           {tabLoading ? <div className="flex justify-center py-16"><Loader2 className="w-6 h-6 text-royal animate-spin" /></div> : (<>
 
           {/* ===== OVERVIEW ===== */}
@@ -1009,7 +976,38 @@ export default function HostDashboardPage() {
                 </div>
                 <p className="text-[10px] text-gray-500 mt-3">Updates run automatically 6x/day. Use these for manual triggers between scheduled runs.</p>
                 {actionResult && <p className={`text-xs mt-2 font-semibold ${actionResult.startsWith("✅") ? "text-profit" : actionResult === "Started" ? "text-gold" : "text-loss"}`}>{actionResult}</p>}
-                {/* Progress bar — now shown at top level, above all tabs */}
+                {/* Pull Progress Bar */}
+                {pullProgress && (
+                  <div className={`mt-4 p-4 rounded-xl border transition-all duration-500 ${pullProgress.justCompleted ? 'bg-profit/5 border-profit/20' : 'bg-royal/5 border-royal/20'}`}>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-semibold flex items-center gap-1.5">
+                        {pullProgress.justCompleted ? (
+                          <span className="text-profit">✓ Update Complete</span>
+                        ) : (
+                          <><Loader2 size={12} className="animate-spin text-royal" /> <span className="text-royal">{pullProgress.stepLabel || `Step ${pullProgress.currentStep}`}</span> <span className="text-gray-500">({pullProgress.currentStep}/{pullProgress.totalSteps})</span></>
+                        )}
+                      </span>
+                      <span className="text-[10px] text-gray-500">
+                        {pullProgress.justCompleted ? `${pullProgress.successful || 0} accounts updated` : (
+                          <>{pullProgress.processed || 0}/{pullProgress.total || pullProgress.totalAccounts || 0} · {pullProgress.elapsed}s{pullProgress.etaSeconds ? ` · ~${pullProgress.etaSeconds}s left` : ''} · {pullProgress.successful || 0} ok · {pullProgress.failed || 0} failed</>
+                        )}
+                      </span>
+                    </div>
+                    <div className="h-2 bg-white/10 rounded-full overflow-hidden">
+                      <div className={`h-full rounded-full transition-all duration-1000 ${pullProgress.justCompleted ? 'bg-profit' : 'bg-gradient-to-r from-royal to-purple-500'}`} style={{ width: pullProgress.justCompleted ? '100%' : `${Math.max(2, ((pullProgress.currentStep! - 1) / pullProgress.totalSteps! * 100) + ((pullProgress.percent || 0) / pullProgress.totalSteps!))}%` }} />
+                    </div>
+                    {!pullProgress.justCompleted && (
+                      <div className="flex justify-between mt-1.5">
+                        {['Pulling', 'Reconciling', 'Settling', 'Evaluating'].map((label, i) => {
+                          const step = i + 1;
+                          const isDone = step < (pullProgress.currentStep || 1);
+                          const isActive = step === pullProgress.currentStep;
+                          return <span key={step} className={`text-[9px] font-bold ${isDone ? 'text-profit' : isActive ? 'text-royal' : 'text-gray-600'}`}>{isDone ? '✓ ' : ''}{label}</span>;
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Credential Failures — collapsed by default */}
