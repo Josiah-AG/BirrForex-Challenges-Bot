@@ -987,9 +987,21 @@ export default function HostDashboardPage() {
                           <><Loader2 size={12} className="animate-spin text-royal" /> <span className="text-royal">{pullProgress.stepLabel || `Step ${pullProgress.currentStep}`}</span> <span className="text-gray-500">({pullProgress.currentStep}/{pullProgress.totalSteps})</span></>
                         )}
                       </span>
-                      <span className="text-[10px] text-gray-500">
+                      <span className="text-[10px] text-gray-500 flex items-center gap-2">
                         {pullProgress.justCompleted ? `${pullProgress.successful || 0} accounts updated` : (
                           <>{pullProgress.processed || 0}/{pullProgress.total || pullProgress.totalAccounts || 0} · {pullProgress.elapsed}s{pullProgress.etaSeconds ? ` · ~${pullProgress.etaSeconds}s left` : ''} · {pullProgress.successful || 0} ok · {pullProgress.failed || 0} failed</>
+                        )}
+                        {!pullProgress.justCompleted && (
+                          <button onClick={async () => {
+                            if (!confirm('Stop the running update?')) return;
+                            try {
+                              await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/cancel-pull`, { method: 'POST', headers: headers() });
+                              stopPullPolling();
+                              setPullProgress(null);
+                              setActionResult("⏹ Update stopped");
+                              setTimeout(() => setActionResult(""), 3000);
+                            } catch {}
+                          }} className="px-2 py-0.5 rounded bg-loss/20 text-loss text-[10px] font-bold border border-loss/30 hover:bg-loss/30 transition-all">Stop</button>
                         )}
                       </span>
                     </div>

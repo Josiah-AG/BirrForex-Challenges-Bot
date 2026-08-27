@@ -1200,6 +1200,33 @@ router.get('/challenge/:id/pull-status', async (req: any, res: Response) => {
   } catch { return res.json({ isRunning: false }); }
 });
 
+// ==================== CANCEL PULL (stop running update) ====================
+router.post('/challenge/:id/cancel-pull', async (req: any, res: Response) => {
+  const challengeId = await verifyOwnership(req, res);
+  if (!challengeId) return;
+  try {
+    // Verify there's a running batch for THIS challenge
+    const running = await db.query(
+      `SELECT id FROM wp_pull_batches WHERE challenge_id = $1 AND status = 'running' LIMIT 1`, [challengeId]
+    );
+    if (running.rows.length === 0) {
+      return res.json({ success: false, message: 'No update is currently running' });
+    }
+    const globalScheduler = (global as any).__vpsPullScheduler;
+    if (globalScheduler) {
+      globalScheduler.cancelPull();
+    }
+    // Mark batch as cancelled
+    await db.query(
+      `UPDATE wp_pull_batches SET status = 'cancelled', completed_at = NOW() WHERE challenge_id = $1 AND status = 'running'`, [challengeId]
+    );
+    return res.json({ success: true, message: 'Update cancelled' });
+  } catch (error) {
+    console.error('Host cancel pull error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 router.post('/challenge/:id/approve-pull', async (req: any, res: Response) => {
   const challengeId = await verifyOwnership(req, res);
   if (!challengeId) return;
