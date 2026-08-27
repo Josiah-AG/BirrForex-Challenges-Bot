@@ -69,8 +69,8 @@ router.get('/challenge/:id/full-overview', async (req: any, res: Response) => {
          AND (r.disqualified IS NULL OR r.disqualified = false)
          AND (r.status IS NULL OR r.status != 'removed')
          AND CASE WHEN COALESCE(r.is_cent, false)
-               THEN l.adjusted_balance >= tc.target_balance * 100
-               ELSE l.adjusted_balance >= tc.target_balance
+               THEN l.adjusted_balance >= (CASE WHEN tc.split_category_settings = true AND tc.type = 'hybrid' AND r.account_type = 'demo' AND tc.demo_target_balance IS NOT NULL THEN tc.demo_target_balance WHEN tc.split_category_settings = true AND tc.type = 'hybrid' AND r.account_type = 'real' AND tc.real_target_balance IS NOT NULL THEN tc.real_target_balance ELSE tc.target_balance END) * 100
+               ELSE l.adjusted_balance >= (CASE WHEN tc.split_category_settings = true AND tc.type = 'hybrid' AND r.account_type = 'demo' AND tc.demo_target_balance IS NOT NULL THEN tc.demo_target_balance WHEN tc.split_category_settings = true AND tc.type = 'hybrid' AND r.account_type = 'real' AND tc.real_target_balance IS NOT NULL THEN tc.real_target_balance ELSE tc.target_balance END)
              END`, [challengeId]);
 
     const pwChanged = await db.query(

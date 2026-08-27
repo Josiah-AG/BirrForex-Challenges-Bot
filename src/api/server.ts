@@ -638,7 +638,7 @@ app.post('/api/challenges/:id/verify-mt5', authLimiter, async (req, res) => {
     }
 
     const challenge = await db.query(
-      `SELECT id, host_id, status, type, starting_balance, deposit_mode FROM trading_challenges WHERE id = $1`, [challengeId]);
+      `SELECT id, host_id, status, type, starting_balance, deposit_mode, split_category_settings, demo_starting_balance, demo_target_balance, real_starting_balance, real_target_balance FROM trading_challenges WHERE id = $1`, [challengeId]);
     if (!challenge.rows[0]) return res.status(404).json({ error: 'Challenge not found' });
     if (challenge.rows[0].status !== 'registration_open') return res.status(400).json({ error: 'Registration is not open' });
 
@@ -691,7 +691,8 @@ app.post('/api/challenges/:id/verify-mt5', authLimiter, async (req, res) => {
     }
 
     // Deposit validation
-    const startBal = parseFloat(challenge.rows[0].starting_balance || '0');
+    const { resolveCategoryBalances } = require("../utils/categorySettings");
+    const startBal = resolveCategoryBalances(challenge.rows[0], accountType).startingBalance;
     const depositMode = challenge.rows[0].deposit_mode || 'fixed';
 
     // Demo accounts: for fixed mode, balance must match starting balance exactly (1% tolerance for rounding)
@@ -772,7 +773,7 @@ app.post('/api/challenges/:id/register', authLimiter, async (req, res) => {
 
     // Check challenge exists and is open for registration
     const challenge = await db.query(
-      `SELECT id, host_id, status, type, starting_balance, deposit_mode FROM trading_challenges WHERE id = $1`,
+      `SELECT id, host_id, status, type, starting_balance, deposit_mode, split_category_settings, demo_starting_balance, demo_target_balance, real_starting_balance, real_target_balance FROM trading_challenges WHERE id = $1`,
       [challengeId]
     );
     if (!challenge.rows[0]) return res.status(404).json({ error: 'Challenge not found' });
@@ -1026,7 +1027,8 @@ app.post('/api/challenges/:id/change-account', authLimiter, async (req, res) => 
     const balance = verifyResult.balance || 0;
 
     // Deposit validation for real accounts
-    const startBal = parseFloat(challenge.rows[0].starting_balance || '0');
+    const { resolveCategoryBalances: rcb1 } = require('../utils/categorySettings');
+    const startBal = rcb1(challenge.rows[0], accountType).startingBalance;
     const depositMode = challenge.rows[0].deposit_mode || 'fixed';
     if (accountType === 'real' && startBal > 0) {
       if (depositMode === 'fixed' || depositMode === 'max_limit') {
@@ -1077,7 +1079,7 @@ app.post('/api/challenges/:id/change-registration', authLimiter, async (req: any
     }
 
     const challenge = await db.query(
-      `SELECT id, host_id, status, type, starting_balance, deposit_mode FROM trading_challenges WHERE id = $1`, [challengeId]);
+      `SELECT id, host_id, status, type, starting_balance, deposit_mode, split_category_settings, demo_starting_balance, demo_target_balance, real_starting_balance, real_target_balance FROM trading_challenges WHERE id = $1`, [challengeId]);
     if (!challenge.rows[0]) return res.status(404).json({ error: 'Challenge not found' });
     if (challenge.rows[0].status !== 'registration_open' && challenge.rows[0].status !== 'scheduled') {
       return res.status(400).json({ error: 'Changes are only allowed before the challenge starts' });
@@ -1144,7 +1146,8 @@ app.post('/api/challenges/:id/change-registration', authLimiter, async (req: any
     }
 
     // Deposit validation
-    const startBal = parseFloat(challenge.rows[0].starting_balance || '0');
+    const { resolveCategoryBalances: rcb2 } = require("../utils/categorySettings");
+    const startBal = rcb2(challenge.rows[0], newAccountType).startingBalance;
     const depositMode = challenge.rows[0].deposit_mode || 'fixed';
 
     // Demo: fixed mode requires exact balance (1% tolerance)
@@ -1721,6 +1724,7 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
               r.last_pull_at, r.balance_warning,
               c.title, c.status, c.start_date, c.end_date, c.starting_balance, c.target_balance, c.leaderboard_updated_at,
               c.real_winners_count, c.demo_winners_count, c.type as challenge_type, c.timezone,
+              c.split_category_settings, c.demo_starting_balance, c.demo_target_balance, c.real_starting_balance, c.real_target_balance,
               COALESCE((SELECT (parameters->>'only_cent_account')::boolean FROM wp_challenge_rules WHERE challenge_id = c.id AND rule_code = 'config'), false) as only_cent_account
        FROM trading_registrations r
        JOIN trading_challenges c ON r.challenge_id = c.id
@@ -1787,19 +1791,22 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
         startDate: registration.start_date,
         endDate: registration.end_date,
         timezone: registration.timezone || 'Africa/Nairobi',
-        // Balance targets: admin enters in $ for hybrid/standard, in ¢ for cent-only challenges.
-        // For cent users in NON-cent-only challenges, multiply by 100 to convert $ → ¢.
-        startingBalance: (registration.is_cent && !registration.only_cent_account)
-          ? parseFloat(registration.starting_balance) * 100
-          : parseFloat(registration.starting_balance),
-        myStartingBalance: actualStartingBalance ?? (
-          (registration.is_cent && !registration.only_cent_account)
-            ? parseFloat(registration.starting_balance) * 100
-            : parseFloat(registration.starting_balance)
-        ),
-        targetBalance: (registration.is_cent && !registration.only_cent_account)
-          ? parseFloat(registration.target_balance) * 100
-          : parseFloat(registration.target_balance),
+        // Balance targets: resolve per-category if split is ON, then apply cent conversion
+        startingBalance: (() => {
+          const { resolveCategoryBalances: rcbDash } = require('../utils/categorySettings');
+          const bal = rcbDash(registration, registration.account_type).startingBalance;
+          return (registration.is_cent && !registration.only_cent_account) ? bal * 100 : bal;
+        })(),
+        myStartingBalance: actualStartingBalance ?? (() => {
+          const { resolveCategoryBalances: rcbDash2 } = require('../utils/categorySettings');
+          const bal = rcbDash2(registration, registration.account_type).startingBalance;
+          return (registration.is_cent && !registration.only_cent_account) ? bal * 100 : bal;
+        })(),
+        targetBalance: (() => {
+          const { resolveCategoryBalances: rcbDash3 } = require('../utils/categorySettings');
+          const bal = rcbDash3(registration, registration.account_type).targetBalance;
+          return (registration.is_cent && !registration.only_cent_account) ? bal * 100 : bal;
+        })(),
         winnersCount: parseInt(registration.real_winners_count || 0) + parseInt(registration.demo_winners_count || 0),
         realWinnersCount: parseInt(registration.real_winners_count || 0),
         demoWinnersCount: parseInt(registration.demo_winners_count || 0),

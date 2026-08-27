@@ -530,6 +530,14 @@ async function migrate() {
     await db.query(`ALTER TABLE challenges ADD COLUMN IF NOT EXISTS morning_post_sent_at TIMESTAMP;`).catch(() => {});
     await db.query(`ALTER TABLE challenges ADD COLUMN IF NOT EXISTS countdown_started_at TIMESTAMP;`).catch(() => {});
 
+    // Per-category settings for hybrid challenges
+    await db.query(`ALTER TABLE trading_challenges ADD COLUMN IF NOT EXISTS split_category_settings BOOLEAN DEFAULT FALSE;`).catch(() => {});
+    await db.query(`ALTER TABLE trading_challenges ADD COLUMN IF NOT EXISTS demo_starting_balance NUMERIC(15,2);`).catch(() => {});
+    await db.query(`ALTER TABLE trading_challenges ADD COLUMN IF NOT EXISTS demo_target_balance NUMERIC(15,2);`).catch(() => {});
+    await db.query(`ALTER TABLE trading_challenges ADD COLUMN IF NOT EXISTS real_starting_balance NUMERIC(15,2);`).catch(() => {});
+    await db.query(`ALTER TABLE trading_challenges ADD COLUMN IF NOT EXISTS real_target_balance NUMERIC(15,2);`).catch(() => {});
+    console.log('✅ Per-category settings columns OK');
+
     console.log('✅ Database migration completed successfully!');
     process.exit(0);
   } catch (error) {

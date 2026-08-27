@@ -462,12 +462,24 @@ export class WpEvaluationEngine {
       return this.evaluate(challengeId);
     }
 
-    const challenge = await db.query(`SELECT starting_balance, target_balance, type, deposit_mode, target_percent FROM trading_challenges WHERE id = $1`, [challengeId]);
-    const startingBalance = parseFloat(challenge.rows[0]?.starting_balance || 30);
-    const targetBalance = parseFloat(challenge.rows[0]?.target_balance || 60);
-    const challengeType = challenge.rows[0]?.type;
-    const depositMode = challenge.rows[0]?.deposit_mode || 'fixed';
-    const targetPercent = parseFloat(challenge.rows[0]?.target_percent || 0) || null;
+    const challenge = await db.query(`SELECT starting_balance, target_balance, type, deposit_mode, target_percent, split_category_settings, demo_starting_balance, demo_target_balance, real_starting_balance, real_target_balance FROM trading_challenges WHERE id = $1`, [challengeId]);
+    const challengeRow = challenge.rows[0];
+    const challengeType = challengeRow?.type;
+    const depositMode = challengeRow?.deposit_mode || 'fixed';
+    const targetPercent = parseFloat(challengeRow?.target_percent || 0) || null;
+
+    // Pre-load per-category rules if split is ON
+    const isSplit = challengeRow?.split_category_settings === true && challengeType === 'hybrid';
+    let demoRules = rules;
+    let realRules = rules;
+    if (isSplit) {
+      const dr = await this.loadRules(challengeId, 'config_demo');
+      const rr = await this.loadRules(challengeId, 'config_real');
+      if (dr) demoRules = dr;
+      if (rr) realRules = rr;
+    }
+
+    const { resolveCategoryBalances } = require('../utils/categorySettings');
 
     const registrations = await db.query(
       `SELECT id, account_number, user_id, username, nickname, account_type, account_subtype, is_cent, source
@@ -479,27 +491,35 @@ export class WpEvaluationEngine {
     let totalQualified = 0;
 
     for (const reg of registrations.rows) {
+      // Resolve per-category starting/target balance
+      const categoryBal = resolveCategoryBalances(challengeRow, reg.account_type);
+      let baseStartBalance = categoryBal.startingBalance;
+      let baseTargetBalance = categoryBal.targetBalance;
+
+      // Pick per-category rules if split is ON
+      const activeRules = isSplit ? (reg.account_type === 'demo' ? demoRules : realRules) : rules;
+
       // Determine if conversion is needed for this user
       // Rule: Admin enters in CENT terms ONLY for "Real + cent-only" challenges.
       // All other scenarios: admin enters in STANDARD terms.
       // Convert ×100 when: user is cent AND challenge is NOT "real + cent-only"
-      let effectiveRules = rules;
-      let effectiveStartBalance = startingBalance;
-      let effectiveTargetBalance = targetBalance;
+      let effectiveRules = activeRules;
+      let effectiveStartBalance = baseStartBalance;
+      let effectiveTargetBalance = baseTargetBalance;
 
       const userIsCent = reg.is_cent || false;
-      const isRealCentOnly = challengeType === 'real' && rules.only_cent_account;
+      const isRealCentOnly = challengeType === 'real' && activeRules.only_cent_account;
 
       if (userIsCent && !isRealCentOnly) {
         // User is cent but admin entered in standard terms → convert ×100
         effectiveRules = {
-          ...rules,
-          max_lot_size: rules.max_lot_size ? rules.max_lot_size * 100 : null,
-          max_risk_dollars: rules.max_risk_dollars ? rules.max_risk_dollars * 100 : null,
-          daily_loss_cap: rules.daily_loss_cap ? rules.daily_loss_cap * 100 : null,
+          ...activeRules,
+          max_lot_size: activeRules.max_lot_size ? activeRules.max_lot_size * 100 : null,
+          max_risk_dollars: activeRules.max_risk_dollars ? activeRules.max_risk_dollars * 100 : null,
+          daily_loss_cap: activeRules.daily_loss_cap ? activeRules.daily_loss_cap * 100 : null,
         };
-        effectiveStartBalance = startingBalance * 100;
-        effectiveTargetBalance = targetBalance * 100;
+        effectiveStartBalance = baseStartBalance * 100;
+        effectiveTargetBalance = baseTargetBalance * 100;
       }
       // If isRealCentOnly: admin entered in cent terms, all users are cent → no conversion
       // If user is NOT cent: admin entered in standard terms → no conversion
@@ -522,7 +542,7 @@ export class WpEvaluationEngine {
    * Evaluate a single account — public for per-account streaming evaluation
    */
   async evaluateSingleAccount(challengeId: number, registrationId: number): Promise<{ flaggedCount: number; isQualified: boolean }> {
-    const rules = await this.loadRules(challengeId);
+    let rules = await this.loadRules(challengeId);
     if (!rules) {
       // No rules configured — still create leaderboard entry with basic data
       console.log(`⚠️ WP Evaluation: No rules for challenge ${challengeId}, creating basic leaderboard entry`);
@@ -531,12 +551,13 @@ export class WpEvaluationEngine {
       return this.evaluateSingleAccount(challengeId, registrationId);
     }
 
-    const challenge = await db.query(`SELECT starting_balance, target_balance, type, deposit_mode, target_percent FROM trading_challenges WHERE id = $1`, [challengeId]);
-    const startingBalance = parseFloat(challenge.rows[0]?.starting_balance || 30);
-    const targetBalance = parseFloat(challenge.rows[0]?.target_balance || 60);
-    const challengeType = challenge.rows[0]?.type;
-    const depositMode = challenge.rows[0]?.deposit_mode || 'fixed';
-    const targetPercent = parseFloat(challenge.rows[0]?.target_percent || 0) || null;
+    const challenge = await db.query(`SELECT starting_balance, target_balance, type, deposit_mode, target_percent, split_category_settings, demo_starting_balance, demo_target_balance, real_starting_balance, real_target_balance FROM trading_challenges WHERE id = $1`, [challengeId]);
+    const challengeRow = challenge.rows[0];
+    const challengeType = challengeRow?.type;
+    const depositMode = challengeRow?.deposit_mode || 'fixed';
+    const targetPercent = parseFloat(challengeRow?.target_percent || 0) || null;
+
+    const { resolveCategoryBalances, resolveRuleCode } = require('../utils/categorySettings');
 
     const regResult = await db.query(
       `SELECT id, account_number, user_id, username, nickname, account_type, account_subtype, is_cent, source
@@ -547,13 +568,25 @@ export class WpEvaluationEngine {
     const reg = regResult.rows[0];
     const userIsCent = reg.is_cent || false;
 
+    // Load per-category rules if split is ON
+    const ruleCode = resolveRuleCode(challengeRow, reg.account_type);
+    if (ruleCode !== 'config') {
+      const catRules = await this.loadRules(challengeId, ruleCode);
+      if (catRules) rules = catRules;
+    }
+
+    // Resolve per-category starting/target balance
+    const categoryBal = resolveCategoryBalances(challengeRow, reg.account_type);
+    let baseStartBalance = categoryBal.startingBalance;
+    let baseTargetBalance = categoryBal.targetBalance;
+
     // Determine if conversion is needed for this user
     // Rule: Admin enters in CENT terms ONLY for "Real + cent-only" challenges.
     // All other scenarios: admin enters in STANDARD terms.
     // Convert ×100 when: user is cent AND challenge is NOT "real + cent-only"
     let effectiveRules = rules;
-    let effectiveStartBalance = startingBalance;
-    let effectiveTargetBalance = targetBalance;
+    let effectiveStartBalance = baseStartBalance;
+    let effectiveTargetBalance = baseTargetBalance;
 
     const isRealCentOnly = challengeType === 'real' && rules.only_cent_account;
 
@@ -565,8 +598,8 @@ export class WpEvaluationEngine {
         max_risk_dollars: rules.max_risk_dollars ? rules.max_risk_dollars * 100 : null,
         daily_loss_cap: rules.daily_loss_cap ? rules.daily_loss_cap * 100 : null,
       };
-      effectiveStartBalance = startingBalance * 100;
-      effectiveTargetBalance = targetBalance * 100;
+      effectiveStartBalance = baseStartBalance * 100;
+      effectiveTargetBalance = baseTargetBalance * 100;
     }
     // If isRealCentOnly: admin entered in cent terms, all users are cent → no conversion
     // If user is NOT cent: admin entered in standard terms → no conversion
@@ -1832,10 +1865,17 @@ export class WpEvaluationEngine {
 
   // ==================== RULES ====================
 
-  async loadRules(challengeId: number): Promise<RuleConfig | null> {
+  async loadRules(challengeId: number, ruleCode: string = 'config'): Promise<RuleConfig | null> {
     const result = await db.query(
-      `SELECT parameters FROM wp_challenge_rules WHERE challenge_id=$1 AND rule_code='config'`, [challengeId]);
-    if (result.rows.length === 0) return null;
+      `SELECT parameters FROM wp_challenge_rules WHERE challenge_id=$1 AND rule_code=$2`, [challengeId, ruleCode]);
+    if (result.rows.length === 0) {
+      // Fallback to 'config' if category-specific not found
+      if (ruleCode !== 'config') {
+        const fallback = await db.query(`SELECT parameters FROM wp_challenge_rules WHERE challenge_id=$1 AND rule_code='config'`, [challengeId]);
+        if (fallback.rows.length > 0) return fallback.rows[0].parameters as RuleConfig;
+      }
+      return null;
+    }
     return result.rows[0].parameters as RuleConfig;
   }
 

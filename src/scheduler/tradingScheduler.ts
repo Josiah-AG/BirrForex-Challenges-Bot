@@ -238,7 +238,7 @@ export class TradingScheduler {
 
     // Check how many accounts still need the snapshot (actual_starting_balance IS NULL)
     const pending = await db.query(
-      `SELECT id, account_number, mt5_server, investor_password, is_cent
+      `SELECT id, account_number, mt5_server, investor_password, is_cent, account_type
        FROM trading_registrations
        WHERE challenge_id = $1
          AND disqualified = false
@@ -320,8 +320,8 @@ export class TradingScheduler {
       console.error('Pre-start snapshot: failed to create batch record:', e);
     }
 
-    const startingBalance = Number(challenge.starting_balance || 30);
     const depositMode = (challenge as any).deposit_mode || 'fixed';
+    const { resolveCategoryBalances } = require('../utils/categorySettings');
     let verified = 0, dqd = 0, failed = 0;
 
     for (const reg of pending.rows) {
@@ -334,7 +334,8 @@ export class TradingScheduler {
         }
 
         const balance   = result.balance as number;
-        const limit     = reg.is_cent ? startingBalance * 100 : startingBalance;
+        const regStartBal = resolveCategoryBalances(challenge, reg.account_type).startingBalance;
+        const limit     = reg.is_cent ? regStartBal * 100 : regStartBal;
         const tolerance = limit * 0.01;
 
         await db.query(
@@ -1711,6 +1712,7 @@ export class TradingScheduler {
       console.log(`💰 Pre-start balance check: starting for "${challenge.title}" (ID: ${challenge.id})`);
 
       const startingBalance = Number(challenge.starting_balance || 30);
+      const { resolveCategoryBalances: rcbSnap } = require('../utils/categorySettings');
       const depositMode2 = (challenge as any).deposit_mode || 'fixed';
 
       // Get all registrations (both demo and real) with investor passwords
@@ -1802,7 +1804,8 @@ export class TradingScheduler {
           }
 
           const balance = result.balance as number;
-          const limit = reg.is_cent ? startingBalance * 100 : startingBalance;
+          const regStartBal2 = rcbSnap(challenge, reg.account_type).startingBalance;
+          const limit = reg.is_cent ? regStartBal2 * 100 : regStartBal2;
           const tolerance = limit * 0.01;
           const currency = reg.is_cent ? '¢' : '$';
 
