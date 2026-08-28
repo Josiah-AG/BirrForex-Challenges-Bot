@@ -187,6 +187,13 @@ export class QuizHandler {
       return;
     }
 
+    // Guard: reject if this question was already answered (stale button tap / duplicate callback)
+    const alreadyAnswered = session.answers.some(a => a.question_id === questionId);
+    if (alreadyAnswered) {
+      await ctx.answerCbQuery('Already answered');
+      return;
+    }
+
     // Check if correct
     const isCorrect = selectedAnswer === question.correct_answer;
 
@@ -197,7 +204,12 @@ export class QuizHandler {
       is_correct: isCorrect,
     };
 
-    await sessionService.recordAnswer(telegramId, challengeId, answer);
+    // Idempotent record — returns false if it was a duplicate that got ignored
+    const recorded = await sessionService.recordAnswer(telegramId, challengeId, answer);
+    if (!recorded) {
+      await ctx.answerCbQuery('Already answered');
+      return;
+    }
 
     // Answer callback
     await ctx.answerCbQuery('✓ Answer recorded');
@@ -249,12 +261,34 @@ export class QuizHandler {
       return;
     }
 
-    // Calculate score
-    const score = session.answers.filter(a => a.is_correct).length;
-    const totalQuestions = session.answers.length;
-    
+    // Guard against double-completion (duplicate final answer / re-trigger)
+    const alreadyDone = await participantService.hasParticipated(challengeId, telegramId);
+    if (alreadyDone) {
+      await sessionService.deleteSession(telegramId, challengeId);
+      return;
+    }
+
+    // Actual question count for this challenge — the source of truth for total_questions
+    const questions = await challengeService.getQuestions(challengeId);
+    const totalQuestions = questions.length;
+
+    // Score = number of DISTINCT questions answered correctly (dedupe by question_id
+    // in case any stray duplicate slipped through), capped at the real question count.
+    const correctByQuestion = new Map<number, boolean>();
+    for (const a of session.answers) {
+      if (!correctByQuestion.has(a.question_id)) {
+        correctByQuestion.set(a.question_id, a.is_correct);
+      }
+    }
+    let score = 0;
+    for (const isCorrect of correctByQuestion.values()) {
+      if (isCorrect) score++;
+    }
+    if (score > totalQuestions) score = totalQuestions;
+
     // Calculate response time from when challenge went live to completion
-    const completionTimeSeconds = Math.floor((new Date().getTime() - new Date(challenge.started_at).getTime()) / 1000);
+    const completedAt = new Date();
+    const completionTimeSeconds = Math.floor((completedAt.getTime() - new Date(challenge.started_at).getTime()) / 1000);
 
     // Get completion order
     const completionOrder = await participantService.getCompletionOrder(challengeId);
@@ -266,21 +300,30 @@ export class QuizHandler {
       return;
     }
 
-    // Save participant
-    await participantService.createParticipant(
-      challengeId,
-      user.id,
-      telegramId,
-      username,
-      score,
-      totalQuestions,
-      completionTimeSeconds,
-      completionOrder,
-      session.started_at,
-      new Date(),
-      session.answers,
-      session.shuffled_options
-    );
+    // Save participant (createParticipant is guarded against duplicates via unique constraint)
+    try {
+      await participantService.createParticipant(
+        challengeId,
+        user.id,
+        telegramId,
+        username,
+        score,
+        totalQuestions,
+        completionTimeSeconds,
+        completionOrder,
+        session.started_at,
+        completedAt,
+        session.answers,
+        session.shuffled_options
+      );
+    } catch (err: any) {
+      // Unique constraint violation = already participated (race with a duplicate trigger)
+      if (err?.code === '23505') {
+        await sessionService.deleteSession(telegramId, challengeId);
+        return;
+      }
+      throw err;
+    }
 
     // Update user stats
     await userService.incrementParticipation(telegramId);

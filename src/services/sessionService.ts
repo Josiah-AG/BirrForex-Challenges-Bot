@@ -42,15 +42,23 @@ class SessionService {
   }
 
   /**
-   * Record answer and advance question
+   * Record answer and advance question — IDEMPOTENT per question.
+   * Only appends if this question_id has not already been answered in this session.
+   * Returns true if the answer was newly recorded, false if it was a duplicate (ignored).
+   * This prevents double-taps / duplicate Telegram callbacks from inflating the answers array.
    */
-  async recordAnswer(telegramId: number, challengeId: number, answer: Answer): Promise<void> {
-    await db.query(
+  async recordAnswer(telegramId: number, challengeId: number, answer: Answer): Promise<boolean> {
+    const result = await db.query(
       `UPDATE quiz_sessions
        SET answers = answers || $3::jsonb, current_question = current_question + 1
-       WHERE telegram_id = $1 AND challenge_id = $2`,
-      [telegramId, challengeId, JSON.stringify([answer])]
+       WHERE telegram_id = $1 AND challenge_id = $2
+         AND NOT EXISTS (
+           SELECT 1 FROM jsonb_array_elements(answers) AS a
+           WHERE (a->>'question_id')::int = $4
+         )`,
+      [telegramId, challengeId, JSON.stringify([answer]), answer.question_id]
     );
+    return (result.rowCount || 0) > 0;
   }
 
   /**

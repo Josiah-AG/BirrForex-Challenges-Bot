@@ -203,8 +203,14 @@ Go go go! Start the challenge 👇`;
         }).join('\n')
       : 'No winner';
 
+    // Backup list = perfect scorers who are NOT already winners.
+    // Exclude by telegram_id so consecutive-win skips (which make winners ≠ the first N
+    // perfect scorers) never cause a winner to reappear as a backup.
+    const winnerIds = new Set(winners.map(w => w.telegram_id));
     const backupStart = winners.length;
-    const backupList = backups.slice(backupStart, backupStart + config.backupListSize);
+    const backupList = backups
+      .filter(b => !winnerIds.has(b.telegram_id))
+      .slice(0, config.backupListSize);
 
     const nextChallenge = (challenge as any).next_challenge_date
       ? `${(challenge as any).next_challenge_date} | Same time`

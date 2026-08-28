@@ -260,6 +260,7 @@ export class Bot {
     this.bot.command('deletechallenge', (ctx) => adminHandler.deleteChallenge(ctx));
     this.bot.command('passwinner', (ctx) => adminHandler.passWinner(ctx));
     this.bot.command('cancelchallenge', (ctx) => adminHandler.cancelTodayChallenge(ctx));
+    this.bot.command('exportquizwinner', (ctx) => adminHandler.exportQuizWinner(ctx));
     this.bot.command('settings', (ctx) => this.showSettings(ctx));
     this.bot.command('testposts', (ctx) => this.testPosts(ctx));
 

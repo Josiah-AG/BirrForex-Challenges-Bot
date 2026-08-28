@@ -652,20 +652,33 @@ export class Scheduler {
 
     for (let i = 0; i < allPerfectScorers.length && i < backupLimit; i++) {
       const scorer = allPerfectScorers[i];
-      
-      // Check if this person is eligible (not a consecutive winner)
-      const isEligible = eligibleWinners.some(w => w.telegram_id === scorer.telegram_id);
-      if (!isEligible) continue; // Skip consecutive winners
-      
+
       try {
         let message = '';
-        
+
         // Calculate precise time with milliseconds
         const preciseTime = this.formatTimeWithMs(scorer.completed_at, challenge.started_at);
-        
+
         // Find this scorer's position among eligible winners
         const eligibleIdx = eligibleWinners.findIndex(w => w.telegram_id === scorer.telegram_id);
-        
+
+        // Consecutive winner — skipped from prize but MUST be notified why
+        const isEligible = eligibleIdx >= 0;
+        if (!isEligible) {
+          const lastWinDay = 'the last challenge';
+          message = `🎯 <b>PERFECT SCORE AGAIN!</b>\n\n` +
+            `📊 <b>Your Score:</b> ${scorer.score}/${scorer.total_questions} ✅\n` +
+            `⚡ <b>Response Time:</b> ${preciseTime}\n` +
+            `📍 <b>Completion Order:</b> #${scorer.completion_order}\n` +
+            `👥 <b>Total Participants:</b> ${stats.total_participants}\n` +
+            `🎯 <b>Perfect Scores:</b> ${allPerfectScorers.length}\n\n` +
+            `⚠️ <b>Consecutive Win Rule Applied</b>\n\n` +
+            `<i>You won ${lastWinDay}. To keep things fair and give everyone a chance, the prize passes to the next eligible participant.</i>\n\n` +
+            `🎉 Amazing performance! You can win again in the next round.`;
+          await this.bot.bot.telegram.sendMessage(scorer.telegram_id, message, { parse_mode: 'HTML' });
+          continue;
+        }
+
         if (eligibleIdx >= 0 && eligibleIdx < numWinners) {
           // Winner
           const position = eligibleIdx + 1;

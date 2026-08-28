@@ -19,11 +19,16 @@ export class ParticipantService {
     answers: Answer[],
     shuffledOptions: ShuffledOptions[]
   ): Promise<Participant> {
+    // completion_order is assigned ATOMICALLY inside the INSERT using a subquery,
+    // so concurrent finishers (300+ at once) never collide on the same order.
+    // The passed-in completionOrder param is ignored in favor of this atomic count.
     const result = await db.query(
       `INSERT INTO participants 
        (challenge_id, user_id, telegram_id, username, score, total_questions, 
         completion_time_seconds, completion_order, started_at, completed_at, answers, shuffled_options)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+       VALUES ($1, $2, $3, $4, $5, $6, $7,
+        (SELECT COUNT(*) + 1 FROM participants WHERE challenge_id = $1),
+        $8, $9, $10, $11)
        RETURNING *`,
       [
         challengeId,
@@ -33,7 +38,6 @@ export class ParticipantService {
         score,
         totalQuestions,
         completionTimeSeconds,
-        completionOrder,
         startedAt,
         completedAt,
         JSON.stringify(answers),

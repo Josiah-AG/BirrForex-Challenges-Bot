@@ -1113,6 +1113,82 @@ export class AdminHandler {
       await ctx.reply('❌ Error loading challenge.');
     }
   }
+
+  /**
+   * Export ALL attempts for the current/most-recent quiz challenge as CSV.
+   * Columns: Rank, Username, Telegram_ID, Score, Total_Questions, Time_Seconds, Completion_Order, Completed_At
+   * Ordered by rank (score DESC, completed_at ASC) — first to last.
+   */
+  async exportQuizWinner(ctx: Context) {
+    if (!this.checkAdmin(ctx)) return;
+
+    try {
+      const { db } = await import('../database/db');
+
+      // Most recent quiz challenge (active or completed)
+      const { rows: recent } = await db.query(
+        `SELECT * FROM challenges WHERE status IN ('active', 'completed') ORDER BY date DESC, id DESC LIMIT 1`
+      );
+      if (recent.length === 0) {
+        await ctx.reply('❌ No quiz challenges found.');
+        return;
+      }
+      const challenge = recent[0];
+
+      await ctx.reply('⏳ Generating quiz attempts export...');
+
+      // Ensure ranks are up to date, then fetch all attempts ordered first→last
+      await participantService.calculateRanks(challenge.id);
+      const { rows: participants } = await db.query(
+        `SELECT rank, username, telegram_id, score, total_questions,
+                completion_time_seconds, completion_order, completed_at, started_at
+         FROM participants
+         WHERE challenge_id = $1
+         ORDER BY rank ASC NULLS LAST`,
+        [challenge.id]
+      );
+
+      if (participants.length === 0) {
+        await ctx.reply('📊 No attempts recorded for this challenge yet.');
+        return;
+      }
+
+      const startedAt = challenge.started_at ? new Date(challenge.started_at).getTime() : null;
+
+      const header = 'Rank,Username,Telegram_ID,Score,Total_Questions,Response_Time_Seconds,Response_Time,Completion_Order,Completed_At\n';
+      const rows = participants.map((p: any) => {
+        // Response time from challenge post to this user's completion (anti-cheat metric)
+        let timeSec = p.completion_time_seconds;
+        if (startedAt && p.completed_at) {
+          timeSec = Math.max(0, Math.round((new Date(p.completed_at).getTime() - startedAt) / 1000));
+        }
+        const mins = Math.floor(timeSec / 60);
+        const secs = timeSec % 60;
+        const timeStr = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+        const uname = p.username ? '@' + p.username : 'unknown';
+        const completedAt = p.completed_at ? new Date(p.completed_at).toISOString() : '';
+        return `${p.rank ?? 'N/A'},${uname},${p.telegram_id},${p.score},${p.total_questions},${timeSec},${timeStr},${p.completion_order ?? 'N/A'},${completedAt}`;
+      }).join('\n');
+
+      const csv = header + rows;
+      const dateStr = challenge.date ? new Date(challenge.date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
+      const filename = `quiz_attempts_${dateStr}.csv`;
+
+      const perfectCount = participants.filter((p: any) => p.score === p.total_questions).length;
+
+      await ctx.telegram.sendDocument(config.adminUserId, {
+        source: Buffer.from(csv),
+        filename,
+      }, {
+        caption: `📊 <b>Quiz Attempts Export</b>\n<i>${new Date(challenge.date).toDateString()}</i>\n\n` +
+          `Total attempts: ${participants.length}\nPerfect scores: ${perfectCount}`,
+        parse_mode: 'HTML',
+      });
+    } catch (error) {
+      console.error('Error exporting quiz winners:', error);
+      await ctx.reply('❌ Error generating export.');
+    }
+  }
 }
 
 export const adminHandler = new AdminHandler();
