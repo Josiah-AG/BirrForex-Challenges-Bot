@@ -1001,3 +1001,86 @@ Major session focused on making the host dashboard work identically to the admin
 - `SELECT *` queries include new columns automatically
 
 **Commit:** `b9634f8`
+
+---
+
+## Session — August 27, 2026 — Per-Category Settings (Full) + Host Pull Progress + Quiz System Fixes
+
+This session had three major work streams. All committed and pushed to `main`.
+
+### PART A — Per-Category Settings for Hybrid Challenges (FRONTEND + BOT + FULL BACKEND)
+
+Building on the backend foundation from the previous session, completed the entire per-category feature so that hybrid challenges can give Demo and Real participants **independent deposit modes, starting balances, targets, and rules**.
+
+**What "split" means now (when "Different settings per category" toggle is ON for a hybrid challenge):**
+- The shared Deposit Mode / Starting Balance / Target fields HIDE completely
+- Two independent sections appear: **Demo Category** and **Real Category**
+- Each has its OWN deposit mode selector (Fixed / Max Limit / Min Limit), its own starting balance, and its own target ($ for fixed, growth % for max/min limit)
+- Rules step shows **Demo Rules** and **Real Rules** as separate tabs, each a full independent rule config
+- Rules saved as `rule_code='config_demo'` and `rule_code='config_real'`
+
+**Commits (in order):**
+- `e31c845` — Initial per-category settings UI (host + admin create/settings/rules tabs, telegram bot registration + admin wizard). Frontend toggle + per-category balance fields; backend saveRules(ruleCode) param, gatekeeper/host INSERT include split fields, GET/PUT rules endpoints accept `?rule_code=` query param, tradingRegistrationHandler uses resolveCategoryBalances, tradingAdminHandler wizard asks about split.
+- `1925d6d` — **Enhanced per-category: independent deposit mode + target type + rules per category.** DB migration added 4 columns: `demo_deposit_mode`, `real_deposit_mode` (VARCHAR default 'fixed'), `demo_target_percent`, `real_target_percent` (NUMERIC). categorySettings.ts `resolveCategoryBalances()` now returns `{ startingBalance, targetBalance, depositMode, targetPercent }` + added `resolveCategoryDepositMode()`. Host + admin create forms: split toggle hides shared, shows independent Demo/Real sections with own deposit mode cards. Host SplitRulesEditor component (Demo/Real tabs). Backend evaluation uses categoryBal.depositMode/targetPercent.
+- `b769f01` — Admin panel Step 3 shows Demo/Real rules tabs when split ON + review shows both rule sets (admin had been missing the tabs).
+- `2e53474` — Host review step shows per-category Demo/Real rules when split ON.
+- `e867028` — Review step (both host + admin) shows ALL rules per category, not just a summary subset.
+- `8453aae` — **Full backend audit: fixed 7 bugs** where shared `deposit_mode` was read directly instead of per-category resolution:
+  1. tradingRegistrationHandler.verifyVpsConnection — depositMode from resolver
+  2. tradingScheduler.checkPreStartBalanceWarning — resolve depositMode per-account in loop
+  3. server.ts verify-mt5 — uses catBal.depositMode + startingBalance in response
+  4. server.ts change-account — query now includes split fields; uses resolved depositMode
+  5. server.ts change-registration — resolved depositMode
+  6. server.ts CSV bulk registration — resolveCategoryBalances per row
+  7. leaderboardService.updateRankings — resolves rankByGrowth per accountType inside loop (demo can be Fixed while real is Max Limit)
+  Also cleaned dead depositMode/targetPercent vars in wpEvaluationEngine.
+- `2e820b0` — Host overview top card shows per-category balance + target with deposit-mode awareness ($ vs %).
+- `049060b` — Host overview card shows Deposit Mode field (single label if same, "D: Fixed  R: Max Limit" if different).
+- `2afd73f` — Overview card uses 5-column grid so all fields (Type, Deposit Mode, Balance, Start, End) fit in one row.
+
+**Files touched (Part A):** `src/database/migrate.ts`, `src/utils/categorySettings.ts`, `src/api/server.ts`, `src/services/challengeGatekeeper.ts`, `src/services/wpEvaluationEngine.ts`, `src/services/leaderboardService.ts`, `src/scheduler/tradingScheduler.ts`, `src/bot/tradingRegistrationHandler.ts`, `src/bot/tradingAdminHandler.ts`, `WinnerPip/winnerpip/app/host/dashboard/page.tsx`, `WinnerPip/winnerpip/app/admin/panel/page.tsx`
+
+**Design principle (unchanged):** Toggle OFF or non-hybrid = zero behavior change (falls through to shared values). Only hybrid + toggle ON uses per-category logic. `resolveCategoryBalances(challenge, accountType)` is the single source of truth used everywhere.
+
+### PART B — Host Dashboard Pull Progress Bars + Stop Button
+
+- `e3175e1` — Persistent pull progress bars. Enhanced host `pull-status` endpoint returns stepLabel, processed/total, etaSeconds. On-mount detection polls pull-status when Updates tab loads or challenge changes (survives refresh). useRef-based polling interval persists across re-renders. Auto-dismisses 3s after completion. Credential Failures "Retry All" also persists via retry-all-status on-mount check.
+- `6a43c2a` — Progress bar stays INSIDE the Updates tab only (not all tabs), but persists across tab changes / refresh via the on-mount polling.
+- `03aa17a` — Added **Stop button** for running pulls: new `POST /api/host/challenge/:id/cancel-pull` endpoint (verifies ownership, calls scheduler.cancelPull(), marks batch cancelled). Red Stop button inline in the progress bar.
+- `6aa56d4` — Progress bar uses generic "Step 1/2/3/4" labels (hides internal mechanism from hosts) instead of Pulling/Reconciling/Settling/Evaluating. Update history list now shows duration in seconds per update.
+
+**Files touched (Part B):** `src/api/hostRoutes.ts`, `WinnerPip/winnerpip/app/host/dashboard/page.tsx`
+
+### PART C — Quiz System Fixes (commit `c9120df`)
+
+Fixed multiple bugs reported from a live challenge (screenshots showed "9/9" corruption, duplicate winner #3 = backup #4, and a 32s user who wasn't chosen).
+
+**Root causes diagnosed:**
+- **"9/9" corruption:** `recordAnswer` appended on every tap; double-taps/duplicate Telegram callbacks inflated the answers array. `total_questions` was `session.answers.length` instead of actual question count.
+- **Winner = backup duplicate:** backup list sliced from raw perfectScorers by naive `winners.length` offset, misaligned after consecutive-win skips.
+- **Consecutive winner got no message:** the skip logic did `continue` silently; the `consecutiveWinner` message template existed but was never called.
+- **completion_order race:** `getCompletionOrder` read COUNT(*) before insert, so simultaneous finishers collided.
+
+**Fixes implemented:**
+1. `sessionService.recordAnswer` — idempotent via SQL `NOT EXISTS` on jsonb question_id; returns boolean. `quizHandler.handleAnswer` rejects duplicate/stale taps with "Already answered".
+2. `quizHandler.completeQuiz` — `total_questions` from actual `getQuestions().length`; score deduped by unique question_id (Map), capped; double-completion guard via hasParticipated + try/catch on unique-constraint error 23505.
+3. `participantService.createParticipant` — completion_order assigned atomically via `(SELECT COUNT(*)+1)` subquery inside INSERT. (participants table already has `UNIQUE(challenge_id, telegram_id)`.)
+4. `postService.generateResultsPost` — backup list filters out winners by telegram_id Set before slicing.
+5. `scheduler.sendResultNotifications` — sends consecutive-win skip DM ("🎯 PERFECT SCORE AGAIN — Consecutive Win Rule Applied") instead of silent continue.
+6. **New `/exportquizwinner` admin command** (`adminHandler.exportQuizWinner`, registered in bot.ts) — CSV of ALL attempts for the current/most-recent quiz challenge: Rank, Username, Telegram_ID, Score, Total_Questions, Response_Time (from challenge post to finish — anti-cheat metric), Completion_Order, Completed_At. Ordered first→last.
+
+**Ranking metric (confirmed with user, UNCHANGED):** time measured from **challenge post time (`challenge.started_at`) to each user's finish**, for everyone equally. NOT per-user start→end (that would let cheaters preview questions on one account then speed-run on another). This is the existing `ORDER BY completed_at ASC` behavior — it was never the bug; the corruption was.
+
+**Files touched (Part C):** `src/services/sessionService.ts`, `src/bot/quizHandler.ts`, `src/services/participantService.ts`, `src/services/postService.ts`, `src/scheduler/scheduler.ts`, `src/bot/adminHandler.ts`, `src/bot/bot.ts`
+
+### KNOWN REMAINING / NOT DONE (pick up here when we return)
+
+- **Quiz — minor:** A consecutive-win-skipped perfect scorer could still appear in the channel BACKUP LIST (postService only excludes actual winners, not skipped-ineligible users). The scheduler passes raw `perfectScorers` to `generateResultsPost` and doesn't pass the eligible/skipped info. Low priority display issue; the reported duplicate bug IS fixed.
+- **Per-category:** User dashboard (`/challenge/[id]`) already shows correct per-category target via API — no change was needed. Not independently re-verified this session.
+- **Host system:** User said "lets go to the host system" next — we were about to start a NEW host-system work stream but pivoted to another project. **Return point: begin the host-system task the user will describe.**
+- All migrations are code-level; the 4 new per-category columns (`demo_deposit_mode`, `real_deposit_mode`, `demo_target_percent`, `real_target_percent`) are added via `migrate.ts` and run on deploy.
+
+### VERIFICATION STATUS
+- Backend TypeScript: compiles clean (`npx tsc --noEmit --skipLibCheck`)
+- Frontend: `npx next build` passes (only a pre-existing unused-var warning for `recentPullErrors`)
+- All changes committed and pushed to `main`. Latest commit: `c9120df`
