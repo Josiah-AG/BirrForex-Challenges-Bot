@@ -96,6 +96,7 @@ export interface UserSession {
   started_at: Date;
   answers: Answer[];
   shuffled_options: ShuffledOptions[];
+  question_order: number[]; // per-user shuffled sequence of question IDs
 }
 
 export interface ChallengeStats {

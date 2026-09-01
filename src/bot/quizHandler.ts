@@ -68,8 +68,12 @@ export class QuizHandler {
       shuffled_order: shuffleArray(['A', 'B', 'C', 'D']),
     }));
 
+    // Generate a per-user shuffled question order (array of question IDs).
+    // Each participant sees the questions in a different sequence.
+    const questionOrder: number[] = shuffleArray(questions.map(q => q.id));
+
     // Create session
-    await sessionService.createSession(telegramId, challengeId, shuffledOptions);
+    await sessionService.createSession(telegramId, challengeId, shuffledOptions, questionOrder);
 
     // Send welcome message
     await ctx.reply(
@@ -99,6 +103,31 @@ export class QuizHandler {
   }
 
   /**
+   * Reorder questions to match a user's per-session shuffled sequence.
+   * `order` is an array of question IDs. Any questions not present in `order`
+   * (or if `order` is empty — e.g. legacy sessions) fall back to the original order,
+   * so nothing ever gets dropped.
+   */
+  orderQuestions(questions: Question[], order: number[]): Question[] {
+    if (!order || order.length === 0) return questions;
+    const byId = new Map(questions.map(q => [q.id, q]));
+    const ordered: Question[] = [];
+    const used = new Set<number>();
+    for (const id of order) {
+      const q = byId.get(id);
+      if (q && !used.has(id)) {
+        ordered.push(q);
+        used.add(id);
+      }
+    }
+    // Append any questions missing from the order list (safety net)
+    for (const q of questions) {
+      if (!used.has(q.id)) ordered.push(q);
+    }
+    return ordered;
+  }
+
+  /**
    * Send question to user
    */
   async sendQuestion(ctx: Context, challengeId: number, questions: Question[], questionIndex: number) {
@@ -110,7 +139,15 @@ export class QuizHandler {
       return;
     }
 
-    const question = questions[questionIndex];
+    // Reorder the questions by this user's per-session shuffled sequence.
+    // questionIndex walks the user's own order, not the DB order_number.
+    const orderedQuestions = this.orderQuestions(questions, session.question_order);
+
+    const question = orderedQuestions[questionIndex];
+    if (!question) {
+      await ctx.reply('❌ Error loading question.');
+      return;
+    }
     const shuffled = session.shuffled_options.find(s => s.question_id === question.id);
     
     if (!shuffled) {

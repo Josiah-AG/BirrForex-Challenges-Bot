@@ -10,13 +10,18 @@ class SessionService {
   /**
    * Create new session (upsert — replaces if exists)
    */
-  async createSession(telegramId: number, challengeId: number, shuffledOptions: ShuffledOptions[]): Promise<void> {
+  async createSession(
+    telegramId: number,
+    challengeId: number,
+    shuffledOptions: ShuffledOptions[],
+    questionOrder: number[] = []
+  ): Promise<void> {
     await db.query(
-      `INSERT INTO quiz_sessions (telegram_id, challenge_id, current_question, answers, shuffled_options, started_at)
-       VALUES ($1, $2, 0, '[]'::jsonb, $3::jsonb, NOW())
+      `INSERT INTO quiz_sessions (telegram_id, challenge_id, current_question, answers, shuffled_options, question_order, started_at)
+       VALUES ($1, $2, 0, '[]'::jsonb, $3::jsonb, $4::jsonb, NOW())
        ON CONFLICT (telegram_id, challenge_id) DO UPDATE SET
-         current_question = 0, answers = '[]'::jsonb, shuffled_options = $3::jsonb, started_at = NOW()`,
-      [telegramId, challengeId, JSON.stringify(shuffledOptions)]
+         current_question = 0, answers = '[]'::jsonb, shuffled_options = $3::jsonb, question_order = $4::jsonb, started_at = NOW()`,
+      [telegramId, challengeId, JSON.stringify(shuffledOptions), JSON.stringify(questionOrder)]
     );
   }
 
@@ -25,7 +30,7 @@ class SessionService {
    */
   async getSession(telegramId: number, challengeId: number): Promise<UserSession | null> {
     const result = await db.query(
-      `SELECT telegram_id, challenge_id, current_question, answers, shuffled_options, started_at
+      `SELECT telegram_id, challenge_id, current_question, answers, shuffled_options, question_order, started_at
        FROM quiz_sessions WHERE telegram_id = $1 AND challenge_id = $2`,
       [telegramId, challengeId]
     );
@@ -38,6 +43,7 @@ class SessionService {
       started_at: new Date(row.started_at),
       answers: row.answers || [],
       shuffled_options: row.shuffled_options || [],
+      question_order: row.question_order || [],
     };
   }
 

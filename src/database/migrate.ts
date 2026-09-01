@@ -521,9 +521,12 @@ async function migrate() {
       current_question INTEGER DEFAULT 0,
       answers JSONB DEFAULT '[]'::jsonb,
       shuffled_options JSONB DEFAULT '[]'::jsonb,
+      question_order JSONB DEFAULT '[]'::jsonb,
       started_at TIMESTAMP DEFAULT NOW(),
       PRIMARY KEY (telegram_id, challenge_id)
     );`).catch(() => {});
+    // For existing deployments that already created quiz_sessions without question_order
+    await db.query(`ALTER TABLE quiz_sessions ADD COLUMN IF NOT EXISTS question_order JSONB DEFAULT '[]'::jsonb;`).catch(() => {});
     console.log('✅ quiz_sessions table OK');
 
     // Deduplication flags for quiz scheduler posts
