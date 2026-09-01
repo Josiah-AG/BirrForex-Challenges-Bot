@@ -1776,10 +1776,24 @@ Use the buttons below to manage challenges:`;
 
         const stats = await participantService.getChallengeStats(challengeId);
 
-        // Check if ranks have been calculated
+        // If this participant has no rank yet, compute ranks on-demand instead of telling
+        // the user to "try again later" (which never resolves if the scheduled rank
+        // calculation missed them — e.g. finished after ranks ran, or a partial end run).
+        // Ranking is idempotent, so it's safe to run here. Only recompute for a
+        // completed/closed challenge; for a still-active one we genuinely wait.
         if (participant.rank === null || participant.rank === undefined) {
-          await ctx.reply('⏳ Rankings are being calculated. Please try again in a moment.');
-          return;
+          if (challenge.status === 'completed') {
+            await participantService.calculateRanks(challengeId);
+            const refreshed = await participantService.getParticipant(challengeId, telegramId);
+            if (refreshed && refreshed.rank != null) {
+              participant.rank = refreshed.rank;
+            }
+          }
+          // Still no rank (challenge not closed yet, or something odd) → wait message.
+          if (participant.rank === null || participant.rank === undefined) {
+            await ctx.reply('⏳ Rankings are being calculated. Please try again in a moment.');
+            return;
+          }
         }
 
         const text = `<b>🏅 YOUR RANK</b>
