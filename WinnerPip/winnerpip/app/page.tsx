@@ -138,6 +138,36 @@ export default function Home() {
           </div>
         </section>
 
+        {/* Broker Partner - Exness */}
+        <section className="py-8 md:py-12 relative" aria-label="Broker partner">
+          <div className="container mx-auto px-4">
+            <div className="max-w-6xl mx-auto relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-[#141414] via-[#0d0d0d] to-black p-8 md:p-10">
+              <div className="absolute inset-0 bg-gradient-to-r from-transparent to-gold/5 pointer-events-none"></div>
+              <div className="relative flex flex-col md:flex-row md:items-center justify-between gap-6">
+                <div className="max-w-2xl">
+                  <p className="text-gold text-xs font-bold uppercase tracking-wider mb-2">Broker Partner</p>
+                  <h3 className="text-2xl md:text-3xl font-bold text-white mb-3">Open a trading account with Exness</h3>
+                  <p className="text-gray-400 text-sm md:text-base leading-relaxed">
+                    Ready to trade what you learn? Open an account with our partner broker Exness and get set up on MT5 in a few minutes.
+                  </p>
+                </div>
+                <div className="flex-shrink-0">
+                  <a
+                    href="https://one.exnessonelink.com/boarding/sign-up/a/bqsuza6sq1/?campaign=43614"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="group inline-flex items-center gap-2 bg-gold hover:bg-gold/90 text-black font-bold px-7 py-3.5 rounded-full transition shadow-lg shadow-gold/20"
+                    aria-label="Open a trading account with Exness"
+                  >
+                    Open Account
+                    <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" aria-hidden="true" />
+                  </a>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
         {/* How It Works */}
         <section id="how-it-works" className="py-16 md:py-24 relative">
           <div className="container mx-auto px-4">
@@ -203,35 +233,6 @@ export default function Home() {
                 <div className="bg-white/5 rounded-xl p-4 border border-white/5">
                   <p className="text-profit font-bold text-sm mb-1">Standard MT5 feature</p>
                   <p className="text-gray-500 text-xs">Built into MetaTrader by design for safe third-party monitoring</p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-        {/* Broker Partner - Exness */}
-        <section className="py-8 md:py-12 relative" aria-label="Broker partner">
-          <div className="container mx-auto px-4">
-            <div className="max-w-6xl mx-auto relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-[#141414] via-[#0d0d0d] to-black p-8 md:p-10">
-              <div className="absolute inset-0 bg-gradient-to-r from-transparent to-gold/5 pointer-events-none"></div>
-              <div className="relative flex flex-col md:flex-row md:items-center justify-between gap-6">
-                <div className="max-w-2xl">
-                  <p className="text-gold text-xs font-bold uppercase tracking-wider mb-2">Broker Partner</p>
-                  <h3 className="text-2xl md:text-3xl font-bold text-white mb-3">Open a trading account with Exness</h3>
-                  <p className="text-gray-400 text-sm md:text-base leading-relaxed">
-                    Ready to trade what you learn? Open an account with our partner broker Exness and get set up on MT5 in a few minutes.
-                  </p>
-                </div>
-                <div className="flex-shrink-0">
-                  <a
-                    href="https://one.exnessonelink.com/boarding/sign-up/a/bqsuza6sq1/?campaign=43614"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="group inline-flex items-center gap-2 bg-gold hover:bg-gold/90 text-black font-bold px-7 py-3.5 rounded-full transition shadow-lg shadow-gold/20"
-                    aria-label="Open a trading account with Exness"
-                  >
-                    Open Account
-                    <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" aria-hidden="true" />
-                  </a>
                 </div>
               </div>
             </div>
