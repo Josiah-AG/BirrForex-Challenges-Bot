@@ -141,8 +141,14 @@ export default function Home() {
         {/* Broker Partner - Exness */}
         <section className="py-8 md:py-12 relative" aria-label="Broker partner">
           <div className="container mx-auto px-4">
-            <div className="max-w-6xl mx-auto relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-[#141414] via-[#0d0d0d] to-black p-8 md:p-10">
-              <div className="absolute inset-0 bg-gradient-to-r from-transparent to-gold/5 pointer-events-none"></div>
+            <a
+              href="https://one.exnessonelink.com/boarding/sign-up/a/bqsuza6sq1/?campaign=43614"
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Open a trading account with Exness"
+              className="group block max-w-6xl mx-auto relative overflow-hidden rounded-2xl border border-white/10 hover:border-gold/40 bg-gradient-to-br from-[#141414] via-[#0d0d0d] to-black p-8 md:p-10 transition-all duration-300 hover:-translate-y-1 hover:shadow-2xl hover:shadow-gold/20 cursor-pointer"
+            >
+              <div className="absolute inset-0 bg-gradient-to-r from-transparent to-gold/5 opacity-100 group-hover:to-gold/15 transition-all duration-300 pointer-events-none"></div>
               <div className="relative flex flex-col md:flex-row md:items-center justify-between gap-6">
                 <div className="max-w-2xl">
                   <p className="text-gold text-xs font-bold uppercase tracking-wider mb-2">Broker Partner</p>
@@ -152,19 +158,13 @@ export default function Home() {
                   </p>
                 </div>
                 <div className="flex-shrink-0">
-                  <a
-                    href="https://one.exnessonelink.com/boarding/sign-up/a/bqsuza6sq1/?campaign=43614"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="group inline-flex items-center gap-2 bg-gold hover:bg-gold/90 text-black font-bold px-7 py-3.5 rounded-full transition shadow-lg shadow-gold/20"
-                    aria-label="Open a trading account with Exness"
-                  >
+                  <span className="inline-flex items-center gap-2 bg-gold group-hover:bg-gold/90 text-black font-bold px-7 py-3.5 rounded-full transition-all shadow-lg shadow-gold/20 group-hover:shadow-gold/40 group-hover:scale-105">
                     Open Account
                     <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" aria-hidden="true" />
-                  </a>
+                  </span>
                 </div>
               </div>
-            </div>
+            </a>
           </div>
         </section>
 
