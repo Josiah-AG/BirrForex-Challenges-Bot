@@ -114,7 +114,7 @@ export default function HostLandingPage() {
       <footer className="border-t border-white/5 py-8">
         <div className="container mx-auto px-4 text-center">
           <p className="text-gray-600 text-sm">
-            <a href="https://linktr.ee/birrforex" target="_blank" rel="noopener noreferrer" className="hover:text-gray-400 transition-colors">
+            <a href="https://www.birrforex.com/contact-winnerpip" target="_blank" rel="noopener noreferrer" className="hover:text-gray-400 transition-colors">
               Powered by <strong className="text-gray-400">BirrForex</strong>
             </a>
           </p>

@@ -43,7 +43,7 @@ export default function AboutPage() {
 
           <h2 className="text-xl font-bold text-white pt-4">Powered by BirrForex</h2>
           <p>
-            WinnerPip is developed and operated by <a href="https://linktr.ee/birrforex" target="_blank" rel="noopener noreferrer" className="text-gold hover:underline font-semibold">BirrForex</a>, an Ethiopian forex education and community brand focused on building tools that make trading more accessible, competitive, and fair.
+            WinnerPip is developed and operated by <a href="https://www.birrforex.com/contact-winnerpip" target="_blank" rel="noopener noreferrer" className="text-gold hover:underline font-semibold">BirrForex</a>, an Ethiopian forex education and community brand focused on building tools that make trading more accessible, competitive, and fair.
           </p>
         </div>
       </div>

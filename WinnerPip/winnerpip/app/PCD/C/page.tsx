@@ -185,7 +185,7 @@ export default function DemoLanding() {
               <Link href="/PCD/C" className="text-gray-500 hover:text-gray-300 transition">About</Link>
               <Link href="/PCD/C" className="text-gray-500 hover:text-gray-300 transition">Terms</Link>
               <Link href="/PCD/C" className="text-gray-500 hover:text-gray-300 transition">Privacy</Link>
-              <a href="https://birrforex.com/contact-winnerpip" target="_blank" rel="noopener noreferrer" className="text-gray-500 hover:text-gray-300 transition">Contact</a>
+              <a href="https://www.birrforex.com/contact-winnerpip" target="_blank" rel="noopener noreferrer" className="text-gray-500 hover:text-gray-300 transition">Contact</a>
             </div>
           </div>
         </div>

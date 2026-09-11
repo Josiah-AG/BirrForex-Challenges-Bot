@@ -13,7 +13,7 @@ export const metadata: Metadata = {
     "forex trading prizes", "live trading challenge", "demo trading contest",
     "trading competition management", "WinnerPip", "BirrForex",
   ],
-  authors: [{ name: "BirrForex", url: "https://linktr.ee/birrforex" }],
+  authors: [{ name: "BirrForex", url: "https://www.birrforex.com/contact-winnerpip" }],
   creator: "BirrForex",
   publisher: "WinnerPip",
   metadataBase: new URL("https://winnerpip.com"),
@@ -87,7 +87,7 @@ export default function RootLayout({
               "creator": {
                 "@type": "Organization",
                 "name": "BirrForex",
-                "url": "https://linktr.ee/birrforex",
+                "url": "https://www.birrforex.com/contact-winnerpip",
               },
             }),
           }}
