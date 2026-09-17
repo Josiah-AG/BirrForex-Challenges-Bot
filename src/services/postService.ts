@@ -192,7 +192,8 @@ Go go go! Start the challenge 👇`;
     winners: Winner[],
     backups: Participant[],
     stats: any,
-    botUsername: string
+    botUsername: string,
+    backupPool?: Participant[]
   ) {
     const winnersSection = winners.length > 0
       ? winners.map((w, i) => {
@@ -203,12 +204,11 @@ Go go go! Start the challenge 👇`;
         }).join('\n')
       : 'No winner';
 
-    // Backup list = perfect scorers who are NOT already winners.
-    // Exclude by telegram_id so consecutive-win skips (which make winners ≠ the first N
-    // perfect scorers) never cause a winner to reappear as a backup.
-    const winnerIds = new Set(winners.map(w => w.telegram_id));
+    // Backup list = the shared pool computed by the caller (excludes winners AND consecutive winners).
+    // Falls back to local computation only if no pool was passed.
     const backupStart = winners.length;
-    const backupList = backups
+    const winnerIds = new Set(winners.map(w => w.telegram_id));
+    const backupList = backupPool ?? backups
       .filter(b => !winnerIds.has(b.telegram_id))
       .slice(0, config.backupListSize);
 

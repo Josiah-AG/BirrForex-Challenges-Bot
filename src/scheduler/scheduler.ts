@@ -580,12 +580,15 @@ export class Scheduler {
       // Get perfect scorers
       const perfectScorers = await participantService.getPerfectScorers(challenge.id);
 
-      // Determine winners (check consecutive win rule)
+      // Split perfect scorers into eligible (didn't win last challenge) and consecutive winners (won last — excluded from BOTH winners and backup)
       const eligibleWinners: typeof perfectScorers = [];
+      const consecutiveWinnerIds = new Set<number>();
       for (const scorer of perfectScorers) {
         const wonLast = await userService.wonLastChallenge(scorer.telegram_id, challenge.date);
         if (!wonLast) {
           eligibleWinners.push(scorer);
+        } else {
+          consecutiveWinnerIds.add(scorer.telegram_id);
         }
       }
 
@@ -614,12 +617,21 @@ export class Scheduler {
       const winners = await winnerService.getWinners(challenge.id);
       const botInfo = await this.bot.bot.telegram.getMe();
 
+      // ===== SINGLE SHARED RESULTS POOL — both channel post and admin report read from this =====
+      // Backup = eligible perfect scorers who are NOT winners AND did NOT win the last challenge.
+      // Consecutive winners are excluded from the backup entirely.
+      const winnerIds = new Set(winners.map(w => w.telegram_id));
+      const backupPool = perfectScorers
+        .filter(p => !winnerIds.has(p.telegram_id) && !consecutiveWinnerIds.has(p.telegram_id))
+        .slice(0, config.backupListSize);
+
       const resultsPost = postService.generateResultsPost(
         challenge,
         winners,
         perfectScorers,
         stats,
-        botInfo.username!
+        botInfo.username!,
+        backupPool
       );
 
       await this.bot.bot.telegram.sendMessage(
@@ -628,8 +640,8 @@ export class Scheduler {
         { ...resultsPost.keyboard, parse_mode: resultsPost.parse_mode, link_preview_options: { is_disabled: true } }
       );
 
-      // Send admin report
-      await this.sendAdminReport(challenge.id);
+      // Send admin report (uses the SAME backupPool)
+      await this.sendAdminReport(challenge.id, backupPool);
 
       console.log('✅ Challenge ended and results posted');
     } catch (error) {
@@ -746,7 +758,7 @@ export class Scheduler {
   /**
    * Send admin report
    */
-  private async sendAdminReport(challengeId: number) {
+  private async sendAdminReport(challengeId: number, backupPool?: any[]) {
     try {
       const challenge = await challengeService.getChallengeById(challengeId);
       const stats = await participantService.getChallengeStats(challengeId);
@@ -796,15 +808,17 @@ export class Scheduler {
         report += 'No winners\n';
       }
 
-      // Add backup list (starts after all winners)
-      const numWinners = winners.length;
-      if (perfectScorers.length > numWinners) {
-        const backupLimit = Math.min(numWinners + config.backupListSize, perfectScorers.length);
+      // Add backup list — uses the SAME shared backupPool as the channel post (identical members + times).
+      // Falls back to local computation only if no pool passed (e.g., manual re-run).
+      const { formatTimeSmart } = require('../utils/helpers');
+      const winnerIds = new Set(winners.map(w => w.telegram_id));
+      const backupList = backupPool ?? perfectScorers.filter(p => !winnerIds.has(p.telegram_id)).slice(0, config.backupListSize);
+      if (backupList.length > 0 && challenge?.started_at) {
         report += `\n📋 BACKUP LIST:\n`;
-        for (let i = numWinners; i < backupLimit; i++) {
-          const backup = perfectScorers[i];
-          report += `${i - numWinners + 1}. ${backup.username ? '@' + backup.username : 'Participant'} (ID: ${backup.telegram_id}) - ${backup.completion_time_seconds}s\n`;
-        }
+        backupList.forEach((backup: any, i: number) => {
+          const timeStr = formatTimeSmart(backup, perfectScorers, challenge.started_at);
+          report += `${i + 1}. ${backup.username ? '@' + backup.username : 'Participant'} (ID: ${backup.telegram_id}) - ${timeStr}\n`;
+        });
       }
 
       await this.bot.bot.telegram.sendMessage(config.adminUserId, report);
