@@ -609,9 +609,6 @@ export class Scheduler {
         }
       }
 
-      // Send notifications to perfect scorers
-      await this.sendResultNotifications(challenge.id, eligibleWinners, perfectScorers);
-
       // Post results to channel
       const stats = await participantService.getChallengeStats(challenge.id);
       const winners = await winnerService.getWinners(challenge.id);
@@ -624,6 +621,9 @@ export class Scheduler {
       const backupPool = perfectScorers
         .filter(p => !winnerIds.has(p.telegram_id) && !consecutiveWinnerIds.has(p.telegram_id))
         .slice(0, config.backupListSize);
+
+      // Send notifications to perfect scorers (uses the SAME pool — winners, backups, consecutive winners each get the right message)
+      await this.sendResultNotifications(challenge.id, eligibleWinners, perfectScorers, backupPool, consecutiveWinnerIds);
 
       const resultsPost = postService.generateResultsPost(
         challenge,
@@ -652,47 +652,30 @@ export class Scheduler {
   /**
    * Send result notifications to perfect scorers
    */
-  private async sendResultNotifications(challengeId: number, eligibleWinners: any[], allPerfectScorers: any[]) {
+  private async sendResultNotifications(challengeId: number, eligibleWinners: any[], allPerfectScorers: any[], backupPool?: any[], consecutiveWinnerIds?: Set<number>) {
     const stats = await participantService.getChallengeStats(challengeId);
     const challenge = await challengeService.getChallengeById(challengeId);
 
     if (!challenge || !challenge.started_at) return;
 
     const numWinners = Math.min(challenge.num_winners || 1, eligibleWinners.length);
-    const backupStart = numWinners;
-    const backupLimit = backupStart + config.backupListSize;
 
-    for (let i = 0; i < allPerfectScorers.length && i < backupLimit; i++) {
-      const scorer = allPerfectScorers[i];
+    // Build the definitive winner/backup sets from the shared pool
+    const winnerIds = new Set(eligibleWinners.slice(0, numWinners).map(w => w.telegram_id));
+    const backupList = backupPool ?? [];
+    const backupIds = new Map<number, number>(); // telegram_id → backup position (1-based)
+    backupList.forEach((b: any, idx: number) => backupIds.set(b.telegram_id, idx + 1));
+    const consecutiveIds = consecutiveWinnerIds ?? new Set<number>();
 
+    // Notify EVERY perfect scorer with the correct message based on their true category
+    for (const scorer of allPerfectScorers) {
       try {
         let message = '';
-
-        // Calculate precise time with milliseconds
         const preciseTime = this.formatTimeWithMs(scorer.completed_at, challenge.started_at);
 
-        // Find this scorer's position among eligible winners
-        const eligibleIdx = eligibleWinners.findIndex(w => w.telegram_id === scorer.telegram_id);
-
-        // Consecutive winner — skipped from prize but MUST be notified why
-        const isEligible = eligibleIdx >= 0;
-        if (!isEligible) {
-          const lastWinDay = 'the last challenge';
-          message = `🎯 <b>PERFECT SCORE AGAIN!</b>\n\n` +
-            `📊 <b>Your Score:</b> ${scorer.score}/${scorer.total_questions} ✅\n` +
-            `⚡ <b>Response Time:</b> ${preciseTime}\n` +
-            `📍 <b>Completion Order:</b> #${scorer.completion_order}\n` +
-            `👥 <b>Total Participants:</b> ${stats.total_participants}\n` +
-            `🎯 <b>Perfect Scores:</b> ${allPerfectScorers.length}\n\n` +
-            `⚠️ <b>Consecutive Win Rule Applied</b>\n\n` +
-            `<i>You won ${lastWinDay}. To keep things fair and give everyone a chance, the prize passes to the next eligible participant.</i>\n\n` +
-            `🎉 Amazing performance! You can win again in the next round.`;
-          await this.bot.bot.telegram.sendMessage(scorer.telegram_id, message, { parse_mode: 'HTML' });
-          continue;
-        }
-
-        if (eligibleIdx >= 0 && eligibleIdx < numWinners) {
-          // Winner
+        if (winnerIds.has(scorer.telegram_id)) {
+          // WINNER
+          const eligibleIdx = eligibleWinners.findIndex(w => w.telegram_id === scorer.telegram_id);
           const position = eligibleIdx + 1;
           const posText = numWinners > 1 ? ` (${this.getOrdinal(position)} Place)` : '';
           message = `🏆 <b>CONGRATULATIONS!</b> 🏆\n\n` +
@@ -707,9 +690,20 @@ export class Scheduler {
             `📸 <b>TO CLAIM YOUR PRIZE:</b>\n` +
             `DM @birrFXadmin with this screenshot\n\n` +
             `⚠️ <i>Prize must be claimed within ${config.prizeClaimDeadlineHours} HOUR</i>`;
-        } else if (eligibleIdx >= numWinners && eligibleIdx < backupLimit) {
-          // Backup
-          const backupPosition = this.getOrdinal(eligibleIdx - numWinners + 1);
+        } else if (consecutiveIds.has(scorer.telegram_id)) {
+          // CONSECUTIVE WINNER — excluded from BOTH winners and backup, notified why
+          message = `🎯 <b>PERFECT SCORE AGAIN!</b>\n\n` +
+            `📊 <b>Your Score:</b> ${scorer.score}/${scorer.total_questions} ✅\n` +
+            `⚡ <b>Response Time:</b> ${preciseTime}\n` +
+            `📍 <b>Completion Order:</b> #${scorer.completion_order}\n` +
+            `👥 <b>Total Participants:</b> ${stats.total_participants}\n` +
+            `🎯 <b>Perfect Scores:</b> ${allPerfectScorers.length}\n\n` +
+            `⚠️ <b>Consecutive Win Rule Applied</b>\n\n` +
+            `<i>You won the last challenge, so to keep things fair you're excluded from both the winners and the backup list this round. The prize and backup spots pass to other participants.</i>\n\n` +
+            `🎉 Amazing performance! You can win again in the next round.`;
+        } else if (backupIds.has(scorer.telegram_id)) {
+          // BACKUP
+          const backupPosition = this.getOrdinal(backupIds.get(scorer.telegram_id)!);
           message = `✨ <b>EXCELLENT PERFORMANCE!</b>\n\n` +
             `📊 <b>Final Score:</b> ${scorer.score}/${scorer.total_questions} ✅\n` +
             `⚡ <b>Response Time:</b> ${preciseTime}\n` +
@@ -721,6 +715,7 @@ export class Scheduler {
             `<i>If the previous winner(s) are found ineligible or don't claim the prize within ${config.prizeClaimDeadlineHours} hour, you may receive it.</i>\n\n` +
             `Great job! 🎉`;
         }
+        // Perfect scorers beyond the backup list size get no DM (as before)
 
         if (message) {
           await this.bot.bot.telegram.sendMessage(scorer.telegram_id, message, { parse_mode: 'HTML' });
