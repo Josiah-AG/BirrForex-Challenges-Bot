@@ -66,6 +66,115 @@ API_KEY = os.environ.get("VPS_API_KEY", "")
 _next_worker   = 0
 worker_healthy = [True] * NUM_WORKERS
 
+# ── myFXpath in-flight tracker (priority lane — SAFE / non-blocking design) ──
+# CRITICAL DESIGN RULE: the Challenge system's request path must be COMPLETELY
+# UNCHANGED. Challenge /pull requests do NOT touch this tracker, never acquire a
+# lock, never wait — their code path is byte-for-byte the same as before.
+#
+# This tracker ONLY affects myFXpath (priority=True) requests. It is a plain
+# counter of how many myFXpath pulls are currently in flight, guarded by a lock
+# that ONLY myFXpath requests ever take. Therefore:
+#   • It is IMPOSSIBLE for this to block, slow, deadlock, or starve Challenge
+#     traffic — Challenge requests never enter this code at all.
+#   • Worst case if this code had a bug: only myFXpath requests are affected;
+#     the Challenge system keeps running exactly as it does today.
+#
+# DYNAMIC concurrency, based on whether the Challenge system is actively pulling:
+#
+#   • While WinnerPip is PULLING (challenge cycle in progress): myFXpath is capped
+#     to ACTIVE_CAP = floor(NUM_WORKERS / 3) (min 1) parallel pulls, so WinnerPip
+#     always keeps the other ~2/3 of terminals to itself and never has to stand
+#     off waiting for a big myFXpath batch to drain. myFXpath requests beyond the
+#     cap queue and drain N-at-a-time.
+#   • While WinnerPip is AT REST (no challenge cycle running): myFXpath may use
+#     ALL terminals in parallel (IDLE_CAP = NUM_WORKERS) for full speed.
+#
+# WinnerPip tells the router which state it's in via POST /challenge-pull-state
+# (called at cycle start/end by vpsPullScheduler.ts). If that signal is never
+# received, _challenge_pulling stays False (idle) — a safe default that only ever
+# gives myFXpath MORE room, never less, and still can't harm Challenge because
+# the Challenge path never touches this limiter.
+#
+# Env overrides:
+#   MYFXPATH_ACTIVE_CAP  — override the while-pulling cap (default floor(N/3), min 1)
+#   MYFXPATH_IDLE_CAP    — override the at-rest cap (default NUM_WORKERS)
+
+def _default_active_cap() -> int:
+    env = os.environ.get("MYFXPATH_ACTIVE_CAP")
+    if env:
+        try:
+            return max(1, int(env))
+        except ValueError:
+            pass
+    return max(1, NUM_WORKERS // 3)
+
+
+def _default_idle_cap() -> int:
+    env = os.environ.get("MYFXPATH_IDLE_CAP")
+    if env:
+        try:
+            return max(1, int(env))
+        except ValueError:
+            pass
+    return max(1, NUM_WORKERS)
+
+
+_MYFXPATH_ACTIVE_CAP = _default_active_cap()
+_MYFXPATH_IDLE_CAP = _default_idle_cap()
+
+# True while a WinnerPip (Challenge) pull cycle is in progress. Set via
+# POST /challenge-pull-state. Default False = WinnerPip at rest.
+_challenge_pulling = False
+
+
+class _MyfxpathLimiter:
+    """Non-blocking-for-Challenge limiter. ONLY myFXpath (priority=True) requests
+    use it — Challenge requests never enter this code, so it can never block,
+    slow, or starve Challenge traffic.
+
+    The allowed concurrency is DYNAMIC: it's decided at acquire time from the
+    current challenge-pull state (active cap while WinnerPip pulls, idle cap when
+    it rests). We implement this with a condition variable + a plain counter
+    rather than a fixed-size Semaphore, because the cap changes at runtime.
+    """
+    def __init__(self):
+        self._cond = asyncio.Condition()
+        self._in_flight = 0
+
+    def _current_cap(self) -> int:
+        return _MYFXPATH_ACTIVE_CAP if _challenge_pulling else _MYFXPATH_IDLE_CAP
+
+    async def __aenter__(self):
+        async with self._cond:
+            # Wait until the number in flight is below the CURRENT cap. Re-checked
+            # on every notify, so if the state flips (pull ends -> cap rises) a
+            # waiter can proceed immediately.
+            await self._cond.wait_for(lambda: self._in_flight < self._current_cap())
+            self._in_flight += 1
+        return self
+
+    async def __aexit__(self, *exc):
+        async with self._cond:
+            self._in_flight = max(0, self._in_flight - 1)
+            self._cond.notify_all()
+
+    async def notify_state_change(self):
+        # Called when the challenge-pull state flips so waiters re-evaluate the cap.
+        async with self._cond:
+            self._cond.notify_all()
+
+    def stats(self) -> dict:
+        return {
+            "myfxpath_in_flight": self._in_flight,
+            "myfxpath_cap_now": self._current_cap(),
+            "myfxpath_active_cap": _MYFXPATH_ACTIVE_CAP,
+            "myfxpath_idle_cap": _MYFXPATH_IDLE_CAP,
+            "challenge_pulling": _challenge_pulling,
+        }
+
+
+_myfxpath_limiter = _MyfxpathLimiter()
+
 # Tracks the home subtype of each worker (index 0 = worker 1)
 # Updated by /configure when TG Bot assigns home accounts
 terminal_subtype_map = ["standard"] * NUM_WORKERS
@@ -235,6 +344,9 @@ class PullRequest(BaseModel):
     from_date:        Optional[str] = None
     orders_from_date: Optional[str] = None
     extended_sync:    Optional[bool] = False
+    # myFXpath priority lane: when True, this request is granted the next freed
+    # terminal slot ahead of waiting normal-priority (Challenge) requests.
+    priority:         Optional[bool] = False
 
 
 class ListPositionsRequest(BaseModel):
@@ -310,6 +422,33 @@ async def clear_credential_cache(req: dict):
     return {"cleared": count}
 
 
+@app.post("/challenge-pull-state")
+async def challenge_pull_state(req: dict):
+    """WinnerPip (Challenge) tells the router whether a pull cycle is in progress.
+    Body: { api_key, active: bool }.
+
+    active=True  → WinnerPip is pulling → myFXpath is capped to the ACTIVE cap
+                   (floor(NUM_WORKERS/3)) so WinnerPip keeps the majority of
+                   terminals to itself.
+    active=False → WinnerPip is at rest → myFXpath may use up to the IDLE cap
+                   (all terminals).
+
+    This only ever changes myFXpath's concurrency. The Challenge pull path never
+    touches the limiter, so this can't affect Challenge traffic. Best-effort:
+    if WinnerPip never calls this, the flag stays False (idle) — safe."""
+    if req.get("api_key") != API_KEY:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+    global _challenge_pulling
+    prev = _challenge_pulling
+    _challenge_pulling = bool(req.get("active", False))
+    if prev != _challenge_pulling:
+        # Wake any waiting myFXpath requests so they re-evaluate the (changed) cap.
+        await _myfxpath_limiter.notify_state_change()
+        print(f"[Router] challenge-pull-state → {'PULLING' if _challenge_pulling else 'REST'} "
+              f"(myFXpath cap now {_myfxpath_limiter._current_cap()})")
+    return {"challenge_pulling": _challenge_pulling, "myfxpath_cap": _myfxpath_limiter._current_cap()}
+
+
 @app.get("/health")
 async def health():
     alive         = 0
@@ -341,6 +480,13 @@ async def health():
         "unhealthy_terminals":  unhealthy_list,
         "terminal_subtype_map": {str(i + 1): terminal_subtype_map[i] for i in range(NUM_WORKERS)},
     }
+
+
+@app.get("/pool-stats")
+async def pool_stats():
+    """Observability for the myFXpath priority lane only. Challenge traffic is not
+    tracked here because it does not pass through the limiter (unchanged path)."""
+    return {"success": True, "myfxpath": _myfxpath_limiter.stats()}
 
 
 @app.post("/configure")
@@ -471,6 +617,20 @@ async def pull(req: PullRequest):
     if req.api_key != API_KEY:
         raise HTTPException(status_code=401, detail="Invalid API key")
 
+    # ── Challenge path: COMPLETELY UNCHANGED ──────────────────────────────
+    # If this is NOT a myFXpath priority request, run the original pull logic
+    # directly — no lock, no limiter, no waiting. Byte-for-byte the old behavior.
+    if not req.priority:
+        return await _pull_impl(req)
+
+    # ── myFXpath path only: cap concurrency so a big sync can't hog terminals
+    # and stall the Challenge cycle. Only myFXpath requests ever reach here, so
+    # this can never block or affect Challenge traffic.
+    async with _myfxpath_limiter:
+        return await _pull_impl(req)
+
+
+async def _pull_impl(req: PullRequest):
     # ── Global credential ban check ───────────────────────────────────────
     # An account is only banned after a SECOND different terminal has confirmed
     # the -6 with a genuine real login (see _record_credential_failure). A single

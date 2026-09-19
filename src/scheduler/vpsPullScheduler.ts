@@ -456,15 +456,18 @@ export class VpsPullScheduler {
       // Resume pulling remaining accounts
       if (this.isRunning) return;
       this.isRunning = true;
+      // Tell the router we're pulling → myFXpath is capped to ~1/3 of terminals.
+      void this.setRouterChallengePullState(true);
 
       const challenge = await this.resolveChallengeForPull();
       if (!challenge || challenge.id !== challengeId) {
         this.isRunning = false;
+        void this.setRouterChallengePullState(false);
         return;
       }
 
       const healthyTerminals = this.terminals.filter(t => t.isHealthy);
-      if (healthyTerminals.length === 0) { this.isRunning = false; return; }
+      if (healthyTerminals.length === 0) { this.isRunning = false; void this.setRouterChallengePullState(false); return; }
 
       // Load remaining into shared queue and process
       this.sharedQueue.load(remaining.map(a => ({ ...a, isPriority: false })));
@@ -486,9 +489,11 @@ export class VpsPullScheduler {
       console.log(`✅ VPS Pull: Resumed cycle complete — ${remaining.length} accounts processed`);
 
       this.isRunning = false;
+      void this.setRouterChallengePullState(false);
     } catch (error) {
       console.error('⚠️ VPS Pull: Resume interrupted cycle error:', error);
       this.isRunning = false;
+      void this.setRouterChallengePullState(false);
     }
   }
 
@@ -504,6 +509,8 @@ export class VpsPullScheduler {
     this.cancelRequested = false;
     this.abortController = new AbortController();
     const startTime = Date.now();
+    // Tell the router we're pulling → myFXpath is capped to ~1/3 of terminals.
+    void this.setRouterChallengePullState(true);
 
     try {
       const challengeToPull = await this.resolveChallengeForPull();
@@ -795,6 +802,8 @@ export class VpsPullScheduler {
       this.isRunning = false;
       this.cancelRequested = false;
       this.abortController = null;
+      // Pull cycle done → tell the router myFXpath may use all terminals again.
+      void this.setRouterChallengePullState(false);
       setTimeout(() => this.drainQueue(), 2000);
     }
   }
@@ -825,6 +834,9 @@ export class VpsPullScheduler {
     const startTime = Date.now();
     let batchId: number | null = null;
     let accounts: AccountToPull[] = [];
+
+    // Tell the router we're pulling → myFXpath is capped to ~1/3 of terminals.
+    void this.setRouterChallengePullState(true);
 
     try {
       // Load challenge directly by ID — no status check (force pulls work at any status)
@@ -971,6 +983,8 @@ export class VpsPullScheduler {
       this.isRunning = false;
       this.cancelRequested = false;
       this.abortController = null;
+      // Admin force pull done → myFXpath may use all terminals again.
+      void this.setRouterChallengePullState(false);
       setTimeout(() => this.drainQueue(), 2000);
     }
   }
@@ -1722,6 +1736,26 @@ export class VpsPullScheduler {
       console.log('🗑️ VPS Pull: Router global credential cache cleared');
     } catch (e: any) {
       console.warn('⚠️ VPS Pull: Failed to clear router credential cache (non-fatal):', e.message);
+    }
+  }
+
+  /**
+   * Tell the VPS router whether a Challenge pull cycle is in progress. The router
+   * uses this to size myFXpath's concurrency: while we're pulling, myFXpath is
+   * capped to ~1/3 of terminals so we keep the majority to ourselves; when we're
+   * at rest, myFXpath may use all terminals. Best-effort — a failure here must
+   * NEVER affect our pull (the router also defaults to "rest" if never told).
+   */
+  private async setRouterChallengePullState(active: boolean): Promise<void> {
+    if (!this.baseUrl || !this.apiKey) return;
+    try {
+      await axios.post(
+        `${this.baseUrl}/challenge-pull-state`,
+        { api_key: this.apiKey, active },
+        { timeout: 5000 }
+      );
+    } catch (e: any) {
+      console.warn(`⚠️ VPS Pull: Failed to signal challenge-pull-state=${active} (non-fatal):`, e.message);
     }
   }
 
