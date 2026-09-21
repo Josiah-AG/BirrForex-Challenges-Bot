@@ -2146,6 +2146,28 @@ function HealthCheckPanel() {
   const [error, setError] = useState("");
   const [lastChecked, setLastChecked] = useState<string | null>(null);
 
+  // VPS usage report — shown automatically below the health-check button container.
+  const [reportData, setReportData] = useState<any>(null);
+  const [reportLoading, setReportLoading] = useState(true);
+  const [reportError, setReportError] = useState("");
+
+  const loadVpsReport = async () => {
+    setReportLoading(true);
+    setReportError("");
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
+      const secretPath = process.env.NEXT_PUBLIC_ADMIN_PATH || "";
+      const res = await fetch(`${apiUrl}/api/admin/${secretPath}/vps-report`);
+      if (res.ok) setReportData(await res.json());
+      else setReportError("Failed to load VPS report");
+    } catch {
+      setReportError("Could not connect to API");
+    }
+    setReportLoading(false);
+  };
+
+  useEffect(() => { loadVpsReport(); }, []);
+
   const runHealthCheck = async () => {
     setLoading(true);
     setError("");
@@ -2384,6 +2406,132 @@ function HealthCheckPanel() {
           </div>
         )}
       </div>
+
+      {/* VPS Usage Report — always visible, below the health-check container.
+          Running a health check renders results above and pushes this down. */}
+      <VpsReportSection data={reportData} loading={reportLoading} error={reportError} onRefresh={loadVpsReport} />
+    </div>
+  );
+}
+
+function VpsReportSection({ data, loading, error, onRefresh }: { data: any; loading: boolean; error: string; onRefresh: () => void }) {
+  const cur = data?.current || null;
+  const lane = cur?.requests_by_lane || {};
+  const total = Number(cur?.requests_total || 0);
+  const successRate = total ? Math.round((1000 * Number(cur?.success_total || 0)) / total) / 10 : 0;
+  const pullingMin = Math.round(Number(cur?.challenge_pulling_seconds || 0) / 60);
+  const usage = cur?.terminal_usage || {};
+  const downEvents = cur?.terminal_down_events || {};
+  const unhealthy: number[] = cur?.unhealthy_terminals || [];
+  const terminalIds = Array.from(new Set([...Object.keys(usage), ...Object.keys(downEvents)])).sort((a, b) => Number(a) - Number(b));
+  const snapshots: any[] = data?.snapshots || [];
+  const router = cur?.router || {};
+
+  return (
+    <div className="glass rounded-2xl border border-white/10 p-5 mt-6">
+      <div className="flex items-center justify-between mb-5">
+        <div className="flex items-center gap-3">
+          <div className="p-2 bg-royal/20 rounded-xl border border-royal/30"><BarChart3 className="text-royal w-5 h-5" /></div>
+          <div>
+            <h3 className="text-lg font-bold text-white">VPS Usage Report</h3>
+            <p className="text-xs text-gray-500">myFXpath vs WinnerPip usage, terminals, contention</p>
+          </div>
+        </div>
+        <button onClick={onRefresh} disabled={loading} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/5 border border-white/10 text-gray-300 text-sm font-semibold hover:bg-white/10 disabled:opacity-50 transition-all">
+          {loading ? <Loader2 size={14} className="animate-spin" /> : <Zap size={14} />}Refresh
+        </button>
+      </div>
+
+      {error && <div className="p-3 rounded-xl bg-loss/10 border border-loss/30 mb-4"><p className="text-sm text-loss">{error}</p></div>}
+      {loading && !cur && <div className="py-8 text-center"><Loader2 className="w-6 h-6 text-royal animate-spin mx-auto" /></div>}
+      {!loading && !cur && !error && <p className="text-sm text-gray-500 text-center py-6">Router not reachable — no report data.</p>}
+
+      {cur && (
+        <div className="space-y-5">
+          {/* Totals */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="bg-white/5 rounded-lg p-3 text-center"><p className="text-[10px] text-gray-500 uppercase">Requests</p><p className="text-2xl font-bold text-white">{total}</p></div>
+            <div className="bg-white/5 rounded-lg p-3 text-center"><p className="text-[10px] text-gray-500 uppercase">Success Rate</p><p className={`text-2xl font-bold ${successRate >= 90 ? "text-profit" : successRate >= 70 ? "text-gold" : "text-loss"}`}>{successRate}%</p></div>
+            <div className="bg-white/5 rounded-lg p-3 text-center"><p className="text-[10px] text-gray-500 uppercase">myFXpath / WinnerPip</p><p className="text-2xl font-bold text-royal">{Number(lane.myfxpath || 0)} / {Number(lane.challenge || 0)}</p></div>
+            <div className="bg-white/5 rounded-lg p-3 text-center"><p className="text-[10px] text-gray-500 uppercase">Failures</p><p className="text-2xl font-bold text-loss">{Number(cur.failure_total || 0)}</p></div>
+          </div>
+
+          {/* Diagnostics */}
+          {cur.diagnostics?.length > 0 && (
+            <div className="p-4 rounded-xl border border-white/10 bg-white/5">
+              <h4 className="text-sm font-bold text-white mb-2">Diagnostics</h4>
+              <ul className="list-disc pl-5 space-y-1 text-xs text-gray-300">{cur.diagnostics.map((d: string, i: number) => <li key={i}>{d}</li>)}</ul>
+            </div>
+          )}
+
+          {/* Contention */}
+          <div className="p-4 rounded-xl border border-white/10 bg-white/5">
+            <h4 className="text-sm font-bold text-white mb-3">Contention (sharing)</h4>
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-center">
+              <div className="bg-white/5 rounded-lg p-2"><p className="text-[10px] text-gray-500">myFXpath peak</p><p className="text-lg font-bold text-white">{Number(cur.myfxpath_peak_in_flight || 0)}</p></div>
+              <div className="bg-white/5 rounded-lg p-2"><p className="text-[10px] text-gray-500">Cap hits</p><p className="text-lg font-bold text-white">{Number(cur.myfxpath_capped_hits || 0)}</p></div>
+              <div className="bg-white/5 rounded-lg p-2"><p className="text-[10px] text-gray-500">WinnerPip pulling</p><p className="text-lg font-bold text-white">~{pullingMin}m</p></div>
+              <div className="bg-white/5 rounded-lg p-2"><p className="text-[10px] text-gray-500">Reroutes</p><p className="text-lg font-bold text-white">{Number(cur.reroute_requests || 0)}</p></div>
+              <div className="bg-white/5 rounded-lg p-2"><p className="text-[10px] text-gray-500">Cred. bans</p><p className="text-lg font-bold text-white">{Number(cur.credential_bans || 0)}</p></div>
+            </div>
+          </div>
+
+          {/* Per-terminal usage */}
+          <div className="p-4 rounded-xl border border-white/10 bg-white/5">
+            <h4 className="text-sm font-bold text-white mb-1">Per-terminal usage</h4>
+            <p className="text-[11px] text-gray-500 mb-3">Which terminals served myFXpath vs WinnerPip, and down events.</p>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead><tr className="text-gray-400 text-left"><th className="py-1 px-2">Terminal</th><th className="py-1 px-2 text-right">myFXpath</th><th className="py-1 px-2 text-right">WinnerPip</th><th className="py-1 px-2 text-right">Down</th><th className="py-1 px-2 text-center">Health</th></tr></thead>
+                <tbody>
+                  {terminalIds.length ? terminalIds.map((tid) => {
+                    const u = usage[tid] || { myfxpath: 0, challenge: 0 };
+                    const down = Number(downEvents[tid] || 0);
+                    const bad = unhealthy.includes(Number(tid));
+                    return (
+                      <tr key={tid} className="border-t border-white/5">
+                        <td className="py-1.5 px-2 font-medium text-white">T{tid}</td>
+                        <td className="py-1.5 px-2 text-right text-gray-300">{Number(u.myfxpath || 0)}</td>
+                        <td className="py-1.5 px-2 text-right text-gray-300">{Number(u.challenge || 0)}</td>
+                        <td className="py-1.5 px-2 text-right">{down > 0 ? <span className="text-loss font-semibold">{down}</span> : <span className="text-gray-500">0</span>}</td>
+                        <td className="py-1.5 px-2 text-center">{bad ? <span className="text-loss">● down</span> : <span className="text-profit">● up</span>}</td>
+                      </tr>
+                    );
+                  }) : <tr><td colSpan={5} className="py-3 text-center text-gray-500">No terminal usage recorded.</td></tr>}
+                </tbody>
+              </table>
+            </div>
+            <p className="text-[10px] text-gray-500 mt-2">Terminals: {Number(cur.terminals_configured || 0) || "?"} · Healthy: {(cur.healthy_terminals || []).map((t: number) => "T" + t).join(", ") || "n/a"} · Unhealthy: {unhealthy.map((t) => "T" + t).join(", ") || "none"}</p>
+          </div>
+
+          {/* Snapshots */}
+          <div className="p-4 rounded-xl border border-white/10 bg-white/5">
+            <h4 className="text-sm font-bold text-white mb-3">Snapshots (4x/day)</h4>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead><tr className="text-gray-400 text-left"><th className="py-1 px-2">Captured</th><th className="py-1 px-2 text-right">Requests</th><th className="py-1 px-2 text-right">myFXpath</th><th className="py-1 px-2 text-right">WinnerPip</th><th className="py-1 px-2 text-right">Failures</th></tr></thead>
+                <tbody>
+                  {snapshots.length ? [...snapshots].reverse().map((s: any, i: number) => {
+                    const l = s.requests_by_lane || {};
+                    const t = s.captured_at ? new Date(Number(s.captured_at) * 1000).toISOString().replace("T", " ").slice(0, 19) : "?";
+                    return (
+                      <tr key={i} className="border-t border-white/5">
+                        <td className="py-1.5 px-2 text-gray-300">{t} UTC</td>
+                        <td className="py-1.5 px-2 text-right text-gray-300">{Number(s.requests_total || 0)}</td>
+                        <td className="py-1.5 px-2 text-right text-gray-300">{Number(l.myfxpath || 0)}</td>
+                        <td className="py-1.5 px-2 text-right text-gray-300">{Number(l.challenge || 0)}</td>
+                        <td className="py-1.5 px-2 text-right text-gray-300">{Number(s.failure_total || 0)}</td>
+                      </tr>
+                    );
+                  }) : <tr><td colSpan={5} className="py-3 text-center text-gray-500">No snapshots captured yet.</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <p className="text-[10px] text-gray-500">Router: {router.git_commit || "?"} · uptime {Math.round(Number(router.uptime_seconds || 0) / 60)}m · restarts {Number(router.restart_count || 0)} · {router.challenge_pulling ? "WinnerPip pulling now" : "WinnerPip at rest"}</p>
+        </div>
+      )}
     </div>
   );
 }
