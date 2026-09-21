@@ -2464,6 +2464,43 @@ function VpsReportSection({ data, loading, error, onRefresh }: { data: any; load
             </div>
           )}
 
+          {/* Failure breakdown */}
+          {Number(cur.failure_total || 0) > 0 && (
+            <div className="p-4 rounded-xl border border-loss/20 bg-loss/5">
+              <h4 className="text-sm font-bold text-white mb-3">Failure Breakdown ({Number(cur.failure_total || 0)})</h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <p className="text-[11px] text-gray-400 mb-2 uppercase tracking-wide">By source</p>
+                  <div className="flex gap-2">
+                    <div className="flex-1 bg-white/5 rounded-lg p-2 text-center"><p className="text-[10px] text-gray-500">myFXpath</p><p className="text-lg font-bold text-royal">{Number((cur.failures_by_lane || {}).myfxpath || 0)}</p></div>
+                    <div className="flex-1 bg-white/5 rounded-lg p-2 text-center"><p className="text-[10px] text-gray-500">WinnerPip</p><p className="text-lg font-bold text-gold">{Number((cur.failures_by_lane || {}).challenge || 0)}</p></div>
+                  </div>
+                </div>
+                <div>
+                  <p className="text-[11px] text-gray-400 mb-2 uppercase tracking-wide">By type</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {Object.entries(cur.failures_by_type || {}).sort((a: any, b: any) => b[1] - a[1]).map(([k, v]) => (
+                      <span key={k} className="px-2 py-1 rounded bg-white/5 text-[11px] text-gray-300"><span className="text-loss font-semibold">{String(v)}</span> {k}</span>
+                    ))}
+                    {Object.keys(cur.failures_by_type || {}).length === 0 && <span className="text-[11px] text-gray-500">-</span>}
+                  </div>
+                </div>
+              </div>
+              {Object.keys(cur.failures_by_lane_type || {}).length > 0 && (
+                <div className="mt-3">
+                  <p className="text-[11px] text-gray-400 mb-2 uppercase tracking-wide">By source + type</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {Object.entries(cur.failures_by_lane_type || {}).sort((a: any, b: any) => b[1] - a[1]).map(([k, v]) => {
+                      const [ln, ty] = String(k).split(":");
+                      const label = ln === "myfxpath" ? "myFXpath" : "WinnerPip";
+                      return <span key={k} className="px-2 py-1 rounded bg-white/5 text-[11px] text-gray-300"><span className={ln === "myfxpath" ? "text-royal font-semibold" : "text-gold font-semibold"}>{label}</span> - {ty} <span className="text-loss font-semibold">{String(v)}</span></span>;
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Contention */}
           <div className="p-4 rounded-xl border border-white/10 bg-white/5">
             <h4 className="text-sm font-bold text-white mb-3">Contention (sharing)</h4>
@@ -2482,22 +2519,26 @@ function VpsReportSection({ data, loading, error, onRefresh }: { data: any; load
             <p className="text-[11px] text-gray-500 mb-3">Which terminals served myFXpath vs WinnerPip, and down events.</p>
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
-                <thead><tr className="text-gray-400 text-left"><th className="py-1 px-2">Terminal</th><th className="py-1 px-2 text-right">myFXpath</th><th className="py-1 px-2 text-right">WinnerPip</th><th className="py-1 px-2 text-right">Down</th><th className="py-1 px-2 text-center">Health</th></tr></thead>
+                <thead><tr className="text-gray-400 text-left"><th className="py-1 px-2">Terminal</th><th className="py-1 px-2 text-right">myFXpath</th><th className="py-1 px-2 text-right">WinnerPip</th><th className="py-1 px-2 text-right">Failures</th><th className="py-1 px-2 text-right">Down</th><th className="py-1 px-2 text-center">Health</th></tr></thead>
                 <tbody>
                   {terminalIds.length ? terminalIds.map((tid) => {
                     const u = usage[tid] || { myfxpath: 0, challenge: 0 };
                     const down = Number(downEvents[tid] || 0);
+                    const fails = Number((cur.terminal_failure || {})[tid] || 0);
+                    const failByType = (cur.terminal_failure_by_type || {})[tid] || {};
+                    const failTip = Object.entries(failByType).map(([k, v]) => `${k}:${v}`).join(", ");
                     const bad = unhealthy.includes(Number(tid));
                     return (
                       <tr key={tid} className="border-t border-white/5">
                         <td className="py-1.5 px-2 font-medium text-white">T{tid}</td>
                         <td className="py-1.5 px-2 text-right text-gray-300">{Number(u.myfxpath || 0)}</td>
                         <td className="py-1.5 px-2 text-right text-gray-300">{Number(u.challenge || 0)}</td>
+                        <td className="py-1.5 px-2 text-right" title={failTip}>{fails > 0 ? <span className="text-loss font-semibold">{fails}</span> : <span className="text-gray-500">0</span>}</td>
                         <td className="py-1.5 px-2 text-right">{down > 0 ? <span className="text-loss font-semibold">{down}</span> : <span className="text-gray-500">0</span>}</td>
                         <td className="py-1.5 px-2 text-center">{bad ? <span className="text-loss">● down</span> : <span className="text-profit">● up</span>}</td>
                       </tr>
                     );
-                  }) : <tr><td colSpan={5} className="py-3 text-center text-gray-500">No terminal usage recorded.</td></tr>}
+                  }) : <tr><td colSpan={6} className="py-3 text-center text-gray-500">No terminal usage recorded.</td></tr>}
                 </tbody>
               </table>
             </div>
