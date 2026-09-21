@@ -192,6 +192,8 @@ _myfxpath_limiter = _MyfxpathLimiter()
 # last 4 windows even across restarts.
 import json as _json
 import threading as _threading
+import time as _time
+import re as _re
 from collections import defaultdict as _defaultdict
 
 VPS_METRICS_FILE = os.environ.get(
@@ -251,7 +253,7 @@ class Metrics:
         self.credential_bans = 0
         # Contention (myFXpath vs WinnerPip sharing).
         self.myfxpath_peak_in_flight = 0
-        self.myfxpath_capped_hits = 0                             # times a pull started while at/над cap
+        self.myfxpath_capped_hits = 0                             # times a pull started while at/above cap
         self.challenge_pulling_seconds = 0.0                      # time WinnerPip was 'pulling'
         self._challenge_pull_since = _time.time() if _challenge_pulling else None
 
@@ -286,7 +288,7 @@ class Metrics:
 
     # ── the main recorder, called at each endpoint return ──
     def record_request(self, *, lane: str, req_type: str, success: bool,
-                       terminal_used: int | None, error_type: str | None,
+                       terminal_used: Optional[int], error_type: Optional[str],
                        terminals_tried: int = 1):
         lane = "myfxpath" if lane == "myfxpath" else "challenge"
         with self._lock:
@@ -492,7 +494,7 @@ except Exception as _e:
     print(f"[Router] metrics reload failed (starting fresh): {str(_e)[:150]}")
 
 
-def _classify_error(data: dict) -> str | None:
+def _classify_error(data: dict) -> Optional[str]:
     """Map a worker/router result dict to an error_type for the report.
     Returns None on success."""
     if data.get("success"):
@@ -590,7 +592,7 @@ def _normalize_account(account: str) -> str:
         return _re.sub(r'\D', '', str(account or '')) or str(account or '')
 
 
-def _get_credential_entry(account: str) -> dict | None:
+def _get_credential_entry(account: str) -> Optional[dict]:
     key = _normalize_account(account)
     entry = _global_credential_cache.get(key)
     if entry is None:
