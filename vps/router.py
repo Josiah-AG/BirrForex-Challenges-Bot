@@ -240,6 +240,10 @@ class Metrics:
         self.failure_total = 0
         self.failures_by_type = _defaultdict(int)                 # credential/terminal/timeout/other
         self.failures_by_lane = _new_lane_counts()
+        self.failures_by_lane_type = _defaultdict(int)            # "myfxpath:credential" -> n (source + type)
+        # Per-terminal failure detail, split by lane and by error type.
+        self.terminal_failure_by_lane = _defaultdict(_new_lane_counts)          # terminal -> {myfxpath, challenge}
+        self.terminal_failure_by_type = _defaultdict(lambda: _defaultdict(int)) # terminal -> {credential: n, ...}
         # Per-terminal usage split by lane: terminal -> {myfxpath, challenge}
         self.terminal_usage = _defaultdict(_new_lane_counts)
         self.terminal_success = _defaultdict(int)
@@ -299,15 +303,19 @@ class Metrics:
             if success:
                 self.success_total += 1
             else:
+                et = error_type or "other"
                 self.failure_total += 1
                 self.failures_by_lane[lane] += 1
-                self.failures_by_type[error_type or "other"] += 1
+                self.failures_by_type[et] += 1
+                self.failures_by_lane_type[f"{lane}:{et}"] += 1
             if terminal_used and 1 <= terminal_used <= NUM_WORKERS:
                 self.terminal_usage[terminal_used][lane] += 1
                 if success:
                     self.terminal_success[terminal_used] += 1
                 else:
                     self.terminal_failure[terminal_used] += 1
+                    self.terminal_failure_by_lane[terminal_used][lane] += 1
+                    self.terminal_failure_by_type[terminal_used][error_type or "other"] += 1
             if terminals_tried and terminals_tried > 1:
                 self.reroute_requests += 1
                 self.reroute_hops += (terminals_tried - 1)
@@ -339,9 +347,12 @@ class Metrics:
             "failure_total": self.failure_total,
             "failures_by_type": dict(self.failures_by_type),
             "failures_by_lane": dict(self.failures_by_lane),
+            "failures_by_lane_type": dict(self.failures_by_lane_type),
             "terminal_usage": {str(k): dict(v) for k, v in self.terminal_usage.items()},
             "terminal_success": {str(k): v for k, v in self.terminal_success.items()},
             "terminal_failure": {str(k): v for k, v in self.terminal_failure.items()},
+            "terminal_failure_by_lane": {str(k): dict(v) for k, v in self.terminal_failure_by_lane.items()},
+            "terminal_failure_by_type": {str(k): dict(v) for k, v in self.terminal_failure_by_type.items()},
             "terminal_down_events": {str(k): v for k, v in self.terminal_down_events.items()},
             "terminal_up_events": {str(k): v for k, v in self.terminal_up_events.items()},
             "reroute_requests": self.reroute_requests,
@@ -421,6 +432,11 @@ class Metrics:
             self.failures_by_type = _defaultdict(int, iv.get("failures_by_type", {}) or {})
             self.failures_by_lane = _defaultdict(int, iv.get("failures_by_lane", {}) or {})
             self.failures_by_lane.setdefault("myfxpath", 0); self.failures_by_lane.setdefault("challenge", 0)
+            self.failures_by_lane_type = _defaultdict(int, iv.get("failures_by_lane_type", {}) or {})
+            self.terminal_failure_by_lane = _defaultdict(_new_lane_counts,
+                {int(k): {**_new_lane_counts(), **v} for k, v in (iv.get("terminal_failure_by_lane", {}) or {}).items()})
+            self.terminal_failure_by_type = _defaultdict(lambda: _defaultdict(int),
+                {int(k): _defaultdict(int, v) for k, v in (iv.get("terminal_failure_by_type", {}) or {}).items()})
             self.terminal_usage = _defaultdict(_new_lane_counts,
                 {int(k): _new_lane_counts() | v for k, v in (iv.get("terminal_usage", {}) or {}).items()})
             self.terminal_success = _defaultdict(int, {int(k): v for k, v in (iv.get("terminal_success", {}) or {}).items()})
@@ -460,6 +476,13 @@ def _build_diagnostics(p: dict) -> list:
         ft = p.get("failures_by_type", {})
         breakdown = ", ".join(f"{k}:{v}" for k, v in sorted(ft.items(), key=lambda x: -x[1]))
         notes.append(f"{fail} failure(s) — {breakdown}.")
+        fl = p.get("failures_by_lane", {})
+        fmf, fch = fl.get("myfxpath", 0), fl.get("challenge", 0)
+        notes.append(f"Failures by source — myFXpath {fmf}, WinnerPip {fch}.")
+        tfl = p.get("terminal_failure", {})
+        if tfl:
+            worst = sorted(tfl.items(), key=lambda x: -x[1])[:3]
+            notes.append("Most failures on: " + ", ".join(f"T{k} ({v})" for k, v in worst) + ".")
     downs = p.get("terminal_down_events", {})
     if downs:
         dl = ", ".join(f"T{k} x{v}" for k, v in sorted(downs.items(), key=lambda x: -x[1]))
