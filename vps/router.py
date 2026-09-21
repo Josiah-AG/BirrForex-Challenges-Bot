@@ -175,6 +175,381 @@ class _MyfxpathLimiter:
 
 _myfxpath_limiter = _MyfxpathLimiter()
 
+# ── VPS telemetry / report metrics ──────────────────────────────────────────
+# A single in-memory tracker of everything worth knowing about how the shared
+# VPS is being used, so myFXpath can pull a 4x/day report and email an end-of-
+# day summary, and the WinnerPip health page can render the same data.
+#
+# SAFETY: this is purely ADDITIVE observability. It never changes routing, never
+# blocks, and the Challenge request path is byte-for-byte unchanged — endpoints
+# only call metrics.record_* at their entry/return points. A bug here can at
+# worst produce wrong numbers in a report; it cannot affect any pull/verify.
+#
+# PERSISTENCE: counters are written to VPS_METRICS_FILE (atomic temp-rename) so
+# a router restart does NOT reset the day's totals. On boot we reload the file.
+# We also keep a ring buffer of the last N interval snapshots (each captured +
+# reset by myFXpath's 4x/day POST /vps-report/snapshot) so the report shows the
+# last 4 windows even across restarts.
+import json as _json
+import threading as _threading
+from collections import defaultdict as _defaultdict
+
+VPS_METRICS_FILE = os.environ.get(
+    "VPS_METRICS_FILE",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "vps_metrics.json"),
+)
+SNAPSHOT_RING_SIZE = int(os.environ.get("VPS_SNAPSHOT_RING_SIZE", "4"))
+
+
+def _new_lane_counts() -> dict:
+    return {"myfxpath": 0, "challenge": 0}
+
+
+class Metrics:
+    """Thread-safe-ish (single lock) cumulative + per-terminal + per-lane counters.
+
+    'lane' is 'myfxpath' for priority=True pull requests, else 'challenge'
+    (WinnerPip). All request endpoints classify themselves; only /pull carries a
+    priority flag, so verify/candles/list-positions/resolve default to the lane
+    the caller declares (myFXpath passes priority on pull only, so its non-pull
+    calls are attributed via the same request's api usage — we classify each
+    endpoint call explicitly at the call site)."""
+
+    def __init__(self):
+        self._lock = _threading.Lock()
+        self.started_at = _time.time()
+        self.restart_count = 0
+        # Totals since the metrics file was first created (lifetime / day-cumulative).
+        self.reset_counters()
+        # Ring buffer of finished interval snapshots (list of dicts).
+        self.snapshots: list = []
+        # Snapshot the current health so we can detect down/up transitions.
+        self._last_health = list(worker_healthy)
+
+    def reset_counters(self):
+        """Reset the CURRENT interval counters (called after a snapshot capture).
+        Does NOT touch started_at / restart_count / snapshots ring."""
+        self.interval_started_at = _time.time()
+        self.requests_total = 0
+        self.requests_by_lane = _new_lane_counts()
+        self.requests_by_type = _defaultdict(int)                 # pull/verify/candles/...
+        self.requests_by_lane_type = _defaultdict(int)            # "myfxpath:pull" -> n
+        self.success_total = 0
+        self.failure_total = 0
+        self.failures_by_type = _defaultdict(int)                 # credential/terminal/timeout/other
+        self.failures_by_lane = _new_lane_counts()
+        # Per-terminal usage split by lane: terminal -> {myfxpath, challenge}
+        self.terminal_usage = _defaultdict(_new_lane_counts)
+        self.terminal_success = _defaultdict(int)
+        self.terminal_failure = _defaultdict(int)
+        # Terminal down/up transition events this interval.
+        self.terminal_down_events = _defaultdict(int)             # terminal -> count of ->down flips
+        self.terminal_up_events = _defaultdict(int)               # terminal -> count of ->up flips
+        # Reroutes: a request that had to try more than one terminal.
+        self.reroute_requests = 0
+        self.reroute_hops = 0                                     # sum of (terminals_tried - 1)
+        self.credential_bans = 0
+        # Contention (myFXpath vs WinnerPip sharing).
+        self.myfxpath_peak_in_flight = 0
+        self.myfxpath_capped_hits = 0                             # times a pull started while at/над cap
+        self.challenge_pulling_seconds = 0.0                      # time WinnerPip was 'pulling'
+        self._challenge_pull_since = _time.time() if _challenge_pulling else None
+
+    # ── lifecycle of the challenge-pulling clock ──
+    def mark_challenge_pull_state(self, active: bool):
+        with self._lock:
+            now = _time.time()
+            if active and self._challenge_pull_since is None:
+                self._challenge_pull_since = now
+            elif not active and self._challenge_pull_since is not None:
+                self.challenge_pulling_seconds += now - self._challenge_pull_since
+                self._challenge_pull_since = None
+
+    def _accrued_challenge_seconds(self) -> float:
+        extra = 0.0
+        if self._challenge_pull_since is not None:
+            extra = _time.time() - self._challenge_pull_since
+        return round(self.challenge_pulling_seconds + extra, 1)
+
+    # ── health transition detection (reads existing worker_healthy) ──
+    def observe_health(self):
+        """Compare the live worker_healthy array to our last snapshot and record
+        any down/up transitions. Called after each request completes — cheap."""
+        for i in range(NUM_WORKERS):
+            prev = self._last_health[i] if i < len(self._last_health) else True
+            cur = worker_healthy[i]
+            if prev and not cur:
+                self.terminal_down_events[i + 1] += 1
+            elif (not prev) and cur:
+                self.terminal_up_events[i + 1] += 1
+        self._last_health = list(worker_healthy)
+
+    # ── the main recorder, called at each endpoint return ──
+    def record_request(self, *, lane: str, req_type: str, success: bool,
+                       terminal_used: int | None, error_type: str | None,
+                       terminals_tried: int = 1):
+        lane = "myfxpath" if lane == "myfxpath" else "challenge"
+        with self._lock:
+            self.requests_total += 1
+            self.requests_by_lane[lane] += 1
+            self.requests_by_type[req_type] += 1
+            self.requests_by_lane_type[f"{lane}:{req_type}"] += 1
+            if success:
+                self.success_total += 1
+            else:
+                self.failure_total += 1
+                self.failures_by_lane[lane] += 1
+                self.failures_by_type[error_type or "other"] += 1
+            if terminal_used and 1 <= terminal_used <= NUM_WORKERS:
+                self.terminal_usage[terminal_used][lane] += 1
+                if success:
+                    self.terminal_success[terminal_used] += 1
+                else:
+                    self.terminal_failure[terminal_used] += 1
+            if terminals_tried and terminals_tried > 1:
+                self.reroute_requests += 1
+                self.reroute_hops += (terminals_tried - 1)
+            # Contention snapshot.
+            infl = _myfxpath_limiter._in_flight
+            if infl > self.myfxpath_peak_in_flight:
+                self.myfxpath_peak_in_flight = infl
+            if lane == "myfxpath" and infl >= _myfxpath_limiter._current_cap():
+                self.myfxpath_capped_hits += 1
+        # Health detection outside the counter lock (reads a separate array).
+        self.observe_health()
+
+    def record_credential_ban(self):
+        with self._lock:
+            self.credential_bans += 1
+
+    # ── serialization ──
+    def _interval_payload(self) -> dict:
+        healthy = [i + 1 for i in range(NUM_WORKERS) if worker_healthy[i]]
+        unhealthy = [i + 1 for i in range(NUM_WORKERS) if not worker_healthy[i]]
+        return {
+            "interval_started_at": round(self.interval_started_at, 1),
+            "captured_at": round(_time.time(), 1),
+            "requests_total": self.requests_total,
+            "requests_by_lane": dict(self.requests_by_lane),
+            "requests_by_type": dict(self.requests_by_type),
+            "requests_by_lane_type": dict(self.requests_by_lane_type),
+            "success_total": self.success_total,
+            "failure_total": self.failure_total,
+            "failures_by_type": dict(self.failures_by_type),
+            "failures_by_lane": dict(self.failures_by_lane),
+            "terminal_usage": {str(k): dict(v) for k, v in self.terminal_usage.items()},
+            "terminal_success": {str(k): v for k, v in self.terminal_success.items()},
+            "terminal_failure": {str(k): v for k, v in self.terminal_failure.items()},
+            "terminal_down_events": {str(k): v for k, v in self.terminal_down_events.items()},
+            "terminal_up_events": {str(k): v for k, v in self.terminal_up_events.items()},
+            "reroute_requests": self.reroute_requests,
+            "reroute_hops": self.reroute_hops,
+            "credential_bans": self.credential_bans,
+            "myfxpath_peak_in_flight": self.myfxpath_peak_in_flight,
+            "myfxpath_capped_hits": self.myfxpath_capped_hits,
+            "challenge_pulling_seconds": self._accrued_challenge_seconds(),
+            "terminals_configured": NUM_WORKERS,
+            "healthy_terminals": healthy,
+            "unhealthy_terminals": unhealthy,
+            "terminal_subtype_map": {str(i + 1): terminal_subtype_map[i] for i in range(NUM_WORKERS)},
+        }
+
+    def live_report(self) -> dict:
+        """Live cumulative snapshot + diagnostics summary (does not reset)."""
+        with self._lock:
+            payload = self._interval_payload()
+        payload["diagnostics"] = _build_diagnostics(payload)
+        payload["router"] = {
+            "git_commit": GIT_COMMIT,
+            "git_commit_time": GIT_COMMIT_TIME,
+            "started_at": round(self.started_at, 1),
+            "uptime_seconds": round(_time.time() - self.started_at, 1),
+            "restart_count": self.restart_count,
+            "challenge_pulling": _challenge_pulling,
+        }
+        return payload
+
+    def capture_snapshot(self) -> dict:
+        """Capture the current interval as a finished snapshot, append it to the
+        ring buffer, RESET the interval counters, and persist. Returns the snapshot."""
+        with self._lock:
+            snap = self._interval_payload()
+            snap["diagnostics"] = _build_diagnostics(snap)
+            snap["router"] = {
+                "git_commit": GIT_COMMIT,
+                "started_at": round(self.started_at, 1),
+                "restart_count": self.restart_count,
+                "challenge_pulling": _challenge_pulling,
+            }
+            self.snapshots.append(snap)
+            if len(self.snapshots) > SNAPSHOT_RING_SIZE:
+                self.snapshots = self.snapshots[-SNAPSHOT_RING_SIZE:]
+            # carry the challenge-pull clock across the reset
+            carry = self._challenge_pull_since
+            self.reset_counters()
+            self._challenge_pull_since = carry if _challenge_pulling else None
+        self.persist()
+        return snap
+
+    def to_dict(self) -> dict:
+        with self._lock:
+            return {
+                "started_at": self.started_at,
+                "restart_count": self.restart_count,
+                "interval": self._interval_payload(),
+                "snapshots": self.snapshots,
+                "challenge_pulling_seconds_acc": self.challenge_pulling_seconds,
+            }
+
+    def load_dict(self, d: dict):
+        with self._lock:
+            self.started_at = d.get("started_at", self.started_at)
+            self.restart_count = int(d.get("restart_count", 0)) + 1
+            self.snapshots = d.get("snapshots", []) or []
+            iv = d.get("interval") or {}
+            # Restore the current interval counters so a restart mid-window keeps totals.
+            self.interval_started_at = iv.get("interval_started_at", _time.time())
+            self.requests_total = iv.get("requests_total", 0)
+            self.requests_by_lane = _defaultdict(int, iv.get("requests_by_lane", {}) or {})
+            self.requests_by_lane.setdefault("myfxpath", 0); self.requests_by_lane.setdefault("challenge", 0)
+            self.requests_by_type = _defaultdict(int, iv.get("requests_by_type", {}) or {})
+            self.requests_by_lane_type = _defaultdict(int, iv.get("requests_by_lane_type", {}) or {})
+            self.success_total = iv.get("success_total", 0)
+            self.failure_total = iv.get("failure_total", 0)
+            self.failures_by_type = _defaultdict(int, iv.get("failures_by_type", {}) or {})
+            self.failures_by_lane = _defaultdict(int, iv.get("failures_by_lane", {}) or {})
+            self.failures_by_lane.setdefault("myfxpath", 0); self.failures_by_lane.setdefault("challenge", 0)
+            self.terminal_usage = _defaultdict(_new_lane_counts,
+                {int(k): _new_lane_counts() | v for k, v in (iv.get("terminal_usage", {}) or {}).items()})
+            self.terminal_success = _defaultdict(int, {int(k): v for k, v in (iv.get("terminal_success", {}) or {}).items()})
+            self.terminal_failure = _defaultdict(int, {int(k): v for k, v in (iv.get("terminal_failure", {}) or {}).items()})
+            self.terminal_down_events = _defaultdict(int, {int(k): v for k, v in (iv.get("terminal_down_events", {}) or {}).items()})
+            self.terminal_up_events = _defaultdict(int, {int(k): v for k, v in (iv.get("terminal_up_events", {}) or {}).items()})
+            self.reroute_requests = iv.get("reroute_requests", 0)
+            self.reroute_hops = iv.get("reroute_hops", 0)
+            self.credential_bans = iv.get("credential_bans", 0)
+            self.myfxpath_peak_in_flight = iv.get("myfxpath_peak_in_flight", 0)
+            self.myfxpath_capped_hits = iv.get("myfxpath_capped_hits", 0)
+            self.challenge_pulling_seconds = d.get("challenge_pulling_seconds_acc", 0.0)
+
+    def persist(self):
+        """Atomically write the metrics file (temp + rename). Best-effort."""
+        try:
+            data = self.to_dict()
+            tmp = VPS_METRICS_FILE + ".tmp"
+            with open(tmp, "w") as f:
+                _json.dump(data, f)
+            os.replace(tmp, VPS_METRICS_FILE)
+        except Exception as e:
+            print(f"[Router] metrics persist failed (non-fatal): {str(e)[:150]}")
+
+
+def _build_diagnostics(p: dict) -> list:
+    """Human-readable 'anything you should know' lines from a payload."""
+    notes = []
+    total = p.get("requests_total", 0)
+    if total == 0:
+        notes.append("No requests recorded in this window.")
+    fail = p.get("failure_total", 0)
+    if total:
+        rate = round(100 * p.get("success_total", 0) / total, 1)
+        notes.append(f"Success rate {rate}% ({p.get('success_total',0)}/{total}).")
+    if fail:
+        ft = p.get("failures_by_type", {})
+        breakdown = ", ".join(f"{k}:{v}" for k, v in sorted(ft.items(), key=lambda x: -x[1]))
+        notes.append(f"{fail} failure(s) — {breakdown}.")
+    downs = p.get("terminal_down_events", {})
+    if downs:
+        dl = ", ".join(f"T{k} x{v}" for k, v in sorted(downs.items(), key=lambda x: -x[1]))
+        notes.append(f"Terminal down events: {dl}.")
+    unhealthy = p.get("unhealthy_terminals", [])
+    if unhealthy:
+        notes.append(f"Currently unhealthy: {', '.join('T'+str(t) for t in unhealthy)}.")
+    rr = p.get("reroute_requests", 0)
+    if rr:
+        notes.append(f"{rr} request(s) had to reroute ({p.get('reroute_hops',0)} extra hop(s)).")
+    lane = p.get("requests_by_lane", {})
+    mf, ch = lane.get("myfxpath", 0), lane.get("challenge", 0)
+    if mf or ch:
+        notes.append(f"Lane split — myFXpath {mf}, WinnerPip {ch}.")
+    capped = p.get("myfxpath_capped_hits", 0)
+    if capped:
+        notes.append(f"myFXpath hit its concurrency cap {capped} time(s) while WinnerPip was pulling.")
+    bans = p.get("credential_bans", 0)
+    if bans:
+        notes.append(f"{bans} account(s) credential-banned this window.")
+    return notes
+
+
+metrics = Metrics()
+# Reload persisted metrics so a restart doesn't reset the day.
+try:
+    if os.path.exists(VPS_METRICS_FILE):
+        with open(VPS_METRICS_FILE) as _mf:
+            metrics.load_dict(_json.load(_mf))
+        print(f"[Router] metrics reloaded from {VPS_METRICS_FILE} (restart #{metrics.restart_count})")
+except Exception as _e:
+    print(f"[Router] metrics reload failed (starting fresh): {str(_e)[:150]}")
+
+
+def _classify_error(data: dict) -> str | None:
+    """Map a worker/router result dict to an error_type for the report.
+    Returns None on success."""
+    if data.get("success"):
+        return None
+    et = data.get("error_type")
+    if et in ("credential_failure", "credential"):
+        return "credential"
+    if et == "terminal":
+        # Distinguish timeouts from other terminal errors for diagnostics.
+        msg = str(data.get("message", "")).lower()
+        if "timeout" in msg or "timed out" in msg:
+            return "timeout"
+        return "terminal"
+    msg = str(data.get("message", "")).lower()
+    if "timeout" in msg or "timed out" in msg:
+        return "timeout"
+    if any(x in msg for x in ["login failed", "authorization failed", "credential"]):
+        return "credential"
+    return "other"
+
+
+def _record_pull_metrics(data: dict, lane: str):
+    """Record a /pull result. Best-effort; never raises into the request path."""
+    try:
+        err = _classify_error(data)
+        if data.get("credential_banned"):
+            metrics.record_credential_ban()
+        metrics.record_request(
+            lane=lane,
+            req_type="pull",
+            success=bool(data.get("success")),
+            terminal_used=data.get("terminal_used"),
+            error_type=err,
+            terminals_tried=int(data.get("terminals_tried") or 1),
+        )
+    except Exception as e:
+        print(f"[Router] metrics record (pull) failed (non-fatal): {str(e)[:120]}")
+
+
+def _record_metrics(data: dict, lane: str, req_type: str):
+    """Record a non-pull endpoint result (verify/candles/list-positions/resolve).
+    Best-effort; never raises into the request path."""
+    try:
+        err = _classify_error(data)
+        metrics.record_request(
+            lane=lane,
+            req_type=req_type,
+            success=bool(data.get("success")),
+            terminal_used=data.get("terminal_used"),
+            error_type=err,
+            terminals_tried=int(data.get("terminals_tried") or 1),
+        )
+    except Exception as e:
+        print(f"[Router] metrics record ({req_type}) failed (non-fatal): {str(e)[:120]}")
+
+# ────────────────────────────────────────────────────────────────────────────
+
 # Tracks the home subtype of each worker (index 0 = worker 1)
 # Updated by /configure when TG Bot assigns home accounts
 terminal_subtype_map = ["standard"] * NUM_WORKERS
@@ -333,6 +708,8 @@ class VerifyRequest(BaseModel):
     password:    str
     api_key:     str
     terminal_id: Optional[int] = None
+    # Report lane only (additive; does not affect routing). myFXpath sets True.
+    priority:    Optional[bool] = False
 
 
 class PullRequest(BaseModel):
@@ -357,6 +734,7 @@ class ListPositionsRequest(BaseModel):
     terminal_id: Optional[int] = None
     from_date:   str
     to_date:     str
+    priority:    Optional[bool] = False   # report lane only (additive)
 
 
 class ResolveTradesRequest(BaseModel):
@@ -366,6 +744,7 @@ class ResolveTradesRequest(BaseModel):
     api_key:      str
     terminal_id:  Optional[int] = None
     position_ids: list
+    priority:     Optional[bool] = False  # report lane only (additive)
 
 
 class ResolveOpensRequest(BaseModel):
@@ -375,6 +754,7 @@ class ResolveOpensRequest(BaseModel):
     api_key:      str
     terminal_id:  Optional[int] = None
     position_ids: list
+    priority:     Optional[bool] = False  # report lane only (additive)
 
 
 class CandlesRequest(BaseModel):
@@ -385,6 +765,7 @@ class CandlesRequest(BaseModel):
     api_key:          str
     terminal_id:      Optional[int] = None
     required_subtype: Optional[str] = None
+    priority:         Optional[bool] = False  # report lane only (additive)
 
 
 class OhlcSymbolRange(BaseModel):
@@ -441,6 +822,11 @@ async def challenge_pull_state(req: dict):
     global _challenge_pulling
     prev = _challenge_pulling
     _challenge_pulling = bool(req.get("active", False))
+    # Report clock: accrue how long WinnerPip spends actively pulling (additive).
+    try:
+        metrics.mark_challenge_pull_state(_challenge_pulling)
+    except Exception:
+        pass
     if prev != _challenge_pulling:
         # Wake any waiting myFXpath requests so they re-evaluate the (changed) cap.
         await _myfxpath_limiter.notify_state_change()
@@ -487,6 +873,53 @@ async def pool_stats():
     """Observability for the myFXpath priority lane only. Challenge traffic is not
     tracked here because it does not pass through the limiter (unchanged path)."""
     return {"success": True, "myfxpath": _myfxpath_limiter.stats()}
+
+
+# ==================== VPS REPORT / TELEMETRY ====================
+
+class ReportRequest(BaseModel):
+    api_key: str
+
+
+@app.post("/vps-report")
+async def vps_report_live(req: ReportRequest):
+    """Live cumulative report for the CURRENT interval (does not reset).
+    Read by the WinnerPip health page and by myFXpath for an on-demand view."""
+    if req.api_key != API_KEY:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+    return {"success": True, "report": metrics.live_report()}
+
+
+@app.get("/vps-report")
+async def vps_report_live_get(api_key: str = ""):
+    """GET variant (api_key as query param) so a health page can fetch it easily."""
+    if api_key != API_KEY:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+    return {"success": True, "report": metrics.live_report()}
+
+
+@app.post("/vps-report/snapshot")
+async def vps_report_snapshot(req: ReportRequest):
+    """Capture the current interval as a finished snapshot, append it to the ring
+    buffer, RESET the interval counters, and persist. Called by myFXpath 4x/day.
+    Returns the snapshot just captured."""
+    if req.api_key != API_KEY:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+    snap = metrics.capture_snapshot()
+    return {"success": True, "snapshot": snap}
+
+
+@app.get("/vps-report/snapshots")
+async def vps_report_snapshots(api_key: str = ""):
+    """The ring buffer of the last N captured snapshots (default 4), plus the live
+    current interval. Read by the WinnerPip health page + myFXpath admin."""
+    if api_key != API_KEY:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+    return {
+        "success": True,
+        "snapshots": metrics.snapshots,
+        "current": metrics.live_report(),
+    }
 
 
 @app.post("/configure")
@@ -542,6 +975,13 @@ async def configure(req: ConfigureRequest):
 
 @app.post("/verify")
 async def verify(req: VerifyRequest):
+    # Thin metrics wrapper — runs the original logic unchanged, records the result once.
+    data = await _verify_impl(req)
+    _record_metrics(data, lane=("myfxpath" if req.priority else "challenge"), req_type="verify")
+    return data
+
+
+async def _verify_impl(req: VerifyRequest):
     if req.api_key != API_KEY:
         raise HTTPException(status_code=401, detail="Invalid API key")
 
@@ -620,14 +1060,20 @@ async def pull(req: PullRequest):
     # ── Challenge path: COMPLETELY UNCHANGED ──────────────────────────────
     # If this is NOT a myFXpath priority request, run the original pull logic
     # directly — no lock, no limiter, no waiting. Byte-for-byte the old behavior.
+    # (The only addition is a post-hoc metrics.record_request on the RESULT, which
+    #  reads the returned dict and cannot alter the pull or its timing.)
     if not req.priority:
-        return await _pull_impl(req)
+        data = await _pull_impl(req)
+        _record_pull_metrics(data, lane="challenge")
+        return data
 
     # ── myFXpath path only: cap concurrency so a big sync can't hog terminals
     # and stall the Challenge cycle. Only myFXpath requests ever reach here, so
     # this can never block or affect Challenge traffic.
     async with _myfxpath_limiter:
-        return await _pull_impl(req)
+        data = await _pull_impl(req)
+        _record_pull_metrics(data, lane="myfxpath")
+        return data
 
 
 async def _pull_impl(req: PullRequest):
@@ -728,6 +1174,12 @@ async def _pull_impl(req: PullRequest):
 
 @app.post("/list-positions")
 async def list_positions(req: ListPositionsRequest):
+    data = await _list_positions_impl(req)
+    _record_metrics(data, lane=("myfxpath" if req.priority else "challenge"), req_type="list-positions")
+    return data
+
+
+async def _list_positions_impl(req: ListPositionsRequest):
     if req.api_key != API_KEY:
         raise HTTPException(status_code=401, detail="Invalid API key")
 
@@ -790,6 +1242,12 @@ async def list_positions(req: ListPositionsRequest):
 
 @app.post("/resolve-opens")
 async def resolve_opens(req: ResolveOpensRequest):
+    data = await _resolve_opens_impl(req)
+    _record_metrics(data, lane=("myfxpath" if req.priority else "challenge"), req_type="resolve-opens")
+    return data
+
+
+async def _resolve_opens_impl(req: ResolveOpensRequest):
     if req.api_key != API_KEY:
         raise HTTPException(status_code=401, detail="Invalid API key")
 
@@ -851,6 +1309,12 @@ async def resolve_opens(req: ResolveOpensRequest):
 
 @app.post("/resolve-trades")
 async def resolve_trades(req: ResolveTradesRequest):
+    data = await _resolve_trades_impl(req)
+    _record_metrics(data, lane=("myfxpath" if req.priority else "challenge"), req_type="resolve-trades")
+    return data
+
+
+async def _resolve_trades_impl(req: ResolveTradesRequest):
     if req.api_key != API_KEY:
         raise HTTPException(status_code=401, detail="Invalid API key")
 
@@ -912,6 +1376,12 @@ async def resolve_trades(req: ResolveTradesRequest):
 
 @app.post("/api/v1/candles")
 async def get_candles(req: CandlesRequest):
+    data = await _get_candles_impl(req)
+    _record_metrics(data, lane=("myfxpath" if req.priority else "challenge"), req_type="candles")
+    return data
+
+
+async def _get_candles_impl(req: CandlesRequest):
     """
     Fetch candle data with subtype-aware routing and full retry.
     - required_subtype: routes to terminals whose home is that subtype first
@@ -1001,6 +1471,17 @@ async def ohlc_bulk(req: OhlcBulkRequest):
 
 
 # ==================== STARTUP ====================
+
+@app.on_event("startup")
+async def _start_metrics_persist_loop():
+    """Persist metrics to disk every 60s so an unexpected crash between the 4x/day
+    snapshots loses at most ~1 minute of counts. Snapshots also persist on capture."""
+    async def _loop():
+        while True:
+            await asyncio.sleep(60)
+            metrics.persist()
+    asyncio.create_task(_loop())
+
 
 if __name__ == "__main__":
     print("=" * 50)
