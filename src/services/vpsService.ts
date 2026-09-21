@@ -293,6 +293,41 @@ class VpsService {
       return false;
     }
   }
+
+  /**
+   * VPS telemetry — read-only. These read the router's report endpoints directly
+   * so the WinnerPip health page is independent of myFXpath. The router expects
+   * the api key as a query param on these GET endpoints. Returns null on any error
+   * so the page can render gracefully when the router is unreachable.
+   */
+  async getVpsReport(): Promise<any | null> {
+    if (!this.baseUrl || !this.apiKey) return null;
+    try {
+      const response = await axios.get(`${this.baseUrl}/vps-report`, {
+        params: { api_key: this.apiKey },
+        timeout: 8000,
+      });
+      return response.data?.report || null;
+    } catch {
+      return null;
+    }
+  }
+
+  async getVpsSnapshots(): Promise<{ snapshots: any[]; current: any } | null> {
+    if (!this.baseUrl || !this.apiKey) return null;
+    try {
+      const response = await axios.get(`${this.baseUrl}/vps-report/snapshots`, {
+        params: { api_key: this.apiKey },
+        timeout: 8000,
+      });
+      return {
+        snapshots: response.data?.snapshots || [],
+        current: response.data?.current || null,
+      };
+    } catch {
+      return null;
+    }
+  }
 }
 
 export const vpsService = new VpsService();

@@ -99,6 +99,126 @@ function adminIpCheck(req: any, res: any, next: any) {
   next();
 }
 
+// ==================== VPS REPORT PAGE (server-rendered) ====================
+
+/** Render the self-contained HTML VPS report page. Pure presentation of the
+ *  router's snapshots + live view — read-only, no side effects. */
+function renderVpsReportPage(snapshots: any[], current: any): string {
+  const esc = (s: any) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const num = (n: any) => Number(n || 0);
+
+  const laneOf = (p: any) => p?.requests_by_lane || {};
+  const totalReq = current ? num(current.requests_total) : 0;
+  const successRate = totalReq ? Math.round((1000 * num(current.success_total)) / totalReq) / 10 : 0;
+
+  // Per-terminal usage (from the live/current view — cumulative for this interval).
+  const usage = current?.terminal_usage || {};
+  const downEvents = current?.terminal_down_events || {};
+  const unhealthy: number[] = current?.unhealthy_terminals || [];
+  const terminalIds = Array.from(new Set([...Object.keys(usage), ...Object.keys(downEvents)]))
+    .sort((a, b) => Number(a) - Number(b));
+
+  const terminalRows = terminalIds.length ? terminalIds.map((tid) => {
+    const u = usage[tid] || { myfxpath: 0, challenge: 0 };
+    const down = num(downEvents[tid]);
+    const bad = unhealthy.includes(Number(tid));
+    return `<tr>
+      <td>T${esc(tid)}</td>
+      <td class="r">${num(u.myfxpath)}</td>
+      <td class="r">${num(u.challenge)}</td>
+      <td class="r">${down ? `<span class="bad">${down}</span>` : 0}</td>
+      <td class="c">${bad ? '<span class="bad">● down</span>' : '<span class="ok">● up</span>'}</td>
+    </tr>`;
+  }).join('') : '<tr><td colspan="5" class="muted">No terminal usage recorded this interval.</td></tr>';
+
+  const snapRows = snapshots.length ? snapshots.slice().reverse().map((s) => {
+    const lane = laneOf(s);
+    const t = s.captured_at ? new Date(num(s.captured_at) * 1000).toISOString().replace('T', ' ').slice(0, 19) : '?';
+    return `<tr>
+      <td>${esc(t)} UTC</td>
+      <td class="r">${num(s.requests_total)}</td>
+      <td class="r">${num(lane.myfxpath)}</td>
+      <td class="r">${num(lane.challenge)}</td>
+      <td class="r">${num(s.failure_total)}</td>
+    </tr>`;
+  }).join('') : '<tr><td colspan="5" class="muted">No snapshots captured yet.</td></tr>';
+
+  const diag = (current?.diagnostics || []).map((d: string) => `<li>${esc(d)}</li>`).join('') || '<li class="muted">Nothing notable.</li>';
+  const router = current?.router || {};
+  const pullingMin = Math.round(num(current?.challenge_pulling_seconds) / 60);
+
+  return `<!DOCTYPE html><html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WinnerPip — VPS Report</title>
+<meta http-equiv="refresh" content="60">
+<style>
+  :root { color-scheme: dark; }
+  body { font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin:0; background:#0b1220; color:#e5e7eb; padding:20px; }
+  .wrap { max-width:920px; margin:0 auto; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  .sub { color:#94a3b8; font-size:13px; margin-bottom:18px; }
+  .cards { display:flex; flex-wrap:wrap; gap:10px; margin-bottom:18px; }
+  .card { flex:1; min-width:130px; background:#111a2e; border:1px solid #1f2a44; border-radius:10px; padding:14px; text-align:center; }
+  .card .v { font-size:22px; font-weight:700; }
+  .card .l { font-size:11px; color:#94a3b8; margin-top:4px; }
+  section { background:#111a2e; border:1px solid #1f2a44; border-radius:10px; padding:16px; margin-bottom:16px; }
+  section h2 { font-size:15px; margin:0 0 10px; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th, td { padding:6px 8px; border-bottom:1px solid #1f2a44; text-align:left; }
+  th { color:#94a3b8; font-weight:600; }
+  td.r, th.r { text-align:right; } td.c, th.c { text-align:center; }
+  .bad { color:#f87171; font-weight:600; } .ok { color:#34d399; }
+  .muted { color:#64748b; }
+  ul { margin:0; padding-left:18px; } li { margin:3px 0; }
+  .foot { color:#64748b; font-size:12px; margin-top:8px; }
+</style></head>
+<body><div class="wrap">
+  <h1>WinnerPip — VPS Report</h1>
+  <div class="sub">Live view + last ${snapshots.length} snapshot(s). Auto-refreshes every 60s. ${current ? '' : 'Router not reachable right now.'}</div>
+
+  <div class="cards">
+    <div class="card"><div class="v">${totalReq}</div><div class="l">Requests (this interval)</div></div>
+    <div class="card"><div class="v">${successRate}%</div><div class="l">Success rate</div></div>
+    <div class="card"><div class="v">${num(laneOf(current).myfxpath)} / ${num(laneOf(current).challenge)}</div><div class="l">myFXpath / WinnerPip</div></div>
+    <div class="card"><div class="v">${num(current?.failure_total)}</div><div class="l">Failures</div></div>
+  </div>
+
+  <section><h2>Diagnostics</h2><ul>${diag}</ul></section>
+
+  <section><h2>Contention (sharing)</h2>
+    <div class="cards">
+      <div class="card"><div class="v">${num(current?.myfxpath_peak_in_flight)}</div><div class="l">myFXpath peak concurrency</div></div>
+      <div class="card"><div class="v">${num(current?.myfxpath_capped_hits)}</div><div class="l">Cap hits (while pulling)</div></div>
+      <div class="card"><div class="v">~${pullingMin} min</div><div class="l">WinnerPip pulling</div></div>
+      <div class="card"><div class="v">${num(current?.reroute_requests)}</div><div class="l">Reroutes</div></div>
+      <div class="card"><div class="v">${num(current?.credential_bans)}</div><div class="l">Credential bans</div></div>
+    </div>
+  </section>
+
+  <section><h2>Per-terminal usage (who used which terminal)</h2>
+    <table>
+      <thead><tr><th>Terminal</th><th class="r">myFXpath</th><th class="r">WinnerPip</th><th class="r">Down events</th><th class="c">Health</th></tr></thead>
+      <tbody>${terminalRows}</tbody>
+    </table>
+    <div class="foot">Terminals: ${num(current?.terminals_configured) || '?'} • Healthy: ${(current?.healthy_terminals || []).map((t: number) => 'T' + t).join(', ') || 'n/a'} • Unhealthy: ${unhealthy.map((t) => 'T' + t).join(', ') || 'none'}</div>
+  </section>
+
+  <section><h2>Snapshots (4x/day)</h2>
+    <table>
+      <thead><tr><th>Captured</th><th class="r">Requests</th><th class="r">myFXpath</th><th class="r">WinnerPip</th><th class="r">Failures</th></tr></thead>
+      <tbody>${snapRows}</tbody>
+    </table>
+  </section>
+
+  <section><h2>Router</h2>
+    <div class="foot">
+      Commit: ${esc(router.git_commit || '?')} • uptime ${Math.round(num(router.uptime_seconds) / 60)} min • restarts ${num(router.restart_count)} •
+      ${router.challenge_pulling ? '<span class="bad">WinnerPip pulling now</span>' : '<span class="ok">WinnerPip at rest</span>'}
+    </div>
+  </section>
+</div></body></html>`;
+}
+
 // ==================== AUTH ENDPOINTS ====================
 
 // Account-based brute-force protection (complements IP-based authLimiter)
@@ -4230,6 +4350,57 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/vps-health`, adminIpCheck, async (req, 
   } catch (error) {
     console.error('VPS health check error:', error);
     return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * GET /api/admin/:secretPath/vps-report
+ * VPS telemetry report (JSON). Reads the router's report endpoints directly, so
+ * this is independent of myFXpath. Returns the last N interval snapshots + the
+ * live current-interval view (requests by lane, per-terminal usage, down events,
+ * reroutes, contention, diagnostics).
+ */
+app.get(`/api/admin/${ADMIN_SECRET_PATH}/vps-report`, adminIpCheck, async (req, res) => {
+  try {
+    const { vpsService } = require('../services/vpsService');
+    const [snap, live] = await Promise.all([
+      vpsService.getVpsSnapshots(),
+      vpsService.getVpsReport(),
+    ]);
+    return res.json({
+      reachable: !!(snap || live),
+      snapshots: snap?.snapshots || [],
+      current: live || snap?.current || null,
+      generated_at: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('VPS report error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * GET /api/admin/:secretPath/vps-report/page
+ * Self-contained HTML health page for the VPS report — open it directly in a
+ * browser (IP-restricted). Fetches from the router and renders the detailed
+ * last-4 report + live view. Auto-refreshes every 60s.
+ */
+app.get(`/api/admin/${ADMIN_SECRET_PATH}/vps-report/page`, adminIpCheck, async (req, res) => {
+  try {
+    const { vpsService } = require('../services/vpsService');
+    const [snap, live] = await Promise.all([
+      vpsService.getVpsSnapshots(),
+      vpsService.getVpsReport(),
+    ]);
+    const snapshots: any[] = snap?.snapshots || [];
+    const current = live || snap?.current || null;
+    const html = renderVpsReportPage(snapshots, current);
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    return res.send(html);
+  } catch (error) {
+    console.error('VPS report page error:', error);
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    return res.status(500).send('<h1>VPS report unavailable</h1><p>Router unreachable or an error occurred.</p>');
   }
 });
 
