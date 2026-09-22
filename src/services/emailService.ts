@@ -415,6 +415,80 @@ class EmailService {
       return false;
     }
   }
+
+  /**
+   * Send "challenge approved" email to the host once an admin approves their submission.
+   * Shows the full details the host set (per-category aware for split challenges).
+   */
+  async sendChallengeApproved(to: string, data: {
+    displayName: string;
+    challengeTitle: string;
+    challengeId: number;
+    type: string;
+    startDate: string;
+    endDate: string;
+    timezone?: string;
+    // Details block — pre-formatted rows (label/value pairs)
+    detailRows: { label: string; value: string; accent?: 'demo' | 'real' | 'muted' }[];
+    realWinners?: number;
+    demoWinners?: number;
+    realPrizes?: string;
+    demoPrizes?: string;
+    registrationMode?: string;
+  }): Promise<boolean> {
+    if (!this.isConfigured()) return false;
+    try {
+      const dashboardUrl = `https://winnerpip.com/host/dashboard`;
+      const colorFor = (a?: string) => a === 'demo' ? '#2563eb' : a === 'real' ? '#16a34a' : '#64748b';
+      const detailHtml = data.detailRows.map(r =>
+        `<tr>
+          <td style="padding: 9px 0; border-bottom: 1px solid #f1f5f9; color: ${colorFor(r.accent)}; font-size: 13px; ${r.accent && r.accent !== 'muted' ? 'font-weight:600;' : ''}">${r.label}</td>
+          <td style="padding: 9px 0; border-bottom: 1px solid #f1f5f9; color: #111827; font-size: 13px; text-align: right; font-weight: 600;">${r.value}</td>
+        </tr>`
+      ).join('');
+      const prizeRows =
+        (data.realWinners != null ? `<tr><td style="padding: 9px 0; border-bottom: 1px solid #f1f5f9; color: #64748b; font-size: 13px;">Real Winners</td><td style="padding: 9px 0; border-bottom: 1px solid #f1f5f9; color: #111827; font-size: 13px; text-align: right; font-weight: 600;">${data.realWinners}</td></tr>` : '') +
+        (data.demoWinners != null ? `<tr><td style="padding: 9px 0; border-bottom: 1px solid #f1f5f9; color: #64748b; font-size: 13px;">Demo Winners</td><td style="padding: 9px 0; border-bottom: 1px solid #f1f5f9; color: #111827; font-size: 13px; text-align: right; font-weight: 600;">${data.demoWinners}</td></tr>` : '') +
+        (data.realPrizes ? `<tr><td style="padding: 9px 0; border-bottom: 1px solid #f1f5f9; color: #64748b; font-size: 13px;">Real Prizes</td><td style="padding: 9px 0; border-bottom: 1px solid #f1f5f9; color: #111827; font-size: 13px; text-align: right; font-weight: 600;">${data.realPrizes}</td></tr>` : '') +
+        (data.demoPrizes ? `<tr><td style="padding: 9px 0; border-bottom: 1px solid #f1f5f9; color: #64748b; font-size: 13px;">Demo Prizes</td><td style="padding: 9px 0; border-bottom: 1px solid #f1f5f9; color: #111827; font-size: 13px; text-align: right; font-weight: 600;">${data.demoPrizes}</td></tr>` : '');
+      const content = `
+        <h2 style="color: #16a34a; font-size: 20px; margin: 0 0 8px; font-weight: 700;">&#9989; Challenge Approved</h2>
+        <p style="color: #374151; font-size: 15px; line-height: 1.6; margin: 0 0 20px;">
+          Hi <strong>${data.displayName}</strong>, great news — your challenge has been approved and is now live in your dashboard as a draft. You can open registration whenever you're ready.
+        </p>
+
+        <div style="background: #f0fdf4; border-radius: 10px; padding: 16px 20px; border: 1px solid #bbf7d0; margin-bottom: 20px;">
+          <p style="color: #166534; font-size: 16px; font-weight: 700; margin: 0 0 2px;">${data.challengeTitle}</p>
+          <p style="color: #6b7280; font-size: 12px; margin: 0; text-transform: capitalize;">${data.type} challenge</p>
+        </div>
+
+        <div style="background: #f8fafc; border-radius: 10px; padding: 18px 20px; border: 1px solid #e2e8f0; margin-bottom: 20px;">
+          <p style="color: #64748b; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; margin: 0 0 8px; font-weight: 600;">Challenge Details</p>
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+            <tr><td style="padding: 9px 0; border-bottom: 1px solid #f1f5f9; color: #64748b; font-size: 13px;">Start</td><td style="padding: 9px 0; border-bottom: 1px solid #f1f5f9; color: #111827; font-size: 13px; text-align: right; font-weight: 600;">${data.startDate}</td></tr>
+            <tr><td style="padding: 9px 0; border-bottom: 1px solid #f1f5f9; color: #64748b; font-size: 13px;">End</td><td style="padding: 9px 0; border-bottom: 1px solid #f1f5f9; color: #111827; font-size: 13px; text-align: right; font-weight: 600;">${data.endDate}</td></tr>
+            ${detailHtml}
+            ${prizeRows}
+            ${data.registrationMode ? `<tr><td style="padding: 9px 0; border-bottom: 1px solid #f1f5f9; color: #64748b; font-size: 13px;">Registration</td><td style="padding: 9px 0; border-bottom: 1px solid #f1f5f9; color: #111827; font-size: 13px; text-align: right; font-weight: 600;">${data.registrationMode}</td></tr>` : ''}
+            ${data.timezone ? `<tr><td style="padding: 9px 0; color: #64748b; font-size: 13px;">Timezone</td><td style="padding: 9px 0; color: #111827; font-size: 13px; text-align: right; font-weight: 600;">${data.timezone}</td></tr>` : ''}
+          </table>
+        </div>
+
+        <div style="text-align: center; margin-bottom: 20px;">
+          <a href="${dashboardUrl}" style="display: inline-block; background: linear-gradient(135deg, #6366f1, #8b5cf6); color: #ffffff; padding: 13px 30px; border-radius: 10px; text-decoration: none; font-size: 14px; font-weight: 600;">Open Host Dashboard</a>
+        </div>
+
+        <p style="color: #6b7280; font-size: 13px; margin: 0; line-height: 1.6;">
+          Next step: review your rules, then open registration from the Settings tab when you're ready to accept participants.
+        </p>
+      `;
+      await resend.emails.send({ from: FROM_ADDRESS, to, subject: `Challenge Approved — ${data.challengeTitle}`, html: wrapEmail(content) });
+      return true;
+    } catch (error) {
+      console.error('Email send error (challenge approved):', error);
+      return false;
+    }
+  }
 }
 
 export const emailService = new EmailService();

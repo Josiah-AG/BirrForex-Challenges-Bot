@@ -3283,19 +3283,52 @@ app.post('/api/host/challenges', hostAuthMiddleware, async (req: any, res) => {
           try { return new Date(d).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true }); }
           catch { return d; }
         };
-        const depositLabel = deposit_mode === 'max_limit' ? 'Max Limit' : deposit_mode === 'min_limit' ? 'Min Limit' : 'Fixed';
-        const targetDisplay = deposit_mode && deposit_mode !== 'fixed' ? `${target_percent || 100}% growth` : `$${target_balance || starting_balance * 2}`;
+        const modeLabel = (m: string) => m === 'max_limit' ? 'Max Limit' : m === 'min_limit' ? 'Min Limit' : 'Fixed';
+        const isSplit = split_category_settings && type === 'hybrid';
+
+        // Build the deposit/balance/target section — per-category when split is on.
+        let detailsBlock = '';
+        if (isSplit) {
+          const demoStart = demo_starting_balance || starting_balance;
+          const demoTarget = (demo_target_enabled === false)
+            ? 'No target'
+            : (demo_deposit_mode && demo_deposit_mode !== 'fixed')
+              ? `${demo_target_percent || 100}% growth`
+              : `$${demo_target_balance || target_balance}`;
+          const realStart = real_starting_balance || starting_balance;
+          const realTarget = (real_target_enabled === false)
+            ? 'No target'
+            : (real_deposit_mode && real_deposit_mode !== 'fixed')
+              ? `${real_target_percent || 100}% growth`
+              : `$${real_target_balance || target_balance}`;
+          detailsBlock =
+            `<b>Per-Category Settings:</b>\n` +
+            `  🔵 <b>Demo</b> — ${modeLabel(demo_deposit_mode)}\n` +
+            `      Balance: $${demoStart}  →  Target: ${demoTarget}\n` +
+            `  🟢 <b>Real</b> — ${modeLabel(real_deposit_mode)}\n` +
+            `      Balance: $${realStart}  →  Target: ${realTarget}\n`;
+        } else {
+          const depositLabel = modeLabel(deposit_mode);
+          const balanceLabel = deposit_mode === 'fixed' ? 'Balance' : deposit_mode === 'max_limit' ? 'Max Deposit' : 'Min Deposit';
+          const targetDisplay = (target_enabled === false)
+            ? 'No target (ranked by ' + (deposit_mode && deposit_mode !== 'fixed' ? 'growth %' : 'balance') + ')'
+            : (deposit_mode && deposit_mode !== 'fixed' ? `${target_percent || 100}% growth` : `$${target_balance || starting_balance * 2}`);
+          detailsBlock =
+            `<b>Deposit Mode:</b> ${depositLabel}\n` +
+            `<b>${balanceLabel}:</b> $${starting_balance}\n` +
+            `<b>Target:</b> ${targetDisplay}\n`;
+        }
+
         const msg = await telegram.sendMessage(
           config.adminUserId,
           `🏢 <b>Host Challenge Creation</b>\n\n` +
           `<b>Host:</b> ${host.display_name}\n` +
           `<b>Title:</b> ${title}\n` +
           `<b>Type:</b> ${type}\n` +
-          `<b>Deposit Mode:</b> ${depositLabel}\n` +
           `<b>Start:</b> ${fmtDate(start_date)}\n` +
           `<b>End:</b> ${fmtDate(end_date)}\n` +
-          `<b>Balance:</b> $${starting_balance}\n` +
-          `<b>Target:</b> ${targetDisplay}\n` +
+          detailsBlock +
+          `<b>Real Winners:</b> ${real_winners_count || 0}   <b>Demo Winners:</b> ${demo_winners_count || 0}\n` +
           (real_prizes?.length ? `<b>Real Prizes:</b> ${real_prizes.map((p: any) => `$${p}`).join(', ')}\n` : '') +
           (demo_prizes?.length ? `<b>Demo Prizes:</b> ${demo_prizes.map((p: any) => `$${p}`).join(', ')}\n` : '') +
           `<b>Registration:</b> ${req.body.registration_mode === 'winnerpip' ? 'Online (WinnerPip)' : 'Manual (CSV)'}\n` +
