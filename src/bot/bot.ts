@@ -547,7 +547,7 @@ export class Bot {
                 `✅ <b>Challenge Created</b>\n\n<b>${pending.data.title}</b> (${pending.data.type})\nID: ${result.challenge.id}`,
                 { parse_mode: 'HTML' }
               );
-              // If this is a host challenge, email the host that it's approved.
+              // If this is a host challenge, email the host a short approval confirmation.
               try {
                 const ch = result.challenge;
                 if (ch?.host_id) {
@@ -555,49 +555,10 @@ export class Bot {
                   const { emailService } = require('../services/emailService');
                   const host = await hostService.getHostById(ch.host_id);
                   if (host?.email) {
-                    const modeLabel = (m: string) => m === 'max_limit' ? 'Max Limit' : m === 'min_limit' ? 'Min Limit' : 'Fixed';
-                    const fmtD = (d: any) => { try { return new Date(d).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true }); } catch { return String(d); } };
-                    const isSplit = ch.split_category_settings && ch.type === 'hybrid';
-                    const detailRows: { label: string; value: string; accent?: 'demo' | 'real' | 'muted' }[] = [];
-                    if (isSplit) {
-                      const demoStart = ch.demo_starting_balance || ch.starting_balance;
-                      const demoTarget = ch.demo_target_enabled === false ? 'No target'
-                        : (ch.demo_deposit_mode && ch.demo_deposit_mode !== 'fixed') ? `${ch.demo_target_percent || 100}% growth`
-                        : `$${ch.demo_target_balance || ch.target_balance}`;
-                      const realStart = ch.real_starting_balance || ch.starting_balance;
-                      const realTarget = ch.real_target_enabled === false ? 'No target'
-                        : (ch.real_deposit_mode && ch.real_deposit_mode !== 'fixed') ? `${ch.real_target_percent || 100}% growth`
-                        : `$${ch.real_target_balance || ch.target_balance}`;
-                      detailRows.push({ label: 'Demo — Deposit Mode', value: modeLabel(ch.demo_deposit_mode), accent: 'demo' });
-                      detailRows.push({ label: 'Demo — Balance', value: `$${demoStart}`, accent: 'demo' });
-                      detailRows.push({ label: 'Demo — Target', value: demoTarget, accent: 'demo' });
-                      detailRows.push({ label: 'Real — Deposit Mode', value: modeLabel(ch.real_deposit_mode), accent: 'real' });
-                      detailRows.push({ label: 'Real — Balance', value: `$${realStart}`, accent: 'real' });
-                      detailRows.push({ label: 'Real — Target', value: realTarget, accent: 'real' });
-                    } else {
-                      const balLabel = ch.deposit_mode === 'fixed' ? 'Balance' : ch.deposit_mode === 'max_limit' ? 'Max Deposit' : 'Min Deposit';
-                      const targetDisplay = ch.target_enabled === false
-                        ? `No target (ranked by ${ch.deposit_mode && ch.deposit_mode !== 'fixed' ? 'growth %' : 'balance'})`
-                        : (ch.deposit_mode && ch.deposit_mode !== 'fixed') ? `${ch.target_percent || 100}% growth` : `$${ch.target_balance}`;
-                      detailRows.push({ label: 'Deposit Mode', value: modeLabel(ch.deposit_mode), accent: 'muted' });
-                      detailRows.push({ label: balLabel, value: `$${ch.starting_balance}`, accent: 'muted' });
-                      detailRows.push({ label: 'Target', value: targetDisplay, accent: 'muted' });
-                    }
-                    const parsePrizes = (p: any) => { try { const arr = typeof p === 'string' ? JSON.parse(p) : (p || []); return arr.length ? arr.map((x: any) => `$${x}`).join(', ') : ''; } catch { return ''; } };
                     await emailService.sendChallengeApproved(host.email, {
                       displayName: host.display_name,
                       challengeTitle: ch.title,
-                      challengeId: ch.id,
                       type: ch.type,
-                      startDate: fmtD(ch.start_date),
-                      endDate: fmtD(ch.end_date),
-                      timezone: ch.timezone || 'Africa/Nairobi',
-                      detailRows,
-                      realWinners: ch.real_winners_count ?? undefined,
-                      demoWinners: ch.demo_winners_count ?? undefined,
-                      realPrizes: parsePrizes(ch.real_prizes),
-                      demoPrizes: parsePrizes(ch.demo_prizes),
-                      registrationMode: ch.registration_mode === 'winnerpip' ? 'Online (WinnerPip)' : 'Manual (CSV)',
                     });
                   }
                 }

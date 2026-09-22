@@ -3319,6 +3319,35 @@ app.post('/api/host/challenges', hostAuthMiddleware, async (req: any, res) => {
             `<b>Target:</b> ${targetDisplay}\n`;
         }
 
+        // Format a rule set the same way the host review shows it (only enabled rules).
+        const formatRules = (r: any): string => {
+          if (!r) return '  <i>Default rules</i>\n';
+          const en = r.rules_enabled || {};
+          const rows: string[] = [];
+          if (en.max_lot_size !== false && r.max_lot_size != null) rows.push(`  • Max Lot Size: ${r.max_lot_size}`);
+          if (en.max_open_trades !== false && r.max_open_trades != null) rows.push(`  • Max Open Trades: ${r.max_open_trades}`);
+          if (en.pair_limit !== false && r.pair_limit != null) rows.push(`  • Pair Limit: ${r.pair_limit}`);
+          if (en.stop_loss_required !== false) rows.push(`  • Max Risk: ${r.max_risk_mode === 'percentage' ? `${r.max_risk_percent}% of balance` : `$${r.max_risk_dollars}`}`);
+          if (en.daily_loss_cap !== false) rows.push(`  • Daily Loss Cap: ${r.daily_loss_mode === 'percentage' ? `${r.daily_loss_percent}% of day balance` : `$${r.daily_loss_cap}`}`);
+          if (en.max_hold_hours !== false && r.max_hold_hours != null) rows.push(`  • Max Hold: ${r.max_hold_hours}h`);
+          if (en.min_trade_duration !== false && r.min_trade_duration_minutes != null) rows.push(`  • Min Duration: ${r.min_trade_duration_minutes}min`);
+          if (en.min_active_days !== false && r.min_active_days != null) rows.push(`  • Min Active Days: ${r.min_active_days}`);
+          if (en.min_total_trades !== false && r.min_total_trades != null) rows.push(`  • Min Total Trades: ${r.min_total_trades}`);
+          if (en.weekend_trading !== false) rows.push(`  • Weekend Trading: Prohibited`);
+          if (r.only_cent_account) rows.push(`  • Cent Account: Required`);
+          if (r.allow_professional) rows.push(`  • Professional Accounts: Allowed`);
+          return rows.length ? rows.join('\n') + '\n' : '  <i>No rules enforced</i>\n';
+        };
+
+        let rulesBlock = '';
+        if (isSplit) {
+          rulesBlock =
+            `\n<b>📋 Demo Rules:</b>\n${formatRules(req.body.rules_demo)}` +
+            `<b>📋 Real Rules:</b>\n${formatRules(req.body.rules_real)}`;
+        } else {
+          rulesBlock = `\n<b>📋 Rules:</b>\n${formatRules(req.body.rules)}`;
+        }
+
         const msg = await telegram.sendMessage(
           config.adminUserId,
           `🏢 <b>Host Challenge Creation</b>\n\n` +
@@ -3332,7 +3361,8 @@ app.post('/api/host/challenges', hostAuthMiddleware, async (req: any, res) => {
           (real_prizes?.length ? `<b>Real Prizes:</b> ${real_prizes.map((p: any) => `$${p}`).join(', ')}\n` : '') +
           (demo_prizes?.length ? `<b>Demo Prizes:</b> ${demo_prizes.map((p: any) => `$${p}`).join(', ')}\n` : '') +
           `<b>Registration:</b> ${req.body.registration_mode === 'winnerpip' ? 'Online (WinnerPip)' : 'Manual (CSV)'}\n` +
-          `<b>Timezone:</b> ${timezone || 'Africa/Nairobi'}\n\n` +
+          `<b>Timezone:</b> ${timezone || 'Africa/Nairobi'}\n` +
+          rulesBlock + `\n` +
           `⚠️ Confirm to create this challenge.`,
           {
             parse_mode: 'HTML',
