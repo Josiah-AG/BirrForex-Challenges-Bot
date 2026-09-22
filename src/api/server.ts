@@ -1010,7 +1010,10 @@ app.post('/api/challenges/:id/register', authLimiter, async (req, res) => {
        RETURNING id`,
       [
         challengeId,
-        0, // user_id = 0 for web registrations (no Telegram)
+        // Web registrants have no Telegram account. user_id is NOT NULL + UNIQUE(challenge_id, user_id),
+        // so we assign a unique negative sentinel (same approach as the CSV upload path) to avoid the
+        // "(challenge_id, 0) already exists" collision when more than one person registers on the web.
+        -1 * Date.now() - Math.floor(Math.random() * 100000),
         null, // username = null
         nickname.trim(),
         accountType,
