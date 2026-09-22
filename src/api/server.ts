@@ -2452,6 +2452,87 @@ app.get('/api/host/challenge/:id/leaderboard', hostAuthMiddleware, async (req: a
     if (!ownership.rows[0]) return res.status(404).json({ error: 'Challenge not found' });
 
     const category = req.query.category as string || 'all';
+
+    // Determine challenge status — pre-start ranks from registrations (matching admin)
+    const statusRow = await db.query(`SELECT status FROM trading_challenges WHERE id = $1`, [challengeId]);
+    const hlStatus = statusRow.rows[0]?.status;
+    const hlIsPreStart = hlStatus !== 'active' && hlStatus !== 'reviewing' && hlStatus !== 'completed';
+
+    const hlCentCheck = await db.query(
+      `SELECT COALESCE((SELECT (parameters->>'only_cent_account')::boolean FROM wp_challenge_rules WHERE challenge_id = $1 AND rule_code = 'config'), false) as only_cent`,
+      [challengeId]
+    );
+    const hlOnlyCent = hlCentCheck.rows[0]?.only_cent || false;
+
+    // ===== PRE-START: rank from trading_registrations by last_known_balance (matching admin) =====
+    if (hlIsPreStart) {
+      const catFilterReg = (category === 'demo' || category === 'real') ? ` AND r.account_type = '${category}'` : '';
+      const partitionClause = (category === 'demo' || category === 'real') ? 'PARTITION BY r.account_type' : '';
+      const orderByFinal = (category === 'demo' || category === 'real') ? 'ORDER BY r.account_type, rank' : 'ORDER BY rank';
+
+      const regResult = await db.query(
+        `SELECT r.id as registration_id, r.nickname, r.account_type, r.is_cent,
+                r.email, r.account_number, r.mt5_server, r.account_subtype,
+                r.registration_balance, r.last_known_balance, r.actual_starting_balance,
+                r.disqualified, r.disqualified_reason,
+                ROW_NUMBER() OVER (
+                  ${partitionClause}
+                  ORDER BY CASE WHEN r.disqualified = true THEN 1 ELSE 0 END,
+                    CASE WHEN COALESCE(r.is_cent, false)
+                    THEN COALESCE(r.last_known_balance, r.actual_starting_balance, r.registration_balance, 0) / 100.0
+                    ELSE COALESCE(r.last_known_balance, r.actual_starting_balance, r.registration_balance, 0)
+                  END DESC NULLS LAST, r.registered_at ASC
+                ) as rank
+         FROM trading_registrations r
+         WHERE r.challenge_id = $1
+           AND (r.status IS NULL OR r.status != 'removed')
+           ${catFilterReg}
+         ${orderByFinal}`,
+        [challengeId]
+      );
+
+      return res.json({
+        preStart: true,
+        leaderboard: regResult.rows.map((r: any) => {
+          const isCent = r.is_cent || (hlOnlyCent && r.account_type !== 'demo') || false;
+          const fallbackBalance = r.last_known_balance != null
+            ? parseFloat(r.last_known_balance)
+            : r.actual_starting_balance != null ? parseFloat(r.actual_starting_balance)
+            : r.registration_balance != null ? parseFloat(r.registration_balance) : 0;
+          return {
+            nickname: r.nickname,
+            email: r.email || '',
+            accountNumber: r.account_number || '',
+            accountType: r.account_type,
+            accountSubtype: r.account_subtype || null,
+            server: r.mt5_server || '',
+            rank: parseInt(r.rank),
+            rankChange: null,
+            currentBalance: fallbackBalance,
+            adjustedBalance: fallbackBalance,
+            qualifiedProfit: 0,
+            grossProfit: 0,
+            profitRemoved: 0,
+            totalTrades: 0,
+            qualifiedTrades: 0,
+            flaggedTrades: 0,
+            isQualified: false,
+            isDisqualified: r.disqualified || false,
+            disqualifyReason: r.disqualified_reason || null,
+            growthPercent: 0,
+            isCent,
+            lastTradeTime: null,
+            totalWithdrawn: 0,
+            isWithdrawn: false,
+            isBlown: false,
+            notYetEvaluated: true,
+            registrationId: r.registration_id,
+          };
+        }),
+      });
+    }
+
+    // ===== ACTIVE/REVIEWING/COMPLETED: use wp_leaderboard =====
     let catFilter = '';
     const params: any[] = [challengeId];
     if (category === 'demo' || category === 'real') {

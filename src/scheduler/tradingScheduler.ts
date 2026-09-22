@@ -1847,8 +1847,9 @@ export class TradingScheduler {
                   [reg.id, reg.account_number, `Balance ${currency}${balance.toFixed(2)} exceeds limit ${currency}${limit.toFixed(2)}`]
                 );
 
-                // Web-registered users (no Telegram) — send email (skip for hosted challenges — they can't register over-balance)
-                if ((reg.source === 'winnerpip' || !reg.user_id || reg.user_id === 0) && reg.email && !(challenge as any).host_id) {
+                // Web-registered / hosted participants (no Telegram) — send the over-balance reset email.
+                // Matches admin behavior: notify the participant to fix their balance before start.
+                if ((reg.source === 'winnerpip' || !reg.user_id || reg.user_id === 0) && reg.email) {
                   try {
                     const { emailService } = require('../services/emailService');
                     const startDate = toEAT(challenge.start_date);
@@ -1899,8 +1900,8 @@ export class TradingScheduler {
                 [reg.id]
               );
               cleared++;
-              // DM user that they're good now
-              if (reg.source !== 'discord') {
+              // DM user that they're good now (Telegram participants only; web/host banner clears via the flag)
+              if (reg.source !== 'discord' && reg.user_id && reg.user_id > 0) {
                 try {
                   const lang: Lang = (reg.lang as Lang) || 'en';
                   await this.bot.bot.telegram.sendMessage(
