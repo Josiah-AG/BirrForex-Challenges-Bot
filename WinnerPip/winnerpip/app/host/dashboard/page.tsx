@@ -2551,9 +2551,40 @@ function CreateChallengeModal({ createStep, setCreateStep, createForm, setCreate
                   <p className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider mb-2">Challenge Details</p>
                   <div className="flex justify-between py-2 border-b border-white/5"><span className="text-gray-500">Title</span><span className="text-white font-medium">{createForm.title}</span></div>
                   <div className="flex justify-between py-2 border-b border-white/5"><span className="text-gray-500">Type</span><span className="text-white capitalize">{createForm.type}</span></div>
-                  <div className="flex justify-between py-2 border-b border-white/5"><span className="text-gray-500">Deposit Mode</span><span className="text-white">{createForm.deposit_mode === 'max_limit' ? 'Max Limit' : createForm.deposit_mode === 'min_limit' ? 'Min Limit' : 'Fixed'}</span></div>
-                  <div className="flex justify-between py-2 border-b border-white/5"><span className="text-gray-500">{createForm.deposit_mode === 'fixed' ? 'Balance' : createForm.deposit_mode === 'max_limit' ? 'Max Deposit' : 'Min Deposit'}</span><span className="text-white">${createForm.starting_balance}</span></div>
-                  <div className="flex justify-between py-2 border-b border-white/5"><span className="text-gray-500">Target</span><span className="text-white">{createForm.deposit_mode !== 'fixed' ? `${createForm.target_percent}% growth` : `$${createForm.target_balance}`}</span></div>
+                  {createForm.type === 'hybrid' && createForm.split_category_settings ? (
+                    <>
+                      {/* Per-category review — Demo */}
+                      {(() => {
+                        const modeLabel = (m: string) => m === 'max_limit' ? 'Max Limit' : m === 'min_limit' ? 'Min Limit' : 'Fixed';
+                        const demoStart = createForm.demo_starting_balance || createForm.starting_balance;
+                        const demoTarget = !createForm.demo_target_enabled
+                          ? 'No target'
+                          : createForm.demo_deposit_mode !== 'fixed'
+                            ? `${createForm.demo_target_percent}% growth`
+                            : `$${createForm.demo_target_balance || createForm.target_balance}`;
+                        const realStart = createForm.real_starting_balance || createForm.starting_balance;
+                        const realTarget = !createForm.real_target_enabled
+                          ? 'No target'
+                          : createForm.real_deposit_mode !== 'fixed'
+                            ? `${createForm.real_target_percent}% growth`
+                            : `$${createForm.real_target_balance || createForm.target_balance}`;
+                        return (<>
+                          <div className="flex justify-between py-2 border-b border-white/5"><span className="text-blue-400 font-semibold">Demo — Deposit Mode</span><span className="text-white">{modeLabel(createForm.demo_deposit_mode)}</span></div>
+                          <div className="flex justify-between py-2 border-b border-white/5"><span className="text-blue-400">Demo — Balance</span><span className="text-white">${demoStart}</span></div>
+                          <div className="flex justify-between py-2 border-b border-white/5"><span className="text-blue-400">Demo — Target</span><span className="text-white">{demoTarget}</span></div>
+                          <div className="flex justify-between py-2 border-b border-white/5"><span className="text-profit font-semibold">Real — Deposit Mode</span><span className="text-white">{modeLabel(createForm.real_deposit_mode)}</span></div>
+                          <div className="flex justify-between py-2 border-b border-white/5"><span className="text-profit">Real — Balance</span><span className="text-white">${realStart}</span></div>
+                          <div className="flex justify-between py-2 border-b border-white/5"><span className="text-profit">Real — Target</span><span className="text-white">{realTarget}</span></div>
+                        </>);
+                      })()}
+                    </>
+                  ) : (
+                    <>
+                      <div className="flex justify-between py-2 border-b border-white/5"><span className="text-gray-500">Deposit Mode</span><span className="text-white">{createForm.deposit_mode === 'max_limit' ? 'Max Limit' : createForm.deposit_mode === 'min_limit' ? 'Min Limit' : 'Fixed'}</span></div>
+                      <div className="flex justify-between py-2 border-b border-white/5"><span className="text-gray-500">{createForm.deposit_mode === 'fixed' ? 'Balance' : createForm.deposit_mode === 'max_limit' ? 'Max Deposit' : 'Min Deposit'}</span><span className="text-white">${createForm.starting_balance}</span></div>
+                      <div className="flex justify-between py-2 border-b border-white/5"><span className="text-gray-500">Target</span><span className="text-white">{!createForm.target_enabled ? 'No target' : createForm.deposit_mode !== 'fixed' ? `${createForm.target_percent}% growth` : `$${createForm.target_balance}`}</span></div>
+                    </>
+                  )}
                   <div className="flex justify-between py-2 border-b border-white/5"><span className="text-gray-500">Timezone</span><span className="text-white">{createForm.timezone}</span></div>
 
                   <p className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider mt-4 mb-2">Rewards</p>
