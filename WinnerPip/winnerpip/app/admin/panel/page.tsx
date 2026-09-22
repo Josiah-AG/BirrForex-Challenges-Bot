@@ -2550,21 +2550,25 @@ function VpsReportSection({ data, loading, error, onRefresh }: { data: any; load
             <h4 className="text-sm font-bold text-white mb-3">Snapshots (4x/day)</h4>
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
-                <thead><tr className="text-gray-400 text-left"><th className="py-1 px-2">Captured</th><th className="py-1 px-2 text-right">Requests</th><th className="py-1 px-2 text-right">myFXpath</th><th className="py-1 px-2 text-right">WinnerPip</th><th className="py-1 px-2 text-right">Failures</th></tr></thead>
+                <thead><tr className="text-gray-400 text-left"><th className="py-1 px-2">Captured (EAT)</th><th className="py-1 px-2 text-right">Requests</th><th className="py-1 px-2 text-right">myFXpath</th><th className="py-1 px-2 text-right">WinnerPip</th><th className="py-1 px-2 text-right">myFXpath fail</th><th className="py-1 px-2 text-right">WinnerPip fail</th></tr></thead>
                 <tbody>
                   {snapshots.length ? [...snapshots].reverse().map((s: any, i: number) => {
                     const l = s.requests_by_lane || {};
-                    const t = s.captured_at ? new Date(Number(s.captured_at) * 1000).toISOString().replace("T", " ").slice(0, 19) : "?";
+                    const fl = s.failures_by_lane || {};
+                    const t = s.captured_at ? new Date(Number(s.captured_at) * 1000).toLocaleString("en-GB", { timeZone: "Africa/Nairobi", weekday: "short", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }) : "?";
+                    const mf = Number(fl.myfxpath || 0);
+                    const wp = Number(fl.challenge || 0);
                     return (
                       <tr key={i} className="border-t border-white/5">
-                        <td className="py-1.5 px-2 text-gray-300">{t} UTC</td>
+                        <td className="py-1.5 px-2 text-gray-300">{t}</td>
                         <td className="py-1.5 px-2 text-right text-gray-300">{Number(s.requests_total || 0)}</td>
                         <td className="py-1.5 px-2 text-right text-gray-300">{Number(l.myfxpath || 0)}</td>
                         <td className="py-1.5 px-2 text-right text-gray-300">{Number(l.challenge || 0)}</td>
-                        <td className="py-1.5 px-2 text-right text-gray-300">{Number(s.failure_total || 0)}</td>
+                        <td className="py-1.5 px-2 text-right">{mf > 0 ? <span className="text-loss font-semibold">{mf}</span> : <span className="text-gray-300">0</span>}</td>
+                        <td className="py-1.5 px-2 text-right">{wp > 0 ? <span className="text-loss font-semibold">{wp}</span> : <span className="text-gray-300">0</span>}</td>
                       </tr>
                     );
-                  }) : <tr><td colSpan={5} className="py-3 text-center text-gray-500">No snapshots captured yet.</td></tr>}
+                  }) : <tr><td colSpan={6} className="py-3 text-center text-gray-500">No snapshots captured yet.</td></tr>}
                 </tbody>
               </table>
             </div>
