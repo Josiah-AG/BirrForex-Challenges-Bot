@@ -545,6 +545,22 @@ async function migrate() {
     await db.query(`ALTER TABLE trading_challenges ADD COLUMN IF NOT EXISTS real_target_percent NUMERIC(10,2);`).catch(() => {});
     console.log('✅ Per-category settings columns OK');
 
+    // === Optional / disabled target support (additive, backward-compatible) ===
+    // target_enabled = FALSE means qualification does NOT require hitting a target;
+    // participants are ranked purely by their metric (balance / growth% / profit).
+    // allow_below_start = TRUE means accounts that ended BELOW their starting balance
+    // (a net loss) can still qualify/win when target is disabled. Default FALSE keeps
+    // only breakeven-or-profitable accounts eligible.
+    // All defaults preserve today's behavior: every existing challenge requires the target.
+    await db.query(`ALTER TABLE trading_challenges ADD COLUMN IF NOT EXISTS target_enabled BOOLEAN DEFAULT TRUE;`).catch(() => {});
+    await db.query(`ALTER TABLE trading_challenges ADD COLUMN IF NOT EXISTS allow_below_start BOOLEAN DEFAULT FALSE;`).catch(() => {});
+    // Per-category variants (used only when split_category_settings is ON for a hybrid challenge)
+    await db.query(`ALTER TABLE trading_challenges ADD COLUMN IF NOT EXISTS demo_target_enabled BOOLEAN;`).catch(() => {});
+    await db.query(`ALTER TABLE trading_challenges ADD COLUMN IF NOT EXISTS real_target_enabled BOOLEAN;`).catch(() => {});
+    await db.query(`ALTER TABLE trading_challenges ADD COLUMN IF NOT EXISTS demo_allow_below_start BOOLEAN;`).catch(() => {});
+    await db.query(`ALTER TABLE trading_challenges ADD COLUMN IF NOT EXISTS real_allow_below_start BOOLEAN;`).catch(() => {});
+    console.log('✅ Optional-target columns OK');
+
     console.log('✅ Database migration completed successfully!');
     process.exit(0);
   } catch (error) {

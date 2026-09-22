@@ -35,6 +35,10 @@ interface ChallengeInfo {
   startingBalance: number; myStartingBalance?: number; targetBalance: number;
   winnersCount: number; realWinnersCount: number; demoWinnersCount: number;
   onlyCentAccount?: boolean;
+  // Optional-target controls (resolved per the participant's category by the API).
+  targetEnabled?: boolean;
+  allowBelowStart?: boolean;
+  depositMode?: string;
 }
 interface MyStats {
   nickname: string; email: string; accountNumber: string; accountType: string; accountSubtype: string | null; server: string;
@@ -325,10 +329,15 @@ export default function ChallengeDashboard() {
   // Computed values
   const violations = recentTrades.filter(t => !t.isQualified);
 
+  // Whether this challenge has NO target (winners decided by ranking only).
+  const noTarget = challenge?.targetEnabled === false;
+
   // Top-N by rank AND above balance target
   const isWinner = (entry: LeaderboardEntry) => {
     if (!challenge || leaderboardPreStart || entry.isDisqualified || entry.isWithdrawn || entry.isBlown) return false;
     const count = entry.accountType === 'demo' ? (challenge.demoWinnersCount || 0) : (challenge.realWinnersCount || 0);
+    // No-target challenge: winners are simply the top-N qualified accounts by rank.
+    if (noTarget) return count > 0 && entry.isQualified && !!entry.rank && entry.rank <= count;
     // For cent-only real challenges: target is already in ¢, compare directly
     // For hybrid/flexible: API already converts target ×100 for cent users via /api/me/dashboard
     // Leaderboard entries have raw adjustedBalance. Need ×100 only for cent users in NON-cent-only challenges
@@ -346,6 +355,8 @@ export default function ChallengeDashboard() {
   };
   const isAboveTarget = (entry: LeaderboardEntry) => {
     if (!challenge || entry.isDisqualified || entry.isWithdrawn || entry.isBlown || leaderboardPreStart) return false;
+    // No "above target" highlighting when there is no target.
+    if (noTarget) return false;
     const isRealCentOnly = challenge.onlyCentAccount && effectiveIsCent;
     const effectiveTarget = (entry.isCent && !isRealCentOnly) ? challenge.targetBalance * 100 : challenge.targetBalance;
     return (entry.adjustedBalance - (entry.totalWithdrawn || 0)) >= effectiveTarget;
@@ -355,6 +366,12 @@ export default function ChallengeDashboard() {
   // isCent: trust registration flag, fallback to challenge onlyCentAccount for real accounts
   const effectiveIsCent = myStats ? (myStats.isCent || (challenge?.onlyCentAccount && myStats.accountType === 'real') || false) : false;
   const progressPercent = challenge && myStats ? ((myStats.adjustedBalance - challenge.startingBalance) / (challenge.targetBalance - challenge.startingBalance)) * 100 : 0;
+  // Growth from the participant's OWN starting balance — used for no-target challenges
+  // (and safe against a zero/near-zero denominator).
+  const growthBase = challenge ? (challenge.myStartingBalance ?? challenge.startingBalance) : 0;
+  const growthPercent = challenge && myStats && growthBase > 0
+    ? ((myStats.adjustedBalance - growthBase) / growthBase) * 100
+    : 0;
   const isBlownAccount = myStats && myStats.totalTrades > 0 && myStats.currentBalance <= 0;
 
   // Win Rate & Avg RR — exclude breakeven trades from denominator; only qualified wins count
@@ -1028,8 +1045,35 @@ export default function ChallengeDashboard() {
               </div>
             )}
 
-            {/* PROGRESS BAR — only show when user has trades and is active */}
-            {showProgressBar ? (
+            {/* PROGRESS / GROWTH — only show when user has trades and is active */}
+            {showProgressBar && noTarget ? (
+              /* NO-TARGET CHALLENGE — show account growth, no "progress to target" */
+              <div className="glass rounded-2xl p-4 md:p-5 border border-white/10 mb-3">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs md:text-sm font-medium text-gray-300">Account Growth</p>
+                  <p className={`text-xs md:text-sm font-bold ${growthPercent > 0 ? "text-profit" : growthPercent < 0 ? "text-loss" : "text-gray-400"}`}>
+                    {growthPercent === 0 ? "0%" : `${growthPercent > 0 ? "▲ +" : "▼ "}${growthPercent.toFixed(1)}%`}
+                  </p>
+                </div>
+                {/* Centered growth bar: fills right (green) for gains, left (red) for losses. */}
+                <div className="relative w-full h-4 md:h-5 bg-white/5 rounded-full overflow-hidden border border-white/10" style={{ colorScheme: 'dark' }}>
+                  <div className="absolute left-1/2 top-0 h-full w-px bg-white/20" />
+                  {growthPercent >= 0 ? (
+                    <div className="absolute left-1/2 top-0 h-full rounded-r-full transition-all duration-700 bg-gradient-to-r from-royal/80 to-profit" style={{ width: `${Math.min(50, growthPercent * 0.5)}%` }} />
+                  ) : (
+                    <div className="absolute top-0 h-full rounded-l-full transition-all duration-700 bg-gradient-to-l from-loss/70 to-loss" style={{ right: '50%', width: `${Math.min(50, Math.abs(growthPercent) * 0.5)}%` }} />
+                  )}
+                </div>
+                <div className="flex justify-between mt-1.5 text-[10px] md:text-xs">
+                  <span className="text-gray-500">Start: {formatBalance(challenge.myStartingBalance ?? challenge.startingBalance, myStats.accountType, effectiveIsCent)}</span>
+                  <span className={growthPercent >= 0 ? "text-profit" : "text-loss"}>
+                    {growthPercent < 0 && challenge.allowBelowStart === false ? "▼ below start — not eligible" : "Ranked by growth"}
+                  </span>
+                  <span className="text-gray-500">Now: {formatBalance(myStats.adjustedBalance, myStats.accountType, effectiveIsCent)}</span>
+                </div>
+                <p className="text-[10px] text-gray-500 mt-2 text-center">This challenge has no target — winners are decided by ranking.</p>
+              </div>
+            ) : showProgressBar ? (
               <div className="glass rounded-2xl p-4 md:p-5 border border-white/10 mb-3">
                 <div className="flex items-center justify-between mb-2">
                   <p className="text-xs md:text-sm font-medium text-gray-300">Progress to Target</p>

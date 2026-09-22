@@ -467,6 +467,10 @@ app.get('/api/challenges', async (req, res) => {
               c.real_winners_count, c.demo_winners_count, c.real_prizes, c.demo_prizes, c.prize_pool_text,
               c.pdf_url, c.video_url, c.announcement_posted, c.evaluation_type, c.winners_posted_at,
               c.source, c.team_only, c.registration_deadline, c.host_id, c.registration_mode,
+              c.deposit_mode, c.target_percent, c.split_category_settings,
+              c.demo_starting_balance, c.demo_target_balance, c.real_starting_balance, c.real_target_balance,
+              c.demo_deposit_mode, c.real_deposit_mode, c.demo_target_percent, c.real_target_percent,
+              c.target_enabled, c.demo_target_enabled, c.real_target_enabled,
               h.display_name as host_display_name, h.main_link as host_main_link
        FROM trading_challenges c
        LEFT JOIN hosts h ON c.host_id = h.id
@@ -517,6 +521,20 @@ app.get('/api/challenges', async (req, res) => {
         endDate: c.end_date,
         startingBalance: c.starting_balance,
         targetBalance: c.target_balance,
+        depositMode: c.deposit_mode || 'fixed',
+        targetPercent: c.target_percent,
+        targetEnabled: c.target_enabled === null || c.target_enabled === undefined ? true : c.target_enabled,
+        splitCategorySettings: c.split_category_settings || false,
+        demoStartingBalance: c.demo_starting_balance,
+        demoTargetBalance: c.demo_target_balance,
+        realStartingBalance: c.real_starting_balance,
+        realTargetBalance: c.real_target_balance,
+        demoDepositMode: c.demo_deposit_mode,
+        realDepositMode: c.real_deposit_mode,
+        demoTargetPercent: c.demo_target_percent,
+        realTargetPercent: c.real_target_percent,
+        demoTargetEnabled: c.demo_target_enabled,
+        realTargetEnabled: c.real_target_enabled,
         realWinnersCount: c.real_winners_count,
         demoWinnersCount: c.demo_winners_count,
         realPrizes: typeof c.real_prizes === 'string' ? JSON.parse(c.real_prizes) : c.real_prizes,
@@ -1849,6 +1867,7 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
               c.real_winners_count, c.demo_winners_count, c.type as challenge_type, c.timezone,
               c.split_category_settings, c.demo_starting_balance, c.demo_target_balance, c.real_starting_balance, c.real_target_balance,
               c.demo_deposit_mode, c.real_deposit_mode, c.demo_target_percent, c.real_target_percent, c.deposit_mode, c.target_percent,
+              c.target_enabled, c.allow_below_start, c.demo_target_enabled, c.real_target_enabled, c.demo_allow_below_start, c.real_allow_below_start,
               COALESCE((SELECT (parameters->>'only_cent_account')::boolean FROM wp_challenge_rules WHERE challenge_id = c.id AND rule_code = 'config'), false) as only_cent_account
        FROM trading_registrations r
        JOIN trading_challenges c ON r.challenge_id = c.id
@@ -1930,6 +1949,20 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
           const { resolveCategoryBalances: rcbDash3 } = require('../utils/categorySettings');
           const bal = rcbDash3(registration, registration.account_type).targetBalance;
           return (registration.is_cent && !registration.only_cent_account) ? bal * 100 : bal;
+        })(),
+        // Per-category resolved target settings for THIS participant's account type.
+        // When targetEnabled is false, the dashboard shows growth instead of "progress to target".
+        targetEnabled: (() => {
+          const { resolveCategoryBalances: rcbDashT } = require('../utils/categorySettings');
+          return rcbDashT(registration, registration.account_type).targetEnabled;
+        })(),
+        allowBelowStart: (() => {
+          const { resolveCategoryBalances: rcbDashA } = require('../utils/categorySettings');
+          return rcbDashA(registration, registration.account_type).allowBelowStart;
+        })(),
+        depositMode: (() => {
+          const { resolveCategoryBalances: rcbDashM } = require('../utils/categorySettings');
+          return rcbDashM(registration, registration.account_type).depositMode;
         })(),
         winnersCount: parseInt(registration.real_winners_count || 0) + parseInt(registration.demo_winners_count || 0),
         realWinnersCount: parseInt(registration.real_winners_count || 0),
@@ -2586,10 +2619,12 @@ app.put('/api/host/challenge/:id/settings', hostAuthMiddleware, async (req: any,
 
     const fields = req.body;
     // Hosts can only modify a subset of fields
-    const allowed = ['title', 'end_date', 'target_balance', 'target_percent',
+    const allowed = ['title', 'starting_balance', 'target_balance', 'end_date', 'target_percent',
       'prize_pool_text', 'real_winners_count', 'demo_winners_count', 'real_prizes', 'demo_prizes',
       'split_category_settings', 'demo_starting_balance', 'demo_target_balance', 'real_starting_balance', 'real_target_balance',
-      'demo_deposit_mode', 'real_deposit_mode', 'demo_target_percent', 'real_target_percent'];
+      'demo_deposit_mode', 'real_deposit_mode', 'demo_target_percent', 'real_target_percent',
+      'target_enabled', 'allow_below_start',
+      'demo_target_enabled', 'real_target_enabled', 'demo_allow_below_start', 'real_allow_below_start'];
 
     const sets: string[] = [];
     const values: any[] = [];
@@ -3162,6 +3197,8 @@ app.post('/api/host/challenges', hostAuthMiddleware, async (req: any, res) => {
       timezone, split_category_settings, demo_starting_balance, demo_target_balance,
       real_starting_balance, real_target_balance,
       demo_deposit_mode, real_deposit_mode, demo_target_percent, real_target_percent,
+      target_enabled, allow_below_start,
+      demo_target_enabled, real_target_enabled, demo_allow_below_start, real_allow_below_start,
     } = req.body;
 
     if (!title || !type || !start_date || !end_date || !starting_balance) {
@@ -3177,10 +3214,12 @@ app.post('/api/host/challenges', hostAuthMiddleware, async (req: any, res) => {
         source, team_only, announcement_posted, evaluation_type,
         pull_times, pull_interval_hours, first_pull_time, deposit_mode, target_percent, host_id, timezone, registration_mode,
         split_category_settings, demo_starting_balance, demo_target_balance, real_starting_balance, real_target_balance,
-        demo_deposit_mode, real_deposit_mode, demo_target_percent, real_target_percent)
+        demo_deposit_mode, real_deposit_mode, demo_target_percent, real_target_percent,
+        target_enabled, allow_below_start, demo_target_enabled, real_target_enabled, demo_allow_below_start, real_allow_below_start)
        VALUES ($1, $2, 'pending_approval', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
         'winnerpip', false, false, 'winnerpip', $13, 4, '00:00', $14, $15, $16, $17, $18,
-        $19, $20, $21, $22, $23, $24, $25, $26, $27)
+        $19, $20, $21, $22, $23, $24, $25, $26, $27,
+        $28, $29, $30, $31, $32, $33)
        RETURNING id`,
       [
         title, type, start_date, end_date, start_date,
@@ -3200,6 +3239,13 @@ app.post('/api/host/challenges', hostAuthMiddleware, async (req: any, res) => {
         real_deposit_mode || null,
         demo_target_percent || null,
         real_target_percent || null,
+        // Optional-target flags — default to today's behavior when not provided.
+        target_enabled === undefined ? true : !!target_enabled,
+        allow_below_start === undefined ? false : !!allow_below_start,
+        demo_target_enabled === undefined ? null : (demo_target_enabled === null ? null : !!demo_target_enabled),
+        real_target_enabled === undefined ? null : (real_target_enabled === null ? null : !!real_target_enabled),
+        demo_allow_below_start === undefined ? null : (demo_allow_below_start === null ? null : !!demo_allow_below_start),
+        real_allow_below_start === undefined ? null : (real_allow_below_start === null ? null : !!real_allow_below_start),
       ]
     );
     const challengeId = insertResult.rows[0].id;
@@ -3740,6 +3786,20 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
          AND l.adjusted_balance >= tc.target_balance`,
       [challengeId]);
 
+    // Qualified count — the AUTHORITATIVE figure, read straight from the engine's
+    // is_qualified flag (which already accounts for deposit mode, growth %, and the
+    // no-target / allow-below-start logic). Do NOT derive this from above-target,
+    // otherwise no-target challenges (and max/min-limit growth challenges) misreport.
+    const qualifiedCount = await db.query(
+      `SELECT COUNT(*) as cnt FROM wp_leaderboard l
+       JOIN trading_registrations r ON r.id = l.registration_id
+       WHERE l.challenge_id=$1
+         AND l.is_qualified = true
+         AND l.is_disqualified = false
+         AND (r.disqualified IS NULL OR r.disqualified = false)
+         AND (r.status IS NULL OR r.status != 'removed')`,
+      [challengeId]);
+
     // Instruments count + most active day
     const instrumentsCount = await db.query(
       `SELECT COUNT(DISTINCT REGEXP_REPLACE(symbol, '[a-z]$', '')) as cnt FROM wp_trades WHERE challenge_id = $1`,
@@ -4026,7 +4086,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
       trades: { total: parseInt(t.total_trades) || 0, totalVolume: (parseFloat(t.demo_volume) || 0) + (parseFloat(t.real_volume) || 0), violations: parseInt(t.violations) || 0, demoTrades: parseInt(t.demo_trades) || 0, realTrades: parseInt(t.real_trades) || 0, demoVolume: parseFloat(t.demo_volume) || 0, realVolume: parseFloat(t.real_volume) || 0 },
       pulls: { today: parseInt(p.pulls_today), success: parseInt(p.total_success), failed: parseInt(p.total_failed), newTrades: parseInt(p.new_trades), passwordChanged: parseInt(pwChanged.rows[0].cnt), lastPullAt: lastPull.rows[0]?.completed_at || null },
       balance: { total: totalBalance, real: realBalance, demo: demoBalance },
-      qualified: parseInt(aboveTarget.rows[0].cnt),
+      qualified: parseInt(qualifiedCount.rows[0]?.cnt || '0'),
       totalParticipants: parseInt(c.total),
       totalTrades: parseInt(t.total_trades),
       aboveTarget: parseInt(aboveTarget.rows[0].cnt),

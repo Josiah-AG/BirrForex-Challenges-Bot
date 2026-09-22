@@ -462,7 +462,7 @@ export class WpEvaluationEngine {
       return this.evaluate(challengeId);
     }
 
-    const challenge = await db.query(`SELECT starting_balance, target_balance, type, deposit_mode, target_percent, split_category_settings, demo_starting_balance, demo_target_balance, real_starting_balance, real_target_balance FROM trading_challenges WHERE id = $1`, [challengeId]);
+    const challenge = await db.query(`SELECT starting_balance, target_balance, type, deposit_mode, target_percent, split_category_settings, demo_starting_balance, demo_target_balance, real_starting_balance, real_target_balance, demo_deposit_mode, real_deposit_mode, demo_target_percent, real_target_percent, target_enabled, allow_below_start, demo_target_enabled, real_target_enabled, demo_allow_below_start, real_allow_below_start FROM trading_challenges WHERE id = $1`, [challengeId]);
     const challengeRow = challenge.rows[0];
     const challengeType = challengeRow?.type;
 
@@ -522,7 +522,7 @@ export class WpEvaluationEngine {
       // If isRealCentOnly: admin entered in cent terms, all users are cent → no conversion
       // If user is NOT cent: admin entered in standard terms → no conversion
 
-      const result = await this.evaluateAccount(challengeId, reg, effectiveRules, effectiveStartBalance, effectiveTargetBalance, categoryBal.depositMode, categoryBal.targetPercent);
+      const result = await this.evaluateAccount(challengeId, reg, effectiveRules, effectiveStartBalance, effectiveTargetBalance, categoryBal.depositMode, categoryBal.targetPercent, categoryBal.targetEnabled, categoryBal.allowBelowStart);
       totalFlagged += result.flaggedCount;
       if (result.isQualified) totalQualified++;
     }
@@ -549,7 +549,7 @@ export class WpEvaluationEngine {
       return this.evaluateSingleAccount(challengeId, registrationId);
     }
 
-    const challenge = await db.query(`SELECT starting_balance, target_balance, type, deposit_mode, target_percent, split_category_settings, demo_starting_balance, demo_target_balance, real_starting_balance, real_target_balance FROM trading_challenges WHERE id = $1`, [challengeId]);
+    const challenge = await db.query(`SELECT starting_balance, target_balance, type, deposit_mode, target_percent, split_category_settings, demo_starting_balance, demo_target_balance, real_starting_balance, real_target_balance, demo_deposit_mode, real_deposit_mode, demo_target_percent, real_target_percent, target_enabled, allow_below_start, demo_target_enabled, real_target_enabled, demo_allow_below_start, real_allow_below_start FROM trading_challenges WHERE id = $1`, [challengeId]);
     const challengeRow = challenge.rows[0];
     const challengeType = challengeRow?.type;
     const { resolveCategoryBalances, resolveRuleCode } = require('../utils/categorySettings');
@@ -599,7 +599,7 @@ export class WpEvaluationEngine {
     // If isRealCentOnly: admin entered in cent terms, all users are cent → no conversion
     // If user is NOT cent: admin entered in standard terms → no conversion
 
-    return this.evaluateAccount(challengeId, reg, effectiveRules, effectiveStartBalance, effectiveTargetBalance, categoryBal.depositMode, categoryBal.targetPercent);
+    return this.evaluateAccount(challengeId, reg, effectiveRules, effectiveStartBalance, effectiveTargetBalance, categoryBal.depositMode, categoryBal.targetPercent, categoryBal.targetEnabled, categoryBal.allowBelowStart);
   }
 
   /**
@@ -607,7 +607,8 @@ export class WpEvaluationEngine {
    */
   private async evaluateAccount(
     challengeId: number, reg: any, rules: RuleConfig, startingBalance: number, targetBalance: number,
-    depositMode: string = 'fixed', targetPercent: number | null = null
+    depositMode: string = 'fixed', targetPercent: number | null = null,
+    targetEnabled: boolean = true, allowBelowStart: boolean = false
   ): Promise<{ flaggedCount: number; isQualified: boolean }> {
 
     // Get challenge dates for period filtering
@@ -1647,7 +1648,15 @@ export class WpEvaluationEngine {
       : 0;
 
     let isQualified: boolean;
-    if (depositMode !== 'fixed' && targetPercent) {
+    if (!targetEnabled) {
+      // === NO TARGET MODE ===
+      // Host disabled the target requirement — qualification is by ranking only,
+      // not by hitting any $ target or growth %. Still respects min active days.
+      // Floor: unless allowBelowStart is on, accounts that ended BELOW their
+      // starting balance (a net loss) are excluded from winner eligibility.
+      const meetsFloor = allowBelowStart ? true : (adjustedBalance >= effectiveStartBalance);
+      isQualified = meetsFloor && activeDays >= minDaysRequired;
+    } else if (depositMode !== 'fixed' && targetPercent) {
       // max_limit or min_limit: qualify by growth percentage
       isQualified = growthPercent >= targetPercent && activeDays >= minDaysRequired;
     } else {

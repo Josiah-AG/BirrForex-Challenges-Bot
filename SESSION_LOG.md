@@ -1084,3 +1084,86 @@ Fixed multiple bugs reported from a live challenge (screenshots showed "9/9" cor
 - Backend TypeScript: compiles clean (`npx tsc --noEmit --skipLibCheck`)
 - Frontend: `npx next build` passes (only a pre-existing unused-var warning for `recentPullErrors`)
 - All changes committed and pushed to `main`. Latest commit: `c9120df`
+
+---
+
+## Session — September 22, 2026 — Per-Category Settings Read Bug + Optional (Disable-able) Target
+
+Three related pieces of work, all additive and backward-compatible. Backend `tsc --noEmit --skipLibCheck` clean; frontend `next build` clean.
+
+### 1. Fixed per-category settings not persisting/displaying (READ bug)
+Root cause: the create flow saved split values correctly (overview banner was right), but the **list endpoint that feeds the Settings tab and challenge cards didn't SELECT the per-category columns**, so the UI fell back to the literal `?? "30"` / `?? "60"` defaults and the "Different settings per category" toggle initialized OFF.
+
+- `src/services/hostService.ts` — `getHostChallenges()` SELECT now includes `split_category_settings`, `demo/real_starting_balance`, `demo/real_target_balance`, `demo/real_deposit_mode`, `demo/real_target_percent`, and the new target-flag columns. This alone repairs the Settings tab.
+- `src/api/server.ts` — public `GET /api/challenges` SELECT + response mapping now expose `depositMode`, `targetPercent`, `targetEnabled`, `splitCategorySettings`, and camelCase per-category fields (`demoStartingBalance`, `demoTargetBalance`, `demoDepositMode`, `demoTargetPercent`, `demoTargetEnabled`, and the real equivalents) so the challenge card can render per-category / no-target.
+- `WinnerPip/winnerpip/app/challenges/page.tsx` — card now shows **two target lines** (Demo / Real) when split is ON and the categories actually differ, and **"No target — ranked by balance/growth %"** when the target is disabled. Falls back to the single `$start → $target` line otherwise.
+
+### 2. Ability to disable / not set a target
+New nullable/defaulted columns (`src/database/migrate.ts`), all preserving today's behavior:
+- `target_enabled BOOLEAN DEFAULT TRUE`, `allow_below_start BOOLEAN DEFAULT FALSE`
+- Per-category (nullable, fall back to shared): `demo_target_enabled`, `real_target_enabled`, `demo_allow_below_start`, `real_allow_below_start`
+
+Threaded through the single source of truth `src/utils/categorySettings.ts` — `ChallengeBalances` now carries `targetEnabled` + `allowBelowStart` (with a `toBool()` normalizer and per-category → shared fallback).
+
+Evaluation gate in `src/services/wpEvaluationEngine.ts` `evaluateAccount` (signature extended with `targetEnabled=true, allowBelowStart=false`; both call sites pass `categoryBal.*`). New branch in the `isQualified` determination:
+```
+if (!targetEnabled) {
+  const meetsFloor = allowBelowStart ? true : (adjustedBalance >= effectiveStartBalance);
+  isQualified = meetsFloor && activeDays >= minDaysRequired;   // ranked by metric, no target
+} else if (depositMode !== 'fixed' && targetPercent) { ...growth% } else { ...adjustedBalance >= targetBalance }
+```
+Ranking is unchanged (leaderboardService ranks by balance for fixed, growth% for max/min). Winner endpoint (`/api/challenges/:id/winners`) already filters `is_qualified = true` + rank, so it's driven automatically. The `aboveTarget` overview stat just reads 0 for no-target challenges (harmless info count). Deposit-cap DQ paths (min_limit under-balance, over-limit) are untouched — those are deposit rules, not target.
+
+### 3. "Allow accounts below starting balance to qualify" sub-option
+Only relevant when target is disabled. OFF (default) = only breakeven-or-profitable accounts eligible (`adjustedBalance >= startingBalance` floor). ON = even net-loss accounts can win by ranking.
+
+### Persistence
+- `src/api/server.ts` host create INSERT — added the 6 new columns (`$28–$33`), defaulting to `true/false/null` when not sent.
+- `src/services/challengeGatekeeper.ts` admin create INSERT — added the 6 new columns (`$33–$38`), same safe defaults (so admin-created challenges are unaffected).
+- `src/api/server.ts` `PUT /api/host/challenge/:id/settings` — `allowed` whitelist now includes `starting_balance` (was silently dropped before) + all six new flags.
+
+### Frontend (host dashboard `WinnerPip/winnerpip/app/host/dashboard/page.tsx`)
+- Create modal: shared **"Require a target"** toggle; when OFF, hides the target input (shows "No target") and reveals **"Allow accounts below starting balance to qualify"**. Per-category Demo/Real sections each got their own require-target + allow-below toggles.
+- Settings tab: reads the new fields (with safe defaults), shared require-target block when split OFF, per-category Demo/Real cards with the toggles when split ON, and the save handler sends `starting_balance` + all target flags.
+
+### Safety
+Every new field defaults to current behavior (`target_enabled = true`, `allow_below_start = false`; per-category variants null → inherit shared). No existing challenge changes unless a host explicitly turns these on.
+
+### Follow-up (same session) — Participant dashboard: growth view when target is disabled
+
+When a host disables the target, the participant dashboard's "Progress to Target" bar was meaningless (measured against a target that doesn't exist) and could divide-by-zero if start==target. Fixed by switching that card to an **Account Growth** view for no-target challenges.
+
+**Backend (`src/api/server.ts`, `GET /api/me/dashboard`):**
+- Reg SELECT now also pulls `target_enabled, allow_below_start, demo_target_enabled, real_target_enabled, demo_allow_below_start, real_allow_below_start`.
+- `challenge` response now includes `targetEnabled`, `allowBelowStart`, and `depositMode` — each **resolved per the logged-in participant's account type** via `resolveCategoryBalances(registration, account_type)`. So a hybrid split challenge that disables the target for only Demo (or only Real) sends the correct boolean to each participant.
+
+**Frontend (`WinnerPip/winnerpip/app/challenge/[id]/page.tsx`):**
+- `ChallengeInfo` gained `targetEnabled?`, `allowBelowStart?`, `depositMode?`.
+- New derived `noTarget = challenge.targetEnabled === false` and `growthPercent` (from the participant's OWN starting balance, guarded against a zero denominator).
+- Progress card: when `noTarget`, renders **"Account Growth"** — a centered bar (green right for gains, red left for losses), `▲ +X% / ▼ -X%`, Start → Now labels, and the note "This challenge has no target — winners are decided by ranking." If the host also left "allow below start" OFF, a below-start account sees "▼ below start — not eligible". Otherwise the original "Progress to Target" bar is unchanged.
+- `isWinner()`: for no-target challenges, winners = top-N **qualified** by rank (drops the `>= target` balance check). `isAboveTarget()` returns false for no-target (no light-green "above target" row highlighting).
+
+Verified: backend `tsc --noEmit` clean; frontend `next build` clean. Target-bearing challenges are completely unaffected (all changes gate on `targetEnabled === false`).
+
+### Verification pass — full consistency audit of the optional-target feature
+
+Ran a comprehensive audit (context-gatherer + manual review) of every path that reads target columns or decides qualified/winner/above-target, to confirm the no-target feature is synchronous end-to-end. Confirmed the engine's `is_qualified` (in `wpEvaluationEngine.evaluateAccount`) is the single authority; `leaderboardService.updateRankings` ranks by metric only and carries `is_qualified` through staging→live; the winners endpoint (`/api/challenges/:id/winners`) filters on `is_qualified=true`+rank. Fixed the inconsistencies the audit surfaced:
+
+**Must-fix (real):**
+- `src/api/server.ts` admin overview — `qualified` was derived from the above-target count (`aboveTarget.cnt`), which misreports for no-target and growth-mode challenges. Added an authoritative `qualifiedCount` query from `wp_leaderboard.is_qualified` and made `qualified` use it. Kept `aboveTarget`/`realAboveTarget`/`demoAboveTarget` as separate info-only fields.
+- `WinnerPip/winnerpip/app/admin/panel/page.tsx` — overview state was mapping BOTH `aboveTarget` and `qualifiedCount` from `od.qualified`. Now `aboveTarget` reads `od.aboveTarget` and `qualifiedCount` reads `od.qualified` (semantically correct). The "Above Target" StatCard relabels to "Qualified" (with "ranked by growth") when `selectedChall.targetEnabled === false`. Admin leaderboard row `eIsWinner`/`eIsAboveTarget` now use `e.isQualified` (rank + floor) when no-target instead of a phantom `>= target` compare.
+
+**Host overview:**
+- `src/api/hostRoutes.ts` full-overview — added an authoritative `qualified` count from `is_qualified`; response now returns it alongside `aboveTarget`.
+- `WinnerPip/winnerpip/app/host/dashboard/page.tsx` — stores `qualified`; the "Above Target" StatCard relabels to "Qualified" (ranked by growth) when `overview.challenge.target_enabled === false`.
+
+**Latent must-fix (legacy manual-upload path):**
+- `src/services/evaluationEngine.ts` — added optional `targetEnabled`/`allowBelowStart` to `EvaluationConfig`; `isQualified` now gates the same way (no-target → floor at start unless allow-below-start). Display strings show "no target — ranked by growth" when disabled.
+- `src/bot/evaluationHandler.ts` — the manual MT5-upload config now resolves `targetEnabled`/`allowBelowStart` via `resolveCategoryBalances(challenge, accountType)` (challenge loaded with `SELECT *`, so the flags are present).
+
+**Telegram team-invite eligibility:**
+- `src/bot/tradingAdminHandler.ts` `processTeamInvites` — demo/hybrid eligibility was `adjusted_balance >= target_balance`; now uses `l.is_qualified = true AND l.is_disqualified = false` (respects growth mode + no-target). Removed the now-unused `targetBalance` local. (Only affects `source='telegram'` challenges; host challenges are excluded by the source filter, but this keeps it correct if BirrForex ever runs a no-target telegram challenge.)
+
+**Left as-is (cosmetic, out of scope for host no-target flow):** static "Demo traders who hit the target…" bonus copy and the "If you hit the target ($X)" final-verification message in `tradingAdminHandler.ts` — these are BirrForex telegram-only announcement templates; host challenges are announced via the web dashboard, so they never render for a hosted no-target challenge.
+
+Verified: backend `tsc --noEmit --skipLibCheck` clean; frontend `next build` clean.

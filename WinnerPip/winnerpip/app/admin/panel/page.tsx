@@ -347,7 +347,7 @@ export default function AdminDashboard() {
     passwordChanged: od?.pulls?.passwordChanged || 0,
     realBalance: od?.balance?.real?.toFixed(2) || "0.00",
     demoBalance: od?.balance?.demo?.toFixed(2) || "0.00",
-    aboveTarget: od?.qualified || 0,
+    aboveTarget: od?.aboveTarget ?? od?.qualified ?? 0,
     qualifiedCount: od?.qualified || 0,
     lastPullTime: od?.pulls?.lastPullAt ? (() => { const d = new Date(new Date(od.pulls.lastPullAt).getTime() + 3*60*60*1000); return `${String(d.getUTCHours()).padStart(2,"0")}:${String(d.getUTCMinutes()).padStart(2,"0")} EAT`; })() : "—",
     nextPullTime: (() => { const now = new Date(Date.now() + 3*60*60*1000); const h = now.getUTCHours(); const schedule = [0,4,8,12,16,20]; const next = schedule.find(s => s > h); return next !== undefined ? `${String(next).padStart(2,"0")}:00 EAT` : "00:00 EAT"; })(),
@@ -584,7 +584,11 @@ export default function AdminDashboard() {
             <StatCard icon={<Users size={16} />} label="Participants" value={overview.totalParticipants.toLocaleString()} sub={`Demo: ${overview.demoParticipants} | Real: ${overview.realParticipants}`} color="text-royal" />
             <StatCard icon={<Activity size={16} />} label="Total Trades" value={overview.totalTrades.toLocaleString()} sub={`Demo: ${overview.demoTrades} (${overview.demoVolume} lots) | Real: ${overview.realTrades} (${overview.realVolume} lots)`} color="text-white" />
             <StatCard icon={<AlertTriangle size={16} />} label="Violations" value={overview.totalViolations.toString()} sub={`${overview.violationRate}% violation rate`} color="text-loss" />
-            <StatCard icon={<Trophy size={16} />} label="Above Target" value={overview.aboveTarget.toString()} sub={`${((overview.aboveTarget / overview.totalParticipants) * 100).toFixed(1)}% qualified`} color="text-gold" onClick={() => setShowAboveTarget(true)} />
+            {(selectedChall as any)?.targetEnabled === false ? (
+              <StatCard icon={<Trophy size={16} />} label="Qualified" value={overview.qualifiedCount.toString()} sub={`${overview.totalParticipants > 0 ? ((overview.qualifiedCount / overview.totalParticipants) * 100).toFixed(1) : 0}% • ranked by growth`} color="text-gold" onClick={() => setShowAboveTarget(true)} />
+            ) : (
+              <StatCard icon={<Trophy size={16} />} label="Above Target" value={overview.aboveTarget.toString()} sub={`${((overview.aboveTarget / overview.totalParticipants) * 100).toFixed(1)}% qualified`} color="text-gold" onClick={() => setShowAboveTarget(true)} />
+            )}
           </div>
 
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 mb-6">
@@ -724,8 +728,10 @@ export default function AdminDashboard() {
                   // Only multiply ×100 when user is cent AND challenge is NOT cent-only-real
                   const isRealCentOnly = selectedChall?.type === 'real' && leaderboardCentOnly;
                   const eEffectiveTarget = (e.isCent && !isRealCentOnly) ? Number(selectedChall?.targetBalance || 0) * 100 : Number(selectedChall?.targetBalance || 0);
-                  const eIsWinner = !leaderboardPreStart && !e.isDisqualified && !e.isWithdrawn && !e.isBlown && e.rank && e.rank <= eWinnersCount && Number(e.adjustedBalance) >= eEffectiveTarget;
-                  const eIsAboveTarget = !e.isDisqualified && !e.isWithdrawn && !e.isBlown && !leaderboardPreStart && Number(e.adjustedBalance) >= eEffectiveTarget;
+                  // No-target challenge: eligibility comes from the engine's isQualified (rank + floor), not a target compare.
+                  const eNoTarget = (selectedChall as any)?.targetEnabled === false;
+                  const eIsWinner = !leaderboardPreStart && !e.isDisqualified && !e.isWithdrawn && !e.isBlown && e.rank && e.rank <= eWinnersCount && (eNoTarget ? !!e.isQualified : Number(e.adjustedBalance) >= eEffectiveTarget);
+                  const eIsAboveTarget = !e.isDisqualified && !e.isWithdrawn && !e.isBlown && !leaderboardPreStart && (eNoTarget ? !!e.isQualified : Number(e.adjustedBalance) >= eEffectiveTarget);
                   return (
                   <tr key={e.rank || e.nickname} className={`border-b border-white/5 hover:bg-white/5 cursor-pointer ${!leaderboardPreStart && e.isDisqualified ? "opacity-50 bg-loss/10" : !leaderboardPreStart && (e.isWithdrawn || e.isBlown) ? "opacity-40 bg-loss/5" : eIsWinner ? "bg-profit/15" : eIsAboveTarget ? "bg-profit/5" : ""}`} onClick={() => setSelectedParticipant(e)}>
                     <td className="py-3 px-4"><span className={`text-sm font-bold ${!leaderboardPreStart && e.isDisqualified ? "text-loss" : eIsWinner ? "text-profit" : eIsAboveTarget ? "text-profit/70" : e.rank && e.rank <= 3 ? "text-gold" : "text-gray-400"}`}>{e.isDisqualified ? <span className="text-[10px]">DQ</span> : eIsWinner ? "🏆" : (e.rank || (e.notYetEvaluated ? <span className="text-[10px] text-gray-600">—</span> : "—"))}</span></td>

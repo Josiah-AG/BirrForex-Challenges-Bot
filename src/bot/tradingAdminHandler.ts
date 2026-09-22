@@ -3935,7 +3935,6 @@ export class TradingAdminHandler {
       return;
     }
     const ch = challenge.rows[0];
-    const targetBalance = parseFloat(ch.target_balance);
     const challengeType = ch.type; // 'real', 'demo', 'hybrid'
 
     // Build eligibility query based on challenge type
@@ -3949,25 +3948,25 @@ export class TradingAdminHandler {
         WHERE r.challenge_id = $1 AND r.source = 'telegram' AND r.user_id IS NOT NULL
           AND r.account_type = 'real'`;
     } else if (challengeType === 'demo') {
-      // Only demo participants who hit target
+      // Only demo participants who qualified. Use the engine's is_qualified flag so this
+      // respects deposit mode (growth %) and the no-target / allow-below-start logic —
+      // not a raw adjusted_balance >= target compare.
       eligibleQuery = `SELECT r.user_id, r.nickname, r.account_type
         FROM trading_registrations r
         JOIN wp_leaderboard l ON l.registration_id = r.id
         WHERE r.challenge_id = $1 AND r.source = 'telegram' AND r.user_id IS NOT NULL
           AND r.account_type = 'demo'
-          AND l.adjusted_balance >= $2`;
-      params.push(targetBalance);
+          AND l.is_qualified = true AND l.is_disqualified = false`;
     } else {
-      // Hybrid: all real + demo who hit target
+      // Hybrid: all real + demo who qualified (is_qualified flag, not phantom target compare)
       eligibleQuery = `SELECT r.user_id, r.nickname, r.account_type
         FROM trading_registrations r
         LEFT JOIN wp_leaderboard l ON l.registration_id = r.id
         WHERE r.challenge_id = $1 AND r.source = 'telegram' AND r.user_id IS NOT NULL
           AND (
             r.account_type = 'real'
-            OR (r.account_type = 'demo' AND l.adjusted_balance >= $2)
+            OR (r.account_type = 'demo' AND l.is_qualified = true AND l.is_disqualified = false)
           )`;
-      params.push(targetBalance);
     }
 
     const eligible = await db.query(eligibleQuery, params);

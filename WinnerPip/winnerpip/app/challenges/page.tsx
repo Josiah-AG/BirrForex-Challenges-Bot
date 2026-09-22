@@ -25,6 +25,20 @@ interface Challenge {
   endDate: string;
   startingBalance: number;
   targetBalance: number;
+  depositMode?: string;
+  targetPercent?: number | null;
+  targetEnabled?: boolean;
+  splitCategorySettings?: boolean;
+  demoStartingBalance?: number | null;
+  demoTargetBalance?: number | null;
+  realStartingBalance?: number | null;
+  realTargetBalance?: number | null;
+  demoDepositMode?: string | null;
+  realDepositMode?: string | null;
+  demoTargetPercent?: number | null;
+  realTargetPercent?: number | null;
+  demoTargetEnabled?: boolean | null;
+  realTargetEnabled?: boolean | null;
   prizePoolText: string | null;
   realPrizes: number[];
   demoPrizes: number[];
@@ -167,6 +181,40 @@ export default function ChallengesPage() {
   const renderChallengeCard = (challenge: Challenge, isPast: boolean) => {
     const badge = getStatusBadge(challenge);
 
+    // Build a per-category-aware target descriptor for the card.
+    // Returns { start, target } strings where target may be "No target" / "$X" / "85%".
+    const fmtTargetFor = (start: any, tgt: any, mode: string | null | undefined, pct: any, enabled: boolean) => {
+      const startStr = `$${start}`;
+      if (!enabled) return { start: startStr, target: "No target" };
+      if ((mode || 'fixed') !== 'fixed') return { start: startStr, target: `${pct ?? 100}%` };
+      return { start: startStr, target: `$${tgt}` };
+    };
+    const isSplit = !!challenge.splitCategorySettings && challenge.type === 'hybrid';
+    const sharedTargetEnabled = challenge.targetEnabled !== false;
+    const demoT = fmtTargetFor(
+      challenge.demoStartingBalance ?? challenge.startingBalance,
+      challenge.demoTargetBalance ?? challenge.targetBalance,
+      challenge.demoDepositMode || challenge.depositMode,
+      challenge.demoTargetPercent ?? challenge.targetPercent,
+      challenge.demoTargetEnabled == null ? sharedTargetEnabled : challenge.demoTargetEnabled !== false
+    );
+    const realT = fmtTargetFor(
+      challenge.realStartingBalance ?? challenge.startingBalance,
+      challenge.realTargetBalance ?? challenge.targetBalance,
+      challenge.realDepositMode || challenge.depositMode,
+      challenge.realTargetPercent ?? challenge.targetPercent,
+      challenge.realTargetEnabled == null ? sharedTargetEnabled : challenge.realTargetEnabled !== false
+    );
+    const sharedT = fmtTargetFor(
+      challenge.startingBalance,
+      challenge.targetBalance,
+      challenge.depositMode,
+      challenge.targetPercent,
+      sharedTargetEnabled
+    );
+    // Show two lines only when split AND the two categories actually differ.
+    const showSplitTarget = isSplit && (demoT.start !== realT.start || demoT.target !== realT.target);
+
     return (
       <button
         key={challenge.id}
@@ -235,11 +283,32 @@ export default function ChallengesPage() {
               <Target size={16} className="text-gold flex-shrink-0" />
               <div>
                 <p className="text-xs text-gray-500">Target</p>
-                <p className="text-sm font-medium">
-                  <span className={`text-white ${challenge.teamOnly ? 'blur-[5px] select-none' : ''}`}>${challenge.startingBalance}</span>
-                  <span className="text-gray-500 mx-1">&rarr;</span>
-                  <span className={`text-gold ${challenge.teamOnly ? 'blur-[5px] select-none' : ''}`}>${challenge.targetBalance}</span>
-                </p>
+                {showSplitTarget ? (
+                  <div className={`text-sm font-medium space-y-0.5 ${challenge.teamOnly ? 'blur-[5px] select-none' : ''}`}>
+                    <p>
+                      <span className="text-blue-400 text-xs mr-1">Demo</span>
+                      <span className="text-white">{demoT.start}</span>
+                      <span className="text-gray-500 mx-1">&rarr;</span>
+                      <span className={demoT.target === 'No target' ? 'text-gray-400 italic' : 'text-gold'}>{demoT.target}</span>
+                    </p>
+                    <p>
+                      <span className="text-profit text-xs mr-1">Real</span>
+                      <span className="text-white">{realT.start}</span>
+                      <span className="text-gray-500 mx-1">&rarr;</span>
+                      <span className={realT.target === 'No target' ? 'text-gray-400 italic' : 'text-gold'}>{realT.target}</span>
+                    </p>
+                  </div>
+                ) : sharedT.target === 'No target' ? (
+                  <p className={`text-sm font-medium ${challenge.teamOnly ? 'blur-[5px] select-none' : ''}`}>
+                    <span className="text-gray-400 italic">No target &mdash; ranked by {(challenge.depositMode || 'fixed') !== 'fixed' ? 'growth %' : 'balance'}</span>
+                  </p>
+                ) : (
+                  <p className="text-sm font-medium">
+                    <span className={`text-white ${challenge.teamOnly ? 'blur-[5px] select-none' : ''}`}>{sharedT.start}</span>
+                    <span className="text-gray-500 mx-1">&rarr;</span>
+                    <span className={`text-gold ${challenge.teamOnly ? 'blur-[5px] select-none' : ''}`}>{sharedT.target}</span>
+                  </p>
+                )}
               </div>
             </div>
 

@@ -18,6 +18,8 @@ export interface EvaluationConfig {
   maxHoldHours: number;        // 24
   minTradeDurationMinutes: number; // 0 = no minimum
   minActiveDays: number;       // 7
+  targetEnabled?: boolean;     // default true — when false, no target requirement (rank by metric)
+  allowBelowStart?: boolean;   // when target disabled: allow below-start accounts to qualify
 }
 
 export interface FlaggedTrade {
@@ -472,7 +474,11 @@ export function evaluateAccount(
   if (!activeDaysOk) disqualifyReasons.push('Only ' + activeDaysSet.size + ' active days (min ' + config.minActiveDays + ')');
   if (!startingBalanceOk) disqualifyReasons.push('Starting balance $' + startingBalance + ' exceeds $' + config.startingBalanceLimit);
   const isDisqualified = disqualifyReasons.length > 0;
-  const isQualified = !isDisqualified && adjustedBalance >= config.targetBalance;
+  // No-target mode: qualify without a target (rank by metric). Floor at starting balance
+  // unless allowBelowStart is on. Otherwise require adjustedBalance >= target (current behavior).
+  const isQualified = config.targetEnabled === false
+    ? !isDisqualified && (config.allowBelowStart ? true : adjustedBalance >= startingBalance)
+    : !isDisqualified && adjustedBalance >= config.targetBalance;
 
   const drawdownBreachCount = dailyDrawdowns.filter(d => d.breached).length;
 
@@ -618,10 +624,10 @@ function generateFullReport(r: EvaluationResult, cfg: EvaluationConfig): string 
     text += '🚫 DISQUALIFIED\n';
     text += '📛 ' + r.disqualifyReasons.join(', ') + '\n';
   } else if (r.isQualified) {
-    text += '🏆 QUALIFIES (Target: $' + cfg.targetBalance + ')\n';
+    text += cfg.targetEnabled === false ? '🏆 QUALIFIES (no target — ranked by growth)\n' : '🏆 QUALIFIES (Target: $' + cfg.targetBalance + ')\n';
   } else {
     text += '❌ DOES NOT QUALIFY\n';
-    text += 'Adjusted balance below target ($' + cfg.targetBalance + ')\n';
+    text += cfg.targetEnabled === false ? 'Ended below starting balance (not eligible)\n' : 'Adjusted balance below target ($' + cfg.targetBalance + ')\n';
   }
 
   return text;

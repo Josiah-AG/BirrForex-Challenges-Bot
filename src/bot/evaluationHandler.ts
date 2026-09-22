@@ -457,6 +457,15 @@ class EvaluationHandler {
       maxHoldHours: (wpRules?.rules_enabled?.max_hold_hours !== false) ? (wpRules?.max_hold_hours || 24) : 99999,
       minTradeDurationMinutes: (wpRules?.rules_enabled?.min_trade_duration !== false) ? (wpRules?.min_trade_duration_minutes || 0) : 0,
       minActiveDays: (wpRules?.rules_enabled?.min_active_days !== false) ? (wpRules?.min_active_days || 7) : 0,
+      // Optional-target flags — resolved per the account's category (default: target required).
+      ...(() => {
+        try {
+          const { resolveCategoryBalances } = require('../utils/categorySettings');
+          const acctType = parsed?.account?.accountType || 'real';
+          const cb = resolveCategoryBalances(challenge, acctType);
+          return { targetEnabled: cb.targetEnabled, allowBelowStart: cb.allowBelowStart };
+        } catch { return { targetEnabled: true, allowBelowStart: false }; }
+      })(),
     };
 
     // Run evaluation

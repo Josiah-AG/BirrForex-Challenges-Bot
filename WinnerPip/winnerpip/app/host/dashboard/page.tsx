@@ -65,6 +65,10 @@ export default function HostDashboardPage() {
     real_starting_balance: "", real_target_balance: "",
     demo_deposit_mode: "fixed", real_deposit_mode: "fixed",
     demo_target_percent: "100", real_target_percent: "100",
+    // Optional-target controls
+    target_enabled: true, allow_below_start: false,
+    demo_target_enabled: true, real_target_enabled: true,
+    demo_allow_below_start: false, real_allow_below_start: false,
   });
   const [createRules, setCreateRules] = useState<any>({
     max_lot_size: 0.02, max_open_trades: 3, pair_limit: 2,
@@ -168,6 +172,7 @@ export default function HostDashboardPage() {
             totalViolations: data.totalViolations || 0,
             violationRate: data.violationRate || '0',
             aboveTarget: data.aboveTarget || 0,
+            qualified: data.qualified || 0,
             passwordChanged: data.passwordChanged || 0,
             pullsToday: data.pullsToday || 0,
             pullsSuccess: data.pullsSuccess || 0,
@@ -186,7 +191,7 @@ export default function HostDashboardPage() {
             challenge: selectedChallenge,
             totalParticipants: 0, demoParticipants: 0, realParticipants: 0,
             disqualified: 0, totalTrades: 0, totalViolations: 0,
-            violationRate: '0', aboveTarget: 0, passwordChanged: 0,
+            violationRate: '0', aboveTarget: 0, qualified: 0, passwordChanged: 0,
             pullsToday: 0, pullsSuccess: 0, pullsFailed: 0,
             lastPullTime: "—", topViolations: [],
           });
@@ -253,6 +258,13 @@ export default function HostDashboardPage() {
           demo_target_balance: ch.demo_target_balance ?? "",
           real_starting_balance: ch.real_starting_balance ?? "",
           real_target_balance: ch.real_target_balance ?? "",
+          // Optional-target controls (default to today's behavior when null)
+          target_enabled: ch.target_enabled === null || ch.target_enabled === undefined ? true : ch.target_enabled,
+          allow_below_start: ch.allow_below_start === null || ch.allow_below_start === undefined ? false : ch.allow_below_start,
+          demo_target_enabled: ch.demo_target_enabled === null || ch.demo_target_enabled === undefined ? true : ch.demo_target_enabled,
+          real_target_enabled: ch.real_target_enabled === null || ch.real_target_enabled === undefined ? true : ch.real_target_enabled,
+          demo_allow_below_start: ch.demo_allow_below_start === null || ch.demo_allow_below_start === undefined ? false : ch.demo_allow_below_start,
+          real_allow_below_start: ch.real_allow_below_start === null || ch.real_allow_below_start === undefined ? false : ch.real_allow_below_start,
         });
         setSettingsSaved(false);
       }
@@ -492,7 +504,11 @@ export default function HostDashboardPage() {
               <StatCard icon={<Users size={16} />} label="Participants" value={(overview.totalParticipants || 0).toLocaleString()} sub={`Demo: ${overview.demoParticipants || 0} | Real: ${overview.realParticipants || 0}`} color="text-royal" />
               <StatCard icon={<Activity size={16} />} label="Total Trades" value={(overview.totalTrades || 0).toLocaleString()} sub={`Demo: ${overview.demoTrades || 0} (${overview.demoVolume || 0} lots) | Real: ${overview.realTrades || 0} (${overview.realVolume || 0} lots)`} color="text-white" />
               <StatCard icon={<AlertTriangle size={16} />} label="Violations" value={String(overview.totalViolations || 0)} sub={`${overview.violationRate || 0}% violation rate`} color="text-loss" />
-              <StatCard icon={<Trophy size={16} />} label="Above Target" value={String(overview.aboveTarget || 0)} sub={`${overview.totalParticipants > 0 ? ((overview.aboveTarget / overview.totalParticipants) * 100).toFixed(1) : 0}% qualified`} color="text-gold" />
+              {overview.challenge?.target_enabled === false ? (
+                <StatCard icon={<Trophy size={16} />} label="Qualified" value={String(overview.qualified || 0)} sub={`${overview.totalParticipants > 0 ? (((overview.qualified || 0) / overview.totalParticipants) * 100).toFixed(1) : 0}% • ranked by growth`} color="text-gold" />
+              ) : (
+                <StatCard icon={<Trophy size={16} />} label="Above Target" value={String(overview.aboveTarget || 0)} sub={`${overview.totalParticipants > 0 ? ((overview.aboveTarget / overview.totalParticipants) * 100).toFixed(1) : 0}% qualified`} color="text-gold" />
+              )}
             </div>
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 mb-6">
               <StatCard icon={<Target size={16} />} label="Total Balance" value={`$${Number(overview.realBalance || 0).toFixed(2)}`} sub={`Real: $${Number(overview.realBalance || 0).toFixed(2)} | Demo: $${Number(overview.demoBalance || 0).toFixed(2)}`} color="text-profit" />
@@ -1308,8 +1324,31 @@ export default function HostDashboardPage() {
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div><label className="text-xs text-gray-400 font-medium mb-1 block">Starting Balance ($)</label><input value={settingsForm.starting_balance || ""} onChange={e => setSettingsForm((p: any) => ({...p, starting_balance: e.target.value}))} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
-                    <div><label className="text-xs text-gray-400 font-medium mb-1 block">Target Balance ($)</label><input value={settingsForm.target_balance || ""} onChange={e => setSettingsForm((p: any) => ({...p, target_balance: e.target.value}))} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
+                    {!settingsForm.target_enabled ? (
+                      <div><label className="text-xs text-gray-400 font-medium mb-1 block">Target Balance ($)</label><div className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-gray-500 text-sm">No target</div></div>
+                    ) : (
+                      <div><label className="text-xs text-gray-400 font-medium mb-1 block">Target Balance ($)</label><input value={settingsForm.target_balance || ""} onChange={e => setSettingsForm((p: any) => ({...p, target_balance: e.target.value}))} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
+                    )}
                   </div>
+
+                  {/* Require Target (shown when split is OFF) */}
+                  {!settingsForm.split_category_settings && (
+                    <div className="p-3 rounded-xl bg-white/5 border border-white/10 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm text-white font-medium">Require a target</p>
+                          <div className="relative group"><span className="cursor-help text-gray-500 hover:text-royal transition-colors text-xs">&#9432;</span><div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-[#1a1a2e] border border-white/20 rounded-lg text-[10px] text-gray-300 w-52 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity z-50 shadow-xl">When OFF, there is no target — winners are decided purely by ranking (balance / growth %).</div></div>
+                        </div>
+                        <button type="button" onClick={() => setSettingsForm((p: any) => ({...p, target_enabled: !p.target_enabled}))} className={`w-10 h-5 rounded-full transition-all ${settingsForm.target_enabled ? "bg-royal" : "bg-white/20"}`}><div className={`w-4 h-4 bg-white rounded-full transition-transform ${settingsForm.target_enabled ? "translate-x-5" : "translate-x-0.5"}`}></div></button>
+                      </div>
+                      {!settingsForm.target_enabled && (
+                        <div className="pt-2 border-t border-white/10 flex items-center justify-between">
+                          <p className="text-xs text-gray-300">Allow accounts below starting balance to qualify</p>
+                          <button type="button" onClick={() => setSettingsForm((p: any) => ({...p, allow_below_start: !p.allow_below_start}))} className={`w-9 h-5 rounded-full transition-all flex-shrink-0 ${settingsForm.allow_below_start ? "bg-gold" : "bg-white/20"}`}><div className={`w-4 h-4 bg-white rounded-full transition-transform ${settingsForm.allow_below_start ? "translate-x-4" : "translate-x-0.5"}`}></div></button>
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {/* Per-Category Settings (hybrid only) */}
                   {(settingsForm.type || selectedChallenge?.type) === 'hybrid' && (
@@ -1323,13 +1362,53 @@ export default function HostDashboardPage() {
                       </div>
                       {settingsForm.split_category_settings && (
                         <div className="space-y-3 pt-2 border-t border-white/10">
-                          <div className="grid grid-cols-2 gap-3">
-                            <div><label className="text-xs text-blue-400 font-medium mb-1 block">Demo Starting ($)</label><input value={settingsForm.demo_starting_balance || ""} onChange={e => setSettingsForm((p: any) => ({...p, demo_starting_balance: e.target.value}))} className="w-full p-2.5 rounded-xl bg-blue-500/5 border border-blue-500/20 text-white text-sm outline-none" placeholder={String(settingsForm.starting_balance || "30")} /></div>
-                            <div><label className="text-xs text-blue-400 font-medium mb-1 block">Demo Target ($)</label><input value={settingsForm.demo_target_balance || ""} onChange={e => setSettingsForm((p: any) => ({...p, demo_target_balance: e.target.value}))} className="w-full p-2.5 rounded-xl bg-blue-500/5 border border-blue-500/20 text-white text-sm outline-none" placeholder={String(settingsForm.target_balance || "60")} /></div>
+                          {/* Demo */}
+                          <div className="p-2.5 rounded-lg bg-blue-500/5 border border-blue-500/10 space-y-2">
+                            <div className="flex items-center justify-between">
+                              <p className="text-[11px] text-blue-400 font-bold uppercase tracking-wider">Demo</p>
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-[10px] text-gray-400">Require target</span>
+                                <button type="button" onClick={() => setSettingsForm((p: any) => ({...p, demo_target_enabled: !p.demo_target_enabled}))} className={`w-8 h-4 rounded-full transition-all flex-shrink-0 ${settingsForm.demo_target_enabled ? "bg-blue-400" : "bg-white/20"}`}><div className={`w-3 h-3 bg-white rounded-full transition-transform ${settingsForm.demo_target_enabled ? "translate-x-4" : "translate-x-0.5"}`}></div></button>
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-3">
+                              <div><label className="text-xs text-blue-400 font-medium mb-1 block">Demo Starting ($)</label><input value={settingsForm.demo_starting_balance || ""} onChange={e => setSettingsForm((p: any) => ({...p, demo_starting_balance: e.target.value}))} className="w-full p-2.5 rounded-xl bg-blue-500/5 border border-blue-500/20 text-white text-sm outline-none" placeholder={String(settingsForm.starting_balance || "30")} /></div>
+                              {settingsForm.demo_target_enabled ? (
+                                <div><label className="text-xs text-blue-400 font-medium mb-1 block">Demo Target ($)</label><input value={settingsForm.demo_target_balance || ""} onChange={e => setSettingsForm((p: any) => ({...p, demo_target_balance: e.target.value}))} className="w-full p-2.5 rounded-xl bg-blue-500/5 border border-blue-500/20 text-white text-sm outline-none" placeholder={String(settingsForm.target_balance || "60")} /></div>
+                              ) : (
+                                <div><label className="text-xs text-blue-400 font-medium mb-1 block">Demo Target</label><div className="w-full p-2.5 rounded-xl bg-blue-500/5 border border-blue-500/20 text-gray-500 text-sm">No target</div></div>
+                              )}
+                            </div>
+                            {!settingsForm.demo_target_enabled && (
+                              <div className="flex items-center justify-between">
+                                <span className="text-[10px] text-gray-300">Allow below starting balance</span>
+                                <button type="button" onClick={() => setSettingsForm((p: any) => ({...p, demo_allow_below_start: !p.demo_allow_below_start}))} className={`w-8 h-4 rounded-full transition-all flex-shrink-0 ${settingsForm.demo_allow_below_start ? "bg-gold" : "bg-white/20"}`}><div className={`w-3 h-3 bg-white rounded-full transition-transform ${settingsForm.demo_allow_below_start ? "translate-x-4" : "translate-x-0.5"}`}></div></button>
+                              </div>
+                            )}
                           </div>
-                          <div className="grid grid-cols-2 gap-3">
-                            <div><label className="text-xs text-profit font-medium mb-1 block">Real Starting ($)</label><input value={settingsForm.real_starting_balance || ""} onChange={e => setSettingsForm((p: any) => ({...p, real_starting_balance: e.target.value}))} className="w-full p-2.5 rounded-xl bg-profit/5 border border-profit/20 text-white text-sm outline-none" placeholder={String(settingsForm.starting_balance || "30")} /></div>
-                            <div><label className="text-xs text-profit font-medium mb-1 block">Real Target ($)</label><input value={settingsForm.real_target_balance || ""} onChange={e => setSettingsForm((p: any) => ({...p, real_target_balance: e.target.value}))} className="w-full p-2.5 rounded-xl bg-profit/5 border border-profit/20 text-white text-sm outline-none" placeholder={String(settingsForm.target_balance || "60")} /></div>
+                          {/* Real */}
+                          <div className="p-2.5 rounded-lg bg-profit/5 border border-profit/10 space-y-2">
+                            <div className="flex items-center justify-between">
+                              <p className="text-[11px] text-profit font-bold uppercase tracking-wider">Real</p>
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-[10px] text-gray-400">Require target</span>
+                                <button type="button" onClick={() => setSettingsForm((p: any) => ({...p, real_target_enabled: !p.real_target_enabled}))} className={`w-8 h-4 rounded-full transition-all flex-shrink-0 ${settingsForm.real_target_enabled ? "bg-profit" : "bg-white/20"}`}><div className={`w-3 h-3 bg-white rounded-full transition-transform ${settingsForm.real_target_enabled ? "translate-x-4" : "translate-x-0.5"}`}></div></button>
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-3">
+                              <div><label className="text-xs text-profit font-medium mb-1 block">Real Starting ($)</label><input value={settingsForm.real_starting_balance || ""} onChange={e => setSettingsForm((p: any) => ({...p, real_starting_balance: e.target.value}))} className="w-full p-2.5 rounded-xl bg-profit/5 border border-profit/20 text-white text-sm outline-none" placeholder={String(settingsForm.starting_balance || "30")} /></div>
+                              {settingsForm.real_target_enabled ? (
+                                <div><label className="text-xs text-profit font-medium mb-1 block">Real Target ($)</label><input value={settingsForm.real_target_balance || ""} onChange={e => setSettingsForm((p: any) => ({...p, real_target_balance: e.target.value}))} className="w-full p-2.5 rounded-xl bg-profit/5 border border-profit/20 text-white text-sm outline-none" placeholder={String(settingsForm.target_balance || "60")} /></div>
+                              ) : (
+                                <div><label className="text-xs text-profit font-medium mb-1 block">Real Target</label><div className="w-full p-2.5 rounded-xl bg-profit/5 border border-profit/20 text-gray-500 text-sm">No target</div></div>
+                              )}
+                            </div>
+                            {!settingsForm.real_target_enabled && (
+                              <div className="flex items-center justify-between">
+                                <span className="text-[10px] text-gray-300">Allow below starting balance</span>
+                                <button type="button" onClick={() => setSettingsForm((p: any) => ({...p, real_allow_below_start: !p.real_allow_below_start}))} className={`w-8 h-4 rounded-full transition-all flex-shrink-0 ${settingsForm.real_allow_below_start ? "bg-gold" : "bg-white/20"}`}><div className={`w-3 h-3 bg-white rounded-full transition-transform ${settingsForm.real_allow_below_start ? "translate-x-4" : "translate-x-0.5"}`}></div></button>
+                              </div>
+                            )}
                           </div>
                           <p className="text-[10px] text-gray-500">Leave empty to use the shared balance above as fallback.</p>
                         </div>
@@ -1346,18 +1425,33 @@ export default function HostDashboardPage() {
                     if (settingsForm.start_date) payload.start_date = settingsForm.start_date;
                     if (settingsForm.starting_balance) payload.starting_balance = parseFloat(settingsForm.starting_balance);
                     if (settingsForm.target_balance) payload.target_balance = parseFloat(settingsForm.target_balance);
+                    if (settingsForm.starting_balance) payload.starting_balance = parseFloat(settingsForm.starting_balance);
                     // Per-category settings
                     payload.split_category_settings = settingsForm.split_category_settings || false;
+                    // Optional-target controls
                     if (settingsForm.split_category_settings) {
                       payload.demo_starting_balance = settingsForm.demo_starting_balance ? parseFloat(settingsForm.demo_starting_balance) : null;
                       payload.demo_target_balance = settingsForm.demo_target_balance ? parseFloat(settingsForm.demo_target_balance) : null;
                       payload.real_starting_balance = settingsForm.real_starting_balance ? parseFloat(settingsForm.real_starting_balance) : null;
                       payload.real_target_balance = settingsForm.real_target_balance ? parseFloat(settingsForm.real_target_balance) : null;
+                      // Shared flags default to enabled when split is on (per-category flags govern)
+                      payload.target_enabled = true;
+                      payload.allow_below_start = false;
+                      payload.demo_target_enabled = !!settingsForm.demo_target_enabled;
+                      payload.real_target_enabled = !!settingsForm.real_target_enabled;
+                      payload.demo_allow_below_start = settingsForm.demo_target_enabled ? false : !!settingsForm.demo_allow_below_start;
+                      payload.real_allow_below_start = settingsForm.real_target_enabled ? false : !!settingsForm.real_allow_below_start;
                     } else {
                       payload.demo_starting_balance = null;
                       payload.demo_target_balance = null;
                       payload.real_starting_balance = null;
                       payload.real_target_balance = null;
+                      payload.target_enabled = !!settingsForm.target_enabled;
+                      payload.allow_below_start = settingsForm.target_enabled ? false : !!settingsForm.allow_below_start;
+                      payload.demo_target_enabled = null;
+                      payload.real_target_enabled = null;
+                      payload.demo_allow_below_start = null;
+                      payload.real_allow_below_start = null;
                     }
                     await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/settings`, { method: "PUT", headers: headers(), body: JSON.stringify(payload) });
                     setSettingsSaved(true); setSettingsSaving(false);
@@ -2046,6 +2140,13 @@ function CreateChallengeModal({ createStep, setCreateStep, createForm, setCreate
           real_deposit_mode: createForm.split_category_settings ? createForm.real_deposit_mode : null,
           demo_target_percent: createForm.split_category_settings && createForm.demo_deposit_mode !== 'fixed' ? parseFloat(createForm.demo_target_percent) || null : null,
           real_target_percent: createForm.split_category_settings && createForm.real_deposit_mode !== 'fixed' ? parseFloat(createForm.real_target_percent) || null : null,
+          // Optional-target controls
+          target_enabled: createForm.split_category_settings ? true : createForm.target_enabled,
+          allow_below_start: createForm.split_category_settings ? false : (createForm.target_enabled ? false : createForm.allow_below_start),
+          demo_target_enabled: createForm.split_category_settings ? createForm.demo_target_enabled : null,
+          real_target_enabled: createForm.split_category_settings ? createForm.real_target_enabled : null,
+          demo_allow_below_start: createForm.split_category_settings ? (createForm.demo_target_enabled ? false : createForm.demo_allow_below_start) : null,
+          real_allow_below_start: createForm.split_category_settings ? (createForm.real_target_enabled ? false : createForm.real_allow_below_start) : null,
           rules: createForm.split_category_settings ? null : createRules,
           rules_demo: createForm.split_category_settings ? createRulesDemo : null,
           rules_real: createForm.split_category_settings ? createRulesReal : null,
@@ -2120,9 +2221,35 @@ function CreateChallengeModal({ createStep, setCreateStep, createForm, setCreate
                       {createForm.deposit_mode === 'min_limit' && <p className="text-[11px] text-gray-400"><span className="text-profit font-semibold">Min Limit:</span> Participants must deposit at least a minimum. Target is growth %. Leaderboard ranked by growth %.</p>}
                     </div>
                   </div>
+
+                  {/* Require Target toggle */}
+                  <div className="p-3 rounded-xl bg-white/5 border border-white/10 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm text-white font-medium">Require a target</p>
+                        <Tip text="When ON, participants must reach a target ($ balance for Fixed, growth % otherwise) to qualify. When OFF, there's no target — winners are decided purely by ranking (balance / growth %)." />
+                      </div>
+                      <button type="button" onClick={() => setCreateForm({...createForm, target_enabled: !createForm.target_enabled})} className={`w-10 h-5 rounded-full transition-all flex-shrink-0 ${createForm.target_enabled ? "bg-royal" : "bg-white/20"}`}><div className={`w-4 h-4 bg-white rounded-full transition-transform ${createForm.target_enabled ? "translate-x-5" : "translate-x-0.5"}`}></div></button>
+                    </div>
+                    {!createForm.target_enabled && (
+                      <div className="pt-2 border-t border-white/10 space-y-2">
+                        <p className="text-[11px] text-gold">No target set — participants qualify by their ranking ({createForm.deposit_mode === 'fixed' ? 'account balance' : 'account growth %'}) without needing to hit any target.</p>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <p className="text-xs text-gray-300">Allow accounts below starting balance to qualify</p>
+                            <Tip text="When ON, even an account that ended below its starting balance (a net loss) can win if it ranks on top. When OFF, only breakeven-or-profitable accounts are eligible." />
+                          </div>
+                          <button type="button" onClick={() => setCreateForm({...createForm, allow_below_start: !createForm.allow_below_start})} className={`w-9 h-5 rounded-full transition-all flex-shrink-0 ${createForm.allow_below_start ? "bg-gold" : "bg-white/20"}`}><div className={`w-4 h-4 bg-white rounded-full transition-transform ${createForm.allow_below_start ? "translate-x-4" : "translate-x-0.5"}`}></div></button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
                   <div className="grid grid-cols-2 gap-3">
                     <div><label className="text-xs text-gray-400 mb-1 block">Starting Balance ($)</label><input value={createForm.starting_balance} onChange={(e: any) => setCreateForm({...createForm, starting_balance: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
-                    {createForm.deposit_mode === 'fixed' ? (
+                    {!createForm.target_enabled ? (
+                      <div><label className="text-xs text-gray-400 mb-1 block">Target</label><div className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-gray-500 text-sm">No target</div></div>
+                    ) : createForm.deposit_mode === 'fixed' ? (
                       <div><label className="text-xs text-gray-400 mb-1 block">Target Balance ($)</label><input value={createForm.target_balance} onChange={(e: any) => setCreateForm({...createForm, target_balance: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
                     ) : (
                       <div><label className="text-xs text-gray-400 mb-1 block">Target Growth (%)</label><input value={createForm.target_percent} onChange={(e: any) => setCreateForm({...createForm, target_percent: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" placeholder="e.g., 100" /></div>
@@ -2146,9 +2273,28 @@ function CreateChallengeModal({ createStep, setCreateStep, createForm, setCreate
                         {createForm.demo_deposit_mode === 'max_limit' && <p className="text-[10px] text-gray-400"><span className="text-blue-400 font-semibold">Max Limit:</span> Demo balance up to cap. Target is growth %.</p>}
                         {createForm.demo_deposit_mode === 'min_limit' && <p className="text-[10px] text-gray-400"><span className="text-blue-400 font-semibold">Min Limit:</span> Demo balance at least minimum. Target is growth %.</p>}
                       </div>
+                      {/* Demo require-target toggle */}
+                      <div className="flex items-center justify-between p-2 rounded-lg bg-white/5">
+                        <div className="flex items-center gap-1.5">
+                          <p className="text-[11px] text-blue-400 font-medium">Require a target</p>
+                          <Tip text="When OFF, Demo participants qualify by ranking only — no target needed." />
+                        </div>
+                        <button type="button" onClick={() => setCreateForm({...createForm, demo_target_enabled: !createForm.demo_target_enabled})} className={`w-9 h-5 rounded-full transition-all flex-shrink-0 ${createForm.demo_target_enabled ? "bg-blue-400" : "bg-white/20"}`}><div className={`w-4 h-4 bg-white rounded-full transition-transform ${createForm.demo_target_enabled ? "translate-x-4" : "translate-x-0.5"}`}></div></button>
+                      </div>
+                      {!createForm.demo_target_enabled && (
+                        <div className="flex items-center justify-between p-2 rounded-lg bg-white/5">
+                          <div className="flex items-center gap-1.5">
+                            <p className="text-[10px] text-gray-300">Allow accounts below starting balance</p>
+                            <Tip text="When ON, Demo accounts ending below their starting balance can still win by ranking." />
+                          </div>
+                          <button type="button" onClick={() => setCreateForm({...createForm, demo_allow_below_start: !createForm.demo_allow_below_start})} className={`w-8 h-4 rounded-full transition-all flex-shrink-0 ${createForm.demo_allow_below_start ? "bg-gold" : "bg-white/20"}`}><div className={`w-3 h-3 bg-white rounded-full transition-transform ${createForm.demo_allow_below_start ? "translate-x-4" : "translate-x-0.5"}`}></div></button>
+                        </div>
+                      )}
                       <div className="grid grid-cols-2 gap-3">
                         <div><label className="text-[11px] text-blue-400 mb-1 block">Starting Balance ($)</label><input value={createForm.demo_starting_balance} onChange={(e: any) => setCreateForm({...createForm, demo_starting_balance: e.target.value})} className="w-full p-2.5 rounded-xl bg-white/5 border border-blue-500/20 text-white text-sm outline-none" placeholder="30" /></div>
-                        {createForm.demo_deposit_mode === 'fixed' ? (
+                        {!createForm.demo_target_enabled ? (
+                          <div><label className="text-[11px] text-blue-400 mb-1 block">Target</label><div className="w-full p-2.5 rounded-xl bg-white/5 border border-blue-500/20 text-gray-500 text-sm">No target</div></div>
+                        ) : createForm.demo_deposit_mode === 'fixed' ? (
                           <div><label className="text-[11px] text-blue-400 mb-1 block">Target Balance ($)</label><input value={createForm.demo_target_balance} onChange={(e: any) => setCreateForm({...createForm, demo_target_balance: e.target.value})} className="w-full p-2.5 rounded-xl bg-white/5 border border-blue-500/20 text-white text-sm outline-none" placeholder="60" /></div>
                         ) : (
                           <div><label className="text-[11px] text-blue-400 mb-1 block">Target Growth (%)</label><input value={createForm.demo_target_percent} onChange={(e: any) => setCreateForm({...createForm, demo_target_percent: e.target.value})} className="w-full p-2.5 rounded-xl bg-white/5 border border-blue-500/20 text-white text-sm outline-none" placeholder="100" /></div>
@@ -2169,9 +2315,28 @@ function CreateChallengeModal({ createStep, setCreateStep, createForm, setCreate
                         {createForm.real_deposit_mode === 'max_limit' && <p className="text-[10px] text-gray-400"><span className="text-profit font-semibold">Max Limit:</span> Real balance up to cap. Target is growth %.</p>}
                         {createForm.real_deposit_mode === 'min_limit' && <p className="text-[10px] text-gray-400"><span className="text-profit font-semibold">Min Limit:</span> Real balance at least minimum. Target is growth %.</p>}
                       </div>
+                      {/* Real require-target toggle */}
+                      <div className="flex items-center justify-between p-2 rounded-lg bg-white/5">
+                        <div className="flex items-center gap-1.5">
+                          <p className="text-[11px] text-profit font-medium">Require a target</p>
+                          <Tip text="When OFF, Real participants qualify by ranking only — no target needed." />
+                        </div>
+                        <button type="button" onClick={() => setCreateForm({...createForm, real_target_enabled: !createForm.real_target_enabled})} className={`w-9 h-5 rounded-full transition-all flex-shrink-0 ${createForm.real_target_enabled ? "bg-profit" : "bg-white/20"}`}><div className={`w-4 h-4 bg-white rounded-full transition-transform ${createForm.real_target_enabled ? "translate-x-4" : "translate-x-0.5"}`}></div></button>
+                      </div>
+                      {!createForm.real_target_enabled && (
+                        <div className="flex items-center justify-between p-2 rounded-lg bg-white/5">
+                          <div className="flex items-center gap-1.5">
+                            <p className="text-[10px] text-gray-300">Allow accounts below starting balance</p>
+                            <Tip text="When ON, Real accounts ending below their starting balance can still win by ranking." />
+                          </div>
+                          <button type="button" onClick={() => setCreateForm({...createForm, real_allow_below_start: !createForm.real_allow_below_start})} className={`w-8 h-4 rounded-full transition-all flex-shrink-0 ${createForm.real_allow_below_start ? "bg-gold" : "bg-white/20"}`}><div className={`w-3 h-3 bg-white rounded-full transition-transform ${createForm.real_allow_below_start ? "translate-x-4" : "translate-x-0.5"}`}></div></button>
+                        </div>
+                      )}
                       <div className="grid grid-cols-2 gap-3">
                         <div><label className="text-[11px] text-profit mb-1 block">Starting Balance ($)</label><input value={createForm.real_starting_balance} onChange={(e: any) => setCreateForm({...createForm, real_starting_balance: e.target.value})} className="w-full p-2.5 rounded-xl bg-white/5 border border-profit/20 text-white text-sm outline-none" placeholder="100" /></div>
-                        {createForm.real_deposit_mode === 'fixed' ? (
+                        {!createForm.real_target_enabled ? (
+                          <div><label className="text-[11px] text-profit mb-1 block">Target</label><div className="w-full p-2.5 rounded-xl bg-white/5 border border-profit/20 text-gray-500 text-sm">No target</div></div>
+                        ) : createForm.real_deposit_mode === 'fixed' ? (
                           <div><label className="text-[11px] text-profit mb-1 block">Target Balance ($)</label><input value={createForm.real_target_balance} onChange={(e: any) => setCreateForm({...createForm, real_target_balance: e.target.value})} className="w-full p-2.5 rounded-xl bg-white/5 border border-profit/20 text-white text-sm outline-none" placeholder="200" /></div>
                         ) : (
                           <div><label className="text-[11px] text-profit mb-1 block">Target Growth (%)</label><input value={createForm.real_target_percent} onChange={(e: any) => setCreateForm({...createForm, real_target_percent: e.target.value})} className="w-full p-2.5 rounded-xl bg-white/5 border border-profit/20 text-white text-sm outline-none" placeholder="100" /></div>

@@ -119,9 +119,11 @@ export async function executeCreate(data: any): Promise<{ success: boolean; chal
         pdf_url, video_url, source, team_only, announcement_posted, evaluation_type,
         pull_times, pull_interval_hours, first_pull_time, deposit_mode, target_percent, host_id,
         split_category_settings, demo_starting_balance, demo_target_balance, real_starting_balance, real_target_balance,
-        demo_deposit_mode, real_deposit_mode, demo_target_percent, real_target_percent)
+        demo_deposit_mode, real_deposit_mode, demo_target_percent, real_target_percent,
+        target_enabled, allow_below_start, demo_target_enabled, real_target_enabled, demo_allow_below_start, real_allow_below_start)
        VALUES ($1, $2, 'draft', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, false, $17, $18, $19, $20, $21, $22, $23,
-        $24, $25, $26, $27, $28, $29, $30, $31, $32)
+        $24, $25, $26, $27, $28, $29, $30, $31, $32,
+        $33, $34, $35, $36, $37, $38)
        RETURNING *`,
       [
         data.title, data.type, data.start_date, data.end_date,
@@ -147,6 +149,13 @@ export async function executeCreate(data: any): Promise<{ success: boolean; chal
         data.real_deposit_mode || null,
         data.demo_target_percent || null,
         data.real_target_percent || null,
+        // Optional-target flags — default to today's behavior when not provided.
+        data.target_enabled === undefined ? true : !!data.target_enabled,
+        data.allow_below_start === undefined ? false : !!data.allow_below_start,
+        data.demo_target_enabled === undefined || data.demo_target_enabled === null ? null : !!data.demo_target_enabled,
+        data.real_target_enabled === undefined || data.real_target_enabled === null ? null : !!data.real_target_enabled,
+        data.demo_allow_below_start === undefined || data.demo_allow_below_start === null ? null : !!data.demo_allow_below_start,
+        data.real_allow_below_start === undefined || data.real_allow_below_start === null ? null : !!data.real_allow_below_start,
       ]
     );
 

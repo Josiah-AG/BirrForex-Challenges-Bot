@@ -13,6 +13,19 @@ export interface ChallengeBalances {
   targetBalance: number;
   depositMode: string;
   targetPercent: number | null;
+  /** When false, qualification does NOT require hitting the target — ranked purely by metric. Defaults true. */
+  targetEnabled: boolean;
+  /** When target is disabled: if true, accounts ending below their starting balance can still qualify. Defaults false. */
+  allowBelowStart: boolean;
+}
+
+/** Normalize a possibly-null boolean-ish DB value to a strict boolean, with a default. */
+function toBool(v: any, def: boolean): boolean {
+  if (v === null || v === undefined) return def;
+  if (typeof v === 'boolean') return v;
+  if (typeof v === 'number') return v !== 0;
+  if (typeof v === 'string') return v === 'true' || v === 't' || v === '1';
+  return def;
 }
 
 /**
@@ -32,19 +45,25 @@ export function resolveCategoryBalances(challenge: any, accountType: string): Ch
   const sharedDepositMode = challenge.deposit_mode || challenge.depositMode || 'fixed';
   const sharedTargetPercent = challenge.target_percent != null ? parseFloat(challenge.target_percent) :
                               challenge.targetPercent != null ? parseFloat(challenge.targetPercent) : null;
+  // Optional-target flags: default to today's behavior (target required, losers excluded).
+  const sharedTargetEnabled = toBool(challenge.target_enabled ?? challenge.targetEnabled, true);
+  const sharedAllowBelowStart = toBool(challenge.allow_below_start ?? challenge.allowBelowStart, false);
 
   // Only apply per-category when split is explicitly ON and challenge is hybrid
   const isSplit = challenge.split_category_settings === true || challenge.splitCategorySettings === true;
   const isHybrid = challenge.type === 'hybrid';
 
   if (!isSplit || !isHybrid) {
-    return { startingBalance: sharedStart, targetBalance: sharedTarget, depositMode: sharedDepositMode, targetPercent: sharedTargetPercent };
+    return { startingBalance: sharedStart, targetBalance: sharedTarget, depositMode: sharedDepositMode, targetPercent: sharedTargetPercent, targetEnabled: sharedTargetEnabled, allowBelowStart: sharedAllowBelowStart };
   }
 
   if (accountType === 'demo') {
     const depositMode = challenge.demo_deposit_mode || challenge.demoDepositMode || sharedDepositMode;
     const targetPercent = challenge.demo_target_percent != null ? parseFloat(challenge.demo_target_percent) :
                           challenge.demoTargetPercent != null ? parseFloat(challenge.demoTargetPercent) : sharedTargetPercent;
+    // Per-category flag is nullable — fall back to shared when not set.
+    const rawDemoTargetEnabled = challenge.demo_target_enabled ?? challenge.demoTargetEnabled;
+    const rawDemoAllowBelow = challenge.demo_allow_below_start ?? challenge.demoAllowBelowStart;
     return {
       startingBalance: challenge.demo_starting_balance != null ? parseFloat(challenge.demo_starting_balance) :
                        challenge.demoStartingBalance != null ? parseFloat(challenge.demoStartingBalance) : sharedStart,
@@ -52,6 +71,8 @@ export function resolveCategoryBalances(challenge: any, accountType: string): Ch
                      challenge.demoTargetBalance != null ? parseFloat(challenge.demoTargetBalance) : sharedTarget,
       depositMode,
       targetPercent,
+      targetEnabled: toBool(rawDemoTargetEnabled, sharedTargetEnabled),
+      allowBelowStart: toBool(rawDemoAllowBelow, sharedAllowBelowStart),
     };
   }
 
@@ -59,6 +80,8 @@ export function resolveCategoryBalances(challenge: any, accountType: string): Ch
     const depositMode = challenge.real_deposit_mode || challenge.realDepositMode || sharedDepositMode;
     const targetPercent = challenge.real_target_percent != null ? parseFloat(challenge.real_target_percent) :
                           challenge.realTargetPercent != null ? parseFloat(challenge.realTargetPercent) : sharedTargetPercent;
+    const rawRealTargetEnabled = challenge.real_target_enabled ?? challenge.realTargetEnabled;
+    const rawRealAllowBelow = challenge.real_allow_below_start ?? challenge.realAllowBelowStart;
     return {
       startingBalance: challenge.real_starting_balance != null ? parseFloat(challenge.real_starting_balance) :
                        challenge.realStartingBalance != null ? parseFloat(challenge.realStartingBalance) : sharedStart,
@@ -66,11 +89,13 @@ export function resolveCategoryBalances(challenge: any, accountType: string): Ch
                      challenge.realTargetBalance != null ? parseFloat(challenge.realTargetBalance) : sharedTarget,
       depositMode,
       targetPercent,
+      targetEnabled: toBool(rawRealTargetEnabled, sharedTargetEnabled),
+      allowBelowStart: toBool(rawRealAllowBelow, sharedAllowBelowStart),
     };
   }
 
   // Fallback for unknown account type
-  return { startingBalance: sharedStart, targetBalance: sharedTarget, depositMode: sharedDepositMode, targetPercent: sharedTargetPercent };
+  return { startingBalance: sharedStart, targetBalance: sharedTarget, depositMode: sharedDepositMode, targetPercent: sharedTargetPercent, targetEnabled: sharedTargetEnabled, allowBelowStart: sharedAllowBelowStart };
 }
 
 /**

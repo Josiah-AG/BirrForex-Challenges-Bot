@@ -73,6 +73,18 @@ router.get('/challenge/:id/full-overview', async (req: any, res: Response) => {
                ELSE l.adjusted_balance >= (CASE WHEN tc.split_category_settings = true AND tc.type = 'hybrid' AND r.account_type = 'demo' AND tc.demo_target_balance IS NOT NULL THEN tc.demo_target_balance WHEN tc.split_category_settings = true AND tc.type = 'hybrid' AND r.account_type = 'real' AND tc.real_target_balance IS NOT NULL THEN tc.real_target_balance ELSE tc.target_balance END)
              END`, [challengeId]);
 
+    // Authoritative qualified count — from the engine's is_qualified flag (accounts for
+    // deposit mode, growth %, and no-target / allow-below-start logic). Used instead of
+    // above-target when the challenge has no target.
+    const qualifiedCount = await db.query(
+      `SELECT COUNT(*) as cnt FROM wp_leaderboard l
+       JOIN trading_registrations r ON r.id = l.registration_id
+       WHERE l.challenge_id=$1
+         AND l.is_qualified = true
+         AND l.is_disqualified = false
+         AND (r.disqualified IS NULL OR r.disqualified = false)
+         AND (r.status IS NULL OR r.status != 'removed')`, [challengeId]);
+
     const pwChanged = await db.query(
       `SELECT COUNT(*) as cnt FROM trading_registrations WHERE challenge_id=$1 AND pull_status='password_changed'`, [challengeId]);
 
@@ -301,6 +313,7 @@ router.get('/challenge/:id/full-overview', async (req: any, res: Response) => {
       totalViolations,
       violationRate: totalTrades > 0 ? ((totalViolations / totalTrades) * 100).toFixed(1) : '0',
       aboveTarget: parseInt(aboveTarget.rows[0]?.cnt || '0'),
+      qualified: parseInt(qualifiedCount.rows[0]?.cnt || '0'),
       passwordChanged: parseInt(pwChanged.rows[0]?.cnt || '0'),
       pullsToday: parseInt(pullsToday.rows[0]?.cnt || '0'),
       pullsSuccess: parseInt(pullsToday.rows[0]?.total_success || '0'),
