@@ -11,6 +11,44 @@ import BalanceChart from "@/components/BalanceChart";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
 
+// ===== Timezone-aware datetime helpers (module-level so both the dashboard and the create modal can use them) =====
+// The datetime-local input gives a naive wall-clock string (e.g. "2026-09-25T17:00").
+// The host means "5 PM in the challenge timezone", but the system stores/reads dates as UTC.
+// These convert between the two so what the host types is what actually happens.
+
+// How many ms the given IANA timezone is ahead of UTC at the given instant (handles DST).
+function tzOffsetMs(instant: Date, tz: string): number {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+  }).formatToParts(instant).reduce((acc: any, p) => { acc[p.type] = p.value; return acc; }, {});
+  const hour = parts.hour === "24" ? "00" : parts.hour;
+  const asUtc = Date.UTC(+parts.year, +parts.month - 1, +parts.day, +hour, +parts.minute, +parts.second);
+  return asUtc - instant.getTime();
+}
+
+// Convert a "YYYY-MM-DDTHH:mm" wall-clock string (in tz) to a UTC ISO string.
+function wallClockToUtcISO(local: string, tz: string): string {
+  if (!local) return local;
+  const guessUtcMs = Date.parse(local + ":00Z");
+  if (isNaN(guessUtcMs)) return local;
+  const offset = tzOffsetMs(new Date(guessUtcMs), tz);
+  return new Date(guessUtcMs - offset).toISOString();
+}
+
+// Convert a stored UTC date to a "YYYY-MM-DDTHH:mm" wall-clock string in tz (for datetime-local inputs).
+function utcToWallClock(iso: string | Date, tz: string): string {
+  if (!iso) return "";
+  const d = typeof iso === "string" ? new Date(iso) : iso;
+  if (isNaN(d.getTime())) return "";
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hour12: false,
+  }).formatToParts(d).reduce((acc: any, p) => { acc[p.type] = p.value; return acc; }, {});
+  const hh = parts.hour === "24" ? "00" : parts.hour;
+  return `${parts.year}-${parts.month}-${parts.day}T${hh}:${parts.minute}`;
+}
+
 export default function HostDashboardPage() {
   const [isAuth, setIsAuth] = useState(false);
   const [hostInfo, setHostInfo] = useState<any>(null);
@@ -250,8 +288,9 @@ export default function HostDashboardPage() {
         if (ch) setSettingsForm({
           title: ch.title || "",
           type: ch.type || "hybrid",
-          start_date: ch.start_date ? new Date(ch.start_date).toISOString().slice(0, 16) : "",
-          end_date: ch.end_date ? new Date(ch.end_date).toISOString().slice(0, 16) : "",
+          // Show the stored UTC time as wall-clock in the challenge's timezone (matches what the host set).
+          start_date: ch.start_date ? utcToWallClock(ch.start_date, ch.timezone || challengeTz) : "",
+          end_date: ch.end_date ? utcToWallClock(ch.end_date, ch.timezone || challengeTz) : "",
           starting_balance: ch.starting_balance ?? "30",
           target_balance: ch.target_balance ?? "60",
           prize_pool_text: ch.prize_pool_text || "",
@@ -1422,8 +1461,10 @@ export default function HostDashboardPage() {
                     const payload: any = {};
                     if (settingsForm.title) payload.title = settingsForm.title;
                     if (settingsForm.type) payload.type = settingsForm.type;
-                    if (settingsForm.end_date) payload.end_date = settingsForm.end_date;
-                    if (settingsForm.start_date) payload.start_date = settingsForm.start_date;
+                    // Convert wall-clock (challenge timezone) back to UTC before saving.
+                    { const stz = (selectedChallenge as any)?.timezone || challengeTz;
+                      if (settingsForm.end_date) payload.end_date = wallClockToUtcISO(settingsForm.end_date, stz);
+                      if (settingsForm.start_date) payload.start_date = wallClockToUtcISO(settingsForm.start_date, stz); }
                     if (settingsForm.starting_balance) payload.starting_balance = parseFloat(settingsForm.starting_balance);
                     if (settingsForm.target_balance) payload.target_balance = parseFloat(settingsForm.target_balance);
                     if (settingsForm.starting_balance) payload.starting_balance = parseFloat(settingsForm.starting_balance);
@@ -2125,6 +2166,10 @@ function CreateChallengeModal({ createStep, setCreateStep, createForm, setCreate
         headers: { Authorization: `Bearer ${getToken()}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...createForm,
+          // Convert the host's wall-clock times (in their chosen timezone) to UTC so the
+          // stored/scheduled times mean exactly what the host typed. e.g. 5PM Africa/Nairobi → 14:00 UTC.
+          start_date: wallClockToUtcISO(createForm.start_date, createForm.timezone),
+          end_date: wallClockToUtcISO(createForm.end_date, createForm.timezone),
           starting_balance: parseFloat(createForm.starting_balance),
           target_balance: parseFloat(createForm.target_balance),
           target_percent: createForm.deposit_mode !== 'fixed' ? parseFloat(createForm.target_percent) : null,
