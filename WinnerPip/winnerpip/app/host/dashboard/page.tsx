@@ -237,6 +237,8 @@ export default function HostDashboardPage() {
           setRulesLocked(d.locked || false);
           if (d.splitCategorySettings && d.challengeType === 'hybrid') {
             setRulesSplit(true);
+            // Split challenges configure Demo/Real only — never the shared fallback row.
+            if (rulesCategory === 'config') setRulesCategory('config_demo');
           } else {
             setRulesSplit(false);
             setRulesCategory('config');
@@ -1101,12 +1103,11 @@ export default function HostDashboardPage() {
               </div>
               <p className="text-xs text-gray-500 mb-6">{rulesLocked ? "Rules are read-only once a challenge is active." : "Set the rules for this challenge. Leave fields empty for unlimited."}</p>
 
-              {/* Category selector for split rules */}
+              {/* Category selector for split rules — Demo / Real only (no shared fallback) */}
               {rulesSplit && (
                 <div className="flex gap-2 mb-5">
                   <button onClick={() => setRulesCategory('config_demo')} className={`px-4 py-2 rounded-xl text-xs font-semibold transition-all border ${rulesCategory === 'config_demo' ? 'bg-blue-500/15 border-blue-500/40 text-blue-400' : 'bg-white/5 border-white/10 text-gray-400 hover:text-white'}`}>Demo Rules</button>
                   <button onClick={() => setRulesCategory('config_real')} className={`px-4 py-2 rounded-xl text-xs font-semibold transition-all border ${rulesCategory === 'config_real' ? 'bg-profit/15 border-profit/40 text-profit' : 'bg-white/5 border-white/10 text-gray-400 hover:text-white'}`}>Real Rules</button>
-                  <button onClick={() => setRulesCategory('config')} className={`px-4 py-2 rounded-xl text-xs font-semibold transition-all border ${rulesCategory === 'config' ? 'bg-royal/15 border-royal/40 text-royal' : 'bg-white/5 border-white/10 text-gray-400 hover:text-white'}`}>Shared (Fallback)</button>
                 </div>
               )}
 
@@ -1289,7 +1290,7 @@ export default function HostDashboardPage() {
                       else { const d = await res.json(); alert(d.error || "Failed to save rules"); }
                     } catch { alert("Connection error"); }
                     setRulesSaving(false);
-                  }} disabled={rulesSaving || !rulesChanged} className={`px-8 py-3 rounded-xl font-semibold text-sm transition-all ${rulesSaved ? "bg-profit/20 text-profit border border-profit/30 cursor-not-allowed" : rulesChanged ? "bg-gradient-to-r from-royal to-purple-600 hover:opacity-90 text-white shadow-lg shadow-royal/20" : "bg-white/5 text-gray-500 border border-white/10 cursor-not-allowed opacity-50"}`}>{rulesSaving ? "Saving..." : rulesSaved ? "\u2713 Rules Saved" : rulesChanged ? `Save ${rulesSplit ? (rulesCategory === 'config_demo' ? 'Demo' : rulesCategory === 'config_real' ? 'Real' : 'Shared') + ' ' : ''}Rules` : "No Changes"}</button>
+                  }} disabled={rulesSaving || !rulesChanged} className={`px-8 py-3 rounded-xl font-semibold text-sm transition-all ${rulesSaved ? "bg-profit/20 text-profit border border-profit/30 cursor-not-allowed" : rulesChanged ? "bg-gradient-to-r from-royal to-purple-600 hover:opacity-90 text-white shadow-lg shadow-royal/20" : "bg-white/5 text-gray-500 border border-white/10 cursor-not-allowed opacity-50"}`}>{rulesSaving ? "Saving..." : rulesSaved ? "\u2713 Rules Saved" : rulesChanged ? `Save ${rulesSplit ? (rulesCategory === 'config_demo' ? 'Demo ' : 'Real ') : ''}Rules` : "No Changes"}</button>
                 </div>
                   );
                 })()
