@@ -214,6 +214,10 @@ export default function HostDashboardPage() {
             violationRate: data.violationRate || '0',
             aboveTarget: data.aboveTarget || 0,
             qualified: data.qualified || 0,
+            realAboveTarget: data.realAboveTarget || 0,
+            demoAboveTarget: data.demoAboveTarget || 0,
+            realQualified: data.realQualified || 0,
+            demoQualified: data.demoQualified || 0,
             passwordChanged: data.passwordChanged || 0,
             pullsToday: data.pullsToday || 0,
             pullsSuccess: data.pullsSuccess || 0,
@@ -232,7 +236,7 @@ export default function HostDashboardPage() {
             challenge: selectedChallenge,
             totalParticipants: 0, demoParticipants: 0, realParticipants: 0,
             disqualified: 0, totalTrades: 0, totalViolations: 0,
-            violationRate: '0', aboveTarget: 0, qualified: 0, passwordChanged: 0,
+            violationRate: '0', aboveTarget: 0, qualified: 0, realAboveTarget: 0, demoAboveTarget: 0, realQualified: 0, demoQualified: 0, passwordChanged: 0,
             pullsToday: 0, pullsSuccess: 0, pullsFailed: 0,
             lastPullTime: "—", topViolations: [],
           });
@@ -567,11 +571,28 @@ export default function HostDashboardPage() {
               <StatCard icon={<Users size={16} />} label="Participants" value={(overview.totalParticipants || 0).toLocaleString()} sub={`Demo: ${overview.demoParticipants || 0} | Real: ${overview.realParticipants || 0}`} color="text-royal" />
               <StatCard icon={<Activity size={16} />} label="Total Trades" value={(overview.totalTrades || 0).toLocaleString()} sub={`Demo: ${overview.demoTrades || 0} (${overview.demoVolume || 0} lots) | Real: ${overview.realTrades || 0} (${overview.realVolume || 0} lots)`} color="text-white" />
               <StatCard icon={<AlertTriangle size={16} />} label="Violations" value={String(overview.totalViolations || 0)} sub={`${overview.violationRate || 0}% violation rate`} color="text-loss" />
-              {overview.challenge?.target_enabled === false ? (
-                <StatCard icon={<Trophy size={16} />} label="Qualified" value={String(overview.qualified || 0)} sub={`${overview.totalParticipants > 0 ? (((overview.qualified || 0) / overview.totalParticipants) * 100).toFixed(1) : 0}% • ranked by growth`} color="text-gold" />
-              ) : (
-                <StatCard icon={<Trophy size={16} />} label="Above Target" value={String(overview.aboveTarget || 0)} sub={`${overview.totalParticipants > 0 ? ((overview.aboveTarget / overview.totalParticipants) * 100).toFixed(1) : 0}% qualified`} color="text-gold" />
-              )}
+              {(() => {
+                const c = overview.challenge || {};
+                const isSplit = c.split_category_settings && c.type === 'hybrid';
+                const sharedOn = c.target_enabled !== false;
+                if (isSplit) {
+                  // Per-category: each side shows Above Target (if it has a target) or Qualified (if no target)
+                  const demoOn = c.demo_target_enabled == null ? sharedOn : c.demo_target_enabled !== false;
+                  const realOn = c.real_target_enabled == null ? sharedOn : c.real_target_enabled !== false;
+                  const demoVal = demoOn ? (overview.demoAboveTarget || 0) : (overview.demoQualified || 0);
+                  const realVal = realOn ? (overview.realAboveTarget || 0) : (overview.realQualified || 0);
+                  return (
+                    <StatCard icon={<Trophy size={16} />} label="Qualified / Above Target"
+                      value={`${(demoVal + realVal)}`}
+                      sub={`D: ${demoVal} ${demoOn ? 'above target' : 'ranked'} · R: ${realVal} ${realOn ? 'above target' : 'ranked'}`}
+                      color="text-gold" />
+                  );
+                }
+                if (!sharedOn) {
+                  return <StatCard icon={<Trophy size={16} />} label="Qualified" value={String(overview.qualified || 0)} sub={`${overview.totalParticipants > 0 ? (((overview.qualified || 0) / overview.totalParticipants) * 100).toFixed(1) : 0}% • ranked by growth`} color="text-gold" />;
+                }
+                return <StatCard icon={<Trophy size={16} />} label="Above Target" value={String(overview.aboveTarget || 0)} sub={`${overview.totalParticipants > 0 ? ((overview.aboveTarget / overview.totalParticipants) * 100).toFixed(1) : 0}% qualified`} color="text-gold" />;
+              })()}
             </div>
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 mb-6">
               <StatCard icon={<Target size={16} />} label="Total Balance" value={`$${Number(overview.realBalance || 0).toFixed(2)}`} sub={`Real: $${Number(overview.realBalance || 0).toFixed(2)} | Demo: $${Number(overview.demoBalance || 0).toFixed(2)}`} color="text-profit" />

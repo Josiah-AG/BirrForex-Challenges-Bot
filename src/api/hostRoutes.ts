@@ -94,6 +94,42 @@ router.get('/challenge/:id/full-overview', async (req: any, res: Response) => {
          AND (r.disqualified IS NULL OR r.disqualified = false)
          AND (r.status IS NULL OR r.status != 'removed')`, [challengeId]);
 
+    // Per-category qualified counts (for the split breakdown card)
+    const qualifiedByCat = await db.query(
+      `SELECT r.account_type,
+              COUNT(*) FILTER (WHERE l.is_qualified = true AND l.is_disqualified = false
+                AND (r.disqualified IS NULL OR r.disqualified = false)) as cnt
+       FROM wp_leaderboard l
+       JOIN trading_registrations r ON r.id = l.registration_id
+       WHERE l.challenge_id=$1 AND (r.status IS NULL OR r.status != 'removed')
+       GROUP BY r.account_type`, [challengeId]);
+    const realQualified = parseInt(qualifiedByCat.rows.find((x: any) => x.account_type === 'real')?.cnt || '0');
+    const demoQualified = parseInt(qualifiedByCat.rows.find((x: any) => x.account_type === 'demo')?.cnt || '0');
+
+    // Per-category above-target counts (cent-aware), gated on each category's target being enabled
+    const aboveTargetByCat = await db.query(
+      `SELECT r.account_type, COUNT(*) as cnt
+       FROM wp_leaderboard l
+       JOIN trading_challenges tc ON tc.id = l.challenge_id
+       JOIN trading_registrations r ON r.id = l.registration_id
+       WHERE l.challenge_id=$1
+         AND (r.disqualified IS NULL OR r.disqualified = false)
+         AND (r.status IS NULL OR r.status != 'removed')
+         AND CASE
+               WHEN tc.split_category_settings = true AND tc.type = 'hybrid' AND r.account_type = 'demo'
+                 THEN COALESCE(tc.demo_target_enabled, tc.target_enabled, true)
+               WHEN tc.split_category_settings = true AND tc.type = 'hybrid' AND r.account_type = 'real'
+                 THEN COALESCE(tc.real_target_enabled, tc.target_enabled, true)
+               ELSE COALESCE(tc.target_enabled, true)
+             END = true
+         AND CASE WHEN COALESCE(r.is_cent, false)
+               THEN l.adjusted_balance >= (CASE WHEN tc.split_category_settings = true AND tc.type = 'hybrid' AND r.account_type = 'demo' AND tc.demo_target_balance IS NOT NULL THEN tc.demo_target_balance WHEN tc.split_category_settings = true AND tc.type = 'hybrid' AND r.account_type = 'real' AND tc.real_target_balance IS NOT NULL THEN tc.real_target_balance ELSE tc.target_balance END) * 100
+               ELSE l.adjusted_balance >= (CASE WHEN tc.split_category_settings = true AND tc.type = 'hybrid' AND r.account_type = 'demo' AND tc.demo_target_balance IS NOT NULL THEN tc.demo_target_balance WHEN tc.split_category_settings = true AND tc.type = 'hybrid' AND r.account_type = 'real' AND tc.real_target_balance IS NOT NULL THEN tc.real_target_balance ELSE tc.target_balance END)
+             END
+       GROUP BY r.account_type`, [challengeId]);
+    const realAboveTarget = parseInt(aboveTargetByCat.rows.find((x: any) => x.account_type === 'real')?.cnt || '0');
+    const demoAboveTarget = parseInt(aboveTargetByCat.rows.find((x: any) => x.account_type === 'demo')?.cnt || '0');
+
     const pwChanged = await db.query(
       `SELECT COUNT(*) as cnt FROM trading_registrations WHERE challenge_id=$1 AND pull_status='password_changed'`, [challengeId]);
 
@@ -323,6 +359,7 @@ router.get('/challenge/:id/full-overview', async (req: any, res: Response) => {
       violationRate: totalTrades > 0 ? ((totalViolations / totalTrades) * 100).toFixed(1) : '0',
       aboveTarget: parseInt(aboveTarget.rows[0]?.cnt || '0'),
       qualified: parseInt(qualifiedCount.rows[0]?.cnt || '0'),
+      realAboveTarget, demoAboveTarget, realQualified, demoQualified,
       passwordChanged: parseInt(pwChanged.rows[0]?.cnt || '0'),
       pullsToday: parseInt(pullsToday.rows[0]?.cnt || '0'),
       pullsSuccess: parseInt(pullsToday.rows[0]?.total_success || '0'),
