@@ -1738,7 +1738,27 @@ export default function HostDashboardPage() {
                 {/* Danger Zone */}
                 <div className="border-t border-loss/20 pt-5">
                   <p className="text-xs text-loss font-semibold mb-3 uppercase tracking-wider">Danger Zone</p>
-                  <button onClick={() => { if(confirm("Delete this challenge? This cannot be undone.")) doAction(`${API_URL}/api/host/challenge/${selectedChallengeId}`, 'DELETE'); }} className="px-4 py-2.5 rounded-lg bg-loss/10 text-loss text-xs font-semibold border border-loss/20 hover:bg-loss/20 transition-all" disabled={actionLoading}>Delete Challenge</button>
+                  <button onClick={async () => {
+                    const isStarted = ['registration_open', 'active', 'reviewing', 'completed'].includes(selectedChallenge?.status || '');
+                    const confirmMsg = isStarted
+                      ? "This challenge has activity, so deleting it needs admin approval. Submit a deletion request?"
+                      : "Delete this challenge? This cannot be undone.";
+                    if (!confirm(confirmMsg)) return;
+                    setActionLoading(true);
+                    try {
+                      const res = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}`, { method: 'DELETE', headers: headers() });
+                      const data = await res.json();
+                      if (data.pending) {
+                        alert("✅ Deletion request submitted — awaiting admin approval. The challenge will be removed once an admin approves.");
+                      } else if (data.success) {
+                        alert("Challenge deleted.");
+                        window.location.reload();
+                      } else {
+                        alert(data.error || "Failed to delete challenge.");
+                      }
+                    } catch { alert("Network error. Please try again."); }
+                    setActionLoading(false);
+                  }} className="px-4 py-2.5 rounded-lg bg-loss/10 text-loss text-xs font-semibold border border-loss/20 hover:bg-loss/20 transition-all" disabled={actionLoading}>Delete Challenge</button>
                 </div>
               </div>
             </div>

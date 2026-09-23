@@ -776,34 +776,38 @@ router.delete('/challenge/:id', async (req: any, res: Response) => {
       return res.json({ success: true });
     }
 
-    // Active/registration_open/reviewing/completed need admin approval
+    // Active/registration_open/reviewing/completed need admin approval.
+    // Queue a 'delete' action (only executes on Telegram approve → executeDelete).
+    const title = challenge.rows[0]?.title || `Challenge ${challengeId}`;
+    const hostName = req.hostAccount?.displayName || 'Unknown';
     try {
-      const config = require('../../src/config').default || require('../../src/config');
-      const { getTelegram } = require('../../src/bot/bot');
-      const telegram = getTelegram();
+      const gatekeeper = require('../services/challengeGatekeeper');
+      const { config } = require('../config');
+      const token = gatekeeper.queueDelete(challengeId, title);
+      const telegram = (global as any).__bot?.bot?.telegram || null;
       if (telegram) {
         const { Markup } = require('telegraf');
-        const gatekeeper = require('../../src/services/challengeGatekeeper');
-        const token = gatekeeper.queueStatusChange({
-          challenge_id: challengeId,
-          new_status: 'deleted',
-          hostName: req.hostAccount?.displayName || 'Host',
-        });
-        await telegram.sendMessage(
+        const msg = await telegram.sendMessage(
           config.adminUserId,
-          `🗑️ <b>Host Deletion Request</b>\n\n<b>Host:</b> ${req.hostAccount?.displayName || 'Unknown'}\n<b>Challenge:</b> ${challenge.rows[0]?.title || challengeId}\n<b>Current Status:</b> ${status}\n\n⚠️ This challenge has participants/activity. Approve deletion?`,
+          `🗑️ <b>Host Deletion Request</b>\n\n<b>Host:</b> ${hostName}\n<b>Challenge:</b> ${title}\n<b>Current Status:</b> ${status}\n\n⚠️ This challenge has participants/activity. Approve deletion?`,
           {
             parse_mode: 'HTML',
             ...Markup.inlineKeyboard([
-              [Markup.button.callback('✅ Delete', `gate_approve_${token}`)],
-              [Markup.button.callback('❌ Keep', `gate_reject_${token}`)],
+              [Markup.button.callback('✅ Confirm Delete', `gate_approve_${token}`)],
+              [Markup.button.callback('❌ Reject', `gate_reject_${token}`)],
             ]),
           }
         );
+        gatekeeper.setMessageId(token, msg.message_id);
+      } else {
+        console.warn('Host delete request: Telegram bot not available to notify admin');
       }
-    } catch (_e) { /* silent */ }
+    } catch (e) {
+      console.error('Host delete request error:', e);
+      return res.status(500).json({ error: 'Could not submit deletion request. Please try again.' });
+    }
 
-    return res.json({ success: true, pending: true, message: 'Deletion request sent to admin for approval.' });
+    return res.json({ success: true, pending: true, message: 'Deletion request submitted — awaiting admin approval.' });
   } catch (error) {
     return res.status(500).json({ error: 'Internal server error' });
   }
