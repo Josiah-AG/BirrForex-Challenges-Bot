@@ -65,6 +65,7 @@ export default function HostDashboardPage() {
   const [leaderboard, setLeaderboard] = useState<any[]>([]);
   const [violations, setViolations] = useState<any[]>([]);
   const [pullHistory, setPullHistory] = useState<any[]>([]);
+  const [pullSummary, setPullSummary] = useState<any>(null);
   const [failedAccounts, setFailedAccounts] = useState<any>(null);
   const [selectedParticipant, setSelectedParticipant] = useState<any>(null);
   const [selectedParticipantTrades, setSelectedParticipantTrades] = useState<any[]>([]);
@@ -253,7 +254,7 @@ export default function HostDashboardPage() {
           fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/pull-history`, { headers: h }),
           fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/failed-accounts`, { headers: h }),
         ]);
-        if (histRes.ok) { const d = await histRes.json(); setPullHistory(d.batches || []); }
+        if (histRes.ok) { const d = await histRes.json(); setPullHistory(d.batches || []); setPullSummary(d.summary || null); }
         if (failRes.ok) setFailedAccounts(await failRes.json());
       } else if (activeTab === "rules") {
         setRulesLoading(true);
@@ -1115,6 +1116,38 @@ export default function HostDashboardPage() {
               {/* Credential Failures — collapsed by default */}
               <CredentialFailuresPanel failedAccounts={failedAccounts} doAction={doAction} selectedChallengeId={selectedChallengeId!} />
 
+              {/* Last Update Summary */}
+              {pullSummary && (
+                <div className="glass rounded-2xl border border-white/10 p-5 mb-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm font-semibold text-white">Last Update Summary</h3>
+                    {pullSummary.lastUpdateAt && <span className="text-[10px] text-gray-500">{fmtTime(pullSummary.lastUpdateAt)}</span>}
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <div className="rounded-xl bg-profit/5 border border-profit/20 p-3">
+                      <p className="text-[10px] text-gray-400 uppercase tracking-wider">Accounts Updated</p>
+                      <p className="text-2xl font-bold text-profit mt-1">{pullSummary.eligible}</p>
+                      <p className="text-[10px] text-gray-500 mt-0.5">of {pullSummary.total} registered</p>
+                    </div>
+                    <div className="rounded-xl bg-loss/5 border border-loss/20 p-3">
+                      <p className="text-[10px] text-gray-400 uppercase tracking-wider">Skipped &mdash; Disqualified</p>
+                      <p className="text-2xl font-bold text-loss mt-1">{pullSummary.disqualified}</p>
+                      <p className="text-[10px] text-gray-500 mt-0.5">rule/balance DQ</p>
+                    </div>
+                    <div className="rounded-xl bg-gold/5 border border-gold/20 p-3">
+                      <p className="text-[10px] text-gray-400 uppercase tracking-wider">Skipped &mdash; Credential</p>
+                      <p className="text-2xl font-bold text-gold mt-1">{pullSummary.credentialFailed}</p>
+                      <p className="text-[10px] text-gray-500 mt-0.5">password/access issue</p>
+                    </div>
+                    <div className="rounded-xl bg-white/5 border border-white/10 p-3">
+                      <p className="text-[10px] text-gray-400 uppercase tracking-wider">Total Skipped</p>
+                      <p className="text-2xl font-bold text-white mt-1">{pullSummary.totalSkipped}</p>
+                      <p className="text-[10px] text-gray-500 mt-0.5">not updated this cycle</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Update History */}
               <div className="glass rounded-2xl border border-white/10 p-5">
                 <div className="flex items-center justify-between mb-3">
@@ -1135,9 +1168,9 @@ export default function HostDashboardPage() {
                           </div>
                         </div>
                         <div className="flex items-center gap-4 text-xs">
-                          <span className="text-profit font-semibold">{b.successful} ok</span>
+                          <span className="text-profit font-semibold">{b.successful} updated</span>
                           {b.failed > 0 && <span className="text-loss font-semibold">{b.failed} failed</span>}
-                          <span className="text-gray-500">{b.total_accounts} accounts</span>
+                          <span className="text-gray-500">{b.total_accounts} processed</span>
                           {durationSec != null && <span className="text-gray-500">{durationSec}s</span>}
                         </div>
                       </div>

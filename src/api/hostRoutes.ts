@@ -921,7 +921,34 @@ router.get('/challenge/:id/pull-history', async (req: any, res: Response) => {
     const result = await db.query(
       `SELECT id, started_at, completed_at, total_accounts, successful, failed, status
        FROM wp_pull_batches WHERE challenge_id=$1 ORDER BY started_at DESC LIMIT 30`, [challengeId]);
-    return res.json({ batches: result.rows });
+
+    // Live account breakdown for the "last update summary" card.
+    // Eligible = active, non-removed accounts that actually get updated each cycle.
+    // Skipped = disqualified + credential failures (they're excluded from the pull).
+    const summaryRow = await db.query(
+      `SELECT
+         COUNT(*) FILTER (WHERE (r.status IS NULL OR r.status != 'removed')) AS total,
+         COUNT(*) FILTER (WHERE r.disqualified = true AND (r.status IS NULL OR r.status != 'removed')) AS disqualified,
+         COUNT(*) FILTER (WHERE r.pull_status IN ('password_changed','invalid_credentials') AND r.disqualified = false AND (r.status IS NULL OR r.status != 'removed')) AS credential_failed,
+         COUNT(*) FILTER (WHERE r.disqualified = false AND (r.pull_status IS NULL OR r.pull_status NOT IN ('password_changed','invalid_credentials')) AND r.investor_password IS NOT NULL AND (r.status IS NULL OR r.status != 'removed')) AS eligible
+       FROM trading_registrations r
+       WHERE r.challenge_id = $1`,
+      [challengeId]
+    );
+    const s = summaryRow.rows[0] || {};
+    const disqualified = parseInt(s.disqualified || '0');
+    const credentialFailed = parseInt(s.credential_failed || '0');
+    const summary = {
+      total: parseInt(s.total || '0'),
+      eligible: parseInt(s.eligible || '0'),
+      disqualified,
+      credentialFailed,
+      totalSkipped: disqualified + credentialFailed,
+      lastUpdated: result.rows[0]?.successful ?? 0,
+      lastUpdateAt: result.rows[0]?.started_at ?? null,
+    };
+
+    return res.json({ batches: result.rows, summary });
   } catch (error) {
     return res.status(500).json({ error: 'Internal server error' });
   }
