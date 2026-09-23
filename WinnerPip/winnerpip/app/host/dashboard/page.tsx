@@ -49,6 +49,16 @@ function utcToWallClock(iso: string | Date, tz: string): string {
   return `${parts.year}-${parts.month}-${parts.day}T${hh}:${parts.minute}`;
 }
 
+// Format a target showing both % and its dollar equivalent.
+// e.g. startBal=100, pct=100 → "100% ($200.00)"; fixed → "$60"
+function fmtTargetWithDollar(mode: string, startBal: any, targetBal: any, targetPct: any, isCent = false): string {
+  const unit = isCent ? '¢' : '$';
+  if (!mode || mode === 'fixed') return `${unit}${Number(targetBal || 0).toFixed(2)}`;
+  const pct = Number(targetPct ?? 100);
+  const dollar = Number(startBal || 0) * (1 + pct / 100);
+  return `${pct}% (${unit}${dollar.toFixed(2)})`;
+}
+
 export default function HostDashboardPage() {
   const [isAuth, setIsAuth] = useState(false);
   const [hostInfo, setHostInfo] = useState<any>(null);
@@ -63,6 +73,7 @@ export default function HostDashboardPage() {
   const [participants, setParticipants] = useState<any[]>([]);
   const [participantsPagination, setParticipantsPagination] = useState<any>(null);
   const [leaderboard, setLeaderboard] = useState<any[]>([]);
+  const [leaderboardPreStart, setLeaderboardPreStart] = useState(false);
   const [violations, setViolations] = useState<any[]>([]);
   const [pullHistory, setPullHistory] = useState<any[]>([]);
   const [pullSummary, setPullSummary] = useState<any>(null);
@@ -251,7 +262,7 @@ export default function HostDashboardPage() {
         } catch {}
       } else if (activeTab === "leaderboard") {
         const res = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/leaderboard`, { headers: h });
-        if (res.ok) { const d = await res.json(); setLeaderboard(d.leaderboard || []); }
+        if (res.ok) { const d = await res.json(); setLeaderboard(d.leaderboard || []); setLeaderboardPreStart(d.preStart || false); }
       } else if (activeTab === "violations") {
         const res = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/violations`, { headers: h });
         if (res.ok) { const d = await res.json(); setViolations(d.violations || []); }
@@ -566,7 +577,7 @@ export default function HostDashboardPage() {
                 <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-xs">
                   <div><span className="text-gray-500">Type</span><p className="text-white font-medium capitalize">{overview.challenge.type || "—"}</p></div>
                   <div><span className="text-gray-500">Deposit Mode</span><p className="text-white font-medium">{(() => { const c = overview.challenge; const modeLabel = (m: string) => m === 'max_limit' ? 'Max Limit' : m === 'min_limit' ? 'Min Limit' : 'Fixed'; if (c.split_category_settings && c.type === 'hybrid') { const dm = c.demo_deposit_mode || c.deposit_mode || 'fixed'; const rm = c.real_deposit_mode || c.deposit_mode || 'fixed'; return dm === rm ? modeLabel(dm) : <><span className="text-blue-400">D:</span> {modeLabel(dm)} <span className="text-profit">R:</span> {modeLabel(rm)}</>; } return modeLabel(c.deposit_mode || 'fixed'); })()}</p></div>
-                  <div><span className="text-gray-500">Balance</span><p className="text-white font-medium">{overview.challenge.split_category_settings && overview.challenge.type === 'hybrid' ? (<><span className="text-blue-400">D:</span> ${overview.challenge.demo_starting_balance || overview.challenge.starting_balance} → {(overview.challenge.demo_deposit_mode || overview.challenge.deposit_mode || 'fixed') !== 'fixed' ? `${overview.challenge.demo_target_percent || overview.challenge.target_percent || 100}%` : `$${overview.challenge.demo_target_balance || overview.challenge.target_balance}`}{' '}<span className="text-profit">R:</span> ${overview.challenge.real_starting_balance || overview.challenge.starting_balance} → {(overview.challenge.real_deposit_mode || overview.challenge.deposit_mode || 'fixed') !== 'fixed' ? `${overview.challenge.real_target_percent || overview.challenge.target_percent || 100}%` : `$${overview.challenge.real_target_balance || overview.challenge.target_balance}`}</>) : (<>${overview.challenge.starting_balance} &rarr; {(overview.challenge.deposit_mode || 'fixed') !== 'fixed' ? `${overview.challenge.target_percent || 100}%` : `$${overview.challenge.target_balance}`}</>)}</p></div>
+                  <div><span className="text-gray-500">Balance</span><p className="text-white font-medium">{overview.challenge.split_category_settings && overview.challenge.type === 'hybrid' ? (<><span className="text-blue-400">D:</span> ${overview.challenge.demo_starting_balance || overview.challenge.starting_balance} → {fmtTargetWithDollar(overview.challenge.demo_deposit_mode || overview.challenge.deposit_mode || 'fixed', overview.challenge.demo_starting_balance || overview.challenge.starting_balance, overview.challenge.demo_target_balance || overview.challenge.target_balance, overview.challenge.demo_target_percent ?? overview.challenge.target_percent)}{' '}<span className="text-profit">R:</span> ${overview.challenge.real_starting_balance || overview.challenge.starting_balance} → {fmtTargetWithDollar(overview.challenge.real_deposit_mode || overview.challenge.deposit_mode || 'fixed', overview.challenge.real_starting_balance || overview.challenge.starting_balance, overview.challenge.real_target_balance || overview.challenge.target_balance, overview.challenge.real_target_percent ?? overview.challenge.target_percent)}</>) : (<>${overview.challenge.starting_balance} &rarr; {fmtTargetWithDollar(overview.challenge.deposit_mode || 'fixed', overview.challenge.starting_balance, overview.challenge.target_balance, overview.challenge.target_percent)}</>)}</p></div>
                   <div><span className="text-gray-500">Start</span><p className="text-white font-medium">{overview.challenge.start_date ? fmtTime(overview.challenge.start_date) : "—"}</p></div>
                   <div><span className="text-gray-500">End</span><p className="text-white font-medium">{overview.challenge.end_date ? fmtTime(overview.challenge.end_date) : "—"}</p></div>
                 </div>
@@ -1008,9 +1019,16 @@ export default function HostDashboardPage() {
                   </tr></thead>
                   <tbody>{leaderboard.length === 0 ? <tr><td colSpan={10} className="py-8 text-center text-gray-500">No leaderboard data yet — will populate after updates and evaluation</td></tr> : leaderboard.filter((e: any) => leaderboardCategory === 'all' || e.accountType === leaderboardCategory).map((e: any) => {
                     const eWinnersCount = e.accountType === 'demo' ? parseInt(selectedChallenge?.demo_winners_count || 3) : parseInt(selectedChallenge?.real_winners_count || 3);
-                    const eEffectiveTarget = e.isCent ? Number(selectedChallenge?.target_balance || 0) * 100 : Number(selectedChallenge?.target_balance || 0);
-                    const eIsWinner = !e.isDisqualified && !e.isWithdrawn && !e.isBlown && e.rank && e.rank <= eWinnersCount && Number(e.adjustedBalance) >= eEffectiveTarget;
-                    const eIsAboveTarget = !e.isDisqualified && !e.isWithdrawn && !e.isBlown && Number(e.adjustedBalance) >= eEffectiveTarget;
+                    const eNoTarget = (selectedChallenge as any)?.target_enabled === false;
+                    const eDepositMode = (selectedChallenge as any)?.deposit_mode || 'fixed';
+                    const isRealCentOnly = (selectedChallenge as any)?.only_cent_account && e.isCent;
+                    // For growth-% modes, use e.isQualified (engine already checked growth vs target_percent).
+                    // For fixed mode, compare adjusted balance to target_balance.
+                    const eQualifiesTarget = eNoTarget ? !!e.isQualified
+                      : eDepositMode !== 'fixed' ? !!e.isQualified
+                      : (Number(e.adjustedBalance) - Number(e.totalWithdrawn || 0)) >= (e.isCent && !isRealCentOnly ? Number((selectedChallenge as any)?.target_balance || 0) * 100 : Number((selectedChallenge as any)?.target_balance || 0));
+                    const eIsWinner = !leaderboardPreStart && !e.isDisqualified && !e.isWithdrawn && !e.isBlown && e.rank && e.rank <= eWinnersCount && (eNoTarget ? !!e.isQualified : eQualifiesTarget);
+                    const eIsAboveTarget = !leaderboardPreStart && !e.isDisqualified && !e.isWithdrawn && !e.isBlown && eQualifiesTarget;
                     return (
                     <tr key={e.rank || e.nickname} className={`border-b border-white/5 hover:bg-white/5 cursor-pointer ${e.isDisqualified ? "opacity-50 bg-loss/10" : (e.isWithdrawn || e.isBlown) ? "opacity-40 bg-loss/5" : eIsWinner ? "bg-profit/15" : eIsAboveTarget ? "bg-profit/5" : ""}`} onClick={() => setSelectedParticipant(e)}>
                       <td className="py-3 px-4"><span className={`text-sm font-bold ${e.isDisqualified ? "text-loss" : eIsWinner ? "text-profit" : eIsAboveTarget ? "text-profit/70" : e.rank && e.rank <= 3 ? "text-gold" : "text-gray-400"}`}>{e.isDisqualified ? <span className="text-[10px]">DQ</span> : eIsWinner ? "\u{1F3C6}" : (e.rank || "—")}</span></td>
@@ -2745,13 +2763,13 @@ function CreateChallengeModal({ createStep, setCreateStep, createForm, setCreate
                         const demoTarget = !createForm.demo_target_enabled
                           ? 'No target'
                           : createForm.demo_deposit_mode !== 'fixed'
-                            ? `${createForm.demo_target_percent}% growth`
+                            ? fmtTargetWithDollar(createForm.demo_deposit_mode, createForm.demo_starting_balance || createForm.starting_balance, null, createForm.demo_target_percent)
                             : `$${createForm.demo_target_balance || createForm.target_balance}`;
                         const realStart = createForm.real_starting_balance || createForm.starting_balance;
                         const realTarget = !createForm.real_target_enabled
                           ? 'No target'
                           : createForm.real_deposit_mode !== 'fixed'
-                            ? `${createForm.real_target_percent}% growth`
+                            ? fmtTargetWithDollar(createForm.real_deposit_mode, createForm.real_starting_balance || createForm.starting_balance, null, createForm.real_target_percent)
                             : `$${createForm.real_target_balance || createForm.target_balance}`;
                         return (<>
                           <div className="flex justify-between py-2 border-b border-white/5"><span className="text-blue-400 font-semibold">Demo — Deposit Mode</span><span className="text-white">{modeLabel(createForm.demo_deposit_mode)}</span></div>
@@ -2767,7 +2785,7 @@ function CreateChallengeModal({ createStep, setCreateStep, createForm, setCreate
                     <>
                       <div className="flex justify-between py-2 border-b border-white/5"><span className="text-gray-500">Deposit Mode</span><span className="text-white">{createForm.deposit_mode === 'max_limit' ? 'Max Limit' : createForm.deposit_mode === 'min_limit' ? 'Min Limit' : 'Fixed'}</span></div>
                       <div className="flex justify-between py-2 border-b border-white/5"><span className="text-gray-500">{createForm.deposit_mode === 'fixed' ? 'Balance' : createForm.deposit_mode === 'max_limit' ? 'Max Deposit' : 'Min Deposit'}</span><span className="text-white">${createForm.starting_balance}</span></div>
-                      <div className="flex justify-between py-2 border-b border-white/5"><span className="text-gray-500">Target</span><span className="text-white">{!createForm.target_enabled ? 'No target' : createForm.deposit_mode !== 'fixed' ? `${createForm.target_percent}% growth` : `$${createForm.target_balance}`}</span></div>
+                      <div className="flex justify-between py-2 border-b border-white/5"><span className="text-gray-500">Target</span><span className="text-white">{!createForm.target_enabled ? 'No target' : createForm.deposit_mode !== 'fixed' ? fmtTargetWithDollar(createForm.deposit_mode, createForm.starting_balance, null, createForm.target_percent) : `$${createForm.target_balance}`}</span></div>
                     </>
                   )}
                   <div className="flex justify-between py-2 border-b border-white/5"><span className="text-gray-500">Timezone</span><span className="text-white">{createForm.timezone}</span></div>
@@ -3384,9 +3402,9 @@ function hostDownloadRulesHTML(
   const sharedTargetOn = challenge.target_enabled !== false;
   let pages = '';
 
-  // Format a target as "$X" (fixed) or "X% growth" (max/min limit).
-  const fmtTargetDisp = (mode: string, targetBal: any, targetPct: any, cent: boolean) =>
-    (mode && mode !== 'fixed') ? `${targetPct ?? 100}% growth` : `${cent ? '¢' : '$'}${targetBal || 0}`;
+  // Format a target as "$X" (fixed) or "X% ($Y)" (max/min limit).
+  const fmtTargetDisp = (mode: string, startBal: any, targetBal: any, targetPct: any, cent: boolean) =>
+    fmtTargetWithDollar(mode, startBal, targetBal, targetPct, cent);
 
   if (isSplit && perCategory) {
     // Two pages: Demo + Real, each with that category's rules, balance, target
@@ -3396,15 +3414,15 @@ function hostDownloadRulesHTML(
     const realMode = challenge.real_deposit_mode || challenge.deposit_mode || 'fixed';
     const demoStart = challenge.demo_starting_balance ?? challenge.starting_balance;
     const realStart = challenge.real_starting_balance ?? challenge.starting_balance;
-    const demoTargetDisp = fmtTargetDisp(demoMode, challenge.demo_target_balance ?? challenge.target_balance, challenge.demo_target_percent ?? challenge.target_percent, perCategory.demo.isCent);
-    const realTargetDisp = fmtTargetDisp(realMode, challenge.real_target_balance ?? challenge.target_balance, challenge.real_target_percent ?? challenge.target_percent, perCategory.real.isCent);
+    const demoTargetDisp = fmtTargetDisp(demoMode, demoStart, challenge.demo_target_balance ?? challenge.target_balance, challenge.demo_target_percent ?? challenge.target_percent, perCategory.demo.isCent);
+    const realTargetDisp = fmtTargetDisp(realMode, realStart, challenge.real_target_balance ?? challenge.target_balance, challenge.real_target_percent ?? challenge.target_percent, perCategory.real.isCent);
     pages =
       renderPage({ rules: perCategory.demo.rules, isCent: perCategory.demo.isCent, startBal: demoStart, targetDisplay: demoTargetDisp, showTarget: demoTargetOn, catLabel: 'Demo' }) +
       renderPage({ rules: perCategory.real.rules, isCent: perCategory.real.isCent, startBal: realStart, targetDisplay: realTargetDisp, showTarget: realTargetOn, catLabel: 'Real' });
   } else {
     // Single challenge (non-split): one page, hide target if disabled
     const dispMode = challenge.deposit_mode || 'fixed';
-    const targetDisp = fmtTargetDisp(dispMode, challenge.target_balance, challenge.target_percent, isCent);
+    const targetDisp = fmtTargetDisp(dispMode, challenge.starting_balance, challenge.target_balance, challenge.target_percent, isCent);
     pages = renderPage({ rules: rulesList, isCent, startBal: challenge.starting_balance, targetDisplay: targetDisp, showTarget: sharedTargetOn });
   }
 

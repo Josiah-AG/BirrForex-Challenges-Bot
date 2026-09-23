@@ -2959,14 +2959,14 @@ function CreateChallengePanel({ onCreated }: { onCreated: (id: number) => void }
               <ReviewRow label="Period" value={`${form.start_date} → ${form.end_date}`} />
               <ReviewRow label="Deposit Mode" value={form.deposit_mode === 'max_limit' ? 'Max Limit' : form.deposit_mode === 'min_limit' ? 'Min Limit' : 'Fixed'} />
               <ReviewRow label={form.deposit_mode === 'fixed' ? 'Balance' : form.deposit_mode === 'max_limit' ? 'Max Deposit' : 'Min Deposit'} value={rules.only_cent_account && form.type !== "demo" ? `${form.starting_balance}¢` : `$${form.starting_balance}`} />
-              <ReviewRow label="Target" value={form.deposit_mode !== 'fixed' ? `${form.target_percent}% growth` : (rules.only_cent_account && form.type !== "demo" ? `${form.target_balance}¢` : `$${form.target_balance}`)} />
+              <ReviewRow label="Target" value={form.deposit_mode !== 'fixed' ? (() => { const pct = Number(form.target_percent ?? 100); const d = Number(form.starting_balance || 0) * (1 + pct / 100); return `${pct}% ($${d.toFixed(2)})`; })() : (rules.only_cent_account && form.type !== "demo" ? `${form.target_balance}¢` : `$${form.target_balance}`)} />
               {form.split_category_settings && form.type === 'hybrid' && (
                 <>
                   <ReviewRow label="Split Settings" value="ON — per-category deposit modes + rules" />
                   <ReviewRow label="Demo Deposit Mode" value={form.demo_deposit_mode === 'max_limit' ? 'Max Limit' : form.demo_deposit_mode === 'min_limit' ? 'Min Limit' : 'Fixed'} />
-                  {form.demo_starting_balance && <ReviewRow label="Demo Balance" value={`$${form.demo_starting_balance} → ${form.demo_deposit_mode !== 'fixed' ? `${form.demo_target_percent}%` : `$${form.demo_target_balance}`}`} />}
+                  {form.demo_starting_balance && <ReviewRow label="Demo Balance" value={`$${form.demo_starting_balance} → ${form.demo_deposit_mode !== 'fixed' ? `${form.demo_target_percent}% ($${(Number(form.demo_starting_balance) * (1 + Number(form.demo_target_percent ?? 100) / 100)).toFixed(2)})` : `$${form.demo_target_balance}`}`} />}
                   <ReviewRow label="Real Deposit Mode" value={form.real_deposit_mode === 'max_limit' ? 'Max Limit' : form.real_deposit_mode === 'min_limit' ? 'Min Limit' : 'Fixed'} />
-                  {form.real_starting_balance && <ReviewRow label="Real Balance" value={`$${form.real_starting_balance} → ${form.real_deposit_mode !== 'fixed' ? `${form.real_target_percent}%` : `$${form.real_target_balance}`}`} />}
+                  {form.real_starting_balance && <ReviewRow label="Real Balance" value={`$${form.real_starting_balance} → ${form.real_deposit_mode !== 'fixed' ? `${form.real_target_percent}% ($${(Number(form.real_starting_balance) * (1 + Number(form.real_target_percent ?? 100) / 100)).toFixed(2)})` : `$${form.real_target_balance}`}`} />}
                 </>
               )}
               <ReviewRow label="Prize Pool" value={form.prize_pool_text || "—"} />

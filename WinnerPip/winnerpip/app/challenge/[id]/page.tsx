@@ -1130,7 +1130,7 @@ export default function ChallengeDashboard() {
                   ) : progressPercent < 0 ? (
                     <span className="text-loss">▼ below start</span>
                   ) : null}
-                  <span className="text-gray-500">{isGrowthMode ? `${challenge.targetPercent ?? 100}% growth` : formatBalance(challenge.targetBalance, myStats.accountType, effectiveIsCent)}</span>
+                  <span className="text-gray-500">{isGrowthMode ? (() => { const pct = challenge.targetPercent ?? 100; const base = challenge.myStartingBalance ?? challenge.startingBalance; const dollar = base * (1 + pct / 100); return `${pct}% ($${dollar.toFixed(2)})`; })() : formatBalance(challenge.targetBalance, myStats.accountType, effectiveIsCent)}</span>
                 </div>
               </div>
             ) : !isBlownAccount && !myStats.disqualified && (

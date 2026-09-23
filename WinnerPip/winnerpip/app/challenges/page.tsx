@@ -186,7 +186,11 @@ export default function ChallengesPage() {
     const fmtTargetFor = (start: any, tgt: any, mode: string | null | undefined, pct: any, enabled: boolean) => {
       const startStr = `$${start}`;
       if (!enabled) return { start: startStr, target: "No target" };
-      if ((mode || 'fixed') !== 'fixed') return { start: startStr, target: `${pct ?? 100}%` };
+      if ((mode || 'fixed') !== 'fixed') {
+        const pctVal = pct ?? 100;
+        const dollarTarget = Number(start) * (1 + pctVal / 100);
+        return { start: startStr, target: `${pctVal}% ($${dollarTarget.toFixed(2)})` };
+      }
       return { start: startStr, target: `$${tgt}` };
     };
     const isSplit = !!challenge.splitCategorySettings && challenge.type === 'hybrid';
