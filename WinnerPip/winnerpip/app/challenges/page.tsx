@@ -188,9 +188,10 @@ export default function ChallengesPage() {
       if (!enabled) return { start: startStr, target: "No target" };
       if ((mode || 'fixed') !== 'fixed') {
         const pctVal = pct ?? 100;
-        const dollarTarget = Number(start) * (1 + pctVal / 100);
-        return { start: startStr, target: `${pctVal}% ($${dollarTarget.toFixed(2)})` };
+        const modeLabel = mode === 'min_limit' ? 'Min' : 'Max';
+        return { start: `${modeLabel} $${start}`, target: `${pctVal}% growth` };
       }
+      // Fixed: start→target are both exact dollar amounts — safe to show dollar target
       return { start: startStr, target: `$${tgt}` };
     };
     const isSplit = !!challenge.splitCategorySettings && challenge.type === 'hybrid';

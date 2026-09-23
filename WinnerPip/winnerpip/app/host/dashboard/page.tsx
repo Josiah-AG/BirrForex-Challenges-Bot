@@ -49,14 +49,16 @@ function utcToWallClock(iso: string | Date, tz: string): string {
   return `${parts.year}-${parts.month}-${parts.day}T${hh}:${parts.minute}`;
 }
 
-// Format a target showing both % and its dollar equivalent.
-// e.g. startBal=100, pct=100 → "100% ($200.00)"; fixed → "$60"
+// Format a target.
+// Fixed: "$X" — everyone starts at the same amount, showing the dollar target is accurate.
+// Min/Max Limit: "Min $X → Y% growth" / "Max $X → Y% growth" — deposit varies, so show the
+//   deposit constraint + growth target (not a derived dollar figure that may not apply).
 function fmtTargetWithDollar(mode: string, startBal: any, targetBal: any, targetPct: any, isCent = false): string {
   const unit = isCent ? '¢' : '$';
   if (!mode || mode === 'fixed') return `${unit}${Number(targetBal || 0).toFixed(2)}`;
   const pct = Number(targetPct ?? 100);
-  const dollar = Number(startBal || 0) * (1 + pct / 100);
-  return `${pct}% (${unit}${dollar.toFixed(2)})`;
+  const modeLabel = mode === 'min_limit' ? 'Min' : 'Max';
+  return `${modeLabel} ${unit}${Number(startBal || 0).toFixed(2)} → ${pct}% growth`;
 }
 
 export default function HostDashboardPage() {
