@@ -181,6 +181,8 @@ export default function AdminDashboard() {
           setRulesLocked(data.locked || false);
           if (data.splitCategorySettings && data.challengeType === 'hybrid') {
             setAdminRulesSplit(true);
+            // Split challenges configure Demo/Real only — never the shared fallback row.
+            if (adminRulesCategory === 'config') setAdminRulesCategory('config_demo');
           } else {
             setAdminRulesSplit(false);
             if (adminRulesCategory !== 'config') setAdminRulesCategory('config');
@@ -1114,7 +1116,6 @@ export default function AdminDashboard() {
               <div className="flex gap-2 mb-5">
                 <button onClick={() => setAdminRulesCategory('config_demo')} className={`px-4 py-2 rounded-xl text-xs font-semibold transition-all border ${adminRulesCategory === 'config_demo' ? 'bg-blue-500/15 border-blue-500/40 text-blue-400' : 'bg-white/5 border-white/10 text-gray-400 hover:text-white'}`}>Demo Rules</button>
                 <button onClick={() => setAdminRulesCategory('config_real')} className={`px-4 py-2 rounded-xl text-xs font-semibold transition-all border ${adminRulesCategory === 'config_real' ? 'bg-profit/15 border-profit/40 text-profit' : 'bg-white/5 border-white/10 text-gray-400 hover:text-white'}`}>Real Rules</button>
-                <button onClick={() => setAdminRulesCategory('config')} className={`px-4 py-2 rounded-xl text-xs font-semibold transition-all border ${adminRulesCategory === 'config' ? 'bg-royal/15 border-royal/40 text-royal' : 'bg-white/5 border-white/10 text-gray-400 hover:text-white'}`}>Shared (Fallback)</button>
               </div>
             )}
 
@@ -1397,7 +1398,7 @@ export default function AdminDashboard() {
                             ? "bg-gradient-brand hover:opacity-90 text-white shadow-lg shadow-royal/20"
                             : "bg-white/5 text-gray-500 border border-white/10 cursor-not-allowed opacity-50"
                     }`}>
-                    {rulesLocked ? "🔒 Rules Locked" : justSaved ? "✓ Rules Saved" : rulesChanged ? `Save ${adminRulesSplit ? (adminRulesCategory === 'config_demo' ? 'Demo' : adminRulesCategory === 'config_real' ? 'Real' : 'Shared') + ' ' : ''}Rules` : "No Changes"}
+                    {rulesLocked ? "🔒 Rules Locked" : justSaved ? "✓ Rules Saved" : rulesChanged ? `Save ${adminRulesSplit ? (adminRulesCategory === 'config_demo' ? 'Demo ' : 'Real ') : ''}Rules` : "No Changes"}
                   </button>
                 </div>
               );

@@ -276,12 +276,16 @@ export default function ChallengeDashboard() {
     if (isLoggedIn && challenge) fetchLeaderboard();
   }, [isLoggedIn, challenge]);
 
-  // Fetch rules when challenge is loaded
+  // Fetch rules when challenge is loaded.
+  // Request the participant's own category rules (config_demo / config_real). For non-split
+  // challenges the backend falls back to the shared config, so this is always safe.
   useEffect(() => {
     if (!params.id) return;
+    const acctType = myStats?.accountType;
+    const ruleCode = acctType === 'demo' ? 'config_demo' : acctType === 'real' ? 'config_real' : 'config';
     const fetchRules = async () => {
       try {
-        const res = await fetch(`${API_URL}/api/challenges/${params.id}/rules`);
+        const res = await fetch(`${API_URL}/api/challenges/${params.id}/rules?rule_code=${ruleCode}`);
         if (res.ok) {
           const data = await res.json();
           setChallengeRules(data.rules || []);
@@ -289,7 +293,7 @@ export default function ChallengeDashboard() {
       } catch {}
     };
     fetchRules();
-  }, [params.id]);
+  }, [params.id, myStats?.accountType]);
 
   // Lock body scroll when any modal is open
   const anyModalOpen = showRules || !!selectedTrade || showLeaderboardModal || showViolationsModal || showCompletedPopup || showNotStartedPopup;
