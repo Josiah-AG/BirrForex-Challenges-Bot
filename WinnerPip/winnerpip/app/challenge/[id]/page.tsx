@@ -1130,7 +1130,7 @@ export default function ChallengeDashboard() {
                   ) : progressPercent < 0 ? (
                     <span className="text-loss">▼ below start</span>
                   ) : null}
-                  <span className="text-gray-500">{isGrowthMode ? (() => { const pct = challenge.targetPercent ?? 100; const modeLabel = challenge.depositMode === 'min_limit' ? 'Min' : 'Max'; return `${modeLabel} $${(challenge.myStartingBalance ?? challenge.startingBalance).toFixed(2)} → ${pct}% growth`; })() : formatBalance(challenge.targetBalance, myStats.accountType, effectiveIsCent)}</span>
+                  <span className="text-gray-500">{isGrowthMode ? (() => { const pct = challenge.targetPercent ?? 100; const base = challenge.myStartingBalance ?? challenge.startingBalance; const dollar = base * (1 + pct / 100); return `${pct}% growth ($${dollar.toFixed(2)})`; })() : formatBalance(challenge.targetBalance, myStats.accountType, effectiveIsCent)}</span>
                 </div>
               </div>
             ) : !isBlownAccount && !myStats.disqualified && (
