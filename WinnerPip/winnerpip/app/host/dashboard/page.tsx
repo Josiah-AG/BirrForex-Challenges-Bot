@@ -1597,9 +1597,25 @@ export default function HostDashboardPage() {
                     <button onClick={async () => {
                       try {
                         const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
-                        const res = await fetch(`${apiUrl}/api/challenges/${selectedChallengeId}/rules`);
-                        const data = await res.json();
-                        hostDownloadRulesHTML({ ...selectedChallenge, ...settingsForm }, data.rules || [], data.isCent || false);
+                        const ch = { ...selectedChallenge, ...settingsForm };
+                        const isSplit = ch.split_category_settings && ch.type === 'hybrid';
+                        if (isSplit) {
+                          // Fetch each category's rules → two pages (Demo + Real)
+                          const [dRes, rRes] = await Promise.all([
+                            fetch(`${apiUrl}/api/challenges/${selectedChallengeId}/rules?rule_code=config_demo`),
+                            fetch(`${apiUrl}/api/challenges/${selectedChallengeId}/rules?rule_code=config_real`),
+                          ]);
+                          const dData = dRes.ok ? await dRes.json() : { rules: [], isCent: false };
+                          const rData = rRes.ok ? await rRes.json() : { rules: [], isCent: false };
+                          hostDownloadRulesHTML(ch, [], false, {
+                            demo: { rules: dData.rules || [], isCent: dData.isCent || false },
+                            real: { rules: rData.rules || [], isCent: rData.isCent || false },
+                          });
+                        } else {
+                          const res = await fetch(`${apiUrl}/api/challenges/${selectedChallengeId}/rules`);
+                          const data = await res.json();
+                          hostDownloadRulesHTML(ch, data.rules || [], data.isCent || false);
+                        }
                       } catch { hostDownloadRulesHTML({ ...selectedChallenge, ...settingsForm }, [], false); }
                     }} className="p-2.5 rounded-lg bg-royal/10 border border-royal/30 text-royal text-xs font-semibold hover:bg-royal/20 transition-all">&#128203; Rules Image</button>
                   </div>
@@ -2771,6 +2787,19 @@ function hostDownloadLeaderboardHTML(challenge: any, lb: any[], categoryLabel?: 
 function hostDownloadStatsHTML(challenge: any, stats: any) {
   const s = stats;
 
+  // Resolve whether a target is set for each category (per-category aware).
+  // When no target is set for a category, its "Above Target" metric is meaningless and hidden.
+  const isSplitStats = challenge.split_category_settings && challenge.type === 'hybrid';
+  const sharedTargetOn = challenge.target_enabled !== false;
+  const demoTargetOn = isSplitStats
+    ? (challenge.demo_target_enabled == null ? sharedTargetOn : challenge.demo_target_enabled !== false)
+    : sharedTargetOn;
+  const realTargetOn = isSplitStats
+    ? (challenge.real_target_enabled == null ? sharedTargetOn : challenge.real_target_enabled !== false)
+    : sharedTargetOn;
+  // For a non-hybrid challenge, whichever category applies uses the shared flag.
+  const anyTargetOn = (challenge.type === 'hybrid') ? (demoTargetOn || realTargetOn) : sharedTargetOn;
+
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${challenge.title} - Stats</title><style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:'Inter',system-ui,-apple-system,sans-serif;background:#0a0e1a}
@@ -2805,7 +2834,6 @@ body{font-family:'Inter',system-ui,-apple-system,sans-serif;background:#0a0e1a}
 <div class="glow glow1"></div><div class="glow glow2"></div><div class="glow glow3"></div>
 <div class="header">
   <div style="display:flex;align-items:center;justify-content:center;gap:20px;margin-bottom:16px">
-    <img src="https://winnerpip.com/birrforex-logo.png" style="width:52px;height:52px;border-radius:12px" onerror="this.style.display='none'" />
     <img src="https://winnerpip.com/winnerpip-icon.png" style="width:52px;height:52px;border-radius:12px" onerror="this.style.display='none'" />
   </div>
   <div class="title">${challenge.title || 'Trading Challenge'}</div>
@@ -2827,16 +2855,16 @@ body{font-family:'Inter',system-ui,-apple-system,sans-serif;background:#0a0e1a}
       <div class="dual-item"><span class="tag demo">Demo</span><span class="card-value small">${s.demoParticipants || 0}</span></div>
     </div>
   </div>
-  <div class="card highlight">
+  ${(demoTargetOn || realTargetOn) ? `<div class="card highlight">
     <div class="card-label">Above Target 🎯</div>
     <div class="dual">
-      <div class="dual-item"><span class="tag real">Real</span><span class="card-value small green">${s.realAboveTarget || 0}</span></div>
-      <div class="dual-item"><span class="tag demo">Demo</span><span class="card-value small green">${s.demoAboveTarget || 0}</span></div>
+      ${realTargetOn ? `<div class="dual-item"><span class="tag real">Real</span><span class="card-value small green">${s.realAboveTarget || 0}</span></div>` : ''}
+      ${demoTargetOn ? `<div class="dual-item"><span class="tag demo">Demo</span><span class="card-value small green">${s.demoAboveTarget || 0}</span></div>` : ''}
     </div>
-  </div>` : `<div class="card highlight">
+  </div>` : ''}` : `${anyTargetOn ? `<div class="card highlight">
     <div class="card-label">Above Target 🎯</div>
     <div class="card-value green">${s.realAboveTarget || s.demoAboveTarget || 0}</div>
-  </div>
+  </div>` : ''}
   <div class="card">
     <div class="card-label">💀 Blown / 🚫 Disqualified</div>
     <div class="dual">
@@ -2902,7 +2930,7 @@ body{font-family:'Inter',system-ui,-apple-system,sans-serif;background:#0a0e1a}
     ${s.mostActiveDay ? `<div style="margin-top:8px;font-size:12px;color:#64748b">${s.mostActiveDay.tradeCount || s.mostActiveDay.trades || 0} trades</div>` : ''}
   </div>
 </div>
-<div class="footer"><div class="brand">BirrForex • WinnerPip</div></div>
+<div class="footer"><div class="brand">WinnerPip</div></div>
 </div>
 </body></html>`;
 
@@ -3251,11 +3279,56 @@ function generateTradesHTML(data: any): string {
 </body></html>`;
 }
 
-function hostDownloadRulesHTML(challenge: any, rulesList: string[], isCent: boolean) {
-  const unit = isCent ? '¢' : '$';
+function hostDownloadRulesHTML(
+  challenge: any,
+  rulesList: string[],
+  isCent: boolean,
+  perCategory?: { demo: { rules: string[]; isCent: boolean }; real: { rules: string[]; isCent: boolean } },
+) {
   const startDate = challenge.start_date ? new Date(challenge.start_date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) : '—';
   const endDate = challenge.end_date ? new Date(challenge.end_date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) : '—';
-  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${challenge.title} - Rules</title><style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Inter',system-ui,sans-serif;background:#0a0e1a}.page{width:1080px;height:1920px;padding:80px;display:flex;flex-direction:column;justify-content:center;background:linear-gradient(135deg,#0a0e1a 0%,#111827 50%,#0a0e1a 100%);position:relative;overflow:hidden;page-break-after:always}.page.landscape{width:1920px;height:1080px;padding:60px 100px}.glow{position:absolute;width:600px;height:600px;border-radius:50%;filter:blur(150px);opacity:0.15}.glow1{top:-200px;right:-100px;background:#1F6FEB}.glow2{bottom:-200px;left:-100px;background:#F5B400}.header{text-align:center;margin-bottom:60px}.title{font-size:48px;font-weight:800;color:#fff;margin-bottom:12px}.subtitle{font-size:20px;color:#94a3b8;font-weight:500}.badge{display:inline-block;padding:8px 20px;border-radius:20px;background:rgba(31,111,235,0.2);border:1px solid rgba(31,111,235,0.4);color:#1F6FEB;font-size:14px;font-weight:700;margin-top:16px}.info-row{display:flex;justify-content:center;gap:40px;margin-bottom:50px}.info-item{text-align:center}.info-label{font-size:13px;color:#64748b;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px}.info-value{font-size:28px;font-weight:700;color:#fff}.info-value.gold{color:#F5B400}.rules-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;max-width:800px;margin:0 auto}.page.landscape .rules-grid{grid-template-columns:1fr 1fr 1fr;max-width:1400px}.rule-card{background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:16px;padding:24px;display:flex;align-items:center;gap:16px}.rule-card.centered{grid-column:1/-1;max-width:400px;margin:0 auto}.page.landscape .rule-card.centered{max-width:450px}.rule-num{width:36px;height:36px;border-radius:10px;background:rgba(31,111,235,0.2);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:#1F6FEB;flex-shrink:0}.rule-text{font-size:16px;color:#e2e8f0;font-weight:500}.footer{text-align:center;margin-top:auto;padding-top:40px}.footer-text{font-size:14px;color:#475569}.brand{font-size:16px;font-weight:700;color:#64748b;margin-top:8px}</style></head><body><div class="page"><div class="glow glow1"></div><div class="glow glow2"></div><div class="header"><div style="display:flex;align-items:center;justify-content:center;gap:16px;margin-bottom:14px"><img src="https://winnerpip.com/winnerpip-icon.png" style="width:44px;height:44px;border-radius:10px" onerror="this.style.display='none'" /></div><div class="title">${challenge.title || 'Trading Challenge'}</div><div class="subtitle">Challenge Rules</div>${isCent ? '<div class="badge">CENT ACCOUNT ONLY</div>' : ''}</div><div class="info-row"><div class="info-item"><div class="info-label">Starting Balance</div><div class="info-value">${unit}${challenge.starting_balance || 0}</div></div><div class="info-item"><div class="info-label">Target</div><div class="info-value gold">${unit}${challenge.target_balance || 0}</div></div><div class="info-item"><div class="info-label">Period</div><div class="info-value" style="font-size:20px">${startDate} → ${endDate}</div></div></div><div class="rules-grid">${rulesList.map((r, i) => `<div class="rule-card${i === rulesList.length - 1 && rulesList.length % 2 !== 0 ? " centered" : ""}"><div class="rule-num">${i + 1}</div><div class="rule-text">${r}</div></div>`).join('')}</div><div class="footer"><div class="footer-text">Trades that break the rules will have profits removed. Losses still count.</div><div class="brand">WinnerPip</div></div></div><div class="page landscape"><div class="glow glow1"></div><div class="glow glow2"></div><div class="header"><div style="display:flex;align-items:center;justify-content:center;gap:16px;margin-bottom:14px"><img src="https://winnerpip.com/winnerpip-icon.png" style="width:52px;height:52px;border-radius:10px" onerror="this.style.display='none'" /></div><div class="title" style="font-size:42px">${challenge.title || 'Trading Challenge'}</div><div class="subtitle">Challenge Rules</div>${isCent ? '<div class="badge">CENT ACCOUNT ONLY</div>' : ''}</div><div class="info-row"><div class="info-item"><div class="info-label">Starting Balance</div><div class="info-value">${unit}${challenge.starting_balance || 0}</div></div><div class="info-item"><div class="info-label">Target</div><div class="info-value gold">${unit}${challenge.target_balance || 0}</div></div><div class="info-item"><div class="info-label">Period</div><div class="info-value" style="font-size:20px">${startDate} → ${endDate}</div></div></div><div class="rules-grid">${rulesList.map((r, i) => `<div class="rule-card${i === rulesList.length - 1 && rulesList.length % 2 !== 0 ? " centered" : ""}"><div class="rule-num">${i + 1}</div><div class="rule-text">${r}</div></div>`).join('')}</div><div class="footer"><div class="footer-text">Trades that break the rules will have profits removed. Losses still count.</div><div class="brand">WinnerPip</div></div></div></body></html>`;
+
+  const styleBlock = `*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Inter',system-ui,sans-serif;background:#0a0e1a}.page{width:1080px;height:1920px;padding:80px;display:flex;flex-direction:column;justify-content:center;background:linear-gradient(135deg,#0a0e1a 0%,#111827 50%,#0a0e1a 100%);position:relative;overflow:hidden;page-break-after:always}.glow{position:absolute;width:600px;height:600px;border-radius:50%;filter:blur(150px);opacity:0.15}.glow1{top:-200px;right:-100px;background:#1F6FEB}.glow2{bottom:-200px;left:-100px;background:#F5B400}.header{text-align:center;margin-bottom:60px}.title{font-size:48px;font-weight:800;color:#fff;margin-bottom:12px}.subtitle{font-size:20px;color:#94a3b8;font-weight:500}.badge{display:inline-block;padding:8px 20px;border-radius:20px;background:rgba(31,111,235,0.2);border:1px solid rgba(31,111,235,0.4);color:#1F6FEB;font-size:14px;font-weight:700;margin-top:16px}.cat-badge{display:inline-block;padding:8px 22px;border-radius:20px;font-size:16px;font-weight:800;margin-top:16px;text-transform:uppercase;letter-spacing:1px}.cat-demo{background:rgba(59,130,246,0.18);border:1px solid rgba(59,130,246,0.45);color:#60a5fa}.cat-real{background:rgba(249,115,22,0.18);border:1px solid rgba(249,115,22,0.45);color:#fb923c}.info-row{display:flex;justify-content:center;gap:40px;margin-bottom:50px}.info-item{text-align:center}.info-label{font-size:13px;color:#64748b;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px}.info-value{font-size:28px;font-weight:700;color:#fff}.info-value.gold{color:#F5B400}.rules-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;max-width:800px;margin:0 auto}.rule-card{background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:16px;padding:24px;display:flex;align-items:center;gap:16px}.rule-card.centered{grid-column:1/-1;max-width:400px;margin:0 auto}.rule-num{width:36px;height:36px;border-radius:10px;background:rgba(31,111,235,0.2);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:#1F6FEB;flex-shrink:0}.rule-text{font-size:16px;color:#e2e8f0;font-weight:500}.footer{text-align:center;margin-top:auto;padding-top:40px}.footer-text{font-size:14px;color:#475569}.brand{font-size:16px;font-weight:700;color:#64748b;margin-top:8px}`;
+
+  // Renders one rules page. showTarget=false hides the Target info-item entirely.
+  const renderPage = (opts: { rules: string[]; isCent: boolean; startBal: any; targetBal: any; showTarget: boolean; catLabel?: 'Demo' | 'Real' }) => {
+    const unit = opts.isCent ? '¢' : '$';
+    const rl = opts.rules || [];
+    const catBadge = opts.catLabel
+      ? `<div class="cat-badge cat-${opts.catLabel.toLowerCase()}">${opts.catLabel} Category</div>`
+      : (opts.isCent ? '<div class="badge">CENT ACCOUNT ONLY</div>' : '');
+    const targetItem = opts.showTarget
+      ? `<div class="info-item"><div class="info-label">Target</div><div class="info-value gold">${unit}${opts.targetBal || 0}</div></div>`
+      : `<div class="info-item"><div class="info-label">Target</div><div class="info-value" style="color:#64748b">No target</div></div>`;
+    return `<div class="page"><div class="glow glow1"></div><div class="glow glow2"></div>` +
+      `<div class="header"><div style="display:flex;align-items:center;justify-content:center;gap:16px;margin-bottom:14px"><img src="https://winnerpip.com/winnerpip-icon.png" style="width:44px;height:44px;border-radius:10px" onerror="this.style.display='none'" /></div>` +
+      `<div class="title">${challenge.title || 'Trading Challenge'}</div><div class="subtitle">Challenge Rules</div>${catBadge}</div>` +
+      `<div class="info-row"><div class="info-item"><div class="info-label">Starting Balance</div><div class="info-value">${unit}${opts.startBal || 0}</div></div>${targetItem}<div class="info-item"><div class="info-label">Period</div><div class="info-value" style="font-size:20px">${startDate} → ${endDate}</div></div></div>` +
+      `<div class="rules-grid">${rl.map((r, i) => `<div class="rule-card${i === rl.length - 1 && rl.length % 2 !== 0 ? " centered" : ""}"><div class="rule-num">${i + 1}</div><div class="rule-text">${r}</div></div>`).join('')}</div>` +
+      `<div class="footer"><div class="footer-text">Trades that break the rules will have profits removed. Losses still count.</div><div class="brand">WinnerPip</div></div></div>`;
+  };
+
+  const isSplit = challenge.split_category_settings && challenge.type === 'hybrid';
+  const sharedTargetOn = challenge.target_enabled !== false;
+  let pages = '';
+
+  if (isSplit && perCategory) {
+    // Two pages: Demo + Real, each with that category's rules, balance, target
+    const demoTargetOn = challenge.demo_target_enabled == null ? sharedTargetOn : challenge.demo_target_enabled !== false;
+    const realTargetOn = challenge.real_target_enabled == null ? sharedTargetOn : challenge.real_target_enabled !== false;
+    const demoStart = challenge.demo_starting_balance ?? challenge.starting_balance;
+    const demoTarget = challenge.demo_target_balance ?? challenge.target_balance;
+    const realStart = challenge.real_starting_balance ?? challenge.starting_balance;
+    const realTarget = challenge.real_target_balance ?? challenge.target_balance;
+    pages =
+      renderPage({ rules: perCategory.demo.rules, isCent: perCategory.demo.isCent, startBal: demoStart, targetBal: demoTarget, showTarget: demoTargetOn, catLabel: 'Demo' }) +
+      renderPage({ rules: perCategory.real.rules, isCent: perCategory.real.isCent, startBal: realStart, targetBal: realTarget, showTarget: realTargetOn, catLabel: 'Real' });
+  } else {
+    // Single challenge (non-split): one page, hide target if disabled
+    pages = renderPage({ rules: rulesList, isCent, startBal: challenge.starting_balance, targetBal: challenge.target_balance, showTarget: sharedTargetOn });
+  }
+
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${challenge.title} - Rules</title><style>${styleBlock}</style></head><body>${pages}</body></html>`;
   const blob = new Blob([html], { type: 'text/html' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `${(challenge.title || 'challenge').replace(/\s+/g, '_')}_rules.html`; a.click(); URL.revokeObjectURL(url);
 }
 

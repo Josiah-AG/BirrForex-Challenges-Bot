@@ -3897,6 +3897,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
            WHERE l.challenge_id=$1
              AND (r.disqualified IS NULL OR r.disqualified = false)
              AND (r.status IS NULL OR r.status != 'removed')
+             AND COALESCE(CASE WHEN tc.split_category_settings = true AND tc.type = 'hybrid' AND r.account_type = 'demo' THEN tc.demo_target_enabled WHEN tc.split_category_settings = true AND tc.type = 'hybrid' AND r.account_type = 'real' THEN tc.real_target_enabled ELSE NULL END, tc.target_enabled, true) = true
              AND l.adjusted_balance >= tc.target_balance`
         : `SELECT COUNT(*) as cnt
            FROM wp_leaderboard l
@@ -3905,6 +3906,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
            WHERE l.challenge_id=$1
              AND (r.disqualified IS NULL OR r.disqualified = false)
              AND (r.status IS NULL OR r.status != 'removed')
+             AND COALESCE(CASE WHEN tc.split_category_settings = true AND tc.type = 'hybrid' AND r.account_type = 'demo' THEN tc.demo_target_enabled WHEN tc.split_category_settings = true AND tc.type = 'hybrid' AND r.account_type = 'real' THEN tc.real_target_enabled ELSE NULL END, tc.target_enabled, true) = true
              AND CASE WHEN COALESCE(r.is_cent, false)
                    THEN l.adjusted_balance >= tc.target_balance * 100
                    ELSE l.adjusted_balance >= tc.target_balance
@@ -3919,6 +3921,8 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
        WHERE l.challenge_id=$1 AND r.account_type = 'real'
          AND (r.disqualified IS NULL OR r.disqualified = false)
          AND (r.status IS NULL OR r.status != 'removed')
+         -- Skip entirely when Real has no target set
+         AND COALESCE(CASE WHEN tc.split_category_settings = true AND tc.type = 'hybrid' THEN tc.real_target_enabled ELSE NULL END, tc.target_enabled, true) = true
          AND CASE WHEN COALESCE(r.is_cent, false)
                THEN l.adjusted_balance >= tc.target_balance * 100
                ELSE l.adjusted_balance >= tc.target_balance END`,
@@ -3930,6 +3934,8 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
        WHERE l.challenge_id=$1 AND r.account_type = 'demo'
          AND (r.disqualified IS NULL OR r.disqualified = false)
          AND (r.status IS NULL OR r.status != 'removed')
+         -- Skip entirely when Demo has no target set
+         AND COALESCE(CASE WHEN tc.split_category_settings = true AND tc.type = 'hybrid' THEN tc.demo_target_enabled ELSE NULL END, tc.target_enabled, true) = true
          AND l.adjusted_balance >= tc.target_balance`,
       [challengeId]);
 
@@ -8826,8 +8832,9 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/host-csv/pending`, adminIpCheck, async 
 app.get('/api/challenges/:id/rules', async (req, res) => {
   try {
     const challengeId = parseInt(req.params.id);
+    const ruleCode = (req.query.rule_code as string) || 'config';
     const { evaluationEngine } = require('../services/wpEvaluationEngine');
-    const result = await evaluationEngine.getRulesForDisplay(challengeId);
+    const result = await evaluationEngine.getRulesForDisplay(challengeId, ruleCode);
     return res.json(result);
   } catch (error) {
     return res.status(500).json({ error: 'Internal server error' });

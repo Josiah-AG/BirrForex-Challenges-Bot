@@ -1922,12 +1922,16 @@ export class WpEvaluationEngine {
     console.log(`✅ WP Evaluation: Seeded default rules for challenge ${challengeId}`);
   }
 
-  async getRulesForDisplay(challengeId: number): Promise<{ rules: string[]; isCent: boolean }> {
-    let cfg = await this.loadRules(challengeId);
-    if (!cfg) {
-      // Auto-seed defaults so users always see rules
+  async getRulesForDisplay(challengeId: number, ruleCode: string = 'config'): Promise<{ rules: string[]; isCent: boolean }> {
+    let cfg = await this.loadRules(challengeId, ruleCode);
+    if (!cfg && ruleCode === 'config') {
+      // Auto-seed defaults so users always see rules (only for the base config)
       await this.seedDefaultRules(challengeId);
       cfg = await this.loadRules(challengeId);
+    }
+    // For per-category codes, fall back to the base config if not separately saved
+    if (!cfg && ruleCode !== 'config') {
+      cfg = await this.loadRules(challengeId, 'config');
     }
     if (!cfg) return { rules: ['Rules not yet configured'], isCent: false };
     const isCent = cfg.only_cent_account || false;

@@ -68,6 +68,15 @@ router.get('/challenge/:id/full-overview', async (req: any, res: Response) => {
        WHERE l.challenge_id=$1
          AND (r.disqualified IS NULL OR r.disqualified = false)
          AND (r.status IS NULL OR r.status != 'removed')
+         -- Only count accounts whose category actually has a target set.
+         -- No-target categories are excluded from the above-target metric entirely.
+         AND CASE
+               WHEN tc.split_category_settings = true AND tc.type = 'hybrid' AND r.account_type = 'demo'
+                 THEN COALESCE(tc.demo_target_enabled, tc.target_enabled, true)
+               WHEN tc.split_category_settings = true AND tc.type = 'hybrid' AND r.account_type = 'real'
+                 THEN COALESCE(tc.real_target_enabled, tc.target_enabled, true)
+               ELSE COALESCE(tc.target_enabled, true)
+             END = true
          AND CASE WHEN COALESCE(r.is_cent, false)
                THEN l.adjusted_balance >= (CASE WHEN tc.split_category_settings = true AND tc.type = 'hybrid' AND r.account_type = 'demo' AND tc.demo_target_balance IS NOT NULL THEN tc.demo_target_balance WHEN tc.split_category_settings = true AND tc.type = 'hybrid' AND r.account_type = 'real' AND tc.real_target_balance IS NOT NULL THEN tc.real_target_balance ELSE tc.target_balance END) * 100
                ELSE l.adjusted_balance >= (CASE WHEN tc.split_category_settings = true AND tc.type = 'hybrid' AND r.account_type = 'demo' AND tc.demo_target_balance IS NOT NULL THEN tc.demo_target_balance WHEN tc.split_category_settings = true AND tc.type = 'hybrid' AND r.account_type = 'real' AND tc.real_target_balance IS NOT NULL THEN tc.real_target_balance ELSE tc.target_balance END)
