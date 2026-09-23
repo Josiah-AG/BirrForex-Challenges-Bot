@@ -1972,6 +1972,10 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
           const { resolveCategoryBalances: rcbDashM } = require('../utils/categorySettings');
           return rcbDashM(registration, registration.account_type).depositMode;
         })(),
+        targetPercent: (() => {
+          const { resolveCategoryBalances: rcbDashP } = require('../utils/categorySettings');
+          return rcbDashP(registration, registration.account_type).targetPercent;
+        })(),
         winnersCount: parseInt(registration.real_winners_count || 0) + parseInt(registration.demo_winners_count || 0),
         realWinnersCount: parseInt(registration.real_winners_count || 0),
         demoWinnersCount: parseInt(registration.demo_winners_count || 0),

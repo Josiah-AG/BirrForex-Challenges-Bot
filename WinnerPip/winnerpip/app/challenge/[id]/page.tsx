@@ -39,6 +39,7 @@ interface ChallengeInfo {
   targetEnabled?: boolean;
   allowBelowStart?: boolean;
   depositMode?: string;
+  targetPercent?: number | null;
 }
 interface MyStats {
   nickname: string; email: string; accountNumber: string; accountType: string; accountSubtype: string | null; server: string;
@@ -335,6 +336,10 @@ export default function ChallengeDashboard() {
 
   // Whether this challenge has NO target (winners decided by ranking only).
   const noTarget = challenge?.targetEnabled === false;
+  // Whether this challenge uses a growth-% target (max_limit / min_limit deposit modes).
+  const isGrowthMode = challenge?.depositMode && challenge.depositMode !== 'fixed';
+  // For min_limit: higher balance is fine (no upper cap). Only min_limit below the floor is bad.
+  const isMinLimit = challenge?.depositMode === 'min_limit';
 
   // Top-N by rank AND above balance target
   const isWinner = (entry: LeaderboardEntry) => {
@@ -369,7 +374,18 @@ export default function ChallengeDashboard() {
   const isCentAccount = myStats?.accountType === 'real' && myStats.currentBalance > 500; // heuristic for cent
   // isCent: trust registration flag, fallback to challenge onlyCentAccount for real accounts
   const effectiveIsCent = myStats ? (myStats.isCent || (challenge?.onlyCentAccount && myStats.accountType === 'real') || false) : false;
-  const progressPercent = challenge && myStats ? ((myStats.adjustedBalance - challenge.startingBalance) / (challenge.targetBalance - challenge.startingBalance)) * 100 : 0;
+  const progressPercent = challenge && myStats ? (() => {
+    const mode = challenge.depositMode || 'fixed';
+    if (mode !== 'fixed' && challenge.targetPercent) {
+      // Growth-% mode: progress as fraction of the target growth %
+      const base = challenge.myStartingBalance ?? challenge.startingBalance;
+      const gPct = base > 0 ? ((myStats.adjustedBalance - base) / base) * 100 : 0;
+      return (gPct / challenge.targetPercent) * 100;
+    }
+    const denom = challenge.targetBalance - challenge.startingBalance;
+    if (denom === 0) return 0;
+    return ((myStats.adjustedBalance - challenge.startingBalance) / denom) * 100;
+  })() : 0;
   // Growth from the participant's OWN starting balance — used for no-target challenges
   // (and safe against a zero/near-zero denominator).
   const growthBase = challenge ? (challenge.myStartingBalance ?? challenge.startingBalance) : 0;
@@ -1010,7 +1026,7 @@ export default function ChallengeDashboard() {
             </div>
 
             {/* BALANCE WARNING BANNER — shown when balance exceeds allowed limit before challenge start */}
-            {myStats.balanceWarning && isNotStarted && (
+            {myStats.balanceWarning && isNotStarted && !isMinLimit && (
               <div className="glass rounded-2xl p-4 md:p-5 border border-amber-500/30 bg-amber-500/5 mb-6">
                 <div className="flex items-start gap-3">
                   <div className="w-10 h-10 rounded-xl bg-amber-500/20 flex items-center justify-center flex-shrink-0">
@@ -1081,7 +1097,8 @@ export default function ChallengeDashboard() {
               <div className="glass rounded-2xl p-4 md:p-5 border border-white/10 mb-3">
                 <div className="flex items-center justify-between mb-2">
                   <p className="text-xs md:text-sm font-medium text-gray-300">Progress to Target</p>
-                  {isNotStarted && myStats.currentBalance > (challenge?.startingBalance || 0) && myStats.totalTrades === 0 ? (
+                  {/* For fixed/max_limit: flag if balance exceeds the limit pre-start. Not applicable for min_limit (more is better). */}
+                  {isNotStarted && !isMinLimit && myStats.currentBalance > (challenge?.startingBalance || 0) && myStats.totalTrades === 0 ? (
                     <p className="text-xs md:text-sm font-bold text-loss">Balance too high</p>
                   ) : (
                     <p className={`text-xs md:text-sm font-bold ${progressPercent >= 100 ? "text-profit" : progressPercent > 0 ? "text-white" : progressPercent < 0 ? "text-loss" : "text-gray-400"}`}>
@@ -1090,7 +1107,7 @@ export default function ChallengeDashboard() {
                   )}
                 </div>
                 <div className="relative w-full h-4 md:h-5 bg-white/5 rounded-full overflow-hidden border border-white/10" style={{ colorScheme: 'dark' }}>
-                  {isNotStarted && myStats.currentBalance > (challenge?.startingBalance || 0) && myStats.totalTrades === 0 ? (
+                  {isNotStarted && !isMinLimit && myStats.currentBalance > (challenge?.startingBalance || 0) && myStats.totalTrades === 0 ? (
                     <div className="h-full rounded-full transition-all duration-700 bg-gradient-to-r from-loss/80 to-loss" style={{ width: `${Math.min(100, progressPercent)}%` }} />
                   ) : progressPercent >= 100 ? (
                     <div className="h-full rounded-full transition-all duration-700 bg-gradient-to-r from-royal via-profit to-gold shadow-[0_0_12px_rgba(34,197,94,0.4)]" style={{ width: '100%' }} />
@@ -1106,14 +1123,14 @@ export default function ChallengeDashboard() {
                 </div>
                 <div className="flex justify-between mt-1.5 text-[10px] md:text-xs">
                   <span className="text-gray-500">{formatBalance(challenge.myStartingBalance ?? challenge.startingBalance, myStats.accountType, effectiveIsCent)}</span>
-                  {isNotStarted && myStats.currentBalance > (challenge?.startingBalance || 0) && myStats.totalTrades === 0 ? (
+                  {isNotStarted && !isMinLimit && myStats.currentBalance > (challenge?.startingBalance || 0) && myStats.totalTrades === 0 ? (
                     <span className="text-loss">Balance above limit</span>
                   ) : progressPercent >= 100 ? (
                     <span className="text-profit font-semibold">Target reached!</span>
                   ) : progressPercent < 0 ? (
                     <span className="text-loss">▼ below start</span>
                   ) : null}
-                  <span className="text-gray-500">{formatBalance(challenge.targetBalance, myStats.accountType, effectiveIsCent)}</span>
+                  <span className="text-gray-500">{isGrowthMode ? `${challenge.targetPercent ?? 100}% growth` : formatBalance(challenge.targetBalance, myStats.accountType, effectiveIsCent)}</span>
                 </div>
               </div>
             ) : !isBlownAccount && !myStats.disqualified && (
@@ -1243,7 +1260,7 @@ export default function ChallengeDashboard() {
               </div>
               {leaderboardPreStart && challenge && (
                 <div className="px-4 py-3 bg-amber-500/5 border-b border-amber-500/20">
-                  <p className="text-xs text-amber-300"><span className="font-semibold">⚠️ Balance must be ≤ {formatBalance(challenge.startingBalance, myStats.accountType, effectiveIsCent)}</span> before the challenge starts. Users with balance above the maximum allowed starting balance will be automatically disqualified.</p>
+                  <p className="text-xs text-amber-300"><span className="font-semibold">⚠️ Balance must be {isMinLimit ? '≥' : '≤'} {formatBalance(challenge.startingBalance, myStats.accountType, effectiveIsCent)}</span> before the challenge starts. Users {isMinLimit ? 'with balance below the minimum required deposit' : 'with balance above the maximum allowed starting balance'} will be automatically disqualified.</p>
                 </div>
               )}
               {leaderboardLoading ? (
@@ -1466,7 +1483,7 @@ export default function ChallengeDashboard() {
             </div>
             {leaderboardPreStart && challenge && (
               <div className="px-4 py-3 bg-amber-500/5 border-b border-amber-500/20">
-                <p className="text-xs text-amber-300"><span className="font-semibold">⚠️ Balance must be ≤ {formatBalance(challenge.startingBalance, myStats?.accountType || 'real', effectiveIsCent)}</span> before the challenge starts. Users with balance above the maximum will be disqualified.</p>
+                <p className="text-xs text-amber-300"><span className="font-semibold">⚠️ Balance must be {isMinLimit ? '≥' : '≤'} {formatBalance(challenge.startingBalance, myStats?.accountType || 'real', effectiveIsCent)}</span> before the challenge starts. Users {isMinLimit ? 'with balance below the minimum required deposit' : 'with balance above the maximum'} will be disqualified.</p>
               </div>
             )}
             {!selectedUser ? (
