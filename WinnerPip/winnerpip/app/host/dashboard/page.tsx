@@ -420,6 +420,25 @@ export default function HostDashboardPage() {
 
   const fmtTime = (d: string) => d ? new Date(d).toLocaleString("en-US", { timeZone: challengeTz, month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: true }) : "—";
 
+  // Short timezone label for the challenge's zone (e.g. "EAT", "GMT+4").
+  const tzAbbr = (() => {
+    try {
+      const parts = new Intl.DateTimeFormat("en-US", { timeZone: challengeTz, timeZoneName: "short" }).formatToParts(new Date());
+      return parts.find(p => p.type === "timeZoneName")?.value || "";
+    } catch { return ""; }
+  })();
+
+  // "YYYY-MM-DD HH:mm <tz>" in the challenge timezone (for detail panels/modals).
+  const fmtDateTime = (d: string) => {
+    if (!d) return "—";
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: challengeTz, year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", hour12: false,
+    }).formatToParts(new Date(d)).reduce((acc: any, p) => { acc[p.type] = p.value; return acc; }, {});
+    const hh = parts.hour === "24" ? "00" : parts.hour;
+    return `${parts.year}-${parts.month}-${parts.day} ${hh}:${parts.minute}${tzAbbr ? " " + tzAbbr : ""}`;
+  };
+
   // Currency helper — shows ¢ for cent accounts, $ otherwise (matching admin)
   const isCentChallenge = (rulesConfig?.only_cent_account || overview?.onlyCentAccount) && selectedChallenge?.type !== 'demo';
   const cur = (amount: number | string | null | undefined, userIsCent?: boolean) => {
@@ -553,7 +572,7 @@ export default function HostDashboardPage() {
             </div>
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 mb-6">
               <StatCard icon={<Target size={16} />} label="Total Balance" value={`$${Number(overview.realBalance || 0).toFixed(2)}`} sub={`Real: $${Number(overview.realBalance || 0).toFixed(2)} | Demo: $${Number(overview.demoBalance || 0).toFixed(2)}`} color="text-profit" />
-              <StatCard icon={<Zap size={16} />} label="Updates Today" value={String(overview.pullsToday || 0)} sub={`Next: ${(() => { const now = new Date(Date.now() + 3*60*60*1000); const h = now.getUTCHours(); const schedule = [0,4,8,12,16,20]; const next = schedule.find(s => s > h); return next !== undefined ? `${String(next).padStart(2,"0")}:00 EAT` : "00:00 EAT"; })()}`} color="text-royal" />
+              <StatCard icon={<Zap size={16} />} label="Updates Today" value={String(overview.pullsToday || 0)} sub={`Next: ${(() => { const hourInTz = parseInt(new Intl.DateTimeFormat('en-US', { timeZone: challengeTz, hour: '2-digit', hour12: false }).format(new Date()).replace('24','0')); const schedule = [0,4,8,12,16,20]; const next = schedule.find(s => s > hourInTz); return `${String(next !== undefined ? next : 0).padStart(2,"0")}:00${tzAbbr ? ' ' + tzAbbr : ''}`; })()}`} color="text-royal" />
               <StatCard icon={<Shield size={16} />} label="Update Success" value={String(overview.pullsSuccess || 0)} sub={`Failed: ${overview.pullsFailed || 0} | PW Changed: ${overview.passwordChanged || 0}`} color="text-profit" />
               <StatCard icon={<Clock size={16} />} label="Last Update" value={overview.lastPullTime || "—"} sub={`${overview.pullsSuccess || 0} ok · ${overview.pullsFailed || 0} failed`} color="text-gray-300" />
             </div>
@@ -804,8 +823,8 @@ export default function HostDashboardPage() {
                   <div className="px-5 pb-3 grid grid-cols-2 md:grid-cols-3 gap-3">
                     <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500">Account #</p><p className="text-sm font-semibold text-white">{foundUser.accountNumber}</p></div>
                     <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500">Server</p><p className="text-sm font-semibold text-white">{foundUser.server || "—"}</p></div>
-                    <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500">Registered</p><p className="text-sm font-semibold text-white">{foundUser.registeredAt ? (() => { const d = new Date(new Date(foundUser.registeredAt).getTime() + 3*60*60*1000); return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,"0")}-${String(d.getUTCDate()).padStart(2,"0")} ${String(d.getUTCHours()).padStart(2,"0")}:${String(d.getUTCMinutes()).padStart(2,"0")} EAT`; })() : "—"}</p></div>
-                    <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500">Last Pull</p><p className="text-sm font-semibold text-white">{foundUser.lastPull ? (() => { const d = new Date(new Date(foundUser.lastPull).getTime() + 3*60*60*1000); return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,"0")}-${String(d.getUTCDate()).padStart(2,"0")} ${String(d.getUTCHours()).padStart(2,"0")}:${String(d.getUTCMinutes()).padStart(2,"0")} EAT`; })() : "—"}</p></div>
+                    <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500">Registered</p><p className="text-sm font-semibold text-white">{fmtDateTime(foundUser.registeredAt)}</p></div>
+                    <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500">Last Pull</p><p className="text-sm font-semibold text-white">{fmtDateTime(foundUser.lastPull)}</p></div>
                     <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500">Partner</p><p className="text-sm font-semibold text-profit">{foundUser.partnerStatus || "OK"}</p></div>
                   </div>
                   <div className="px-5 pb-3"><p className="text-xs font-semibold text-gray-300 mb-2">Recent Trades</p>{foundUser.recentTrades && foundUser.recentTrades.length > 0 ? <div className="space-y-2">{foundUser.recentTrades.map((t: any, i: number) => (<div key={i} className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10"><div className="flex items-center gap-3"><span className={`px-2 py-1 rounded text-[10px] font-bold ${(t.type || t.trade_type || '').toLowerCase() === "buy" ? "bg-profit/10 text-profit" : "bg-loss/10 text-loss"}`}>{t.type || t.trade_type}</span><div><p className="text-sm text-white font-semibold">{t.symbol}</p><p className="text-[10px] text-gray-500">{t.volume} lots</p></div></div><div className="text-right"><p className={`text-sm font-bold ${Number(t.profit) >= 0 ? "text-profit" : "text-loss"}`}>{cur(Number(t.profit), foundUser.isCent)}</p></div></div>))}</div> : <p className="text-sm text-gray-500">No trades yet</p>}</div>
@@ -1703,8 +1722,8 @@ export default function HostDashboardPage() {
               })()}
               {/* Trade History — grouped by positionId (admin style) */}
               {(selectedParticipantTrades.length > 0 || selectedParticipantBalanceOps.length > 0) && (() => {
-                const fmtEAT = (d: string) => d ? new Date(new Date(d).getTime() + 3*60*60*1000).toISOString().substring(11,16) : '';
-                const fmtDateEAT = (d: string) => { const dt = new Date(new Date(d).getTime() + 3*60*60*1000); return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); };
+                const fmtEAT = (d: string) => d ? new Date(d).toLocaleTimeString('en-GB', { timeZone: challengeTz, hour: '2-digit', minute: '2-digit', hour12: false }) : '';
+                const fmtDateEAT = (d: string) => d ? new Date(d).toLocaleDateString('en-US', { timeZone: challengeTz, month: 'short', day: 'numeric' }) : '';
                 const c = (v: number) => cur(v, selectedParticipant?.isCent);
                 const opMeta: Record<string, { icon: string; label: string; bg: string; border: string; textColor: string; sign: (a: number) => string }> = {
                   deposit:    { icon: '💰', label: 'Deposit',    bg: 'bg-profit/10', border: 'border-profit/20', textColor: 'text-profit',      sign: () => '+' },
@@ -1857,7 +1876,7 @@ export default function HostDashboardPage() {
       {/* Trade Detail Modal */}
       {selectedTrade && (() => {
         const t = selectedTrade;
-        const fmtEAT = (s: string) => s ? new Date(new Date(s).getTime()+3*60*60*1000).toISOString().substring(0,16).replace("T"," ")+" EAT" : "—";
+        const fmtEAT = (s: string) => fmtDateTime(s);
         const c = (v: number) => cur(v, selectedParticipant?.isCent);
         const violations: string[] = t.violations ? (typeof t.violations === 'string' ? JSON.parse(t.violations) : (Array.isArray(t.violations) ? t.violations : [])) : [];
         const isQualified = t.is_qualified !== false && t.isQualified !== false;
@@ -2862,11 +2881,15 @@ body{font-family:'Inter',system-ui,-apple-system,sans-serif;background:#0a0e1a}
 
 function generateTradesHTML(data: any): string {
   const { challenge, user, trades } = data;
+  const exportTz = challenge?.timezone || 'Africa/Nairobi';
+  const exportTzAbbr = (() => { try { return new Intl.DateTimeFormat('en-US', { timeZone: exportTz, timeZoneName: 'short' }).formatToParts(new Date()).find(p => p.type === 'timeZoneName')?.value || ''; } catch { return ''; } })();
   const cur = (v: any) => user?.isCent ? `${Number(v || 0).toFixed(2)}¢` : `$${Number(v || 0).toFixed(2)}`;
   const fmtEAT = (iso: string) => {
     if (!iso) return "—";
-    const d = new Date(new Date(iso).getTime() + 3 * 60 * 60 * 1000);
-    return d.toISOString().replace("T", " ").substring(0, 19) + " EAT";
+    const p = new Intl.DateTimeFormat('en-CA', { timeZone: exportTz, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
+      .formatToParts(new Date(iso)).reduce((a: any, x) => { a[x.type] = x.value; return a; }, {});
+    const hh = p.hour === '24' ? '00' : p.hour;
+    return `${p.year}-${p.month}-${p.day} ${hh}:${p.minute}:${p.second}${exportTzAbbr ? ' ' + exportTzAbbr : ''}`;
   };
   const duration = (open: string, close: string) => {
     if (!open || !close) return "—";
