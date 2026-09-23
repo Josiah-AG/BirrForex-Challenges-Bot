@@ -1167,3 +1167,178 @@ Ran a comprehensive audit (context-gatherer + manual review) of every path that 
 **Left as-is (cosmetic, out of scope for host no-target flow):** static "Demo traders who hit the target…" bonus copy and the "If you hit the target ($X)" final-verification message in `tradingAdminHandler.ts` — these are BirrForex telegram-only announcement templates; host challenges are announced via the web dashboard, so they never render for a hosted no-target challenge.
 
 Verified: backend `tsc --noEmit --skipLibCheck` clean; frontend `next build` clean.
+
+---
+
+## Session — September 22, 2026 — Host System Polish + Bug Fixes (Major Session)
+
+All changes committed and pushed to `main`. Backend `tsc --noEmit` clean; frontend `next build` clean throughout.
+
+---
+
+### 1. Per-category settings read bug fixed + Optional/disable-able target (`9c2967d`)
+
+**Root cause:** `hostService.getHostChallenges()` SELECT omitted all split/per-category columns. Settings tab and challenge card read from this list, so they fell back to literal `?? "30"` / `?? "60"` defaults. Create flow was already saving correctly (overview banner was right).
+
+**Changes:**
+- `src/services/hostService.ts` — `getHostChallenges` SELECT now includes all split + new target columns. This alone fixes the Settings 30/60 fallback.
+- `src/database/migrate.ts` — Added `target_enabled BOOLEAN DEFAULT TRUE`, `allow_below_start BOOLEAN DEFAULT FALSE`, plus nullable per-category variants `demo/real_target_enabled`, `demo/real_allow_below_start`.
+- `src/utils/categorySettings.ts` — `ChallengeBalances` extended with `targetEnabled`/`allowBelowStart` (via `toBool()` normalizer + per-category fallback to shared).
+- `src/services/wpEvaluationEngine.ts` — Both challenge SELECTs now include the new target columns + previously-missing `demo/real_deposit_mode` & `demo/real_target_percent`. `evaluateAccount` signature extended: `targetEnabled=true, allowBelowStart=false`. New NO TARGET branch in `isQualified`: `meetsFloor = allowBelowStart ? true : adjustedBalance>=effectiveStartBalance; isQualified = meetsFloor && activeDays>=minDaysRequired`.
+- `src/api/server.ts` — Host create INSERT, PUT settings whitelist (adds `starting_balance`), public GET `/api/challenges` SELECT+mapping.
+- `src/services/challengeGatekeeper.ts` — Admin create INSERT updated.
+- Frontend (`host/dashboard/page.tsx`, `challenges/page.tsx`) — Create modal "Require a target" toggle + allow-below sub-toggle (per-category aware); Settings tab reads/saves new fields; challenge card shows split targets or "No target".
+
+**Verification audit** (commit `9c2967d` follow-up, all in `main`):
+- Admin overview `qualified` was derived from above-target count → fixed to use `is_qualified` from leaderboard.
+- `admin/panel/page.tsx` — `aboveTarget` now reads `od.aboveTarget` (true above-target), `qualifiedCount` reads `od.qualified` (authoritative). Winner highlighting uses `e.isQualified` in no-target mode.
+- Host overview `aboveTarget` + `qualified` — same fix applied in `hostRoutes.ts`.
+- Telegram team-invite eligibility — switched from `adjusted_balance >= target_balance` to `l.is_qualified = true`.
+- Legacy `evaluationEngine.ts` — gated same way; display strings updated.
+- Participant dashboard (`challenge/[id]/page.tsx`) — Progress bar switches to "Account Growth" view when `targetEnabled === false` (centered bar, no cap, "No target" note). `isWinner`/`isAboveTarget` use `isQualified` in no-target mode.
+
+---
+
+### 2. Shared (Fallback) rules tab removed from host and admin (`dd09872`, `cc991d2`)
+
+Split hybrid challenges now show only **Demo Rules / Real Rules**. No shared fallback tab.
+- `host/dashboard/page.tsx` — Removed "Shared (Fallback)" button; defaults to `config_demo` when split ON; save label cleaned.
+- `admin/panel/page.tsx` — Same fix; admin rules tab is now consistent with host.
+- `challenge/[id]/page.tsx` — Participant rules modal now fetches `?rule_code=config_demo` or `config_real` based on `myStats.accountType`, so split challenges show the participant's own category rules (and percentage-mode SL/daily-loss display as "X% of balance" not a dollar figure).
+- `src/services/wpEvaluationEngine.ts` `getRulesForDisplay` — now accepts optional `ruleCode`; `GET /api/challenges/:id/rules` passes the param through.
+
+---
+
+### 3. Create review shows per-category detail (`fa5cc6e`)
+
+Create modal review step was hardcoding shared 30/60. Now:
+- Split hybrid → **Demo — Deposit Mode / Balance / Target** + **Real — ...** rows per category.
+- Non-split → single row; shows "No target" when target disabled.
+
+---
+
+### 4. Admin approval message shows full detail + host gets approved email (`6061a2d`, `fd0b15b`)
+
+- Admin Telegram approval message: per-category deposit mode / balance / target (split-aware), winners, prizes, registration mode, timezone, **full RULES section** (per-category Demo/Real when split).
+- On admin approve, host receives a short congratulations email: "🎉 Challenge Approved — now in Draft, go to Settings to open registration."
+- `emailService.sendChallengeApproved` added. `bot.ts` approve handler fires it for host challenges.
+
+---
+
+### 5. Web registration duplicate key bug fixed (`6b5759c`)
+
+Web registrants were inserted with `user_id = 0`. The `UNIQUE(challenge_id, user_id)` constraint rejected every second registration. Fixed: web registrants now get a unique negative sentinel (matching the CSV upload path).
+
+---
+
+### 6. Host pre-start leaderboard + over-balance reset email (`5d9636a`)
+
+- Host leaderboard endpoint: pre-start branch ranking registrants from `trading_registrations` by `last_known_balance` (cent-aware, DQ-last, reg-time tiebreak). Matches admin.
+- Nightly 2 AM balance check: removed `!host_id` guard so hosted/web over-balance participants now receive the reset email. "Balance OK" clear DM now guarded to `user_id > 0` to avoid pointless failed sends.
+- Participant dashboard "Balance Too High" banner already drove via `balance_warning` flag — confirmed working for host participants.
+
+---
+
+### 7. Host challenge times now stored/displayed in chosen timezone (`3700bfd`, `60b29c0`)
+
+**Root cause:** `datetime-local` sends a naive wall-clock string. System stores/reads as UTC. Host typing "5:00 PM" + EAT was stored as 17:00 UTC → displayed as 20:00 EAT (wrong).
+
+**Fix:**
+- Module-level `wallClockToUtcISO(local, tz)` + `utcToWallClock(iso, tz)` helpers (DST-aware via `Intl.DateTimeFormat`).
+- Create submit converts `start_date`/`end_date` from wall-clock-in-chosen-tz to UTC.
+- Settings populate uses `utcToWallClock` so editing shows the right time.
+- Settings save converts back to UTC.
+- Admin create already handled correctly (hardcoded +03:00); host form is now generic for any IANA zone.
+- Host dashboard displays (participant panel, trade modals, MT5 export, "Next update" stat) all updated to use `challengeTz` / `fmtDateTime` instead of hardcoded `+3h EAT`.
+
+---
+
+### 8. Host Updates tab: last-update summary card (`f26e3b6`)
+
+`pull-history` endpoint now returns a `summary` object with live account breakdown:
+- **Accounts Updated** (eligible active accounts) / **Skipped — Disqualified** / **Skipped — Credential** / **Total Skipped**.
+- Frontend: "Last Update Summary" card renders above Update History. History rows relabeled "X updated · Y failed · Z processed".
+
+---
+
+### 9. Host HTML export polish + above-target no-target-aware (`3879dc2`)
+
+- Stats report: WinnerPip logo only (dropped BirrForex logo), footer "WinnerPip".
+- Stats report + overview: Above Target hidden/zeroed per-category when that category has no target.
+- Above-target SQL in `hostRoutes.ts` and admin `server.ts` gated on `COALESCE(demo/real_target_enabled, target_enabled, true)`.
+- Rules export rewritten: split → two pages (Demo + Real) each with own rules, balance, target; non-split → single page. Target shows "No target" when disabled. `getRulesForDisplay` + `GET /api/challenges/:id/rules` accept `rule_code` param.
+
+---
+
+### 10. Client rules modal per-category + admin Shared tab removed (`cc991d2`)
+
+Covered in item #2 above.
+
+---
+
+### 11. Host settings: balance/target locked after start; shared row hidden when split (`30d742d`)
+
+- `balanceLocked = ['active','reviewing','completed'].includes(status)` — all balance/target/split inputs and toggles disabled when locked. Lock note shown.
+- Shared Starting/Target row hidden when "Different settings per category" is ON (redundant).
+- `PUT /api/host/challenge/:id/settings` server-side strips locked fields when challenge has started.
+
+---
+
+### 12. Per-category % target in settings & rules export; dates locked after start (`a611010`)
+
+- Settings tab was showing $60 for a max_limit (75%) Real target. Root cause: deposit mode + target percent were never loaded into the settings form. Fixed: form now loads `demo/real_deposit_mode` + `demo/real_target_percent`; shows "% growth" input for non-fixed deposit modes; save persists them.
+- Rules export fixed: per-category target now shows "75% growth" for max/min-limit instead of "$0".
+- Start and End date inputs disabled after start; server strips `start_date`/`end_date` from the locked fields on PUT settings.
+- Start/End labels now show the challenge's timezone abbreviation (not hardcoded "EAT").
+
+---
+
+### 13. Overview qualified/above-target card per-category for split challenges (`e186612`)
+
+- For a split hybrid, the card now shows a **Demo/Real breakdown** (e.g. "D: 0 above target · R: 1 ranked") so it's clear which category each count is about and how it qualifies.
+- Backend: `hostRoutes.ts` full-overview now returns `realAboveTarget`/`demoAboveTarget`/`realQualified`/`demoQualified` per category (gated on that category's target-enabled flag).
+- Non-split unchanged (single "Above Target" or "Qualified" card).
+
+---
+
+### 14. Host delete after start: admin approval flow fixed (`6149c3c`)
+
+**Root cause:** The delete endpoint called `queueStatusChange({ challenge_id, new_status, hostName })` (object — wrong signature) with stale `../../src/...` require paths. Nothing happened.
+
+**Fix:**
+- Now calls `queueDelete(challengeId, title)` which creates a `type: 'delete'` pending — the bot approve handler at `bot.ts:569` already handled this: `executeDelete(challengeId)` → marks status `'deleted'`.
+- Fixed require paths: `require('../services/challengeGatekeeper')`, `require('../config')` (named export `{ config }`), global bot via `(global as any).__bot?.bot?.telegram`.
+- Frontend: delete button now has its own handler showing "Deletion request submitted — awaiting admin approval" for started challenges, and deletes immediately for drafts. No more incorrect pull polling.
+
+**Full flow:**
+1. Host clicks Delete on active challenge → backend queues gatekeeper delete token.
+2. Admin receives Telegram DM with challenge name + status + Confirm/Reject buttons.
+3. Admin taps ✅ Confirm Delete → `executeDelete` sets status to `'deleted'`.
+4. Admin taps ❌ Reject → challenge unchanged; gatekeeper entry cleared.
+
+---
+
+### Files Modified This Session (all committed, pushed to `main`, tsc + next build clean)
+
+**Backend:**
+- `src/database/migrate.ts`
+- `src/utils/categorySettings.ts`
+- `src/services/wpEvaluationEngine.ts`
+- `src/services/challengeGatekeeper.ts`
+- `src/services/hostService.ts`
+- `src/services/evaluationEngine.ts`
+- `src/services/emailService.ts`
+- `src/api/server.ts`
+- `src/api/hostRoutes.ts`
+- `src/bot/bot.ts`
+- `src/bot/evaluationHandler.ts`
+- `src/bot/tradingAdminHandler.ts`
+- `src/scheduler/tradingScheduler.ts`
+
+**Frontend:**
+- `WinnerPip/winnerpip/app/host/dashboard/page.tsx`
+- `WinnerPip/winnerpip/app/admin/panel/page.tsx`
+- `WinnerPip/winnerpip/app/challenge/[id]/page.tsx`
+- `WinnerPip/winnerpip/app/challenges/page.tsx`
+
+**Latest commit:** `6149c3c` (HEAD → main, origin/main)
