@@ -2715,6 +2715,7 @@ app.put('/api/host/challenge/:id/settings', hostAuthMiddleware, async (req: any,
     const startedStatuses = ['active', 'reviewing', 'completed'];
     if (startedStatuses.includes(ownership.rows[0].status)) {
       const lockedFields = new Set([
+        'start_date', 'end_date',
         'starting_balance', 'target_balance', 'target_percent',
         'split_category_settings', 'demo_starting_balance', 'demo_target_balance',
         'real_starting_balance', 'real_target_balance', 'demo_deposit_mode', 'real_deposit_mode',

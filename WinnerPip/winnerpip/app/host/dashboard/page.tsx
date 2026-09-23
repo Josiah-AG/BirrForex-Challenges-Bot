@@ -302,10 +302,16 @@ export default function HostDashboardPage() {
           target_balance: ch.target_balance ?? "60",
           prize_pool_text: ch.prize_pool_text || "",
           split_category_settings: ch.split_category_settings || false,
+          deposit_mode: ch.deposit_mode || 'fixed',
+          target_percent: ch.target_percent ?? "",
           demo_starting_balance: ch.demo_starting_balance ?? "",
           demo_target_balance: ch.demo_target_balance ?? "",
           real_starting_balance: ch.real_starting_balance ?? "",
           real_target_balance: ch.real_target_balance ?? "",
+          demo_deposit_mode: ch.demo_deposit_mode || 'fixed',
+          real_deposit_mode: ch.real_deposit_mode || 'fixed',
+          demo_target_percent: ch.demo_target_percent ?? "",
+          real_target_percent: ch.real_target_percent ?? "",
           // Optional-target controls (default to today's behavior when null)
           target_enabled: ch.target_enabled === null || ch.target_enabled === undefined ? true : ch.target_enabled,
           allow_below_start: ch.allow_below_start === null || ch.allow_below_start === undefined ? false : ch.allow_below_start,
@@ -1434,8 +1440,8 @@ export default function HostDashboardPage() {
                     </select>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div><label className="text-xs text-gray-400 font-medium mb-1 block">Start (EAT)</label><input type="datetime-local" value={settingsForm.start_date || ""} onChange={e => setSettingsForm((p: any) => ({...p, start_date: e.target.value}))} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
-                    <div><label className="text-xs text-gray-400 font-medium mb-1 block">End (EAT)</label><input type="datetime-local" value={settingsForm.end_date || ""} onChange={e => setSettingsForm((p: any) => ({...p, end_date: e.target.value}))} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
+                    <div><label className="text-xs text-gray-400 font-medium mb-1 block">Start ({tzAbbr || 'EAT'})</label><input type="datetime-local" disabled={balanceLocked} value={settingsForm.start_date || ""} onChange={e => setSettingsForm((p: any) => ({...p, start_date: e.target.value}))} className={`w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none ${balanceLocked ? "opacity-40 cursor-not-allowed" : ""}`} /></div>
+                    <div><label className="text-xs text-gray-400 font-medium mb-1 block">End ({tzAbbr || 'EAT'})</label><input type="datetime-local" disabled={balanceLocked} value={settingsForm.end_date || ""} onChange={e => setSettingsForm((p: any) => ({...p, end_date: e.target.value}))} className={`w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none ${balanceLocked ? "opacity-40 cursor-not-allowed" : ""}`} /></div>
                   </div>
                   {balanceLocked && (
                     <p className="text-[11px] text-gray-400 -mb-1 flex items-center gap-1.5"><Shield size={12} /> Balances &amp; targets are locked once the challenge has started.</p>
@@ -1494,10 +1500,12 @@ export default function HostDashboardPage() {
                             </div>
                             <div className="grid grid-cols-2 gap-3">
                               <div><label className="text-xs text-blue-400 font-medium mb-1 block">Demo Starting ($)</label><input disabled={balanceLocked} value={settingsForm.demo_starting_balance || ""} onChange={e => setSettingsForm((p: any) => ({...p, demo_starting_balance: e.target.value}))} className={`w-full p-2.5 rounded-xl bg-blue-500/5 border border-blue-500/20 text-white text-sm outline-none ${balanceLocked ? "opacity-40 cursor-not-allowed" : ""}`} placeholder={String(settingsForm.starting_balance || "30")} /></div>
-                              {settingsForm.demo_target_enabled ? (
-                                <div><label className="text-xs text-blue-400 font-medium mb-1 block">Demo Target ($)</label><input disabled={balanceLocked} value={settingsForm.demo_target_balance || ""} onChange={e => setSettingsForm((p: any) => ({...p, demo_target_balance: e.target.value}))} className={`w-full p-2.5 rounded-xl bg-blue-500/5 border border-blue-500/20 text-white text-sm outline-none ${balanceLocked ? "opacity-40 cursor-not-allowed" : ""}`} placeholder={String(settingsForm.target_balance || "60")} /></div>
-                              ) : (
+                              {!settingsForm.demo_target_enabled ? (
                                 <div><label className="text-xs text-blue-400 font-medium mb-1 block">Demo Target</label><div className="w-full p-2.5 rounded-xl bg-blue-500/5 border border-blue-500/20 text-gray-500 text-sm">No target</div></div>
+                              ) : settingsForm.demo_deposit_mode && settingsForm.demo_deposit_mode !== 'fixed' ? (
+                                <div><label className="text-xs text-blue-400 font-medium mb-1 block">Demo Target (% growth)</label><input disabled={balanceLocked} value={settingsForm.demo_target_percent || ""} onChange={e => setSettingsForm((p: any) => ({...p, demo_target_percent: e.target.value}))} className={`w-full p-2.5 rounded-xl bg-blue-500/5 border border-blue-500/20 text-white text-sm outline-none ${balanceLocked ? "opacity-40 cursor-not-allowed" : ""}`} placeholder="100" /></div>
+                              ) : (
+                                <div><label className="text-xs text-blue-400 font-medium mb-1 block">Demo Target ($)</label><input disabled={balanceLocked} value={settingsForm.demo_target_balance || ""} onChange={e => setSettingsForm((p: any) => ({...p, demo_target_balance: e.target.value}))} className={`w-full p-2.5 rounded-xl bg-blue-500/5 border border-blue-500/20 text-white text-sm outline-none ${balanceLocked ? "opacity-40 cursor-not-allowed" : ""}`} placeholder={String(settingsForm.target_balance || "60")} /></div>
                               )}
                             </div>
                             {!settingsForm.demo_target_enabled && (
@@ -1518,10 +1526,12 @@ export default function HostDashboardPage() {
                             </div>
                             <div className="grid grid-cols-2 gap-3">
                               <div><label className="text-xs text-profit font-medium mb-1 block">Real Starting ($)</label><input disabled={balanceLocked} value={settingsForm.real_starting_balance || ""} onChange={e => setSettingsForm((p: any) => ({...p, real_starting_balance: e.target.value}))} className={`w-full p-2.5 rounded-xl bg-profit/5 border border-profit/20 text-white text-sm outline-none ${balanceLocked ? "opacity-40 cursor-not-allowed" : ""}`} placeholder={String(settingsForm.starting_balance || "30")} /></div>
-                              {settingsForm.real_target_enabled ? (
-                                <div><label className="text-xs text-profit font-medium mb-1 block">Real Target ($)</label><input disabled={balanceLocked} value={settingsForm.real_target_balance || ""} onChange={e => setSettingsForm((p: any) => ({...p, real_target_balance: e.target.value}))} className={`w-full p-2.5 rounded-xl bg-profit/5 border border-profit/20 text-white text-sm outline-none ${balanceLocked ? "opacity-40 cursor-not-allowed" : ""}`} placeholder={String(settingsForm.target_balance || "60")} /></div>
-                              ) : (
+                              {!settingsForm.real_target_enabled ? (
                                 <div><label className="text-xs text-profit font-medium mb-1 block">Real Target</label><div className="w-full p-2.5 rounded-xl bg-profit/5 border border-profit/20 text-gray-500 text-sm">No target</div></div>
+                              ) : settingsForm.real_deposit_mode && settingsForm.real_deposit_mode !== 'fixed' ? (
+                                <div><label className="text-xs text-profit font-medium mb-1 block">Real Target (% growth)</label><input disabled={balanceLocked} value={settingsForm.real_target_percent || ""} onChange={e => setSettingsForm((p: any) => ({...p, real_target_percent: e.target.value}))} className={`w-full p-2.5 rounded-xl bg-profit/5 border border-profit/20 text-white text-sm outline-none ${balanceLocked ? "opacity-40 cursor-not-allowed" : ""}`} placeholder="100" /></div>
+                              ) : (
+                                <div><label className="text-xs text-profit font-medium mb-1 block">Real Target ($)</label><input disabled={balanceLocked} value={settingsForm.real_target_balance || ""} onChange={e => setSettingsForm((p: any) => ({...p, real_target_balance: e.target.value}))} className={`w-full p-2.5 rounded-xl bg-profit/5 border border-profit/20 text-white text-sm outline-none ${balanceLocked ? "opacity-40 cursor-not-allowed" : ""}`} placeholder={String(settingsForm.target_balance || "60")} /></div>
                               )}
                             </div>
                             {!settingsForm.real_target_enabled && (
@@ -1557,6 +1567,11 @@ export default function HostDashboardPage() {
                       payload.demo_target_balance = settingsForm.demo_target_balance ? parseFloat(settingsForm.demo_target_balance) : null;
                       payload.real_starting_balance = settingsForm.real_starting_balance ? parseFloat(settingsForm.real_starting_balance) : null;
                       payload.real_target_balance = settingsForm.real_target_balance ? parseFloat(settingsForm.real_target_balance) : null;
+                      // Preserve per-category deposit mode + % target (max/min limit categories)
+                      payload.demo_deposit_mode = settingsForm.demo_deposit_mode || 'fixed';
+                      payload.real_deposit_mode = settingsForm.real_deposit_mode || 'fixed';
+                      payload.demo_target_percent = settingsForm.demo_target_percent ? parseFloat(settingsForm.demo_target_percent) : null;
+                      payload.real_target_percent = settingsForm.real_target_percent ? parseFloat(settingsForm.real_target_percent) : null;
                       // Shared flags default to enabled when split is on (per-category flags govern)
                       payload.target_enabled = true;
                       payload.allow_below_start = false;
@@ -3320,14 +3335,14 @@ function hostDownloadRulesHTML(
   const styleBlock = `*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Inter',system-ui,sans-serif;background:#0a0e1a}.page{width:1080px;height:1920px;padding:80px;display:flex;flex-direction:column;justify-content:center;background:linear-gradient(135deg,#0a0e1a 0%,#111827 50%,#0a0e1a 100%);position:relative;overflow:hidden;page-break-after:always}.glow{position:absolute;width:600px;height:600px;border-radius:50%;filter:blur(150px);opacity:0.15}.glow1{top:-200px;right:-100px;background:#1F6FEB}.glow2{bottom:-200px;left:-100px;background:#F5B400}.header{text-align:center;margin-bottom:60px}.title{font-size:48px;font-weight:800;color:#fff;margin-bottom:12px}.subtitle{font-size:20px;color:#94a3b8;font-weight:500}.badge{display:inline-block;padding:8px 20px;border-radius:20px;background:rgba(31,111,235,0.2);border:1px solid rgba(31,111,235,0.4);color:#1F6FEB;font-size:14px;font-weight:700;margin-top:16px}.cat-badge{display:inline-block;padding:8px 22px;border-radius:20px;font-size:16px;font-weight:800;margin-top:16px;text-transform:uppercase;letter-spacing:1px}.cat-demo{background:rgba(59,130,246,0.18);border:1px solid rgba(59,130,246,0.45);color:#60a5fa}.cat-real{background:rgba(249,115,22,0.18);border:1px solid rgba(249,115,22,0.45);color:#fb923c}.info-row{display:flex;justify-content:center;gap:40px;margin-bottom:50px}.info-item{text-align:center}.info-label{font-size:13px;color:#64748b;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px}.info-value{font-size:28px;font-weight:700;color:#fff}.info-value.gold{color:#F5B400}.rules-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;max-width:800px;margin:0 auto}.rule-card{background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:16px;padding:24px;display:flex;align-items:center;gap:16px}.rule-card.centered{grid-column:1/-1;max-width:400px;margin:0 auto}.rule-num{width:36px;height:36px;border-radius:10px;background:rgba(31,111,235,0.2);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:#1F6FEB;flex-shrink:0}.rule-text{font-size:16px;color:#e2e8f0;font-weight:500}.footer{text-align:center;margin-top:auto;padding-top:40px}.footer-text{font-size:14px;color:#475569}.brand{font-size:16px;font-weight:700;color:#64748b;margin-top:8px}`;
 
   // Renders one rules page. showTarget=false hides the Target info-item entirely.
-  const renderPage = (opts: { rules: string[]; isCent: boolean; startBal: any; targetBal: any; showTarget: boolean; catLabel?: 'Demo' | 'Real' }) => {
+  const renderPage = (opts: { rules: string[]; isCent: boolean; startBal: any; targetDisplay: string; showTarget: boolean; catLabel?: 'Demo' | 'Real' }) => {
     const unit = opts.isCent ? '¢' : '$';
     const rl = opts.rules || [];
     const catBadge = opts.catLabel
       ? `<div class="cat-badge cat-${opts.catLabel.toLowerCase()}">${opts.catLabel} Category</div>`
       : (opts.isCent ? '<div class="badge">CENT ACCOUNT ONLY</div>' : '');
     const targetItem = opts.showTarget
-      ? `<div class="info-item"><div class="info-label">Target</div><div class="info-value gold">${unit}${opts.targetBal || 0}</div></div>`
+      ? `<div class="info-item"><div class="info-label">Target</div><div class="info-value gold">${opts.targetDisplay}</div></div>`
       : `<div class="info-item"><div class="info-label">Target</div><div class="info-value" style="color:#64748b">No target</div></div>`;
     return `<div class="page"><div class="glow glow1"></div><div class="glow glow2"></div>` +
       `<div class="header"><div style="display:flex;align-items:center;justify-content:center;gap:16px;margin-bottom:14px"><img src="https://winnerpip.com/winnerpip-icon.png" style="width:44px;height:44px;border-radius:10px" onerror="this.style.display='none'" /></div>` +
@@ -3341,20 +3356,28 @@ function hostDownloadRulesHTML(
   const sharedTargetOn = challenge.target_enabled !== false;
   let pages = '';
 
+  // Format a target as "$X" (fixed) or "X% growth" (max/min limit).
+  const fmtTargetDisp = (mode: string, targetBal: any, targetPct: any, cent: boolean) =>
+    (mode && mode !== 'fixed') ? `${targetPct ?? 100}% growth` : `${cent ? '¢' : '$'}${targetBal || 0}`;
+
   if (isSplit && perCategory) {
     // Two pages: Demo + Real, each with that category's rules, balance, target
     const demoTargetOn = challenge.demo_target_enabled == null ? sharedTargetOn : challenge.demo_target_enabled !== false;
     const realTargetOn = challenge.real_target_enabled == null ? sharedTargetOn : challenge.real_target_enabled !== false;
+    const demoMode = challenge.demo_deposit_mode || challenge.deposit_mode || 'fixed';
+    const realMode = challenge.real_deposit_mode || challenge.deposit_mode || 'fixed';
     const demoStart = challenge.demo_starting_balance ?? challenge.starting_balance;
-    const demoTarget = challenge.demo_target_balance ?? challenge.target_balance;
     const realStart = challenge.real_starting_balance ?? challenge.starting_balance;
-    const realTarget = challenge.real_target_balance ?? challenge.target_balance;
+    const demoTargetDisp = fmtTargetDisp(demoMode, challenge.demo_target_balance ?? challenge.target_balance, challenge.demo_target_percent ?? challenge.target_percent, perCategory.demo.isCent);
+    const realTargetDisp = fmtTargetDisp(realMode, challenge.real_target_balance ?? challenge.target_balance, challenge.real_target_percent ?? challenge.target_percent, perCategory.real.isCent);
     pages =
-      renderPage({ rules: perCategory.demo.rules, isCent: perCategory.demo.isCent, startBal: demoStart, targetBal: demoTarget, showTarget: demoTargetOn, catLabel: 'Demo' }) +
-      renderPage({ rules: perCategory.real.rules, isCent: perCategory.real.isCent, startBal: realStart, targetBal: realTarget, showTarget: realTargetOn, catLabel: 'Real' });
+      renderPage({ rules: perCategory.demo.rules, isCent: perCategory.demo.isCent, startBal: demoStart, targetDisplay: demoTargetDisp, showTarget: demoTargetOn, catLabel: 'Demo' }) +
+      renderPage({ rules: perCategory.real.rules, isCent: perCategory.real.isCent, startBal: realStart, targetDisplay: realTargetDisp, showTarget: realTargetOn, catLabel: 'Real' });
   } else {
     // Single challenge (non-split): one page, hide target if disabled
-    pages = renderPage({ rules: rulesList, isCent, startBal: challenge.starting_balance, targetBal: challenge.target_balance, showTarget: sharedTargetOn });
+    const dispMode = challenge.deposit_mode || 'fixed';
+    const targetDisp = fmtTargetDisp(dispMode, challenge.target_balance, challenge.target_percent, isCent);
+    pages = renderPage({ rules: rulesList, isCent, startBal: challenge.starting_balance, targetDisplay: targetDisp, showTarget: sharedTargetOn });
   }
 
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${challenge.title} - Rules</title><style>${styleBlock}</style></head><body>${pages}</body></html>`;
