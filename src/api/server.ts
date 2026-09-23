@@ -780,6 +780,11 @@ app.post('/api/challenges/:id/verify-mt5', authLimiter, async (req, res) => {
     if (!challenge.rows[0]) return res.status(404).json({ error: 'Challenge not found' });
     if (challenge.rows[0].status !== 'registration_open') return res.status(400).json({ error: 'Registration is not open' });
 
+    // Enforce challenge type vs accountType — same check as /register, so wrong type is rejected early
+    const challengeTypeCheck = challenge.rows[0].type;
+    if (challengeTypeCheck === 'demo' && accountType === 'real') return res.status(400).json({ error: 'This challenge only accepts demo accounts' });
+    if (challengeTypeCheck === 'real' && accountType === 'demo') return res.status(400).json({ error: 'This challenge only accepts real accounts' });
+
     // Check if account number already registered
     const existingAcct = await db.query(
       `SELECT 1 FROM trading_registrations WHERE challenge_id = $1 AND account_number = $2 AND (status IS NULL OR status != 'removed')`,

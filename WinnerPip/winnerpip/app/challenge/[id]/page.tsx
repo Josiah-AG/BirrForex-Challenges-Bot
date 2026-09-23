@@ -1890,9 +1890,12 @@ export default function ChallengeDashboard() {
               </div>
               {!regSuccess && (
                 <div className="flex gap-1.5">
-                  {[1,2,3,4,5].map(s => (
-                    <div key={s} className={`flex-1 h-1.5 rounded-full transition-all duration-300 ${s < regStep ? "bg-profit" : s === regStep ? "bg-royal" : "bg-white/10"}`} />
-                  ))}
+                  {[1,2,3,4,5].filter(s => preAuthChallenge?.type === 'hybrid' || s !== 3).map((s, idx) => {
+                    const displayStep = preAuthChallenge?.type === 'hybrid' ? s : (s > 3 ? s - 1 : s);
+                    return (
+                      <div key={s} className={`flex-1 h-1.5 rounded-full transition-all duration-300 ${displayStep < (preAuthChallenge?.type === 'hybrid' ? regStep : (regStep > 3 ? regStep - 1 : regStep)) ? "bg-profit" : displayStep === (preAuthChallenge?.type === 'hybrid' ? regStep : (regStep > 3 ? regStep - 1 : regStep)) ? "bg-royal" : "bg-white/10"}`} />
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -1989,7 +1992,7 @@ export default function ChallengeDashboard() {
                           try {
                             const res = await fetch(`${API_URL}/api/challenges/${params.id}/check-username`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nickname: regForm.nickname }) });
                             const data = await res.json();
-                            if (res.ok && data.success) { setRegStep(3); } else { setRegError(data.error || "Username check failed"); }
+                            if (res.ok && data.success) { setRegStep(preAuthChallenge?.type === 'hybrid' ? 3 : 4); } else { setRegError(data.error || "Username check failed"); }
                           } catch { setRegError("Could not connect to server. Please try again."); }
                           setRegLoading(false);
                         }} disabled={regLoading} className="flex-1 py-3 rounded-xl bg-royal text-white font-semibold text-sm hover:opacity-90 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
@@ -1999,8 +2002,8 @@ export default function ChallengeDashboard() {
                     </div>
                   )}
 
-                  {/* Step 3: Category */}
-                  {regStep === 3 && (
+                  {/* Step 3: Category — hybrid only. Non-hybrid skips this step (accountType pre-set). */}
+                  {regStep === 3 && preAuthChallenge?.type === 'hybrid' && (
                     <div className="space-y-4">
                       <div className="text-center mb-2">
                         <p className="text-xs text-gray-400">Step 3 of 5</p>
@@ -2033,7 +2036,7 @@ export default function ChallengeDashboard() {
                   {regStep === 4 && (
                     <div className="space-y-4">
                       <div className="text-center mb-2">
-                        <p className="text-xs text-gray-400">Step 4 of 5</p>
+                        <p className="text-xs text-gray-400">{preAuthChallenge?.type === 'hybrid' ? 'Step 4 of 5' : 'Step 3 of 4'}</p>
                         <p className="text-sm font-semibold text-white">MT5 Account Verification</p>
                         <p className="text-[11px] text-gray-500 mt-1">Enter your MT5 credentials — we&apos;ll verify the connection in real-time</p>
                       </div>
@@ -2064,7 +2067,7 @@ export default function ChallengeDashboard() {
                         </div>
                       )}
                       <div className="flex gap-3 mt-2">
-                        <button onClick={() => { setRegStep(3); setRegError(""); }} disabled={regLoading} className="flex-1 py-3 rounded-xl bg-white/5 border border-white/10 text-gray-300 font-medium text-sm hover:bg-white/10 transition-all disabled:opacity-50">Back</button>
+                        <button onClick={() => { setRegStep(preAuthChallenge?.type === 'hybrid' ? 3 : 2); setRegError(""); }} disabled={regLoading} className="flex-1 py-3 rounded-xl bg-white/5 border border-white/10 text-gray-300 font-medium text-sm hover:bg-white/10 transition-all disabled:opacity-50">Back</button>
                         <button onClick={async () => {
                           if (!regForm.accountNumber || !regForm.mt5Server || !regForm.investorPassword) { setRegError("Please fill in all fields"); return; }
                           setRegError(""); setRegLoading(true);
@@ -2086,7 +2089,7 @@ export default function ChallengeDashboard() {
                   {regStep === 5 && (
                     <div className="space-y-4">
                       <div className="text-center mb-2">
-                        <p className="text-xs text-gray-400">Step 5 of 5</p>
+                        <p className="text-xs text-gray-400">{preAuthChallenge?.type === 'hybrid' ? 'Step 5 of 5' : 'Step 4 of 4'}</p>
                         <p className="text-sm font-semibold text-white">Review & Confirm</p>
                       </div>
                       <div className="space-y-2 bg-white/5 rounded-xl p-4 border border-white/10">

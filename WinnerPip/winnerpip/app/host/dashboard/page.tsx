@@ -574,8 +574,8 @@ export default function HostDashboardPage() {
             )}
 
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 mb-6">
-              <StatCard icon={<Users size={16} />} label="Participants" value={(overview.totalParticipants || 0).toLocaleString()} sub={`Demo: ${overview.demoParticipants || 0} | Real: ${overview.realParticipants || 0}`} color="text-royal" />
-              <StatCard icon={<Activity size={16} />} label="Total Trades" value={(overview.totalTrades || 0).toLocaleString()} sub={`Demo: ${overview.demoTrades || 0} (${overview.demoVolume || 0} lots) | Real: ${overview.realTrades || 0} (${overview.realVolume || 0} lots)`} color="text-white" />
+              <StatCard icon={<Users size={16} />} label="Participants" value={(overview.totalParticipants || 0).toLocaleString()} sub={overview.challenge?.type === 'demo' ? `Demo: ${overview.demoParticipants || 0}` : overview.challenge?.type === 'real' ? `Real: ${overview.realParticipants || 0}` : `Demo: ${overview.demoParticipants || 0} | Real: ${overview.realParticipants || 0}`} color="text-royal" />
+              <StatCard icon={<Activity size={16} />} label="Total Trades" value={(overview.totalTrades || 0).toLocaleString()} sub={overview.challenge?.type === 'demo' ? `Demo: ${overview.demoTrades || 0} (${overview.demoVolume || 0} lots)` : overview.challenge?.type === 'real' ? `Real: ${overview.realTrades || 0} (${overview.realVolume || 0} lots)` : `Demo: ${overview.demoTrades || 0} (${overview.demoVolume || 0} lots) | Real: ${overview.realTrades || 0} (${overview.realVolume || 0} lots)`} color="text-white" />
               <StatCard icon={<AlertTriangle size={16} />} label="Violations" value={String(overview.totalViolations || 0)} sub={`${overview.violationRate || 0}% violation rate`} color="text-loss" />
               {(() => {
                 const c = overview.challenge || {};
@@ -2524,15 +2524,23 @@ function CreateChallengeModal({ createStep, setCreateStep, createForm, setCreate
                   </div>
                 )}
 
-                {/* Rewards Section */}
+                {/* Rewards Section — only show the relevant category's winners/prizes based on challenge type */}
                 <div className="border-t border-white/10 pt-4 mt-4">
                   <p className="text-xs text-gray-300 font-semibold mb-3 uppercase tracking-wider">Rewards / Prizes</p>
                   <div className="grid grid-cols-2 gap-3">
-                    <div><label className="text-xs text-gray-400 mb-1 block">Real Winners #</label><input value={createForm.real_winners_count} onChange={(e: any) => setCreateForm({...createForm, real_winners_count: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" placeholder="3" /></div>
-                    <div><label className="text-xs text-gray-400 mb-1 block">Demo Winners #</label><input value={createForm.demo_winners_count} onChange={(e: any) => setCreateForm({...createForm, demo_winners_count: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" placeholder="3" /></div>
+                    {createForm.type !== 'demo' && (
+                      <div><label className="text-xs text-gray-400 mb-1 block">Real Winners #</label><input value={createForm.real_winners_count} onChange={(e: any) => setCreateForm({...createForm, real_winners_count: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" placeholder="3" /></div>
+                    )}
+                    {createForm.type !== 'real' && (
+                      <div><label className="text-xs text-gray-400 mb-1 block">Demo Winners #</label><input value={createForm.demo_winners_count} onChange={(e: any) => setCreateForm({...createForm, demo_winners_count: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" placeholder="3" /></div>
+                    )}
                   </div>
-                  <div className="mt-3"><label className="text-xs text-gray-400 mb-1 block">Real Prizes (comma separated)</label><input value={createForm.real_prizes} onChange={(e: any) => setCreateForm({...createForm, real_prizes: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" placeholder="$100, $50, $25" /></div>
-                  <div className="mt-3"><label className="text-xs text-gray-400 mb-1 block">Demo Prizes (comma separated)</label><input value={createForm.demo_prizes} onChange={(e: any) => setCreateForm({...createForm, demo_prizes: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" placeholder="$50, $30, $20" /></div>
+                  {createForm.type !== 'demo' && (
+                    <div className="mt-3"><label className="text-xs text-gray-400 mb-1 block">Real Prizes (comma separated)</label><input value={createForm.real_prizes} onChange={(e: any) => setCreateForm({...createForm, real_prizes: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" placeholder="$100, $50, $25" /></div>
+                  )}
+                  {createForm.type !== 'real' && (
+                    <div className="mt-3"><label className="text-xs text-gray-400 mb-1 block">Demo Prizes (comma separated)</label><input value={createForm.demo_prizes} onChange={(e: any) => setCreateForm({...createForm, demo_prizes: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" placeholder="$50, $30, $20" /></div>
+                  )}
                 </div>
 
                 {/* Registration Mode */}
