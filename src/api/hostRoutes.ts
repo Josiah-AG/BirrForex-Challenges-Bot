@@ -767,8 +767,17 @@ router.delete('/challenge/:id', async (req: any, res: Response) => {
   const challengeId = await verifyOwnership(req, res);
   if (!challengeId) return;
   try {
-    const challenge = await db.query(`SELECT status, title FROM trading_challenges WHERE id=$1`, [challengeId]);
-    const status = challenge.rows[0]?.status;
+    // Fetch full challenge details + host name + participant count for the admin message
+    const challenge = await db.query(
+      `SELECT c.status, c.title, c.start_date, c.end_date, c.timezone,
+              h.display_name as host_name,
+              (SELECT COUNT(*) FROM trading_registrations r
+               WHERE r.challenge_id = c.id AND (r.status IS NULL OR r.status != 'removed')) as participant_count
+       FROM trading_challenges c
+       JOIN hosts h ON h.id = c.host_id
+       WHERE c.id = $1`, [challengeId]);
+    const row = challenge.rows[0];
+    const status = row?.status;
 
     // Draft challenges can be deleted directly by the host
     if (status === 'draft' || status === 'pending_approval' || status === 'rejected') {
@@ -778,18 +787,38 @@ router.delete('/challenge/:id', async (req: any, res: Response) => {
 
     // Active/registration_open/reviewing/completed need admin approval.
     // Queue a 'delete' action (only executes on Telegram approve → executeDelete).
-    const title = challenge.rows[0]?.title || `Challenge ${challengeId}`;
-    const hostName = req.hostAccount?.displayName || 'Unknown';
+    const title = row?.title || `Challenge ${challengeId}`;
+    const hostName = row?.host_name || 'Unknown';
+    const participantCount = parseInt(row?.participant_count || '0');
     try {
       const gatekeeper = require('../services/challengeGatekeeper');
       const { config } = require('../config');
       const token = gatekeeper.queueDelete(challengeId, title);
       const telegram = (global as any).__bot?.bot?.telegram || null;
       if (telegram) {
+        // Format start/end in the challenge's timezone for readability
+        const tz = row?.timezone || 'Africa/Nairobi';
+        const fmtDate = (d: string) => {
+          try {
+            return new Date(d).toLocaleString('en-US', {
+              timeZone: tz, month: 'short', day: 'numeric', year: 'numeric',
+              hour: 'numeric', minute: '2-digit', hour12: true
+            });
+          } catch { return d; }
+        };
+        const startStr = row?.start_date ? fmtDate(row.start_date) : '—';
+        const endStr   = row?.end_date   ? fmtDate(row.end_date)   : '—';
         const { Markup } = require('telegraf');
         const msg = await telegram.sendMessage(
           config.adminUserId,
-          `🗑️ <b>Host Deletion Request</b>\n\n<b>Host:</b> ${hostName}\n<b>Challenge:</b> ${title}\n<b>Current Status:</b> ${status}\n\n⚠️ This challenge has participants/activity. Approve deletion?`,
+          `🗑️ <b>Host Deletion Request</b>\n\n` +
+          `<b>Host:</b> ${hostName}\n` +
+          `<b>Challenge:</b> ${title}\n` +
+          `<b>Status:</b> ${status}\n` +
+          `<b>Start:</b> ${startStr}\n` +
+          `<b>End:</b> ${endStr}\n` +
+          `<b>Participants:</b> ${participantCount}\n\n` +
+          `⚠️ This challenge has participants/activity. Approve deletion?`,
           {
             parse_mode: 'HTML',
             ...Markup.inlineKeyboard([
