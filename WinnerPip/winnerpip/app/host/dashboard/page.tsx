@@ -156,6 +156,8 @@ export default function HostDashboardPage() {
   const headers = () => ({ Authorization: `Bearer ${getToken()}`, 'Content-Type': 'application/json' });
   const selectedChallenge = challenges.find(c => c.id === selectedChallengeId);
   const challengeTz = selectedChallenge?.timezone || 'Africa/Nairobi';
+  // Balance/target become read-only once the challenge has started (matches rules locking).
+  const balanceLocked = ['active', 'reviewing', 'completed'].includes(selectedChallenge?.status || '');
 
   // Auth
   useEffect(() => {
@@ -1414,14 +1416,20 @@ export default function HostDashboardPage() {
                     <div><label className="text-xs text-gray-400 font-medium mb-1 block">Start (EAT)</label><input type="datetime-local" value={settingsForm.start_date || ""} onChange={e => setSettingsForm((p: any) => ({...p, start_date: e.target.value}))} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
                     <div><label className="text-xs text-gray-400 font-medium mb-1 block">End (EAT)</label><input type="datetime-local" value={settingsForm.end_date || ""} onChange={e => setSettingsForm((p: any) => ({...p, end_date: e.target.value}))} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div><label className="text-xs text-gray-400 font-medium mb-1 block">Starting Balance ($)</label><input value={settingsForm.starting_balance || ""} onChange={e => setSettingsForm((p: any) => ({...p, starting_balance: e.target.value}))} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
-                    {!settingsForm.target_enabled ? (
-                      <div><label className="text-xs text-gray-400 font-medium mb-1 block">Target Balance ($)</label><div className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-gray-500 text-sm">No target</div></div>
-                    ) : (
-                      <div><label className="text-xs text-gray-400 font-medium mb-1 block">Target Balance ($)</label><input value={settingsForm.target_balance || ""} onChange={e => setSettingsForm((p: any) => ({...p, target_balance: e.target.value}))} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
-                    )}
-                  </div>
+                  {balanceLocked && (
+                    <p className="text-[11px] text-gray-400 -mb-1 flex items-center gap-1.5"><Shield size={12} /> Balances &amp; targets are locked once the challenge has started.</p>
+                  )}
+                  {/* Shared Starting/Target — hidden when per-category settings are ON (redundant with the split fields below) */}
+                  {!settingsForm.split_category_settings && (
+                    <div className="grid grid-cols-2 gap-3">
+                      <div><label className="text-xs text-gray-400 font-medium mb-1 block">Starting Balance ($)</label><input disabled={balanceLocked} value={settingsForm.starting_balance || ""} onChange={e => setSettingsForm((p: any) => ({...p, starting_balance: e.target.value}))} className={`w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none ${balanceLocked ? "opacity-40 cursor-not-allowed" : ""}`} /></div>
+                      {!settingsForm.target_enabled ? (
+                        <div><label className="text-xs text-gray-400 font-medium mb-1 block">Target Balance ($)</label><div className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-gray-500 text-sm">No target</div></div>
+                      ) : (
+                        <div><label className="text-xs text-gray-400 font-medium mb-1 block">Target Balance ($)</label><input disabled={balanceLocked} value={settingsForm.target_balance || ""} onChange={e => setSettingsForm((p: any) => ({...p, target_balance: e.target.value}))} className={`w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none ${balanceLocked ? "opacity-40 cursor-not-allowed" : ""}`} /></div>
+                      )}
+                    </div>
+                  )}
 
                   {/* Require Target (shown when split is OFF) */}
                   {!settingsForm.split_category_settings && (
@@ -1431,12 +1439,12 @@ export default function HostDashboardPage() {
                           <p className="text-sm text-white font-medium">Require a target</p>
                           <div className="relative group"><span className="cursor-help text-gray-500 hover:text-royal transition-colors text-xs">&#9432;</span><div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-[#1a1a2e] border border-white/20 rounded-lg text-[10px] text-gray-300 w-52 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity z-50 shadow-xl">When OFF, there is no target — winners are decided purely by ranking (balance / growth %).</div></div>
                         </div>
-                        <button type="button" onClick={() => setSettingsForm((p: any) => ({...p, target_enabled: !p.target_enabled}))} className={`w-10 h-5 rounded-full transition-all ${settingsForm.target_enabled ? "bg-royal" : "bg-white/20"}`}><div className={`w-4 h-4 bg-white rounded-full transition-transform ${settingsForm.target_enabled ? "translate-x-5" : "translate-x-0.5"}`}></div></button>
+                        <button type="button" onClick={() => !balanceLocked && setSettingsForm((p: any) => ({...p, target_enabled: !p.target_enabled}))} disabled={balanceLocked} className={`w-10 h-5 rounded-full transition-all ${balanceLocked ? "opacity-40 cursor-not-allowed" : ""} ${settingsForm.target_enabled ? "bg-royal" : "bg-white/20"}`}><div className={`w-4 h-4 bg-white rounded-full transition-transform ${settingsForm.target_enabled ? "translate-x-5" : "translate-x-0.5"}`}></div></button>
                       </div>
                       {!settingsForm.target_enabled && (
                         <div className="pt-2 border-t border-white/10 flex items-center justify-between">
                           <p className="text-xs text-gray-300">Allow accounts below starting balance to qualify</p>
-                          <button type="button" onClick={() => setSettingsForm((p: any) => ({...p, allow_below_start: !p.allow_below_start}))} className={`w-9 h-5 rounded-full transition-all flex-shrink-0 ${settingsForm.allow_below_start ? "bg-gold" : "bg-white/20"}`}><div className={`w-4 h-4 bg-white rounded-full transition-transform ${settingsForm.allow_below_start ? "translate-x-4" : "translate-x-0.5"}`}></div></button>
+                          <button type="button" onClick={() => !balanceLocked && setSettingsForm((p: any) => ({...p, allow_below_start: !p.allow_below_start}))} disabled={balanceLocked} className={`w-9 h-5 rounded-full transition-all flex-shrink-0 ${balanceLocked ? "opacity-40 cursor-not-allowed" : ""} ${settingsForm.allow_below_start ? "bg-gold" : "bg-white/20"}`}><div className={`w-4 h-4 bg-white rounded-full transition-transform ${settingsForm.allow_below_start ? "translate-x-4" : "translate-x-0.5"}`}></div></button>
                         </div>
                       )}
                     </div>
@@ -1450,7 +1458,7 @@ export default function HostDashboardPage() {
                           <p className="text-sm text-white font-medium">Different settings per category</p>
                           <div className="relative group"><span className="cursor-help text-gray-500 hover:text-royal transition-colors text-xs">&#9432;</span><div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-[#1a1a2e] border border-white/20 rounded-lg text-[10px] text-gray-300 w-52 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity z-50 shadow-xl">When ON, Demo and Real participants can have different starting balances and targets.</div></div>
                         </div>
-                        <button type="button" onClick={() => setSettingsForm((p: any) => ({...p, split_category_settings: !p.split_category_settings}))} className={`w-10 h-5 rounded-full transition-all ${settingsForm.split_category_settings ? "bg-royal" : "bg-white/20"}`}><div className={`w-4 h-4 bg-white rounded-full transition-transform ${settingsForm.split_category_settings ? "translate-x-5" : "translate-x-0.5"}`}></div></button>
+                        <button type="button" onClick={() => !balanceLocked && setSettingsForm((p: any) => ({...p, split_category_settings: !p.split_category_settings}))} disabled={balanceLocked} className={`w-10 h-5 rounded-full transition-all ${balanceLocked ? "opacity-40 cursor-not-allowed" : ""} ${settingsForm.split_category_settings ? "bg-royal" : "bg-white/20"}`}><div className={`w-4 h-4 bg-white rounded-full transition-transform ${settingsForm.split_category_settings ? "translate-x-5" : "translate-x-0.5"}`}></div></button>
                       </div>
                       {settingsForm.split_category_settings && (
                         <div className="space-y-3 pt-2 border-t border-white/10">
@@ -1460,13 +1468,13 @@ export default function HostDashboardPage() {
                               <p className="text-[11px] text-blue-400 font-bold uppercase tracking-wider">Demo</p>
                               <div className="flex items-center gap-1.5">
                                 <span className="text-[10px] text-gray-400">Require target</span>
-                                <button type="button" onClick={() => setSettingsForm((p: any) => ({...p, demo_target_enabled: !p.demo_target_enabled}))} className={`w-8 h-4 rounded-full transition-all flex-shrink-0 ${settingsForm.demo_target_enabled ? "bg-blue-400" : "bg-white/20"}`}><div className={`w-3 h-3 bg-white rounded-full transition-transform ${settingsForm.demo_target_enabled ? "translate-x-4" : "translate-x-0.5"}`}></div></button>
+                                <button type="button" onClick={() => !balanceLocked && setSettingsForm((p: any) => ({...p, demo_target_enabled: !p.demo_target_enabled}))} disabled={balanceLocked} className={`w-8 h-4 rounded-full transition-all flex-shrink-0 ${balanceLocked ? "opacity-40 cursor-not-allowed" : ""} ${settingsForm.demo_target_enabled ? "bg-blue-400" : "bg-white/20"}`}><div className={`w-3 h-3 bg-white rounded-full transition-transform ${settingsForm.demo_target_enabled ? "translate-x-4" : "translate-x-0.5"}`}></div></button>
                               </div>
                             </div>
                             <div className="grid grid-cols-2 gap-3">
-                              <div><label className="text-xs text-blue-400 font-medium mb-1 block">Demo Starting ($)</label><input value={settingsForm.demo_starting_balance || ""} onChange={e => setSettingsForm((p: any) => ({...p, demo_starting_balance: e.target.value}))} className="w-full p-2.5 rounded-xl bg-blue-500/5 border border-blue-500/20 text-white text-sm outline-none" placeholder={String(settingsForm.starting_balance || "30")} /></div>
+                              <div><label className="text-xs text-blue-400 font-medium mb-1 block">Demo Starting ($)</label><input disabled={balanceLocked} value={settingsForm.demo_starting_balance || ""} onChange={e => setSettingsForm((p: any) => ({...p, demo_starting_balance: e.target.value}))} className={`w-full p-2.5 rounded-xl bg-blue-500/5 border border-blue-500/20 text-white text-sm outline-none ${balanceLocked ? "opacity-40 cursor-not-allowed" : ""}`} placeholder={String(settingsForm.starting_balance || "30")} /></div>
                               {settingsForm.demo_target_enabled ? (
-                                <div><label className="text-xs text-blue-400 font-medium mb-1 block">Demo Target ($)</label><input value={settingsForm.demo_target_balance || ""} onChange={e => setSettingsForm((p: any) => ({...p, demo_target_balance: e.target.value}))} className="w-full p-2.5 rounded-xl bg-blue-500/5 border border-blue-500/20 text-white text-sm outline-none" placeholder={String(settingsForm.target_balance || "60")} /></div>
+                                <div><label className="text-xs text-blue-400 font-medium mb-1 block">Demo Target ($)</label><input disabled={balanceLocked} value={settingsForm.demo_target_balance || ""} onChange={e => setSettingsForm((p: any) => ({...p, demo_target_balance: e.target.value}))} className={`w-full p-2.5 rounded-xl bg-blue-500/5 border border-blue-500/20 text-white text-sm outline-none ${balanceLocked ? "opacity-40 cursor-not-allowed" : ""}`} placeholder={String(settingsForm.target_balance || "60")} /></div>
                               ) : (
                                 <div><label className="text-xs text-blue-400 font-medium mb-1 block">Demo Target</label><div className="w-full p-2.5 rounded-xl bg-blue-500/5 border border-blue-500/20 text-gray-500 text-sm">No target</div></div>
                               )}
@@ -1474,7 +1482,7 @@ export default function HostDashboardPage() {
                             {!settingsForm.demo_target_enabled && (
                               <div className="flex items-center justify-between">
                                 <span className="text-[10px] text-gray-300">Allow below starting balance</span>
-                                <button type="button" onClick={() => setSettingsForm((p: any) => ({...p, demo_allow_below_start: !p.demo_allow_below_start}))} className={`w-8 h-4 rounded-full transition-all flex-shrink-0 ${settingsForm.demo_allow_below_start ? "bg-gold" : "bg-white/20"}`}><div className={`w-3 h-3 bg-white rounded-full transition-transform ${settingsForm.demo_allow_below_start ? "translate-x-4" : "translate-x-0.5"}`}></div></button>
+                                <button type="button" onClick={() => !balanceLocked && setSettingsForm((p: any) => ({...p, demo_allow_below_start: !p.demo_allow_below_start}))} disabled={balanceLocked} className={`w-8 h-4 rounded-full transition-all flex-shrink-0 ${balanceLocked ? "opacity-40 cursor-not-allowed" : ""} ${settingsForm.demo_allow_below_start ? "bg-gold" : "bg-white/20"}`}><div className={`w-3 h-3 bg-white rounded-full transition-transform ${settingsForm.demo_allow_below_start ? "translate-x-4" : "translate-x-0.5"}`}></div></button>
                               </div>
                             )}
                           </div>
@@ -1484,13 +1492,13 @@ export default function HostDashboardPage() {
                               <p className="text-[11px] text-profit font-bold uppercase tracking-wider">Real</p>
                               <div className="flex items-center gap-1.5">
                                 <span className="text-[10px] text-gray-400">Require target</span>
-                                <button type="button" onClick={() => setSettingsForm((p: any) => ({...p, real_target_enabled: !p.real_target_enabled}))} className={`w-8 h-4 rounded-full transition-all flex-shrink-0 ${settingsForm.real_target_enabled ? "bg-profit" : "bg-white/20"}`}><div className={`w-3 h-3 bg-white rounded-full transition-transform ${settingsForm.real_target_enabled ? "translate-x-4" : "translate-x-0.5"}`}></div></button>
+                                <button type="button" onClick={() => !balanceLocked && setSettingsForm((p: any) => ({...p, real_target_enabled: !p.real_target_enabled}))} disabled={balanceLocked} className={`w-8 h-4 rounded-full transition-all flex-shrink-0 ${balanceLocked ? "opacity-40 cursor-not-allowed" : ""} ${settingsForm.real_target_enabled ? "bg-profit" : "bg-white/20"}`}><div className={`w-3 h-3 bg-white rounded-full transition-transform ${settingsForm.real_target_enabled ? "translate-x-4" : "translate-x-0.5"}`}></div></button>
                               </div>
                             </div>
                             <div className="grid grid-cols-2 gap-3">
-                              <div><label className="text-xs text-profit font-medium mb-1 block">Real Starting ($)</label><input value={settingsForm.real_starting_balance || ""} onChange={e => setSettingsForm((p: any) => ({...p, real_starting_balance: e.target.value}))} className="w-full p-2.5 rounded-xl bg-profit/5 border border-profit/20 text-white text-sm outline-none" placeholder={String(settingsForm.starting_balance || "30")} /></div>
+                              <div><label className="text-xs text-profit font-medium mb-1 block">Real Starting ($)</label><input disabled={balanceLocked} value={settingsForm.real_starting_balance || ""} onChange={e => setSettingsForm((p: any) => ({...p, real_starting_balance: e.target.value}))} className={`w-full p-2.5 rounded-xl bg-profit/5 border border-profit/20 text-white text-sm outline-none ${balanceLocked ? "opacity-40 cursor-not-allowed" : ""}`} placeholder={String(settingsForm.starting_balance || "30")} /></div>
                               {settingsForm.real_target_enabled ? (
-                                <div><label className="text-xs text-profit font-medium mb-1 block">Real Target ($)</label><input value={settingsForm.real_target_balance || ""} onChange={e => setSettingsForm((p: any) => ({...p, real_target_balance: e.target.value}))} className="w-full p-2.5 rounded-xl bg-profit/5 border border-profit/20 text-white text-sm outline-none" placeholder={String(settingsForm.target_balance || "60")} /></div>
+                                <div><label className="text-xs text-profit font-medium mb-1 block">Real Target ($)</label><input disabled={balanceLocked} value={settingsForm.real_target_balance || ""} onChange={e => setSettingsForm((p: any) => ({...p, real_target_balance: e.target.value}))} className={`w-full p-2.5 rounded-xl bg-profit/5 border border-profit/20 text-white text-sm outline-none ${balanceLocked ? "opacity-40 cursor-not-allowed" : ""}`} placeholder={String(settingsForm.target_balance || "60")} /></div>
                               ) : (
                                 <div><label className="text-xs text-profit font-medium mb-1 block">Real Target</label><div className="w-full p-2.5 rounded-xl bg-profit/5 border border-profit/20 text-gray-500 text-sm">No target</div></div>
                               )}
@@ -1498,7 +1506,7 @@ export default function HostDashboardPage() {
                             {!settingsForm.real_target_enabled && (
                               <div className="flex items-center justify-between">
                                 <span className="text-[10px] text-gray-300">Allow below starting balance</span>
-                                <button type="button" onClick={() => setSettingsForm((p: any) => ({...p, real_allow_below_start: !p.real_allow_below_start}))} className={`w-8 h-4 rounded-full transition-all flex-shrink-0 ${settingsForm.real_allow_below_start ? "bg-gold" : "bg-white/20"}`}><div className={`w-3 h-3 bg-white rounded-full transition-transform ${settingsForm.real_allow_below_start ? "translate-x-4" : "translate-x-0.5"}`}></div></button>
+                                <button type="button" onClick={() => !balanceLocked && setSettingsForm((p: any) => ({...p, real_allow_below_start: !p.real_allow_below_start}))} disabled={balanceLocked} className={`w-8 h-4 rounded-full transition-all flex-shrink-0 ${balanceLocked ? "opacity-40 cursor-not-allowed" : ""} ${settingsForm.real_allow_below_start ? "bg-gold" : "bg-white/20"}`}><div className={`w-3 h-3 bg-white rounded-full transition-transform ${settingsForm.real_allow_below_start ? "translate-x-4" : "translate-x-0.5"}`}></div></button>
                               </div>
                             )}
                           </div>

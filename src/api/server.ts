@@ -2703,12 +2703,26 @@ app.put('/api/host/challenge/:id/settings', hostAuthMiddleware, async (req: any,
 
     const fields = req.body;
     // Hosts can only modify a subset of fields
-    const allowed = ['title', 'starting_balance', 'target_balance', 'end_date', 'target_percent',
+    let allowed = ['title', 'starting_balance', 'target_balance', 'end_date', 'target_percent',
       'prize_pool_text', 'real_winners_count', 'demo_winners_count', 'real_prizes', 'demo_prizes',
       'split_category_settings', 'demo_starting_balance', 'demo_target_balance', 'real_starting_balance', 'real_target_balance',
       'demo_deposit_mode', 'real_deposit_mode', 'demo_target_percent', 'real_target_percent',
       'target_enabled', 'allow_below_start',
       'demo_target_enabled', 'real_target_enabled', 'demo_allow_below_start', 'real_allow_below_start'];
+
+    // Once the challenge has started, balance & target settings are locked (participants
+    // are already registered/trading against them). Strip those fields server-side.
+    const startedStatuses = ['active', 'reviewing', 'completed'];
+    if (startedStatuses.includes(ownership.rows[0].status)) {
+      const lockedFields = new Set([
+        'starting_balance', 'target_balance', 'target_percent',
+        'split_category_settings', 'demo_starting_balance', 'demo_target_balance',
+        'real_starting_balance', 'real_target_balance', 'demo_deposit_mode', 'real_deposit_mode',
+        'demo_target_percent', 'real_target_percent', 'target_enabled', 'allow_below_start',
+        'demo_target_enabled', 'real_target_enabled', 'demo_allow_below_start', 'real_allow_below_start',
+      ]);
+      allowed = allowed.filter(f => !lockedFields.has(f));
+    }
 
     const sets: string[] = [];
     const values: any[] = [];
