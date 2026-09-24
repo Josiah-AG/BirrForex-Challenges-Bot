@@ -3189,6 +3189,7 @@ function ChallengeSettingsPanel({ challengeId, challenges, onRefresh }: { challe
           end_date: dateToUTC(editForm.end_date),
           starting_balance: parseFloat(editForm.starting_balance),
           target_balance: parseFloat(editForm.target_balance),
+          target_enabled: editForm.target_enabled,
           prize_pool_text: editForm.prize_pool_text,
           split_category_settings: editForm.split_category_settings,
           demo_starting_balance: editForm.split_category_settings && editForm.demo_starting_balance ? parseFloat(editForm.demo_starting_balance) : null,
@@ -3295,6 +3296,12 @@ function ChallengeSettingsPanel({ challengeId, challenges, onRefresh }: { challe
           </div>
 
           {/* Per-Category Settings (hybrid only) */}
+          {/* Require target toggle */}
+          <div className="flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/10">
+            <p className="text-sm text-white font-medium">Require a target</p>
+            <button type="button" onClick={() => setEditForm({...editForm, target_enabled: !editForm.target_enabled})} className={`w-10 h-5 rounded-full transition-all ${editForm.target_enabled ? "bg-royal" : "bg-white/20"}`}><div className={`w-4 h-4 bg-white rounded-full transition-transform ${editForm.target_enabled ? "translate-x-5" : "translate-x-0.5"}`}></div></button>
+          </div>
+
           {(editForm.type || challenge?.type) === 'hybrid' && (
             <div className="p-3 rounded-xl bg-white/5 border border-white/10 space-y-3">
               <div className="flex items-center justify-between">

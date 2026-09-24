@@ -5048,7 +5048,9 @@ app.put(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id`, adminIpCheck, async (re
       'prize_pool_text', 'real_winners_count', 'demo_winners_count', 'real_prizes', 'demo_prizes',
       'pdf_url', 'video_url', 'source', 'team_only',
       'split_category_settings', 'demo_starting_balance', 'demo_target_balance', 'real_starting_balance', 'real_target_balance',
-      'demo_deposit_mode', 'real_deposit_mode', 'demo_target_percent', 'real_target_percent'];
+      'demo_deposit_mode', 'real_deposit_mode', 'demo_target_percent', 'real_target_percent',
+      'target_enabled', 'allow_below_start', 'demo_target_enabled', 'real_target_enabled',
+      'demo_allow_below_start', 'real_allow_below_start'];
 
     const sets: string[] = [];
     const values: any[] = [];
