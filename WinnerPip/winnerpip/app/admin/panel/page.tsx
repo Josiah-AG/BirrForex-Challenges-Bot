@@ -3290,7 +3290,7 @@ function ChallengeSettingsPanel({ challengeId, challenges, onRefresh }: { challe
             {editForm.target_enabled === false ? (
               <div><label className="text-xs text-gray-400 font-medium mb-1 block">Target Balance ($)</label><div className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-gray-500 text-sm">No target</div></div>
             ) : (
-              <div><label className="text-xs text-gray-400 font-medium mb-1 block">Target Balance ($)</label><input value={editForm.target_balance} onChange={e => setEditForm({...editForm, target_balance: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
+              <div><label className="text-xs text-gray-400 font-medium mb-1 block">Target Balance ($)</label><input disabled={!!challenge?.hostId} value={editForm.target_balance} onChange={e => setEditForm({...editForm, target_balance: e.target.value})} className={`w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none ${challenge?.hostId ? 'opacity-50 cursor-not-allowed' : ''}`} /></div>
             )}
           </div>
 
@@ -3320,7 +3320,7 @@ function ChallengeSettingsPanel({ challengeId, challenges, onRefresh }: { challe
             </div>
           )}
 
-          <div><label className="text-xs text-gray-400 font-medium mb-1 block">Prize Pool Text</label><input value={editForm.prize_pool_text} onChange={e => setEditForm({...editForm, prize_pool_text: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
+          {!challenge?.hostId && <div><label className="text-xs text-gray-400 font-medium mb-1 block">Prize Pool Text</label><input value={editForm.prize_pool_text} onChange={e => setEditForm({...editForm, prize_pool_text: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>}
           <button onClick={handleSave} disabled={saving} className="w-full py-3 rounded-xl bg-gradient-brand text-white font-semibold hover:opacity-90 transition-all disabled:opacity-50">{saving ? "Saving..." : "Save Changes"}</button>
         </div>
 

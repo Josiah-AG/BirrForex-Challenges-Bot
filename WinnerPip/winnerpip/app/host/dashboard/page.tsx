@@ -107,7 +107,7 @@ export default function HostDashboardPage() {
   const [createStep, setCreateStep] = useState(1);
   const [createForm, setCreateForm] = useState({
     title: "", type: "hybrid", start_date: "", end_date: "",
-    starting_balance: "30", target_balance: "60", deposit_mode: "fixed",
+    starting_balance: "30", target_balance: "", deposit_mode: "fixed",
     target_percent: "100", real_winners_count: "3", demo_winners_count: "3",
     real_prizes: "", demo_prizes: "",
     registration_mode: "manual" as "winnerpip" | "manual",
@@ -312,7 +312,7 @@ export default function HostDashboardPage() {
           start_date: ch.start_date ? utcToWallClock(ch.start_date, ch.timezone || challengeTz) : "",
           end_date: ch.end_date ? utcToWallClock(ch.end_date, ch.timezone || challengeTz) : "",
           starting_balance: ch.starting_balance ?? "30",
-          target_balance: ch.target_balance ?? "60",
+          target_balance: ch.target_balance != null ? String(ch.target_balance) : "",
           prize_pool_text: ch.prize_pool_text || "",
           split_category_settings: ch.split_category_settings || false,
           deposit_mode: ch.deposit_mode || 'fixed',
