@@ -340,6 +340,16 @@ export default function ChallengeDashboard() {
   const isGrowthMode = challenge?.depositMode && challenge.depositMode !== 'fixed';
   // For min_limit: higher balance is fine (no upper cap). Only min_limit below the floor is bad.
   const isMinLimit = challenge?.depositMode === 'min_limit';
+  // Format a leaderboard entry's primary metric: growth % for growth-% challenges, balance otherwise.
+  const fmtEntryValue = (entry: LeaderboardEntry) => {
+    if (entry.isDisqualified) return <span className="text-loss">DQ</span>;
+    if (entry.isWithdrawn) return <span className="text-gray-400">Exited</span>;
+    if (isGrowthMode) {
+      const g = entry.growthPercent ?? 0;
+      return <span>{g >= 0 ? '↑' : '↓'} {Math.abs(g).toFixed(1)}%</span>;
+    }
+    return <>{formatBalance(entry.adjustedBalance - (entry.totalWithdrawn || 0), entry.accountType, entry.isCent)}</>;
+  };
 
   // Top-N by rank AND qualified for target
   const isWinner = (entry: LeaderboardEntry) => {
@@ -865,7 +875,7 @@ export default function ChallengeDashboard() {
                             </div>
                             <p className="text-[10px] text-gray-500">{entry.totalTrades} trades • {entry.qualifiedTrades} qualified</p>
                           </div>
-                          <p className="text-sm font-bold text-white">{formatBalance(entry.adjustedBalance - (entry.totalWithdrawn || 0), entry.accountType, entry.isCent)}</p>
+                          <p className="text-sm font-bold text-white">{fmtEntryValue(entry)}</p>
                         </button>
                       ))}
                     </div>
@@ -1292,7 +1302,7 @@ export default function ChallengeDashboard() {
                     </div>
                     <div className="flex items-center gap-3 flex-shrink-0">
                       <p className={`text-sm font-bold ${isWinner(entry) ? "text-profit" : isAboveTarget(entry) ? "text-profit/80" : "text-white"}`}>
-                        {entry.isDisqualified ? <span className="text-loss">DQ</span> : entry.isWithdrawn ? <span className="text-gray-400">Exited</span> : formatBalance(entry.adjustedBalance - (entry.totalWithdrawn || 0), entry.accountType, entry.isCent)}
+                        {entry.isDisqualified ? <span className="text-loss">DQ</span> : entry.isWithdrawn ? <span className="text-gray-400">Exited</span> : fmtEntryValue(entry)}
                       </p>
                       {!leaderboardPreStart && entry.rankChange != null && entry.rankChange !== 0 ? (
                         <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded ${entry.rankChange > 0 ? "text-profit bg-profit/10" : "text-loss bg-loss/10"}`}>{entry.rankChange > 0 ? `▲${entry.rankChange}` : `▼${Math.abs(entry.rankChange)}`}</span>

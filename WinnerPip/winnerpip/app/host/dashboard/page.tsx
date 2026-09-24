@@ -1013,7 +1013,7 @@ export default function HostDashboardPage() {
                     <th className="text-left py-3 px-4 text-[10px] text-gray-400 uppercase">Nickname</th>
                     <th className="text-left py-3 px-4 text-[10px] text-gray-400 uppercase">Account</th>
                     <th className="text-left py-3 px-4 text-[10px] text-gray-400 uppercase">Type</th>
-                    <th className="text-right py-3 px-4 text-[10px] text-gray-400 uppercase">Balance / Gross</th>
+                    <th className="text-right py-3 px-4 text-[10px] text-gray-400 uppercase">{(selectedChallenge as any)?.deposit_mode && (selectedChallenge as any).deposit_mode !== 'fixed' ? 'Growth / Balance' : 'Balance / Gross'}</th>
                     <th className="text-center py-3 px-4 text-[10px] text-gray-400 uppercase">Trades</th>
                     <th className="text-center py-3 px-4 text-[10px] text-gray-400 uppercase">Pass%</th>
                     <th className="text-center py-3 px-4 text-[10px] text-gray-400 uppercase">Profit</th>
@@ -1039,8 +1039,8 @@ export default function HostDashboardPage() {
                       <td className="py-3 px-4"><p className="text-xs text-gray-300 font-mono">{e.accountNumber || "—"}</p></td>
                       <td className="py-3 px-4"><span className={`px-2 py-1 rounded text-[10px] font-semibold ${e.accountType === "real" ? "bg-gold/10 text-gold" : "bg-royal/10 text-royal"}`}>{e.accountType}</span></td>
                       <td className="py-3 px-4 text-right">
-                        <p className={`text-sm font-bold ${e.isDisqualified ? "text-loss" : e.isWithdrawn ? "text-gray-500" : eIsWinner ? "text-profit" : eIsAboveTarget ? "text-profit/80" : "text-white"}`}>{e.isDisqualified ? "DQ" : e.isWithdrawn ? "Exited" : e.isCent ? `${(Number(e.adjustedBalance) - (e.totalWithdrawn || 0)).toFixed(2)}¢` : `$${(Number(e.adjustedBalance) - (e.totalWithdrawn || 0)).toFixed(2)}`}</p>
-                        {!e.isDisqualified && !e.isWithdrawn && <p className="text-[10px] text-gray-500 mt-0.5">{e.isCent ? `${Number(e.currentBalance || e.adjustedBalance).toFixed(2)}¢` : `$${Number(e.currentBalance || e.adjustedBalance).toFixed(2)}`}</p>}
+                        <p className={`text-sm font-bold ${e.isDisqualified ? "text-loss" : e.isWithdrawn ? "text-gray-500" : eIsWinner ? "text-profit" : eIsAboveTarget ? "text-profit/80" : "text-white"}`}>{e.isDisqualified ? "DQ" : e.isWithdrawn ? "Exited" : eDepositMode !== 'fixed' ? `${Number(e.growthPercent) >= 0 ? '↑' : '↓'} ${Math.abs(Number(e.growthPercent || 0)).toFixed(1)}%` : e.isCent ? `${(Number(e.adjustedBalance) - (e.totalWithdrawn || 0)).toFixed(2)}¢` : `$${(Number(e.adjustedBalance) - (e.totalWithdrawn || 0)).toFixed(2)}`}</p>
+                        {!e.isDisqualified && !e.isWithdrawn && <p className="text-[10px] text-gray-500 mt-0.5">{e.isCent ? `${Number(e.adjustedBalance).toFixed(2)}¢` : `$${Number(e.adjustedBalance).toFixed(2)}`}</p>}
                         {e.isWithdrawn && e.totalWithdrawn > 0 && <p className="text-[10px] text-gray-600 mt-0.5">withdrew {e.isCent ? `${Number(e.totalWithdrawn).toFixed(2)}¢` : `$${Number(e.totalWithdrawn).toFixed(2)}`}</p>}
                       </td>
                       <td className="py-3 px-4 text-center text-sm text-gray-400">{e.totalTrades || 0}</td>
