@@ -3176,7 +3176,7 @@ function ChallengeSettingsPanel({ challengeId, challenges, onRefresh }: { challe
     start_date: challenge?.startDate ? formatDateForInput(challenge.startDate) : "",
     end_date: challenge?.endDate ? formatDateForInput(challenge.endDate) : "",
     starting_balance: String(challenge?.startingBalance || 30),
-    target_balance: String(challenge?.targetBalance || 60),
+    target_balance: String(challenge?.targetBalance || ""),
     target_enabled: challenge?.targetEnabled === null || challenge?.targetEnabled === undefined ? true : !!challenge.targetEnabled,
     prize_pool_text: challenge?.prizePoolText || "",
     split_category_settings: challenge?.splitCategorySettings || false,
@@ -3185,6 +3185,27 @@ function ChallengeSettingsPanel({ challengeId, challenges, onRefresh }: { challe
     real_starting_balance: challenge?.realStartingBalance != null ? String(challenge.realStartingBalance) : "",
     real_target_balance: challenge?.realTargetBalance != null ? String(challenge.realTargetBalance) : "",
   });
+
+  // Re-sync form when challenges data loads (useState initializer runs before data arrives)
+  React.useEffect(() => {
+    if (!challenge) return;
+    setEditForm({
+      title: challenge.title || "",
+      type: challenge.type || "hybrid",
+      start_date: challenge.startDate ? formatDateForInput(challenge.startDate) : "",
+      end_date: challenge.endDate ? formatDateForInput(challenge.endDate) : "",
+      starting_balance: String(challenge.startingBalance || 30),
+      target_balance: String(challenge.targetBalance || ""),
+      target_enabled: challenge.targetEnabled === null || challenge.targetEnabled === undefined ? true : !!challenge.targetEnabled,
+      prize_pool_text: challenge.prizePoolText || "",
+      split_category_settings: challenge.splitCategorySettings || false,
+      demo_starting_balance: challenge.demoStartingBalance != null ? String(challenge.demoStartingBalance) : "",
+      demo_target_balance: challenge.demoTargetBalance != null ? String(challenge.demoTargetBalance) : "",
+      real_starting_balance: challenge.realStartingBalance != null ? String(challenge.realStartingBalance) : "",
+      real_target_balance: challenge.realTargetBalance != null ? String(challenge.realTargetBalance) : "",
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [challengeId, challenges]);
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
   const secretPath = process.env.NEXT_PUBLIC_ADMIN_PATH || "";
