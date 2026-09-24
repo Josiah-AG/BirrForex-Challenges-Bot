@@ -3187,7 +3187,7 @@ function ChallengeSettingsPanel({ challengeId, challenges, onRefresh }: { challe
   });
 
   // Re-sync form when challenges data loads (useState initializer runs before data arrives)
-  React.useEffect(() => {
+  useEffect(() => {
     if (!challenge) return;
     setEditForm({
       title: challenge.title || "",
