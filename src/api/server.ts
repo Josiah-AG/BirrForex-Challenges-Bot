@@ -3588,7 +3588,9 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenges`, adminIpCheck, async (req, 
               real_winners_count, demo_winners_count, prize_pool_text, source, team_only,
               evaluation_type, created_at,
               split_category_settings, demo_starting_balance, demo_target_balance, real_starting_balance, real_target_balance,
-              demo_deposit_mode, real_deposit_mode, demo_target_percent, real_target_percent, deposit_mode, target_percent
+              demo_deposit_mode, real_deposit_mode, demo_target_percent, real_target_percent, deposit_mode, target_percent,
+              target_enabled, allow_below_start, demo_target_enabled, real_target_enabled,
+              demo_allow_below_start, real_allow_below_start, host_id, real_prizes, demo_prizes, timezone
        FROM trading_challenges
        WHERE status != 'deleted'
        ORDER BY created_at DESC`
@@ -3621,6 +3623,16 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenges`, adminIpCheck, async (req, 
       realTargetPercent: c.real_target_percent ? parseFloat(c.real_target_percent) : null,
       depositMode: c.deposit_mode || 'fixed',
       targetPercent: c.target_percent ? parseFloat(c.target_percent) : null,
+      targetEnabled: c.target_enabled === null || c.target_enabled === undefined ? true : c.target_enabled,
+      allowBelowStart: c.allow_below_start === null || c.allow_below_start === undefined ? false : c.allow_below_start,
+      demoTargetEnabled: c.demo_target_enabled,
+      realTargetEnabled: c.real_target_enabled,
+      demoAllowBelowStart: c.demo_allow_below_start,
+      realAllowBelowStart: c.real_allow_below_start,
+      hostId: c.host_id || null,
+      realPrizes: typeof c.real_prizes === 'string' ? JSON.parse(c.real_prizes) : (c.real_prizes || []),
+      demoPrizes: typeof c.demo_prizes === 'string' ? JSON.parse(c.demo_prizes) : (c.demo_prizes || []),
+      timezone: c.timezone || 'Africa/Nairobi',
     }));
 
     return res.json({ challenges });
