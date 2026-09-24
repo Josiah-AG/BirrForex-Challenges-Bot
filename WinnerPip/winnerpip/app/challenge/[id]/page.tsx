@@ -1342,7 +1342,7 @@ export default function ChallengeDashboard() {
                             </div>
                             <p className="text-[10px] text-gray-500">{entry.totalTrades} trades • {entry.qualifiedTrades} qualified</p>
                           </div>
-                          <p className="text-sm font-bold text-white">{formatBalance(entry.adjustedBalance - (entry.totalWithdrawn || 0), entry.accountType, entry.isCent)}</p>
+                          <p className="text-sm font-bold text-white">{fmtEntryValue(entry)}</p>
                         </div>
                       ))}
                     </div>
@@ -1519,7 +1519,7 @@ export default function ChallengeDashboard() {
                     </div>
                     <div className="flex items-center gap-3 flex-shrink-0">
                       <p className={`text-sm font-bold ${entry.isDisqualified ? "text-loss" : isWinner(entry) ? "text-profit" : isAboveTarget(entry) ? "text-profit/80" : "text-white"}`}>
-                        {entry.isDisqualified ? "DQ" : entry.isWithdrawn ? <span className="text-gray-400">Exited</span> : formatBalance(entry.adjustedBalance - (entry.totalWithdrawn || 0), entry.accountType, entry.isCent)}
+                        {entry.isDisqualified ? "DQ" : entry.isWithdrawn ? <span className="text-gray-400">Exited</span> : fmtEntryValue(entry)}
                       </p>
                       {entry.rankChange != null && entry.rankChange !== 0 ? (
                         <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded ${entry.rankChange > 0 ? "text-profit bg-profit/10" : "text-loss bg-loss/10"}`}>{entry.rankChange > 0 ? `▲${entry.rankChange}` : `▼${Math.abs(entry.rankChange)}`}</span>
@@ -1557,7 +1557,7 @@ export default function ChallengeDashboard() {
                               </div>
                               <p className="text-[10px] text-gray-500">{entry.totalTrades} trades • {entry.qualifiedTrades} qualified</p>
                             </div>
-                            <p className="text-sm font-bold text-white">{formatBalance(entry.adjustedBalance - (entry.totalWithdrawn || 0), entry.accountType, entry.isCent)}</p>
+                            <p className="text-sm font-bold text-white">{fmtEntryValue(entry)}</p>
                           </button>
                         ))}
                       </div>
