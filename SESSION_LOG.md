@@ -1342,3 +1342,60 @@ Covered in item #2 above.
 - `WinnerPip/winnerpip/app/challenges/page.tsx`
 
 **Latest commit:** `6149c3c` (HEAD → main, origin/main)
+
+---
+
+## Session — September 24, 2026 — Growth % Color + Sign + Admin Leaderboard Ordering
+
+### What Was Done
+
+Two fixes for `max_limit` / `min_limit` (growth-%) challenges, both verified clean (backend `tsc --noEmit --skipLibCheck` + frontend `next build`).
+
+---
+
+### 1. Growth % color + sign in ALL leaderboard displays
+
+**Problem:** Several inline growth % strings used plain `<span>` (no color) and showed only the arrow + absolute value, without `+`/`-` sign. `fmtEntryValue` was already correctly updated in a prior commit, but 7 other inline spots were still using the old pattern.
+
+**Pattern applied everywhere:**
+- Positive growth → `<span className="text-profit">↑ +X.X%</span>`
+- Negative growth → `<span className="text-loss">↓ -X.X%</span>`
+- Detail-panel `<p>` elements that previously hardcoded `text-white` now use a dynamic className (`text-profit` / `text-loss`) when in growth mode.
+
+**Files modified:**
+
+1. `WinnerPip/winnerpip/app/challenge/[id]/page.tsx`
+   - **Leaderboard tab row** (~line 837): converted template literal `<span>` to colored JSX span with `+`/`-` sign
+   - **selectedUser detail modal** (~line 1586): `Growth:` sub-line now wraps the value in `<span className={... text-profit/text-loss}>` with `+`/`-`
+
+2. `WinnerPip/winnerpip/app/admin/panel/page.tsx`
+   - **Admin leaderboard table row** (~line 748): template literal replaced with colored JSX span + sign
+   - **foundUser detail panel** (~line 842): `<p>` className changed from hardcoded `text-white` to dynamic profit/loss color; template literal → JSX fragment
+   - **selectedParticipant detail panel** (~line 1471): same fix
+
+3. `WinnerPip/winnerpip/app/host/dashboard/page.tsx`
+   - **Host leaderboard table row** (~line 1042): template literal replaced with colored JSX span + sign
+   - **selectedParticipant detail panel** (~line 1822): `<p>` className changed to dynamic profit/loss color; template literal → JSX fragment
+
+---
+
+### 2. Admin leaderboard ordering for growth-% challenges
+
+**Problem:** Admin leaderboard (`GET /api/admin/:secretPath/challenge/:id/admin-leaderboard`) was always ordering by `normalized_balance` / `l.rank`, even for growth-% challenges where the correct ranking metric is `growth_percent`.
+
+**Fix (already applied to `src/api/server.ts` before this session, now committed):**
+- Fetches `deposit_mode` from the challenge row
+- `rankByGrowth = depositMode !== 'fixed'`
+- When `rankByGrowth`: sorts by `COALESCE(l.growth_percent, 0) DESC NULLS LAST`
+- When fixed: existing `l.rank ASC + normalized_balance DESC` sort unchanged
+- Applied to both the pre-start and post-start branches of the query
+
+---
+
+### Verification
+- Backend: `tsc --noEmit --skipLibCheck` → exit 0
+- Frontend: `next build` → exit 0 (only pre-existing unused-var/hooks warnings, no new errors)
+
+### Latest commit (this session)
+- See commit below
+

@@ -5757,10 +5757,12 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/admin-leaderboard`, admin
     const category    = (req.query.category as string) || 'all';
 
     const challengeRow = await db.query(
-      `SELECT status, leaderboard_updated_at FROM trading_challenges WHERE id = $1`, [challengeId]
+      `SELECT status, leaderboard_updated_at, deposit_mode FROM trading_challenges WHERE id = $1`, [challengeId]
     );
-    const status   = challengeRow.rows[0]?.status;
-    const dataFrom = challengeRow.rows[0]?.leaderboard_updated_at || null;
+    const status      = challengeRow.rows[0]?.status;
+    const dataFrom    = challengeRow.rows[0]?.leaderboard_updated_at || null;
+    const depositMode = challengeRow.rows[0]?.deposit_mode || 'fixed';
+    const rankByGrowth = depositMode !== 'fixed';
 
     const catFilter  = (category === 'demo' || category === 'real') ? ` AND r.account_type = '${category}'` : '';
     const catFilterLeaderboard = (category === 'demo' || category === 'real') ? ` AND l.account_type = '${category}'` : '';
@@ -5841,23 +5843,23 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/admin-leaderboard`, admin
     }
 
     // ACTIVE/REVIEWING/COMPLETED: use wp_leaderboard data
-    // All participants LEFT JOIN leaderboard — unevaluated accounts still appear
-    // For "all": unified ordering by normalized balance (cent÷100) for cross-category fairness
-    // For "real"/"demo": use l.rank which is category-specific from updateRankings
+    // For growth-% challenges (max_limit/min_limit): sort by growth_percent DESC.
+    // For fixed: sort by normalized_balance (or l.rank for per-category).
     const orderByActive = (category === 'demo' || category === 'real')
       ? `ORDER BY
          CASE WHEN l.is_disqualified = true OR r.disqualified = true THEN 1 ELSE 0 END,
          CASE WHEN COALESCE(l.zero_balance_at::text, '') != '' THEN 1 ELSE 0 END,
-         l.rank ASC NULLS LAST,
-         COALESCE(l.normalized_balance, l.adjusted_balance, r.last_known_balance, r.registration_balance, 0) DESC NULLS LAST`
+         ${rankByGrowth ? 'COALESCE(l.growth_percent, 0) DESC NULLS LAST' : 'l.rank ASC NULLS LAST, COALESCE(l.normalized_balance, l.adjusted_balance, r.last_known_balance, r.registration_balance, 0) DESC NULLS LAST'}`
       : `ORDER BY
          CASE WHEN l.is_disqualified = true OR r.disqualified = true THEN 1 ELSE 0 END,
          CASE WHEN COALESCE(l.zero_balance_at::text, '') != '' THEN 1 ELSE 0 END,
-         COALESCE(l.normalized_balance,
-           CASE WHEN COALESCE(r.is_cent, false) THEN COALESCE(l.adjusted_balance, r.last_known_balance, r.registration_balance, 0) / 100.0
-                ELSE COALESCE(l.adjusted_balance, r.last_known_balance, r.registration_balance, 0) END
-         ) DESC NULLS LAST,
-         r.registered_at ASC`;
+         ${rankByGrowth
+           ? 'COALESCE(l.growth_percent, 0) DESC NULLS LAST'
+           : `COALESCE(l.normalized_balance,
+               CASE WHEN COALESCE(r.is_cent, false) THEN COALESCE(l.adjusted_balance, r.last_known_balance, r.registration_balance, 0) / 100.0
+                    ELSE COALESCE(l.adjusted_balance, r.last_known_balance, r.registration_balance, 0) END
+             ) DESC NULLS LAST,
+             r.registered_at ASC`}`;
 
     const result = await db.query(
       `SELECT r.id as registration_id, r.nickname, r.account_type, r.is_cent,
