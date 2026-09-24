@@ -326,12 +326,12 @@ export default function HostDashboardPage() {
           demo_target_percent: ch.demo_target_percent ?? "",
           real_target_percent: ch.real_target_percent ?? "",
           // Optional-target controls (default to today's behavior when null)
-          target_enabled: ch.target_enabled === null || ch.target_enabled === undefined ? true : ch.target_enabled,
-          allow_below_start: ch.allow_below_start === null || ch.allow_below_start === undefined ? false : ch.allow_below_start,
-          demo_target_enabled: ch.demo_target_enabled === null || ch.demo_target_enabled === undefined ? true : ch.demo_target_enabled,
-          real_target_enabled: ch.real_target_enabled === null || ch.real_target_enabled === undefined ? true : ch.real_target_enabled,
-          demo_allow_below_start: ch.demo_allow_below_start === null || ch.demo_allow_below_start === undefined ? false : ch.demo_allow_below_start,
-          real_allow_below_start: ch.real_allow_below_start === null || ch.real_allow_below_start === undefined ? false : ch.real_allow_below_start,
+          target_enabled: ch.target_enabled === null || ch.target_enabled === undefined ? true : ch.target_enabled === 'false' ? false : !!ch.target_enabled,
+          allow_below_start: ch.allow_below_start === null || ch.allow_below_start === undefined ? false : ch.allow_below_start === 'true' ? true : !!ch.allow_below_start,
+          demo_target_enabled: ch.demo_target_enabled === null || ch.demo_target_enabled === undefined ? true : ch.demo_target_enabled === 'false' ? false : !!ch.demo_target_enabled,
+          real_target_enabled: ch.real_target_enabled === null || ch.real_target_enabled === undefined ? true : ch.real_target_enabled === 'false' ? false : !!ch.real_target_enabled,
+          demo_allow_below_start: ch.demo_allow_below_start === null || ch.demo_allow_below_start === undefined ? false : ch.demo_allow_below_start === 'true' ? true : !!ch.demo_allow_below_start,
+          real_allow_below_start: ch.real_allow_below_start === null || ch.real_allow_below_start === undefined ? false : ch.real_allow_below_start === 'true' ? true : !!ch.real_allow_below_start,
         });
         setSettingsSaved(false);
       }
@@ -579,7 +579,21 @@ export default function HostDashboardPage() {
                 <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-xs">
                   <div><span className="text-gray-500">Type</span><p className="text-white font-medium capitalize">{overview.challenge.type || "—"}</p></div>
                   <div><span className="text-gray-500">Deposit Mode</span><p className="text-white font-medium">{(() => { const c = overview.challenge; const modeLabel = (m: string) => m === 'max_limit' ? 'Max Limit' : m === 'min_limit' ? 'Min Limit' : 'Fixed'; if (c.split_category_settings && c.type === 'hybrid') { const dm = c.demo_deposit_mode || c.deposit_mode || 'fixed'; const rm = c.real_deposit_mode || c.deposit_mode || 'fixed'; return dm === rm ? modeLabel(dm) : <><span className="text-blue-400">D:</span> {modeLabel(dm)} <span className="text-profit">R:</span> {modeLabel(rm)}</>; } return modeLabel(c.deposit_mode || 'fixed'); })()}</p></div>
-                  <div><span className="text-gray-500">Balance</span><p className="text-white font-medium">{overview.challenge.split_category_settings && overview.challenge.type === 'hybrid' ? (<><span className="text-blue-400">D:</span> ${overview.challenge.demo_starting_balance || overview.challenge.starting_balance} → {fmtTargetWithDollar(overview.challenge.demo_deposit_mode || overview.challenge.deposit_mode || 'fixed', overview.challenge.demo_starting_balance || overview.challenge.starting_balance, overview.challenge.demo_target_balance || overview.challenge.target_balance, overview.challenge.demo_target_percent ?? overview.challenge.target_percent)}{' '}<span className="text-profit">R:</span> ${overview.challenge.real_starting_balance || overview.challenge.starting_balance} → {fmtTargetWithDollar(overview.challenge.real_deposit_mode || overview.challenge.deposit_mode || 'fixed', overview.challenge.real_starting_balance || overview.challenge.starting_balance, overview.challenge.real_target_balance || overview.challenge.target_balance, overview.challenge.real_target_percent ?? overview.challenge.target_percent)}</>) : (<>${overview.challenge.starting_balance} &rarr; {fmtTargetWithDollar(overview.challenge.deposit_mode || 'fixed', overview.challenge.starting_balance, overview.challenge.target_balance, overview.challenge.target_percent)}</>)}</p></div>
+                  <div><span className="text-gray-500">Balance</span><p className="text-white font-medium">{(() => {
+                    const oc = overview.challenge;
+                    const sharedTargetOn = oc.target_enabled !== false;
+                    if (oc.split_category_settings && oc.type === 'hybrid') {
+                      const demoTargetOn = oc.demo_target_enabled == null ? sharedTargetOn : oc.demo_target_enabled !== false;
+                      const realTargetOn = oc.real_target_enabled == null ? sharedTargetOn : oc.real_target_enabled !== false;
+                      return (<>
+                        <span className="text-blue-400">D:</span> ${oc.demo_starting_balance || oc.starting_balance}{demoTargetOn ? <> → {fmtTargetWithDollar(oc.demo_deposit_mode || oc.deposit_mode || 'fixed', oc.demo_starting_balance || oc.starting_balance, oc.demo_target_balance || oc.target_balance, oc.demo_target_percent ?? oc.target_percent)}</> : <span className="text-gray-400"> (no target)</span>}
+                        {' '}<span className="text-profit">R:</span> ${oc.real_starting_balance || oc.starting_balance}{realTargetOn ? <> → {fmtTargetWithDollar(oc.real_deposit_mode || oc.deposit_mode || 'fixed', oc.real_starting_balance || oc.starting_balance, oc.real_target_balance || oc.target_balance, oc.real_target_percent ?? oc.target_percent)}</> : <span className="text-gray-400"> (no target)</span>}
+                      </>);
+                    }
+                    return sharedTargetOn
+                      ? <>${oc.starting_balance} &rarr; {fmtTargetWithDollar(oc.deposit_mode || 'fixed', oc.starting_balance, oc.target_balance, oc.target_percent)}</>
+                      : <>${oc.starting_balance} <span className="text-gray-400">(no target)</span></>;
+                  })()}</p></div>
                   <div><span className="text-gray-500">Start</span><p className="text-white font-medium">{overview.challenge.start_date ? fmtTime(overview.challenge.start_date) : "—"}</p></div>
                   <div><span className="text-gray-500">End</span><p className="text-white font-medium">{overview.challenge.end_date ? fmtTime(overview.challenge.end_date) : "—"}</p></div>
                 </div>
@@ -1470,7 +1484,7 @@ export default function HostDashboardPage() {
                   {!settingsForm.split_category_settings && (
                     <div className="grid grid-cols-2 gap-3">
                       <div><label className="text-xs text-gray-400 font-medium mb-1 block">Starting Balance ($)</label><input disabled={balanceLocked} value={settingsForm.starting_balance || ""} onChange={e => setSettingsForm((p: any) => ({...p, starting_balance: e.target.value}))} className={`w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none ${balanceLocked ? "opacity-40 cursor-not-allowed" : ""}`} /></div>
-                      {!settingsForm.target_enabled ? (
+                      {settingsForm.target_enabled === false || settingsForm.target_enabled === 'false' ? (
                         <div><label className="text-xs text-gray-400 font-medium mb-1 block">Target Balance ($)</label><div className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-gray-500 text-sm">No target</div></div>
                       ) : (
                         <div><label className="text-xs text-gray-400 font-medium mb-1 block">Target Balance ($)</label><input disabled={balanceLocked} value={settingsForm.target_balance || ""} onChange={e => setSettingsForm((p: any) => ({...p, target_balance: e.target.value}))} className={`w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none ${balanceLocked ? "opacity-40 cursor-not-allowed" : ""}`} /></div>
@@ -1486,9 +1500,9 @@ export default function HostDashboardPage() {
                           <p className="text-sm text-white font-medium">Require a target</p>
                           <div className="relative group"><span className="cursor-help text-gray-500 hover:text-royal transition-colors text-xs">&#9432;</span><div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-[#1a1a2e] border border-white/20 rounded-lg text-[10px] text-gray-300 w-52 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity z-50 shadow-xl">When OFF, there is no target — winners are decided purely by ranking (balance / growth %).</div></div>
                         </div>
-                        <button type="button" onClick={() => !balanceLocked && setSettingsForm((p: any) => ({...p, target_enabled: !p.target_enabled}))} disabled={balanceLocked} className={`w-10 h-5 rounded-full transition-all ${balanceLocked ? "opacity-40 cursor-not-allowed" : ""} ${settingsForm.target_enabled ? "bg-royal" : "bg-white/20"}`}><div className={`w-4 h-4 bg-white rounded-full transition-transform ${settingsForm.target_enabled ? "translate-x-5" : "translate-x-0.5"}`}></div></button>
+                        <button type="button" onClick={() => !balanceLocked && setSettingsForm((p: any) => ({...p, target_enabled: !(p.target_enabled === false || p.target_enabled === 'false')}))} disabled={balanceLocked} className={`w-10 h-5 rounded-full transition-all ${balanceLocked ? "opacity-40 cursor-not-allowed" : ""} ${(settingsForm.target_enabled === false || settingsForm.target_enabled === 'false') ? "bg-white/20" : "bg-royal"}`}><div className={`w-4 h-4 bg-white rounded-full transition-transform ${(settingsForm.target_enabled === false || settingsForm.target_enabled === 'false') ? "translate-x-0.5" : "translate-x-5"}`}></div></button>
                       </div>
-                      {!settingsForm.target_enabled && (
+                      {(settingsForm.target_enabled === false || settingsForm.target_enabled === 'false') && (
                         <div className="pt-2 border-t border-white/10 flex items-center justify-between">
                           <p className="text-xs text-gray-300">Allow accounts below starting balance to qualify</p>
                           <button type="button" onClick={() => !balanceLocked && setSettingsForm((p: any) => ({...p, allow_below_start: !p.allow_below_start}))} disabled={balanceLocked} className={`w-9 h-5 rounded-full transition-all flex-shrink-0 ${balanceLocked ? "opacity-40 cursor-not-allowed" : ""} ${settingsForm.allow_below_start ? "bg-gold" : "bg-white/20"}`}><div className={`w-4 h-4 bg-white rounded-full transition-transform ${settingsForm.allow_below_start ? "translate-x-4" : "translate-x-0.5"}`}></div></button>
@@ -2793,10 +2807,10 @@ function CreateChallengeModal({ createStep, setCreateStep, createForm, setCreate
                   <div className="flex justify-between py-2 border-b border-white/5"><span className="text-gray-500">Timezone</span><span className="text-white">{createForm.timezone}</span></div>
 
                   <p className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider mt-4 mb-2">Rewards</p>
-                  <div className="flex justify-between py-2 border-b border-white/5"><span className="text-gray-500">Real Winners</span><span className="text-white">{createForm.real_winners_count || "0"}</span></div>
-                  <div className="flex justify-between py-2 border-b border-white/5"><span className="text-gray-500">Demo Winners</span><span className="text-white">{createForm.demo_winners_count || "0"}</span></div>
-                  {createForm.real_prizes && <div className="flex justify-between py-2 border-b border-white/5"><span className="text-gray-500">Real Prizes</span><span className="text-white">{createForm.real_prizes}</span></div>}
-                  {createForm.demo_prizes && <div className="flex justify-between py-2 border-b border-white/5"><span className="text-gray-500">Demo Prizes</span><span className="text-white">{createForm.demo_prizes}</span></div>}
+                  {createForm.type !== 'demo' && <div className="flex justify-between py-2 border-b border-white/5"><span className="text-gray-500">Real Winners</span><span className="text-white">{createForm.real_winners_count || "0"}</span></div>}
+                  {createForm.type !== 'real' && <div className="flex justify-between py-2 border-b border-white/5"><span className="text-gray-500">Demo Winners</span><span className="text-white">{createForm.demo_winners_count || "0"}</span></div>}
+                  {createForm.type !== 'demo' && createForm.real_prizes && <div className="flex justify-between py-2 border-b border-white/5"><span className="text-gray-500">Real Prizes</span><span className="text-white">{createForm.real_prizes}</span></div>}
+                  {createForm.type !== 'real' && createForm.demo_prizes && <div className="flex justify-between py-2 border-b border-white/5"><span className="text-gray-500">Demo Prizes</span><span className="text-white">{createForm.demo_prizes}</span></div>}
                   <div className="flex justify-between py-2 border-b border-white/5"><span className="text-gray-500">Registration</span><span className="text-white">{createForm.registration_mode === 'winnerpip' ? 'Online (WinnerPip)' : 'Manual (CSV)'}</span></div>
 
                   <p className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider mt-4 mb-2">Rules</p>
