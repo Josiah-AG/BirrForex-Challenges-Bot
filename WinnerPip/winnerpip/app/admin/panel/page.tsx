@@ -315,6 +315,19 @@ export default function AdminDashboard() {
     title: selectedChallenge.title,
     status: selectedChallenge.status,
     type: selectedChallenge.type,
+    startDate: selectedChallenge.startDate,
+    endDate: selectedChallenge.endDate,
+    startingBalance: selectedChallenge.startingBalance,
+    targetBalance: selectedChallenge.targetBalance,
+    targetEnabled: selectedChallenge.targetEnabled,
+    allowBelowStart: selectedChallenge.allowBelowStart,
+    prizePoolText: selectedChallenge.prizePoolText,
+    splitCategorySettings: selectedChallenge.splitCategorySettings,
+    demoStartingBalance: selectedChallenge.demoStartingBalance,
+    demoTargetBalance: selectedChallenge.demoTargetBalance,
+    realStartingBalance: selectedChallenge.realStartingBalance,
+    realTargetBalance: selectedChallenge.realTargetBalance,
+    hostId: selectedChallenge.hostId,
   } : { id: selectedChallengeId, title: "Loading...", status: "—", type: "—" };
 
   // Currency helper — shows ¢ for cent-only real challenges, $ otherwise
