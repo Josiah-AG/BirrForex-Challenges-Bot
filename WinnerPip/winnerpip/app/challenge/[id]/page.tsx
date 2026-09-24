@@ -26,6 +26,7 @@ interface LeaderboardEntry {
   isQualified: boolean; isDisqualified?: boolean; disqualifyReason?: string | null;
   isBlown?: boolean; isCent?: boolean; isWithdrawn?: boolean; totalWithdrawn?: number;
   growthPercent?: number;
+  actualStartingBalance?: number | null;
   lastTradeTime: string | null; lastUpdated: string | null;
   isMe?: boolean;
 }
@@ -1582,7 +1583,7 @@ export default function ChallengeDashboard() {
                   <div>
                     <p className="text-xl font-bold text-white">{selectedUser.nickname}</p>
                     <p className="text-sm text-gray-400">
-                      {selectedUser.isDisqualified ? <span className="text-loss font-semibold">Disqualified</span> : selectedUser.isWithdrawn ? <span className="text-gray-400 font-semibold">🚪 User exited the challenge{selectedUser.totalWithdrawn ? ` • withdrew ${formatBalance(selectedUser.totalWithdrawn, selectedUser.accountType, selectedUser.isCent)}` : ''}</span> : selectedUser.isBlown ? <span className="text-gray-400 font-semibold">💀 Balance is zero from trading</span> : <>Balance: <span className="text-white font-semibold">{formatBalance(selectedUser.adjustedBalance - (selectedUser.totalWithdrawn || 0), selectedUser.accountType, selectedUser.isCent)}</span></>}
+                      {selectedUser.isDisqualified ? <span className="text-loss font-semibold">Disqualified</span> : selectedUser.isWithdrawn ? <span className="text-gray-400 font-semibold">🚪 User exited the challenge{selectedUser.totalWithdrawn ? ` • withdrew ${formatBalance(selectedUser.totalWithdrawn, selectedUser.accountType, selectedUser.isCent)}` : ''}</span> : selectedUser.isBlown ? <span className="text-gray-400 font-semibold">💀 Balance is zero from trading</span> : isGrowthMode ? <span className="text-white text-xs font-medium">{selectedUser.actualStartingBalance != null ? `Start: ${formatBalance(selectedUser.actualStartingBalance, selectedUser.accountType, selectedUser.isCent)}` : ''} · Current: {formatBalance(selectedUser.adjustedBalance, selectedUser.accountType, selectedUser.isCent)} · Growth: {Number(selectedUser.growthPercent || 0) >= 0 ? '↑' : '↓'} {Math.abs(Number(selectedUser.growthPercent || 0)).toFixed(2)}%</span> : <>Balance: <span className="text-white font-semibold">{formatBalance(selectedUser.adjustedBalance - (selectedUser.totalWithdrawn || 0), selectedUser.accountType, selectedUser.isCent)}</span></>}}
                     </p>
                   </div>
                 </div>

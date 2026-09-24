@@ -1536,7 +1536,8 @@ app.get('/api/challenges/:id/leaderboard', async (req, res) => {
              COALESCE(l.is_withdrawn, false) as is_withdrawn,
              COALESCE(l.total_withdrawn, 0) as total_withdrawn,
              COALESCE(l.growth_percent, 0) as growth_percent,
-             r.disqualified as reg_disqualified, r.disqualified_reason as reg_disqualified_reason
+             r.disqualified as reg_disqualified, r.disqualified_reason as reg_disqualified_reason,
+             r.actual_starting_balance, r.registration_balance
       FROM wp_leaderboard l
       JOIN trading_registrations r ON l.registration_id = r.id AND (r.status IS NULL OR r.status != 'removed')
       WHERE l.challenge_id = $1
@@ -1580,7 +1581,8 @@ app.get('/api/challenges/:id/leaderboard', async (req, res) => {
                COALESCE(l.is_cent, r.is_cent, false) as is_cent,
                COALESCE(l.is_withdrawn, false) as is_withdrawn,
                COALESCE(l.total_withdrawn, 0) as total_withdrawn,
-               COALESCE(l.growth_percent, 0) as growth_percent
+               COALESCE(l.growth_percent, 0) as growth_percent,
+               r.actual_starting_balance, r.registration_balance
         FROM wp_leaderboard l
         JOIN trading_registrations r ON l.registration_id = r.id AND (r.status IS NULL OR r.status != 'removed')
         WHERE l.challenge_id = $1
@@ -1626,6 +1628,7 @@ app.get('/api/challenges/:id/leaderboard', async (req, res) => {
             totalWithdrawn: parseFloat(r.total_withdrawn) || 0,
             isCent: r.is_cent || false,
             growthPercent: parseFloat(r.growth_percent) || 0,
+            actualStartingBalance: r.actual_starting_balance != null ? parseFloat(r.actual_starting_balance) : (r.registration_balance != null ? parseFloat(r.registration_balance) : null),
           }));
         }
       }
@@ -1679,6 +1682,7 @@ app.get('/api/challenges/:id/leaderboard', async (req, res) => {
             totalWithdrawn: parseFloat(r.total_withdrawn) || 0,
             isCent: r.is_cent || false,
             growthPercent: parseFloat(r.growth_percent) || 0,
+            actualStartingBalance: r.actual_starting_balance != null ? parseFloat(r.actual_starting_balance) : (r.registration_balance != null ? parseFloat(r.registration_balance) : null),
             lastTradeTime: r.last_trade_time,
             lastUpdated: r.last_updated,
           };
@@ -2558,6 +2562,7 @@ app.get('/api/host/challenge/:id/leaderboard', hostAuthMiddleware, async (req: a
               COALESCE(l.is_cent, false) as is_cent,
               l.registration_id,
               r.account_number, r.email, r.mt5_server, r.account_subtype,
+              r.actual_starting_balance, r.registration_balance,
               r.disqualified as reg_disqualified, r.disqualified_reason as reg_dq_reason
        FROM wp_leaderboard l
        JOIN trading_registrations r ON l.registration_id = r.id
@@ -2589,6 +2594,7 @@ app.get('/api/host/challenge/:id/leaderboard', hostAuthMiddleware, async (req: a
         isDisqualified: r.is_disqualified || r.reg_disqualified || false,
         disqualifyReason: r.disqualify_reason || r.reg_dq_reason || null,
         growthPercent: parseFloat(r.growth_percent) || 0,
+        actualStartingBalance: r.actual_starting_balance != null ? parseFloat(r.actual_starting_balance) : (r.registration_balance != null ? parseFloat(r.registration_balance) : null),
         isCent: r.is_cent,
         lastTradeTime: r.last_trade_time,
         totalWithdrawn: parseFloat(r.total_withdrawn || '0'),
@@ -5863,7 +5869,8 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/admin-leaderboard`, admin
               l.flagged_trades, l.is_qualified, l.is_disqualified, l.disqualify_reason,
               l.last_trade_time, l.last_updated, l.zero_balance_at,
               COALESCE(l.is_withdrawn, false) as is_withdrawn,
-              COALESCE(l.total_withdrawn, 0) as total_withdrawn
+              COALESCE(l.total_withdrawn, 0) as total_withdrawn,
+              COALESCE(l.growth_percent, 0) as growth_percent
        FROM trading_registrations r
        LEFT JOIN wp_leaderboard l ON l.registration_id = r.id
        WHERE r.challenge_id = $1
@@ -5914,6 +5921,8 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/admin-leaderboard`, admin
             ),
             isWithdrawn: r.is_withdrawn || false,
             totalWithdrawn: parseFloat(r.total_withdrawn) || 0,
+            growthPercent: hasLeaderboard ? parseFloat(r.growth_percent) || 0 : 0,
+            actualStartingBalance: r.actual_starting_balance != null ? parseFloat(r.actual_starting_balance) : (r.registration_balance != null ? parseFloat(r.registration_balance) : null),
             isCent,
             lastTradeTime: r.last_trade_time,
             lastUpdated: r.last_updated,
