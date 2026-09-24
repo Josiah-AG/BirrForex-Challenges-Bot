@@ -3164,6 +3164,7 @@ function ChallengeSettingsPanel({ challengeId, challenges, onRefresh }: { challe
     end_date: challenge?.endDate ? formatDateForInput(challenge.endDate) : "",
     starting_balance: String(challenge?.startingBalance || 30),
     target_balance: String(challenge?.targetBalance || 60),
+    target_enabled: challenge?.targetEnabled === null || challenge?.targetEnabled === undefined ? true : !!challenge.targetEnabled,
     prize_pool_text: challenge?.prizePoolText || "",
     split_category_settings: challenge?.splitCategorySettings || false,
     demo_starting_balance: challenge?.demoStartingBalance != null ? String(challenge.demoStartingBalance) : "",
@@ -3286,7 +3287,11 @@ function ChallengeSettingsPanel({ challengeId, challenges, onRefresh }: { challe
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div><label className="text-xs text-gray-400 font-medium mb-1 block">Starting Balance ($)</label><input value={editForm.starting_balance} onChange={e => setEditForm({...editForm, starting_balance: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
-            <div><label className="text-xs text-gray-400 font-medium mb-1 block">Target Balance ($)</label><input value={editForm.target_balance} onChange={e => setEditForm({...editForm, target_balance: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
+            {editForm.target_enabled === false ? (
+              <div><label className="text-xs text-gray-400 font-medium mb-1 block">Target Balance ($)</label><div className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-gray-500 text-sm">No target</div></div>
+            ) : (
+              <div><label className="text-xs text-gray-400 font-medium mb-1 block">Target Balance ($)</label><input value={editForm.target_balance} onChange={e => setEditForm({...editForm, target_balance: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
+            )}
           </div>
 
           {/* Per-Category Settings (hybrid only) */}
