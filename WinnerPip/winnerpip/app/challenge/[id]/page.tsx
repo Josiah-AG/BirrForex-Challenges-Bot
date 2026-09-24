@@ -341,15 +341,16 @@ export default function ChallengeDashboard() {
   // For min_limit: higher balance is fine (no upper cap). Only min_limit below the floor is bad.
   const isMinLimit = challenge?.depositMode === 'min_limit';
 
-  // Top-N by rank AND above balance target
+  // Top-N by rank AND qualified for target
   const isWinner = (entry: LeaderboardEntry) => {
     if (!challenge || leaderboardPreStart || entry.isDisqualified || entry.isWithdrawn || entry.isBlown) return false;
     const count = entry.accountType === 'demo' ? (challenge.demoWinnersCount || 0) : (challenge.realWinnersCount || 0);
-    // No-target challenge: winners are simply the top-N qualified accounts by rank.
+    // No-target: winners are top-N qualified by rank
     if (noTarget) return count > 0 && entry.isQualified && !!entry.rank && entry.rank <= count;
-    // For cent-only real challenges: target is already in ¢, compare directly
-    // For hybrid/flexible: API already converts target ×100 for cent users via /api/me/dashboard
-    // Leaderboard entries have raw adjustedBalance. Need ×100 only for cent users in NON-cent-only challenges
+    // Growth-% mode (max_limit / min_limit): qualification is growth % vs target_percent.
+    // The engine already computed entry.isQualified correctly — use it directly.
+    if (isGrowthMode) return count > 0 && !!entry.rank && entry.rank <= count && !!entry.isQualified;
+    // Fixed mode: compare dollar balance to target
     const isRealCentOnly = challenge.onlyCentAccount && effectiveIsCent;
     const effectiveTarget = (entry.isCent && !isRealCentOnly) ? challenge.targetBalance * 100 : challenge.targetBalance;
     return count > 0 && entry.rank <= count && (entry.adjustedBalance - (entry.totalWithdrawn || 0)) >= effectiveTarget;
@@ -366,6 +367,9 @@ export default function ChallengeDashboard() {
     if (!challenge || entry.isDisqualified || entry.isWithdrawn || entry.isBlown || leaderboardPreStart) return false;
     // No "above target" highlighting when there is no target.
     if (noTarget) return false;
+    // Growth-% mode: use engine's isQualified (growth % vs target_percent).
+    if (isGrowthMode) return !!entry.isQualified;
+    // Fixed mode: dollar balance comparison
     const isRealCentOnly = challenge.onlyCentAccount && effectiveIsCent;
     const effectiveTarget = (entry.isCent && !isRealCentOnly) ? challenge.targetBalance * 100 : challenge.targetBalance;
     return (entry.adjustedBalance - (entry.totalWithdrawn || 0)) >= effectiveTarget;
