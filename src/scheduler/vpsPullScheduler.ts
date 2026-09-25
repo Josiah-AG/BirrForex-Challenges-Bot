@@ -1,3 +1,4 @@
+import { isRuleEnabled, isWeekendProhibited } from '../utils/rulePolicy';
 // VPS Pull Scheduler v4.0 — unified continuous shared-queue model.
 // Single queue, all terminals run continuously until it's empty. -6 credential
 // failures get a single same-cycle confirmation on a DIFFERENT terminal (front
@@ -690,13 +691,9 @@ export class VpsPullScheduler {
       // === STEP 7: Auto-DQ users who can't meet min_active_days (challenge ended) ===
       if (isChallengeEnded) {
         try {
-          const rulesResult = await db.query(
-            `SELECT parameters FROM wp_challenge_rules WHERE challenge_id = $1 AND rule_code = 'config'`,
-            [challengeToPull.id]
-          );
-          const rulesParams = rulesResult.rows[0]?.parameters;
-          const minActiveDays = rulesParams?.min_active_days || 0;
-          const minActiveDaysEnabled = rulesParams?.rules_enabled?.min_active_days !== false; // default true for backward compat
+          for (const { accountType, rules: rulesParams } of await this.categoryRules(challengeToPull.id)) {
+          const minActiveDays = rulesParams.min_active_days || 0;
+          const minActiveDaysEnabled = isRuleEnabled(rulesParams, 'min_active_days');
 
           if (minActiveDays > 0 && minActiveDaysEnabled) {
             // DQ users with fewer active days than required (including 0 trades)
@@ -705,9 +702,9 @@ export class VpsPullScheduler {
                FROM trading_registrations r
                LEFT JOIN wp_leaderboard l ON r.id = l.registration_id
                WHERE r.challenge_id = $1
-                 AND r.disqualified = false
+                 AND r.disqualified = false AND r.account_type = $3
                  AND (COALESCE(l.active_days, 0) < $2)`,
-              [challengeToPull.id, minActiveDays]
+              [challengeToPull.id, minActiveDays, accountType]
             );
 
             if (underperformers.rows.length > 0) {
@@ -727,19 +724,16 @@ export class VpsPullScheduler {
               await leaderboardService.updateRankings(challengeToPull.id, true);
             }
           }
+          }
         } catch (e) {
           console.error('⚠️ Auto-DQ check error:', e);
         }
 
         // === MIN TOTAL TRADES DQ (challenge ended) ===
         try {
-          const rulesResult2 = await db.query(
-            `SELECT parameters FROM wp_challenge_rules WHERE challenge_id = $1 AND rule_code = 'config'`,
-            [challengeToPull.id]
-          );
-          const rulesParams2 = rulesResult2.rows[0]?.parameters;
-          const minTotalTrades = rulesParams2?.min_total_trades || 0;
-          const minTotalTradesEnabled = rulesParams2?.rules_enabled?.min_total_trades !== false;
+          for (const { accountType, rules: rulesParams2 } of await this.categoryRules(challengeToPull.id)) {
+          const minTotalTrades = rulesParams2.min_total_trades || 0;
+          const minTotalTradesEnabled = isRuleEnabled(rulesParams2, 'min_total_trades');
 
           if (minTotalTrades > 0 && minTotalTradesEnabled) {
             const underTraders = await db.query(
@@ -747,9 +741,9 @@ export class VpsPullScheduler {
                FROM trading_registrations r
                LEFT JOIN wp_leaderboard l ON r.id = l.registration_id
                WHERE r.challenge_id = $1
-                 AND r.disqualified = false
+                 AND r.disqualified = false AND r.account_type = $3
                  AND (COALESCE(l.total_trades, 0) < $2)`,
-              [challengeToPull.id, minTotalTrades]
+              [challengeToPull.id, minTotalTrades, accountType]
             );
 
             if (underTraders.rows.length > 0) {
@@ -766,6 +760,7 @@ export class VpsPullScheduler {
               console.log(`📊 VPS Pull: Auto-DQ'd ${underTraders.rows.length} users for insufficient total trades`);
               await leaderboardService.updateRankings(challengeToPull.id, true);
             }
+          }
           }
         } catch (e) {
           console.error('⚠️ Min total trades DQ check error:', e);
@@ -1620,22 +1615,19 @@ export class VpsPullScheduler {
     return todayKey === startKey;
   }
 
+  private async categoryRules(challengeId: number) {
+    const result = await db.query('SELECT type, split_category_settings FROM trading_challenges WHERE id=$1', [challengeId]);
+    const challenge = result.rows[0];
+    if (!challenge) throw new Error('Challenge not found');
+    const categories = challenge.type === 'hybrid' ? ['demo', 'real'] : [challenge.type];
+    return Promise.all(categories.map(async accountType => ({ accountType,
+      rules: await evaluationEngine.requireRules(challengeId, challenge, accountType) })));
+  }
+
   private async isWeekendTradingAllowed(challengeId: number): Promise<boolean> {
-    try {
-      const result = await db.query(
-        `SELECT parameters FROM wp_challenge_rules WHERE challenge_id = $1 AND rule_code = 'config'`,
-        [challengeId]
-      );
-      if (result.rows.length > 0) {
-        const params = result.rows[0].parameters;
-        // If the weekend_trading rule is disabled entirely, treat as allowed (no restriction)
-        if (params?.rules_enabled?.weekend_trading === false) return true;
-        return params?.weekend_trading === true;
-      }
-      return false;
-    } catch {
-      return false;
-    }
+    // A shared pull must run if either category permits weekend trading.
+    const categories = await this.categoryRules(challengeId);
+    return categories.some(({ rules }) => !isWeekendProhibited(rules));
   }
 
   // ==================== TERMINAL HEALTH ====================
@@ -1787,11 +1779,9 @@ export class VpsPullScheduler {
     if (!forceAll) try {
       const challengeInfo = await db.query(
         `SELECT end_date FROM trading_challenges WHERE id = $1`, [challengeId]);
-      const rulesInfo = await db.query(
-        `SELECT parameters FROM wp_challenge_rules WHERE challenge_id = $1 AND rule_code = 'config'`, [challengeId]);
-      const rulesParams2 = rulesInfo.rows[0]?.parameters;
-      const minActiveDays = rulesParams2?.min_active_days || 0;
-      const minActiveDaysEnabled = rulesParams2?.rules_enabled?.min_active_days !== false; // default true for backward compat
+      for (const { accountType, rules: rulesParams2 } of await this.categoryRules(challengeId)) {
+      const minActiveDays = rulesParams2.min_active_days || 0;
+      const minActiveDaysEnabled = isRuleEnabled(rulesParams2, 'min_active_days');
       const endDate = challengeInfo.rows[0]?.end_date;
 
       if (minActiveDays > 0 && minActiveDaysEnabled && endDate) {
@@ -1813,9 +1803,9 @@ export class VpsPullScheduler {
            FROM trading_registrations r
            LEFT JOIN wp_leaderboard l ON r.id = l.registration_id
            WHERE r.challenge_id = $1
-             AND r.disqualified = false
+             AND r.disqualified = false AND r.account_type = $4
              AND (COALESCE(l.active_days, 0) + $2) < $3`,
-          [challengeId, tradingDaysLeft, minActiveDays]
+          [challengeId, tradingDaysLeft, minActiveDays, accountType]
         );
 
         if (cantMeetRequirement.rows.length > 0) {
@@ -1837,13 +1827,14 @@ export class VpsPullScheduler {
         const lateUsers = await db.query(
           `SELECT r.id FROM trading_registrations r
            LEFT JOIN wp_leaderboard l ON r.id = l.registration_id
-           WHERE r.challenge_id = $1 AND r.disqualified = false
+           WHERE r.challenge_id = $1 AND r.disqualified = false AND r.account_type = $2
              AND (l.total_trades = 0 OR l.total_trades IS NULL)
              AND (l.current_balance IS NULL OR l.current_balance <= 0)
              AND r.actual_starting_balance IS NULL`,
-          [challengeId]
+          [challengeId, accountType]
         );
-        lateExcludeIds = lateUsers.rows.map((r: any) => r.id);
+        lateExcludeIds.push(...lateUsers.rows.map((r: any) => r.id));
+      }
       }
     } catch {}
 
@@ -3084,6 +3075,8 @@ export class VpsPullScheduler {
    * evaluate call that used to run inside terminalWorker immediately after pull.
    */
   async evaluateAllAccounts(challengeId: number, accounts: AccountToPull[], batchId: number | null = null, pullResults?: PullResult[]): Promise<void> {
+    // Reject missing category configuration before writing any evaluation results.
+    await this.categoryRules(challengeId);
     // On scheduled (incremental) pulls: skip accounts that got 0 new trades
     let accountsToEval = accounts;
     if (pullResults && pullResults.length > 0) {

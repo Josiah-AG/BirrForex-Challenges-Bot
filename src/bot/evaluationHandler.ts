@@ -431,32 +431,35 @@ class EvaluationHandler {
 
     // Load rules from wp_challenge_rules (same source as WinnerPip evaluation engine)
     const { evaluationEngine: wpEngine } = require('../services/wpEvaluationEngine');
-    const wpRules = await wpEngine.loadRules(challenge.id);
+    const wpRules = await wpEngine.rulesForAccount(challenge.id, parsed?.account?.accountType || 'real');
 
     const evalConfig: EvaluationConfig = {
+      rules_enabled: wpRules.rules_enabled,
+      weekendTradingAllowed: wpRules.weekend_trading,
+      minTotalTrades: wpRules.min_total_trades || 0,
       challengeStartDate: startDate.getUTCFullYear() + '-' + String(startDate.getUTCMonth() + 1).padStart(2, '0') + '-' + String(startDate.getUTCDate()).padStart(2, '0'),
       challengeEndDate: endDate.getUTCFullYear() + '-' + String(endDate.getUTCMonth() + 1).padStart(2, '0') + '-' + String(endDate.getUTCDate()).padStart(2, '0'),
       startingBalanceLimit: Number(challenge.starting_balance) || 50,
       targetBalance: Number(challenge.target_balance) || 100,
-      // Respect rules_enabled: pass very large values for disabled rules so legacy engine effectively skips them
-      maxLot: (wpRules?.rules_enabled?.max_lot_size !== false) ? (wpRules?.max_lot_size || 0.02) : 99999,
-      maxOpenTrades: (wpRules?.rules_enabled?.max_open_trades !== false) ? (wpRules?.max_open_trades || 3) : 99999,
-      maxSamePair: (wpRules?.rules_enabled?.pair_limit !== false) ? (wpRules?.pair_limit || 2) : 99999,
+      // OFF is enforced explicitly by the evaluator; no artificial numeric limits.
+      maxLot: (wpRules?.rules_enabled?.max_lot_size !== false) ? (wpRules?.max_lot_size ?? 0) : 0,
+      maxOpenTrades: (wpRules?.rules_enabled?.max_open_trades !== false) ? (wpRules?.max_open_trades ?? 0) : 0,
+      maxSamePair: (wpRules?.rules_enabled?.pair_limit !== false) ? (wpRules?.pair_limit ?? 0) : 0,
       // SL risk: percentage mode computes from starting balance (legacy engine uses one fixed value)
       maxSlDollars: (wpRules?.rules_enabled?.stop_loss_required !== false)
         ? (wpRules?.max_risk_mode === 'percentage' && wpRules?.max_risk_percent
           ? (Number(challenge.starting_balance) || 50) * (wpRules.max_risk_percent / 100)
-          : (wpRules?.max_risk_dollars || 6))
-        : 99999,
+          : (wpRules?.max_risk_dollars ?? 0))
+        : 0,
       // Daily loss: percentage mode computes from starting balance (legacy engine uses one fixed value)
       maxDailyLoss: (wpRules?.rules_enabled?.daily_loss_cap !== false)
         ? (wpRules?.daily_loss_mode === 'percentage' && wpRules?.daily_loss_percent
           ? (Number(challenge.starting_balance) || 50) * (wpRules.daily_loss_percent / 100)
-          : (wpRules?.daily_loss_cap || 10))
-        : 99999,
-      maxHoldHours: (wpRules?.rules_enabled?.max_hold_hours !== false) ? (wpRules?.max_hold_hours || 24) : 99999,
+          : (wpRules?.daily_loss_cap ?? 0))
+        : 0,
+      maxHoldHours: (wpRules?.rules_enabled?.max_hold_hours !== false) ? (wpRules?.max_hold_hours ?? 0) : 0,
       minTradeDurationMinutes: (wpRules?.rules_enabled?.min_trade_duration !== false) ? (wpRules?.min_trade_duration_minutes || 0) : 0,
-      minActiveDays: (wpRules?.rules_enabled?.min_active_days !== false) ? (wpRules?.min_active_days || 7) : 0,
+      minActiveDays: (wpRules?.rules_enabled?.min_active_days !== false) ? (wpRules?.min_active_days ?? 0) : 0,
       // Optional-target flags — resolved per the account's category (default: target required).
       ...(() => {
         try {

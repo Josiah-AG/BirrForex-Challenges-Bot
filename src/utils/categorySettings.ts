@@ -119,5 +119,5 @@ export function resolveRuleCode(challenge: any, accountType: string): string {
 
   if (accountType === 'demo') return 'config_demo';
   if (accountType === 'real') return 'config_real';
-  return 'config';
+  throw new Error(`Invalid account category for split challenge: ${accountType}`);
 }

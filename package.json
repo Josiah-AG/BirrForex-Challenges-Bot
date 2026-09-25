@@ -8,7 +8,8 @@
     "build": "tsc && cp src/database/*.sql dist/database/",
     "start": "node dist/database/migrate.js && node dist/index.js",
     "migrate": "ts-node src/database/migrate.ts",
-    "migrate:prod": "node dist/database/migrate.js"
+    "migrate:prod": "node dist/database/migrate.js",
+    "test": "node --test tests/*.test.cjs"
   },
   "keywords": [
     "telegram",

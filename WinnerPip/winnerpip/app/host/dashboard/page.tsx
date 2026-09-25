@@ -90,6 +90,7 @@ export default function HostDashboardPage() {
   const [rulesConfig, setRulesConfig] = useState<any>(null);
   const [savedRulesSnapshot, setSavedRulesSnapshot] = useState<any>(null);
   const [rulesLocked, setRulesLocked] = useState(false);
+  const [rulesMissing, setRulesMissing] = useState(false);
   const [rulesLoading, setRulesLoading] = useState(false);
   const [rulesSaving, setRulesSaving] = useState(false);
   const [rulesSaved, setRulesSaved] = useState(false);
@@ -277,6 +278,7 @@ export default function HostDashboardPage() {
         if (failRes.ok) setFailedAccounts(await failRes.json());
       } else if (activeTab === "rules") {
         setRulesLoading(true);
+        setRulesMissing(true);
         const ruleCode = rulesCategory || 'config';
         const res = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/rules?rule_code=${ruleCode}`, { headers: h });
         if (res.ok) {
@@ -290,8 +292,10 @@ export default function HostDashboardPage() {
             only_cent_account: false, allow_professional: false,
             rules_enabled: { max_lot_size: true, max_open_trades: true, pair_limit: true, stop_loss_required: true, daily_loss_cap: true, max_hold_hours: true, min_trade_duration: true, weekend_trading: true, min_active_days: true, min_total_trades: true },
           };
-          setRulesConfig(d.rules || defaultRules);
-          setSavedRulesSnapshot(JSON.parse(JSON.stringify(d.rules || defaultRules)));
+          setRulesMissing(!d.rules);
+          const emptyRules = {...defaultRules, rules_enabled: Object.fromEntries(Object.keys(defaultRules.rules_enabled).map(key => [key, false]))};
+          setRulesConfig(d.rules || emptyRules);
+          setSavedRulesSnapshot(JSON.parse(JSON.stringify(d.rules || emptyRules)));
           setRulesLocked(d.locked || false);
           if (d.splitCategorySettings && d.challengeType === 'hybrid') {
             setRulesSplit(true);
@@ -1265,6 +1269,7 @@ export default function HostDashboardPage() {
                 </div>
               )}
 
+              {rulesMissing && <p className="text-sm text-amber-400 mb-4">Rules configuration missing for this category. Evaluation will not use defaults or shared rules.</p>}
               {rulesLoading ? (
                 <div className="flex items-center justify-center py-12"><Loader2 className="w-6 h-6 text-royal animate-spin" /></div>
               ) : rulesConfig && (

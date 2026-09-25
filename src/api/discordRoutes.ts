@@ -395,8 +395,8 @@ router.post('/verify-connection', async (req: Request, res: Response) => {
           const challengeData = await db.query(
             `SELECT c.starting_balance, c.type, r.parameters as rules_config
              FROM trading_challenges c
-             LEFT JOIN wp_challenge_rules r ON c.id = r.challenge_id AND r.rule_code = 'config'
-             WHERE c.id = $1`, [challenge_id]);
+             LEFT JOIN wp_challenge_rules r ON c.id = r.challenge_id AND r.rule_code = CASE WHEN c.type='hybrid' AND c.split_category_settings THEN 'config_' || $2 ELSE 'config' END
+             WHERE c.id = $1`, [challenge_id, accountType]);
 
           if (challengeData.rows.length > 0) {
             startingBalance = parseFloat(challengeData.rows[0]?.starting_balance || 0);
@@ -518,8 +518,8 @@ router.post('/challenges/:id/verify/:registrationId', async (req: Request, res: 
         const challengeData = await db.query(
           `SELECT c.starting_balance, c.type, r.parameters as rules_config
            FROM trading_challenges c
-           LEFT JOIN wp_challenge_rules r ON c.id = r.challenge_id AND r.rule_code = 'config'
-           WHERE c.id = $1`, [challengeId]);
+           LEFT JOIN wp_challenge_rules r ON c.id = r.challenge_id AND r.rule_code = CASE WHEN c.type='hybrid' AND c.split_category_settings THEN 'config_' || $2 ELSE 'config' END
+           WHERE c.id = $1`, [challengeId, registration.account_type]);
         const startingBalance = parseFloat(challengeData.rows[0]?.starting_balance || 30);
         const challengeType = challengeData.rows[0]?.type || 'real';
         const onlyCent = challengeData.rows[0]?.rules_config?.only_cent_account || false;
@@ -902,7 +902,7 @@ router.get('/pending-announcements', async (req: Request, res: Response) => {
       `SELECT c.id, c.title, c.type, c.start_date, c.end_date, c.starting_balance, c.target_balance, c.prize_pool_text, c.registration_deadline, c.real_prizes, c.demo_prizes,
               r.parameters as rules_config
        FROM trading_challenges c
-       LEFT JOIN wp_challenge_rules r ON c.id = r.challenge_id AND r.rule_code = 'config'
+       LEFT JOIN wp_challenge_rules r ON c.id = r.challenge_id AND r.rule_code = CASE WHEN c.type='hybrid' AND c.split_category_settings THEN 'config_real' ELSE 'config' END
        WHERE c.source = 'discord' AND c.status = 'registration_open' AND c.discord_channel_message_id = 'pending_announce'`
     );
     const pending = result.rows.map((row: any) => ({

@@ -302,13 +302,15 @@ async function migrate() {
         AND investor_password IS NOT NULL
     `).catch(() => {});
 
-    // Broader fix: for cent-only challenges, set is_cent=true for all real account registrations
+    // Legacy cent-only backfill: never infer a split-category account currency from shared rules.
+    // Split accounts retain their verified MT5 currency.
     await db.query(`
       UPDATE trading_registrations r
       SET is_cent = true,
           account_subtype = CASE WHEN r.account_subtype = 'standard' THEN 'standard_cent' ELSE r.account_subtype END
-      FROM wp_challenge_rules cr
-      WHERE cr.challenge_id = r.challenge_id
+      FROM wp_challenge_rules cr, trading_challenges c
+      WHERE cr.challenge_id = r.challenge_id AND c.id = r.challenge_id
+        AND NOT (c.type='hybrid' AND c.split_category_settings IS TRUE)
         AND cr.rule_code = 'config'
         AND (cr.parameters->>'only_cent_account')::boolean = true
         AND r.account_type = 'real'

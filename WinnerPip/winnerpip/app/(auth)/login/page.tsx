@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, Suspense } from "react";
+import { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useSearchParams } from "next/navigation";
@@ -21,6 +21,7 @@ function LoginForm() {
   const [isTeamOnly, setIsTeamOnly] = useState(false);
   const [challengeTitle, setChallengeTitle] = useState("");
   const [isHosted, setIsHosted] = useState(false);
+  const [challengeStatus, setChallengeStatus] = useState<string | null>(null);
   const [registrationMode, setRegistrationMode] = useState<string | null>(null);
   const [hostDisplayName, setHostDisplayName] = useState("");
   const [challengeInfoLoaded, setChallengeInfoLoaded] = useState(!challengeId); // If no challengeId, nothing to load
@@ -29,13 +30,20 @@ function LoginForm() {
   const discordInvite = process.env.NEXT_PUBLIC_DISCORD_INVITE || "https://discord.gg/birrforex";
 
   // Check if challenge is team-only or hosted
-  useState(() => {
+  useEffect(() => {
+    let cancelled = false;
+    setChallengeInfoLoaded(!challengeId);
+    setChallengeStatus(null);
+    setIsHosted(false);
+    setIsTeamOnly(false);
     if (challengeId) {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
       fetch(`${apiUrl}/api/challenges`)
         .then(res => res.json())
         .then(data => {
+          if (cancelled) return;
           const challenge = data.challenges?.find((c: any) => c.id === parseInt(challengeId));
+          setChallengeStatus(challenge?.status || null);
           if (challenge?.teamOnly) {
             setIsTeamOnly(true);
             setChallengeTitle(challenge.title);
@@ -47,9 +55,10 @@ function LoginForm() {
           }
           setChallengeInfoLoaded(true);
         })
-        .catch(() => { setChallengeInfoLoaded(true); });
+        .catch(() => { if (!cancelled) setChallengeInfoLoaded(true); });
     }
-  });
+    return () => { cancelled = true; };
+  }, [challengeId]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -233,15 +242,18 @@ function LoginForm() {
                 registrationMode === 'winnerpip' ? (
                   <>
                     <p className="text-center text-sm text-gray-400 mb-4">Haven&apos;t registered yet?</p>
-                    <a
-                      href={challengeId ? `/challenge/${challengeId}?register=true` : '/challenges'}
-                      className="w-full flex items-center justify-center gap-2 p-4 rounded-xl bg-royal/20 border border-royal/30 hover:bg-royal/30 text-royal font-semibold transition-all text-sm"
-                    >
-                      Register Now
-                      <ArrowRight size={14} />
-                    </a>
+                    {challengeStatus === 'registration_open' ? (
+                      <a href={`/challenge/${challengeId}?register=true`}
+                        className="w-full flex items-center justify-center gap-2 p-4 rounded-xl bg-royal/20 border border-royal/30 hover:bg-royal/30 text-royal font-semibold transition-all text-sm">
+                        Register Now <ArrowRight size={14} />
+                      </a>
+                    ) : (
+                      <button type="button" disabled className="w-full p-4 rounded-xl bg-white/5 border border-white/10 text-gray-500 font-semibold text-sm cursor-not-allowed">
+                        {challengeStatus === 'draft' ? 'Registration Not Open Yet' : 'Registration Closed'}
+                      </button>
+                    )}
                     <p className="text-center text-xs text-gray-500 mt-3">
-                      You&apos;ll be guided through a quick 5-step verification process.
+                      {challengeStatus === 'registration_open' ? "You'll be guided through a quick 5-step verification process." : 'Already registered? Sign in above to access your dashboard.'}
                     </p>
                   </>
                 ) : (

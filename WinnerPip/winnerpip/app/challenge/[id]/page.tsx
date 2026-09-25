@@ -99,6 +99,7 @@ export default function ChallengeDashboard() {
   const [myContext, setMyContext] = useState<LeaderboardEntry[]>([]);
   const [challengeRules, setChallengeRules] = useState<string[]>([]);
   const [rulesHaveEnforcement, setRulesHaveEnforcement] = useState(true);
+  const [minimumTradesByCategory, setMinimumTradesByCategory] = useState<Record<string, number | null>>({});
   const [minTotalTrades, setMinTotalTrades] = useState<number | null>(null);
   const [depositMode, setDepositMode] = useState<string>('fixed');
 
@@ -259,7 +260,8 @@ export default function ChallengeDashboard() {
         setLeaderboardPreStart(data.preStart || false);
         setLeaderboardHasMore(data.hasMore || false);
         setLeaderboardTotal(data.total || entries.length);
-        if (data.minTotalTrades) setMinTotalTrades(data.minTotalTrades);
+        setMinTotalTrades(data.minTotalTrades ?? null);
+        setMinimumTradesByCategory(data.minTotalTradesByCategory || {});
         if (data.depositMode) setDepositMode(data.depositMode);
         if (data.myContext) {
           setMyContext(data.myContext.map((entry: LeaderboardEntry) => ({
@@ -279,22 +281,27 @@ export default function ChallengeDashboard() {
     if (isLoggedIn && challenge) fetchLeaderboard();
   }, [isLoggedIn, challenge]);
 
+  useEffect(() => {
+    if (myStats?.accountType) setMinTotalTrades(minimumTradesByCategory[myStats.accountType] ?? null);
+  }, [myStats?.accountType, minimumTradesByCategory]);
+
   // Fetch rules when challenge is loaded.
   // Request the participant's own category rules (config_demo / config_real). For non-split
-  // challenges the backend falls back to the shared config, so this is always safe.
+  // challenges the backend selects their single config; split categories never inherit it.
   useEffect(() => {
-    if (!params.id) return;
+    if (!params.id || !myStats?.accountType) return;
     const acctType = myStats?.accountType;
     const ruleCode = acctType === 'demo' ? 'config_demo' : acctType === 'real' ? 'config_real' : 'config';
     const fetchRules = async () => {
+      setChallengeRules(["Loading category rules…"]);
       try {
         const res = await fetch(`${API_URL}/api/challenges/${params.id}/rules?rule_code=${ruleCode}`);
         if (res.ok) {
           const data = await res.json();
           setChallengeRules(data.rules || []);
           setRulesHaveEnforcement(data.hasActiveRules !== false);
-        }
-      } catch {}
+        } else { setChallengeRules(["Rules configuration unavailable. Contact the challenge host."]); setRulesHaveEnforcement(true); }
+      } catch { setChallengeRules(["Unable to load rules. Please try again."]); }
     };
     fetchRules();
   }, [params.id, myStats?.accountType]);
@@ -602,7 +609,7 @@ export default function ChallengeDashboard() {
       <div className="container mx-auto px-4 py-6 max-w-6xl relative">
 
         {/* LOADING STATE — hide when register mode waiting for wizard */}
-        {loading && !(searchParams.get('register') === 'true') && (
+        {loading && !(searchParams.get('register') === 'true' && (!preAuthChallenge || preAuthChallenge.status === 'registration_open')) && (
           <div className="flex items-center justify-center py-20">
             <div className="text-center">
               <Loader2 className="w-8 h-8 text-royal animate-spin mx-auto mb-3" />
@@ -626,7 +633,7 @@ export default function ChallengeDashboard() {
         )}
 
         {/* AUTH GATE */}
-        {!loading && !isLoggedIn && !showLogin && !showRegWizard && !(searchParams.get('register') === 'true') && (
+        {!loading && !isLoggedIn && !showLogin && !showRegWizard && !(searchParams.get('register') === 'true' && (!preAuthChallenge || preAuthChallenge.status === 'registration_open')) && (
           <div className="max-w-md mx-auto py-12">
             <div className="glass rounded-3xl border border-white/10 p-8 text-center">
               <Trophy className="w-12 h-12 text-gold mx-auto mb-4" />
@@ -639,6 +646,10 @@ export default function ChallengeDashboard() {
                     setRegForm({ email: "", nickname: "", accountNumber: "", mt5Server: "", investorPassword: "", accountType: preAuthChallenge.type === 'real' ? 'real' : preAuthChallenge.type === 'demo' ? 'demo' : 'demo' });
                     setRegStep(1); setRegError(""); setRegSuccess(false); setMt5Verified(false); setMt5VerifyData(null); setShowRegWizard(true);
                   }} className="w-full flex items-center justify-center gap-2 p-4 rounded-xl bg-royal/20 border border-royal/30 hover:bg-royal/30 text-royal font-semibold transition-all"><Users size={18} />Register Now</button>
+                ) : preAuthChallenge?.status !== 'registration_open' ? (
+                  <button type="button" disabled className="w-full p-4 rounded-xl bg-white/5 border border-white/10 text-gray-500 font-semibold cursor-not-allowed">Registration Closed</button>
+                ) : preAuthChallenge?.hostId ? (
+                  <p className="text-sm text-gray-400">Registration is managed by the challenge host.</p>
                 ) : (
                   <a href={`https://t.me/${botUsername}?start=tc_register_${params.id}`} target="_blank" rel="noopener noreferrer" className="w-full flex items-center justify-center gap-2 p-4 rounded-xl bg-[#2AABEE]/20 border border-[#2AABEE]/30 hover:bg-[#2AABEE]/30 text-[#2AABEE] font-semibold transition-all"><MessageCircle size={18} />Register via Telegram</a>
                 )}
@@ -1480,7 +1491,7 @@ export default function ChallengeDashboard() {
                   <p className="text-sm text-profit font-semibold flex items-center gap-2"><Shield size={16} />Qualified — counts toward your balance</p>
                 ) : (
                   <div>
-                    <p className="text-sm text-loss font-semibold flex items-center gap-2 mb-2"><AlertTriangle size={16} />Flagged — profit removed</p>
+                    <p className="text-sm text-loss font-semibold flex items-center gap-2 mb-2"><AlertTriangle size={16} />{selectedTrade.profit + (selectedTrade.commission || 0) + (selectedTrade.swap || 0) > 0 ? 'Flagged — profit removed' : 'Flagged — actual loss still counts'}</p>
                     {selectedTrade.violations.length > 0 && <p className="text-sm text-white">{selectedTrade.violations.join(", ")}</p>}
                   </div>
                 )}
@@ -1599,10 +1610,10 @@ export default function ChallengeDashboard() {
                 {/* Only show stats for non-DQ users */}
                 {!selectedUser.isDisqualified && (<>
                   {/* Min total trades blue flag */}
-                  {minTotalTrades && selectedUser.totalTrades < minTotalTrades && (
+                  {minimumTradesByCategory[selectedUser.accountType] && selectedUser.totalTrades < minimumTradesByCategory[selectedUser.accountType]! && (
                     <div className="flex items-center gap-2 p-3 rounded-xl bg-royal/10 border border-royal/30 mb-4">
                       <span className="text-sm">📊</span>
-                      <p className="text-xs text-royal font-medium">Minimum trades not met — {selectedUser.totalTrades}/{minTotalTrades} trades</p>
+                      <p className="text-xs text-royal font-medium">Minimum trades not met — {selectedUser.totalTrades}/{minimumTradesByCategory[selectedUser.accountType]} trades</p>
                     </div>
                   )}
                   <div className="grid grid-cols-3 gap-3 mb-4">
@@ -1902,7 +1913,7 @@ export default function ChallengeDashboard() {
               )}
 
               <div className="bg-white/5 border border-white/10 rounded-xl p-4 mt-4">
-                <p className="text-xs text-gray-400">{rulesHaveEnforcement ? <><span className="text-loss font-semibold">Penalty:</span> Profits from flagged trades are removed from your qualified balance. Losses from flagged trades still count. Repeated or severe violations may result in disqualification.</> : <><span className="text-profit font-semibold">No restrictions:</span> All trades count fully — no rules are enforced in this challenge.</>}</p>
+                <p className="text-xs text-gray-400">{rulesHaveEnforcement ? <><span className="text-loss font-semibold">Penalty:</span> Profits from flagged trades are removed from your qualified balance. Losses from flagged trades still count. Repeated or severe violations may result in disqualification.</> : <><span className="text-profit font-semibold">Trading rules disabled:</span> Trading profits and losses count normally. Deposit restrictions and challenge eligibility settings still apply.</>}</p>
               </div>
             </div>
           </div>

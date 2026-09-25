@@ -63,6 +63,7 @@ export default function AdminDashboard() {
   const [rulesSaved, setRulesSaved] = useState(false);
   const [rulesLocked, setRulesLocked] = useState(false);
   const [savedRulesSnapshot, setSavedRulesSnapshot] = useState<any>(null);
+  const [rulesMissing, setRulesMissing] = useState(false);
   const [rulesLoading, setRulesLoading] = useState(false);
   const [adminRulesCategory, setAdminRulesCategory] = useState<"config" | "config_demo" | "config_real">("config");
   const [adminRulesSplit, setAdminRulesSplit] = useState(false);
@@ -171,6 +172,7 @@ export default function AdminDashboard() {
     if (!isAdmin || activeSection !== "rules" || !selectedChallengeId) return;
     const fetchRules = async () => {
       setRulesLoading(true);
+      setRulesMissing(true);
       try {
         const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
         const secretPath = process.env.NEXT_PUBLIC_ADMIN_PATH || "";
@@ -187,6 +189,7 @@ export default function AdminDashboard() {
             setAdminRulesSplit(false);
             if (adminRulesCategory !== 'config') setAdminRulesCategory('config');
           }
+          setRulesMissing(!data.rules);
           if (data.rules) {
             const loaded = {
               max_lot_size: data.rules.max_lot_size ?? 0.02,
@@ -220,6 +223,8 @@ export default function AdminDashboard() {
             };
             setRulesConfig(loaded);
             setSavedRulesSnapshot(loaded);
+          } else {
+            setRulesConfig(prev => ({...prev, rules_enabled: Object.fromEntries(Object.keys(prev.rules_enabled).map(key => [key, false])) as typeof prev.rules_enabled}));
           }
           // If locked, also reset saved state so button reflects current status
           if (data.locked) setRulesSaved(false);
@@ -1135,7 +1140,8 @@ export default function AdminDashboard() {
               </div>
             )}
 
-            {rulesLoading ? (
+            {rulesMissing && <p className="text-sm text-amber-400 mb-4">Rules configuration missing for this category. Evaluation will not use defaults or shared rules.</p>}
+              {rulesLoading ? (
               <div className="flex items-center justify-center py-12"><Loader2 className="w-6 h-6 text-royal animate-spin" /></div>
             ) : (
             <div className={rulesLocked ? "opacity-60 pointer-events-none select-none" : ""}>

@@ -1,3 +1,5 @@
+import { evaluationEngine as ruleEngine } from '../services/wpEvaluationEngine';
+import { minimumTrades } from '../utils/rulePolicy';
 import express from 'express';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
@@ -817,7 +819,7 @@ app.post('/api/challenges/:id/verify-mt5', authLimiter, async (req, res) => {
     // Professional account check
     const isPro = accountSubtype === 'pro' || accountSubtype === 'raw_spread' || accountSubtype === 'zero';
     if (isPro) {
-      const rulesCheck = await db.query(`SELECT parameters FROM wp_challenge_rules WHERE challenge_id=$1 AND rule_code='config'`, [challengeId]);
+      const rulesCheck = { rows: [{ parameters: await ruleEngine.rulesForAccount(challengeId, accountType) }] };
       const allowPro = rulesCheck.rows[0]?.parameters?.allow_professional || false;
       if (!allowPro) {
         return res.status(400).json({ error: `Professional account type (${accountSubtype}) is not allowed for this challenge. Only Standard accounts are accepted.` });
@@ -826,7 +828,7 @@ app.post('/api/challenges/:id/verify-mt5', authLimiter, async (req, res) => {
 
     // Cent account check
     if (accountType === 'real') {
-      const rulesCheck2 = await db.query(`SELECT parameters FROM wp_challenge_rules WHERE challenge_id=$1 AND rule_code='config'`, [challengeId]);
+      const rulesCheck2 = { rows: [{ parameters: await ruleEngine.rulesForAccount(challengeId, accountType) }] };
       const onlyCent = rulesCheck2.rows[0]?.parameters?.only_cent_account || false;
       if (onlyCent && !isCent) {
         return res.status(400).json({ error: 'This challenge requires cent accounts only for the real category.' });
@@ -1277,7 +1279,7 @@ app.post('/api/challenges/:id/change-registration', authLimiter, async (req: any
     // Pro account check
     const isPro = accountSubtype === 'pro' || accountSubtype === 'raw_spread' || accountSubtype === 'zero';
     if (isPro) {
-      const rulesCheck = await db.query(`SELECT parameters FROM wp_challenge_rules WHERE challenge_id=$1 AND rule_code='config'`, [challengeId]);
+      const rulesCheck = { rows: [{ parameters: await ruleEngine.rulesForAccount(challengeId, newAccountType) }] };
       const allowPro = rulesCheck.rows[0]?.parameters?.allow_professional || false;
       if (!allowPro) {
         return res.status(400).json({ error: `Professional account type (${accountSubtype}) is not allowed for this challenge.` });
@@ -1286,7 +1288,7 @@ app.post('/api/challenges/:id/change-registration', authLimiter, async (req: any
 
     // Cent check for real
     if (newAccountType === 'real') {
-      const rulesCheck2 = await db.query(`SELECT parameters FROM wp_challenge_rules WHERE challenge_id=$1 AND rule_code='config'`, [challengeId]);
+      const rulesCheck2 = { rows: [{ parameters: await ruleEngine.rulesForAccount(challengeId, newAccountType) }] };
       const onlyCent = rulesCheck2.rows[0]?.parameters?.only_cent_account || false;
       if (onlyCent && !isCent) {
         return res.status(400).json({ error: 'This challenge requires cent accounts only for the real category.' });
@@ -1406,7 +1408,7 @@ app.get('/api/challenges/:id/leaderboard', async (req, res) => {
     // Helper: build a pre-start response from trading_registrations (last_known_balance)
     const buildPreStartResponse = async () => {
       const centCheck = await db.query(
-        `SELECT COALESCE((SELECT (parameters->>'only_cent_account')::boolean FROM wp_challenge_rules WHERE challenge_id = $1 AND rule_code = 'config'), false) as only_cent FROM trading_challenges WHERE id = $1`,
+        `SELECT COALESCE((SELECT (parameters->>'only_cent_account')::boolean FROM wp_challenge_rules WHERE challenge_id = $1 AND rule_code = CASE WHEN EXISTS (SELECT 1 FROM trading_challenges rc WHERE rc.id=$1 AND rc.type='hybrid' AND rc.split_category_settings=true) THEN 'config_real' ELSE 'config' END), false) as only_cent FROM trading_challenges WHERE id = $1`,
         [challengeId]
       );
       const challengeOnlyCent = centCheck.rows[0]?.only_cent || false;
@@ -1645,12 +1647,17 @@ app.get('/api/challenges/:id/leaderboard', async (req, res) => {
           return dm.rows[0]?.deposit_mode || 'fixed';
         } catch { return 'fixed'; }
       })(),
+      minTotalTradesByCategory: await (async () => {
+        const c = await db.query('SELECT type FROM trading_challenges WHERE id=$1', [challengeId]);
+        const categories = c.rows[0]?.type === 'hybrid' ? ['demo', 'real'] : [c.rows[0]?.type];
+        const result: Record<string, number | null> = {};
+        for (const cat of categories) if (cat) result[cat] = minimumTrades(await ruleEngine.rulesForAccount(challengeId, cat)) || null;
+        return result;
+      })(),
       minTotalTrades: await (async () => {
         try {
-          const r = await db.query(`SELECT parameters FROM wp_challenge_rules WHERE challenge_id = $1 AND rule_code = 'config'`, [challengeId]);
-          const params = r.rows[0]?.parameters;
-          if (params?.min_total_trades && params?.rules_enabled?.min_total_trades !== false) return params.min_total_trades;
-          return null;
+          if (category !== 'demo' && category !== 'real') return null;
+          return minimumTrades(await ruleEngine.rulesForAccount(challengeId, category)) || null;
         } catch { return null; }
       })(),
       leaderboard: (() => {
@@ -1880,7 +1887,7 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
               c.split_category_settings, c.demo_starting_balance, c.demo_target_balance, c.real_starting_balance, c.real_target_balance,
               c.demo_deposit_mode, c.real_deposit_mode, c.demo_target_percent, c.real_target_percent, c.deposit_mode, c.target_percent,
               c.target_enabled, c.allow_below_start, c.demo_target_enabled, c.real_target_enabled, c.demo_allow_below_start, c.real_allow_below_start,
-              COALESCE((SELECT (parameters->>'only_cent_account')::boolean FROM wp_challenge_rules WHERE challenge_id = c.id AND rule_code = 'config'), false) as only_cent_account
+              COALESCE((SELECT (parameters->>'only_cent_account')::boolean FROM wp_challenge_rules WHERE challenge_id = c.id AND rule_code = CASE WHEN c.type='hybrid' AND c.split_category_settings THEN 'config_' || r.account_type ELSE 'config' END), false) as only_cent_account
        FROM trading_registrations r
        JOIN trading_challenges c ON r.challenge_id = c.id
        WHERE r.id = $1`,
@@ -2472,7 +2479,7 @@ app.get('/api/host/challenge/:id/leaderboard', hostAuthMiddleware, async (req: a
     const hlIsPreStart = hlStatus !== 'active' && hlStatus !== 'reviewing' && hlStatus !== 'completed';
 
     const hlCentCheck = await db.query(
-      `SELECT COALESCE((SELECT (parameters->>'only_cent_account')::boolean FROM wp_challenge_rules WHERE challenge_id = $1 AND rule_code = 'config'), false) as only_cent`,
+      `SELECT COALESCE((SELECT (parameters->>'only_cent_account')::boolean FROM wp_challenge_rules WHERE challenge_id = $1 AND rule_code = CASE WHEN EXISTS (SELECT 1 FROM trading_challenges rc WHERE rc.id=$1 AND rc.type='hybrid' AND rc.split_category_settings=true) THEN 'config_real' ELSE 'config' END), false) as only_cent`,
       [challengeId]
     );
     const hlOnlyCent = hlCentCheck.rows[0]?.only_cent || false;
@@ -3137,7 +3144,7 @@ app.post('/api/host/challenge/:id/upload-csv', hostAuthMiddleware, async (req: a
             const isPro = accountSubtype === 'pro' || accountSubtype === 'raw_spread' || accountSubtype === 'zero';
             if (isPro) {
               // Check if allow_professional is enabled for this challenge
-              const rulesCheck = await db.query(`SELECT parameters FROM wp_challenge_rules WHERE challenge_id=$1 AND rule_code='config'`, [challengeId]);
+              const rulesCheck = { rows: [{ parameters: await ruleEngine.rulesForAccount(challengeId, row.account_type) }] };
               const allowPro = rulesCheck.rows[0]?.parameters?.allow_professional || false;
               if (!allowPro) {
                 await db.query(`UPDATE host_csv_rows SET status = 'failed', error_message = $1 WHERE id = $2`, [`Professional account type (${accountSubtype}) not allowed — only Standard accounts accepted`, row.id]);
@@ -3147,7 +3154,7 @@ app.post('/api/host/challenge/:id/upload-csv', hostAuthMiddleware, async (req: a
 
             // Cent account validation
             if (row.account_type === 'real') {
-              const rulesCheck2 = await db.query(`SELECT parameters FROM wp_challenge_rules WHERE challenge_id=$1 AND rule_code='config'`, [challengeId]);
+              const rulesCheck2 = { rows: [{ parameters: await ruleEngine.rulesForAccount(challengeId, row.account_type) }] };
               const onlyCent = rulesCheck2.rows[0]?.parameters?.only_cent_account || false;
               if (onlyCent && !isCent) {
                 await db.query(`UPDATE host_csv_rows SET status = 'failed', error_message = $1 WHERE id = $2`, ['Only cent accounts allowed for real category', row.id]);
@@ -3923,7 +3930,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
     // Above target
     // Get only_cent_account rule for this challenge
     const centRuleCheck = await db.query(
-      `SELECT COALESCE((SELECT (parameters->>'only_cent_account')::boolean FROM wp_challenge_rules WHERE challenge_id = $1 AND rule_code = 'config'), false) as only_cent,
+      `SELECT COALESCE((SELECT (parameters->>'only_cent_account')::boolean FROM wp_challenge_rules WHERE challenge_id = $1 AND rule_code = CASE WHEN EXISTS (SELECT 1 FROM trading_challenges rc WHERE rc.id=$1 AND rc.type='hybrid' AND rc.split_category_settings=true) THEN 'config_real' ELSE 'config' END), false) as only_cent,
               type FROM trading_challenges WHERE id = $1`,
       [challengeId]
     );
@@ -4074,11 +4081,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
       const catJoin = category ? ` AND r.account_type = '${category}'` : '';
       const catWhere = category ? ` AND t.registration_id IN (SELECT id FROM trading_registrations WHERE challenge_id = ${challengeId} AND account_type = '${category}')` : '';
 
-      // Load rules to check weekend_trading
-      const rulesForMetrics = await db.query(
-        `SELECT parameters FROM wp_challenge_rules WHERE challenge_id = $1 AND rule_code = 'config'`, [challengeId]
-      );
-      const rules2 = rulesForMetrics.rows[0]?.parameters;
+      const rules2 = category ? await ruleEngine.rulesForAccount(challengeId, category) : null;
 
       const maxProfit = await db.query(
         `SELECT t.profit, t.symbol, t.ticket, r.nickname, r.username, r.email, r.is_cent
@@ -4160,7 +4163,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
            )`, [challengeId]);
 
       const weekendRuleDisabled = rules2?.rules_enabled?.weekend_trading === false;
-      const weekendFilter = (weekendRuleDisabled || rules2?.weekend_trading) ? '' : ` AND EXTRACT(DOW FROM close_time) NOT IN (0, 6)`;
+      const weekendFilter = (!rules2 || weekendRuleDisabled || rules2.weekend_trading) ? '' : ` AND EXTRACT(DOW FROM close_time) NOT IN (0, 6)`;
 
       const mostDay = await db.query(
         `SELECT DATE(close_time) as day, COUNT(*) as trade_count
@@ -5001,7 +5004,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/announce`, adminIpCheck,
         const endStr = toEAT(challenge.end_date).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
 
         // Check if cent account challenge
-        const rulesCheck = await db.query(`SELECT parameters FROM wp_challenge_rules WHERE challenge_id = $1 AND rule_code = 'config'`, [challengeId]);
+        const rulesCheck = await db.query(`SELECT parameters FROM wp_challenge_rules WHERE challenge_id = $1 AND rule_code = CASE WHEN EXISTS (SELECT 1 FROM trading_challenges rc WHERE rc.id=$1 AND rc.type='hybrid' AND rc.split_category_settings=true) THEN 'config_real' ELSE 'config' END`, [challengeId]);
         const isCent = rulesCheck.rows[0]?.parameters?.only_cent_account && challenge.type !== 'demo';
         const balUnit = isCent ? '¢' : '';
         const balPrefix = isCent ? '' : '$';
@@ -5782,7 +5785,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/admin-leaderboard`, admin
     const catFilter  = (category === 'demo' || category === 'real') ? ` AND r.account_type = '${category}'` : '';
     const catFilterLeaderboard = (category === 'demo' || category === 'real') ? ` AND l.account_type = '${category}'` : '';
     const centCheck  = await db.query(
-      `SELECT COALESCE((SELECT (parameters->>'only_cent_account')::boolean FROM wp_challenge_rules WHERE challenge_id = $1 AND rule_code = 'config'), false) as only_cent FROM trading_challenges WHERE id = $1`,
+      `SELECT COALESCE((SELECT (parameters->>'only_cent_account')::boolean FROM wp_challenge_rules WHERE challenge_id = $1 AND rule_code = CASE WHEN EXISTS (SELECT 1 FROM trading_challenges rc WHERE rc.id=$1 AND rc.type='hybrid' AND rc.split_category_settings=true) THEN 'config_real' ELSE 'config' END), false) as only_cent FROM trading_challenges WHERE id = $1`,
       [challengeId]
     );
     const challengeOnlyCent = centCheck.rows[0]?.only_cent || false;

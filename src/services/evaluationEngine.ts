@@ -3,9 +3,13 @@
  * Runs all 11 rule checks on parsed MT5 trade data
  */
 
+import { RulesEnabled, isRuleEnabled } from '../utils/rulePolicy';
 import { MT5Position, MT5Deal, MT5AccountInfo } from './mt5Parser';
 
 export interface EvaluationConfig {
+  rules_enabled?: RulesEnabled;
+  weekendTradingAllowed?: boolean;
+  minTotalTrades?: number;
   challengeStartDate: string;  // "2026-04-20"
   challengeEndDate: string;    // "2026-05-01"
   startingBalanceLimit: number; // 50
@@ -294,7 +298,7 @@ export function evaluateAccount(
     if (!isWeekend(od)) activeDaysSet.add(dateKey(od));
     if (!isWeekend(cd)) activeDaysSet.add(dateKey(cd));
   });
-  const activeDaysOk = activeDaysSet.size >= config.minActiveDays;
+  const activeDaysOk = (!isRuleEnabled(config, 'min_active_days') || activeDaysSet.size >= config.minActiveDays);
 
   // Step 5: Weekend trading — only flag crypto pairs (BTC, ETH, etc.)
   // Non-crypto markets are closed on weekends; any weekend timestamp is server time overlap
@@ -302,7 +306,7 @@ export function evaluateAccount(
   challengePositions.forEach(p => {
     const open = parseTime(p.openTime);
     const close = parseTime(p.closeTime);
-    if (isWeekend(open) || isWeekend(close)) {
+    if (isRuleEnabled(config, 'weekend_trading') && !config.weekendTradingAllowed && (isWeekend(open) || isWeekend(close))) {
       if (isCryptoPair(p.symbol)) {
         weekendOk = false;
         if (p.profit > 0) addFlag(p.positionId, 'Weekend trading');
@@ -313,7 +317,7 @@ export function evaluateAccount(
   // Step 6: Lot size
   let lotSizeOk = true;
   challengePositions.forEach(p => {
-    if (p.volume > config.maxLot) {
+    if (isRuleEnabled(config, 'max_lot_size') && config.maxLot > 0 && p.volume > config.maxLot) {
       lotSizeOk = false;
       if (p.profit > 0) addFlag(p.positionId, 'Lot size ' + p.volume + ' > ' + config.maxLot);
     }
@@ -334,7 +338,7 @@ export function evaluateAccount(
   for (const ev of events) {
     if (ev.action === 'open') openSet.add(ev.posId); else openSet.delete(ev.posId);
     if (openSet.size > maxSimultaneous) maxSimultaneous = openSet.size;
-    if (openSet.size > config.maxOpenTrades) openSet.forEach(id => violating4Plus.add(id));
+    if (isRuleEnabled(config, 'max_open_trades') && config.maxOpenTrades > 0 && openSet.size > config.maxOpenTrades) openSet.forEach(id => violating4Plus.add(id));
   }
   violating4Plus.forEach(id => {
     const p = challengePositions.find(pp => pp.positionId === id);
@@ -358,7 +362,7 @@ export function evaluateAccount(
     const so = new Set<string>();
     for (const ev of symEvents) {
       if (ev.action === 'open') so.add(ev.posId); else so.delete(ev.posId);
-      if (so.size > config.maxSamePair) so.forEach(id => pairViolations.add(id));
+      if (isRuleEnabled(config, 'pair_limit') && config.maxSamePair > 0 && so.size > config.maxSamePair) so.forEach(id => pairViolations.add(id));
     }
   });
   pairViolations.forEach(id => {
@@ -401,7 +405,7 @@ export function evaluateAccount(
       cur += p.profit;
       if (cur < minBal) minBal = cur;
       const dd = openBal - cur;
-      if (dd >= config.maxDailyLoss && !breached) breached = true;
+      if (isRuleEnabled(config, 'daily_loss_cap') && config.maxDailyLoss > 0 && dd >= config.maxDailyLoss && !breached) breached = true;
       if (breached && p.profit > 0) {
         addFlag(p.positionId, 'Profit after daily $' + config.maxDailyLoss + ' drawdown on ' + day);
         removedAfter += p.profit;
@@ -429,12 +433,12 @@ export function evaluateAccount(
   let holdOk = true;
   challengePositions.forEach(p => {
     const h = hoursDiff(p.openTime, p.closeTime);
-    if (h > config.maxHoldHours) {
+    if (isRuleEnabled(config, 'max_hold_hours') && config.maxHoldHours > 0 && h > config.maxHoldHours) {
       holdOk = false;
       if (p.profit > 0) addFlag(p.positionId, 'Held ' + h.toFixed(1) + 'h > ' + config.maxHoldHours + 'h');
     }
     // Min trade duration
-    if (config.minTradeDurationMinutes > 0) {
+    if (isRuleEnabled(config, 'min_trade_duration') && config.minTradeDurationMinutes > 0) {
       const mins = h * 60;
       if (mins < config.minTradeDurationMinutes) {
         holdOk = false;
@@ -473,6 +477,7 @@ export function evaluateAccount(
   }
   if (!activeDaysOk) disqualifyReasons.push('Only ' + activeDaysSet.size + ' active days (min ' + config.minActiveDays + ')');
   if (!startingBalanceOk) disqualifyReasons.push('Starting balance $' + startingBalance + ' exceeds $' + config.startingBalanceLimit);
+  if (isRuleEnabled(config, 'min_total_trades') && config.minTotalTrades && new Date() > challengeEnd && challengePositions.length < config.minTotalTrades) disqualifyReasons.push(`Minimum ${config.minTotalTrades} trades not met (${challengePositions.length})`);
   const isDisqualified = disqualifyReasons.length > 0;
   // No-target mode: qualify without a target (rank by metric). Floor at starting balance
   // unless allowBelowStart is on. Otherwise require adjustedBalance >= target (current behavior).

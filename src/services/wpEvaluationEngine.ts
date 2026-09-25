@@ -1,3 +1,5 @@
+import { RuleConfig, isRuleEnabled, isRiskRuleEnabled } from '../utils/rulePolicy';
+import { resolveRuleCode } from '../utils/categorySettings';
 import { db } from '../database/db';
 import { config } from '../config';
 import axios from 'axios';
@@ -63,39 +65,6 @@ function calculateSlDollars(symbol: string, volume: number, entryPrice: number, 
 
 // ==================== TYPES ====================
 
-interface RulesEnabled {
-  max_lot_size: boolean;
-  max_open_trades: boolean;
-  pair_limit: boolean;
-  stop_loss_required: boolean;
-  daily_loss_cap: boolean;
-  max_hold_hours: boolean;
-  min_trade_duration: boolean;
-  weekend_trading: boolean;
-  min_active_days: boolean;
-  min_total_trades: boolean;
-}
-
-interface RuleConfig {
-  max_lot_size: number | null;
-  max_open_trades: number | null;
-  pair_limit: number | null;
-  stop_loss_required: boolean;
-  max_risk_dollars: number | null;
-  max_risk_mode?: 'fixed' | 'percentage';       // 'fixed' = $ amount, 'percentage' = % of account balance at trade open
-  max_risk_percent?: number | null;              // e.g. 10 = 10% of balance
-  daily_loss_cap: number | null;
-  daily_loss_mode?: 'fixed' | 'percentage';      // 'fixed' = $ amount, 'percentage' = % of day's opening balance
-  daily_loss_percent?: number | null;            // e.g. 20 = 20% of day's opening balance
-  max_hold_hours: number | null;
-  min_trade_duration_minutes: number | null;     // Minimum trade hold time in minutes — trades shorter than this are flagged
-  weekend_trading: boolean;
-  min_active_days: number;
-  min_total_trades: number | null;               // Minimum total trades to qualify — blue flag during challenge, DQ at end
-  only_cent_account: boolean;
-  allow_professional: boolean;
-  rules_enabled?: RulesEnabled;
-}
 
 interface TradeRow {
   id: number;
@@ -126,10 +95,7 @@ interface TradeRow {
  * Check if a specific rule is enabled. Defaults to true for backward compatibility
  * with existing challenges that don't have rules_enabled configured.
  */
-function isRuleEnabled(rules: RuleConfig, ruleKey: keyof RulesEnabled): boolean {
-  if (!rules.rules_enabled) return true; // Legacy: all rules enabled by default
-  return rules.rules_enabled[ruleKey] !== false; // Explicit false = disabled
-}
+
 
 // ==================== CANDLE TERMINAL MANAGER ====================
 
@@ -455,27 +421,14 @@ export class WpEvaluationEngine {
   async evaluate(challengeId: number): Promise<{ evaluated: number; flagged: number; qualified: number }> {
     console.log(`📊 WP Evaluation: Starting for challenge ${challengeId}`);
 
-    const rules = await this.loadRules(challengeId);
-    if (!rules) {
-      console.log('⚠️ WP Evaluation: No rules configured, seeding defaults');
-      await this.seedDefaultRules(challengeId);
-      return this.evaluate(challengeId);
-    }
-
     const challenge = await db.query(`SELECT starting_balance, target_balance, type, deposit_mode, target_percent, split_category_settings, demo_starting_balance, demo_target_balance, real_starting_balance, real_target_balance, demo_deposit_mode, real_deposit_mode, demo_target_percent, real_target_percent, target_enabled, allow_below_start, demo_target_enabled, real_target_enabled, demo_allow_below_start, real_allow_below_start FROM trading_challenges WHERE id = $1`, [challengeId]);
     const challengeRow = challenge.rows[0];
     const challengeType = challengeRow?.type;
 
     // Pre-load per-category rules if split is ON
-    const isSplit = challengeRow?.split_category_settings === true && challengeType === 'hybrid';
-    let demoRules = rules;
-    let realRules = rules;
-    if (isSplit) {
-      const dr = await this.loadRules(challengeId, 'config_demo');
-      const rr = await this.loadRules(challengeId, 'config_real');
-      if (dr) demoRules = dr;
-      if (rr) realRules = rr;
-    }
+    // Validate every applicable category before any account is evaluated.
+    const demoRules = challengeType !== 'real' ? await this.requireRules(challengeId, challengeRow, 'demo') : null;
+    const realRules = challengeType !== 'demo' ? await this.requireRules(challengeId, challengeRow, 'real') : null;
 
     const { resolveCategoryBalances } = require('../utils/categorySettings');
 
@@ -495,7 +448,8 @@ export class WpEvaluationEngine {
       let baseTargetBalance = categoryBal.targetBalance;
 
       // Pick per-category rules if split is ON
-      const activeRules = isSplit ? (reg.account_type === 'demo' ? demoRules : realRules) : rules;
+      const activeRules = (reg.account_type === 'demo' ? demoRules : realRules);
+      if (!activeRules) throw new Error('Account category does not match challenge type');
 
       // Determine if conversion is needed for this user
       // Rule: Admin enters in CENT terms ONLY for "Real + cent-only" challenges.
@@ -540,15 +494,6 @@ export class WpEvaluationEngine {
    * Evaluate a single account — public for per-account streaming evaluation
    */
   async evaluateSingleAccount(challengeId: number, registrationId: number): Promise<{ flaggedCount: number; isQualified: boolean }> {
-    let rules = await this.loadRules(challengeId);
-    if (!rules) {
-      // No rules configured — still create leaderboard entry with basic data
-      console.log(`⚠️ WP Evaluation: No rules for challenge ${challengeId}, creating basic leaderboard entry`);
-      await this.seedDefaultRules(challengeId);
-      // Retry with default rules
-      return this.evaluateSingleAccount(challengeId, registrationId);
-    }
-
     const challenge = await db.query(`SELECT starting_balance, target_balance, type, deposit_mode, target_percent, split_category_settings, demo_starting_balance, demo_target_balance, real_starting_balance, real_target_balance, demo_deposit_mode, real_deposit_mode, demo_target_percent, real_target_percent, target_enabled, allow_below_start, demo_target_enabled, real_target_enabled, demo_allow_below_start, real_allow_below_start FROM trading_challenges WHERE id = $1`, [challengeId]);
     const challengeRow = challenge.rows[0];
     const challengeType = challengeRow?.type;
@@ -564,11 +509,7 @@ export class WpEvaluationEngine {
     const userIsCent = reg.is_cent || false;
 
     // Load per-category rules if split is ON
-    const ruleCode = resolveRuleCode(challengeRow, reg.account_type);
-    if (ruleCode !== 'config') {
-      const catRules = await this.loadRules(challengeId, ruleCode);
-      if (catRules) rules = catRules;
-    }
+    const rules = await this.requireRules(challengeId, challengeRow, reg.account_type);
 
     // Resolve per-category starting/target balance
     const categoryBal = resolveCategoryBalances(challengeRow, reg.account_type);
@@ -767,12 +708,27 @@ export class WpEvaluationEngine {
         }
       }
 
+      if (rules.min_total_trades && isRuleEnabled(rules, 'min_total_trades')) {
+        const state = await db.query('SELECT end_date, status FROM trading_challenges WHERE id=$1', [challengeId]);
+        const c = state.rows[0];
+        if (c && (['completed', 'reviewing'].includes(c.status) || new Date(c.end_date).getTime() < Date.now())) {
+          await db.query(`UPDATE trading_registrations SET disqualified=true, disqualified_at=NOW(), disqualified_reason=$1
+            WHERE id=$2 AND disqualified=false`, [`Did not meet minimum ${rules.min_total_trades} trades (completed 0 trades)`, reg.id]);
+        }
+      }
+
       // No trades = profit is $0 (they haven't started trading)
       await this.upsertLeaderboard(challengeId, reg, actualStartBalance, { currentBalance, adjustedBalance: currentBalance, qualifiedProfit: 0, grossProfit: 0, profitRemoved: 0, totalTrades: 0, qualifiedTrades: 0, flaggedTrades: 0, activeDays: 0, isQualified: false, growthPercent: 0, lastTradeTime: null });
       return { flaggedCount: 0, isQualified: false };
     }
 
     const allTrades: TradeRow[] = trades.rows;
+    if (!isRiskRuleEnabled(rules)) {
+      await db.query(`UPDATE wp_trades SET sl_check_result = 'skipped', sl_check_pending = false,
+        sl_check_attempts = 0, sl_conflict_count = 0, sl_allowed_price = NULL, sl_max_adverse_price = NULL
+        WHERE challenge_id = $1 AND registration_id = $2`, [challengeId, reg.id]);
+    }
+
     let flaggedCount = 0;
     let grossProfit = 0;
     let profitRemoved = 0;
@@ -1493,7 +1449,7 @@ export class WpEvaluationEngine {
             }
           }
         }
-      } else if (rules.stop_loss_required && (tradeNet <= 0 || violations.length > 0)) {
+      } else if (isRiskRuleEnabled(rules) && (tradeNet <= 0 || violations.length > 0)) {
         // Losing trade or already failed other rules — skip SL check, mark as skipped
         if (!isDefinitiveSl(trade.sl_check_result) && trade.sl_check_result !== 'check_failed') {
           await db.query(`UPDATE wp_trades SET sl_check_result = 'skipped' WHERE id = $1`, [trade.id]).catch(() => {});
@@ -1871,19 +1827,33 @@ export class WpEvaluationEngine {
 
   async loadRules(challengeId: number, ruleCode: string = 'config'): Promise<RuleConfig | null> {
     const result = await db.query(
-      `SELECT parameters FROM wp_challenge_rules WHERE challenge_id=$1 AND rule_code=$2`, [challengeId, ruleCode]);
-    if (result.rows.length === 0) {
-      // Fallback to 'config' if category-specific not found
-      if (ruleCode !== 'config') {
-        const fallback = await db.query(`SELECT parameters FROM wp_challenge_rules WHERE challenge_id=$1 AND rule_code='config'`, [challengeId]);
-        if (fallback.rows.length > 0) return fallback.rows[0].parameters as RuleConfig;
-      }
-      return null;
-    }
+      `SELECT r.parameters FROM wp_challenge_rules r JOIN trading_challenges c ON c.id=r.challenge_id
+       WHERE r.challenge_id=$1 AND r.rule_code=$2
+       AND NOT (c.type='hybrid' AND c.split_category_settings IS TRUE AND $2='config')`, [challengeId, ruleCode]);
+    if (result.rows.length === 0) return null;
     return result.rows[0].parameters as RuleConfig;
   }
 
+  /** Exact configuration only: split categories never inherit shared rules. */
+  async requireRules(challengeId: number, challenge: any, accountType: string): Promise<RuleConfig> {
+    const code = resolveRuleCode(challenge, accountType);
+    const rules = await this.loadRules(challengeId, code);
+    if (!rules) throw new Error(`Rules configuration missing for challenge ${challengeId}: ${code}. Evaluation not published.`);
+    return rules;
+  }
+
+  async rulesForAccount(challengeId: number, accountType: string): Promise<RuleConfig> {
+    const challenge = await db.query('SELECT type, split_category_settings FROM trading_challenges WHERE id=$1', [challengeId]);
+    if (!challenge.rows[0]) throw new Error('Challenge not found');
+    return this.requireRules(challengeId, challenge.rows[0], accountType);
+  }
+
   async saveRules(challengeId: number, rules: RuleConfig, ruleCode: string = 'config') {
+    if (!['config', 'config_demo', 'config_real'].includes(ruleCode)) throw new Error('Invalid rule category');
+    if (!rules || typeof rules !== 'object') throw new Error('Invalid rules configuration');
+    if (rules.rules_enabled && Object.values(rules.rules_enabled).some(value => typeof value !== 'boolean')) {
+      throw new Error('Rule enable switches must be true or false');
+    }
     const label = ruleCode === 'config_demo' ? 'Demo Category Rules' :
                   ruleCode === 'config_real' ? 'Real Category Rules' :
                   'Challenge Rules Configuration';
@@ -1923,17 +1893,13 @@ export class WpEvaluationEngine {
   }
 
   async getRulesForDisplay(challengeId: number, ruleCode: string = 'config'): Promise<{ rules: string[]; isCent: boolean; hasActiveRules: boolean }> {
-    let cfg = await this.loadRules(challengeId, ruleCode);
-    if (!cfg && ruleCode === 'config') {
-      // Auto-seed defaults so users always see rules (only for the base config)
-      await this.seedDefaultRules(challengeId);
-      cfg = await this.loadRules(challengeId);
+    const challengeConfig = await db.query('SELECT type, split_category_settings FROM trading_challenges WHERE id=$1', [challengeId]);
+    if (challengeConfig.rows[0]?.type === 'hybrid' && challengeConfig.rows[0]?.split_category_settings && ruleCode === 'config') {
+      throw new Error('Select Demo or Real category to view rules');
     }
-    // For per-category codes, fall back to the base config if not separately saved
-    if (!cfg && ruleCode !== 'config') {
-      cfg = await this.loadRules(challengeId, 'config');
-    }
-    if (!cfg) return { rules: ['Rules not yet configured'], isCent: false, hasActiveRules: false };
+    if (!(challengeConfig.rows[0]?.type === 'hybrid' && challengeConfig.rows[0]?.split_category_settings)) ruleCode = 'config';
+    const cfg = await this.loadRules(challengeId, ruleCode);
+    if (!cfg) throw new Error(`Rules configuration missing: ${ruleCode}`);
     const isCent = cfg.only_cent_account || false;
     const rules: string[] = [];
 
@@ -2026,10 +1992,13 @@ export class WpEvaluationEngine {
       if (regResult.rows.length === 0) return { checked: 0, violations: 0, cleared: 0, nickname: '?', error: 'Registration not found' };
       const reg = regResult.rows[0];
 
-      // Load rules
-      const rules = await this.loadRules(challengeId);
-      if (!rules || (!rules.max_risk_dollars && !(rules.max_risk_mode === 'percentage' && rules.max_risk_percent))) {
-        return { checked: 0, violations: 0, cleared: 0, nickname: reg.nickname || reg.account_number, error: 'No rules configured' };
+      const rules = await this.rulesForAccount(challengeId, reg.account_type);
+      if (!isRiskRuleEnabled(rules)) {
+        await this.evaluateSingleAccount(challengeId, registrationId);
+        await this.flushSingleAccountToLive(challengeId, registrationId);
+        const { leaderboardService } = require('./leaderboardService');
+        await leaderboardService.updateRankings(challengeId);
+        return { checked: 0, violations: 0, cleared: 0, nickname: reg.nickname || reg.account_number };
       }
 
       // Update OHLC candle data for pending symbols before re-checking
@@ -2045,140 +2014,17 @@ export class WpEvaluationEngine {
         console.warn('⚠️ recheckSl: OHLC update failed (proceeding with existing data):', (e as Error).message);
       }
 
-      const MAX_SL_CHECK_ATTEMPTS = 5;
-      const MAX_CONFLICTS = 3;
-      const isDefinitive = (r: string | null | undefined) => r === 'fake_sl' || r === 'passed';
-
-      // Find all pending trades
-      const pendingResult = await db.query(
-        `SELECT id, ticket, symbol, trade_type, volume, open_price, close_price,
-                open_time, close_time, profit, commission, swap, violations, stop_loss,
-                sl_check_attempts, sl_check_result, sl_conflict_count
-         FROM wp_trades
-         WHERE challenge_id = $1 AND registration_id = $2 AND sl_check_pending = true`,
-        [challengeId, registrationId]
-      );
-
-      if (pendingResult.rows.length === 0) {
-        return { checked: 0, violations: 0, cleared: 0, nickname: reg.nickname || reg.account_number };
-      }
-
-      // Fetch all siblings for positions that have pending trades, so runSlCheckForTrade can window correctly
-      const pendingPosIds = [...new Set(pendingResult.rows.map((t: any) => t.position_id ?? t.ticket).filter(Boolean))];
-      const siblingsResult = pendingPosIds.length > 0
-        ? await db.query(
-            `SELECT id, ticket, position_id, volume, open_time, close_time, profit, commission, swap,
-                    open_price, close_price, trade_type, symbol, stop_loss, sl_check_result,
-                    sl_check_attempts, sl_conflict_count
-             FROM wp_trades
-             WHERE challenge_id = $1 AND registration_id = $2 AND position_id = ANY($3::bigint[])
-             ORDER BY close_time ASC`,
-            [challengeId, registrationId, pendingPosIds]
-          ).catch(() => ({ rows: [] as any[] }))
-        : { rows: [] as any[] };
-
-      const siblingsByPos = new Map<number, any[]>();
-      for (const row of siblingsResult.rows) {
-        const key = row.position_id ?? row.ticket;
-        if (!siblingsByPos.has(key)) siblingsByPos.set(key, []);
-        siblingsByPos.get(key)!.push(row);
-      }
-
-      let checkedCount = 0;
-      let violationCount = 0;
-      let clearedCount = 0;
-
-      for (const trade of pendingResult.rows) {
-        const tradeNet = parseFloat(trade.profit) + parseFloat(trade.commission || 0) + parseFloat(trade.swap || 0);
-        if (tradeNet <= 0) {
-          await db.query(`UPDATE wp_trades SET sl_check_pending = false WHERE id = $1`, [trade.id]);
-          clearedCount++;
-          continue;
-        }
-
-        const attempts = parseInt(trade.sl_check_attempts ?? '0');
-        const conflicts = parseInt(trade.sl_conflict_count ?? '0');
-        const existingResult = trade.sl_check_result as string | null;
-        const existingViols: string[] = (() => { try { return JSON.parse(trade.violations || '[]'); } catch { return []; } })();
-
-        const recheckPosId = (trade as any).position_id ?? trade.ticket;
-        const recheckSiblings = (siblingsByPos.get(recheckPosId) || [trade])
-          .sort((a: any, b: any) => new Date(a.close_time).getTime() - new Date(b.close_time).getTime());
-        // For percentage mode, use starting balance as reference (recheck doesn't have full balance timeline)
-        const recheckStartBal = await db.query(`SELECT starting_balance FROM trading_challenges WHERE id = $1`, [challengeId]);
-        const recheckEffectiveRisk = (rules.max_risk_mode === 'percentage' && rules.max_risk_percent)
-          ? (parseFloat(recheckStartBal.rows[0]?.starting_balance || '50') * (rules.max_risk_percent / 100))
-          : (rules.max_risk_dollars || 0);
-        const slOutcome = await runSlCheckForTrade(trade, recheckSiblings, rules.max_hold_hours || null, recheckEffectiveRisk);
-        checkedCount++;
-
-        if (slOutcome.violation === 'FAILED') {
-          // No candle data
-          if (isDefinitive(existingResult)) {
-            // Existing good result wins — keep it, just re-confirm next cycle
-            await db.query(
-              `UPDATE wp_trades SET sl_check_pending = true, sl_check_attempts = $1 WHERE id = $2`,
-              [attempts + 1, trade.id]
-            );
-          } else {
-            const newAttempts = attempts + 1;
-            // Benefit of doubt — never penalize. Keep pending, retry next cycle.
-            await db.query(
-              `UPDATE wp_trades SET sl_check_pending = true, sl_check_attempts = $1 WHERE id = $2`,
-              [newAttempts, trade.id]
-            );
-          }
-          continue;
-        }
-
-        // Got a definitive result
-        const newResultValue = slOutcome.violation ? 'fake_sl' : 'passed';
-
-        if (isDefinitive(existingResult) && existingResult !== newResultValue) {
-          // Conflict — two definitive results disagree
-          const newConflicts = conflicts + 1;
-          if (newConflicts >= MAX_CONFLICTS) {
-            // Escalate — fake_sl wins (stricter side)
-            const riskLabel = reg.is_cent ? `¢${recheckEffectiveRisk.toFixed(2)}` : `$${recheckEffectiveRisk.toFixed(2)}`;
-            const escalationViol = `Max risk check returned conflicting results across ${newConflicts} evaluations — max allowed loss of ${riskLabel} applied as a precaution.`;
-            if (!existingViols.includes(escalationViol)) existingViols.push(escalationViol);
-            await db.query(
-              `UPDATE wp_trades SET sl_check_result = 'check_failed', sl_check_pending = false, sl_conflict_count = $1, sl_allowed_price = $2, sl_max_adverse_price = $3, is_qualified = false, violations = $4 WHERE id = $5`,
-              [newConflicts, slOutcome.slAllowedPrice, slOutcome.slMaxAdversePrice, JSON.stringify(existingViols), trade.id]
-            );
-            violationCount++;
-          } else {
-            await db.query(
-              `UPDATE wp_trades SET sl_check_result = 'conflicting', sl_check_pending = true, sl_conflict_count = $1, sl_allowed_price = $2, sl_max_adverse_price = $3 WHERE id = $4`,
-              [newConflicts, slOutcome.slAllowedPrice, slOutcome.slMaxAdversePrice, trade.id]
-            );
-          }
-        } else {
-          // No conflict — definitive result, write it
-          if (!existingViols.includes(slOutcome.violation || '') && slOutcome.violation) {
-            existingViols.push(slOutcome.violation);
-          }
-          const stillFlagged = existingViols.length > 0;
-          await db.query(
-            `UPDATE wp_trades SET sl_allowed_price = $1, sl_max_adverse_price = $2, sl_check_result = $3, sl_check_pending = false, sl_check_attempts = 0, sl_conflict_count = 0, is_qualified = $4, violations = $5 WHERE id = $6`,
-            [slOutcome.slAllowedPrice, slOutcome.slMaxAdversePrice, slOutcome.slCheckResult, !stillFlagged, JSON.stringify(existingViols), trade.id]
-          );
-          if (slOutcome.violation) violationCount++;
-          else clearedCount++;
-        }
-      }
-
-      // Re-evaluate this account, flush to live, then re-rank all participants
+      const before = await db.query(`SELECT COUNT(*)::int AS count FROM wp_trades
+        WHERE challenge_id=$1 AND registration_id=$2 AND sl_check_pending=true`, [challengeId, registrationId]);
       await this.evaluateSingleAccount(challengeId, registrationId);
       await this.flushSingleAccountToLive(challengeId, registrationId);
-      await this.updateRankings(challengeId);
-
-      return {
-        checked: checkedCount,
-        violations: violationCount,
-        cleared: clearedCount,
-        nickname: reg.nickname || reg.account_number,
-      };
+      const { leaderboardService } = require('./leaderboardService');
+      await leaderboardService.updateRankings(challengeId);
+      const after = await db.query(`SELECT COUNT(*) FILTER (WHERE sl_check_pending=true)::int AS pending,
+        COUNT(*) FILTER (WHERE is_qualified=false)::int AS flagged FROM wp_trades
+        WHERE challenge_id=$1 AND registration_id=$2`, [challengeId, registrationId]);
+      return { checked: before.rows[0].count, violations: after.rows[0].flagged,
+        cleared: Math.max(0, before.rows[0].count - after.rows[0].pending), nickname: reg.nickname || reg.account_number };
     } catch (e) {
       console.error('recheckSlPendingForAccount error:', e);
       return { checked: 0, violations: 0, cleared: 0, nickname: '?', error: (e as Error).message };
@@ -2207,11 +2053,11 @@ export class WpEvaluationEngine {
        (challenge_id, registration_id, account_number, user_id, username, nickname, account_type, is_cent,
         starting_balance, current_balance, adjusted_balance, normalized_balance, qualified_profit, gross_profit,
         profit_removed, total_trades, qualified_trades, flagged_trades, active_days, is_qualified,
-        last_trade_time, zero_balance_at, rank)
+        last_trade_time, zero_balance_at, growth_percent, rank)
        SELECT challenge_id, registration_id, account_number, user_id, username, nickname, account_type, is_cent,
               starting_balance, current_balance, adjusted_balance, normalized_balance, qualified_profit, gross_profit,
               profit_removed, total_trades, qualified_trades, flagged_trades, active_days, is_qualified,
-              last_trade_time, zero_balance_at,
+              last_trade_time, zero_balance_at, growth_percent,
               (SELECT COALESCE(rank, 999) FROM wp_leaderboard WHERE challenge_id = $1 AND registration_id = $2)
        FROM wp_leaderboard_staging
        WHERE challenge_id = $1 AND registration_id = $2
@@ -2222,7 +2068,7 @@ export class WpEvaluationEngine {
          total_trades=EXCLUDED.total_trades, qualified_trades=EXCLUDED.qualified_trades,
          flagged_trades=EXCLUDED.flagged_trades, active_days=EXCLUDED.active_days,
          is_qualified=EXCLUDED.is_qualified, last_trade_time=EXCLUDED.last_trade_time,
-         zero_balance_at=EXCLUDED.zero_balance_at`,
+         zero_balance_at=EXCLUDED.zero_balance_at, growth_percent=EXCLUDED.growth_percent`,
       [challengeId, registrationId]
     );
   }

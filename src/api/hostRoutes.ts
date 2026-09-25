@@ -185,7 +185,7 @@ router.get('/challenge/:id/full-overview', async (req: any, res: Response) => {
 
     // Check if challenge rules have only_cent_account enabled
     const centCheck = await db.query(
-      `SELECT parameters->>'only_cent_account' as only_cent FROM wp_challenge_rules WHERE challenge_id=$1 AND rule_code='config'`, [challengeId]);
+      `SELECT parameters->>'only_cent_account' as only_cent FROM wp_challenge_rules WHERE challenge_id=$1 AND rule_code=CASE WHEN EXISTS (SELECT 1 FROM trading_challenges rc WHERE rc.id=$1 AND rc.type='hybrid' AND rc.split_category_settings=true) THEN 'config_real' ELSE 'config' END`, [challengeId]);
     const onlyCentAccount = centCheck.rows[0]?.only_cent === 'true';
 
     // Basic metrics (matching admin overview Trading Insights — full version)

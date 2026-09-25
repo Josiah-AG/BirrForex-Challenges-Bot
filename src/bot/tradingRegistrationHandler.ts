@@ -1158,7 +1158,7 @@ export class TradingRegistrationHandler {
 
       // For cent accounts: balance is shown in cents (×100), convert for comparison
       const { evaluationEngine: wpEngine } = require('../services/wpEvaluationEngine');
-      const rules = await wpEngine.loadRules(session.data.challenge_id);
+      const rules = await wpEngine.rulesForAccount(session.data.challenge_id, session.data.account_type);
       const onlyCent = rules?.only_cent_account || false;
       const challengeInfo = await tradingChallengeService.getChallengeById(session.data.challenge_id);
       const challengeType = challengeInfo?.type || 'real';
@@ -1581,7 +1581,7 @@ export class TradingRegistrationHandler {
       // Reject non-standard subtypes if pro not allowed
       const isPro2 = subtype === 'pro' || subtype === 'raw_spread' || subtype === 'zero';
       const { evaluationEngine: wpEngine2 } = require('../services/wpEvaluationEngine');
-      const rules2 = await wpEngine2.loadRules(session.data.challenge_id);
+      const rules2 = await wpEngine2.rulesForAccount(session.data.challenge_id, session.data.account_type);
       const allowPro2 = rules2?.allow_professional || false;
       if (isPro2 && !allowPro2) {
         session.step = 'tc_change_acct_number';
@@ -1594,7 +1594,7 @@ export class TradingRegistrationHandler {
 
       // Load rules
       const { evaluationEngine: wpEngine } = require('../services/wpEvaluationEngine');
-      const rules = await wpEngine.loadRules(session.data.challenge_id);
+      const rules = await wpEngine.rulesForAccount(session.data.challenge_id, session.data.account_type);
       const onlyCent = rules?.only_cent_account || false;
 
       // Reject standard account in cent-only challenge

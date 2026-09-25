@@ -1487,3 +1487,63 @@ All changes committed and pushed to `main`. Backend `tsc --noEmit --skipLibCheck
 - Frontend `next build` → exit 0 (only pre-existing unused-var/hooks warnings)
 - Latest commit: `e2022f8`
 
+
+
+---
+
+## Session — September 25, 2026 — Codex Orientation + Git Access Check
+
+- Read the session history and inspected the backend, WinnerPip frontend, category settings resolver, VPS layout, and Git state.
+- Confirmed working repository: `TG Bots/BirrForex Challenges Bot`; frontend: `WinnerPip/winnerpip`. A nested backend repository also exists and should not be confused with this working repository.
+- Current HEAD: `5227787` on `main`: active hosted challenge cards navigate to the dashboard, superseding the registration-closed popup described in the September 24 log.
+- Existing uncommitted changes were preserved: system summary, host test plan, host dashboard target-balance fallback (`parseFloat(...) || 0`), and untracked registration documentation/assets.
+- `git push --dry-run origin main` succeeded with "Everything up-to-date". No actual commit or push was performed. New commits may still be subject to remote branch policies.
+- No application changes or runtime/build tests performed in this orientation session. Awaiting the user's requested fixes.
+
+---
+
+## Session — September 25, 2026 — Rule OFF Audit, Strict Category Isolation, Registration Closure
+
+### User requirements and authorization
+- Investigate screenshots before changing code; then explicitly authorized implementation and direct main deployment.
+- Audit every configurable rule, not only SL. Split Demo/Real rules must never inherit shared configuration.
+- Correct the current production challenge without a staging database copy; preserve rollback capability and document all work.
+
+### Confirmed root causes
+- Losing-trade max-risk branch checked `stop_loss_required` but omitted `rules_enabled.stop_loss_required`; reproduced exact screenshot loss ($98.51) against retained $5 threshold with toggle OFF.
+- SL retry used shared rules and a separate risk calculation path without the enable guard.
+- Scheduler minimum-days/minimum-trades and weekend scheduling read shared config, contrary to split category settings.
+- Legacy manual evaluation used 99999 substitutes for OFF and always enforced weekend crypto prohibition.
+- Login registration CTA ignored challenge status; closed direct links could suppress sign-in or display a Telegram fallback.
+
+### Implementation
+- Added `src/utils/rulePolicy.ts` with common rule types/enable helpers; updated main/manual evaluators and scheduler.
+- Exact rules loading, `requireRules`/`rulesForAccount`, no implicit seeding on reads/evaluation, no shared category fallback. Invalid split account category errors explicitly. Batch evaluation preflights required category configs before evaluation writes.
+- Fixed losing-trade risk guard; disabled SL clears stale pending/conflicting candle state. Retry now invokes canonical account evaluation for matching category, percentage timeline and cent conversion, then publishes/ranks using leaderboardService.
+- Single-account publication now carries growth_percent to live leaderboard.
+- Main zero-trade path handles enabled min-total-trades at challenge end. Manual evaluator explicitly gates configurable checks, adds min-trades end requirement, and honors weekend permission. Its existing percentage approximation remains a legacy limitation; the live WinnerPip engine is the authoritative precise calculation path.
+- Scheduler minimum requirements scope candidate queries to each account category; shared pull runs on weekends if either category permits it.
+- Category-aware account filters/display/cent queries in Telegram, Discord, public/admin/host APIs. Legacy migration cent backfill excludes split challenges so shared rules cannot reinterpret their verified account currency.
+- Public minimum-trades warnings carry category-specific thresholds; client clears obsolete warnings. Missing rule configurations are visibly reported in admin/host/client rather than displayed as another category's settings.
+- Login now loads status in useEffect and disables closed registration, preserving sign-in. Closed direct registration links show authentication UI without Telegram fallback. Losing-trade flag wording no longer falsely claims profit was removed.
+
+### Production investigation (read-only)
+- User signed into Railway locally; no credentials were shared or logged.
+- Correct project: BirrForex Challenge Bot. Service `web` is backend; `BirrForex-Challenges-Bot` is frontend; `Postgres` is database.
+- Original backend/frontend deployed commit: `5227787fd002ec6771a8a37071b9b70bbe110b95`.
+- Challenge 36 `TRIAL` is now `reviewing`, Demo/non-split, all ten enable switches explicitly false.
+- One registration (5248), 15 trades, seven incorrect flags, no disqualifications. Screenshot ticket 2722833495 belongs to it.
+- Latest observed pull batch 628 completed. Reviewing challenges can still perform final pulls, so writers must be stopped during apply/restore.
+
+### Tests and rollback preparation
+- Added 24 passing Node tests: each rule ON/OFF, exact screenshot, split isolation, missing config, mixed rules, percentage risk, cent conversion, legacy weekend/large values, scheduler policy, and repair journal conflict handling.
+- Backend build and TypeScript checks pass. Frontend production build passes with existing lint warnings.
+- Browser smoke passes for active/reviewing/registration_open/draft login and direct closed registration URL, using mocked API responses on localhost.
+- Added `scripts/repair-rules.cjs` and `repair-journal.cjs`; preview/roundtrip always roll back, apply/restore require backend stopped. Repair restricted to explicitly all-OFF rulesets; rejects registration-state and raw trade mutations. No guessed DQ reversals. Notifications suppressed.
+- Private backups outside repository: `../.repair-backups/` (0700), journals 0600, investor passwords excluded. Includes deployment baseline, preview and rollback-verification journals. Pre-existing working-tree diff also saved privately in `/private/tmp/tgbots-before-rule-fix.patch`.
+- Production preview: seven flags → zero; balance stays 9386.25; rank stays 1; nine affected rows (seven trades + staging/live leaderboard). Roundtrip verified exact restoration inside a transaction, then rolled back.
+- `RULES_FIX_ROLLBACK.md` documents scope, commands, deployment identities, and conflict-aware restoration. Git revert alone is insufficient after publishing repaired data.
+
+### Working tree preservation
+- Existing SYSTEM_SUMMARY, HOST_MODE_TEST_PLAN, registration document/assets, and host-dashboard `target_balance || 0` edit are not part of this implementation commit.
+- Deployment and actual production correction are pending at this entry; follow-up below will record verified outcomes.
