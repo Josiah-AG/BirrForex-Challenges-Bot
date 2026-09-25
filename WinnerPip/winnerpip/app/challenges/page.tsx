@@ -86,7 +86,6 @@ export default function ChallengesPage() {
   const [mt5Verified, setMt5Verified] = useState(false);
   const [mt5VerifyData, setMt5VerifyData] = useState<{ balance?: number; isCent?: boolean; server?: string; accountSubtype?: string; depositMode?: string; startingBalance?: number } | null>(null);
   const [showNotOpenPopup, setShowNotOpenPopup] = useState(false);
-  const [showRegClosedPopup, setShowRegClosedPopup] = useState(false);
   const [allocError, setAllocError] = useState<{ hostName?: string; hostMainLink?: string; hostSupportLink?: string } | null>(null);
 
   useEffect(() => {
@@ -228,7 +227,6 @@ export default function ChallengesPage() {
           if (isPast) return handlePastChallengeClick(challenge);
           const ds = challenge.displayStatus || challenge.status;
           if (ds === 'coming_soon' || ds === 'draft') { setShowNotOpenPopup(true); return; }
-          if ((ds === 'ongoing' || ds === 'active') && challenge.hostId && challenge.registrationMode === 'winnerpip') { setShowRegClosedPopup(true); return; }
           handleChallengeClick(challenge);
         }}
         className="text-left w-full glass-hover card-glow rounded-2xl group shadow-[0_12px_40px_rgba(0,0,0,0.4)] border border-white/20 relative overflow-hidden"
@@ -572,20 +570,6 @@ export default function ChallengesPage() {
             <h3 className="text-lg font-bold text-white mb-2">Registration Not Open Yet</h3>
             <p className="text-sm text-gray-400 mb-5">Registration will open soon. Stay tuned for updates!</p>
             <button onClick={() => setShowNotOpenPopup(false)} className="px-6 py-2.5 rounded-xl bg-white/10 border border-white/20 text-gray-300 font-medium text-sm hover:bg-white/15 transition-all">Got it</button>
-          </div>
-        </div>
-      )}
-
-      {/* Registration Closed Popup — shown when active challenge registration has ended */}
-      {showRegClosedPopup && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setShowRegClosedPopup(false)}>
-          <div className="bg-[#1a2235] rounded-2xl max-w-sm w-full border border-white/15 shadow-2xl p-6 text-center" onClick={e => e.stopPropagation()}>
-            <div className="w-14 h-14 rounded-full bg-loss/10 border-2 border-loss/30 flex items-center justify-center mx-auto mb-4">
-              <span className="text-2xl">🔒</span>
-            </div>
-            <h3 className="text-lg font-bold text-white mb-2">Registration is Over</h3>
-            <p className="text-sm text-gray-400 mb-5">This challenge is already underway. Registration is closed — stay tuned for the next challenge!</p>
-            <button onClick={() => setShowRegClosedPopup(false)} className="px-6 py-2.5 rounded-xl bg-white/10 border border-white/20 text-gray-300 font-medium text-sm hover:bg-white/15 transition-all">Got it</button>
           </div>
         </div>
       )}
