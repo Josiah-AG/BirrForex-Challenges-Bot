@@ -1399,3 +1399,91 @@ Two fixes for `max_limit` / `min_limit` (growth-%) challenges, both verified cle
 ### Latest commit (this session)
 - See commit below
 
+
+---
+
+## Session — September 24, 2026 (continued) — Admin Settings Fix + 5 Bug Fixes
+
+All changes committed and pushed to `main`. Backend `tsc --noEmit --skipLibCheck` clean; frontend `next build` clean throughout.
+
+---
+
+### Admin Settings Panel: `challenge` object was missing fields
+
+**Root cause:** `ChallengeSettingsPanel` receives a `challenges` array prop and does its own `challenges.find()` internally. The parent's manually-constructed `challenge` object (only `id/title/status/type`) was never used inside the component. However, `editForm` initializes from `challenge.*` via `useState` — which runs **once on mount**, before the `challenges` array is populated from the API. So all fields defaulted to hardcoded fallbacks (`target_enabled: true`, `target_balance: "60"`, etc.).
+
+**Fixes applied across multiple commits:**
+
+1. `admin/panel/page.tsx` — Added all missing fields to the parent's `challenge` object passed as a prop context (though the component does its own find, this was the first attempt).
+
+2. `admin/panel/page.tsx` — Added `useEffect` that re-syncs `editForm` whenever `challengeId` or `challenges` changes. This is the actual fix — once `challenges` loads from the API, the form is re-populated with real DB values.
+
+3. `admin/panel/page.tsx` — Added `target_enabled` to `editForm` state; added "Require a target" toggle to the settings form UI; added `target_enabled` to the `handleSave` PUT body; added `target_enabled` and all `allow_below_start` / per-category target flags to the admin PUT `/challenge/:id` `allowed` list in `server.ts` (they were silently ignored before).
+
+4. `admin/panel/page.tsx` — `target_balance` default changed from `"60"` to `""` so no-target challenges don't show 60.
+
+5. `src/api/server.ts` — `GET /api/admin/:secretPath/challenges` SELECT was missing `target_enabled`, `host_id`, `real_prizes`, `demo_prizes`, `timezone`, and all `allow_below_start` columns. The response mapping also omitted them, so `challenge.targetEnabled` and `challenge.hostId` were always `undefined` in the admin panel. Fixed: all columns now included in SELECT and response map.
+
+6. `host/dashboard/page.tsx` — Settings form `target_balance` load changed from `?? "60"` to `!= null ? String() : ""`; `target_enabled` normalization hardened against string `"false"` coercion; overview Balance cell now checks `target_enabled !== false` before rendering `→ target`; review step Rewards rows guarded by challenge type (`type !== 'demo'` for Real Winners, etc.); "Require a target" toggle hardened.
+
+**Files modified:** `src/api/server.ts`, `WinnerPip/winnerpip/app/admin/panel/page.tsx`, `WinnerPip/winnerpip/app/host/dashboard/page.tsx`
+
+**Commits (in order):** `92e1606`, `c6c6d63`, `0527e5d`, `7ed4461`, `fc989ac`, `9a5031f`, `3e8a146`, `2c691c4`
+
+---
+
+### 5 Bug Fixes — Commit `e2022f8`
+
+#### 1. Evaluation engine: disabled rules still firing (MAJOR)
+
+**Root cause:** `seedDefaultRules()` was seeding `rules_enabled` with all values `true`. When `evaluate()` or `evaluateSingleAccount()` found no `wp_challenge_rules` row for a challenge, it called `seedDefaultRules()` then retried — resulting in all rules being enforced at their seeded default values (e.g., `max_risk_dollars: 5`, `stop_loss_required: true`). This happened to host challenges that had `getRulesForDisplay()` auto-seed before the host configured their rules, and also to challenges where the rules row was missing for any reason.
+
+**Fix:** `seedDefaultRules()` now seeds all `rules_enabled` values as `false`. The seeded default values (lot size, risk, etc.) remain unchanged for reference, but no rule is enforced unless explicitly enabled. Any challenge that was already configured by admin/host is unaffected (their saved row has the intended `rules_enabled` values).
+
+**File:** `src/services/wpEvaluationEngine.ts`
+
+#### 2. Telegram approval message showed wrong winners for demo/real-only challenges
+
+**Root cause:** The `Real Winners / Demo Winners` line in the host challenge approval Telegram message was unconditional — always showed both, even for demo-only challenges.
+
+**Fix:** Line now filtered by `type`: demo-only shows only "Demo Winners", real-only shows only "Real Winners", hybrid shows both. Same filter applied to the prizes lines.
+
+**File:** `src/api/server.ts` (line ~3473)
+
+#### 3. `pending_approval` challenges appeared on public challenges page
+
+**Root cause:** `GET /api/challenges` WHERE clause only filtered `status != 'deleted'`. Challenges pending admin approval were visible on the public page with a `pending_approval` status badge.
+
+**Fix:** Added `AND c.status != 'pending_approval'` to the WHERE clause.
+
+**File:** `src/api/server.ts`
+
+#### 4. "Register Now" shown for active challenges
+
+**Root cause:** Active hosted winnerpip challenges navigated to the challenge page on card click, with no message that registration is closed.
+
+**Fix:**
+- Added `showRegClosedPopup` state to `challenges/page.tsx`.
+- Card `onClick` for active hosted winnerpip challenges now shows popup: "Registration is Over — This challenge is already underway. Registration is closed — stay tuned for the next challenge!"
+- CTA label for these challenges changed to "Registration Closed".
+
+**File:** `WinnerPip/winnerpip/app/challenges/page.tsx`
+
+#### 5. Rules modal showed "Trades against rules" penalty when all rules are disabled
+
+**Root cause:** `getRulesForDisplay()` unconditionally pushed the "Trades against the rules will have profits disqualified" bullet and the Penalty box was always shown on the client.
+
+**Fix:**
+- `getRulesForDisplay()` now tracks `hasActiveRules` (whether any enforcement rule string was added before the always-shown lines). Only pushes the "Trades against rules" bullet when `hasActiveRules = true`. Also changes "Unlimited trades per day — as long as all rules are followed" to "Unlimited trades per day" when no rules are active.
+- Return type updated: `Promise<{ rules: string[]; isCent: boolean; hasActiveRules: boolean }>`.
+- `challenge/[id]/page.tsx` now stores `rulesHaveEnforcement` from the API response. The Penalty box shows "No restrictions: All trades count fully — no rules are enforced in this challenge." when `rulesHaveEnforcement = false`.
+
+**Files:** `src/services/wpEvaluationEngine.ts`, `WinnerPip/winnerpip/app/challenge/[id]/page.tsx`
+
+---
+
+### Verification
+- Backend `tsc --noEmit --skipLibCheck` → exit 0
+- Frontend `next build` → exit 0 (only pre-existing unused-var/hooks warnings)
+- Latest commit: `e2022f8`
+
