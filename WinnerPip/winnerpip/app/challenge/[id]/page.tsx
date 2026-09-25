@@ -98,6 +98,7 @@ export default function ChallengeDashboard() {
   const myStatsRef = useRef<MyStats | null>(null);
   const [myContext, setMyContext] = useState<LeaderboardEntry[]>([]);
   const [challengeRules, setChallengeRules] = useState<string[]>([]);
+  const [rulesHaveEnforcement, setRulesHaveEnforcement] = useState(true);
   const [minTotalTrades, setMinTotalTrades] = useState<number | null>(null);
   const [depositMode, setDepositMode] = useState<string>('fixed');
 
@@ -291,6 +292,7 @@ export default function ChallengeDashboard() {
         if (res.ok) {
           const data = await res.json();
           setChallengeRules(data.rules || []);
+          setRulesHaveEnforcement(data.hasActiveRules !== false);
         }
       } catch {}
     };
@@ -1900,7 +1902,7 @@ export default function ChallengeDashboard() {
               )}
 
               <div className="bg-white/5 border border-white/10 rounded-xl p-4 mt-4">
-                <p className="text-xs text-gray-400"><span className="text-loss font-semibold">Penalty:</span> Profits from flagged trades are removed from your qualified balance. Losses from flagged trades still count. Repeated or severe violations may result in disqualification.</p>
+                <p className="text-xs text-gray-400">{rulesHaveEnforcement ? <><span className="text-loss font-semibold">Penalty:</span> Profits from flagged trades are removed from your qualified balance. Losses from flagged trades still count. Repeated or severe violations may result in disqualification.</> : <><span className="text-profit font-semibold">No restrictions:</span> All trades count fully — no rules are enforced in this challenge.</>}</p>
               </div>
             </div>
           </div>

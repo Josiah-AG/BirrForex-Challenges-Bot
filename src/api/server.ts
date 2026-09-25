@@ -474,7 +474,7 @@ app.get('/api/challenges', async (req, res) => {
               h.display_name as host_display_name, h.main_link as host_main_link
        FROM trading_challenges c
        LEFT JOIN hosts h ON c.host_id = h.id
-       WHERE c.status != 'deleted'
+       WHERE c.status != 'deleted' AND c.status != 'pending_approval'
        ORDER BY c.created_at DESC
        LIMIT ${includePast ? 50 : 20}`
     );
@@ -3471,9 +3471,10 @@ app.post('/api/host/challenges', hostAuthMiddleware, async (req: any, res) => {
           `<b>Start:</b> ${fmtDate(start_date)}\n` +
           `<b>End:</b> ${fmtDate(end_date)}\n` +
           detailsBlock +
-          `<b>Real Winners:</b> ${real_winners_count || 0}   <b>Demo Winners:</b> ${demo_winners_count || 0}\n` +
-          (real_prizes?.length ? `<b>Real Prizes:</b> ${real_prizes.map((p: any) => `$${p}`).join(', ')}\n` : '') +
-          (demo_prizes?.length ? `<b>Demo Prizes:</b> ${demo_prizes.map((p: any) => `$${p}`).join(', ')}\n` : '') +
+          (type !== 'demo' ? `<b>Real Winners:</b> ${real_winners_count || 0}\n` : '') +
+          (type !== 'real' ? `<b>Demo Winners:</b> ${demo_winners_count || 0}\n` : '') +
+          (type !== 'demo' && real_prizes?.length ? `<b>Real Prizes:</b> ${real_prizes.map((p: any) => `$${p}`).join(', ')}\n` : '') +
+          (type !== 'real' && demo_prizes?.length ? `<b>Demo Prizes:</b> ${demo_prizes.map((p: any) => `$${p}`).join(', ')}\n` : '') +
           `<b>Registration:</b> ${req.body.registration_mode === 'winnerpip' ? 'Online (WinnerPip)' : 'Manual (CSV)'}\n` +
           `<b>Timezone:</b> ${timezone || 'Africa/Nairobi'}\n` +
           rulesBlock + `\n` +

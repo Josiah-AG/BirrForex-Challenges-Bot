@@ -1906,23 +1906,23 @@ export class WpEvaluationEngine {
       weekend_trading: false, min_active_days: 7, min_total_trades: 10,
       only_cent_account: false, allow_professional: false,
       rules_enabled: {
-        max_lot_size: true,
-        max_open_trades: true,
-        pair_limit: true,
-        stop_loss_required: true,
-        daily_loss_cap: true,
-        max_hold_hours: true,
-        min_trade_duration: true,
-        weekend_trading: true,
-        min_active_days: true,
-        min_total_trades: true,
+        max_lot_size: false,
+        max_open_trades: false,
+        pair_limit: false,
+        stop_loss_required: false,
+        daily_loss_cap: false,
+        max_hold_hours: false,
+        min_trade_duration: false,
+        weekend_trading: false,
+        min_active_days: false,
+        min_total_trades: false,
       },
     };
     await this.saveRules(challengeId, defaults);
     console.log(`✅ WP Evaluation: Seeded default rules for challenge ${challengeId}`);
   }
 
-  async getRulesForDisplay(challengeId: number, ruleCode: string = 'config'): Promise<{ rules: string[]; isCent: boolean }> {
+  async getRulesForDisplay(challengeId: number, ruleCode: string = 'config'): Promise<{ rules: string[]; isCent: boolean; hasActiveRules: boolean }> {
     let cfg = await this.loadRules(challengeId, ruleCode);
     if (!cfg && ruleCode === 'config') {
       // Auto-seed defaults so users always see rules (only for the base config)
@@ -1933,7 +1933,7 @@ export class WpEvaluationEngine {
     if (!cfg && ruleCode !== 'config') {
       cfg = await this.loadRules(challengeId, 'config');
     }
-    if (!cfg) return { rules: ['Rules not yet configured'], isCent: false };
+    if (!cfg) return { rules: ['Rules not yet configured'], isCent: false, hasActiveRules: false };
     const isCent = cfg.only_cent_account || false;
     const rules: string[] = [];
 
@@ -1996,11 +1996,14 @@ export class WpEvaluationEngine {
     if (!cfg.weekend_trading && isRuleEnabled(cfg, 'weekend_trading')) rules.push('🚫 No weekend trading');
     if (cfg.min_active_days && isRuleEnabled(cfg, 'min_active_days')) rules.push(`📅 Minimum ${cfg.min_active_days} active trading days to qualify`);
     if (cfg.min_total_trades && isRuleEnabled(cfg, 'min_total_trades')) rules.push(`📊 Minimum ${cfg.min_total_trades} total trades to qualify`);
+    // Track whether any enforcement rules are active (rules above this line, not the always-shown ones)
+    const hasActiveRules = rules.length > 0;
     rules.push('🚫 No recharging (additional deposits) allowed during the challenge');
-    rules.push('✅ Unlimited trades per day — as long as all rules are followed');
+    rules.push(hasActiveRules ? '✅ Unlimited trades per day — as long as all rules are followed' : '✅ Unlimited trades per day');
     rules.push('✅ No leverage limit');
-    rules.push('⚖️ Trades against the rules will have profits disqualified (losses still count)');
-    return { rules, isCent };
+    // Only show the penalty bullet if there are active enforcement rules
+    if (hasActiveRules) rules.push('⚖️ Trades against the rules will have profits disqualified (losses still count)');
+    return { rules, isCent, hasActiveRules };
   }
 
   // ==================== SL RECHECK ====================
