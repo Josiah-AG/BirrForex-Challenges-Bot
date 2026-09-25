@@ -1547,3 +1547,17 @@ All changes committed and pushed to `main`. Backend `tsc --noEmit --skipLibCheck
 ### Working tree preservation
 - Existing SYSTEM_SUMMARY, HOST_MODE_TEST_PLAN, registration document/assets, and host-dashboard `target_balance || 0` edit are not part of this implementation commit.
 - Deployment and actual production correction are pending at this entry; follow-up below will record verified outcomes.
+
+### Verified production outcome — September 25, 2026
+- Stopped backend service `web` after checking no pull batch was running, preventing evaluation writers during repair. Postgres remained running.
+- Ran final transactional rollback roundtrip successfully before applying: affected rows restored exactly, transaction rolled back.
+- Applied `node scripts/repair-rules.cjs apply 36 '../.repair-backups/challenge-36-applied.json'`: one account, nine changed rows; seven incorrect flags cleared. Balance remained $9,386.25 and rank remained 1. Raw trades and registration state preserved; no notifications sent.
+- Actual before/after rollback journal saved and synced before database commit at `../.repair-backups/challenge-36-applied.json` (private, outside Git). Restore refuses conflicting subsequent changes; do not overwrite later legitimate activity blindly.
+- Committed and pushed implementation directly to `main`: `d297933c44cef58c4db669bdbc9ef30583d36e09`.
+- Railway backend deployment `16cf8fbf-0e76-4229-a29c-67c6225cfb40` and frontend deployment `d0bbab99-6cc9-49db-9dec-602d7be4484f` both reached SUCCESS at that commit; backend resumed service.
+- Live API verification: `/api/health` HTTP 200; challenge 36 `config_demo` rules request correctly resolves this non-split challenge's own config with `hasActiveRules: false`; Demo leaderboard shows 15 total/qualified trades, zero flags, zero removed profit, balance 9386.25, rank 1, no disqualification, disabled minimum-trades threshold null.
+- Real browser verification against winnerpip.com without mocks: login challenge 36 has disabled Registration Closed and Sign In present; direct `?register=true` link has disabled Registration Closed, Sign In with Account present, and no Telegram registration fallback.
+- Challenge is reviewing at verification time. Active-state behavior also covered by local browser smoke tests; production challenge status was not changed for testing.
+- Validation completed: 24 Node tests, backend TypeScript/build, frontend production build and browser smoke. Existing frontend lint warnings remain. Legacy manual percentage approximation is documented above, not claimed to have been replaced.
+- This documentation follow-up records completed production verification; its push may trigger routine Railway redeployment of identical application code.
+- Existing unrelated local changes remain uncommitted and intact.
