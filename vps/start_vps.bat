@@ -1,12 +1,19 @@
 @echo off
 setlocal enabledelayedexpansion
+REM Keep logs visible and Unicode-safe in CMD and redirected diagnostics.
+set PYTHONUTF8=1
+set PYTHONIOENCODING=utf-8
+cd /d "%~dp0.."
+REM Guarded rolling restart launches this same BAT once for each visible console.
+if /I "%~1"=="--worker" goto single_worker
+if /I "%~1"=="--router" goto single_router
 echo ==================================================
 echo   WinnerPip VPS — Starting System
 echo   Python 3.12 + Official MT5 Terminals
 echo ==================================================
 echo.
 
-cd /d C:\BirrForex
+cd /d "%~dp0.."
 
 REM Ask user how many terminals to start
 set /p NUM_TERMINALS="How many terminals to start? (1-15): "
@@ -15,6 +22,10 @@ REM Validate input
 if "%NUM_TERMINALS%"=="" set NUM_TERMINALS=10
 if %NUM_TERMINALS% LSS 1 set NUM_TERMINALS=1
 if %NUM_TERMINALS% GTR 15 set NUM_TERMINALS=15
+
+REM Refuse duplicates; use the guarded restart script for already-running workers.
+powershell -NoProfile -Command "$p=@(8000..(8000+[int]$env:NUM_TERMINALS)); if(Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | Where-Object { $_.LocalPort -in $p }) { Write-Host 'Workers already running. Use restart_python.ps1 to restart safely.'; exit 1 }"
+if errorlevel 1 goto launch_failed
 
 echo.
 echo   Starting %NUM_TERMINALS% terminals...
@@ -42,7 +53,7 @@ echo.
 echo [2/3] Starting %NUM_TERMINALS% workers (py -3.12)...
 for /L %%i in (1,1,%NUM_TERMINALS%) do (
     set /a PORT=8000+%%i
-    start "VPS Worker %%i" /min py -3.12 vps\worker.py %%i !PORT!
+    start "VPS Worker %%i" cmd /k call "%~f0" --worker %%i !PORT!
     timeout /t 2 /nobreak >nul
 )
 echo     All %NUM_TERMINALS% workers started.
@@ -54,4 +65,22 @@ echo.
 echo [3/3] Starting router on port 8000 (%NUM_TERMINALS% workers)...
 echo ==================================================
 set VPS_TERMINAL_COUNT=%NUM_TERMINALS%
-py -3.12 vps\router.py
+title WinnerPip Router
+py -3.12 -u vps\router.py
+goto :eof
+
+:single_worker
+title WinnerPip Worker %~2
+py -3.12 -u vps\worker.py %~2 %~3
+goto :eof
+
+:single_router
+title WinnerPip Router
+set VPS_TERMINAL_COUNT=%~2
+py -3.12 -u vps\router.py
+goto :eof
+
+:launch_failed
+echo No new workers were started.
+pause
+exit /b 1

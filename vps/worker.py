@@ -31,6 +31,17 @@ from typing import Optional
 import uvicorn
 
 
+def configure_log_streams():
+    # Diagnostic characters must never turn a successful broker login into HTTP 500.
+    # Preserve the selected encoding; escape unsupported glyphs on legacy consoles.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, 'reconfigure'):
+            stream.reconfigure(errors='backslashreplace')
+
+
+configure_log_streams()
+
+
 def _get_git_commit() -> str:
     """Returns the short git commit hash of the checkout this file is running
     from, so we can always tell — from logs or /health — exactly which code

@@ -34,12 +34,13 @@ foreach ($ownedProcess in $owned) {
     $health = Invoke-RestMethod "http://127.0.0.1:$port/health" -TimeoutSec 8
     if ($health.busy) { throw "Worker on port $port is busy; deployment stopped" }
     Stop-Process -Id $ownedProcess.Pid -ErrorAction Stop
-    $arguments = if ($port -eq 8000) { @('-u','router.py') } else { @('-u','worker.py',[string]($port-8000),[string]$port) }
-    $started = Start-Process -FilePath $ownedProcess.Python -ArgumentList $arguments -WorkingDirectory $PSScriptRoot -PassThru -WindowStyle Hidden -RedirectStandardOutput "$logDir\$port.out.log" -RedirectStandardError "$logDir\$port.err.log"
+    $roleArguments = if ($port -eq 8000) { "--router $WorkerCount" } else { "--worker $($port-8000) $port" }
+    $arguments = '/k call "' + (Join-Path $PSScriptRoot 'start_vps.bat') + '" ' + $roleArguments
+    $started = Start-Process -FilePath $env:ComSpec -ArgumentList $arguments -WorkingDirectory $repo -PassThru -WindowStyle Normal
     $ready=$false
     for ($attempt=0;$attempt -lt 30;$attempt++) {
         Start-Sleep -Seconds 2
-        if ($started.HasExited) { throw "Python exited on port $port; inspect restricted logs" }
+        if ($started.HasExited) { throw "Console exited on port $port; inspect the visible worker window" }
         try {
             $check=Invoke-RestMethod "http://127.0.0.1:$port/health" -TimeoutSec 5
             if ($check.git_commit -and $check.git_commit -ne 'unknown' -and $head.StartsWith([string]$check.git_commit) -and $check.status -eq 'ok' -and ($port -eq 8000 -or $check.ipc_connected)) { $ready=$true;break }
