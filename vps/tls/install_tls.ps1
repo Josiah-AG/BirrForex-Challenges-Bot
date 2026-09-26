@@ -1,4 +1,5 @@
 $ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
 $root = 'C:\ProgramData\WinnerPipTLS'
 $taskName = 'WinnerPip Encrypted Ingress'
 if (Get-NetTCPConnection -State Listen -LocalPort 80 -ErrorAction SilentlyContinue) { throw 'Port 80 is occupied; inspect before changing anything.' }

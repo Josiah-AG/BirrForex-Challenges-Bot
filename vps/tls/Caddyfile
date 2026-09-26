@@ -1,5 +1,7 @@
 {
     admin off
+    http_port 8080
+    https_port 80
     auto_https disable_redirects
 }
 
