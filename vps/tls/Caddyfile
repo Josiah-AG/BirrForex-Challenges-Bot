@@ -1,0 +1,11 @@
+{
+    admin off
+    auto_https disable_redirects
+}
+
+# Dedicated encrypted ingress. Port 80 is already allowed by the VPS perimeter;
+# this listener speaks TLS, not plaintext HTTP. The existing router is unchanged.
+https://13.140.159.202:80 {
+    tls internal
+    reverse_proxy 127.0.0.1:8000
+}
