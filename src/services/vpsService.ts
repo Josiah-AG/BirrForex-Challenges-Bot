@@ -1,5 +1,5 @@
 import { terminalInventory } from '../utils/terminalInventory';
-import axios from 'axios';
+import axios from '../services/workloadAxios';
 import { config } from '../config';
 
 export interface VpsVerifyResult {

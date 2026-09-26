@@ -1,3 +1,4 @@
+import {installWorkloadTelemetry} from '../services/workloadTelemetry';
 import { migratePullIntegrity } from './pullIntegrityMigration';
 import { migrateHardening } from './hardeningMigration';
 import { readFileSync } from 'fs';
@@ -486,6 +487,7 @@ async function migrate() {
 
     await migrateHardening();
     await migratePullIntegrity();
+    try {await installWorkloadTelemetry((sql,args)=>db.query(sql,args),false);}catch {console.error('[workload-telemetry] migration failed; capture unavailable');}
     console.log('✅ Database migration completed successfully!');
     process.exit(0);
   } catch (error) {

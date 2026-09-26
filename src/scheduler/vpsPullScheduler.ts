@@ -1,3 +1,4 @@
+import {withWorkloadContext} from '../services/workloadTelemetry';
 import { terminalInventory } from '../utils/terminalInventory';
 import { beginPullJournal, checkpointPullJournal } from '../services/pullRollbackJournal';
 import { validateHistorySnapshot } from '../utils/historySnapshot';
@@ -11,7 +12,7 @@ import { isRuleEnabled, isWeekendProhibited } from '../utils/rulePolicy';
 // of queue, excluded from the terminal that just failed it). Non-credential
 // failures get requeued up to MAX_ACCOUNT_ATTEMPTS times. No separate retry phases.
 import cron from 'node-cron';
-import axios from 'axios';
+import axios from '../services/workloadAxios';
 import { Bot } from '../bot/bot';
 import { tradingChallengeService, TradingChallenge } from '../services/tradingChallengeService';
 import { evaluationEngine, candleTerminalManager } from '../services/wpEvaluationEngine';
@@ -464,7 +465,10 @@ export class VpsPullScheduler {
    * Run pull cycle for a specific challenge ID — bypasses status checks.
    * Used by admin "Full Pull + Evaluate + Rank" button.
    */
-  async runPullCycleForChallenge(challengeId: number, overrideLock = false, ownsCoordinator = false, includeDisqualified = false, fullHistory = false) {
+  async runPullCycleForChallenge(challengeId:number,overrideLock=false,ownsCoordinator=false,includeDisqualified=false,fullHistory=false) {
+    return withWorkloadContext(`challenge:${challengeId}`,()=>this.runPullCycleForChallengeImpl(challengeId,overrideLock,ownsCoordinator,includeDisqualified,fullHistory));
+  }
+  private async runPullCycleForChallengeImpl(challengeId: number, overrideLock = false, ownsCoordinator = false, includeDisqualified = false, fullHistory = false) {
     if (this.isRunning) {
       // Never cancel another host's workers or reset their lock.
       throw new Error('An update is already running. This challenge must wait for the next available slot.');

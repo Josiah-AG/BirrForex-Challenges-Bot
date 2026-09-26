@@ -1,3 +1,4 @@
+import {workloadReport} from '../services/workloadTelemetry';
 import { terminalInventory } from '../utils/terminalInventory';
 import { normalizeChallengeInput } from '../utils/configValidation';
 import { countAboveTargets } from '../services/challengeMetrics';
@@ -4119,7 +4120,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/pulls`, adminIpCheck, asy
     // Live inventory is independent of historical batch statistics.
     let liveTerminals: ReturnType<typeof terminalInventory> | null = null;
     try {
-      const health = await require('axios').get(`${config.vpsApiUrl.replace(/\/$/, '')}/health`, {
+      const health = await require('../services/workloadAxios').default.get(`${config.vpsApiUrl.replace(/\/$/, '')}/health`, {
         headers: { 'X-API-Key': config.vpsApiKey }, timeout: 5000,
       });
       liveTerminals = terminalInventory(health.data);
@@ -4169,7 +4170,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/vps-health`, adminIpCheck, async (req, 
       });
     }
 
-    const axios = require('axios');
+    const axios = require('../services/workloadAxios').default;
 
     // Ping VPS health endpoint
     let vpsStatus: any = { reachable: false };
@@ -4306,6 +4307,21 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/vps-health`, adminIpCheck, async (req, 
  * live current-interval view (requests by lane, per-terminal usage, down events,
  * reroutes, contention, diagnostics).
  */
+app.get(`/api/admin/${ADMIN_SECRET_PATH}/workload-report`, adminIpCheck, async (req, res) => {
+  try {res.json(await workloadReport((sql,args)=>db.query(sql,args),req.query.days));}
+  catch {res.status(503).json({error:'Workload history unavailable'});}
+});
+app.get(`/api/admin/${ADMIN_SECRET_PATH}/workload-events`, adminIpCheck, async (req, res) => {
+  try {
+    const days=Math.max(1,Math.min(90,Number(req.query.days)||7));
+    const offset=Math.max(0,Math.min(10000000,Math.floor(Number(req.query.offset)||0)));
+    const jobs=req.query.kind==='jobs';
+    const sql=jobs?'SELECT * FROM workload_job_events WHERE event_at>=NOW()-$1*INTERVAL \'1 day\' ORDER BY id LIMIT 500 OFFSET $2':'SELECT * FROM workload_requests WHERE requested_at>=NOW()-$1*INTERVAL \'1 day\' ORDER BY requested_at,id LIMIT 500 OFFSET $2';
+    const args=[days,offset];const result=await db.query(sql,args);
+    res.json({kind:jobs?'jobs':'requests',days,offset,next_offset:result.rows.length===500?offset+500:null,rows:result.rows});
+  }catch {res.status(503).json({error:'Workload history unavailable'});}
+});
+
 app.get(`/api/admin/${ADMIN_SECRET_PATH}/vps-report`, adminIpCheck, async (req, res) => {
   try {
     const { vpsService } = require('../services/vpsService');
@@ -7565,7 +7581,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/retry-all-failed`, admin
     }
 
     const total = failedAccounts.rows.length;
-    const health = await require('axios').get(`${vpsUrl}/health`, {timeout:15000});
+    const health = await require('../services/workloadAxios').default.get(`${vpsUrl}/health`, {timeout:15000});
     const terminalIds = terminalInventory(health.data).healthyIds;
     if(!terminalIds.length)return res.status(503).json({error:'No healthy VPS terminals available'});
 
@@ -7576,7 +7592,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/retry-all-failed`, admin
 
     // Run in background — parallel across all terminals
     (async () => {
-      const axios = require('axios');
+      const axios = require('../services/workloadAxios').default;
       const queue = [...failedAccounts.rows];
       let processed = 0;
 
@@ -7700,7 +7716,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/update-password`, adminI
     const vpsKey = config.vpsApiKey;
     if (vpsUrl && vpsKey) {
       try {
-        const axios = require('axios');
+        const axios = require('../services/workloadAxios').default;
         const verifyRes = await axios.post(`${vpsUrl}/verify`, {
           account: reg.account_number, server: reg.mt5_server, password: newPassword, api_key: vpsKey,
         }, { timeout: 25000 });
@@ -7818,7 +7834,7 @@ app.post('/api/me/update-password', authMiddleware, async (req: any, res) => {
     const vpsKey = config.vpsApiKey;
     if (vpsUrl && vpsKey) {
       try {
-        const axios = require('axios');
+        const axios = require('../services/workloadAxios').default;
         const verifyRes = await axios.post(`${vpsUrl}/verify`, {
           account: reg.account_number, server: reg.mt5_server, password: newPassword, api_key: vpsKey,
         }, { timeout: 25000 });
@@ -7877,7 +7893,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/verify-account`, adminIp
     }
 
     // Try up to 3 times with 2s delay between attempts
-    const axios = require('axios');
+    const axios = require('../services/workloadAxios').default;
     const inventory = terminalInventory((await axios.get(`${vpsUrl}/health`, {timeout:15000})).data);
     const terminalIds = inventory.healthyIds.slice(0,3);
     if(!terminalIds.length)return res.status(503).json({verified:false,error:'No healthy VPS terminals available'});
