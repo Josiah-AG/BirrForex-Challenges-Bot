@@ -44,7 +44,7 @@ function wrapEmail(content: string): string {
           <!-- FOOTER: dark navy -->
           <tr>
             <td align="center" bgcolor="#0f1a2e" style="background-color: #0f1a2e; padding: 20px 32px;">
-              <a href="https://linktr.ee/birrforex" target="_blank" style="color: #8a9bb5; font-size: 12px; text-decoration: none;">
+              <a href="https://www.birrforex.com/contact-winnerpip" target="_blank" style="color: #8a9bb5; font-size: 12px; text-decoration: none;">
                 Powered by <span style="color: #d4a017; font-weight: 700;">BirrForex</span>
               </a>
             </td>
