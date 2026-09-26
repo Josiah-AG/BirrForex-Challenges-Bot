@@ -34,7 +34,7 @@ foreach ($ownedProcess in $owned) {
     $health = Invoke-RestMethod "http://127.0.0.1:$port/health" -TimeoutSec 8
     if ($health.busy) { throw "Worker on port $port is busy; deployment stopped" }
     Stop-Process -Id $ownedProcess.Pid -ErrorAction Stop
-    $arguments = if ($port -eq 8000) { @('-u','router.py') } else { @('-u','worker.py',[string]($port-8000)) }
+    $arguments = if ($port -eq 8000) { @('-u','router.py') } else { @('-u','worker.py',[string]($port-8000),[string]$port) }
     $started = Start-Process -FilePath $ownedProcess.Python -ArgumentList $arguments -WorkingDirectory $PSScriptRoot -PassThru -WindowStyle Hidden -RedirectStandardOutput "$logDir\$port.out.log" -RedirectStandardError "$logDir\$port.err.log"
     $ready=$false
     for ($attempt=0;$attempt -lt 30;$attempt++) {
