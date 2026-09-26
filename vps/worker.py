@@ -1461,6 +1461,7 @@ class PullRequest(BaseModel):
     from_date:        Optional[str] = None
     orders_from_date: Optional[str] = None
     extended_sync:    Optional[bool] = False
+    known_tickets: Optional[list[int]] = None
     protocol_version: int = 1
     request_id: Optional[str] = None
     anchor_cutoff: Optional[str] = None
@@ -1577,7 +1578,7 @@ def pull(req: PullRequest):
             _current_account_str = str(account_number)
             _consecutive_failures = 0
             anchor = {"cutoff": req.anchor_cutoff, "balance": req.anchor_balance,"digest":req.prior_digest,"repair_from":req.repair_from} if req.anchor_cutoff and req.anchor_balance is not None else None
-            result = collect_snapshot(mt5, account_number, req.server, req.from_date, anchor,budget=max(1,90-(time.monotonic()-started)))
+            result = collect_snapshot(mt5, account_number, req.server, req.from_date, anchor,budget=max(1,90-(time.monotonic()-started)),known_tickets=req.known_tickets)
             result.update(terminal_used=TERMINAL_ID, terminal_id=TERMINAL_ID, request_id=req.request_id)
             return result
         except IncompleteHistory as error:

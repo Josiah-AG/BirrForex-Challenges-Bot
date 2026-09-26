@@ -105,7 +105,7 @@ def reconstruct_position(deals):
 
 
 def collect_snapshot(mt5, account, server, from_date=None, anchor=None, sleep=time.sleep,
-                     monotonic=time.monotonic, budget=70):
+                     monotonic=time.monotonic, budget=70, known_tickets=None):
     """One account lock must cover this entire operation. No network or login retry here.
     A stable manifest, account identity and signed ledger must all agree.
     """
@@ -149,7 +149,8 @@ def collect_snapshot(mt5, account, server, from_date=None, anchor=None, sleep=ti
             cutoff_ms = int(cutoff.timestamp() * 1000)
             candidate = [d for d in history if int(start.timestamp()*1000) < millis(d) <= cutoff_ms]
             candidate_balance = anchor_balance + sum((economic_change(d) for d in candidate), Decimal(0))
-            if abs(candidate_balance - balance) <= tolerance:
+            known_present = set(known_tickets or []).issubset({int(d.ticket) for d in history})
+            if known_present and abs(candidate_balance - balance) <= tolerance:
                 accepted = history
                 break
         sleep(1)

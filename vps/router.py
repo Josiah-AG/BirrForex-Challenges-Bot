@@ -749,6 +749,7 @@ class PullRequest(BaseModel):
     # myFXpath priority lane: when True, this request is granted the next freed
     # terminal slot ahead of waiting normal-priority (Challenge) requests.
     priority:         Optional[bool] = False
+    known_tickets: Optional[list[int]] = None
     protocol_version: int = 1
     request_id: Optional[str] = None
     anchor_cutoff: Optional[str] = None

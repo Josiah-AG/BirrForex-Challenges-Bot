@@ -14,7 +14,7 @@ class EndpointTests(unittest.TestCase):
         self.mt=N(login=lambda *a,**kw:True)
         self.env={'PullRequest':object,'API_KEY':'test','HTTPException':HttpError,'TERMINAL_ID':1,'_lock':threading.Lock(),'_dead_mode':False,'_recovery_in_progress':False,'ensure_ipc':lambda:True,'mt5':self.mt,'time':time,'_get_error_code':lambda:-6,'CREDENTIAL_ERROR_CODES':{-6},'_schedule_idle_restore':lambda:None,'collect_snapshot':lambda *a,**kw:{'success':True,'complete':True},'IncompleteHistory':RuntimeError}
         exec(compile(ast.Module(body=[fn],type_ignores=[]),'worker-endpoint','exec'),self.env)
-        self.req=N(api_key='test',account='1',server='Broker',password='synthetic',protocol_version=2,request_id='r',anchor_cutoff=None,anchor_balance=None,prior_digest=None,repair_from=None,from_date=None)
+        self.req=N(api_key='test',account='1',server='Broker',password='synthetic',protocol_version=2,request_id='r',anchor_cutoff=None,anchor_balance=None,prior_digest=None,repair_from=None,from_date=None,known_tickets=None)
         return self.env['pull']
     def test_busy_does_not_login(self):
         pull=self.setup_endpoint();self.env['_lock'].acquire();self.mt.login=lambda *a,**kw:self.fail('busy terminal must not log in')

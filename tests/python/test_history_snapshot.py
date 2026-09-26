@@ -34,6 +34,10 @@ class SnapshotTests(unittest.TestCase):
         self.assertTrue(self.collect(mt)['complete'])
         self.assertGreaterEqual(reads[0],8)
 
+    def test_known_ticket_prevents_empty_zero_false_success(self):
+        with self.assertRaises(IncompleteHistory):
+            collect_snapshot(MT([],0),1,'Broker',sleep=lambda _:None,known_tickets=[123])
+
     def test_empty_zero_account(self):self.assertTrue(self.collect(MT([],0))['complete'])
     def test_balance_without_history(self):
         with self.assertRaisesRegex(IncompleteHistory,'ledger'):self.collect(MT([],100))
