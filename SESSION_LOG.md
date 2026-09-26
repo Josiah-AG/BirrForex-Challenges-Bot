@@ -1766,3 +1766,10 @@ Important finding: dispatcher targets8/4 only from current router demand; it is 
 - Rollback: WORKLOAD_TELEMETRY_ENABLED=false plus backend restart removes job trigger and bypasses request capture; history is retained. Direct code rollback must remove only workload_job_event trigger first. See docs/WORKLOAD_HISTORY.md.
 - Validation: both TypeScript builds passed; WinnerPip 61 regression tests, MyFxPath 17 regression tests passed. Local PostgreSQL integration tests passed independently for both helpers: persistence, migration idempotence, job-pruning survival, privacy, unfinished state, disabled capture and injected DB failure.
 - Deployment verification will be recorded separately after release. VPS workers require no restart for this backend-only instrumentation.
+
+### Workload history production verification
+- Released application commit d799cc0 to main; Railway web deployment 3f0d509b-a27b-4d17-b782-60a81680a812 succeeded.
+- Authenticated workload report/export returned 200; unauthenticated report returned 401. Read-only VPS report requests produced two durable records with zero capture write failures.
+- VPS C:\BirrForex fast-forwarded to application commit using an SSH pseudo-terminal after non-PTY child commands exited 66. No router/worker restarts; runtime source unchanged.
+- MyFxPath release f6bc3ad also succeeded. Its production database independently contained 44 completed request records, zero unfinished, 30 explicit baseline job events and an enabled trigger at verification.
+- Existing MyFxPath request protection returned 429 to the verification client; authenticated MyFxPath report/export HTTP smoke checks remain unverified. Protection was not changed.
