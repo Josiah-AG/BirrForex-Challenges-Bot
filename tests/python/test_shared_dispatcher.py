@@ -72,6 +72,18 @@ class DispatchTests(unittest.IsolatedAsyncioTestCase):
     async def test_fixed_terminal_identity_and_exclusions(self):
         t,e=self.start('challenge',{11});await self.settle();self.assertEqual(set(self.d.active),{11});e.set();self.assertEqual(await t,11)
         t,e=self.start('myfxpath',{3,4});await self.settle();self.assertNotIn(11,self.d.active)
+    async def test_all_supported_pool_sizes(self):
+        for n in range(3,16):
+            d=SharedDispatcher(n);await d.observe(range(1,n+1),[])
+            release=asyncio.Event()
+            async def op(lane):
+                async with d.lease(lane,range(1,n+1),'pull'):await release.wait()
+            ts=[asyncio.create_task(op(lane)) for _ in range(n) for lane in ['challenge','myfxpath']]
+            await asyncio.sleep(.01)
+            self.assertEqual(d.snapshot()['lanes']['myfxpath']['running'],n//3)
+            self.assertEqual(d.snapshot()['lanes']['challenge']['running'],n-n//3)
+            release.set();await asyncio.gather(*ts)
+
     async def test_no_secrets_in_report(self):
         self.start('myfxpath');await self.settle();s=self.d.snapshot()
         self.assertEqual(s['available'],11);self.assertNotIn('password',str(s));self.assertNotIn('account',str(s))

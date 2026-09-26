@@ -166,6 +166,7 @@ def _live_report():
 async def _observe_dispatch_workers():
     while True:
         try:
+            held_at_probe = set(dispatcher.active)
             async with httpx.AsyncClient(timeout=3) as client:
                 async def check(i):
                     try:
@@ -175,7 +176,7 @@ async def _observe_dispatch_workers():
                     except Exception:
                         return i, False, True
                 states = await asyncio.gather(*(check(i) for i in range(1, NUM_WORKERS+1)))
-            await dispatcher.observe([i for i, ok, busy in states if ok], [i for i, ok, busy in states if busy and i not in dispatcher.active])
+            await dispatcher.observe([i for i, ok, busy in states if ok], [i for i, ok, busy in states if busy and i not in dispatcher.active and (i not in held_at_probe or i in dispatcher.external_busy)])
         except Exception:
             await dispatcher.observe([], range(1, NUM_WORKERS+1))
         await asyncio.sleep(2)

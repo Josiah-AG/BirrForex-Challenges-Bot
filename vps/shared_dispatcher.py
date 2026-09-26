@@ -30,7 +30,8 @@ class SharedDispatcher:
 
     def targets(self):
         n = len(self.healthy)
-        return {'challenge': n - n//3, 'myfxpath': n//3}
+        myfx = max(1, n//3) if n else 0
+        return {'challenge': max(1, n-myfx) if n else 0, 'myfxpath': myfx}
 
     def _choice(self):
         free = self.healthy - self.external_busy - self.active.keys()
@@ -42,7 +43,7 @@ class SharedDispatcher:
         target = self.targets()
         pending = {w['lane'] for w in self.waiters}
         if len(pending) == 2:
-            if len(self.healthy) < 3:
+            if len(self.healthy) == 1:
                 # Very small pools still serve both apps (2:1 turns for one terminal).
                 preferred = ('challenge', 'challenge', 'myfxpath')[self.single_turn % 3]
             else:

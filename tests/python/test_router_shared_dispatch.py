@@ -56,6 +56,16 @@ class RouterTests(unittest.IsolatedAsyncioTestCase):
     async def test_rollback_legacy_path(self):
         router.SHARED_DISPATCH_ENABLED=False;self.release.set();r=await self.request(False,3)
         self.assertEqual(r.json()['terminal_used'],3);self.assertEqual(router.dispatcher.stats['challenge']['completed'],0)
+    async def test_delayed_busy_probe_does_not_hold_finished_reservation(self):
+        router.dispatcher.active[1]={'lane':'challenge','operation':'pull','since':time.monotonic()}
+        async def delayed_health(req):
+            router.dispatcher.active.pop(1,None)
+            return httpx.Response(200,json={'status':'ok','ipc_connected':True,'busy':req.url.port==8001})
+        with patch.object(router.httpx,'AsyncClient',lambda **kw:OriginalClient(transport=httpx.MockTransport(delayed_health),**kw)):
+            task=asyncio.create_task(router._observe_dispatch_workers())
+            await asyncio.sleep(.02);task.cancel();await asyncio.gather(task,return_exceptions=True)
+        self.assertNotIn(1,router.dispatcher.external_busy)
+
     async def test_report_and_auth(self):
         r=await self.client.get('/vps-report',params={'api_key':'wrong'});self.assertEqual(r.status_code,401)
         r=await self.client.get('/vps-report',params={'api_key':'synthetic-test-key'});a=r.json()['report']['allocation']
