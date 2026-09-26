@@ -128,7 +128,7 @@ def collect_snapshot(mt5, account, server, from_date=None, anchor=None, sleep=ti
     stable = 0
     accepted = None
     # Deliberately re-read the broker range; None must never become an empty tuple.
-    for _ in range(12):
+    for _ in range(45):
         if monotonic() >= deadline:
             break
         history = mt5.history_deals_get(start, cutoff)
@@ -144,11 +144,17 @@ def collect_snapshot(mt5, account, server, from_date=None, anchor=None, sleep=ti
         stable = stable + 1 if digest == previous and count == len(history) else 0
         previous = digest
         if stable >= 2 and count == len(history):
-            accepted = history
-            break
+            # Account identity can switch before the terminal's history cache.
+            # Stability alone does not prove that account loading has finished.
+            cutoff_ms = int(cutoff.timestamp() * 1000)
+            candidate = [d for d in history if int(start.timestamp()*1000) < millis(d) <= cutoff_ms]
+            candidate_balance = anchor_balance + sum((economic_change(d) for d in candidate), Decimal(0))
+            if abs(candidate_balance - balance) <= tolerance:
+                accepted = history
+                break
         sleep(1)
     if accepted is None:
-        raise IncompleteHistory('Broker history did not stabilize')
+        raise IncompleteHistory('Broker history did not stabilize or ledger did not reconcile')
     cutoff_ms = int(cutoff.timestamp() * 1000)
     start_ms = int(start.timestamp() * 1000)
     ledger = [d for d in accepted if start_ms < millis(d) <= cutoff_ms]

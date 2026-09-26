@@ -23,6 +23,17 @@ class SnapshotTests(unittest.TestCase):
     def collect(self,mt):return collect_snapshot(mt,1,'Broker',sleep=lambda _:None)
     def test_none_history_never_succeeds(self):
         with self.assertRaises(IncompleteHistory):self.collect(MT(None,1100))
+    def test_stable_cold_cache_waits_for_matching_ledger(self):
+        full=[deal(1,type=2,profit=100,position=0)]
+        mt=MT(full,100);reads=[0]
+        def get(*a,**kw):
+            reads[0]+=1
+            return [] if reads[0]<6 else full
+        mt.history_deals_get=get
+        mt.history_deals_total=lambda *a:0 if reads[0]<6 else 1
+        self.assertTrue(self.collect(mt)['complete'])
+        self.assertGreaterEqual(reads[0],8)
+
     def test_empty_zero_account(self):self.assertTrue(self.collect(MT([],0))['complete'])
     def test_balance_without_history(self):
         with self.assertRaisesRegex(IncompleteHistory,'ledger'):self.collect(MT([],100))
