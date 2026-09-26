@@ -4104,7 +4104,15 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/pulls`, adminIpCheck, asy
       });
     }
 
-    return res.json({ pulls: batches.rows, terminalStats, slFailures });
+    // Live inventory is independent of historical batch statistics.
+    let liveTerminals: ReturnType<typeof terminalInventory> | null = null;
+    try {
+      const health = await require('axios').get(`${config.vpsApiUrl.replace(/\/$/, '')}/health`, {
+        headers: { 'X-API-Key': config.vpsApiKey }, timeout: 5000,
+      });
+      liveTerminals = terminalInventory(health.data);
+    } catch { /* Preserve history when the VPS cannot be reached. */ }
+    return res.json({ pulls: batches.rows, terminalStats, slFailures, liveTerminals });
   } catch (error) {
     if ((error as any)?.code === '23505') return res.status(409).json({error:'Account, email or nickname is already registered'});
     if (error instanceof ConfigurationError) return res.status(400).json({ error: error.message });

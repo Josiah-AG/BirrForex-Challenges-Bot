@@ -480,6 +480,7 @@ export default function AdminDashboard() {
   const fetchPullsRef = useRef<() => void>(() => {});
   useEffect(() => {
     if (!isAdmin || activeSection !== "pulls" || !selectedChallengeId) return;
+    let cancelled = false;
     const fetchPulls = async () => {
       try {
         const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
@@ -487,6 +488,7 @@ export default function AdminDashboard() {
         const res = await fetch(`/api/management/challenge/${selectedChallengeId}/pulls`);
         if (res.ok) {
           const data = await res.json();
+          if (cancelled) return;
           const pulls = (data.pulls || []).map((p: any) => {
             const startEAT = new Date(new Date(p.started_at).getTime() + 3*60*60*1000);
             const duration = p.completed_at ? Math.round((new Date(p.completed_at).getTime() - new Date(p.started_at).getTime()) / 1000) : null;
@@ -504,23 +506,26 @@ export default function AdminDashboard() {
           });
           setPullHistory(pulls);
 
-          // Terminal stats — use real DB data if available, otherwise default all-healthy
+          // Show only the router's current inventory; batch stats are historical.
           const dbStats: any[] = data.terminalStats || [];
-          const termStats = Array.from({length: 15}, (_, i) => {
-            const t = dbStats.find((s: any) => s.terminal_id === i + 1);
-            return t
-              ? { id: i + 1, healthy: t.is_healthy, processed: t.total_processed, success: t.total_success, failed: t.total_failed }
-              : { id: i + 1, healthy: true, processed: 0, success: 0, failed: 0 };
-          });
-          setTerminalStatus(termStats);
+          setTerminalStatus((data.liveTerminals?.ids || []).map((id: number) => {
+            const t = dbStats.find((s: any) => s.terminal_id === id);
+            return { id, healthy: data.liveTerminals.healthyIds.includes(id),
+              processed: t?.total_processed || 0, success: t?.total_success || 0,
+              failed: t?.total_failed || 0 };
+          }));
 
           // SL failures
           setSlFailures(data.slFailures || []);
         }
-      } catch {}
+        else if (!cancelled) { setTerminalStatus([]); }
+      } catch { if (!cancelled) setTerminalStatus([]); }
     };
     fetchPullsRef.current = fetchPulls;
+    setTerminalStatus([]);
     fetchPulls();
+    const timer = setInterval(fetchPulls, 30000);
+    return () => { cancelled = true; clearInterval(timer); };
   }, [isAdmin, activeSection, selectedChallengeId]);
 
   // Fetch screening data when screening tab is active
@@ -5195,15 +5200,14 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
         </div>
       )}
 
-      {/* Terminal Status Grid — always show all 15 */}
+      {/* Current VPS inventory, with historical pull counts */}
       <div className="glass rounded-2xl border border-white/10 p-5">
         <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
-          <Activity size={16} className="text-royal" /> Terminal Status (Last Cycle)
+          <Activity size={16} className="text-royal" /> Terminal Status
         </h3>
         <div className="grid grid-cols-5 gap-2">
-          {Array.from({ length: 15 }, (_, i) => {
-            const tid = i + 1;
-            const t = terminalStatus.find((ts: any) => ts.id === tid) || { id: tid, processed: 0, success: 0, failed: 0, healthy: true };
+          {terminalStatus.map((t: any) => {
+            const tid = t.id;
             const hasData = t.processed > 0;
             const failed = t.failed || 0;
             const isUnhealthy = !t.healthy;
@@ -5215,6 +5219,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
                   <span className="text-xs font-bold text-white">T{tid}</span>
                   <span className={`w-2 h-2 rounded-full ${dot}`} />
                 </div>
+                <p className="text-[10px] text-gray-400">{isUnhealthy ? "Unavailable" : "Ready"}</p>
                 {hasData ? (
                   <>
                     <p className="text-[10px] text-profit">{t.success}✓</p>
@@ -5222,13 +5227,15 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
                     <p className="text-[10px] text-gray-500">{t.processed} total</p>
                   </>
                 ) : (
-                  <p className="text-[10px] text-gray-500">{isUnhealthy ? "Unhealthy" : "Idle"}</p>
+                  <p className="text-[10px] text-gray-500">{"No pull data"}</p>
                 )}
               </div>
             );
           })}
         </div>
-        {terminalStatus.every((t: any) => t.processed === 0) && (
+        {terminalStatus.length === 0 && <p className="text-xs text-gray-400">Live terminal inventory unavailable or loading. No terminal availability is assumed.</p>}
+        {terminalStatus.length > 0 && <p className="text-[11px] text-gray-500 mt-3">{terminalStatus.length} started terminals. Availability refreshes every 30 seconds; counts are from the last pull cycle.</p>}
+        {terminalStatus.length > 0 && terminalStatus.every((t: any) => t.processed === 0) && (
           <p className="text-[11px] text-gray-500 mt-3">Per-terminal data will appear here after the next pull cycle completes.</p>
         )}
       </div>
