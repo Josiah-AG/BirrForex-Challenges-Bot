@@ -29,9 +29,9 @@ Each group must be reviewed/tested before release. No deployment until cross-lay
 
 ## Progress
 
-- Implementation and local acceptance checks completed. Private rollback/backup prepared. Release preparation in progress; deployment verification is recorded in SESSION_LOG.md.
+- Implemented, tested and deployed directly to main. Final application commit: 290c8f2. Production authentication, unchanged historical-data fingerprints and journaled broker cipher migration verified; deployment IDs are recorded in SESSION_LOG.md.
 
-## Implemented acceptance map (local verification, release pending)
+## Implemented acceptance map (deployed and verified)
 
 The September 25 audit remains a historical report. This map describes the implementation, not a claim that external services were exercised live.
 

@@ -1,6 +1,7 @@
 # Hardening release and rollback
 
 Baseline: `0329a78eef59228f0886fa0ed567d84a2cb6899f`.
+Verified application release: `290c8f29e05b74b03a913313861e81a58b044c7f`. Broker field journal: `production-broker-cipher-v2.json` in the private directory below; three hosts/nine fields migrated and verified.
 Private files: `../.repair-backups/2026-09-26-system-hardening/` relative to repository; directory 0700, sensitive files 0600. None are committed.
 
 ## Before release
