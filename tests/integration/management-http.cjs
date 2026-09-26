@@ -33,6 +33,9 @@ const server=app.listen(0,'127.0.0.1');
  }
  assert.equal(queries,0,'anonymous admin requests never reach database operations');
  for(const token of ['invalid',issueManagementSession('host',42,2)])assert.equal((await request('/api/admin/synthetic-path/session','GET',token)).status,401);
+ const login=await fetch(base+'/api/admin/synthetic-path/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({key:'synthetic-key'})});
+ assert.equal(login.status,200,'actual login accepts the frontend key contract');
+ assert.equal(typeof (await login.json()).token,'string');
  const admin=issueManagementSession('admin');
  assert.equal((await request('/api/admin/synthetic-path/session','GET',admin)).status,200,'empty allowlist still permits authenticated access');
  assert.equal((await request('/api/host/challenges','GET',admin)).status,401,'admin session cannot become host session');

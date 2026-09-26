@@ -21,7 +21,7 @@ const backend=http.createServer((req,res)=>{
  assert.equal((await fetch(origin+'/admin/panel')).status,404);
  assert.equal((await fetch(origin+'/synthetic-private-path')).status,200,'private navigation is served with runtime configuration');
  assert.equal((await fetch(origin+'/api/management/login',{method:'POST',headers:{origin:'https://untrusted.invalid'}})).status,403);
- const login=await fetch(origin+'/api/management/login',{method:'POST',headers:{origin,'content-type':'application/json'},body:JSON.stringify({password:'synthetic'})});
+ const login=await fetch(origin+'/api/management/login',{method:'POST',headers:{origin,'content-type':'application/json'},body:JSON.stringify({key:'synthetic'})});
  assert.equal(login.status,200);assert.equal((await login.json()).token,undefined);
  const cookie=login.headers.get('set-cookie');assert.match(cookie,/HttpOnly/i);assert.match(cookie,/Secure/i);assert.match(cookie,/SameSite=strict/i);assert.match(cookie,/Path=\/api\/management/i);
  const auth={cookie:'wp_admin_session=synthetic-session'};

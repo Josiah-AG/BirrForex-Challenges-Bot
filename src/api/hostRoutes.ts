@@ -234,14 +234,14 @@ router.get('/challenge/:id/full-overview', async (req: any, res: Response) => {
          WHERE r.challenge_id = $1 AND r.disqualified = true${catJoin}`, [challengeId]);
 
       const mostDay = await db.query(
-        `SELECT DATE(close_time) as day, COUNT(*) as trade_count
+        `SELECT DATE((close_time AT TIME ZONE 'UTC' AT TIME ZONE (SELECT COALESCE(timezone,'Africa/Nairobi') FROM trading_challenges WHERE id=$1))) as day, COUNT(*) as trade_count
          FROM wp_trades t WHERE challenge_id = $1${catWhere}
-         GROUP BY DATE(close_time) ORDER BY trade_count DESC LIMIT 1`, [challengeId]);
+         GROUP BY DATE((close_time AT TIME ZONE 'UTC' AT TIME ZONE (SELECT COALESCE(timezone,'Africa/Nairobi') FROM trading_challenges WHERE id=$1))) ORDER BY trade_count DESC LIMIT 1`, [challengeId]);
 
       const leastDay = await db.query(
-        `SELECT DATE(close_time) as day, COUNT(*) as trade_count
+        `SELECT DATE((close_time AT TIME ZONE 'UTC' AT TIME ZONE (SELECT COALESCE(timezone,'Africa/Nairobi') FROM trading_challenges WHERE id=$1))) as day, COUNT(*) as trade_count
          FROM wp_trades t WHERE challenge_id = $1${catWhere}
-         GROUP BY DATE(close_time) ORDER BY trade_count ASC LIMIT 1`, [challengeId]);
+         GROUP BY DATE((close_time AT TIME ZONE 'UTC' AT TIME ZONE (SELECT COALESCE(timezone,'Africa/Nairobi') FROM trading_challenges WHERE id=$1))) ORDER BY trade_count ASC LIMIT 1`, [challengeId]);
 
       const avgTrades = await db.query(
         `SELECT ROUND(AVG(total_trades), 1) as avg_trades FROM wp_leaderboard l

@@ -25,6 +25,9 @@ const fixture={title:'SYNTHETIC hardening '+Date.now(),type:'demo',start_date:'2
  const id=decisions.find(Boolean).result.challenge.id;
  assert.equal(await gate.getPending(token),undefined);
  await transitionChallenge(id,'registration_open');
+ const localDays=await db.query("SELECT COUNT(DISTINCT DATE(close_time AT TIME ZONE 'UTC' AT TIME ZONE (SELECT COALESCE(timezone,'Africa/Nairobi') FROM trading_challenges WHERE id=$1))) AS n FROM (VALUES (TIMESTAMP '2026-09-25 20:30:00'),(TIMESTAMP '2026-09-25 21:30:00')) t(close_time)",[id]);
+ assert.equal(Number(localDays.rows[0].n),2,'management report groups by configured local day');
+
  const create=(acct,nick,email,uid)=>db.query(`INSERT INTO trading_registrations(challenge_id,user_id,email,nickname,account_number,account_type,connection_verified,investor_password) VALUES($1,$2,$3,$4,$5,'demo',true,'synthetic') RETURNING id`,[id,uid,email,nick,acct]);
  const attempts=await Promise.allSettled([create('123456','Alpha','a@test.invalid',-1),create('123 456','Beta','b@test.invalid',-2)]);
  assert.equal(attempts.filter(x=>x.status==='fulfilled').length,1,'concurrent canonical duplicate rejected');

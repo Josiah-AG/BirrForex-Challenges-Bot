@@ -3656,11 +3656,11 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
       `SELECT COUNT(DISTINCT REGEXP_REPLACE(symbol, '[a-z]$', '')) as cnt FROM wp_trades WHERE challenge_id = $1`,
       [challengeId]);
     const mostActiveDay = await db.query(
-      `SELECT TO_CHAR(close_time AT TIME ZONE 'UTC' + INTERVAL '3 hours', 'Dy, Mon DD') as day_label,
+      `SELECT TO_CHAR((close_time AT TIME ZONE 'UTC' AT TIME ZONE (SELECT COALESCE(timezone,'Africa/Nairobi') FROM trading_challenges WHERE id=$1)), 'Dy, Mon DD') as day_label,
               COUNT(*) as trade_count
        FROM wp_trades WHERE challenge_id = $1 AND close_time IS NOT NULL
-       GROUP BY DATE(close_time AT TIME ZONE 'UTC' + INTERVAL '3 hours'),
-                TO_CHAR(close_time AT TIME ZONE 'UTC' + INTERVAL '3 hours', 'Dy, Mon DD')
+       GROUP BY DATE((close_time AT TIME ZONE 'UTC' AT TIME ZONE (SELECT COALESCE(timezone,'Africa/Nairobi') FROM trading_challenges WHERE id=$1))),
+                TO_CHAR((close_time AT TIME ZONE 'UTC' AT TIME ZONE (SELECT COALESCE(timezone,'Africa/Nairobi') FROM trading_challenges WHERE id=$1)), 'Dy, Mon DD')
        ORDER BY trade_count DESC LIMIT 1`,
       [challengeId]);
 
@@ -3815,14 +3815,14 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
       const weekendFilter = (!rules2 || weekendRuleDisabled || rules2.weekend_trading) ? '' : ` AND EXTRACT(DOW FROM close_time) NOT IN (0, 6)`;
 
       const mostDay = await db.query(
-        `SELECT DATE(close_time) as day, COUNT(*) as trade_count
+        `SELECT DATE((close_time AT TIME ZONE 'UTC' AT TIME ZONE (SELECT COALESCE(timezone,'Africa/Nairobi') FROM trading_challenges WHERE id=$1))) as day, COUNT(*) as trade_count
          FROM wp_trades t WHERE challenge_id = $1${catWhere}${tradeFilter}${weekendFilter}
-         GROUP BY DATE(close_time) ORDER BY trade_count DESC LIMIT 1`, tradeParams.length > 1 ? tradeParams : [challengeId]);
+         GROUP BY DATE((close_time AT TIME ZONE 'UTC' AT TIME ZONE (SELECT COALESCE(timezone,'Africa/Nairobi') FROM trading_challenges WHERE id=$1))) ORDER BY trade_count DESC LIMIT 1`, tradeParams.length > 1 ? tradeParams : [challengeId]);
 
       const leastDay = await db.query(
-        `SELECT DATE(close_time) as day, COUNT(*) as trade_count
+        `SELECT DATE((close_time AT TIME ZONE 'UTC' AT TIME ZONE (SELECT COALESCE(timezone,'Africa/Nairobi') FROM trading_challenges WHERE id=$1))) as day, COUNT(*) as trade_count
          FROM wp_trades t WHERE challenge_id = $1${catWhere}${tradeFilter}${weekendFilter}
-         GROUP BY DATE(close_time) ORDER BY trade_count ASC LIMIT 1`, tradeParams.length > 1 ? tradeParams : [challengeId]);
+         GROUP BY DATE((close_time AT TIME ZONE 'UTC' AT TIME ZONE (SELECT COALESCE(timezone,'Africa/Nairobi') FROM trading_challenges WHERE id=$1))) ORDER BY trade_count ASC LIMIT 1`, tradeParams.length > 1 ? tradeParams : [challengeId]);
 
       const avgTrades = await db.query(
         `SELECT ROUND(AVG(total_trades), 1) as avg_trades FROM wp_leaderboard l
