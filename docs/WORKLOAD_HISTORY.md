@@ -14,6 +14,9 @@ Added 2026-09-26. This instruments outgoing VPS operations and durable pull/sync
 - HTTP time includes router queueing and broker processing, not a separate measurement of each. App queue wait measures observed queued-to-running transitions, including retry backoff.
 - Both databases remain independent; combine exports by timestamp to inspect overlapping demand.
 
+## Download from the admin panel
+Open Admin → ⚡ VPS & Terminal Health and use **Export workload data**. Choose 1, 7, 14, 30 or 90 days. One JSON download includes the summary and all pages of requests and job events; a fixed end timestamp is used for event pages. Progress and cancellation are available. Failed exports do not download a partial file. Existing admin authentication applies.
+
 ## Admin reports
 Authenticated admin API endpoints appended to the existing admin base path:
 - GET /workload-report?days=7 : operation/outcome counts, p50/p95/max timing, hourly request volume, app queue wait, coverage and capture health.

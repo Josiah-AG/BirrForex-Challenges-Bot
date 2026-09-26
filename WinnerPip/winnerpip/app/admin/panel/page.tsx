@@ -1,4 +1,5 @@
 "use client";
+import WorkloadExport from '@/components/WorkloadExport';
 import { useState, useEffect, useRef } from "react";
 
 import Image from "next/image";
@@ -2198,6 +2199,12 @@ function HostsManagementPanel() {
   );
 }
 
+async function getWorkloadJson(path: string, signal: AbortSignal) {
+  const response = await fetch(`/api/management/${path}`, { signal, cache: 'no-store' });
+  if (!response.ok) throw new Error(response.status === 401 ? 'Please sign in again before exporting.' : 'Export failed. Please try again.');
+  return response.json();
+}
+
 function HealthCheckPanel() {
   const [healthData, setHealthData] = useState<any>(null);
   const [loading, setLoading] = useState(false);
@@ -2268,6 +2275,8 @@ function HealthCheckPanel() {
             {loading ? "Checking..." : "Run Health Check"}
           </button>
         </div>
+
+        <WorkloadExport app="winnerpip" getJson={getWorkloadJson} />
 
         {error && (
           <div className="p-4 rounded-xl bg-loss/10 border border-loss/30 mb-4">

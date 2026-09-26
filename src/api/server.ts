@@ -4315,10 +4315,12 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/workload-events`, adminIpCheck, async (
   try {
     const days=Math.max(1,Math.min(90,Number(req.query.days)||7));
     const offset=Math.max(0,Math.min(10000000,Math.floor(Number(req.query.offset)||0)));
+    const until = req.query.until ? new Date(String(req.query.until)) : new Date();
+    if (!Number.isFinite(until.getTime())) return res.status(400).json({error:'Invalid export date'});
     const jobs=req.query.kind==='jobs';
-    const sql=jobs?'SELECT * FROM workload_job_events WHERE event_at>=NOW()-$1*INTERVAL \'1 day\' ORDER BY id LIMIT 500 OFFSET $2':'SELECT * FROM workload_requests WHERE requested_at>=NOW()-$1*INTERVAL \'1 day\' ORDER BY requested_at,id LIMIT 500 OFFSET $2';
-    const args=[days,offset];const result=await db.query(sql,args);
-    res.json({kind:jobs?'jobs':'requests',days,offset,next_offset:result.rows.length===500?offset+500:null,rows:result.rows});
+    const sql=jobs?'SELECT * FROM workload_job_events WHERE event_at<=$3::timestamptz AND event_at>=$3::timestamptz-$1*INTERVAL \'1 day\' ORDER BY id LIMIT 500 OFFSET $2':'SELECT * FROM workload_requests WHERE requested_at<=$3::timestamptz AND requested_at>=$3::timestamptz-$1*INTERVAL \'1 day\' ORDER BY requested_at,id LIMIT 500 OFFSET $2';
+    const args=[days,offset,until.toISOString()];const result=await db.query(sql,args);
+    res.json({kind:jobs?'jobs':'requests',days,until:until.toISOString(),offset,next_offset:result.rows.length===500?offset+500:null,rows:result.rows});
   }catch {res.status(503).json({error:'Workload history unavailable'});}
 });
 

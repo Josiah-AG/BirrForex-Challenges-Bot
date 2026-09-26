@@ -1773,3 +1773,9 @@ Important finding: dispatcher targets8/4 only from current router demand; it is 
 - VPS C:\BirrForex fast-forwarded to application commit using an SSH pseudo-terminal after non-PTY child commands exited 66. No router/worker restarts; runtime source unchanged.
 - MyFxPath release f6bc3ad also succeeded. Its production database independently contained 44 completed request records, zero unfinished, 30 explicit baseline job events and an enabled trigger at verification.
 - Existing MyFxPath request protection returned 429 to the verification client; authenticated MyFxPath report/export HTTP smoke checks remain unverified. Protection was not changed.
+
+## 2026-09-26 — Admin workload download button
+- Added period selector and Export workload data button to Admin → ⚡ VPS & Terminal Health. Downloads one JSON file containing summary, all request pages and all job-event pages. Includes progress, cancellation and clear failure status; no partial download on errors.
+- Export API accepts a validated fixed end timestamp so pagination uses one time window. Existing authenticated routes/proxy preserved; no new credentials exposed.
+- Validation: both frontend and backend production builds passed. Exercised multi-page file generation/JSON parsing, consistent page timestamps and failed-export behavior.
+- Reversible through reverting this UI/API commit; no schema or VPS runtime changes.
