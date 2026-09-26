@@ -126,6 +126,36 @@ const fixture={title:'SYNTHETIC hardening '+Date.now(),type:'demo',start_date:'2
  await assert.rejects(()=>leaderboardService.flushStagingToLive(id,first),/locked/);
  await leaderboardService.updateRankings(id,false,true);
  assert.equal(Number((await db.query('SELECT count(*) AS n FROM challenge_result_snapshots WHERE challenge_id=$1',[id])).rows[0].n),1);
+ // A manual DQ arriving after the automatic-recovery read must not be cleared.
+ const manualRules={...rules,min_active_days:1,rules_enabled:{...rules.rules_enabled,min_active_days:true}};
+ await db.query("UPDATE wp_challenge_rules SET parameters=$2 WHERE challenge_id=$1 AND rule_code='config'",[id,JSON.stringify(manualRules)]);
+ await db.query("UPDATE trading_registrations SET disqualified=true,disqualified_source='min_active_days',disqualified_reason='automatic' WHERE id=$1",[first]);
+ const originalQuery=db.query.bind(db);let raced=false;
+ const notifyDq=evaluationEngine.notifyDqByEmail;evaluationEngine.notifyDqByEmail=async()=>{};
+ db.query=async(sql,args)=>{
+   const result=await originalQuery(sql,args);
+   if(!raced && sql.includes('SELECT disqualified, disqualified_reason, disqualified_source') && args?.[0]===first){
+     raced=true;await originalQuery("UPDATE trading_registrations SET disqualified=true,disqualified_source='manual',disqualified_reason='manual decision wins' WHERE id=$1",[first]);
+   }
+   return result;
+ };
+ try{await evaluationEngine.evaluateSingleAccount(id,first,true);}finally{db.query=originalQuery;evaluationEngine.notifyDqByEmail=notifyDq;}
+ assert(raced);const manual=(await db.query('SELECT disqualified,disqualified_source FROM trading_registrations WHERE id=$1',[first])).rows[0];
+ assert.equal(manual.disqualified,true);assert.equal(manual.disqualified_source,'manual');
+ // A successful password repair arriving after the expiry scan wins over auto-DQ.
+ await db.query("UPDATE trading_registrations SET disqualified=false,disqualified_source=NULL,pull_status='password_changed',credential_failure_detected_at=NOW()-INTERVAL '25 hours' WHERE id=$1",[second]);
+ const activeChallenges=tradingChallengeService.getActiveChallenges;
+ tradingChallengeService.getActiveChallenges=async()=>[{id,status:'active',title:'Synthetic grace race'}];
+ let passwordRace=false;const deliveredBeforeGrace=deliveries;
+ db.query=async(sql,args)=>{const result=await originalQuery(sql,args);
+   if(!passwordRace && sql.includes('AND credential_failure_detected_at <')){
+     passwordRace=true;await originalQuery("UPDATE trading_registrations SET pull_status='success',credential_failure_detected_at=NULL WHERE id=$1",[second]);
+   }return result;
+ };
+ try{await scheduler.checkDisqualifications();}finally{db.query=originalQuery;tradingChallengeService.getActiveChallenges=activeChallenges;}
+ assert(passwordRace);assert.equal((await db.query('SELECT disqualified FROM trading_registrations WHERE id=$1',[second])).rows[0].disqualified,false);
+ assert.equal(deliveries,deliveredBeforeGrace,'no incorrect credential DQ notification');
+
  await db.query("UPDATE trading_challenges SET status='completed',leaderboard_locked_at=NULL WHERE id=$1",[id]);
  await assert.rejects(()=>evaluationEngine.evaluateSingleAccount(id,first),/locked/);
  await assert.rejects(()=>leaderboardService.flushStagingToLive(id,first),/locked/);

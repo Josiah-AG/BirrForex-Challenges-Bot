@@ -1842,10 +1842,12 @@ export class VpsPullScheduler {
       );
 
       for (const reg of result.rows) {
-        await db.query(
-          `UPDATE trading_registrations SET disqualified = true, disqualified_at = NOW(), disqualified_source = 'credential_failure', disqualified_reason = 'Investor password changed — no update within 24h' WHERE id = $1`,
+        const marked=await db.query(
+          `UPDATE trading_registrations SET disqualified = true, disqualified_at = NOW(), disqualified_source = 'credential_failure', disqualified_reason = 'Investor password changed — no update within 24h' WHERE id = $1 AND disqualified=false AND status IS DISTINCT FROM 'removed' AND pull_status='password_changed' AND credential_failure_detected_at<NOW()-INTERVAL '${PASSWORD_WARNING_HOURS} hours' RETURNING id`,
           [reg.id]
         );
+
+        if(!marked.rows.length)continue; // A concurrent password repair or manual decision wins.
 
         try {
           await this.bot.bot.telegram.sendMessage(reg.user_id,

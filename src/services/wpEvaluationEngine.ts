@@ -1365,11 +1365,11 @@ export class WpEvaluationEngine {
           );
           const dqRow = currentDq.rows[0];
           if (dqRow?.disqualified && dqRow?.disqualified_source === 'min_active_days') {
-            await db.query(
-              `UPDATE trading_registrations SET disqualified = false, disqualified_at = NULL, disqualified_reason = NULL, disqualified_source = NULL WHERE id = $1`,
+            const cleared=await db.query(
+              `UPDATE trading_registrations SET disqualified = false, disqualified_at = NULL, disqualified_reason = NULL, disqualified_source = NULL WHERE id = $1 AND disqualified_source = 'min_active_days'`,
               [reg.id]
             );
-            console.log(`✅ WP Evaluation: Cleared incorrect active-days DQ for reg ${reg.id} (${activeDays} days traded, ${remainingDays} days left, need ${rules.min_active_days})`);
+            if(cleared.rowCount)console.log(`✅ WP Evaluation: Cleared incorrect active-days DQ for reg ${reg.id} (${activeDays} days traded, ${remainingDays} days left, need ${rules.min_active_days})`);
           }
         } else {
           // Impossible to meet requirement — auto-DQ
@@ -1399,7 +1399,7 @@ export class WpEvaluationEngine {
           `SELECT disqualified, disqualified_reason, disqualified_source FROM trading_registrations WHERE id = $1`, [reg.id]
         );
         if (currentDq2.rows[0]?.disqualified && currentDq2.rows[0]?.disqualified_source === 'min_total_trades') {
-          await db.query(`UPDATE trading_registrations SET disqualified = false, disqualified_at = NULL, disqualified_reason = NULL, disqualified_source = NULL WHERE id = $1`, [reg.id]);
+          await db.query(`UPDATE trading_registrations SET disqualified = false, disqualified_at = NULL, disqualified_reason = NULL, disqualified_source = NULL WHERE id = $1 AND disqualified_source = 'min_total_trades'`, [reg.id]);
         }
       } else if (isChallengeOver) {
         // Challenge ended and user didn't meet min trades → DQ
