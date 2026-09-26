@@ -1,7 +1,7 @@
 # Run in the existing Administrator desktop session. Default is inspection only.
 param(
     [Parameter(Mandatory=$true)][string]$ExpectedCommit,
-    [int]$WorkerCount = 10,
+    [int]$WorkerCount = 0,
     [switch]$Apply
 )
 $ErrorActionPreference = 'Stop'
@@ -13,6 +13,8 @@ $session = (Get-Process -Id $PID).SessionId
 if ($session -eq 0) { throw 'Use an interactive scheduled task in the existing desktop session' }
 $env:VPS_API_KEY = [Environment]::GetEnvironmentVariable('VPS_API_KEY','Machine')
 if (!$env:VPS_API_KEY) { throw 'Machine API key unavailable; no service changed' }
+if (!$WorkerCount) { $WorkerCount = (Invoke-RestMethod 'http://127.0.0.1:8000/health' -TimeoutSec 15).terminals }
+if ($WorkerCount -lt 1 -or $WorkerCount -gt 15) { throw 'Router terminal count unavailable; specify WorkerCount 1-15' }
 $owned = @()
 foreach ($port in (8001..(8000 + $WorkerCount)) + @(8000)) {
     $listener = @(Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique)

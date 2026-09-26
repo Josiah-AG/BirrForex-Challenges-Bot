@@ -76,5 +76,5 @@ try {
   Write-Host "Port $port ready"
  }
  Write-Host "Ready: $WorkerCount workers and router. Keep their CMD windows open."
- Write-Host "Railway web VPS_TERMINAL_COUNT must also be $WorkerCount."
+ Write-Host "The admin health check and pull scheduler discover this count from the router automatically."
 } finally {$mutex.ReleaseMutex();$mutex.Dispose()}

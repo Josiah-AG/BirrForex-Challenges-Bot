@@ -1,3 +1,4 @@
+import { terminalInventory } from '../utils/terminalInventory';
 import axios from 'axios';
 import { config } from '../config';
 
@@ -180,13 +181,15 @@ class VpsService {
 
     try {
       // Pick a random starting terminal and try up to 3 different terminals
-      const terminalCount = parseInt(process.env.VPS_TERMINAL_COUNT || '12');
-      const maxAttempts = 3;
-      const startTerminal = Math.floor(Math.random() * terminalCount) + 1;
+      const health = await axios.get(`${this.baseUrl}/health`, {timeout:15000});
+      const terminalIds = terminalInventory(health.data).healthyIds;
+      if(!terminalIds.length)return {success:false,status:'api_error',message:'No healthy VPS terminals available'};
+      const maxAttempts = Math.min(3, terminalIds.length);
+      const startTerminal = Math.floor(Math.random() * terminalIds.length);
       let lastResult: any = null;
 
       for (let attempt = 0; attempt < maxAttempts; attempt++) {
-        const terminalId = ((startTerminal + attempt - 1) % 15) + 1;
+        const terminalId = terminalIds[(startTerminal + attempt) % terminalIds.length];
 
         try {
           const response = await axios.post(

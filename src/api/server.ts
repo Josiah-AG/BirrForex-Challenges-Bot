@@ -1,3 +1,4 @@
+import { terminalInventory } from '../utils/terminalInventory';
 import { normalizeChallengeInput } from '../utils/configValidation';
 import { countAboveTargets } from '../services/challengeMetrics';
 import { saveVerifiedCredential, queueCredentialRecovery } from '../services/credentialRecovery';
@@ -4161,7 +4162,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/vps-health`, adminIpCheck, async (req, 
         reachable: true,
         status: healthRes.data?.status || 'unknown',
         terminals: healthRes.data?.terminals || null,
-        configuredTerminals: parseInt(process.env.VPS_TERMINAL_COUNT || '12'),
+        configuredTerminals: terminalInventory(healthRes.data).ids.length,
         workers: healthRes.data?.workers || null,
         uptime: healthRes.data?.uptime || null,
         version: healthRes.data?.version || null,
@@ -4173,7 +4174,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/vps-health`, adminIpCheck, async (req, 
     } catch (vpsErr: any) {
       vpsStatus = {
         reachable: false,
-        configuredTerminals: parseInt(process.env.VPS_TERMINAL_COUNT || '12'),
+        configuredTerminals: null,
         error: vpsErr.code === 'ECONNABORTED' ? 'Timeout (10s)' : (vpsErr.message || 'Connection failed'),
       };
     }
@@ -4185,9 +4186,9 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/vps-health`, adminIpCheck, async (req, 
       const BASE_ACCOUNT = config.vpsBaseAccount || '435924397';
       const BASE_SERVER = config.vpsBaseServer || 'Exness-MT5Trial9';
       const BASE_PASSWORD = config.vpsBasePassword || 'Abc@1234';
-      const configuredCount = parseInt(process.env.VPS_TERMINAL_COUNT || '12');
+      const terminalIds = terminalInventory(vpsStatus.raw).ids;
 
-      for (let tid = 1; tid <= configuredCount; tid++) {
+      for (const tid of terminalIds) {
         try {
           const verifyRes = await axios.post(`${vpsUrl}/verify`, {
             account: BASE_ACCOUNT,
@@ -5678,6 +5679,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/pull-trade`, adminIpChec
     const globalScheduler = (global as any).__vpsPullScheduler;
     if (!globalScheduler) return res.status(503).json({ error: 'VPS scheduler not running' });
 
+    await globalScheduler.refreshTerminalInventory();
     const healthyTerminals = globalScheduler.terminals?.filter((t: any) => t.isHealthy);
     if (!healthyTerminals?.length) return res.status(503).json({ error: 'No healthy VPS terminals available' });
 
@@ -6905,6 +6907,11 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/resolve-incomplete`, adm
       username: r.username,
     }));
 
+    // Discover live worker IDs; never dispatch to a stale environment count.
+    const inventory = await globalScheduler.refreshTerminalInventory();
+    const healthyTerminals = inventory.healthyIds.map((id: number) => ({ id }));
+    if(!healthyTerminals.length)throw new Error('No healthy VPS terminals available');
+
     // Create batch record for progress bar
     const batchRes = await db.query(
       `INSERT INTO wp_pull_batches (challenge_id, total_accounts, status, phase, error_log)
@@ -6917,9 +6924,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/resolve-incomplete`, adm
     const challengeData = await db.query(`SELECT * FROM trading_challenges WHERE id = $1`, [challengeId]);
     const challenge = challengeData.rows[0];
 
-    // Get healthy terminals
-    const terminalCount = parseInt(process.env.VPS_TERMINAL_COUNT || '12');
-    const healthyTerminals = Array.from({ length: terminalCount }, (_, i) => ({ id: i + 1 }));
+
 
     // Run in background — uses full /pull (no date filter) to recover open_price
     // from opening deals. The /pull endpoint's trade-building prefers open_deal.price
@@ -7540,7 +7545,9 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/retry-all-failed`, admin
     }
 
     const total = failedAccounts.rows.length;
-    const terminalCount = parseInt(process.env.VPS_TERMINAL_COUNT || '12');
+    const health = await require('axios').get(`${vpsUrl}/health`, {timeout:15000});
+    const terminalIds = terminalInventory(health.data).healthyIds;
+    if(!terminalIds.length)return res.status(503).json({error:'No healthy VPS terminals available'});
 
     // Initialize state
     credRetryState = { running: true, cancelled: false, total, current: 0, recovered: 0, stillFailing: 0, startedAt: Date.now(), challengeId };
@@ -7553,7 +7560,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/retry-all-failed`, admin
       const queue = [...failedAccounts.rows];
       let processed = 0;
 
-      const workers = Array.from({ length: terminalCount }, (_, idx) => idx + 1).map(terminalId => (async () => {
+      const workers = terminalIds.map(terminalId => (async () => {
         while (true) {
           if (credRetryState?.cancelled) return;
           const reg = queue.shift();
@@ -7851,13 +7858,16 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/verify-account`, adminIp
 
     // Try up to 3 times with 2s delay between attempts
     const axios = require('axios');
+    const inventory = terminalInventory((await axios.get(`${vpsUrl}/health`, {timeout:15000})).data);
+    const terminalIds = inventory.healthyIds.slice(0,3);
+    if(!terminalIds.length)return res.status(503).json({verified:false,error:'No healthy VPS terminals available'});
     let lastError = '';
 
-    for (let attempt = 1; attempt <= 3; attempt++) {
+    for (const terminalId of terminalIds) {
       try {
         const verifyRes = await axios.post(`${vpsUrl}/verify`, {
           account: reg.account_number, server: reg.mt5_server, password: reg.investor_password, api_key: vpsKey,
-          terminal_id: attempt, // Try different terminals
+          terminal_id: terminalId, // Try different terminals
         }, { timeout: 25000 });
 
         if (verifyRes.data?.success) {
@@ -7875,7 +7885,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/verify-account`, adminIp
             try {
               const pullRes = await axios.post(`${vpsUrl}/pull`, {
                 account: reg.account_number, server: reg.mt5_server, password: reg.investor_password,
-                api_key: vpsKey, terminal_id: attempt,
+                api_key: vpsKey, terminal_id: terminalId,
               }, { timeout: 35000 });
               if (pullRes.data?.success) {
                 balance = pullRes.data.balance !== undefined ? pullRes.data.balance : balance;
@@ -7909,7 +7919,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/verify-account`, adminIp
           const pullError = pullInfo.rows[0]?.pull_error;
 
           return res.json({
-            verified: true, balance, equity, attempts: attempt,
+            verified: true, balance, equity, attempts: terminalIds.indexOf(terminalId)+1,
             pullStatus, pullError: pullStatus !== 'success' ? pullError : null,
           });
         } else {
@@ -7917,7 +7927,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/verify-account`, adminIp
           // If credential error, don't retry
           const msg = (lastError).toLowerCase();
           if (msg.includes('authorization') || msg.includes('invalid') || msg.includes('password')) {
-            return res.json({ verified: false, error: lastError, attempts: attempt, credentialIssue: true });
+            return res.json({ verified: false, error: lastError, attempts: terminalIds.indexOf(terminalId)+1, credentialIssue: true });
           }
         }
       } catch (err: any) {
@@ -7925,7 +7935,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/verify-account`, adminIp
       }
 
       // Wait 2s before retry (except last attempt)
-      if (attempt < 3) await new Promise(r => setTimeout(r, 2000));
+      if (terminalId !== terminalIds[terminalIds.length-1]) await new Promise(r => setTimeout(r, 2000));
     }
 
     return res.json({ verified: false, error: `Failed after 3 attempts: ${lastError}`, attempts: 3 });

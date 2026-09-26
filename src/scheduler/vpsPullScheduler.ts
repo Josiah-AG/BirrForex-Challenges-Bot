@@ -1,3 +1,4 @@
+import { terminalInventory } from '../utils/terminalInventory';
 import { beginPullJournal, checkpointPullJournal } from '../services/pullRollbackJournal';
 import { validateHistorySnapshot } from '../utils/historySnapshot';
 import { queueCredentialRecovery } from '../services/credentialRecovery';
@@ -36,7 +37,7 @@ import { debugLog } from '../utils/debugLog';
  * Schedule: 06:00, 10:00, 14:00, 18:00, 22:00, 02:00 EAT
  */
 
-const MAX_TERMINALS = parseInt(process.env.VPS_TERMINAL_COUNT || '12');
+
 const MAX_RETRIES_PER_ACCOUNT = 3;
 const RETRY_DELAY_MS = 3000;
 const ACCOUNT_TIMEOUT_MS = 30000;
@@ -316,17 +317,20 @@ export class VpsPullScheduler {
     this.baseUrl = config.vpsApiUrl;
     this.apiKey = config.vpsApiKey;
 
-    for (let i = 1; i <= MAX_TERMINALS; i++) {
-      this.terminals.push({
-        id: i,
-        isHealthy: true,
-        consecutiveFailures: 0,
-        unhealthySince: null,
-        totalProcessed: 0,
-        totalSuccess: 0,
-        totalFailed: 0,
-      });
-    }
+  }
+
+  async refreshTerminalInventory() {
+    const response = await axios.get(`${this.baseUrl}/health`, { timeout: 15000 });
+    const inventory = terminalInventory(response.data);
+    const previous = new Map(this.terminals.map(t => [t.id, t]));
+    this.terminals = inventory.ids.map(id => {
+      const terminal = previous.get(id) || { id, isHealthy:false, consecutiveFailures:0, unhealthySince:null,
+        totalProcessed:0, totalSuccess:0, totalFailed:0 };
+      terminal.isHealthy = inventory.healthyIds.includes(id);
+      terminal.unhealthySince = terminal.isHealthy ? null : (terminal.unhealthySince || new Date());
+      return terminal;
+    });
+    return inventory;
   }
 
   start() {
@@ -503,9 +507,8 @@ export class VpsPullScheduler {
       }
 
       console.log(`📊 VPS Pull: ${accounts.length} accounts, ${this.getHealthyTerminalCount()} healthy terminals`);
-      const health=await axios.get(`${this.baseUrl}/health`,{timeout:15000});
-      const available=new Set<number>(health.data?.healthy_terminals || []);
-      this.terminals.forEach(t => { t.totalProcessed=0;t.totalSuccess=0;t.totalFailed=0;t.isHealthy=available.has(t.id);t.unhealthySince=t.isHealthy?null:(t.unhealthySince||new Date());t.consecutiveFailures=0; });
+      await this.refreshTerminalInventory();
+      this.terminals.forEach(t => { t.totalProcessed=0;t.totalSuccess=0;t.totalFailed=0;t.consecutiveFailures=0; });
       this.credentialFailureCache.clear();
       await this.clearRouterCredentialCache();
 
@@ -836,9 +839,7 @@ export class VpsPullScheduler {
           AND c.status IN ('active','reviewing') AND c.leaderboard_locked_at IS NULL
         ORDER BY r.history_retry_at LIMIT 3`);
       if(rows.rows.length){
-        const health=await axios.get(`${this.baseUrl}/health`,{timeout:15000});
-        const available=new Set<number>(health.data?.healthy_terminals||[]);
-        this.terminals.forEach(t=>{t.isHealthy=available.has(t.id);});
+        await this.refreshTerminalInventory();
       }
       for(const row of rows.rows){
         const result=await this.retrySingleAccountUnlocked(row.id,row.challenge_id);
@@ -1189,11 +1190,12 @@ export class VpsPullScheduler {
    * Returns result for admin display.
    */
   async retrySingleAccount(registrationId: number, challengeId: number, overrideLock=false, evaluate=true, ownsCoordinator=false): Promise<PullResult & { evaluated?: boolean }> {
-    if(ownsCoordinator)return this.retrySingleAccountUnlocked(registrationId,challengeId,overrideLock,evaluate);
+    if(ownsCoordinator){await this.refreshTerminalInventory();return this.retrySingleAccountUnlocked(registrationId,challengeId,overrideLock,evaluate);}
     const lease=await db.getClient(); let locked=false;
     try {
       locked=(await lease.query('SELECT pg_try_advisory_lock(26092604,0) AS locked')).rows[0].locked;
       if(!locked)return {registrationId,accountNumber:'',userId:0,username:null,success:false,errorCode:'busy',errorMessage:'Another update is running; retry after it finishes'};
+      await this.refreshTerminalInventory();
       return await this.retrySingleAccountUnlocked(registrationId,challengeId,overrideLock,evaluate);
     } finally {try {if(locked)await lease.query('SELECT pg_advisory_unlock(26092604,0)');}finally {lease.release();}}
   }
@@ -1419,6 +1421,13 @@ export class VpsPullScheduler {
   private terminalUnhealthyMsgIds = new Map<number, number>(); // terminalId → message_id
 
   private async recheckUnhealthyTerminals() {
+    if(this.isRunning)return;
+    const previouslyDown = new Map(this.terminals.filter(t=>!t.isHealthy).map(t=>[t.id,t.unhealthySince]));
+    try {await this.refreshTerminalInventory();}catch{return;}
+    // Preserve recovery transitions until the alert path verifies and reports them.
+    for(const terminal of this.terminals){if(previouslyDown.has(terminal.id)){
+      terminal.isHealthy=false;terminal.unhealthySince=previouslyDown.get(terminal.id)||new Date();
+    }}
     const unhealthy = this.terminals.filter(t => !t.isHealthy && t.unhealthySince);
     if (unhealthy.length === 0) return;
 
@@ -1445,7 +1454,7 @@ export class VpsPullScheduler {
         }
         try {
           await this.bot.bot.telegram.sendMessage(config.adminUserId,
-            `✅ <b>Terminal ${terminal.id} Recovered</b>\n\nHealthy: ${this.getHealthyTerminalCount()}/${MAX_TERMINALS}`,
+            `✅ <b>Terminal ${terminal.id} Recovered</b>\n\nHealthy: ${this.getHealthyTerminalCount()}/${this.terminals.length}`,
             { parse_mode: 'HTML' });
         } catch (e) {}
       } else {
@@ -1456,7 +1465,7 @@ export class VpsPullScheduler {
             const msg = await this.bot.bot.telegram.sendMessage(config.adminUserId,
               `⚠️ <b>VPS Terminal ${terminal.id} Unhealthy</b>\n\n` +
               `Down since ${terminal.unhealthySince?.toISOString()}\n` +
-              `Healthy terminals: ${this.getHealthyTerminalCount()}/${MAX_TERMINALS}`,
+              `Healthy terminals: ${this.getHealthyTerminalCount()}/${this.terminals.length}`,
               { parse_mode: 'HTML' });
             this.terminalUnhealthyMsgIds.set(terminal.id, msg.message_id);
           } catch (e) {}
@@ -1467,27 +1476,27 @@ export class VpsPullScheduler {
 
     // Check if ALL terminals recovered
     const healthyCount = this.getHealthyTerminalCount();
-    if (this.hadTerminalDown && healthyCount === MAX_TERMINALS) {
+    if (this.hadTerminalDown && healthyCount === this.terminals.length) {
       this.hadTerminalDown = false;
       this.lastCriticalDmAt = 0;
       try {
         await this.bot.bot.telegram.sendMessage(config.adminUserId,
           `✅ <b>All VPS Terminals Recovered</b>\n\n` +
-          `All ${MAX_TERMINALS}/${MAX_TERMINALS} terminals are healthy and operational.`,
+          `All ${this.terminals.length}/${this.terminals.length} terminals are healthy and operational.`,
           { parse_mode: 'HTML' });
       } catch (e) {}
     }
 
     // Critical alert: half or more terminals down (≤7 healthy)
-    if (healthyCount <= Math.floor(MAX_TERMINALS / 2)) {
+    if (healthyCount <= Math.floor(this.terminals.length / 2)) {
       const now = Date.now();
       if (now - this.lastCriticalDmAt >= this.CRITICAL_DM_INTERVAL_MS) {
         this.lastCriticalDmAt = now;
-        const downCount = MAX_TERMINALS - healthyCount;
+        const downCount = this.terminals.length - healthyCount;
         try {
           await this.bot.bot.telegram.sendMessage(config.adminUserId,
             `🚨 <b>CRITICAL: ${downCount} VPS Terminals Down</b>\n\n` +
-            `Only <b>${healthyCount}/${MAX_TERMINALS}</b> terminals are healthy.\n` +
+            `Only <b>${healthyCount}/${this.terminals.length}</b> terminals are healthy.\n` +
             `Pull performance is severely degraded.\n\n` +
             `⚠️ Please check the VPS immediately.\n` +
             `<i>This alert repeats every 2 hours until recovery.</i>`,
@@ -1534,7 +1543,7 @@ export class VpsPullScheduler {
   private async checkTerminalHealth(_terminalId: number): Promise<boolean> {
     try {
       const response = await axios.get(`${this.baseUrl}/health`, { timeout: 15000 });
-      return response.status === 200 && response.data?.status === 'ok';
+      return response.status === 200 && terminalInventory(response.data).healthyIds.includes(_terminalId);
     } catch {
       return false;
     }
@@ -2921,7 +2930,7 @@ export class VpsPullScheduler {
     if (credentialFailures.length === 0 && failureRate <= 30) return;
 
     let text = `📊 <b>VPS Pull Report</b>\n<b>${challenge.title}</b>\n\n`;
-    text += `⏱️ ${durationSec}s | Terminals: ${this.getHealthyTerminalCount()}/${MAX_TERMINALS} healthy\n`;
+    text += `⏱️ ${durationSec}s | Terminals: ${this.getHealthyTerminalCount()}/${this.terminals.length} healthy\n`;
     text += `✅ ${successful.length} | 🔑 ${credentialFailures.length} | ❌ ${otherFailures.length} | 📉 ${failureRate.toFixed(1)}% fail\n\n`;
 
     // Terminal distribution (work stealing verification)
@@ -2960,7 +2969,7 @@ export class VpsPullScheduler {
       try {
         await this.bot.bot.telegram.sendMessage(config.adminUserId,
           `🚨 <b>HIGH FAILURE RATE: ${failureRate.toFixed(0)}%</b>\n\n` +
-          `Healthy terminals: ${this.getHealthyTerminalCount()}/${MAX_TERMINALS}\n` +
+          `Healthy terminals: ${this.getHealthyTerminalCount()}/${this.terminals.length}\n` +
           `<i>Check VPS connectivity and terminal health.</i>`,
           { parse_mode: 'HTML' });
       } catch (e) {}

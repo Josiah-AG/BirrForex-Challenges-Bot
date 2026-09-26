@@ -80,7 +80,7 @@ const fixture={title:'SYNTHETIC hardening '+Date.now(),type:'demo',start_date:'2
  // A partial pull publishes only the successful registration, leaving another operation's staging untouched.
  const {VpsPullScheduler}=require('../../src/scheduler/vpsPullScheduler');
  const scheduler=new VpsPullScheduler({bot:{telegram}});
- require("axios").get=async()=>({data:{healthy_terminals:[1,2]}});
+ require("axios").get=async()=>({data:{terminals:2,healthy_terminals:[1,2]}});
  for(const method of ['setRouterChallengePullState','clearRouterCredentialCache','inlineReconcile','resolveNullOpenTimes','reconcileUnexplainedBalances','delay','updateOhlcCandles','postEvalSlRetry','savePullTerminalStats','bulkUpdatePullStatus','reportCandleFailures','drainQueue'])scheduler[method]=async()=>{};
  const accounts=[first,second].map(registrationId=>({registrationId,accountNumber:String(registrationId),userId:registrationId}));
  scheduler.getAccountsToPull=async()=>accounts;
@@ -96,9 +96,9 @@ const fixture={title:'SYNTHETIC hardening '+Date.now(),type:'demo',start_date:'2
  scheduler.runSharedQueueWorkers=async()=>{scheduler.cancelRequested=true;return [];};
  await assert.rejects(()=>scheduler.runPullCycleForChallenge(id),{code:'PULL_CANCELLED'});
  scheduler.runSharedQueueWorkers=worker;
- const terminals=scheduler.terminals;scheduler.terminals=[];
+ const terminals=scheduler.terminals;require('axios').get=async()=>({data:{terminals:2,healthy_terminals:[]}});
  await assert.rejects(()=>scheduler.runPullCycleForChallenge(id),/No VPS terminals/);
- scheduler.terminals=terminals;
+ scheduler.terminals=terminals;require('axios').get=async()=>({data:{terminals:2,healthy_terminals:[1,2]}});
  scheduler.evaluateAllAccounts=async()=>{await stage(first,777);throw new Error('synthetic evaluation failure');};
  await assert.rejects(()=>scheduler.runPullCycleForChallenge(id),/synthetic evaluation failure/);
  assert.equal(Number((await db.query('SELECT adjusted_balance FROM wp_leaderboard WHERE registration_id=$1',[first])).rows[0].adjusted_balance),130);
