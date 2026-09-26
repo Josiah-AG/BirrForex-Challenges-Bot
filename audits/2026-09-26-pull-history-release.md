@@ -47,3 +47,7 @@ Git rollback alone does not restore already published data. Whole-database resto
 ## Local verification
 
 Backend build; 59 Node tests; 22 Python tests (including actual endpoint AST with mocked MT5); frontend production build; synthetic PostgreSQL ingestion/publication/recovery/rollback integration; existing hardening integration covering failure isolation, cancellation, final locks, credential recovery, settings and lifecycle; two complete startup migrations preserving historical fixture data. Additional changes require rerunning their affected checks. Live deployment results are recorded separately in SESSION_LOG.
+
+## Executed deployment
+
+Implementation `fd5a77d` and restart argument correction `9636fd5` were pushed to main and pulled to VPS. The first guarded restart found the missing port argument and halted after worker 1; it was restored, the correction was committed centrally, and the repeated rollout passed all ten workers plus router. All MT5 process IDs were preserved. Protocol-2 broker smoke returned 26 trades/54 deals and passed signed-ledger and backend validation without database ingestion. The feature was then enabled on Railway; backend and frontend deployments succeeded. Original-column fingerprints matched for all six historical tables (including 100,187 deals). No active challenge was present, so no full production challenge batch was run. SESSION_LOG contains deployment IDs and detailed evidence. Documentation-only follow-ups are pulled to VPS without restarting unchanged Python code.
