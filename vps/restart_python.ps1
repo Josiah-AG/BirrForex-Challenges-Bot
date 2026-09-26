@@ -43,7 +43,16 @@ $env:VPS_TERMINAL_COUNT = [string]$WorkerCount
 foreach ($ownedProcess in $owned) {
     $port = $ownedProcess.Port
     $health = Invoke-RestMethod "http://127.0.0.1:$port/health" -TimeoutSec 8
-    if ($health.busy) { throw "Worker on port $port is busy; deployment stopped" }
+    if ($health.git_commit -and $health.git_commit -ne 'unknown' -and $head.StartsWith([string]$health.git_commit) -and $health.status -eq 'ok') {
+        Write-Output "Port $port already at expected commit; retained"
+        continue
+    }
+    # Let an in-flight account read finish; never kill it to deploy an update.
+    for ($wait=0; $health.busy -and $wait -lt 60; $wait++) {
+        Start-Sleep -Seconds 2
+        $health = Invoke-RestMethod "http://127.0.0.1:$port/health" -TimeoutSec 8
+    }
+    if ($health.busy) { throw "Worker on port $port is still busy; deployment deferred" }
     Stop-Process -Id $ownedProcess.Pid -ErrorAction Stop
     $roleArguments = if ($port -eq 8000) { "--router $WorkerCount" } else { "--worker $($port-8000) $port" }
     $arguments = '/k call "' + (Join-Path $PSScriptRoot 'start_vps.bat') + '" ' + $roleArguments
