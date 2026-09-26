@@ -2,6 +2,7 @@
 param(
     [Parameter(Mandatory=$true)][string]$ExpectedCommit,
     [int]$WorkerCount = 0,
+    [switch]$RouterOnly,
     [switch]$Apply
 )
 $ErrorActionPreference = 'Stop'
@@ -23,6 +24,14 @@ foreach ($port in (8001..(8000 + $WorkerCount)) + @(8000)) {
     $role = if ($port -eq 8000) { 'router.py' } else { 'worker.py' }
     if ($process.SessionId -ne $session -or $process.Name -notmatch '^python' -or $process.CommandLine -notmatch [regex]::Escape($role)) { throw "Unexpected process owner on port $port" }
     $owned += [pscustomobject]@{ Port=$port; Pid=$process.ProcessId; Python=$process.ExecutablePath; Role=$role }
+}
+if ($RouterOnly) {
+    # Never replace the router while any worker is serving either application.
+    foreach ($worker in $owned | Where-Object Port -ne 8000) {
+        $state = Invoke-RestMethod "http://127.0.0.1:$($worker.Port)/health" -TimeoutSec 8
+        if ($state.busy) { throw "Worker $($worker.Port) is busy; router restart deferred" }
+    }
+    $owned = @($owned | Where-Object Port -eq 8000)
 }
 if (!$Apply) { $owned | Select-Object Port,Pid,Role; return }
 $logDir = Join-Path $env:ProgramData "WinnerPip\deployments\$head"

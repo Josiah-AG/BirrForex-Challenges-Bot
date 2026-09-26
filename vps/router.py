@@ -1087,21 +1087,10 @@ async def pull(req: PullRequest):
         raise HTTPException(status_code=401, detail="Invalid API key")
 
     if req.protocol_version == 2:
-        # Strict callers own dispatch and retry. Never reroute behind their lease.
-        if not req.terminal_id or not 1 <= req.terminal_id <= NUM_WORKERS:
-            return {"success": False, "error_type": "terminal", "message": "Requested terminal unavailable"}
-        wid = req.terminal_id
-        try:
-            async with httpx.AsyncClient(timeout=105.0) as client:
-                resp = await client.post(f"{worker_url(wid)}/pull", json=req.dict())
-                resp.raise_for_status()
-                data = resp.json()
-                if data.get("terminal_used") != wid:
-                    return {"success":False,"error_type":"terminal","message":"Worker identity mismatch","terminal_used":wid}
-                _record_pull_metrics(data, lane="challenge")
-                return data
-        except Exception:
-            return {"success": False, "error_type": "terminal", "message": "Worker did not complete request", "terminal_used": wid}
+        if req.priority:
+            async with _myfxpath_limiter:
+                return await _verified_pull(req)
+        return await _verified_pull(req)
 
     # ── Challenge path: COMPLETELY UNCHANGED ──────────────────────────────
     # If this is NOT a myFXpath priority request, run the original pull logic
@@ -1120,6 +1109,24 @@ async def pull(req: PullRequest):
         data = await _pull_impl(req)
         _record_pull_metrics(data, lane="myfxpath")
         return data
+
+
+async def _verified_pull(req: PullRequest):
+    # Strict callers own dispatch and retry. Never reroute behind their lease.
+    if not req.terminal_id or not 1 <= req.terminal_id <= NUM_WORKERS:
+        return {"success": False, "error_type": "terminal", "message": "Requested terminal unavailable"}
+    wid = req.terminal_id
+    try:
+        async with httpx.AsyncClient(timeout=105.0) as client:
+            resp = await client.post(f"{worker_url(wid)}/pull", json=req.dict())
+            resp.raise_for_status()
+            data = resp.json()
+            if data.get("terminal_used") != wid:
+                return {"success":False,"error_type":"terminal","message":"Worker identity mismatch","terminal_used":wid}
+            _record_pull_metrics(data, lane="myfxpath" if req.priority else "challenge")
+            return data
+    except Exception:
+        return {"success": False, "error_type": "terminal", "message": "Worker did not complete request", "terminal_used": wid}
 
 
 async def _pull_impl(req: PullRequest):

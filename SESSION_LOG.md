@@ -1730,3 +1730,8 @@ Authorization: user approved implementation, careful testing, direct-main releas
 ### 2026-09-26 — BirrForex contact URL replacement
 - Searched application sources and tracked files for Linktree links. The sole remaining occurrence was the shared email wrapper's Powered by BirrForex footer; replaced it with https://www.birrforex.com/contact-winnerpip. Website contact/host/footer/metadata links already use this destination.
 - Backend build and whitespace validation passed; no Linktree references remain in tracked source. No emails sent, data changes, or worker restart needed. Previously delivered emails remain unchanged. Rollback is a Git revert of this link-only change. Unrelated local edits preserved.
+
+### 2026-09-26 — Shared VPS verified MyFxPath lane
+- MyFxPath auto-journaling assessment found its legacy pulls do not verify full history and can conflict/queue behind other terminal work. Prepared adoption of existing verified v2 protocol (nonblocking worker lock and full ledger checks) in MyFxPath.
+- Router now applies the existing dynamic MyFxPath limiter to priority v2 pulls and records their lane correctly. WinnerPip v2 calls retain the same dispatch behavior. Added router-only option to guarded visible-console restart, checking every worker idle first; no MT5/worker restart needed for router-only deployments.
+- Python syntax checks and 24 regression tests passed, including limiter isolation between MyFxPath and WinnerPip. Deployment pending. No application credentials or untracked reference documents committed.
