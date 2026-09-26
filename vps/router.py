@@ -17,6 +17,8 @@ import httpx
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import Optional, Dict, Any
+from shared_dispatcher import SharedDispatcher
+from urllib.parse import urlsplit
 import uvicorn
 
 
@@ -66,38 +68,9 @@ API_KEY = os.environ.get("VPS_API_KEY", "")
 _next_worker   = 0
 worker_healthy = [True] * NUM_WORKERS
 
-# ── myFXpath in-flight tracker (priority lane — SAFE / non-blocking design) ──
-# CRITICAL DESIGN RULE: the Challenge system's request path must be COMPLETELY
-# UNCHANGED. Challenge /pull requests do NOT touch this tracker, never acquire a
-# lock, never wait — their code path is byte-for-byte the same as before.
-#
-# This tracker ONLY affects myFXpath (priority=True) requests. It is a plain
-# counter of how many myFXpath pulls are currently in flight, guarded by a lock
-# that ONLY myFXpath requests ever take. Therefore:
-#   • It is IMPOSSIBLE for this to block, slow, deadlock, or starve Challenge
-#     traffic — Challenge requests never enter this code at all.
-#   • Worst case if this code had a bug: only myFXpath requests are affected;
-#     the Challenge system keeps running exactly as it does today.
-#
-# DYNAMIC concurrency, based on whether the Challenge system is actively pulling:
-#
-#   • While WinnerPip is PULLING (challenge cycle in progress): myFXpath is capped
-#     to ACTIVE_CAP = floor(NUM_WORKERS / 3) (min 1) parallel pulls, so WinnerPip
-#     always keeps the other ~2/3 of terminals to itself and never has to stand
-#     off waiting for a big myFXpath batch to drain. myFXpath requests beyond the
-#     cap queue and drain N-at-a-time.
-#   • While WinnerPip is AT REST (no challenge cycle running): myFXpath may use
-#     ALL terminals in parallel (IDLE_CAP = NUM_WORKERS) for full speed.
-#
-# WinnerPip tells the router which state it's in via POST /challenge-pull-state
-# (called at cycle start/end by vpsPullScheduler.ts). If that signal is never
-# received, _challenge_pulling stays False (idle) — a safe default that only ever
-# gives myFXpath MORE room, never less, and still can't harm Challenge because
-# the Challenge path never touches this limiter.
-#
-# Env overrides:
-#   MYFXPATH_ACTIVE_CAP  — override the while-pulling cap (default floor(N/3), min 1)
-#   MYFXPATH_IDLE_CAP    — override the at-rest cap (default NUM_WORKERS)
+# Legacy fallback limiter, used only when VPS_SHARED_DISPATCH=0.
+# Shared dispatch below reserves workers for all operations and uses queued demand.
+# Neither mode preempts broker operations already in flight.
 
 def _default_active_cap() -> int:
     env = os.environ.get("MYFXPATH_ACTIVE_CAP")
@@ -128,9 +101,7 @@ _challenge_pulling = False
 
 
 class _MyfxpathLimiter:
-    """Non-blocking-for-Challenge limiter. ONLY myFXpath (priority=True) requests
-    use it — Challenge requests never enter this code, so it can never block,
-    slow, or starve Challenge traffic.
+    """Legacy MyFxPath admission limit. Worker contention can delay either app.
 
     The allowed concurrency is DYNAMIC: it's decided at acquire time from the
     current challenge-pull state (active cap while WinnerPip pulls, idle cap when
@@ -174,6 +145,95 @@ class _MyfxpathLimiter:
 
 
 _myfxpath_limiter = _MyfxpathLimiter()
+
+
+# Set to 0 and restart only the router to restore legacy routing.
+SHARED_DISPATCH_ENABLED = os.environ.get("VPS_SHARED_DISPATCH", "1") == "1"
+dispatcher = SharedDispatcher(NUM_WORKERS)
+_dispatch_tasks = set()
+
+
+def _allocation_report():
+    return dispatcher.snapshot() if SHARED_DISPATCH_ENABLED else {"enabled": False}
+
+
+def _live_report():
+    report = metrics.live_report()
+    report["allocation"] = _allocation_report()
+    return report
+
+
+async def _observe_dispatch_workers():
+    while True:
+        try:
+            async with httpx.AsyncClient(timeout=3) as client:
+                async def check(i):
+                    try:
+                        r = await client.get(f"{worker_url(i)}/health")
+                        d = r.json()
+                        return i, r.status_code == 200 and d.get("status") == "ok" and d.get("ipc_connected") and not d.get("dead_mode"), d.get("busy", True) or d.get("recovery_in_progress", False)
+                    except Exception:
+                        return i, False, True
+                states = await asyncio.gather(*(check(i) for i in range(1, NUM_WORKERS+1)))
+            await dispatcher.observe([i for i, ok, busy in states if ok], [i for i, ok, busy in states if busy and i not in dispatcher.active])
+        except Exception:
+            await dispatcher.observe([], range(1, NUM_WORKERS+1))
+        await asyncio.sleep(2)
+
+
+@app.on_event("startup")
+async def start_shared_dispatch():
+    if SHARED_DISPATCH_ENABLED:
+        task = asyncio.create_task(_observe_dispatch_workers())
+        _dispatch_tasks.add(task)
+        task.add_done_callback(_dispatch_tasks.discard)
+
+
+async def _dispatch_post(client, url, json, lane="challenge", flexible=False, excluded=None):
+    if not SHARED_DISPATCH_ENABLED:
+        return await client.post(url, json=json)
+    parsed = urlsplit(url)
+    requested = parsed.port - WORKER_BASE_PORT + 1
+    allowed = set(range(1, NUM_WORKERS+1)) if flexible else {requested}
+    allowed -= set(excluded or [])
+    if not allowed:
+        return httpx.Response(503, json={"success":False,"error_type":"busy","message":"No eligible terminal"}, request=httpx.Request("POST",url))
+    # Keep the transport alive even if the caller disconnects. Releasing an
+    # in-flight lease early would permit a second account to use that worker.
+    dispatched = False
+    async def run():
+        nonlocal dispatched
+        try:
+            async with dispatcher.lease(lane, allowed, parsed.path, timeout=60) as wid:
+                dispatched = True
+                payload = dict(json, terminal_id=wid)
+                target = f"{worker_url(wid)}{parsed.path}"
+                try:
+                    async with httpx.AsyncClient(timeout=client.timeout) as transport:
+                        response = await transport.post(target, json=payload)
+                    try:
+                        success = response.is_success and response.json().get("success", False)
+                    except Exception:
+                        success = False
+                    dispatcher.stats[lane]['completed' if success else 'failed'] += 1
+                    return response
+                except BaseException:
+                    # Unknown downstream outcome: quarantine until a probe sees it idle.
+                    dispatcher.external_busy.add(wid)
+                    raise
+        except asyncio.TimeoutError:
+            return httpx.Response(503, json={"success":False,"error_type":"busy","message":"Waiting for shared terminal capacity","terminal_used":requested}, request=httpx.Request("POST",url))
+    task = asyncio.create_task(run())
+    _dispatch_tasks.add(task)
+    def finished(t):
+        _dispatch_tasks.discard(t)
+        if not t.cancelled(): t.exception()  # retrieve detached failures
+    task.add_done_callback(finished)
+    try:
+        return await asyncio.shield(task)
+    except asyncio.CancelledError:
+        if not dispatched: task.cancel()
+        raise
 
 # ── VPS telemetry / report metrics ──────────────────────────────────────────
 # A single in-memory tracker of everything worth knowing about how the shared
@@ -746,9 +806,10 @@ class PullRequest(BaseModel):
     from_date:        Optional[str] = None
     orders_from_date: Optional[str] = None
     extended_sync:    Optional[bool] = False
-    # myFXpath priority lane: when True, this request is granted the next freed
-    # terminal slot ahead of waiting normal-priority (Challenge) requests.
+    # Application identity for shared 2:1 scheduling; never preempts active work.
     priority:         Optional[bool] = False
+    dispatch_any: bool = False
+    excluded_terminals: list[int] = []
     known_tickets: Optional[list[int]] = None
     protocol_version: int = 1
     request_id: Optional[str] = None
@@ -807,6 +868,7 @@ class OhlcSymbolRange(BaseModel):
 
 
 class OhlcBulkRequest(BaseModel):
+    priority: bool = False
     symbols:   list
     timeframe: str = "M1"
     api_key:   str
@@ -893,6 +955,8 @@ async def health():
         "terminals":            NUM_WORKERS,
         "alive_workers":        alive,
         "healthy_terminals":    healthy_list,
+        "shared_dispatch": SHARED_DISPATCH_ENABLED,
+        "busy": bool(dispatcher.active or dispatcher.waiters) if SHARED_DISPATCH_ENABLED else False,
         "unhealthy_terminals":  unhealthy_list,
         "terminal_subtype_map": {str(i + 1): terminal_subtype_map[i] for i in range(NUM_WORKERS)},
     }
@@ -917,7 +981,7 @@ async def vps_report_live(req: ReportRequest):
     Read by the WinnerPip health page and by myFXpath for an on-demand view."""
     if req.api_key != API_KEY:
         raise HTTPException(status_code=401, detail="Invalid API key")
-    return {"success": True, "report": metrics.live_report()}
+    return {"success": True, "report": _live_report()}
 
 
 @app.get("/vps-report")
@@ -925,7 +989,7 @@ async def vps_report_live_get(api_key: str = ""):
     """GET variant (api_key as query param) so a health page can fetch it easily."""
     if api_key != API_KEY:
         raise HTTPException(status_code=401, detail="Invalid API key")
-    return {"success": True, "report": metrics.live_report()}
+    return {"success": True, "report": _live_report()}
 
 
 @app.post("/vps-report/snapshot")
@@ -936,6 +1000,8 @@ async def vps_report_snapshot(req: ReportRequest):
     if req.api_key != API_KEY:
         raise HTTPException(status_code=401, detail="Invalid API key")
     snap = metrics.capture_snapshot()
+    snap["allocation"] = _allocation_report()
+    metrics.persist()
     return {"success": True, "snapshot": snap}
 
 
@@ -948,7 +1014,7 @@ async def vps_report_snapshots(api_key: str = ""):
     return {
         "success": True,
         "snapshots": metrics.snapshots,
-        "current": metrics.live_report(),
+        "current": _live_report(),
     }
 
 
@@ -975,7 +1041,7 @@ async def configure(req: ConfigureRequest):
             if not (1 <= tid <= NUM_WORKERS):
                 continue
             try:
-                resp = await client.post(
+                resp = await _dispatch_post(client, lane=("myfxpath" if getattr(req, "priority", False) else "challenge"), url=
                     f"{worker_url(tid)}/set-home-account",
                     json={
                         "account":        str(info["account"]),
@@ -1024,7 +1090,7 @@ async def _verify_impl(req: VerifyRequest):
         for retry in range(MAX_RETRIES_SAME_TERMINAL + 1):
             try:
                 async with httpx.AsyncClient(timeout=WORKER_TIMEOUT) as client:
-                    resp = await client.post(f"{worker_url(wid)}/verify",
+                    resp = await _dispatch_post(client, lane=("myfxpath" if getattr(req, "priority", False) else "challenge"), url=f"{worker_url(wid)}/verify",
                                              json={"account": req.account, "server": req.server,
                                                    "password": req.password, "api_key": req.api_key})
                     data = resp.json()
@@ -1049,7 +1115,7 @@ async def _verify_impl(req: VerifyRequest):
         for retry in range(MAX_RETRIES_SAME_TERMINAL + 1):
             try:
                 async with httpx.AsyncClient(timeout=WORKER_TIMEOUT) as client:
-                    resp = await client.post(f"{worker_url(wid)}/verify",
+                    resp = await _dispatch_post(client, lane=("myfxpath" if getattr(req, "priority", False) else "challenge"), url=f"{worker_url(wid)}/verify",
                                              json={"account": req.account, "server": req.server,
                                                    "password": req.password, "api_key": req.api_key})
                     data = resp.json()
@@ -1088,24 +1154,24 @@ async def pull(req: PullRequest):
         raise HTTPException(status_code=401, detail="Invalid API key")
 
     if req.protocol_version == 2:
-        if req.priority:
+        if req.priority and not SHARED_DISPATCH_ENABLED:
             async with _myfxpath_limiter:
                 return await _verified_pull(req)
         return await _verified_pull(req)
 
-    # ── Challenge path: COMPLETELY UNCHANGED ──────────────────────────────
-    # If this is NOT a myFXpath priority request, run the original pull logic
-    # directly — no lock, no limiter, no waiting. Byte-for-byte the old behavior.
-    # (The only addition is a post-hoc metrics.record_request on the RESULT, which
-    #  reads the returned dict and cannot alter the pull or its timing.)
+    # Legacy protocol keeps its retry semantics; worker transport now reserves
+    # capacity through the shared dispatcher when enabled.
     if not req.priority:
         data = await _pull_impl(req)
         _record_pull_metrics(data, lane="challenge")
         return data
 
-    # ── myFXpath path only: cap concurrency so a big sync can't hog terminals
-    # and stall the Challenge cycle. Only myFXpath requests ever reach here, so
-    # this can never block or affect Challenge traffic.
+    if SHARED_DISPATCH_ENABLED:
+        data = await _pull_impl(req)
+        _record_pull_metrics(data, lane="myfxpath")
+        return data
+
+    # Rollback mode retains the previous MyFxPath-only admission limiter.
     async with _myfxpath_limiter:
         data = await _pull_impl(req)
         _record_pull_metrics(data, lane="myfxpath")
@@ -1113,16 +1179,16 @@ async def pull(req: PullRequest):
 
 
 async def _verified_pull(req: PullRequest):
-    # Strict callers own dispatch and retry. Never reroute behind their lease.
+    # WinnerPip pins identity; opted-in MyFxPath callers validate the assigned identity.
     if not req.terminal_id or not 1 <= req.terminal_id <= NUM_WORKERS:
         return {"success": False, "error_type": "terminal", "message": "Requested terminal unavailable"}
     wid = req.terminal_id
     try:
         async with httpx.AsyncClient(timeout=105.0) as client:
-            resp = await client.post(f"{worker_url(wid)}/pull", json=req.dict())
+            resp = await _dispatch_post(client, lane=("myfxpath" if getattr(req, "priority", False) else "challenge"), url=f"{worker_url(wid)}/pull", json=req.dict(), flexible=req.dispatch_any, excluded=req.excluded_terminals)
             resp.raise_for_status()
             data = resp.json()
-            if data.get("terminal_used") != wid:
+            if not req.dispatch_any and data.get("terminal_used") != wid:
                 return {"success":False,"error_type":"terminal","message":"Worker identity mismatch","terminal_used":wid}
             _record_pull_metrics(data, lane="myfxpath" if req.priority else "challenge")
             return data
@@ -1167,7 +1233,7 @@ async def _pull_impl(req: PullRequest):
         for retry in range(MAX_RETRIES_SAME_TERMINAL + 1):
             try:
                 async with httpx.AsyncClient(timeout=WORKER_TIMEOUT) as client:
-                    resp = await client.post(
+                    resp = await _dispatch_post(client, lane=("myfxpath" if getattr(req, "priority", False) else "challenge"), url=
                         f"{worker_url(current_terminal)}/pull",
                         json={
                             "account":          req.account,
@@ -1255,7 +1321,7 @@ async def _list_positions_impl(req: ListPositionsRequest):
         for retry in range(MAX_RETRIES_SAME_TERMINAL + 1):
             try:
                 async with httpx.AsyncClient(timeout=WORKER_TIMEOUT) as client:
-                    resp = await client.post(
+                    resp = await _dispatch_post(client, lane=("myfxpath" if getattr(req, "priority", False) else "challenge"), url=
                         f"{worker_url(current_terminal)}/list-positions",
                         json={
                             "account":   req.account,
@@ -1323,7 +1389,7 @@ async def _resolve_opens_impl(req: ResolveOpensRequest):
         for retry in range(MAX_RETRIES_SAME_TERMINAL + 1):
             try:
                 async with httpx.AsyncClient(timeout=WORKER_TIMEOUT) as client:
-                    resp = await client.post(
+                    resp = await _dispatch_post(client, lane=("myfxpath" if getattr(req, "priority", False) else "challenge"), url=
                         f"{worker_url(current_terminal)}/resolve-opens",
                         json={
                             "account":      req.account,
@@ -1390,7 +1456,7 @@ async def _resolve_trades_impl(req: ResolveTradesRequest):
         for retry in range(MAX_RETRIES_SAME_TERMINAL + 1):
             try:
                 async with httpx.AsyncClient(timeout=WORKER_TIMEOUT) as client:
-                    resp = await client.post(
+                    resp = await _dispatch_post(client, lane=("myfxpath" if getattr(req, "priority", False) else "challenge"), url=
                         f"{worker_url(current_terminal)}/resolve-trades",
                         json={
                             "account":      req.account,
@@ -1461,7 +1527,7 @@ async def _get_candles_impl(req: CandlesRequest):
         for retry in range(MAX_RETRIES_SAME_TERMINAL + 1):
             try:
                 async with httpx.AsyncClient(timeout=60.0) as client:
-                    resp = await client.post(
+                    resp = await _dispatch_post(client, lane=("myfxpath" if getattr(req, "priority", False) else "challenge"), url=
                         f"{worker_url(wid)}/candles",
                         json={
                             "symbol":           req.symbol,
@@ -1509,7 +1575,7 @@ async def ohlc_bulk(req: OhlcBulkRequest):
 
     try:
         async with httpx.AsyncClient(timeout=180.0) as client:
-            resp = await client.post(
+            resp = await _dispatch_post(client, lane=("myfxpath" if getattr(req, "priority", False) else "challenge"), url=
                 f"{worker_url(wid)}/ohlc-bulk",
                 json={
                     "symbols":   req.symbols,

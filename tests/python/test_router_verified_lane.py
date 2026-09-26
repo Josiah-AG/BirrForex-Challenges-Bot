@@ -13,9 +13,12 @@ class LaneTests(unittest.IsolatedAsyncioTestCase):
             async def __aenter__(self):seen.append('enter')
             async def __aexit__(self,*args):seen.append('exit')
         async def verified(req):seen.append('pull');return {'success':True}
-        env={'PullRequest':object,'API_KEY':'test','_myfxpath_limiter':Limiter(),'_verified_pull':verified}
+        env={'SHARED_DISPATCH_ENABLED':False,'PullRequest':object,'API_KEY':'test','_myfxpath_limiter':Limiter(),'_verified_pull':verified}
         exec(compile(ast.Module(body=[fn],type_ignores=[]),'router','exec'),env)
         await env['pull'](N(api_key='test',protocol_version=2,priority=True))
         self.assertEqual(seen,['enter','pull','exit']);seen.clear()
         await env['pull'](N(api_key='test',protocol_version=2,priority=False))
+        self.assertEqual(seen,['pull'])
+        seen.clear();env['SHARED_DISPATCH_ENABLED']=True
+        await env['pull'](N(api_key='test',protocol_version=2,priority=True))
         self.assertEqual(seen,['pull'])

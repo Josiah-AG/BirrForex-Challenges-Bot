@@ -249,6 +249,18 @@ function renderVpsReportPage(snapshots: any[], current: any): string {
     </table>
   </section>
 
+  <section><h2>Shared terminal allocation</h2>
+    ${current?.allocation?.enabled ? `
+    <p>Healthy ${num(current.allocation.healthy)}/${num(current.allocation.configured)} • Available ${num(current.allocation.available)} • Health observed ${esc(new Date(num(current.allocation.observed_at)*1000).toISOString())} • ${Date.now()/1000-num(current.allocation.observed_at)>15 ? 'STALE' : 'Live'}</p>
+    <p>Requests and terminal busy time below are since this router start; targets change with demand. Existing operations finish before capacity transfers.</p>
+    <table><thead><tr><th>App</th><th>Running / target</th><th>Borrowed</th><th>Waiting</th><th>Oldest wait</th><th>Completed / failed</th><th>Queue timeouts</th><th>Busy seconds</th></tr></thead><tbody>
+    ${Object.entries(current.allocation.lanes || {}).map(([lane,v]:[string,any])=>`<tr><td>${lane==='challenge'?'WinnerPip':'MyFxPath'}</td><td>${num(v.running)} / ${num(v.target)}</td><td>${num(v.borrowed)}</td><td>${num(v.queued)}</td><td>${Math.round(num(v.oldest_wait_seconds))}s</td><td>${num(v.completed)} / ${num(v.failed)}</td><td>${num(v.queue_timeouts)}</td><td>${Math.round(num(v.busy_seconds))}</td></tr>`).join('')}
+    </tbody></table>
+    <table><thead><tr><th>Terminal</th><th>State</th><th>App</th><th>Operation</th><th>Elapsed</th></tr></thead><tbody>
+    ${(current.allocation.terminals || []).map((t:any)=>`<tr><td>T${num(t.id)}</td><td>${esc(t.state)}</td><td>${esc(t.lane || '—')}</td><td>${esc(t.operation || '—')}</td><td>${Math.round(num(t.elapsed_seconds))}s</td></tr>`).join('')}</tbody></table>
+    ` : '<p>Shared allocation unavailable or legacy mode enabled.</p>'}
+  </section>
+
   <section><h2>Router</h2>
     <div class="foot">
       Commit: ${esc(router.git_commit || '?')} • uptime ${Math.round(num(router.uptime_seconds) / 60)} min • restarts ${num(router.restart_count)} •

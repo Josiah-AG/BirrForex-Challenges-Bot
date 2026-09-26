@@ -3,6 +3,7 @@ param(
     [Parameter(Mandatory=$true)][string]$ExpectedCommit,
     [int]$WorkerCount = 0,
     [switch]$RouterOnly,
+    [ValidateSet("0","1")][string]$SharedDispatch,
     [switch]$Apply
 )
 $ErrorActionPreference = 'Stop'
@@ -38,12 +39,13 @@ $logDir = Join-Path $env:ProgramData "WinnerPip\deployments\$head"
 New-Item -ItemType Directory -Force $logDir | Out-Null
 & icacls.exe $logDir /inheritance:r /grant:r '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-18:(OI)(CI)F' | Out-Null
 if ($LASTEXITCODE -ne 0) { throw 'Cannot restrict deployment logs' }
+if ($SharedDispatch) { $env:VPS_SHARED_DISPATCH = $SharedDispatch }
 $env:VPS_ATTACH_ONLY = '1'
 $env:VPS_TERMINAL_COUNT = [string]$WorkerCount
 foreach ($ownedProcess in $owned) {
     $port = $ownedProcess.Port
     $health = Invoke-RestMethod "http://127.0.0.1:$port/health" -TimeoutSec 8
-    if ($health.git_commit -and $health.git_commit -ne 'unknown' -and $head.StartsWith([string]$health.git_commit) -and $health.status -eq 'ok') {
+    if (($port -ne 8000 -or !$SharedDispatch -or [bool]$health.shared_dispatch -eq ($SharedDispatch -eq '1')) -and $health.git_commit -and $health.git_commit -ne 'unknown' -and $head.StartsWith([string]$health.git_commit) -and $health.status -eq 'ok') {
         Write-Output "Port $port already at expected commit; retained"
         continue
     }

@@ -40,11 +40,12 @@ import { debugLog } from '../utils/debugLog';
 
 const MAX_RETRIES_PER_ACCOUNT = 3;
 const RETRY_DELAY_MS = 3000;
-const ACCOUNT_TIMEOUT_MS = 30000;
+// Includes up to 60s shared admission plus worker execution and network margin.
+const ACCOUNT_TIMEOUT_MS = 195000;
 // resolve-opens/resolve-trades run a full history-cache stabilization wait
 // (_wait_history_cache in worker.py) before querying — that alone can take up
 // to ~40s on a cold cache, so they need a longer timeout than other endpoints.
-const HISTORY_RESOLVE_TIMEOUT_MS = 60000;
+const HISTORY_RESOLVE_TIMEOUT_MS = 195000;
 const BATCH_DELAY_MS = 1500;
 const PASSWORD_WARNING_HOURS = 24;
 const TERMINAL_HEALTH_RECHECK_MS = 10 * 60 * 1000;
@@ -892,7 +893,7 @@ export class VpsPullScheduler {
         anchor_balance:anchor?Number(registration.history_verified_balance):null,
         prior_digest:anchor?registration.history_digest:null,
         repair_from:importFrom,
-      },{timeout:115000,signal:abortSignal});
+      },{timeout:180000,signal:abortSignal});
       const data=response.data;
       if(!data?.success && data?.error_type==='credential_failure' && data.credential_fresh===true && data.terminal_used===terminalId){
         const confirmed=account.excludedTerminalId!==undefined && account.excludedTerminalId!==terminalId;
@@ -2301,7 +2302,7 @@ export class VpsPullScheduler {
           from_date: fromDate,
           orders_from_date: fromDate,
         },
-        { headers: { 'Content-Type': 'application/json' }, timeout: 60000 }
+        { headers: { 'Content-Type': 'application/json' }, timeout: 195000 }
       );
       if (!response.data?.success) return null;
       const allTrades: any[] = response.data.trades || [];

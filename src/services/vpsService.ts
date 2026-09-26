@@ -203,7 +203,7 @@ class VpsService {
             },
             {
               headers: { 'Content-Type': 'application/json' },
-              timeout: 30000,
+              timeout: 195000, // shared admission + worker execution
             }
           );
 
