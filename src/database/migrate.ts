@@ -1,3 +1,4 @@
+import { migratePullIntegrity } from './pullIntegrityMigration';
 import { migrateHardening } from './hardeningMigration';
 import { readFileSync } from 'fs';
 import { join } from 'path';
@@ -484,6 +485,7 @@ async function migrate() {
     console.log('✅ Optional-target columns OK');
 
     await migrateHardening();
+    await migratePullIntegrity();
     console.log('✅ Database migration completed successfully!');
     process.exit(0);
   } catch (error) {

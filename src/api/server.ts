@@ -1611,7 +1611,7 @@ app.get('/api/challenges/:id/user-trades', async (req, res) => {
 
     // Get total count
     const countResult = await db.query(
-      `SELECT COUNT(*) as total FROM wp_trades WHERE challenge_id = $1 AND registration_id = $2${dateFilter}`,
+      `SELECT COUNT(*) as total FROM wp_visible_trades_for($2) WHERE challenge_id = $1 AND registration_id = $2${dateFilter}`,
       baseParams
     );
     const total = parseInt(countResult.rows[0].total);
@@ -1619,7 +1619,7 @@ app.get('/api/challenges/:id/user-trades', async (req, res) => {
     // Get trades with pagination
     const trades = await db.query(
       `SELECT ticket, position_id, symbol, trade_type, volume, profit, commission, swap, close_time, open_time, open_price, close_price, stop_loss, take_profit, is_qualified, violations, sl_check_pending, sl_check_result
-       FROM wp_trades WHERE challenge_id = $1 AND registration_id = $2${dateFilter}
+       FROM wp_visible_trades_for($2) WHERE challenge_id = $1 AND registration_id = $2${dateFilter}
        ORDER BY close_time DESC LIMIT ${limit} OFFSET ${offset}`,
       baseParams
     );
@@ -1627,7 +1627,7 @@ app.get('/api/challenges/:id/user-trades', async (req, res) => {
     // Fetch withdrawal/deposit ops for this registration
     const balanceOps = await db.query(
       `SELECT deal_ticket, op_time, amount, op_type, comment
-       FROM wp_balance_ops
+       FROM wp_visible_balance_ops_for($2)
        WHERE challenge_id = $1 AND registration_id = $2
        ORDER BY op_time DESC`,
       [challengeId, registrationId]
@@ -1640,7 +1640,7 @@ app.get('/api/challenges/:id/user-trades', async (req, res) => {
       // Group trades by position_id and find positions where multiple tickets share the same position
       // (partial closes). Use the sum of all closed volumes as the "full" volume.
       const volResult = await db.query(
-        `SELECT position_id, SUM(volume) as total_vol, COUNT(*) as cnt FROM wp_trades
+        `SELECT position_id, SUM(volume) as total_vol, COUNT(*) as cnt FROM wp_visible_trades_for($2)
          WHERE challenge_id = $1 AND registration_id = $2 AND position_id = ANY($3)
          GROUP BY position_id HAVING COUNT(*) > 1`,
         [challengeId, registrationId, tradePositionIds]
@@ -1716,7 +1716,7 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
     const cEndDate   = cDates.rows[0]?.end_date;
     let tradesQuery = `SELECT ticket, symbol, trade_type, volume, open_time, close_time,
               open_price, close_price, stop_loss, take_profit, profit, commission, swap, is_qualified, violations, sl_check_pending, sl_check_result, position_id
-       FROM wp_trades
+       FROM wp_visible_trades_for($2)
        WHERE challenge_id = $1 AND registration_id = $2`;
     const tradesParams: any[] = [cId, registrationId];
     if (cStartDate) {
@@ -1738,7 +1738,7 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
     if (positionIds.length > 0) {
       try {
         const volResult = await db.query(
-          `SELECT position_id, SUM(volume) as total_vol FROM wp_trades
+          `SELECT position_id, SUM(volume) as total_vol FROM wp_visible_trades_for($2)
            WHERE challenge_id = $1 AND registration_id = $2 AND position_id = ANY($3)
            GROUP BY position_id HAVING COUNT(*) > 1`,
           [cId, registrationId, positionIds]
@@ -1765,6 +1765,12 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
     );
 
     const registration = reg.rows[0];
+    const publishedRegistration=(await db.query('SELECT registration_state FROM wp_account_publications WHERE registration_id=$1',[registrationId])).rows[0]?.registration_state;
+    if(publishedRegistration && registration.history_sync_state !== 'published'){
+      registration.actual_starting_balance=publishedRegistration.actual_starting_balance;
+      registration.disqualified=lb.rows[0]?.is_disqualified ?? publishedRegistration.disqualified;
+      registration.disqualified_reason=lb.rows[0]?.disqualify_reason ?? publishedRegistration.disqualified_reason;
+    }
     const leaderboard = lb.rows[0] || null;
 
     // All views use the published rank, including growth mode and deterministic ties.
@@ -1847,6 +1853,9 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
         accountSubtype: registration.account_subtype || null,
         server: registration.mt5_server,
         pullStatus: registration.pull_status || null,
+        historySyncState: registration.history_sync_state || null,
+        historyVerifiedAt: registration.history_verified_at || null,
+        historyPublishedAt: registration.history_published_at || null,
         disqualified: registration.disqualified || false,
         disqualifiedReason: registration.disqualified_reason || null,
         // Derive isCent: trust registration flag, but also fallback to challenge only_cent_account

@@ -1,3 +1,5 @@
+import { beginPullJournal, checkpointPullJournal } from '../services/pullRollbackJournal';
+import { validateHistorySnapshot } from '../utils/historySnapshot';
 import { queueCredentialRecovery } from '../services/credentialRecovery';
 import { getLocalTime } from '../utils/timezone';
 import { zonedTimeToUtc } from 'date-fns-tz';
@@ -336,6 +338,7 @@ export class VpsPullScheduler {
     // Per-challenge pull schedule: check every minute if any challenge needs a pull now
     cron.schedule('* * * * *', () => this.checkPullSchedule(), { timezone: 'UTC' });
     cron.schedule('* * * * *', () => this.retryCredentialRecoveries(), { timezone: 'UTC' });
+    cron.schedule('* * * * *', () => this.retryIncompleteHistory(), { timezone: 'UTC' });
 
     // Check for 48h disqualifications every hour
     cron.schedule('30 * * * *', () => this.checkDisqualifications(), { timezone: 'UTC' });
@@ -500,7 +503,9 @@ export class VpsPullScheduler {
       }
 
       console.log(`📊 VPS Pull: ${accounts.length} accounts, ${this.getHealthyTerminalCount()} healthy terminals`);
-      this.terminals.forEach(t => { t.totalProcessed = 0; t.totalSuccess = 0; t.totalFailed = 0; t.isHealthy = true; t.consecutiveFailures = 0; });
+      const health=await axios.get(`${this.baseUrl}/health`,{timeout:15000});
+      const available=new Set<number>(health.data?.healthy_terminals || []);
+      this.terminals.forEach(t => { t.totalProcessed=0;t.totalSuccess=0;t.totalFailed=0;t.isHealthy=available.has(t.id);t.unhealthySince=t.isHealthy?null:(t.unhealthySince||new Date());t.consecutiveFailures=0; });
       this.credentialFailureCache.clear();
       await this.clearRouterCredentialCache();
 
@@ -510,6 +515,7 @@ export class VpsPullScheduler {
       const healthyTerminals = this.terminals.filter(t => t.isHealthy);
       console.log(`📊 VPS Pull (admin): ${healthyTerminals.length} healthy terminals: ${healthyTerminals.map(t => `T${t.id}`).join(', ')}`);
       if (healthyTerminals.length === 0) {
+        await db.query(`UPDATE trading_registrations SET history_sync_state='incomplete',history_sync_error='No healthy terminals available',history_retry_at=NOW()+INTERVAL '5 minutes' WHERE id=ANY($1::int[])`,[accounts.map(a=>a.registrationId)]);
         console.error('❌ VPS Pull: ALL terminals unhealthy');
         await this.completePullBatch(batchId, 0, accounts.length, 0, 'no_terminals');
         batchId = null;
@@ -545,6 +551,7 @@ export class VpsPullScheduler {
       // Phase 2: Resolve
       const resolveStart = Date.now();
       await db.query(`UPDATE wp_pull_batches SET phase = 'resolving', phase_started_at = NOW() WHERE id = $1`, [batchId]).catch(() => {});
+      if(process.env.VPS_VERIFIED_HISTORY !== 'true') {
       await this.inlineReconcile(challengeId, batchId, successfulAccounts, successful, healthyTerminals);
       await this.resolveNullOpenTimes(challengeId, batchId, successfulAccounts, healthyTerminals, challengeToPull);
       phaseTimes.resolve = Math.round((Date.now() - resolveStart) / 1000);
@@ -554,11 +561,12 @@ export class VpsPullScheduler {
         await this.reconcileUnexplainedBalances(challengeId, batchId, successfulAccounts, healthyTerminals);
       }
 
+      }
       // Phase 3: Settle
       const settleStart = Date.now();
       await db.query(`UPDATE wp_pull_batches SET phase = 'settling', phase_started_at = NOW() WHERE id = $1`, [batchId]).catch(() => {});
-      console.log('📊 VPS Pull: Waiting 30s for terminals to settle before OHLC...');
-      await this.delay(30000);
+      if(process.env.VPS_VERIFIED_HISTORY !== 'true')console.log('📊 VPS Pull: Legacy terminal settle delay...');
+      if(process.env.VPS_VERIFIED_HISTORY !== 'true')await this.delay(30000);
       phaseTimes.settle = Math.round((Date.now() - settleStart) / 1000);
 
       // Phase 4: OHLC
@@ -572,11 +580,11 @@ export class VpsPullScheduler {
       // Phase 5: Evaluate
       const evalStart = Date.now();
       await db.query(`UPDATE wp_pull_batches SET phase = 'evaluating', phase_started_at = NOW() WHERE id = $1`, [batchId]).catch(() => {});
-      await this.evaluateAllAccounts(challengeId, successfulAccounts, batchId,undefined,overrideLock);
+      const evaluatedAccounts=await this.evaluateAllAccounts(challengeId, successfulAccounts, batchId,undefined,overrideLock);
       phaseTimes.evaluate = Math.round((Date.now() - evalStart) / 1000);
 
       // === POST-EVAL: Retry SL checks for trades still pending (missing OHLC) ===
-      await this.postEvalSlRetry(challengeToPull,overrideLock,successfulAccounts.map(a=>a.registrationId));
+      await this.postEvalSlRetry(challengeToPull,overrideLock,evaluatedAccounts.map(a=>a.registrationId));
 
       const newTrades = successful.reduce((sum, r) => sum + (r.tradesCount || 0), 0);
       // Complete the batch only after publication commits.
@@ -607,10 +615,10 @@ export class VpsPullScheduler {
       // Force pull flushes right now so the admin sees correct stats instantly.
       if(this.cancelRequested)throw Object.assign(new Error('Update cancelled before publication'), { code: 'PULL_CANCELLED' });
       await db.transaction(async()=>{
-        for(const account of successfulAccounts)await leaderboardService.flushStagingToLive(challengeToPull.id, account.registrationId, overrideLock);
+        for(const account of evaluatedAccounts)await leaderboardService.flushStagingToLive(challengeToPull.id, account.registrationId, overrideLock);
         await leaderboardService.ensureAllParticipantsHaveEntries(challengeToPull.id,overrideLock);
         await leaderboardService.updateRankings(challengeToPull.id, true, overrideLock);
-        await this.completePullBatch(batchId!, successful.length, failed.length, newTrades, 'completed');
+        await this.completePullBatch(batchId!, evaluatedAccounts.length, accounts.length-evaluatedAccounts.length, newTrades, evaluatedAccounts.length===accounts.length?'completed':'partial');
       });
       batchId=null;
       console.log(`📊 VPS Pull: Staging flushed to live — leaderboard updated`);
@@ -652,8 +660,10 @@ export class VpsPullScheduler {
     const WATCHDOG_NO_PROGRESS_MS = 5 * 60 * 1000; // 5 min with 0 processed = auto-cancel
 
     // Watchdog: if no account finishes within 5 minutes, abort the entire batch
+    let lastProgressAt=batchStart, lastCount=0;
     const watchdog = setInterval(() => {
-      if (resultsMutex.results.length === 0 && Date.now() - batchStart > WATCHDOG_NO_PROGRESS_MS) {
+      if(resultsMutex.results.length!==lastCount){lastCount=resultsMutex.results.length;lastProgressAt=Date.now();}
+      if (Date.now() - lastProgressAt > WATCHDOG_NO_PROGRESS_MS) {
         console.error('🚨 VPS Pull Watchdog: No progress in 5 minutes — auto-cancelling stuck batch');
         this.cancelRequested = true;
         this.abortController?.abort();
@@ -661,12 +671,18 @@ export class VpsPullScheduler {
     }, 30000); // check every 30s
 
     const workerPromises = healthyTerminals.map(terminal =>
-      this.terminalWorker(terminal, challenge, batchId, resultsMutex)
+      this.terminalWorker(terminal, challenge, batchId, resultsMutex).catch(error=>{
+        this.cancelRequested=true;this.abortController?.abort();throw error;
+      })
     );
 
-    await Promise.all(workerPromises);
-    clearInterval(watchdog);
-    return resultsMutex.results;
+    try {
+      const settled=await Promise.allSettled(workerPromises);
+      const failed=settled.find((r):r is PromiseRejectedResult=>r.status==='rejected');
+      if(failed)throw failed.reason;
+      return resultsMutex.results;
+    }
+    finally { clearInterval(watchdog); }
   }
 
   /**
@@ -700,7 +716,7 @@ export class VpsPullScheduler {
         if (this.sharedQueue.isEmpty) break; // Truly done
         // Queue has work, but none of it is eligible for this terminal right now.
         // Check if anything is stuck (in progress > 90s) — eject it so the cycle can proceed.
-        this.sharedQueue.ejectStale(90000);
+        // In-flight ownership is released only by the worker that owns it.
         if (this.sharedQueue.isEmpty) break; // Ejecting stale items freed the queue
         await this.delay(300);
         continue;
@@ -730,7 +746,18 @@ export class VpsPullScheduler {
         // and evaluateAllAccounts(), called from each pull-cycle entry point once
         // runSharedQueueWorkers() returns. This guarantees evaluation never reads a
         // trade with a still-fixable NULL open_time.
+      } else if (result.errorCode === 'history_incomplete') {
+        // Durable backoff owns incomplete snapshots; do not amplify VPS work here.
+        resultsMutex.results.push(result);
+        terminal.totalFailed++;
+        this.sharedQueue.done(account.registrationId,account.accountNumber);
       } else if (result.errorCode === 'credential_suspect') {
+        if(this.getHealthyTerminalCount()<2 || account.excludedTerminalId!==undefined){
+          await db.query(`UPDATE trading_registrations SET history_sync_state='incomplete',history_sync_error='Credential confirmation needs another healthy terminal',history_retry_at=NOW()+INTERVAL '5 minutes' WHERE id=$1`,[account.registrationId]);
+          resultsMutex.results.push({...result,errorCode:'history_incomplete'});
+          this.sharedQueue.done(account.registrationId,account.accountNumber);
+          continue;
+        }
         // First -6 on this terminal — NOT a final result. Terminal stays healthy
         // (this was a clean credential rejection, not a terminal fault).
         // Route to a different terminal for confirmation.
@@ -795,7 +822,118 @@ export class VpsPullScheduler {
   /**
    * Pull a single account with retry logic
    */
+  private async retryIncompleteHistory(): Promise<void> {
+    if(this.isRunning || process.env.VPS_VERIFIED_HISTORY !== 'true')return;
+    const lease=await db.getClient();let locked=false;
+    try {
+      locked=(await lease.query('SELECT pg_try_advisory_lock(26092604,0) AS locked')).rows[0].locked;
+      if(!locked)return;
+      const rows=await db.query(`SELECT r.id,r.challenge_id FROM trading_registrations r
+        JOIN trading_challenges c ON c.id=r.challenge_id
+        WHERE r.history_sync_state IN ('incomplete','verified','evaluation_failed') AND r.history_retry_at<=NOW()
+          AND r.status IS DISTINCT FROM 'removed' AND r.connection_verified=true
+          AND r.pull_status IS DISTINCT FROM 'password_changed'
+          AND c.status IN ('active','reviewing') AND c.leaderboard_locked_at IS NULL
+        ORDER BY r.history_retry_at LIMIT 3`);
+      if(rows.rows.length){
+        const health=await axios.get(`${this.baseUrl}/health`,{timeout:15000});
+        const available=new Set<number>(health.data?.healthy_terminals||[]);
+        this.terminals.forEach(t=>{t.isHealthy=available.has(t.id);});
+      }
+      for(const row of rows.rows){
+        const result=await this.retrySingleAccountUnlocked(row.id,row.challenge_id);
+        if(!result.success && !['history_incomplete','evaluation_failed'].includes(result.errorCode||'')){
+          await this.recordHistoryFailure(row.id,row.challenge_id,result.errorMessage||'Recovery pending');
+          if(result.errorCode==='invalid_credentials'){
+            const challenge=(await db.query('SELECT * FROM trading_challenges WHERE id=$1',[row.challenge_id])).rows[0];
+            await this.handleCredentialFailure(result,challenge);
+          }
+        }
+        if(result.success && result.evaluated){
+          await db.transaction(async()=>{
+            await leaderboardService.flushStagingToLive(row.challenge_id,row.id);
+            await leaderboardService.updateRankings(row.challenge_id,true);
+          });
+        }
+      }
+    } catch(error){console.error('History recovery pending:',(error as Error).message);}
+    finally{if(locked)await lease.query('SELECT pg_advisory_unlock(26092604,0)');lease.release();}
+  }
+
+  private async recordHistoryFailure(registrationId:number,challengeId:number,message:string,evaluation=false){
+    await db.transaction(async()=>{
+      await beginPullJournal(registrationId,challengeId);
+      await db.query(`UPDATE trading_registrations SET history_sync_state=$3::text,history_sync_error=$2::text,pull_status=$3::text,pull_error=$2::text,
+        history_retry_attempts=history_retry_attempts+1,
+        history_retry_at=NOW()+LEAST(60,POWER(2,LEAST(history_retry_attempts,6))) * INTERVAL '1 minute'
+        WHERE id=$1`,[registrationId,message.slice(0,1000),evaluation?'evaluation_failed':'incomplete']);
+      await checkpointPullJournal(registrationId);
+    });
+  }
+
+  private async pullVerifiedAccount(account: AccountToPull, terminalId: number, challenge: any, abortSignal?: AbortSignal): Promise<PullResult> {
+    const base = {registrationId:account.registrationId,accountNumber:account.accountNumber,userId:account.userId,username:account.username,terminalId};
+    const requestId = require('crypto').randomUUID();
+    try {
+      const registration=(await db.query(`SELECT registered_at,history_verified_through,history_verified_balance,history_retry_attempts,history_verified_at,
+        (SELECT history_digest FROM wp_history_snapshots s WHERE s.registration_id=trading_registrations.id ORDER BY id DESC LIMIT 1) AS history_digest
+        FROM trading_registrations WHERE id=$1`,[account.registrationId])).rows[0];
+      // Full audits are required on first import, explicit full pulls and reviewing.
+      const full=!account.lastPullAt || !registration?.history_verified_through || challenge?.status!=='active'
+        || Number(registration.history_retry_attempts)>0 || (challenge && this.isMidnightRun(challenge));
+      const anchor=full?null:registration.history_verified_through;
+      const importFrom=new Date(Math.min(new Date(registration.registered_at || challenge.start_date || 0).getTime(),new Date(challenge.start_date || registration.registered_at || 0).getTime()-3*3600000)).toISOString();
+      const response=await axios.post(`${this.baseUrl}/pull`,{
+        account:normalizeAccountNumber(account.accountNumber),server:account.server,password:account.investorPassword,api_key:this.apiKey,
+        terminal_id:terminalId,protocol_version:2,request_id:requestId,
+        from_date: anchor ? new Date(anchor).toISOString() : importFrom,
+        anchor_cutoff:anchor?new Date(anchor).toISOString():null,
+        anchor_balance:anchor?Number(registration.history_verified_balance):null,
+        prior_digest:anchor?registration.history_digest:null,
+        repair_from:importFrom,
+      },{timeout:115000,signal:abortSignal});
+      const data=response.data;
+      if(!data?.success && data?.error_type==='credential_failure' && data.credential_fresh===true && data.terminal_used===terminalId){
+        const confirmed=account.excludedTerminalId!==undefined && account.excludedTerminalId!==terminalId;
+        return {...base,success:false,errorCode:confirmed?'invalid_credentials':'credential_suspect',errorMessage:data.message};
+      }
+      if(data?.success && data.terminal_used!==terminalId)throw new Error('Snapshot terminal identity mismatch');
+      validateHistorySnapshot(data,normalizeAccountNumber(account.accountNumber),account.server,requestId);
+      // Account-wide history reconciles the cash ledger; challenge operations start at registration.
+      const operationsSince = Date.parse(registration.registered_at || challenge.start_date);
+      data.balance_ops = data.balance_ops.filter((op:any)=>Date.parse(op.time)>=operationsSince);
+      let insertedTrades=0;
+      await db.transaction(async()=>{
+        const current=(await db.query(`SELECT r.history_verified_through,r.history_verified_balance,r.last_pull_at,r.last_known_balance,r.last_known_equity,r.reconciliation_status
+          FROM trading_registrations r WHERE id=$1 FOR UPDATE`,[account.registrationId])).rows[0];
+        await beginPullJournal(account.registrationId,challenge.id);
+        await db.query(`INSERT INTO wp_history_snapshots(registration_id,challenge_id,request_id,source_cutoff,balance,history_digest,history_count,terminal_id,before_state)
+          VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,[account.registrationId,challenge.id,requestId,data.source_cutoff,data.balance,data.history_digest,data.history_count,terminalId,
+          JSON.stringify({operation_journal:'wp_pull_operations'})]);
+        // Freeze the last visible history before modifying raw source records.
+        await db.query(`INSERT INTO wp_account_publications(registration_id,challenge_id,trades,balance_ops,registration_state)
+          VALUES($1,$2,COALESCE((SELECT jsonb_agg(t) FROM wp_trades t WHERE registration_id=$1),'[]'::jsonb),
+          COALESCE((SELECT jsonb_agg(o) FROM wp_balance_ops o WHERE registration_id=$1),'[]'::jsonb),
+          (SELECT jsonb_build_object('actual_starting_balance',actual_starting_balance,'disqualified',disqualified,'disqualified_reason',disqualified_reason) FROM trading_registrations WHERE id=$1)) ON CONFLICT DO NOTHING`,[account.registrationId,challenge.id]);
+        insertedTrades=(await this.saveTrades(account,data.trades)) || 0;
+        await this.saveDeals(account,data.deals);
+        await this.storeBalanceOps(challenge.id,account.registrationId,account.accountNumber,data.balance_ops,data.balance);
+        await db.query(`UPDATE trading_registrations SET last_known_balance=$2,last_known_equity=$3,last_pull_at=($4::timestamptz AT TIME ZONE 'UTC'),
+          history_verified_through=$4::timestamptz,history_verified_balance=$2,history_verified_at=NOW(),history_sync_state='verified',
+          history_sync_error=NULL,history_retry_at=NOW()+INTERVAL '2 minutes',history_retry_attempts=0,reconciliation_status='resolved'
+          WHERE id=$1`,[account.registrationId,data.balance,data.equity,data.source_cutoff]);
+        await checkpointPullJournal(account.registrationId);
+      });
+      return {...base,success:true,tradesCount:insertedTrades,dealsCount:data.deals.length,balance:data.balance,equity:data.equity,balance_ops:data.balance_ops,positionIds:data.position_ids};
+    } catch(error:any){
+      const message=error?.response?.data?.message || error.message || 'History snapshot incomplete';
+      await this.recordHistoryFailure(account.registrationId,challenge.id,message);
+      return {...base,success:false,errorCode:'history_incomplete',errorMessage:message};
+    }
+  }
+
   private async pullSingleAccount(account: AccountToPull, terminalId: number, challenge?: any, abortSignal?: AbortSignal): Promise<PullResult> {
+    if(process.env.VPS_VERIFIED_HISTORY === 'true')return this.pullVerifiedAccount(account,terminalId,challenge,abortSignal);
     // Cache hit — this account's credentials are already confirmed bad this cycle.
     // Keyed by NORMALIZED accountNumber (digits only) so "#161600472", "161 600 472",
     // and "161600472" all resolve to the same key regardless of DB formatting.
@@ -1104,16 +1242,10 @@ export class VpsPullScheduler {
       const result = await this.pullSingleAccount(account, terminal.id, challengeData.rows[0]);
 
       if (result.success) {
-        // Update status
-        await db.query(
-          `UPDATE trading_registrations SET last_pull_at = NOW(), pull_status = 'success', pull_error = NULL WHERE id = $1`,
-          [registrationId]
-        );
+        await this.bulkUpdatePullStatus([result]);
 
-        // Store balance ops (deposits / withdrawals / swap / dividend)
-        await this.storeBalanceOps(challengeId, registrationId, account.accountNumber, result.balance_ops || [], result.balance ?? 0);
-
-        // Reconcile any missing trades, then resolve any NULL open_time trades, before evaluating
+        // Protocol 2 reconstructs and validates before persistence.
+        if(process.env.VPS_VERIFIED_HISTORY !== 'true') {
         try {
           await this.reconcileMissingTrades(challengeId, null, [account], [terminal], challengeData.rows[0]);
         } catch (e) {}
@@ -1121,19 +1253,23 @@ export class VpsPullScheduler {
           await this.resolveNullOpenTimes(challengeId, null as any, [account], [terminal], challengeData.rows[0]);
         } catch (e) {}
 
+        }
         if(!evaluate)return {...result,evaluated:false};
         // Run evaluation
         let evaluated = false;
         try {
-          await evaluationEngine.evaluateSingleAccount(challengeId, registrationId,overrideLock);
+          await db.transaction(async()=>{await beginPullJournal(registrationId,challengeId);await evaluationEngine.evaluateSingleAccount(challengeId, registrationId,overrideLock);await checkpointPullJournal(registrationId);});
           evaluated = true;
         } catch (e) {
+          await this.recordHistoryFailure(registrationId,challengeId,(e as Error).message,true);
           return { ...result, success: false, evaluated: false, errorCode: 'evaluation_failed', errorMessage: (e as Error).message };
         }
 
         return { ...result, evaluated };
       }
 
+      if(result.errorCode==='history_incomplete')return result;
+      if(result.errorCode==='credential_suspect' && account.excludedTerminalId===undefined)account.excludedTerminalId=terminal.id;
       terminalAttempts.push({
         terminalId: terminal.id,
         errorCode:    result.errorCode    || 'unknown',
@@ -1488,21 +1624,32 @@ export class VpsPullScheduler {
     const challengeId = regResult.rows[0]?.challenge_id;
     if (!challengeId) return;
 
-    // Only save if we actually got trades from VPS
-    if (trades.length === 0) return;
-
-    // UPSERT: Insert new trades, update existing ones (by unique constraint: challenge_id, account_number, ticket)
-    // This supports incremental pulls — we only get recent trades but don't lose older ones
-    for (const trade of trades) {
-      try {
-        debugLog.log('save_trade', `Saving trade: ticket=${trade.ticket} pos=${trade.position_id || trade.ticket} open_time=${trade.open_time} close_time=${trade.close_time}`, account.accountNumber);
-        await db.query(
-          `INSERT INTO wp_trades
-           (challenge_id, registration_id, account_number, ticket, position_id, symbol, trade_type, volume,
-            open_time, close_time, open_price, close_price, stop_loss, take_profit,
-            profit, commission, swap, comment, synced_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, NOW())
-           ON CONFLICT (challenge_id, account_number, ticket) DO UPDATE SET
+    let inserted=0;
+    for(let offset=0;offset<trades.length;offset+=500){
+      const rows=trades.slice(offset,offset+500).map(trade=>({
+      challenge_id: challengeId,
+      registration_id: account.registrationId,
+      account_number: account.accountNumber,
+      ticket: trade.ticket,
+      position_id: trade.position_id || trade.ticket,
+      symbol: trade.symbol || null,
+      trade_type: trade.type || null,
+      volume: trade.volume || 0,
+      open_time: trade.open_time || null,
+      close_time: trade.close_time || null,
+      open_price: trade.open_price || 0,
+      close_price: trade.close_price || 0,
+      stop_loss: trade.stop_loss || null,
+      take_profit: trade.take_profit || null,
+      profit: trade.profit || 0,
+      commission: trade.commission || 0,
+      swap: trade.swap || 0,
+      comment: trade.comment || null,
+      synced_at: new Date().toISOString()
+      }));
+      const result=await db.query(`INSERT INTO wp_trades (challenge_id,registration_id,account_number,ticket,position_id,symbol,trade_type,volume,open_time,close_time,open_price,close_price,stop_loss,take_profit,profit,commission,swap,comment,synced_at)
+        SELECT challenge_id,registration_id,account_number,ticket,position_id,symbol,trade_type,volume,open_time,close_time,open_price,close_price,stop_loss,take_profit,profit,commission,swap,comment,synced_at FROM jsonb_populate_recordset(NULL::wp_trades,$1::jsonb)
+        ON CONFLICT (challenge_id, account_number, ticket) DO UPDATE SET
              position_id = EXCLUDED.position_id,
              symbol = EXCLUDED.symbol,
              trade_type = EXCLUDED.trade_type,
@@ -1523,20 +1670,11 @@ export class VpsPullScheduler {
              commission = EXCLUDED.commission,
              swap = EXCLUDED.swap,
              comment = EXCLUDED.comment,
-             synced_at = NOW()`,
-          [
-            challengeId, account.registrationId, account.accountNumber, trade.ticket,
-            trade.position_id || trade.ticket,
-            trade.symbol || null, trade.type || null, trade.volume || 0,
-            trade.open_time || null, trade.close_time || null,
-            trade.open_price || 0, trade.close_price || 0,
-            trade.stop_loss || null, trade.take_profit || null,
-            trade.profit || 0, trade.commission || 0, trade.swap || 0,
-            trade.comment || null,
-          ]
-        );
-      } catch (e) { throw new Error(`Trade persistence failed for ticket ${trade.ticket}: ${(e as Error).message}`); }
+             synced_at = NOW()
+        RETURNING (xmax=0) AS inserted`,[JSON.stringify(rows)]);
+      inserted+=result.rows.filter(r=>r.inserted).length;
     }
+    return inserted;
   }
 
   private async saveDeals(account: AccountToPull, deals: any[]) {
@@ -1545,19 +1683,35 @@ export class VpsPullScheduler {
     const challengeId = regResult.rows[0]?.challenge_id;
     if (!challengeId) return;
 
-    // Only save if we got deals
-    if (deals.length === 0) return;
-
-    // UPSERT: Insert new deals, update existing ones (by unique constraint: challenge_id, account_number, ticket)
-    for (const deal of deals) {
-      try {
-        await db.query(
-          `INSERT INTO wp_deals
-           (challenge_id, registration_id, account_number, ticket, deal_type, symbol,
-            direction, volume, price, profit, balance, comment, time, synced_at, position_id, entry)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW(), $14, $15)
-           ON CONFLICT (challenge_id, account_number, ticket) DO UPDATE SET
+    let inserted=0;
+    for(let offset=0;offset<deals.length;offset+=500){
+      const rows=deals.slice(offset,offset+500).map(deal=>({
+      challenge_id: challengeId,
+      registration_id: account.registrationId,
+      account_number: account.accountNumber,
+      ticket: deal.ticket,
+      deal_type: deal.type ?? null,
+      symbol: deal.symbol || null,
+      direction: deal.direction || null,
+      volume: deal.volume || 0,
+      price: deal.price || 0,
+      profit: deal.profit || 0,
+      balance: deal.balance || 0,
+      comment: deal.comment || null,
+      time: deal.time || null,
+      synced_at: new Date().toISOString(),
+      position_id: deal.position_id ?? null,
+      entry: deal.entry ?? null,
+      commission: deal.commission ?? null,
+      swap: deal.swap ?? null,
+      fee: deal.fee ?? null,
+      time_msc: deal.time_msc ?? null
+      }));
+      const result=await db.query(`INSERT INTO wp_deals (challenge_id,registration_id,account_number,ticket,deal_type,symbol,direction,volume,price,profit,balance,comment,time,synced_at,position_id,entry,commission,swap,fee,time_msc)
+        SELECT challenge_id,registration_id,account_number,ticket,deal_type,symbol,direction,volume,price,profit,balance,comment,time,synced_at,position_id,entry,commission,swap,fee,time_msc FROM jsonb_populate_recordset(NULL::wp_deals,$1::jsonb)
+        ON CONFLICT (challenge_id, account_number, ticket) DO UPDATE SET
              deal_type = EXCLUDED.deal_type, position_id=EXCLUDED.position_id, entry=EXCLUDED.entry,
+             commission=EXCLUDED.commission,swap=EXCLUDED.swap,fee=EXCLUDED.fee,time_msc=EXCLUDED.time_msc,
              symbol = EXCLUDED.symbol,
              direction = EXCLUDED.direction,
              volume = EXCLUDED.volume,
@@ -1566,16 +1720,11 @@ export class VpsPullScheduler {
              balance = EXCLUDED.balance,
              comment = EXCLUDED.comment,
              time = EXCLUDED.time,
-             synced_at = NOW()`,
-          [
-            challengeId, account.registrationId, account.accountNumber,
-            deal.ticket, deal.type ?? null, deal.symbol || null,
-            deal.direction || null, deal.volume || 0, deal.price || 0,
-            deal.profit || 0, deal.balance || 0, deal.comment || null, deal.time || null, deal.position_id ?? null, deal.entry ?? null,
-          ]
-        );
-      } catch (e) { throw new Error(`Deal persistence failed for ticket ${deal.ticket}: ${(e as Error).message}`); }
+             synced_at = NOW()
+        RETURNING (xmax=0) AS inserted`,[JSON.stringify(rows)]);
+      inserted+=result.rows.filter(r=>r.inserted).length;
     }
+    return inserted;
   }
 
   // ==================== BALANCE OPS (deposits / withdrawals / swap / dividend) ====================
@@ -1586,7 +1735,7 @@ export class VpsPullScheduler {
       await db.query(
         `INSERT INTO wp_balance_ops (challenge_id, registration_id, account_number, deal_ticket, op_time, amount, op_type, comment)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-         ON CONFLICT (challenge_id, registration_id, deal_ticket) DO NOTHING`,
+         ON CONFLICT (challenge_id, registration_id, deal_ticket) DO UPDATE SET op_time=EXCLUDED.op_time,amount=EXCLUDED.amount,op_type=EXCLUDED.op_type,comment=EXCLUDED.comment`,
         [challengeId, registrationId, accountNumber, op.ticket, op.time, op.amount, op.op_type, op.comment || null]
       );
     }
@@ -1872,23 +2021,16 @@ export class VpsPullScheduler {
   // ==================== BULK STATUS UPDATE ====================
 
   private async bulkUpdatePullStatus(results: PullResult[]) {
-    const successIds = results.filter(r => r.success).map(r => r.registrationId);
-    const failedResults = results.filter(r => !r.success && r.errorCode !== 'invalid_credentials');
-
-    if (successIds.length > 0) {
-      await db.query(
-        `UPDATE trading_registrations SET last_pull_at = NOW(), pull_status = 'success', pull_error = NULL WHERE id = ANY($1)`,
-        [successIds]
-      );
-    }
-
-    // Only update last_pull_at for FAILED results — don't advance the timestamp
-    // This ensures the next pull will re-fetch from the same point
-    for (const f of failedResults) {
-      await db.query(
-        `UPDATE trading_registrations SET pull_status = $1, pull_error = $2 WHERE id = $3`,
-        [f.errorCode || 'failed', f.errorMessage || 'Unknown', f.registrationId]
-      );
+    for(const result of results){
+      if(result.errorCode==='invalid_credentials')continue;
+      await db.transaction(async()=>{
+        const reg=(await db.query('SELECT challenge_id FROM trading_registrations WHERE id=$1',[result.registrationId])).rows[0];
+        if(!reg)return;
+        await beginPullJournal(result.registrationId,reg.challenge_id);
+        if(result.success)await db.query(`UPDATE trading_registrations SET last_pull_at=COALESCE(history_verified_through,NOW()),pull_status='success',pull_error=NULL WHERE id=$1`,[result.registrationId]);
+        else await db.query('UPDATE trading_registrations SET pull_status=$2,pull_error=$3 WHERE id=$1',[result.registrationId,result.errorCode||'failed',result.errorMessage||'Unknown']);
+        await checkpointPullJournal(result.registrationId);
+      });
     }
   }
 
@@ -2683,12 +2825,12 @@ export class VpsPullScheduler {
    * finished (or had nothing to do). Replaces the old per-account streaming
    * evaluate call that used to run inside terminalWorker immediately after pull.
    */
-  async evaluateAllAccounts(challengeId: number, accounts: AccountToPull[], batchId: number | null = null, pullResults?: PullResult[], overrideLock=false): Promise<void> {
+  async evaluateAllAccounts(challengeId: number, accounts: AccountToPull[], batchId: number | null = null, pullResults?: PullResult[], overrideLock=false): Promise<AccountToPull[]> {
     // Reject missing category configuration before writing any evaluation results.
     await this.categoryRules(challengeId);
     // On scheduled (incremental) pulls: skip accounts that got 0 new trades
     let accountsToEval = accounts;
-    if (pullResults && pullResults.length > 0) {
+    if (process.env.VPS_VERIFIED_HISTORY !== 'true' && pullResults && pullResults.length > 0) {
       const accountsWithNewTrades = new Set(
         pullResults.filter(r => r.success && (r.tradesCount || 0) > 0).map(r => r.registrationId)
       );
@@ -2706,6 +2848,7 @@ export class VpsPullScheduler {
       ).catch(() => {});
     }
     const evaluationFailures: string[] = [];
+    const evaluatedAccounts: AccountToPull[] = [];
     const EVAL_CONCURRENCY = 10;
     let processed = 0;
     const evalStartTime = Date.now();
@@ -2716,8 +2859,10 @@ export class VpsPullScheduler {
         const account = queue.shift()!;
         const t0 = Date.now();
         try {
-          await evaluationEngine.evaluateSingleAccount(challengeId, account.registrationId,overrideLock);
+          await db.transaction(async()=>{await beginPullJournal(account.registrationId,challengeId);await evaluationEngine.evaluateSingleAccount(challengeId, account.registrationId,overrideLock);await checkpointPullJournal(account.registrationId);});
+          evaluatedAccounts.push(account);
         } catch (evalErr) {
+          await this.recordHistoryFailure(account.registrationId,challengeId,(evalErr as Error).message,true);
           evaluationFailures.push(`Registration ${account.registrationId}: ${(evalErr as Error).message}`);
           console.error(`⚠️ Eval error for ${account.accountNumber}:`, evalErr);
         }
@@ -2731,9 +2876,10 @@ export class VpsPullScheduler {
     };
     const workers = Array.from({ length: Math.min(EVAL_CONCURRENCY, accountsToEval.length) }, (_, i) => runWorker(i + 1));
     await Promise.all(workers);
-    if(evaluationFailures.length)throw new Error(`Evaluation incomplete: ${evaluationFailures.join('; ')}`);
+    if(evaluationFailures.length)console.warn(`Evaluation incomplete: ${evaluationFailures.join('; ')}`);
     const evalDuration = Math.round((Date.now() - evalStartTime) / 1000);
-    console.log(`✅ Evaluation: ${accountsToEval.length} accounts done in ${evalDuration}s (concurrency ${EVAL_CONCURRENCY})`);
+    console.log(`✅ Evaluation: ${evaluatedAccounts.length} accounts verified in ${evalDuration}s (concurrency ${EVAL_CONCURRENCY})`);
+    return evaluatedAccounts;
   }
 
   private async createPullBatch(challengeId: number, totalAccounts: number): Promise<number> {
@@ -2991,7 +3137,13 @@ export class VpsPullScheduler {
         console.log(`📊 Post-eval SL retry: Re-evaluating ${pendingAccounts.length} account(s)...`);
         for (const regId of pendingAccounts) {
           if(eligibleRegistrations && !eligibleRegistrations.includes(regId))continue;
-          await evaluationEngine.evaluateSingleAccount(challenge.id, regId,overrideLock);
+          try {
+            await db.transaction(async()=>{
+              await beginPullJournal(regId,challenge.id);
+              await evaluationEngine.evaluateSingleAccount(challenge.id, regId,overrideLock);
+              await checkpointPullJournal(regId);
+            });
+          } catch(error){ console.error('SL retry rolled back for registration',regId,(error as Error).message); }
         }
       }
 

@@ -48,6 +48,7 @@ interface MyStats {
   qualifiedProfit: number; grossProfit: number; profitRemoved: number;
   totalTrades: number; qualifiedTrades: number; flaggedTrades: number;
   isQualified: boolean; lastUpdated: string | null; pullStatus: string | null;
+  historySyncState?: string | null;
   disqualified: boolean; disqualifiedReason: string | null;
   isCent: boolean; lastPullAt: string | null;
   balanceWarning?: boolean;
@@ -205,6 +206,7 @@ export default function ChallengeDashboard() {
         isQualified: data.me.isQualified,
         lastUpdated: data.me.lastUpdated,
         pullStatus: data.me.pullStatus || null,
+        historySyncState: data.me.historySyncState || null,
         disqualified: data.me.disqualified || false,
         disqualifiedReason: data.me.disqualifiedReason || null,
         isCent: data.me.isCent || false,
@@ -982,6 +984,12 @@ export default function ChallengeDashboard() {
                 <p className="text-xs text-gray-400">Starts {new Date(challenge.startDate).toLocaleString("en-US", { timeZone: challengeTz, weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</p>
               </div>
               <button onClick={() => setShowRules(true)} className="flex-shrink-0 px-3 py-1.5 rounded-lg bg-gold/20 border border-gold/30 text-gold text-xs font-semibold hover:bg-gold/30 transition-all">📋 Rules</button>
+            </div>
+          )}
+
+          {myStats.historySyncState && ["incomplete", "verified", "evaluation_failed"].includes(myStats.historySyncState) && (
+            <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-200">
+              Update delayed — we’re automatically recovering and verifying your trade history. Your last published results remain visible.
             </div>
           )}
 

@@ -1,3 +1,4 @@
+import { beginPullJournal, checkpointPullJournal } from './pullRollbackJournal';
 import { snapshotWinnerPipResults } from './winnerSelection';
 import { db } from '../database/db';
 
@@ -37,7 +38,8 @@ export class LeaderboardService {
            disqualify_reason = COALESCE(r.disqualified_reason, l.disqualify_reason)
        FROM trading_registrations r
        WHERE l.registration_id = r.id AND l.challenge_id = $1
-         AND r.disqualified = true AND l.is_disqualified = false`,
+         AND r.disqualified = true AND l.is_disqualified = false
+         AND (r.history_sync_state IS NULL OR r.history_sync_state='published' OR r.disqualified_source='manual')`,
       [challengeId]
     ).catch(() => {});
 
@@ -312,10 +314,12 @@ export class LeaderboardService {
     const args=registrationId == null ? [challengeId] : [challengeId,registrationId];
     // Check if staging has data for this challenge
     const stagingCount = await db.query(
-      `SELECT COUNT(*) as cnt FROM wp_leaderboard_staging WHERE challenge_id = $1${scope}`,
+      `SELECT COUNT(*) as cnt, array_agg(registration_id) AS ids FROM wp_leaderboard_staging WHERE challenge_id = $1${scope}`,
       args
     );
     if (parseInt(stagingCount.rows[0].cnt) === 0) return;
+    const publishedIds: number[] = stagingCount.rows[0].ids;
+    for(const id of publishedIds)await beginPullJournal(id,challengeId);
 
     console.log(`📊 Leaderboard: Flushing staging → live for challenge ${challengeId}`);
 
@@ -346,7 +350,7 @@ export class LeaderboardService {
     // Rebuild withdrawal state after insert too: ingestion may precede the first live row.
     await db.query(`UPDATE wp_leaderboard l SET total_withdrawn=ledger.total,
       is_withdrawn=(ledger.total>0 AND l.current_balance<=0)
-      FROM (SELECT r.id,COALESCE(SUM(ABS(o.amount)) FILTER(WHERE o.op_type='withdrawal'),0) AS total
+      FROM (SELECT r.id,COALESCE(SUM(ABS(o.amount)) FILTER(WHERE o.op_type='withdrawal' AND o.op_time>=r.registered_at),0) AS total
         FROM trading_registrations r LEFT JOIN wp_balance_ops o ON o.registration_id=r.id AND o.challenge_id=r.challenge_id
         WHERE r.challenge_id=$1 GROUP BY r.id) ledger
       WHERE l.registration_id=ledger.id AND l.challenge_id=$1${registrationId == null ? '' : ' AND l.registration_id=$2'}`,args);
@@ -359,6 +363,17 @@ export class LeaderboardService {
       disqualify_reason=CASE WHEN r.disqualified THEN r.disqualified_reason ELSE NULL END
       FROM trading_registrations r WHERE l.registration_id=r.id AND l.challenge_id=$1${registrationId == null ? '' : ' AND l.registration_id=$2'}`,args);
 
+    await db.query(`INSERT INTO wp_account_publications(registration_id,challenge_id,trades,balance_ops,registration_state)
+      SELECT r.id,r.challenge_id,COALESCE((SELECT jsonb_agg(t) FROM wp_trades t WHERE t.registration_id=r.id),'[]'::jsonb),
+        COALESCE((SELECT jsonb_agg(o) FROM wp_balance_ops o WHERE o.registration_id=r.id),'[]'::jsonb),
+        jsonb_build_object('actual_starting_balance',r.actual_starting_balance,'disqualified',r.disqualified,'disqualified_reason',r.disqualified_reason)
+      FROM trading_registrations r WHERE r.challenge_id=$1 AND r.history_sync_state IN ('verified','published') AND r.id=ANY($2::int[])
+      ON CONFLICT(registration_id) DO UPDATE SET trades=EXCLUDED.trades,balance_ops=EXCLUDED.balance_ops,registration_state=EXCLUDED.registration_state,published_at=NOW()`,[challengeId,publishedIds]);
+    await db.query(`UPDATE trading_registrations SET history_sync_state='published',history_published_at=NOW(),history_retry_at=NULL,history_sync_error=NULL
+      WHERE challenge_id=$1 AND history_sync_state='verified' AND id=ANY($2::int[])`,[challengeId,publishedIds]);
+    await db.query(`UPDATE wp_history_snapshots SET state='published',published_at=NOW() WHERE challenge_id=$1 AND state='verified' AND registration_id=ANY($2::int[])
+      AND id IN (SELECT MAX(id) FROM wp_history_snapshots WHERE registration_id=ANY($2::int[]) GROUP BY registration_id)`,[challengeId,publishedIds]);
+    for(const id of publishedIds)await checkpointPullJournal(id);
     console.log(`✅ Leaderboard: Staging flushed to live for challenge ${challengeId}`);
     });
   }

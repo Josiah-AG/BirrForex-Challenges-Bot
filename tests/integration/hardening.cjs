@@ -2,7 +2,7 @@
 const assert=require('node:assert/strict');
 const url=process.env.TEST_DATABASE_URL;
 if(!url || !['127.0.0.1','localhost'].includes(new URL(url).hostname))throw new Error('TEST_DATABASE_URL must be a local synthetic database');
-process.env.DATABASE_URL=url;process.env.NODE_ENV='test';
+process.env.DATABASE_URL=url;process.env.NODE_ENV='test';process.env.VPS_VERIFIED_HISTORY='true';
 require('ts-node/register/transpile-only');
 const {db}=require('../../src/database/db');
 const gate=require('../../src/services/challengeGatekeeper');
@@ -14,6 +14,7 @@ const rules={stop_loss_required:false,weekend_trading:true,only_cent_account:fal
 const fixture={title:'SYNTHETIC hardening '+Date.now(),type:'demo',start_date:'2099-01-01',end_date:'2099-02-01',starting_balance:100,target_balance:0,target_enabled:false,rules};
 (async()=>{
  await migrateHardening();
+ await require("../../src/database/pullIntegrityMigration").migratePullIntegrity();
  // Failure after challenge insertion rolls back both the challenge and its rules.
  const ruleWriter=require('../../src/services/wpEvaluationEngine').evaluationEngine;
  const saveRules=ruleWriter.saveRules;ruleWriter.saveRules=async()=>{throw new Error('synthetic rule save failure');};
@@ -79,13 +80,14 @@ const fixture={title:'SYNTHETIC hardening '+Date.now(),type:'demo',start_date:'2
  // A partial pull publishes only the successful registration, leaving another operation's staging untouched.
  const {VpsPullScheduler}=require('../../src/scheduler/vpsPullScheduler');
  const scheduler=new VpsPullScheduler({bot:{telegram}});
+ require("axios").get=async()=>({data:{healthy_terminals:[1,2]}});
  for(const method of ['setRouterChallengePullState','clearRouterCredentialCache','inlineReconcile','resolveNullOpenTimes','reconcileUnexplainedBalances','delay','updateOhlcCandles','postEvalSlRetry','savePullTerminalStats','bulkUpdatePullStatus','reportCandleFailures','drainQueue'])scheduler[method]=async()=>{};
  const accounts=[first,second].map(registrationId=>({registrationId,accountNumber:String(registrationId),userId:registrationId}));
  scheduler.getAccountsToPull=async()=>accounts;
  scheduler.runSharedQueueWorkers=async()=>[{...accounts[0],success:true,tradesCount:1},{...accounts[1],success:false,errorCode:'timeout'}];
  const stage=async(reg,bal)=>db.query(`INSERT INTO wp_leaderboard_staging(challenge_id,registration_id,account_number,user_id,nickname,account_type,adjusted_balance,normalized_balance,is_qualified) SELECT $1,$2,account_number,user_id,nickname,'demo',$3,$3,true FROM trading_registrations WHERE id=$2 ON CONFLICT(challenge_id,registration_id) DO UPDATE SET adjusted_balance=$3,normalized_balance=$3`,[id,reg,bal]);
  await stage(second,999);
- scheduler.evaluateAllAccounts=async(_id,selected)=>{assert.deepEqual(selected.map(a=>a.registrationId),[first]);await stage(first,130);};
+ scheduler.evaluateAllAccounts=async(_id,selected)=>{assert.deepEqual(selected.map(a=>a.registrationId),[first]);await stage(first,130);return selected;};
  await scheduler.runPullCycleForChallenge(id);
  assert.equal(Number((await db.query('SELECT adjusted_balance FROM wp_leaderboard WHERE registration_id=$1',[first])).rows[0].adjusted_balance),130);
  assert.equal(Number((await db.query('SELECT adjusted_balance FROM wp_leaderboard WHERE registration_id=$1',[second])).rows[0].adjusted_balance),120);

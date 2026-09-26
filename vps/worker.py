@@ -13,6 +13,7 @@ New in v9.0:
   ping-based dynamic wait, stabilization loop rejects count=0 as "stable"
 """
 
+from history_snapshot import collect_snapshot, IncompleteHistory
 import MetaTrader5 as mt5
 import time
 import sys
@@ -553,8 +554,8 @@ def login_user(account: int, password: str, server: str) -> bool:
             if _consecutive_failures >= MAX_FAILURES_BEFORE_HEAL:
                 self_heal()
         else:
-            print(f"{tag} login_user: IPC alive but login failed — treating as credential error")
-            _last_login_was_credential_error = True
+            print(f"{tag} login_user: unclassified login failure — retryable terminal error")
+            _last_login_was_credential_error = False
         return False
     else:
         err_code = _get_error_code()
@@ -1449,6 +1450,12 @@ class PullRequest(BaseModel):
     from_date:        Optional[str] = None
     orders_from_date: Optional[str] = None
     extended_sync:    Optional[bool] = False
+    protocol_version: int = 1
+    request_id: Optional[str] = None
+    anchor_cutoff: Optional[str] = None
+    anchor_balance: Optional[float] = None
+    prior_digest: Optional[str] = None
+    repair_from: Optional[str] = None
 
 
 class CandlesRequest(BaseModel):
@@ -1505,6 +1512,8 @@ def health():
     return {
         "status":               "dead" if _dead_mode else "ok",
         "git_commit":           GIT_COMMIT,
+        "history_protocol":      2,
+        "busy":                  _lock.locked(),
         "git_commit_time":      GIT_COMMIT_TIME,
         "terminal_id":          TERMINAL_ID,
         "port":                 PORT,
@@ -1536,9 +1545,35 @@ def verify(req: VerifyRequest):
 
 @app.post("/pull")
 def pull(req: PullRequest):
+    global _current_account_str, _consecutive_failures
     if req.api_key != API_KEY:
         raise HTTPException(status_code=401, detail="Invalid API key")
     account_number = int(req.account.replace("#", "").replace(" ", ""))
+    if req.protocol_version == 2:
+        # Refuse queued duplicate terminal work; the scheduler owns retry/backoff.
+        if not _lock.acquire(blocking=False):
+            return {"success": False, "error_type": "busy", "message": "Terminal is processing another request", "terminal_used": TERMINAL_ID}
+        try:
+            started = time.monotonic()
+            if _dead_mode or _recovery_in_progress or not ensure_ipc():
+                return {"success":False,"error_type":"ipc_failure","message":"Terminal is recovering","terminal_used":TERMINAL_ID}
+            # A single bounded broker login. Terminal repair stays outside this request.
+            if not mt5.login(account_number,password=req.password,server=req.server,timeout=15000):
+                rejected = _get_error_code() in CREDENTIAL_ERROR_CODES
+                return {"success":False,"error_type":"credential_failure" if rejected else "ipc_failure",
+                        "message":"Broker authorization rejected" if rejected else "Terminal login unavailable",
+                        "credential_fresh":rejected,"terminal_used":TERMINAL_ID}
+            _current_account_str = str(account_number)
+            _consecutive_failures = 0
+            anchor = {"cutoff": req.anchor_cutoff, "balance": req.anchor_balance,"digest":req.prior_digest,"repair_from":req.repair_from} if req.anchor_cutoff and req.anchor_balance is not None else None
+            result = collect_snapshot(mt5, account_number, req.server, req.from_date, anchor,budget=max(1,90-(time.monotonic()-started)))
+            result.update(terminal_used=TERMINAL_ID, terminal_id=TERMINAL_ID, request_id=req.request_id)
+            return result
+        except IncompleteHistory as error:
+            return {"success": False, "error_type": "history_incomplete", "message": str(error), "terminal_used": TERMINAL_ID}
+        finally:
+            _lock.release()
+            _schedule_idle_restore()
     # Credential cache check BEFORE acquiring the lock — returns instantly
     # without waiting for any ongoing operation (history sync can hold lock 20s+).
     # Prevents scheduler from timing out and retrying.
@@ -1632,27 +1667,32 @@ if __name__ == "__main__":
     print(f"  Heal after: {MAX_FAILURES_BEFORE_HEAL} consecutive failures")
     print(f"=" * 50)
 
-    # Startup loop: try to connect, if IPC keeps failing kill and relaunch the terminal
-    for attempt in range(5):
-        if init_terminal():
-            print(f"  [W{TERMINAL_ID}] Ready!")
-            break
-        print(f"  [W{TERMINAL_ID}] Init failed (attempt {attempt+1}/5) — terminal not responding")
-        print(f"  [W{TERMINAL_ID}] Killing and relaunching terminal {TERMINAL_ID}...")
-        kill_terminal()
-        time.sleep(3)
-        try:
-            subprocess.Popen(
-                [TERMINAL_PATH],
-                creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
-            )
-            print(f"  [W{TERMINAL_ID}] Terminal relaunched — waiting 35s for broker connection...")
-            time.sleep(25)
-        except Exception as e:
-            print(f"  [W{TERMINAL_ID}] Relaunch error: {e}")
-            time.sleep(10)
+    if os.environ.get('VPS_ATTACH_ONLY') == '1':
+        # Controlled Python-only deployment: never kill/relaunch MT5 on startup failure.
+        if not ensure_ipc():
+            raise SystemExit('Existing terminal attachment failed; deployment must stop')
     else:
-        print(f"  [W{TERMINAL_ID}] WARNING: Could not init after 5 attempts. Starting anyway — self-heal on first request.")
+        # Startup loop: try to connect, if IPC keeps failing kill and relaunch the terminal
+        for attempt in range(5):
+            if init_terminal():
+                print(f"  [W{TERMINAL_ID}] Ready!")
+                break
+            print(f"  [W{TERMINAL_ID}] Init failed (attempt {attempt+1}/5) — terminal not responding")
+            print(f"  [W{TERMINAL_ID}] Killing and relaunching terminal {TERMINAL_ID}...")
+            kill_terminal()
+            time.sleep(3)
+            try:
+                subprocess.Popen(
+                    [TERMINAL_PATH],
+                    creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+                )
+                print(f"  [W{TERMINAL_ID}] Terminal relaunched — waiting 35s for broker connection...")
+                time.sleep(25)
+            except Exception as e:
+                print(f"  [W{TERMINAL_ID}] Relaunch error: {e}")
+                time.sleep(10)
+        else:
+            print(f"  [W{TERMINAL_ID}] WARNING: Could not init after 5 attempts. Starting anyway — self-heal on first request.")
 
     print(f"  [W{TERMINAL_ID}] Starting on port {PORT}...")
     uvicorn.run(app, host="127.0.0.1", port=PORT, log_level="warning")

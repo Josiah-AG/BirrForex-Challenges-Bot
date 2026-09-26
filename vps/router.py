@@ -749,6 +749,12 @@ class PullRequest(BaseModel):
     # myFXpath priority lane: when True, this request is granted the next freed
     # terminal slot ahead of waiting normal-priority (Challenge) requests.
     priority:         Optional[bool] = False
+    protocol_version: int = 1
+    request_id: Optional[str] = None
+    anchor_cutoff: Optional[str] = None
+    anchor_balance: Optional[float] = None
+    prior_digest: Optional[str] = None
+    repair_from: Optional[str] = None
 
 
 class ListPositionsRequest(BaseModel):
@@ -866,19 +872,17 @@ async def health():
     healthy_list  = []
     unhealthy_list= []
     async with httpx.AsyncClient(timeout=5.0) as client:
-        for i in range(1, NUM_WORKERS + 1):
+        async def check(i):
             try:
                 resp = await client.get(f"{worker_url(i)}/health")
-                if resp.status_code == 200:
-                    alive += 1
-                    healthy_list.append(i)
-                    worker_healthy[i - 1] = True
-                else:
-                    unhealthy_list.append(i)
-                    worker_healthy[i - 1] = False
-            except:
-                unhealthy_list.append(i)
-                worker_healthy[i - 1] = False
+                body = resp.json() if resp.status_code == 200 else {}
+                return i, bool(body.get("status") == "ok" and body.get("ipc_connected") and not body.get("dead_mode"))
+            except Exception:
+                return i, False
+        for i, ok in await asyncio.gather(*(check(i) for i in range(1,NUM_WORKERS+1))):
+            worker_healthy[i-1] = ok
+            (healthy_list if ok else unhealthy_list).append(i)
+        alive = len(healthy_list)
 
     return {
         "status":               "ok" if alive > 0 else "degraded",
@@ -1081,6 +1085,23 @@ async def _verify_impl(req: VerifyRequest):
 async def pull(req: PullRequest):
     if req.api_key != API_KEY:
         raise HTTPException(status_code=401, detail="Invalid API key")
+
+    if req.protocol_version == 2:
+        # Strict callers own dispatch and retry. Never reroute behind their lease.
+        if not req.terminal_id or not 1 <= req.terminal_id <= NUM_WORKERS:
+            return {"success": False, "error_type": "terminal", "message": "Requested terminal unavailable"}
+        wid = req.terminal_id
+        try:
+            async with httpx.AsyncClient(timeout=105.0) as client:
+                resp = await client.post(f"{worker_url(wid)}/pull", json=req.dict())
+                resp.raise_for_status()
+                data = resp.json()
+                if data.get("terminal_used") != wid:
+                    return {"success":False,"error_type":"terminal","message":"Worker identity mismatch","terminal_used":wid}
+                _record_pull_metrics(data, lane="challenge")
+                return data
+        except Exception:
+            return {"success": False, "error_type": "terminal", "message": "Worker did not complete request", "terminal_used": wid}
 
     # ── Challenge path: COMPLETELY UNCHANGED ──────────────────────────────
     # If this is NOT a myFXpath priority request, run the original pull logic
