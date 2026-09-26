@@ -472,7 +472,7 @@ export class Bot {
 
           if (this.vpsPullScheduler) {
             for (const f of failed) {
-              const result = await this.vpsPullScheduler.retrySingleAccount(f.registration_id, challengeId);
+              const result = await this.vpsPullScheduler.retrySingleAccount(f.registration_id, challengeId,true);
               if (result.success) successCount++;
               else failCount++;
             }
@@ -494,7 +494,7 @@ export class Bot {
         await ctx.answerCbQuery('Retrying...');
 
         if (this.vpsPullScheduler) {
-          const result = await this.vpsPullScheduler.retrySingleAccount(regId, challengeId);
+          const result = await this.vpsPullScheduler.retrySingleAccount(regId, challengeId,true);
           if (result.success) {
             await ctx.reply(
               `✅ <b>Retry successful</b>\n\n` +
@@ -505,7 +505,7 @@ export class Bot {
               {
                 parse_mode: 'HTML',
                 ...Markup.inlineKeyboard([
-                  [Markup.button.callback('📊 Update Leaderboard Now', `wp_lb_update_${challengeId}`)],
+                  [Markup.button.callback('📊 Update Leaderboard Now', `wp_lb_update_${challengeId}_${regId}`)],
                   [Markup.button.callback('⏭️ Add to Next Update', 'wp_lb_skip')],
                 ]),
               }
@@ -530,7 +530,8 @@ export class Bot {
 
         const gatekeeper = require('../services/challengeGatekeeper');
         const token = data.replace('gate_approve_', '').replace('gate_reject_', '');
-        const pending = gatekeeper.getPending(token);
+        const decision = await gatekeeper.decide(token, data.startsWith('gate_approve_'));
+        const pending = decision?.pending;
 
         if (!pending) {
           await ctx.answerCbQuery('Expired or already handled');
@@ -541,7 +542,7 @@ export class Bot {
         if (data.startsWith('gate_approve_')) {
           await ctx.answerCbQuery('Confirmed');
           if (pending.type === 'create') {
-            const result = await gatekeeper.executeCreate(pending.data);
+            const result = decision.result;
             if (result.success) {
               await ctx.editMessageText(
                 `✅ <b>Challenge Created</b>\n\n<b>${pending.data.title}</b> (${pending.data.type})\nID: ${result.challenge.id}`,
@@ -567,7 +568,7 @@ export class Bot {
               await ctx.editMessageText(`❌ Create failed: ${result.error}`, { parse_mode: 'HTML' });
             }
           } else if (pending.type === 'delete') {
-            const result = await gatekeeper.executeDelete(pending.data.challengeId);
+            const result = decision.result;
             if (result.success) {
               await ctx.editMessageText(
                 `✅ <b>Challenge Deleted</b>\n\n<b>${pending.data.title}</b> (ID: ${pending.data.challengeId})`,
@@ -577,7 +578,7 @@ export class Bot {
               await ctx.editMessageText(`❌ Delete failed: ${result.error}`, { parse_mode: 'HTML' });
             }
           } else if (pending.type === 'status_change') {
-            const result = await gatekeeper.executeStatusChange(pending.data.challengeId, pending.data.toStatus);
+            const result = decision.result;
             if (result.success) {
               await ctx.editMessageText(
                 `✅ <b>Status Changed</b>\n\n<b>${pending.data.title}</b>\n${pending.data.fromStatus} → ${pending.data.toStatus}`,
@@ -587,17 +588,13 @@ export class Bot {
               await ctx.editMessageText(`❌ Status change failed: ${result.error}`, { parse_mode: 'HTML' });
             }
           }
-          gatekeeper.removePending(token);
+          await gatekeeper.removePending(token);
           return;
         }
 
         if (data.startsWith('gate_reject_')) {
           await ctx.answerCbQuery('Rejected');
-          // If host-created challenge (already in DB), mark as rejected
-          if (pending.type === 'create' && pending.data.already_inserted && pending.data.challenge_id) {
-            await db.query(`UPDATE trading_challenges SET status = 'rejected', updated_at = NOW() WHERE id = $1`, [pending.data.challenge_id]);
-          }
-          gatekeeper.removePending(token);
+          await gatekeeper.removePending(token);
           const label = pending.type === 'create' ? `Create "${pending.data.title || 'challenge'}"`
             : pending.type === 'delete' ? `Delete "${pending.data.title}"`
             : `Status change "${pending.data.title}" → ${pending.data.toStatus}`;
@@ -693,11 +690,15 @@ export class Bot {
         if (!isAdmin(ctx.from!.id)) { await ctx.answerCbQuery('Not authorized'); return; }
 
         if (data.startsWith('wp_lb_update_')) {
-          const challengeId = parseInt(data.replace('wp_lb_update_', ''));
+          const [challengeId,registrationId]=data.replace('wp_lb_update_','').split('_').map(Number);
+          if(!registrationId){await ctx.answerCbQuery('Use the current per-account update button');return;}
           await ctx.answerCbQuery();
           const { leaderboardService: lbService } = require('../services/leaderboardService');
-          await lbService.updateRankings(challengeId);
-          await ctx.reply('✅ Leaderboard rankings updated.');
+          await db.transaction(async()=>{
+            await lbService.flushStagingToLive(challengeId,registrationId,true);
+            await lbService.updateRankings(challengeId,false,true);
+          });
+          await ctx.reply('✅ Selected account published and rankings updated.');
           return;
         }
         if (data === 'wp_lb_skip') {

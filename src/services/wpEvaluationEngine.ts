@@ -1,3 +1,6 @@
+import { peakPositionVolume } from '../utils/positionExposure';
+import { getLocalTime } from '../utils/timezone';
+import { validateRules } from '../utils/configValidation';
 import { RuleConfig, isRuleEnabled, isRiskRuleEnabled } from '../utils/rulePolicy';
 import { resolveRuleCode } from '../utils/categorySettings';
 import { db } from '../database/db';
@@ -418,82 +421,31 @@ export class WpEvaluationEngine {
   /**
    * Run full evaluation after a pull cycle
    */
-  async evaluate(challengeId: number): Promise<{ evaluated: number; flagged: number; qualified: number }> {
-    console.log(`📊 WP Evaluation: Starting for challenge ${challengeId}`);
-
-    const challenge = await db.query(`SELECT starting_balance, target_balance, type, deposit_mode, target_percent, split_category_settings, demo_starting_balance, demo_target_balance, real_starting_balance, real_target_balance, demo_deposit_mode, real_deposit_mode, demo_target_percent, real_target_percent, target_enabled, allow_below_start, demo_target_enabled, real_target_enabled, demo_allow_below_start, real_allow_below_start FROM trading_challenges WHERE id = $1`, [challengeId]);
-    const challengeRow = challenge.rows[0];
-    const challengeType = challengeRow?.type;
-
-    // Pre-load per-category rules if split is ON
-    // Validate every applicable category before any account is evaluated.
-    const demoRules = challengeType !== 'real' ? await this.requireRules(challengeId, challengeRow, 'demo') : null;
-    const realRules = challengeType !== 'demo' ? await this.requireRules(challengeId, challengeRow, 'real') : null;
-
-    const { resolveCategoryBalances } = require('../utils/categorySettings');
-
-    const registrations = await db.query(
-      `SELECT id, account_number, user_id, username, nickname, account_type, account_subtype, is_cent, source
-       FROM trading_registrations WHERE challenge_id = $1 AND disqualified = false AND investor_password IS NOT NULL`,
-      [challengeId]
-    );
-
-    let totalFlagged = 0;
-    let totalQualified = 0;
-
-    for (const reg of registrations.rows) {
-      // Resolve per-category starting/target balance
-      const categoryBal = resolveCategoryBalances(challengeRow, reg.account_type);
-      let baseStartBalance = categoryBal.startingBalance;
-      let baseTargetBalance = categoryBal.targetBalance;
-
-      // Pick per-category rules if split is ON
-      const activeRules = (reg.account_type === 'demo' ? demoRules : realRules);
-      if (!activeRules) throw new Error('Account category does not match challenge type');
-
-      // Determine if conversion is needed for this user
-      // Rule: Admin enters in CENT terms ONLY for "Real + cent-only" challenges.
-      // All other scenarios: admin enters in STANDARD terms.
-      // Convert ×100 when: user is cent AND challenge is NOT "real + cent-only"
-      let effectiveRules = activeRules;
-      let effectiveStartBalance = baseStartBalance;
-      let effectiveTargetBalance = baseTargetBalance;
-
-      const userIsCent = reg.is_cent || false;
-      const isRealCentOnly = challengeType === 'real' && activeRules.only_cent_account;
-
-      if (userIsCent && !isRealCentOnly) {
-        // User is cent but admin entered in standard terms → convert ×100
-        effectiveRules = {
-          ...activeRules,
-          max_lot_size: activeRules.max_lot_size ? activeRules.max_lot_size * 100 : null,
-          max_risk_dollars: activeRules.max_risk_dollars ? activeRules.max_risk_dollars * 100 : null,
-          daily_loss_cap: activeRules.daily_loss_cap ? activeRules.daily_loss_cap * 100 : null,
-        };
-        effectiveStartBalance = baseStartBalance * 100;
-        effectiveTargetBalance = baseTargetBalance * 100;
-      }
-      // If isRealCentOnly: admin entered in cent terms, all users are cent → no conversion
-      // If user is NOT cent: admin entered in standard terms → no conversion
-
-      const result = await this.evaluateAccount(challengeId, reg, effectiveRules, effectiveStartBalance, effectiveTargetBalance, categoryBal.depositMode, categoryBal.targetPercent, categoryBal.targetEnabled, categoryBal.allowBelowStart);
-      totalFlagged += result.flaggedCount;
-      if (result.isQualified) totalQualified++;
+  async evaluate(challengeId: number, overrideLock=false): Promise<{ evaluated: number; flagged: number; qualified: number }> {
+    const registrations=await db.query(`SELECT id FROM trading_registrations WHERE challenge_id=$1 AND status IS DISTINCT FROM 'removed' AND disqualified=false AND investor_password IS NOT NULL`,[challengeId]);
+    let flagged=0,qualified=0;
+    for(const registration of registrations.rows){
+      const result=await this.evaluateSingleAccount(challengeId,registration.id,overrideLock);
+      flagged+=result.flaggedCount;
+      if(result.isQualified)qualified++;
     }
-
-    // NOTE: Rankings are now managed by leaderboardService (updated at start of next cycle).
-    // This method is kept for backward compatibility but ranking is handled externally.
-    // await this.updateRankings(challengeId);
-
-    console.log(`✅ WP Evaluation: ${registrations.rows.length} accounts, ${totalFlagged} flags, ${totalQualified} qualified`);
-    return { evaluated: registrations.rows.length, flagged: totalFlagged, qualified: totalQualified };
+    return {evaluated:registrations.rows.length,flagged,qualified};
   }
 
 
   /**
    * Evaluate a single account — public for per-account streaming evaluation
    */
-  async evaluateSingleAccount(challengeId: number, registrationId: number): Promise<{ flaggedCount: number; isQualified: boolean }> {
+  async evaluateSingleAccount(challengeId: number, registrationId: number, overrideLock=false): Promise<{flaggedCount:number;isQualified:boolean}> {
+    return db.transaction(async()=>{
+      const challenge=await db.query('SELECT leaderboard_locked_at,status FROM trading_challenges WHERE id=$1 FOR UPDATE',[challengeId]);
+      if(!challenge.rows[0])throw new Error('Challenge not found');
+      if((challenge.rows[0].leaderboard_locked_at || challenge.rows[0]?.status==='completed') && !overrideLock)throw new Error('Final results are locked; explicit admin override required');
+      return this.evaluateSingleUnlocked(challengeId,registrationId);
+    });
+  }
+
+  private async evaluateSingleUnlocked(challengeId: number, registrationId: number): Promise<{ flaggedCount: number; isQualified: boolean }> {
     const challenge = await db.query(`SELECT starting_balance, target_balance, type, deposit_mode, target_percent, split_category_settings, demo_starting_balance, demo_target_balance, real_starting_balance, real_target_balance, demo_deposit_mode, real_deposit_mode, demo_target_percent, real_target_percent, target_enabled, allow_below_start, demo_target_enabled, real_target_enabled, demo_allow_below_start, real_allow_below_start FROM trading_challenges WHERE id = $1`, [challengeId]);
     const challengeRow = challenge.rows[0];
     const challengeType = challengeRow?.type;
@@ -501,7 +453,7 @@ export class WpEvaluationEngine {
 
     const regResult = await db.query(
       `SELECT id, account_number, user_id, username, nickname, account_type, account_subtype, is_cent, source
-       FROM trading_registrations WHERE id = $1 AND challenge_id = $2`,
+       FROM trading_registrations WHERE id = $1 AND challenge_id = $2 AND status IS DISTINCT FROM 'removed'`,
       [registrationId, challengeId]
     );
     if (regResult.rows.length === 0) return { flaggedCount: 0, isQualified: false };
@@ -580,148 +532,7 @@ export class WpEvaluationEngine {
       params
     );
 
-    if (trades.rows.length === 0) {
-      // No trades — use VPS balance, and person's actual starting balance for profit
-      let currentBalance = startingBalance;
-      let actualStartBalance = startingBalance;
-      try {
-        const regData = await db.query(`SELECT last_known_balance, registration_balance FROM trading_registrations WHERE id = $1`, [reg.id]);
-        const vpsBalance = regData.rows[0]?.last_known_balance;
-        const regBalance = regData.rows[0]?.registration_balance;
-        if (vpsBalance !== null && vpsBalance !== undefined) currentBalance = parseFloat(vpsBalance);
-        // Use person's actual registration balance (or 0 if they registered with $0)
-        if (regBalance !== null && regBalance !== undefined) {
-          actualStartBalance = parseFloat(regBalance);
-        } else if (currentBalance > startingBalance) {
-          // registration_balance not captured, but VPS shows more than allowed —
-          // they deposited above limit. Use VPS balance as their actual start.
-          actualStartBalance = currentBalance;
-        } else if (currentBalance < startingBalance) {
-          actualStartBalance = currentBalance; // They haven't deposited yet
-        }
-      } catch {}
-
-      // === OVER-BALANCE / UNDER-BALANCE DQ (0-trade accounts) ===
-      // Behavior depends on deposit_mode:
-      //   fixed: DQ if balance exceeds limit (current behavior)
-      //   max_limit: DQ if balance exceeds max limit (same as fixed)
-      //   min_limit: DQ if balance is BELOW the minimum (inverted check, no upper limit)
-      const tolerance0 = startingBalance * 0.01;
-      if (depositMode === 'min_limit') {
-        // Min limit mode: DQ if below minimum
-        if (actualStartBalance > 0 && actualStartBalance < startingBalance - tolerance0) {
-          const currency0 = reg.is_cent ? '¢' : '$';
-          await db.query(
-            `UPDATE trading_registrations SET disqualified = true, disqualified_at = NOW(), disqualified_reason = $1 WHERE id = $2 AND disqualified = false`,
-            [`Starting balance ${currency0}${actualStartBalance.toFixed(2)} is below minimum required deposit of ${currency0}${startingBalance.toFixed(2)}`, reg.id]
-          );
-        }
-      } else {
-        // Fixed and max_limit: DQ if exceeds upper limit
-        if (actualStartBalance > startingBalance + tolerance0) {
-          const currency0 = reg.is_cent ? '¢' : '$';
-          await db.query(
-            `UPDATE trading_registrations SET disqualified = true, disqualified_at = NOW(), disqualified_reason = $1 WHERE id = $2 AND disqualified = false`,
-            [`Starting balance ${currency0}${actualStartBalance.toFixed(2)} exceeds allowed starting balance of ${currency0}${startingBalance.toFixed(2)}`, reg.id]
-          );
-        }
-      }
-
-      // === POST-START DEPOSIT DQ (0-trade accounts) ===
-      // Even with 0 trades, if wp_deals has post-start deposits → DQ for recharging.
-      // This mirrors the same logic in the has-trades path (STEP 3).
-      try {
-        const csTime0 = challengeStart ? new Date(challengeStart).getTime() : 0;
-        if (csTime0 > 0) {
-          const deposits0 = await db.query(
-            `SELECT profit, time FROM wp_deals
-             WHERE challenge_id = $1 AND registration_id = $2
-               AND (deal_type ILIKE '%balance%' OR deal_type = '2')
-               AND profit > 0
-               AND COALESCE(comment, '') NOT ILIKE 'DIV%'
-               AND COALESCE(comment, '') NOT ILIKE '%DIVIDEND%'
-               AND COALESCE(comment, '') NOT ILIKE '%SWAP%'
-               AND COALESCE(comment, '') NOT ILIKE '%BONUS%'
-               AND COALESCE(comment, '') NOT ILIKE '%CREDIT%'
-               AND COALESCE(comment, '') NOT ILIKE '%CORRECTION%'
-             ORDER BY time ASC`,
-            [challengeId, reg.id]
-          );
-          const postDeposits0 = deposits0.rows.filter(d => new Date(d.time).getTime() >= csTime0);
-          const currency0d = reg.is_cent ? '¢' : '$';
-
-          if (actualStartBalance > 0 && postDeposits0.length > 0) {
-            // Had starting balance + any post-start deposit = recharging
-            const d = postDeposits0[0];
-            const dt = new Date(d.time).toISOString().slice(0, 10);
-            await db.query(
-              `UPDATE trading_registrations SET disqualified = true, disqualified_at = NOW(), disqualified_reason = $1 WHERE id = $2 AND disqualified = false`,
-              [`Account recharged — deposit of ${currency0d}${parseFloat(d.profit).toFixed(2)} detected after challenge start (${dt})`, reg.id]
-            );
-          } else if (actualStartBalance === 0 && postDeposits0.length > 1) {
-            // Started with $0, first deposit is their start, second = recharging
-            const d = postDeposits0[1];
-            const dt = new Date(d.time).toISOString().slice(0, 10);
-            await db.query(
-              `UPDATE trading_registrations SET disqualified = true, disqualified_at = NOW(), disqualified_reason = $1 WHERE id = $2 AND disqualified = false`,
-              [`Account recharged — second deposit of ${currency0d}${parseFloat(d.profit).toFixed(2)} detected after challenge start (${dt})`, reg.id]
-            );
-          }
-        }
-      } catch (dep0Err) {
-        console.error(`⚠️ 0-trade deposit check error for reg ${reg.id}:`, dep0Err);
-      }
-
-      // === 0-TRADES ACTIVE-DAYS DQ / UNDO ===
-      if (rules.min_active_days && isRuleEnabled(rules, 'min_active_days')) {
-        const challengeEndResult = await db.query(`SELECT end_date FROM trading_challenges WHERE id = $1`, [challengeId]);
-        const challengeEnd = challengeEndResult.rows[0]?.end_date;
-        if (challengeEnd) {
-          const now = new Date();
-          const end = new Date(challengeEnd);
-          const remainingDays = Math.max(0, Math.ceil((end.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
-          if (remainingDays >= rules.min_active_days) {
-            // Still enough days left — undo any incorrect active-days DQ
-            const currentDq = await db.query(
-              `SELECT disqualified, disqualified_reason FROM trading_registrations WHERE id = $1`,
-              [reg.id]
-            );
-            const dqRow = currentDq.rows[0];
-            if (dqRow?.disqualified && dqRow?.disqualified_reason?.toLowerCase().includes('active')) {
-              await db.query(
-                `UPDATE trading_registrations SET disqualified = false, disqualified_at = NULL, disqualified_reason = NULL WHERE id = $1`,
-                [reg.id]
-              );
-              await db.query(
-                `UPDATE wp_leaderboard SET is_disqualified = false, disqualify_reason = NULL WHERE registration_id = $1`,
-                [reg.id]
-              );
-              console.log(`✅ WP Evaluation: Cleared incorrect active-days DQ for reg ${reg.id} (0 trades, ${remainingDays} days left, need ${rules.min_active_days})`);
-            }
-          } else {
-            // 0 active days + not enough remaining = impossible
-            await db.query(
-              `UPDATE trading_registrations SET disqualified = true, disqualified_at = NOW(), disqualified_reason = $1 WHERE id = $2 AND disqualified = false`,
-              [`Cannot meet minimum ${rules.min_active_days} active trading days (0 days traded, ${remainingDays} days left)`, reg.id]
-            );
-          }
-        }
-      }
-
-      if (rules.min_total_trades && isRuleEnabled(rules, 'min_total_trades')) {
-        const state = await db.query('SELECT end_date, status FROM trading_challenges WHERE id=$1', [challengeId]);
-        const c = state.rows[0];
-        if (c && (['completed', 'reviewing'].includes(c.status) || new Date(c.end_date).getTime() < Date.now())) {
-          await db.query(`UPDATE trading_registrations SET disqualified=true, disqualified_at=NOW(), disqualified_reason=$1
-            WHERE id=$2 AND disqualified=false`, [`Did not meet minimum ${rules.min_total_trades} trades (completed 0 trades)`, reg.id]);
-        }
-      }
-
-      // No trades = profit is $0 (they haven't started trading)
-      await this.upsertLeaderboard(challengeId, reg, actualStartBalance, { currentBalance, adjustedBalance: currentBalance, qualifiedProfit: 0, grossProfit: 0, profitRemoved: 0, totalTrades: 0, qualifiedTrades: 0, flaggedTrades: 0, activeDays: 0, isQualified: false, growthPercent: 0, lastTradeTime: null });
-      return { flaggedCount: 0, isQualified: false };
-    }
-
+    // Funding and recharge checks use the same path with zero or many trades.
     const allTrades: TradeRow[] = trades.rows;
     if (!isRiskRuleEnabled(rules)) {
       await db.query(`UPDATE wp_trades SET sl_check_result = 'skipped', sl_check_pending = false,
@@ -747,7 +558,7 @@ export class WpEvaluationEngine {
     let actualStartBalance = startingBalance;
     try {
       const regData = await db.query(
-        `SELECT registration_balance, actual_starting_balance FROM trading_registrations WHERE id = $1`, [reg.id]
+        `SELECT registration_balance, actual_starting_balance, registered_at, funding_origin FROM trading_registrations WHERE id = $1`, [reg.id]
       );
       const savedActual = regData.rows[0]?.actual_starting_balance;
       const regBalance  = parseFloat(regData.rows[0]?.registration_balance ?? '0') || 0;
@@ -759,7 +570,7 @@ export class WpEvaluationEngine {
       // Always query deposits — needed both for determining actualStartBalance
       // AND for detecting post-start recharging (which must always run).
       const allDeposits = await db.query(
-        `SELECT profit, time FROM wp_deals
+        `SELECT ticket, profit, time FROM wp_deals
          WHERE challenge_id = $1 AND registration_id = $2
            AND (deal_type ILIKE '%balance%' OR deal_type = '2')
            AND profit > 0
@@ -773,7 +584,8 @@ export class WpEvaluationEngine {
         [challengeId, reg.id]
       );
 
-      const preDeposits  = allDeposits.rows.filter(d => new Date(d.time).getTime() <  csTime);
+      const capturedAt = regData.rows[0]?.registered_at ? new Date(regData.rows[0].registered_at).getTime() : 0;
+      const preDeposits = allDeposits.rows.filter(d => new Date(d.time).getTime() < csTime && new Date(d.time).getTime() > capturedAt);
       const postDeposits = allDeposits.rows.filter(d => new Date(d.time).getTime() >= csTime);
       const tolerance    = startingBalance * 0.01; // 1% tolerance
 
@@ -806,7 +618,7 @@ export class WpEvaluationEngine {
           } else {
             // First deposit arrived after challenge start
             const firstAmount = parseFloat(postDeposits[0].profit);
-            actualStartBalance = firstAmount + preSum;
+            actualStartBalance = preSum > 0 ? preSum : firstAmount;
             await db.query(
               `UPDATE trading_registrations SET actual_starting_balance = $1 WHERE id = $2`,
               [actualStartBalance, reg.id]
@@ -820,7 +632,7 @@ export class WpEvaluationEngine {
         // Min limit: DQ if below minimum (no upper limit)
         if (actualStartBalance > 0 && actualStartBalance < startingBalance - tolerance) {
           await db.query(
-            `UPDATE trading_registrations SET disqualified = true, disqualified_at = NOW(), disqualified_reason = $1 WHERE id = $2 AND disqualified = false`,
+            `UPDATE trading_registrations SET disqualified = true, disqualified_at = NOW(), disqualified_reason = $1, disqualified_source='funding' WHERE id = $2 AND (disqualified = false OR disqualified_source IN ('min_active_days','min_total_trades'))`,
             [`Starting balance ${currency}${actualStartBalance.toFixed(2)} is below minimum required deposit of ${currency}${startingBalance.toFixed(2)}`, reg.id]
           );
         }
@@ -828,7 +640,7 @@ export class WpEvaluationEngine {
         // Fixed and max_limit: DQ if exceeds upper limit
         if (actualStartBalance > startingBalance + tolerance) {
           await db.query(
-            `UPDATE trading_registrations SET disqualified = true, disqualified_at = NOW(), disqualified_reason = $1 WHERE id = $2 AND disqualified = false`,
+            `UPDATE trading_registrations SET disqualified = true, disqualified_at = NOW(), disqualified_reason = $1, disqualified_source='funding' WHERE id = $2 AND (disqualified = false OR disqualified_source IN ('min_active_days','min_total_trades'))`,
             [`Starting balance ${currency}${actualStartBalance.toFixed(2)} exceeds allowed starting balance of ${currency}${startingBalance.toFixed(2)}`, reg.id]
           );
         }
@@ -837,13 +649,13 @@ export class WpEvaluationEngine {
       // === STEP 3: Post-start deposit DQ (recharging) — ALWAYS runs ===
       // This check must run every evaluation regardless of whether actual_starting_balance
       // is cached, because new deposits can arrive at any time after challenge start.
-      if (regBalance > 0 || (savedActual !== null && savedActual !== undefined && parseFloat(savedActual) > 0)) {
+      if (regBalance > 0 || preDeposits.length > 0 || (regData.rows[0]?.funding_origin === 'prestart_snapshot' && Number(savedActual)>0)) {
         // User had money before challenge → ANY post-start deposit = recharging = DQ
         if (postDeposits.length > 0) {
           const d  = postDeposits[0];
-          const dt = new Date(d.time).toISOString().slice(0, 10);
+          const dt = getLocalTime(new Date(d.time),challengeTimezone).dateStr;
           await db.query(
-            `UPDATE trading_registrations SET disqualified = true, disqualified_at = NOW(), disqualified_reason = $1 WHERE id = $2 AND disqualified = false`,
+            `UPDATE trading_registrations SET disqualified = true, disqualified_at = NOW(), disqualified_reason = $1, disqualified_source='funding' WHERE id = $2 AND (disqualified = false OR disqualified_source IN ('min_active_days','min_total_trades'))`,
             [`Account recharged — deposit of ${currency}${parseFloat(d.profit).toFixed(2)} detected after challenge start (${dt})`, reg.id]
           );
         }
@@ -851,16 +663,15 @@ export class WpEvaluationEngine {
         // User had $0 — first post-start deposit is their starting balance, second = DQ
         if (postDeposits.length > 1) {
           const d  = postDeposits[1];
-          const dt = new Date(d.time).toISOString().slice(0, 10);
+          const dt = getLocalTime(new Date(d.time),challengeTimezone).dateStr;
           await db.query(
-            `UPDATE trading_registrations SET disqualified = true, disqualified_at = NOW(), disqualified_reason = $1 WHERE id = $2 AND disqualified = false`,
+            `UPDATE trading_registrations SET disqualified = true, disqualified_at = NOW(), disqualified_reason = $1, disqualified_source='funding' WHERE id = $2 AND (disqualified = false OR disqualified_source IN ('min_active_days','min_total_trades'))`,
             [`Account recharged — second deposit of ${currency}${parseFloat(d.profit).toFixed(2)} detected after challenge start (${dt})`, reg.id]
           );
         }
       }
     } catch (depositErr) {
-      console.error(`⚠️ Deposit detection error for reg ${reg.id}:`, depositErr);
-      // Fallback to challenge starting balance
+      throw new Error(`Funding verification failed for registration ${reg.id}: ${(depositErr as Error).message}`);
     }
 
     // Use actual starting balance for this person's evaluation
@@ -895,12 +706,22 @@ export class WpEvaluationEngine {
     // Build one "logical trade" per position: earliest open_time, latest close_time
     interface LogicalTrade { posId: number; openMs: number; closeMs: number; symbol: string; maxVolume: number; tickets: number[] }
     const logicalTrades: LogicalTrade[] = [];
+    const positionDeals = (await db.query('SELECT position_id,entry,volume,time,ticket FROM wp_deals WHERE challenge_id=$1 AND registration_id=$2 AND position_id IS NOT NULL ORDER BY time,ticket',[challengeId,reg.id])).rows;
     for (const [posId, tickets] of positionToTickets) {
       const parts = allTrades.filter(t => tickets.includes(t.ticket));
       const openMs  = Math.min(...parts.map(t => new Date(t.open_time).getTime()));
       const closeMs = Math.max(...parts.map(t => new Date(t.close_time).getTime()));
       // Max volume = largest single partial (for lot-size check on positions)
-      const maxVolume = Math.max(...parts.map(t => parseFloat(String(t.volume))));
+      const exposureEvents = parts.flatMap(t => [
+        {time:new Date(t.open_time).getTime(), delta:Number(t.volume)},
+        {time:new Date(t.close_time).getTime(), delta:-Number(t.volume)}
+      ]).sort((a,b)=>a.time-b.time || a.delta-b.delta);
+      let exposure=0, maxVolume=0;
+      for (const event of exposureEvents) { exposure+=event.delta; maxVolume=Math.max(maxVolume,exposure); }
+      // Newer VPS imports can provide full peak exposure, including still-open remainder.
+      const observedPeak=peakPositionVolume(positionDeals.filter(d=>String(d.position_id)===String(posId)));
+      if(observedPeak!==null)maxVolume=observedPeak;
+      maxVolume=Math.max(maxVolume,...parts.map(t=>Number((t as any).position_max_volume || 0)));
       logicalTrades.push({ posId, openMs, closeMs, symbol: parts[0].symbol, maxVolume, tickets });
 
       // Debug: log each logical trade's open/close times
@@ -1045,14 +866,22 @@ export class WpEvaluationEngine {
     if (hasDailyLossRule && isRuleEnabled(rules, 'daily_loss_cap')) {
       const tradesByDay = new Map<string, TradeRow[]>();
       allTrades.forEach(t => {
-        const day = new Date(t.close_time).toISOString().split('T')[0];
+        const day = getLocalTime(new Date(t.close_time), challengeTimezone).dateStr;
         if (!tradesByDay.has(day)) tradesByDay.set(day, []);
         tradesByDay.get(day)!.push(t);
       });
 
-      let runningBalance = startingBalance;
+      // Prior-day withdrawals/adjustments affect actual next-day opening balance.
+      // Deposits are handled by funding/recharge policy; never count initial funding twice.
+      const adjustments=(await db.query(`SELECT op_time,amount FROM wp_balance_ops WHERE challenge_id=$1 AND registration_id=$2
+        AND op_type<>'deposit' AND op_time>=$3 ORDER BY op_time,deal_ticket`,[challengeId,reg.id,challengeStart || new Date(0)])).rows;
+      let adjustmentIndex=0;
+      let runningBalance = effectiveStartBalance;
       const sortedDays = [...tradesByDay.keys()].sort();
       for (const day of sortedDays) {
+        while(adjustmentIndex<adjustments.length && getLocalTime(new Date(adjustments[adjustmentIndex].op_time),challengeTimezone).dateStr<day){
+          runningBalance+=Number(adjustments[adjustmentIndex++].amount);
+        }
         const dayOpenBalance = runningBalance;
         // Calculate effective daily cap: percentage of day's opening balance OR fixed amount
         const effectiveDailyCap = isDailyLossPercentMode
@@ -1060,7 +889,7 @@ export class WpEvaluationEngine {
           : rules.daily_loss_cap!;
         let drawdownBreached = false;
 
-        for (const t of tradesByDay.get(day)!) {
+        for (const t of tradesByDay.get(day)!.slice().sort((a,b)=>new Date(a.close_time).getTime()-new Date(b.close_time).getTime() || a.ticket-b.ticket)) {
           const tradeNet = parseFloat(String(t.profit)) + parseFloat(String(t.commission || 0)) + parseFloat(String(t.swap || 0));
           runningBalance += tradeNet;
           const drawdown = dayOpenBalance - runningBalance;
@@ -1514,34 +1343,30 @@ export class WpEvaluationEngine {
     const adjustedBalance = effectiveStartBalance + qualifiedProfit;
     const currentBalance = effectiveStartBalance + grossProfit;
     const qualifiedTrades = allTrades.length - flaggedCount;
-    const tradeDays = new Set(allTrades.map(t => new Date(t.close_time).toISOString().split('T')[0]));
+    const tradeDays = new Set(allTrades.map(t => getLocalTime(new Date(t.close_time), challengeTimezone).dateStr));
     const activeDays = tradeDays.size;
 
     // === ACTIVE-DAYS DQ / UNDO — computed once, used for both directions ===
     if (rules.min_active_days && isRuleEnabled(rules, 'min_active_days')) {
-      const challengeEndResult = await db.query(`SELECT end_date FROM trading_challenges WHERE id = $1`, [challengeId]);
+      const challengeEndResult = await db.query(`SELECT end_date, status FROM trading_challenges WHERE id = $1`, [challengeId]);
       const challengeEnd = challengeEndResult.rows[0]?.end_date;
       if (challengeEnd) {
         const now = new Date();
         const end = new Date(challengeEnd);
         const remainingDays = Math.max(0, Math.ceil((end.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
-        const maxPossibleDays = activeDays + remainingDays;
+        const maxPossibleDays = end.getTime()>Date.now() && !['completed','reviewing'].includes(challengeEndResult.rows[0]?.status) ? Number.POSITIVE_INFINITY : activeDays;
 
         if (maxPossibleDays >= rules.min_active_days) {
           // User CAN still meet the requirement — undo any incorrect active-days DQ.
           // Only clears DQs caused by active-days logic; manual DQs (recharge, over-limit) are untouched.
           const currentDq = await db.query(
-            `SELECT disqualified, disqualified_reason FROM trading_registrations WHERE id = $1`,
+            `SELECT disqualified, disqualified_reason, disqualified_source FROM trading_registrations WHERE id = $1`,
             [reg.id]
           );
           const dqRow = currentDq.rows[0];
-          if (dqRow?.disqualified && dqRow?.disqualified_reason?.toLowerCase().includes('active')) {
+          if (dqRow?.disqualified && dqRow?.disqualified_source === 'min_active_days') {
             await db.query(
-              `UPDATE trading_registrations SET disqualified = false, disqualified_at = NULL, disqualified_reason = NULL WHERE id = $1`,
-              [reg.id]
-            );
-            await db.query(
-              `UPDATE wp_leaderboard SET is_disqualified = false, disqualify_reason = NULL WHERE registration_id = $1`,
+              `UPDATE trading_registrations SET disqualified = false, disqualified_at = NULL, disqualified_reason = NULL, disqualified_source = NULL WHERE id = $1`,
               [reg.id]
             );
             console.log(`✅ WP Evaluation: Cleared incorrect active-days DQ for reg ${reg.id} (${activeDays} days traded, ${remainingDays} days left, need ${rules.min_active_days})`);
@@ -1549,12 +1374,8 @@ export class WpEvaluationEngine {
         } else {
           // Impossible to meet requirement — auto-DQ
           await db.query(
-            `UPDATE trading_registrations SET disqualified = true, disqualified_at = NOW(), disqualified_reason = $1 WHERE id = $2 AND disqualified = false`,
+            `UPDATE trading_registrations SET disqualified = true, disqualified_at = NOW(), disqualified_reason = $1, disqualified_source = 'min_active_days' WHERE id = $2 AND disqualified = false`,
             [`Cannot meet minimum ${rules.min_active_days} active trading days (${activeDays} days traded, ${remainingDays} days left)`, reg.id]
-          );
-          await db.query(
-            `UPDATE wp_leaderboard SET is_disqualified = true, disqualify_reason = $1 WHERE registration_id = $2`,
-            [`Cannot meet minimum ${rules.min_active_days} active days`, reg.id]
           );
         }
       }
@@ -1575,21 +1396,16 @@ export class WpEvaluationEngine {
       if (totalTradeCount >= rules.min_total_trades) {
         // User meets the requirement — clear any incorrect min-trades DQ
         const currentDq2 = await db.query(
-          `SELECT disqualified, disqualified_reason FROM trading_registrations WHERE id = $1`, [reg.id]
+          `SELECT disqualified, disqualified_reason, disqualified_source FROM trading_registrations WHERE id = $1`, [reg.id]
         );
-        if (currentDq2.rows[0]?.disqualified && currentDq2.rows[0]?.disqualified_reason?.includes('minimum') && currentDq2.rows[0]?.disqualified_reason?.includes('trades')) {
-          await db.query(`UPDATE trading_registrations SET disqualified = false, disqualified_at = NULL, disqualified_reason = NULL WHERE id = $1`, [reg.id]);
-          await db.query(`UPDATE wp_leaderboard SET is_disqualified = false, disqualify_reason = NULL WHERE registration_id = $1`, [reg.id]);
+        if (currentDq2.rows[0]?.disqualified && currentDq2.rows[0]?.disqualified_source === 'min_total_trades') {
+          await db.query(`UPDATE trading_registrations SET disqualified = false, disqualified_at = NULL, disqualified_reason = NULL, disqualified_source = NULL WHERE id = $1`, [reg.id]);
         }
       } else if (isChallengeOver) {
         // Challenge ended and user didn't meet min trades → DQ
         await db.query(
-          `UPDATE trading_registrations SET disqualified = true, disqualified_at = NOW(), disqualified_reason = $1 WHERE id = $2 AND disqualified = false`,
+          `UPDATE trading_registrations SET disqualified = true, disqualified_at = NOW(), disqualified_reason = $1, disqualified_source = 'min_total_trades' WHERE id = $2 AND disqualified = false`,
           [`Did not meet minimum ${rules.min_total_trades} trades (completed ${totalTradeCount} trades)`, reg.id]
-        );
-        await db.query(
-          `UPDATE wp_leaderboard SET is_disqualified = true, disqualify_reason = $1 WHERE registration_id = $2`,
-          [`Minimum ${rules.min_total_trades} trades not met (${totalTradeCount}/${rules.min_total_trades})`, reg.id]
         );
       }
       // During challenge + not met: no action (blue flag shown on frontend only)
@@ -1620,7 +1436,8 @@ export class WpEvaluationEngine {
       isQualified = adjustedBalance >= targetBalance && activeDays >= minDaysRequired;
     }
 
-    const lastTrade = allTrades[allTrades.length - 1];
+    if(allTrades.length===0)isQualified=false; // Preserve existing no-trade eligibility policy.
+    const lastTrade = allTrades.reduce((last,t)=>!last || new Date(t.close_time)>new Date(last.close_time) ? t:last, undefined as TradeRow | undefined);
 
     await this.upsertLeaderboard(challengeId, reg, effectiveStartBalance, {
       currentBalance, adjustedBalance, qualifiedProfit, grossProfit, profitRemoved,
@@ -1652,7 +1469,7 @@ export class WpEvaluationEngine {
     // Check if the user was just DQ'd in this evaluation cycle and send email if applicable
     // Only send once — check if we already notified via wp_pull_errors 'dq_email_sent' marker
     try {
-      const dqCheck = await db.query(`SELECT disqualified, disqualified_reason FROM trading_registrations WHERE id = $1`, [reg.id]);
+      const dqCheck = await db.query(`SELECT disqualified, disqualified_reason, disqualified_source FROM trading_registrations WHERE id = $1`, [reg.id]);
       if (dqCheck.rows[0]?.disqualified) {
         const alreadySent = await db.query(
           `SELECT 1 FROM wp_pull_errors WHERE registration_id = $1 AND error_code = 'dq_email_sent'`, [reg.id]
@@ -1787,6 +1604,8 @@ export class WpEvaluationEngine {
         zero_balance_at, growth_percent, evaluated_at)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,NOW())
        ON CONFLICT (challenge_id, registration_id) DO UPDATE SET
+         account_number=EXCLUDED.account_number,user_id=EXCLUDED.user_id,username=EXCLUDED.username,
+         nickname=EXCLUDED.nickname,account_type=EXCLUDED.account_type,starting_balance=EXCLUDED.starting_balance,
          current_balance=EXCLUDED.current_balance, adjusted_balance=EXCLUDED.adjusted_balance,
          normalized_balance=EXCLUDED.normalized_balance, is_cent=EXCLUDED.is_cent,
          qualified_profit=EXCLUDED.qualified_profit, gross_profit=EXCLUDED.gross_profit,
@@ -1811,16 +1630,9 @@ export class WpEvaluationEngine {
     );
   }
 
-  async updateRankings(challengeId: number) {
-    for (const accountType of ['demo', 'real']) {
-      await db.query(
-        `UPDATE wp_leaderboard SET rank = sub.rn FROM (
-          SELECT id, ROW_NUMBER() OVER (ORDER BY COALESCE(normalized_balance, adjusted_balance) DESC) as rn
-          FROM wp_leaderboard WHERE challenge_id=$1 AND account_type=$2 AND is_disqualified=false
-        ) sub WHERE wp_leaderboard.id = sub.id`,
-        [challengeId, accountType]
-      );
-    }
+  async updateRankings(challengeId: number, overrideLock = false) {
+    const {leaderboardService}=require('./leaderboardService');
+    return leaderboardService.updateRankings(challengeId,false,overrideLock);
   }
 
   // ==================== RULES ====================
@@ -1849,8 +1661,12 @@ export class WpEvaluationEngine {
   }
 
   async saveRules(challengeId: number, rules: RuleConfig, ruleCode: string = 'config') {
+    return db.transaction(async()=>{
+    const challenge=await db.query('SELECT status,configuration_frozen_at FROM trading_challenges WHERE id=$1 FOR UPDATE',[challengeId]);
+    const current=challenge.rows[0];
+    if(!current || current.configuration_frozen_at || !['draft','pending_approval','registration_open'].includes(current.status))throw new Error('Rules are locked or challenge not found');
     if (!['config', 'config_demo', 'config_real'].includes(ruleCode)) throw new Error('Invalid rule category');
-    if (!rules || typeof rules !== 'object') throw new Error('Invalid rules configuration');
+    validateRules(rules);
     if (rules.rules_enabled && Object.values(rules.rules_enabled).some(value => typeof value !== 'boolean')) {
       throw new Error('Rule enable switches must be true or false');
     }
@@ -1863,6 +1679,7 @@ export class WpEvaluationEngine {
        ON CONFLICT (challenge_id, rule_code) DO UPDATE SET parameters = $2`,
       [challengeId, JSON.stringify(rules), ruleCode, label]
     );
+    });
   }
 
   async seedDefaultRules(challengeId: number) {
@@ -1979,25 +1796,25 @@ export class WpEvaluationEngine {
    * for a specific account. Updates trades, re-evaluates, flushes to live leaderboard.
    * Returns a summary of what happened.
    */
-  async recheckSlPendingForAccount(challengeId: number, registrationId: number): Promise<{
+  async recheckSlPendingForAccount(challengeId: number, registrationId: number, overrideLock=false): Promise<{
     checked: number; violations: number; cleared: number; nickname: string; error?: string;
   }> {
     try {
       const regResult = await db.query(
         `SELECT r.*, c.start_date, c.end_date FROM trading_registrations r
          JOIN trading_challenges c ON r.challenge_id = c.id
-         WHERE r.id = $1`,
-        [registrationId]
+         WHERE r.id = $1 AND r.challenge_id=$2`,
+        [registrationId,challengeId]
       );
       if (regResult.rows.length === 0) return { checked: 0, violations: 0, cleared: 0, nickname: '?', error: 'Registration not found' };
       const reg = regResult.rows[0];
 
       const rules = await this.rulesForAccount(challengeId, reg.account_type);
       if (!isRiskRuleEnabled(rules)) {
-        await this.evaluateSingleAccount(challengeId, registrationId);
-        await this.flushSingleAccountToLive(challengeId, registrationId);
+        await this.evaluateSingleAccount(challengeId, registrationId,overrideLock);
+        await this.flushSingleAccountToLive(challengeId, registrationId,overrideLock);
         const { leaderboardService } = require('./leaderboardService');
-        await leaderboardService.updateRankings(challengeId);
+        await leaderboardService.updateRankings(challengeId,false,overrideLock);
         return { checked: 0, violations: 0, cleared: 0, nickname: reg.nickname || reg.account_number };
       }
 
@@ -2016,10 +1833,10 @@ export class WpEvaluationEngine {
 
       const before = await db.query(`SELECT COUNT(*)::int AS count FROM wp_trades
         WHERE challenge_id=$1 AND registration_id=$2 AND sl_check_pending=true`, [challengeId, registrationId]);
-      await this.evaluateSingleAccount(challengeId, registrationId);
-      await this.flushSingleAccountToLive(challengeId, registrationId);
+      await this.evaluateSingleAccount(challengeId, registrationId,overrideLock);
+      await this.flushSingleAccountToLive(challengeId, registrationId,overrideLock);
       const { leaderboardService } = require('./leaderboardService');
-      await leaderboardService.updateRankings(challengeId);
+      await leaderboardService.updateRankings(challengeId,false,overrideLock);
       const after = await db.query(`SELECT COUNT(*) FILTER (WHERE sl_check_pending=true)::int AS pending,
         COUNT(*) FILTER (WHERE is_qualified=false)::int AS flagged FROM wp_trades
         WHERE challenge_id=$1 AND registration_id=$2`, [challengeId, registrationId]);
@@ -2047,31 +1864,11 @@ export class WpEvaluationEngine {
    * Flush a single account's staging row directly to the live leaderboard
    * without waiting for the next full cycle.
    */
-  async flushSingleAccountToLive(challengeId: number, registrationId: number) {
-    await db.query(
-      `INSERT INTO wp_leaderboard
-       (challenge_id, registration_id, account_number, user_id, username, nickname, account_type, is_cent,
-        starting_balance, current_balance, adjusted_balance, normalized_balance, qualified_profit, gross_profit,
-        profit_removed, total_trades, qualified_trades, flagged_trades, active_days, is_qualified,
-        last_trade_time, zero_balance_at, growth_percent, rank)
-       SELECT challenge_id, registration_id, account_number, user_id, username, nickname, account_type, is_cent,
-              starting_balance, current_balance, adjusted_balance, normalized_balance, qualified_profit, gross_profit,
-              profit_removed, total_trades, qualified_trades, flagged_trades, active_days, is_qualified,
-              last_trade_time, zero_balance_at, growth_percent,
-              (SELECT COALESCE(rank, 999) FROM wp_leaderboard WHERE challenge_id = $1 AND registration_id = $2)
-       FROM wp_leaderboard_staging
-       WHERE challenge_id = $1 AND registration_id = $2
-       ON CONFLICT (challenge_id, registration_id) DO UPDATE SET
-         current_balance=EXCLUDED.current_balance, adjusted_balance=EXCLUDED.adjusted_balance,
-         normalized_balance=EXCLUDED.normalized_balance, qualified_profit=EXCLUDED.qualified_profit,
-         gross_profit=EXCLUDED.gross_profit, profit_removed=EXCLUDED.profit_removed,
-         total_trades=EXCLUDED.total_trades, qualified_trades=EXCLUDED.qualified_trades,
-         flagged_trades=EXCLUDED.flagged_trades, active_days=EXCLUDED.active_days,
-         is_qualified=EXCLUDED.is_qualified, last_trade_time=EXCLUDED.last_trade_time,
-         zero_balance_at=EXCLUDED.zero_balance_at, growth_percent=EXCLUDED.growth_percent`,
-      [challengeId, registrationId]
-    );
+  async flushSingleAccountToLive(challengeId: number, registrationId: number, overrideLock = false) {
+    const {leaderboardService}=require('./leaderboardService');
+    return leaderboardService.flushStagingToLive(challengeId,registrationId,overrideLock);
   }
+
 }
 
 export const evaluationEngine = new WpEvaluationEngine();

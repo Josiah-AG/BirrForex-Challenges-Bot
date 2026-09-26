@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef } from "react";
 
 import Image from "next/image";
+import {utcToWallClock,wallClockToUtcISO} from "@/lib/challengeTime";
 import Link from "next/link";
 import { Input } from "@/components/ui/input";
 import BalanceChart from "@/components/BalanceChart";
@@ -47,6 +48,7 @@ export default function AdminDashboard() {
     min_active_days: 7,
     min_total_trades: 10 as number | null,
     only_cent_account: false,
+    allow_professional: false,
     rules_enabled: {
       max_lot_size: true,
       max_open_trades: true,
@@ -97,15 +99,16 @@ export default function AdminDashboard() {
   const handleAdminLogin = async () => {
     setLoginError(""); setLoginLoading(true);
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
-    const secretPath = process.env.NEXT_PUBLIC_ADMIN_PATH || "";
+    const secretPath = "management";
     try {
-      const res = await fetch(`${apiUrl}/api/admin/${secretPath}/login`, {
+      const res = await fetch(`/api/management/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ key: adminPass }),
       });
       if (res.ok) {
-        localStorage.setItem("wp_admin_key", adminPass);
+        localStorage.removeItem("wp_admin_key");
+        setAdminPass("");
         setIsAdmin(true);
       } else if (res.status === 403) {
         setLoginError("Access denied — IP not whitelisted");
@@ -120,8 +123,24 @@ export default function AdminDashboard() {
 
   // Check admin login on mount
   useEffect(() => {
-    if (typeof window !== "undefined" && localStorage.getItem("wp_admin_key")) setIsAdmin(true);
+    localStorage.removeItem("wp_admin_key");
+    fetch("/api/management/session").then(res => setIsAdmin(res.ok)).catch(() => setIsAdmin(false));
   }, []);
+
+  const [pendingApprovals,setPendingApprovals]=useState<any[]>([]);
+  useEffect(()=>{
+    if(!isAdmin)return;
+    const load=()=>fetch('/api/management/approvals').then(r=>r.ok?r.json():{approvals:[]}).then(d=>setPendingApprovals(d.approvals || [])).catch(()=>{});
+    load();const timer=setInterval(load,30000);return()=>clearInterval(timer);
+  },[isAdmin]);
+  const decideApproval=async(token:string,approve:boolean)=>{
+    try{
+      const response=await fetch(`/api/management/approvals/${token}/decision`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({approve})});
+      const result=await response.json();if(!response.ok)throw new Error(result.error || 'Decision failed');
+      setPendingApprovals(rows=>rows.filter(row=>row.token!==token));
+      window.location.reload();
+    }catch(error){alert(error instanceof Error?error.message:'Decision failed');}
+  };
 
   // Fetch challenges list after login — use admin endpoint (shows ALL challenges)
   const [challenges, setChallenges] = useState<any[]>([]);
@@ -130,8 +149,8 @@ export default function AdminDashboard() {
     const fetchChallenges = async () => {
       try {
         const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
-        const secretPath = process.env.NEXT_PUBLIC_ADMIN_PATH || "";
-        const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenges`);
+        const secretPath = "management";
+        const res = await fetch(`/api/management/challenges`);
         if (res.ok) {
           const data = await res.json();
           if (data.challenges && data.challenges.length > 0) {
@@ -156,8 +175,8 @@ export default function AdminDashboard() {
     const fetchOverview = async () => {
       try {
         const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
-        const secretPath = process.env.NEXT_PUBLIC_ADMIN_PATH || "";
-        const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${selectedChallengeId}/overview`);
+        const secretPath = "management";
+        const res = await fetch(`/api/management/challenge/${selectedChallengeId}/overview`);
         if (res.ok) {
           const data = await res.json();
           setOverviewData(data);
@@ -175,20 +194,13 @@ export default function AdminDashboard() {
       setRulesMissing(true);
       try {
         const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
-        const secretPath = process.env.NEXT_PUBLIC_ADMIN_PATH || "";
+        const secretPath = "management";
         const ruleCode = adminRulesCategory || 'config';
-        const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${selectedChallengeId}/rules?rule_code=${ruleCode}`);
+        const res = await fetch(`/api/management/challenge/${selectedChallengeId}/rules?rule_code=${ruleCode}`);
         if (res.ok) {
           const data = await res.json();
           setRulesLocked(data.locked || false);
-          if (data.splitCategorySettings && data.challengeType === 'hybrid') {
-            setAdminRulesSplit(true);
-            // Split challenges configure Demo/Real only — never the shared fallback row.
-            if (adminRulesCategory === 'config') setAdminRulesCategory('config_demo');
-          } else {
-            setAdminRulesSplit(false);
-            if (adminRulesCategory !== 'config') setAdminRulesCategory('config');
-          }
+          setAdminRulesSplit(!!data.splitCategorySettings && data.challengeType==='hybrid');
           setRulesMissing(!data.rules);
           if (data.rules) {
             const loaded = {
@@ -208,6 +220,7 @@ export default function AdminDashboard() {
               min_active_days: data.rules.min_active_days ?? 7,
               min_total_trades: data.rules.min_total_trades ?? 10,
               only_cent_account: data.rules.only_cent_account ?? false,
+              allow_professional: data.rules.allow_professional ?? false,
               rules_enabled: data.rules.rules_enabled ?? {
                 max_lot_size: true,
                 max_open_trades: true,
@@ -242,8 +255,8 @@ export default function AdminDashboard() {
       setParticipantsLoading(true);
       try {
         const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
-        const secretPath = process.env.NEXT_PUBLIC_ADMIN_PATH || "";
-        const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${selectedChallengeId}/participants?page=${participantsPage}`);
+        const secretPath = "management";
+        const res = await fetch(`/api/management/challenge/${selectedChallengeId}/participants?page=${participantsPage}`);
         if (res.ok) {
           const data = await res.json();
           let filtered = data.participants || [];
@@ -266,12 +279,12 @@ export default function AdminDashboard() {
     setActionLoading(true);
     setActionResult("");
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
-    const secretPath = process.env.NEXT_PUBLIC_ADMIN_PATH || "";
+    const secretPath = "management";
 
     try {
       let endpoint = "";
-      if (type === "unverify") endpoint = `${apiUrl}/api/admin/${secretPath}/challenge/${selectedChallengeId}/unverify`;
-      else if (type === "disqualify") endpoint = `${apiUrl}/api/admin/${secretPath}/challenge/${selectedChallengeId}/disqualify`;
+      if (type === "unverify") endpoint = `/api/management/challenge/${selectedChallengeId}/unverify`;
+      else if (type === "disqualify") endpoint = `/api/management/challenge/${selectedChallengeId}/disqualify`;
 
       const body: any = { registrationId: participant.id, reason: message };
 
@@ -302,8 +315,8 @@ export default function AdminDashboard() {
     if (!q) return;
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
-      const secretPath = process.env.NEXT_PUBLIC_ADMIN_PATH || "";
-      const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${selectedChallengeId}/finduser?q=${encodeURIComponent(q)}`);
+      const secretPath = "management";
+      const res = await fetch(`/api/management/challenge/${selectedChallengeId}/finduser?q=${encodeURIComponent(q)}`);
       if (res.ok) {
         const data = await res.json();
         if (data.found) {
@@ -420,8 +433,8 @@ export default function AdminDashboard() {
     const fetchLeaderboard = async () => {
       try {
         const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
-        const secretPath = process.env.NEXT_PUBLIC_ADMIN_PATH || "";
-        const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${selectedChallengeId}/admin-leaderboard?category=${leaderboardCategory}`);
+        const secretPath = "management";
+        const res = await fetch(`/api/management/challenge/${selectedChallengeId}/admin-leaderboard?category=${leaderboardCategory}`);
         if (res.ok) {
           const data = await res.json();
           setLeaderboard(data.leaderboard || []);
@@ -441,8 +454,8 @@ export default function AdminDashboard() {
     const fetchViolations = async () => {
       try {
         const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
-        const secretPath = process.env.NEXT_PUBLIC_ADMIN_PATH || "";
-        const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${selectedChallengeId}/violations`);
+        const secretPath = "management";
+        const res = await fetch(`/api/management/challenge/${selectedChallengeId}/violations`);
         if (res.ok) {
           const data = await res.json();
           setFlaggedParticipants((data.violations || []).map((v: any) => ({
@@ -470,8 +483,8 @@ export default function AdminDashboard() {
     const fetchPulls = async () => {
       try {
         const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
-        const secretPath = process.env.NEXT_PUBLIC_ADMIN_PATH || "";
-        const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${selectedChallengeId}/pulls`);
+        const secretPath = "management";
+        const res = await fetch(`/api/management/challenge/${selectedChallengeId}/pulls`);
         if (res.ok) {
           const data = await res.json();
           const pulls = (data.pulls || []).map((p: any) => {
@@ -516,8 +529,8 @@ export default function AdminDashboard() {
     const fetchScreening = async () => {
       try {
         const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
-        const secretPath = process.env.NEXT_PUBLIC_ADMIN_PATH || "";
-        const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${selectedChallengeId}/screening`);
+        const secretPath = "management";
+        const res = await fetch(`/api/management/challenge/${selectedChallengeId}/screening`);
         if (res.ok) {
           const data = await res.json();
           setScreeningData(data);
@@ -582,7 +595,7 @@ export default function AdminDashboard() {
             <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
               <span className={`hidden sm:inline px-3 py-1 rounded-full text-xs font-semibold border ${challenge.status === "active" ? "bg-profit/20 text-profit border-profit/30" : "bg-white/10 text-gray-300 border-white/20"}`}>● {challenge.status}</span>
               <span className="text-xs text-gray-500">{overview.totalParticipants} <span className="hidden sm:inline">users</span></span>
-              <button onClick={() => { localStorage.removeItem("wp_admin_key"); window.location.reload(); }} title="Logout" className="p-1.5 rounded-lg hover:bg-loss/20 text-gray-400 hover:text-loss transition-all">
+              <button onClick={async () => { await fetch("/api/management/logout", { method: "POST" }); localStorage.removeItem("wp_admin_key"); window.location.reload(); }} title="Logout" className="p-1.5 rounded-lg hover:bg-loss/20 text-gray-400 hover:text-loss transition-all">
                 <LogOut size={14} />
               </button>
             </div>
@@ -591,6 +604,15 @@ export default function AdminDashboard() {
       </header>
 
       <div className="container mx-auto px-4 py-6 max-w-7xl relative">
+        {pendingApprovals.length>0 && <section className="mb-6 p-4 rounded-xl border border-gold/30 bg-gold/5">
+          <h2 className="font-semibold mb-3">Pending approvals</h2>
+          {pendingApprovals.map(request=><div key={request.token} className="py-3 border-t border-white/10">
+            <p>{request.kind}: {request.payload.title || `Challenge ${request.payload.challenge_id || request.payload.challengeId}`}</p>
+            <details className="text-xs text-gray-400"><summary>Review requested settings</summary><pre className="whitespace-pre-wrap">{JSON.stringify(request.payload,null,2)}</pre></details>
+            <button className="mr-4 text-profit" onClick={()=>decideApproval(request.token,true)}>Approve</button>
+            <button className="text-loss" onClick={()=>decideApproval(request.token,false)}>Reject</button>
+          </div>)}
+        </section>}
         {/* NAV TABS — scrollable on mobile with scroll indicator */}
         <div className="flex gap-1 p-1 glass rounded-xl border border-white/10 mb-6 overflow-x-auto scrollbar-hide">
           {(["overview", "participants", "leaderboard", "violations", "pulls", "screening", "rules", "settings", "health"] as const).map(tab => (
@@ -766,7 +788,7 @@ export default function AdminDashboard() {
                       <p className={`text-sm font-bold ${!leaderboardPreStart && e.isDisqualified ? "text-loss" : !leaderboardPreStart && e.isWithdrawn ? "text-gray-500" : eIsWinner ? "text-profit" : eIsAboveTarget ? "text-profit/80" : "text-white"}`}>{!leaderboardPreStart && e.isDisqualified ? "DQ" : !leaderboardPreStart && e.isWithdrawn ? "Exited" : eGrowthMode ? (<span className={Number(e.growthPercent || 0) >= 0 ? "text-profit" : "text-loss"}>{Number(e.growthPercent || 0) >= 0 ? '↑' : '↓'} {Number(e.growthPercent || 0) >= 0 ? '+' : '-'}{Math.abs(Number(e.growthPercent || 0)).toFixed(1)}%</span>) : e.isCent ? `${(Number(e.adjustedBalance) - (e.totalWithdrawn || 0)).toFixed(2)}¢` : `$${(Number(e.adjustedBalance) - (e.totalWithdrawn || 0)).toFixed(2)}`}</p>
                       {!e.isDisqualified && !e.isWithdrawn && <p className="text-[10px] text-gray-500 mt-0.5">{e.isCent ? `${Number(e.adjustedBalance).toFixed(2)}¢` : `$${Number(e.adjustedBalance).toFixed(2)}`}</p>}
                       {e.isWithdrawn && e.totalWithdrawn > 0 && <p className="text-[10px] text-gray-600 mt-0.5">withdrew {e.isCent ? `${Number(e.totalWithdrawn).toFixed(2)}¢` : `$${Number(e.totalWithdrawn).toFixed(2)}`}</p>}
-                      {leaderboardPreStart && e.registrationId && <button title="Check balance now" onClick={async (ev) => { ev.stopPropagation(); const btn = ev.currentTarget; btn.textContent = '⏳'; btn.title = 'Checking...'; btn.disabled = true; try { const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.winnerpip.com'; const sp = process.env.NEXT_PUBLIC_ADMIN_PATH || ''; const r = await fetch(`${apiUrl}/api/admin/${sp}/challenge/${selectedChallengeId}/prestart-check-balance`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ registrationId: e.registrationId }) }); const d = await r.json(); if (d.success) { btn.textContent = '✅'; btn.title = `Balance: ${d.isCent ? d.balance.toFixed(2) + '¢' : '$' + d.balance.toFixed(2)}`; e.adjustedBalance = d.balance; e.currentBalance = d.balance; setLeaderboard([...leaderboard]); } else { btn.textContent = '❌'; btn.title = d.credential_fail ? 'Credential error — password changed or account deleted' : (d.message || 'Connection failed'); } } catch { btn.textContent = '❌'; btn.title = 'Network error'; } setTimeout(() => { btn.textContent = '🔄'; btn.title = 'Check balance now'; btn.disabled = false; }, 5000); }} className="ml-2 text-[10px] text-royal hover:text-white transition-all cursor-pointer">🔄</button>}
+                      {leaderboardPreStart && e.registrationId && <button title="Check balance now" onClick={async (ev) => { ev.stopPropagation(); const btn = ev.currentTarget; btn.textContent = '⏳'; btn.title = 'Checking...'; btn.disabled = true; try { const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.winnerpip.com'; const sp = "management"; const r = await fetch(`/api/management/challenge/${selectedChallengeId}/prestart-check-balance`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ registrationId: e.registrationId }) }); const d = await r.json(); if (d.success) { btn.textContent = '✅'; btn.title = `Balance: ${d.isCent ? d.balance.toFixed(2) + '¢' : '$' + d.balance.toFixed(2)}`; e.adjustedBalance = d.balance; e.currentBalance = d.balance; setLeaderboard([...leaderboard]); } else { btn.textContent = '❌'; btn.title = d.credential_fail ? 'Credential error — password changed or account deleted' : (d.message || 'Connection failed'); } } catch { btn.textContent = '❌'; btn.title = 'Network error'; } setTimeout(() => { btn.textContent = '🔄'; btn.title = 'Check balance now'; btn.disabled = false; }, 5000); }} className="ml-2 text-[10px] text-royal hover:text-white transition-all cursor-pointer">🔄</button>}
                     </td>
                     {!leaderboardPreStart && <><td className="py-3 px-4 text-center text-sm text-gray-400">{e.totalTrades}</td>
                     <td className="py-3 px-4 text-center text-sm text-gray-400">{e.totalTrades > 0 ? `${Math.round((e.qualifiedTrades / e.totalTrades) * 100)}%` : "—"}</td>
@@ -879,18 +901,18 @@ export default function AdminDashboard() {
                 <div className="p-5 border-t border-white/10 space-y-2">
                   <button onClick={() => { setActiveSection("leaderboard"); setLeaderboardCategory(foundUser.accountType === 'demo' ? 'demo' : foundUser.accountType === 'real' ? 'real' : 'all'); setTimeout(() => { const entry = leaderboard.find((e: any) => e.nickname === foundUser.nickname || e.accountNumber === foundUser.accountNumber); if (entry) setSelectedParticipant(entry); else setSelectedParticipant({ ...foundUser, registrationId: foundUser.id, adjustedBalance: foundUser.balance || 0, qualifiedProfit: foundUser.qualifiedProfit || 0, grossProfit: foundUser.grossProfit || 0, profitRemoved: foundUser.profitRemoved || 0, totalTrades: foundUser.totalTrades || 0, qualifiedTrades: foundUser.qualifiedTrades || 0, flaggedTrades: foundUser.flaggedTrades || 0, isCent: foundUser.isCent || false, accountType: foundUser.accountType, nickname: foundUser.nickname, rank: foundUser.rank }); }, 500); }} className="w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-gold/20 border border-gold/30 hover:bg-gold/30 text-gold font-semibold transition-all text-sm"><Trophy size={16} />View on Leaderboard #{foundUser.rank || '—'}</button>
                   <button onClick={() => { const data = foundUser; const toEAT = (d:string) => { if(!d) return "—"; const dt = new Date(new Date(d).getTime()+3*60*60*1000); return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth()+1).padStart(2,"0")}-${String(dt.getUTCDate()).padStart(2,"0")} ${String(dt.getUTCHours()).padStart(2,"0")}:${String(dt.getUTCMinutes()).padStart(2,"0")} EAT`; }; const rows = [["Field","Value"],["Nickname",data.nickname],["Username",data.username],["Email",data.email],["Account",data.accountNumber],["Type",data.accountType],["Server",data.server],["Balance",data.balance != null ? data.balance : "N/A"],["Qualified Profit",data.qualifiedProfit],["Gross Profit",data.grossProfit],["Profit Removed",data.profitRemoved],["Trades",data.totalTrades],["Flagged",data.flaggedTrades],["Active Days",data.activeDays],["Rank",data.rank || "N/A"],["Registered (EAT)",toEAT(data.registeredAt)],["Last Pull (EAT)",toEAT(data.lastPull)],["Partner",data.partnerStatus]]; const csv=rows.map((r:any)=>r.join(",")).join("\n"); const blob=new Blob([csv],{type:"text/csv"}); const url=URL.createObjectURL(blob); const a=document.createElement("a"); a.href=url; a.download=`${data.nickname}_${data.accountNumber}_summary.csv`; a.click(); }} className="w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-royal/20 border border-royal/30 hover:bg-royal/30 text-royal font-semibold transition-all text-sm"><FileText size={16} />Export User Summary (CSV)</button>
-                  <button onClick={async () => { const data = foundUser; if(!data.id){ alert("No user data"); return; } try { const _api = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com"; const _path = process.env.NEXT_PUBLIC_ADMIN_PATH || ""; const res = await fetch(`${_api}/api/admin/${_path}/challenge/${selectedChallengeId}/user-evaluation?registration_id=${data.id}`); if (!res.ok) { alert("Failed to fetch evaluation"); return; } const result = await res.json(); const blob = new Blob([result.report], {type:"text/plain"}); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `${data.nickname || data.accountNumber}_evaluation_report.txt`; a.click(); } catch { alert("Export failed"); } }} className="w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-profit/20 border border-profit/30 hover:bg-profit/30 text-profit font-semibold transition-all text-sm"><FileText size={16} />Export Evaluation Report</button>
-                  <button onClick={async () => { const data = foundUser; if(!data.id){ alert("No user data"); return; } try { const _api = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com"; const _path = process.env.NEXT_PUBLIC_ADMIN_PATH || ""; const res = await fetch(`${_api}/api/admin/${_path}/challenge/${selectedChallengeId}/export-user-trades?registration_id=${data.id}`); if (!res.ok) { alert("Export failed"); return; } const result = await res.json(); const html = generateTradesHTML(result); const blob = new Blob([html], {type:"text/html"}); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `${result.user?.nickname || data.nickname || data.accountNumber}_MT5_history.html`; a.click(); URL.revokeObjectURL(url); } catch { alert("Export failed"); } }} className="w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 text-gray-300 font-semibold transition-all text-sm"><FileText size={16} />Export MT5 Trade History</button>
-                  <button onClick={async () => { const data = foundUser; if(!data.id){ alert("No user data"); return; } try { const _api = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com"; const _path = process.env.NEXT_PUBLIC_ADMIN_PATH || ""; const res = await fetch(`${_api}/api/admin/${_path}/challenge/${selectedChallengeId}/raw-trades-csv?registration_id=${data.id}`); if (!res.ok) { alert("Export failed"); return; } const csv = await res.text(); const blob = new Blob([csv], {type:"text/csv"}); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `${data.nickname || data.accountNumber}_raw_trades.csv`; a.click(); URL.revokeObjectURL(url); } catch { alert("Export failed"); } }} className="w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 text-gray-300 font-semibold transition-all text-sm"><FileText size={16} />Download Raw Trade Data (CSV)</button>
+                  <button onClick={async () => { const data = foundUser; if(!data.id){ alert("No user data"); return; } try { const _api = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com"; const _path = "management"; const res = await fetch(`/api/management/challenge/${selectedChallengeId}/user-evaluation?registration_id=${data.id}`); if (!res.ok) { alert("Failed to fetch evaluation"); return; } const result = await res.json(); const blob = new Blob([result.report], {type:"text/plain"}); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `${data.nickname || data.accountNumber}_evaluation_report.txt`; a.click(); } catch { alert("Export failed"); } }} className="w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-profit/20 border border-profit/30 hover:bg-profit/30 text-profit font-semibold transition-all text-sm"><FileText size={16} />Export Evaluation Report</button>
+                  <button onClick={async () => { const data = foundUser; if(!data.id){ alert("No user data"); return; } try { const _api = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com"; const _path = "management"; const res = await fetch(`/api/management/challenge/${selectedChallengeId}/export-user-trades?registration_id=${data.id}`); if (!res.ok) { alert("Export failed"); return; } const result = await res.json(); const html = generateTradesHTML(result); const blob = new Blob([html], {type:"text/html"}); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `${result.user?.nickname || data.nickname || data.accountNumber}_MT5_history.html`; a.click(); URL.revokeObjectURL(url); } catch { alert("Export failed"); } }} className="w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 text-gray-300 font-semibold transition-all text-sm"><FileText size={16} />Export MT5 Trade History</button>
+                  <button onClick={async () => { const data = foundUser; if(!data.id){ alert("No user data"); return; } try { const _api = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com"; const _path = "management"; const res = await fetch(`/api/management/challenge/${selectedChallengeId}/raw-trades-csv?registration_id=${data.id}`); if (!res.ok) { alert("Export failed"); return; } const csv = await res.text(); const blob = new Blob([csv], {type:"text/csv"}); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `${data.nickname || data.accountNumber}_raw_trades.csv`; a.click(); URL.revokeObjectURL(url); } catch { alert("Export failed"); } }} className="w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 text-gray-300 font-semibold transition-all text-sm"><FileText size={16} />Download Raw Trade Data (CSV)</button>
                 </div>
                 {/* Admin Actions */}
                 <div className="p-5 border-t border-white/10 space-y-2">
                   <p className="text-[10px] text-gray-500 uppercase tracking-wider font-semibold mb-2">Admin Actions</p>
                   <div className="flex flex-wrap gap-2">
-                    <button onClick={async () => { if (!foundUser.id) return; const _api = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com"; const _path = process.env.NEXT_PUBLIC_ADMIN_PATH || ""; const btn = document.activeElement as HTMLButtonElement; btn.textContent = "⏳"; try { const r = await fetch(`${_api}/api/admin/${_path}/challenge/${selectedChallengeId}/prestart-check-balance`, { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({registrationId: foundUser.id}) }); const d = await r.json(); if (d.success) { btn.textContent = `✅ $${d.balance.toFixed(2)}`; } else { btn.textContent = `❌ ${d.message || "Failed"}`; } } catch { btn.textContent = "❌ Error"; } setTimeout(() => { btn.textContent = "🛡️ Check Balance"; }, 4000); }} className="px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-semibold hover:bg-amber-500/20 transition-all">🛡️ Check Balance</button>
-                    <button onClick={async () => { if (!foundUser.id) return; const _api = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com"; const _path = process.env.NEXT_PUBLIC_ADMIN_PATH || ""; const btn = document.activeElement as HTMLButtonElement; btn.textContent = "⏳ Evaluating..."; btn.disabled = true; try { const r = await fetch(`${_api}/api/admin/${_path}/challenge/${selectedChallengeId}/re-evaluate-user`, { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({registrationId: foundUser.id}) }); const d = await r.json(); if (d.success) { const changes: string[] = []; if (d.before.rank !== d.after.rank) changes.push(`Rank: #${d.before.rank || '—'} → #${d.after.rank || '—'}`); if (d.before.flaggedTrades !== d.after.flaggedTrades) changes.push(`Flagged: ${d.before.flaggedTrades} → ${d.after.flaggedTrades}`); if (d.before.qualifiedTrades !== d.after.qualifiedTrades) changes.push(`Qualified: ${d.before.qualifiedTrades} → ${d.after.qualifiedTrades}`); if (Math.abs(d.before.qualifiedProfit - d.after.qualifiedProfit) > 0.01) changes.push(`Profit: $${d.before.qualifiedProfit.toFixed(2)} → $${d.after.qualifiedProfit.toFixed(2)}`); if (Math.abs(d.before.adjustedBalance - d.after.adjustedBalance) > 0.01) changes.push(`Balance: $${d.before.adjustedBalance.toFixed(2)} → $${d.after.adjustedBalance.toFixed(2)}`); alert(changes.length > 0 ? `✅ Re-evaluation complete:\n\n${changes.join('\n')}` : '✅ Re-evaluation complete — no changes detected.'); } else { alert(`❌ ${d.error || 'Failed'}`); } } catch { alert('❌ Connection error'); } btn.textContent = "🔄 Re-evaluate"; btn.disabled = false; }} className="px-3 py-2 rounded-lg bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 text-xs font-semibold hover:bg-cyan-500/20 transition-all">🔄 Re-evaluate</button>
-                    {!foundUser.disqualified && <button onClick={async () => { if (!foundUser.id) return; const reason = prompt("DQ Reason:"); if (!reason) return; const _api = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com"; const _path = process.env.NEXT_PUBLIC_ADMIN_PATH || ""; try { const r = await fetch(`${_api}/api/admin/${_path}/challenge/${selectedChallengeId}/disqualify`, { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({registrationId: foundUser.id, reason}) }); const d = await r.json(); if (d.success) { alert("✅ User disqualified"); foundUser.disqualified = true; setFoundUser({...foundUser}); } else { alert(`❌ ${d.error || "Failed"}`); } } catch { alert("❌ Error"); } }} className="px-3 py-2 rounded-lg bg-loss/10 border border-loss/30 text-loss text-xs font-semibold hover:bg-loss/20 transition-all">🚫 Disqualify</button>}
-                    <button onClick={async () => { if (!foundUser.id) return; if (!confirm(`Remove ${foundUser.nickname} from this challenge?`)) return; const _api = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com"; const _path = process.env.NEXT_PUBLIC_ADMIN_PATH || ""; try { const r = await fetch(`${_api}/api/admin/${_path}/challenge/${selectedChallengeId}/remove-participant`, { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({registrationId: foundUser.id}) }); const d = await r.json(); if (d.success) { alert("✅ User removed"); setFoundUser(null); setSearchPerformed(false); } else { alert(`❌ ${d.error || "Failed"}`); } } catch { alert("❌ Error"); } }} className="px-3 py-2 rounded-lg bg-gray-500/10 border border-gray-500/30 text-gray-400 text-xs font-semibold hover:bg-gray-500/20 transition-all">🗑️ Unregister</button>
+                    <button onClick={async () => { if (!foundUser.id) return; const _api = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com"; const _path = "management"; const btn = document.activeElement as HTMLButtonElement; btn.textContent = "⏳"; try { const r = await fetch(`/api/management/challenge/${selectedChallengeId}/prestart-check-balance`, { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({registrationId: foundUser.id}) }); const d = await r.json(); if (d.success) { btn.textContent = `✅ $${d.balance.toFixed(2)}`; } else { btn.textContent = `❌ ${d.message || "Failed"}`; } } catch { btn.textContent = "❌ Error"; } setTimeout(() => { btn.textContent = "🛡️ Check Balance"; }, 4000); }} className="px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-semibold hover:bg-amber-500/20 transition-all">🛡️ Check Balance</button>
+                    <button onClick={async () => { if (!foundUser.id) return; const _api = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com"; const _path = "management"; const btn = document.activeElement as HTMLButtonElement; btn.textContent = "⏳ Evaluating..."; btn.disabled = true; try { const r = await fetch(`/api/management/challenge/${selectedChallengeId}/re-evaluate-user`, { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({registrationId: foundUser.id}) }); const d = await r.json(); if (d.success) { const changes: string[] = []; if (d.before.rank !== d.after.rank) changes.push(`Rank: #${d.before.rank || '—'} → #${d.after.rank || '—'}`); if (d.before.flaggedTrades !== d.after.flaggedTrades) changes.push(`Flagged: ${d.before.flaggedTrades} → ${d.after.flaggedTrades}`); if (d.before.qualifiedTrades !== d.after.qualifiedTrades) changes.push(`Qualified: ${d.before.qualifiedTrades} → ${d.after.qualifiedTrades}`); if (Math.abs(d.before.qualifiedProfit - d.after.qualifiedProfit) > 0.01) changes.push(`Profit: $${d.before.qualifiedProfit.toFixed(2)} → $${d.after.qualifiedProfit.toFixed(2)}`); if (Math.abs(d.before.adjustedBalance - d.after.adjustedBalance) > 0.01) changes.push(`Balance: $${d.before.adjustedBalance.toFixed(2)} → $${d.after.adjustedBalance.toFixed(2)}`); alert(changes.length > 0 ? `✅ Re-evaluation complete:\n\n${changes.join('\n')}` : '✅ Re-evaluation complete — no changes detected.'); } else { alert(`❌ ${d.error || 'Failed'}`); } } catch { alert('❌ Connection error'); } btn.textContent = "🔄 Re-evaluate"; btn.disabled = false; }} className="px-3 py-2 rounded-lg bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 text-xs font-semibold hover:bg-cyan-500/20 transition-all">🔄 Re-evaluate</button>
+                    {!foundUser.disqualified && <button onClick={async () => { if (!foundUser.id) return; const reason = prompt("DQ Reason:"); if (!reason) return; const _api = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com"; const _path = "management"; try { const r = await fetch(`/api/management/challenge/${selectedChallengeId}/disqualify`, { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({registrationId: foundUser.id, reason}) }); const d = await r.json(); if (d.success) { alert("✅ User disqualified"); foundUser.disqualified = true; setFoundUser({...foundUser}); } else { alert(`❌ ${d.error || "Failed"}`); } } catch { alert("❌ Error"); } }} className="px-3 py-2 rounded-lg bg-loss/10 border border-loss/30 text-loss text-xs font-semibold hover:bg-loss/20 transition-all">🚫 Disqualify</button>}
+                    <button onClick={async () => { if (!foundUser.id) return; if (!confirm(`Remove ${foundUser.nickname} from this challenge?`)) return; const _api = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com"; const _path = "management"; try { const r = await fetch(`/api/management/challenge/${selectedChallengeId}/remove-participant`, { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({registrationId: foundUser.id}) }); const d = await r.json(); if (d.success) { alert("✅ User removed"); setFoundUser(null); setSearchPerformed(false); } else { alert(`❌ ${d.error || "Failed"}`); } } catch { alert("❌ Error"); } }} className="px-3 py-2 rounded-lg bg-gray-500/10 border border-gray-500/30 text-gray-400 text-xs font-semibold hover:bg-gray-500/20 transition-all">🗑️ Unregister</button>
                   </div>
                 </div>
               </div>
@@ -1129,12 +1151,13 @@ export default function AdminDashboard() {
               {rulesLocked && <span className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/5 border border-white/10 text-xs text-gray-400"><Shield size={12} /> Locked — challenge is {challenge.status}</span>}
             </div>
             <p className="text-xs text-gray-500 mb-6">
-              {rulesLocked ? "Rules are read-only once a challenge is active. Switch to review status to see them." : "Set the rules for this challenge. Users will see these on their dashboard. Leave fields empty for unlimited."}
+              {rulesLocked ? "Rules remain locked after a challenge starts." : "Only the selected settings mode is enforced. Before switching modes in Settings, save each required ruleset here. Turn a rule OFF to disable it."}
             </p>
 
             {/* Category selector for split rules */}
-            {adminRulesSplit && (
+            {challenge.type === 'hybrid' && (
               <div className="flex gap-2 mb-5">
+                <button onClick={() => setAdminRulesCategory('config')} className="px-4 py-2 rounded-xl text-xs border border-white/20">Unified mode rules</button>
                 <button onClick={() => setAdminRulesCategory('config_demo')} className={`px-4 py-2 rounded-xl text-xs font-semibold transition-all border ${adminRulesCategory === 'config_demo' ? 'bg-blue-500/15 border-blue-500/40 text-blue-400' : 'bg-white/5 border-white/10 text-gray-400 hover:text-white'}`}>Demo Rules</button>
                 <button onClick={() => setAdminRulesCategory('config_real')} className={`px-4 py-2 rounded-xl text-xs font-semibold transition-all border ${adminRulesCategory === 'config_real' ? 'bg-profit/15 border-profit/40 text-profit' : 'bg-white/5 border-white/10 text-gray-400 hover:text-white'}`}>Real Rules</button>
               </div>
@@ -1387,7 +1410,7 @@ export default function AdminDashboard() {
 
             {/* Save */}
             {(() => {
-              const rulesChanged = savedRulesSnapshot !== null && JSON.stringify(rulesConfig) !== JSON.stringify(savedRulesSnapshot);
+              const rulesChanged = rulesMissing || (savedRulesSnapshot !== null && JSON.stringify(rulesConfig) !== JSON.stringify(savedRulesSnapshot));
               const justSaved = rulesSaved && !rulesChanged;
               return (
                 <div className="mt-6 flex justify-end">
@@ -1396,14 +1419,15 @@ export default function AdminDashboard() {
                       if (rulesLocked || !rulesChanged) return;
                       try {
                         const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
-                        const secretPath = process.env.NEXT_PUBLIC_ADMIN_PATH || "";
+                        const secretPath = "management";
                         const ruleCode = adminRulesCategory || 'config';
-                        const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${selectedChallengeId}/rules?rule_code=${ruleCode}`, {
+                        const res = await fetch(`/api/management/challenge/${selectedChallengeId}/rules?rule_code=${ruleCode}`, {
                           method: "PUT", headers: { "Content-Type": "application/json" },
                           body: JSON.stringify(rulesConfig),
                         });
                         if (res.ok) {
                           setRulesSaved(true);
+                          setRulesMissing(false);
                           setSavedRulesSnapshot({ ...rulesConfig });
                         } else {
                           const d = await res.json(); alert(d.error || "Failed to save rules");
@@ -1435,8 +1459,8 @@ export default function AdminDashboard() {
           // Refetch challenges after save
           try {
             const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
-            const secretPath = process.env.NEXT_PUBLIC_ADMIN_PATH || "";
-            const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenges`);
+            const secretPath = "management";
+            const res = await fetch(`/api/management/challenges`);
             if (res.ok) { const data = await res.json(); setChallenges(data.challenges || []); }
           } catch {}
         }} />
@@ -1499,7 +1523,7 @@ export default function AdminDashboard() {
                 <BalanceChart
                   registrationId={selectedParticipant.registrationId}
                   challengeId={parseInt(selectedChallengeId)}
-                  adminSecretPath={process.env.NEXT_PUBLIC_ADMIN_PATH || ""}
+                  adminSecretPath={"management"}
                   isCent={selectedParticipant.isCent || false}
                   height={160}
                 />
@@ -1638,8 +1662,8 @@ export default function AdminDashboard() {
                   onClick={async () => {
                     try {
                       const apiUrl  = process.env.NEXT_PUBLIC_API_URL  || "https://api.winnerpip.com";
-                      const secPath = process.env.NEXT_PUBLIC_ADMIN_PATH || "";
-                      const res = await fetch(`${apiUrl}/api/admin/${secPath}/challenge/${selectedChallengeId}/export-user-trades?registration_id=${selectedParticipant.registrationId}`);
+                      const secPath = "management";
+                      const res = await fetch(`/api/management/challenge/${selectedChallengeId}/export-user-trades?registration_id=${selectedParticipant.registrationId}`);
                       if (!res.ok) { alert("Export failed"); return; }
                       const data = await res.json();
                       const html = generateTradesHTML(data);
@@ -1823,12 +1847,12 @@ function HostsManagementPanel() {
   const [editForm, setEditForm] = useState({ displayName: "", mainLink: "", supportLink: "" });
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
-  const secretPath = process.env.NEXT_PUBLIC_ADMIN_PATH || "";
+  const secretPath = "management";
 
   const fetchHosts = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${apiUrl}/api/admin/${secretPath}/hosts`);
+      const res = await fetch(`/api/management/hosts`);
       if (res.ok) {
         const data = await res.json();
         setHosts(data.hosts || []);
@@ -1843,7 +1867,7 @@ function HostsManagementPanel() {
     setCreateLoading(true);
     setCreateError("");
     try {
-      const res = await fetch(`${apiUrl}/api/admin/${secretPath}/hosts`, {
+      const res = await fetch(`/api/management/hosts`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(createForm),
@@ -1864,7 +1888,7 @@ function HostsManagementPanel() {
     setDetailLoading(true);
     setSelectedHost(hostId);
     try {
-      const res = await fetch(`${apiUrl}/api/admin/${secretPath}/hosts/${hostId}`);
+      const res = await fetch(`/api/management/hosts/${hostId}`);
       if (res.ok) {
         const data = await res.json();
         setHostDetail(data);
@@ -1876,7 +1900,7 @@ function HostsManagementPanel() {
   const handleDeactivate = async (hostId: number, currentActive: boolean) => {
     setActionLoading(true);
     try {
-      const res = await fetch(`${apiUrl}/api/admin/${secretPath}/hosts/${hostId}`, {
+      const res = await fetch(`/api/management/hosts/${hostId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ active: !currentActive }),
@@ -1895,7 +1919,7 @@ function HostsManagementPanel() {
     if (!resetPasswordModal || newPassword.length < 8) return;
     setActionLoading(true);
     try {
-      const res = await fetch(`${apiUrl}/api/admin/${secretPath}/hosts/${resetPasswordModal.id}/reset-password`, {
+      const res = await fetch(`/api/management/hosts/${resetPasswordModal.id}/reset-password`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ newPassword }),
@@ -1917,7 +1941,7 @@ function HostsManagementPanel() {
     if (!confirm(`Delete host "${displayName}"? This cannot be undone.`)) return;
     setActionLoading(true);
     try {
-      const res = await fetch(`${apiUrl}/api/admin/${secretPath}/hosts/${hostId}`, { method: "DELETE" });
+      const res = await fetch(`/api/management/hosts/${hostId}`, { method: "DELETE" });
       if (res.ok) {
         setActionResult("Host deleted");
         setSelectedHost(null);
@@ -2152,7 +2176,7 @@ function HostsManagementPanel() {
               <button onClick={async () => {
                 setActionLoading(true);
                 try {
-                  const res = await fetch(`${apiUrl}/api/admin/${secretPath}/hosts/${editModal.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ displayName: editForm.displayName, supportLink: editForm.supportLink, mainLink: editForm.mainLink }) });
+                  const res = await fetch(`/api/management/hosts/${editModal.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ displayName: editForm.displayName, supportLink: editForm.supportLink, mainLink: editForm.mainLink }) });
                   if (res.ok) { setActionResult("Host updated"); setEditModal(null); fetchHosts(); }
                   else { const d = await res.json(); setActionResult(d.error || "Update failed"); }
                 } catch { setActionResult("Network error"); }
@@ -2185,8 +2209,8 @@ function HealthCheckPanel() {
     setReportError("");
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
-      const secretPath = process.env.NEXT_PUBLIC_ADMIN_PATH || "";
-      const res = await fetch(`${apiUrl}/api/admin/${secretPath}/vps-report`);
+      const secretPath = "management";
+      const res = await fetch(`/api/management/vps-report`);
       if (res.ok) setReportData(await res.json());
       else setReportError("Failed to load VPS report");
     } catch {
@@ -2202,8 +2226,8 @@ function HealthCheckPanel() {
     setError("");
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
-      const secretPath = process.env.NEXT_PUBLIC_ADMIN_PATH || "";
-      const res = await fetch(`${apiUrl}/api/admin/${secretPath}/vps-health?deep=true`);
+      const secretPath = "management";
+      const res = await fetch(`/api/management/vps-health?deep=true`);
       if (res.ok) {
         const data = await res.json();
         setHealthData(data);
@@ -2694,7 +2718,7 @@ function CreateChallengePanel({ onCreated }: { onCreated: (id: number) => void }
   const handleCreate = async () => {
     setSaving(true); setError("");
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
-    const secretPath = process.env.NEXT_PUBLIC_ADMIN_PATH || "";
+    const secretPath = "management";
     try {
       // Generate pull_times from pull_count + first_pull_time
       const pullCount = parseInt(form.pull_count) || 6;
@@ -2706,7 +2730,7 @@ function CreateChallengePanel({ onCreated }: { onCreated: (id: number) => void }
         pullTimes.push(`${String(h).padStart(2, "0")}:${String(fm).padStart(2, "0")}`);
       }
 
-      const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenges`, {
+      const res = await fetch(`/api/management/challenges`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -2746,7 +2770,7 @@ function CreateChallengePanel({ onCreated }: { onCreated: (id: number) => void }
 
       // Save rules
       if (challengeId) {
-        await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/rules`, {
+        await fetch(`/api/management/challenge/${challengeId}/rules`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(rules),
@@ -3163,20 +3187,21 @@ function ChallengeSettingsPanel({ challengeId, challenges, onRefresh }: { challe
   const [ohlcResult, setOhlcResult] = useState<any>(null);
   const [ohlcPopupOpen, setOhlcPopupOpen] = useState(false);
 
-  // Convert UTC ISO string from API → datetime-local string displayed as EAT (UTC+3)
-  function formatDateForInput(isoStr: string): string {
-    if (!isoStr) return "";
-    const d = new Date(new Date(isoStr).getTime() + 3 * 60 * 60 * 1000); // shift to EAT
-    return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}T${String(d.getUTCHours()).padStart(2,'0')}:${String(d.getUTCMinutes()).padStart(2,'0')}`;
-  }
-
-  // Convert datetime-local string → UTC ISO string for API
-  // Explicitly treat as EAT (UTC+3) regardless of browser timezone
-  function dateToUTC(eatStr: string): string | undefined {
-    if (!eatStr) return undefined;
-    return new Date(eatStr + ":00+03:00").toISOString();
-  }
+  const challengeTimezone=challenge?.timezone || 'Africa/Nairobi';
+  function formatDateForInput(iso:string):string{return utcToWallClock(iso,challengeTimezone);}
+  function dateToUTC(local:string):string | undefined{return local?wallClockToUtcISO(local,challengeTimezone):undefined;}
   const [editForm, setEditForm] = useState({
+    deposit_mode: challenge?.depositMode ?? 'fixed',
+    target_percent: challenge?.targetPercent ?? 0,
+    allow_below_start: challenge?.allowBelowStart ?? false,
+    demo_deposit_mode: challenge?.demoDepositMode ?? 'fixed',
+    demo_target_percent: challenge?.demoTargetPercent ?? 0,
+    demo_target_enabled: challenge?.demoTargetEnabled ?? true,
+    demo_allow_below_start: challenge?.demoAllowBelowStart ?? false,
+    real_deposit_mode: challenge?.realDepositMode ?? 'fixed',
+    real_target_percent: challenge?.realTargetPercent ?? 0,
+    real_target_enabled: challenge?.realTargetEnabled ?? true,
+    real_allow_below_start: challenge?.realAllowBelowStart ?? false,
     title: challenge?.title || "",
     type: challenge?.type || "hybrid",
     start_date: challenge?.startDate ? formatDateForInput(challenge.startDate) : "",
@@ -3196,6 +3221,17 @@ function ChallengeSettingsPanel({ challengeId, challenges, onRefresh }: { challe
   useEffect(() => {
     if (!challenge) return;
     setEditForm({
+      deposit_mode: challenge.depositMode ?? 'fixed',
+      target_percent: challenge.targetPercent ?? 0,
+      allow_below_start: challenge.allowBelowStart ?? false,
+      demo_deposit_mode: challenge.demoDepositMode ?? 'fixed',
+      demo_target_percent: challenge.demoTargetPercent ?? 0,
+      demo_target_enabled: challenge.demoTargetEnabled ?? true,
+      demo_allow_below_start: challenge.demoAllowBelowStart ?? false,
+      real_deposit_mode: challenge.realDepositMode ?? 'fixed',
+      real_target_percent: challenge.realTargetPercent ?? 0,
+      real_target_enabled: challenge.realTargetEnabled ?? true,
+      real_allow_below_start: challenge.realAllowBelowStart ?? false,
       title: challenge.title || "",
       type: challenge.type || "hybrid",
       start_date: challenge.startDate ? formatDateForInput(challenge.startDate) : "",
@@ -3214,28 +3250,39 @@ function ChallengeSettingsPanel({ challengeId, challenges, onRefresh }: { challe
   }, [challengeId, challenges]);
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
-  const secretPath = process.env.NEXT_PUBLIC_ADMIN_PATH || "";
+  const secretPath = "management";
 
   const handleSave = async () => {
     setSaving(true); setMsg("");
     try {
-      const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}`, {
+      const res = await fetch(`/api/management/challenge/${challengeId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+        body: JSON.stringify(!['draft','pending_approval','registration_open'].includes(challenge?.status) ? {title:editForm.title,prize_pool_text:editForm.prize_pool_text} : {
+          deposit_mode: editForm.deposit_mode,
+          target_percent: editForm.target_percent,
+          allow_below_start: editForm.allow_below_start,
+          demo_deposit_mode: editForm.demo_deposit_mode,
+          demo_target_percent: editForm.demo_target_percent,
+          demo_target_enabled: editForm.demo_target_enabled,
+          demo_allow_below_start: editForm.demo_allow_below_start,
+          real_deposit_mode: editForm.real_deposit_mode,
+          real_target_percent: editForm.real_target_percent,
+          real_target_enabled: editForm.real_target_enabled,
+          real_allow_below_start: editForm.real_allow_below_start,
           title: editForm.title,
           type: editForm.type,
           start_date: dateToUTC(editForm.start_date),
           end_date: dateToUTC(editForm.end_date),
           starting_balance: parseFloat(editForm.starting_balance),
-          target_balance: parseFloat(editForm.target_balance),
+          target_balance: editForm.target_balance === "" && !editForm.target_enabled ? 0 : parseFloat(editForm.target_balance),
           target_enabled: editForm.target_enabled,
           prize_pool_text: editForm.prize_pool_text,
           split_category_settings: editForm.split_category_settings,
-          demo_starting_balance: editForm.split_category_settings && editForm.demo_starting_balance ? parseFloat(editForm.demo_starting_balance) : null,
-          demo_target_balance: editForm.split_category_settings && editForm.demo_target_balance ? parseFloat(editForm.demo_target_balance) : null,
-          real_starting_balance: editForm.split_category_settings && editForm.real_starting_balance ? parseFloat(editForm.real_starting_balance) : null,
-          real_target_balance: editForm.split_category_settings && editForm.real_target_balance ? parseFloat(editForm.real_target_balance) : null,
+          demo_starting_balance: editForm.demo_starting_balance !== "" ? parseFloat(editForm.demo_starting_balance) : null,
+          demo_target_balance: editForm.demo_target_balance !== "" ? parseFloat(editForm.demo_target_balance) : null,
+          real_starting_balance: editForm.real_starting_balance !== "" ? parseFloat(editForm.real_starting_balance) : null,
+          real_target_balance: editForm.real_target_balance !== "" ? parseFloat(editForm.real_target_balance) : null,
         }),
       });
       if (res.ok) {
@@ -3252,21 +3299,24 @@ function ChallengeSettingsPanel({ challengeId, challenges, onRefresh }: { challe
 
   const handleStatusChange = async (status: string) => {
     try {
-      await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/status`, {
+      const response = await fetch(`/api/management/challenge/${challengeId}/status`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status }),
       });
-      setMsg(`✅ Status → ${status}`);
+      if(!response.ok){const error=await response.json();setMsg(`❌ ${error.error || 'Status change failed'}`);return;}
+      const result=await response.json();
+      setMsg(result.pendingApproval ? "Status change queued. Approve it from Pending approvals or Telegram." : `✅ Status → ${status}`);
       onRefresh();
     } catch { setMsg("❌ Failed"); }
   };
 
   const handleDelete = async () => {
     try {
-      const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}`, { method: "DELETE" });
+      const res = await fetch(`/api/management/challenge/${challengeId}`, { method: "DELETE" });
       if (res.ok) {
-        setMsg("✅ Challenge deleted");
+        const result=await res.json();
+        setMsg(result.pendingApproval ? "Deletion queued. Approve it from Pending approvals or Telegram." : "✅ Challenge deleted");
         setConfirmDelete(false);
       } else {
         setMsg("❌ Failed to delete");
@@ -3277,7 +3327,7 @@ function ChallengeSettingsPanel({ challengeId, challenges, onRefresh }: { challe
   const handleExport = async (type: 'registrations' | 'leaderboard' = 'registrations') => {
     try {
       const endpoint = type === 'leaderboard' ? 'export-leaderboard' : 'export-registrations';
-      const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/${endpoint}`);
+      const res = await fetch(`/api/management/challenge/${challengeId}/${endpoint}`);
       if (res.ok) {
         const data = await res.json();
         const rows = type === 'leaderboard' ? data.leaderboard : data.registrations;
@@ -3294,7 +3344,8 @@ function ChallengeSettingsPanel({ challengeId, challenges, onRefresh }: { challe
 
   const handleAnnounce = async () => {
     try {
-      await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/announce`, { method: "POST" });
+      const response=await fetch(`/api/management/challenge/${challengeId}/announce`, { method: "POST" });
+      if(!response.ok){const error=await response.json();setMsg(`❌ ${error.error || 'Announcement failed'}`);return;}
       setMsg("✅ Challenge announced — registration open");
       onRefresh();
     } catch { setMsg("❌ Failed"); }
@@ -3323,8 +3374,8 @@ function ChallengeSettingsPanel({ challengeId, challenges, onRefresh }: { challe
             </select>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div><label className="text-xs text-gray-400 font-medium mb-1 block">Start (EAT)</label><input type="datetime-local" value={editForm.start_date} onChange={e => setEditForm({...editForm, start_date: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
-            <div><label className="text-xs text-gray-400 font-medium mb-1 block">End (EAT)</label><input type="datetime-local" value={editForm.end_date} onChange={e => setEditForm({...editForm, end_date: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
+            <div><label className="text-xs text-gray-400 font-medium mb-1 block">Start ({challengeTimezone})</label><input type="datetime-local" value={editForm.start_date} onChange={e => setEditForm({...editForm, start_date: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
+            <div><label className="text-xs text-gray-400 font-medium mb-1 block">End ({challengeTimezone})</label><input type="datetime-local" value={editForm.end_date} onChange={e => setEditForm({...editForm, end_date: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div><label className="text-xs text-gray-400 font-medium mb-1 block">Starting Balance ($)</label><input value={editForm.starting_balance} onChange={e => setEditForm({...editForm, starting_balance: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
@@ -3335,6 +3386,18 @@ function ChallengeSettingsPanel({ challengeId, challenges, onRefresh }: { challe
             )}
           </div>
 
+          {(editForm.split_category_settings ? ['demo','real'] : ['']).map(category => {
+            const prefix=category ? category+'_' : '';
+            const values=editForm as any;
+            const change=(field:string,value:any)=>setEditForm({...editForm,[prefix+field]:value});
+            return <div key={category} className="p-3 rounded-xl border border-white/10 space-y-3">
+              <p className="text-sm text-white">{category || 'Unified'} deposit and qualification settings</p>
+              <label className="block text-xs text-gray-400">Deposit mode<select value={values[prefix+'deposit_mode']} onChange={e=>change('deposit_mode',e.target.value)} className="block w-full p-2 bg-slate-900 text-white"><option value="fixed">Fixed</option><option value="min_limit">Minimum</option><option value="max_limit">Maximum</option></select></label>
+              {values[prefix+'deposit_mode']!=='fixed' && <label className="block text-xs text-gray-400">Target growth (%)<input type="number" min="0" value={values[prefix+'target_percent']} onChange={e=>change('target_percent',Number(e.target.value))} className="block w-full p-2 bg-slate-900 text-white" /></label>}
+              {category && <label className="block text-sm text-gray-300"><input type="checkbox" checked={values[prefix+'target_enabled']} onChange={e=>change('target_enabled',e.target.checked)} /> Require target</label>}
+              <label className="block text-sm text-gray-300"><input type="checkbox" checked={values[prefix+'allow_below_start']} onChange={e=>change('allow_below_start',e.target.checked)} /> Allow qualification below starting balance when target is off</label>
+            </div>;
+          })}
           {/* Per-Category Settings (hybrid only) */}
           {/* Require target toggle */}
           <div className="flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/10">
@@ -3390,7 +3453,7 @@ function ChallengeSettingsPanel({ challengeId, challenges, onRefresh }: { challe
             <div className="grid grid-cols-2 gap-2">
               <button onClick={() => handleExport('registrations')} className="p-2.5 rounded-lg bg-white/5 border border-white/10 text-gray-300 text-xs font-semibold hover:bg-white/10 transition-all">📥 Registrations CSV</button>
               <button onClick={() => handleExport('leaderboard')} className="p-2.5 rounded-lg bg-white/5 border border-white/10 text-gray-300 text-xs font-semibold hover:bg-white/10 transition-all">📊 Leaderboard CSV</button>
-              <button onClick={async () => { try { const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/export-evaluation`); if (res.ok) { const data = await res.json(); const csv = convertToCSV(data.evaluation); const blob = new Blob([csv], { type: "text/csv" }); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `${(editForm.title || `challenge_${challengeId}`).replace(/\s+/g, '_')}_evaluation.csv`; a.click(); setMsg("✅ Evaluation exported"); } } catch { setMsg("❌ Export failed"); } }} className="p-2.5 rounded-lg bg-white/5 border border-white/10 text-gray-300 text-xs font-semibold hover:bg-white/10 transition-all">📋 Evaluation CSV</button>
+              <button onClick={async () => { try { const res = await fetch(`/api/management/challenge/${challengeId}/export-evaluation`); if (res.ok) { const data = await res.json(); const csv = convertToCSV(data.evaluation); const blob = new Blob([csv], { type: "text/csv" }); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `${(editForm.title || `challenge_${challengeId}`).replace(/\s+/g, '_')}_evaluation.csv`; a.click(); setMsg("✅ Evaluation exported"); } } catch { setMsg("❌ Export failed"); } }} className="p-2.5 rounded-lg bg-white/5 border border-white/10 text-gray-300 text-xs font-semibold hover:bg-white/10 transition-all">📋 Evaluation CSV</button>
               <button onClick={async () => { try { const r = await fetch(`${apiUrl}/api/challenges/${challengeId}/rules`); const d = await r.json(); downloadRulesHTML(editForm, d.rules || [], d.isCent || false); } catch { downloadRulesHTML(editForm, [], false); } }} className="p-2.5 rounded-lg bg-royal/10 border border-royal/30 text-royal text-xs font-semibold hover:bg-royal/20 transition-all">📋 Rules Image</button>
             </div>
             <p className="text-[10px] text-gray-500 uppercase tracking-wider font-medium">Social Media Images</p>
@@ -3401,7 +3464,7 @@ function ChallengeSettingsPanel({ challengeId, challenges, onRefresh }: { challe
               </>) : (
                 <button onClick={async () => { try { const r = await fetch(`${apiUrl}/api/challenges/${challengeId}/leaderboard?limit=10`); const d = await r.json(); downloadLeaderboardHTML({ ...editForm, real_winners_count: challenge?.realWinnersCount ?? 3, demo_winners_count: challenge?.demoWinnersCount ?? 3 }, d.leaderboard || []); } catch { downloadLeaderboardHTML(editForm, []); } }} className="p-2.5 rounded-lg bg-gold/10 border border-gold/30 text-gold text-xs font-semibold hover:bg-gold/20 transition-all">🏆 Leaderboard Image</button>
               )}
-              <button onClick={async () => { try { const r = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/overview`); const d = await r.json(); const metrics = d.metrics || {}; const m = metrics.real || metrics.combined || {}; const md = metrics.demo || {}; const lb = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/admin-leaderboard?category=all`).then(r2 => r2.json()).catch(() => ({ leaderboard: [] })); const realTop = (lb.leaderboard || []).filter((e: any) => e.accountType === 'real' && !e.isDisqualified).sort((a: any, b: any) => { const aVal = a.isCent ? (a.adjustedBalance || 0) / 100 : (a.adjustedBalance || 0); const bVal = b.isCent ? (b.adjustedBalance || 0) / 100 : (b.adjustedBalance || 0); return bVal - aVal; })[0]; const demoTop = (lb.leaderboard || []).filter((e: any) => e.accountType === 'demo' && !e.isDisqualified).sort((a: any, b: any) => (b.adjustedBalance || 0) - (a.adjustedBalance || 0))[0]; const blownReal = m.blownAccounts || 0; const blownDemo = md.blownAccounts || 0; const dqReal = m.disqualifiedAccounts || 0; const dqDemo = md.disqualifiedAccounts || 0; downloadStatsHTML(editForm, { totalParticipants: d.totalParticipants || 0, realParticipants: d.participants?.real || 0, demoParticipants: d.participants?.demo || 0, realAboveTarget: d.realAboveTarget || 0, demoAboveTarget: d.demoAboveTarget || 0, totalTrades: d.totalTrades || 0, mostTradedPair: m.mostTradedPair?.symbol || md.mostTradedPair?.symbol || '—', realHighestProfit: m.maxProfitTrade ? { nickname: m.maxProfitTrade.nickname, profit: `${m.maxProfitTrade.isCent ? m.maxProfitTrade.profit?.toFixed(2) + '¢' : '$' + m.maxProfitTrade.profit?.toFixed(2)}` } : null, demoHighestProfit: md.maxProfitTrade ? { nickname: md.maxProfitTrade.nickname, profit: `$${md.maxProfitTrade.profit?.toFixed(2)}` } : null, realBestWinRate: m.bestOverallWinRate ? { nickname: m.bestOverallWinRate.nickname, rate: `${Math.min(100, m.bestOverallWinRate.winRate)}%` } : null, demoBestWinRate: md.bestOverallWinRate ? { nickname: md.bestOverallWinRate.nickname, rate: `${Math.min(100, md.bestOverallWinRate.winRate)}%` } : null, realTopBalance: realTop ? { nickname: realTop.nickname, balance: `${realTop.isCent ? Number(realTop.adjustedBalance).toFixed(0) + '¢' : '$' + Number(realTop.adjustedBalance).toFixed(2)}` } : null, demoTopBalance: demoTop ? { nickname: demoTop.nickname, balance: `$${Number(demoTop.adjustedBalance).toFixed(2)}` } : null, mostBrokenRule: d.mostBrokenRule || null, blownReal, blownDemo, dqReal, dqDemo, challengeType: d.challengeType || challenge?.type || 'hybrid', instrumentsCount: d.instrumentsCount || 0, mostActiveDay: d.mostActiveDay || null, topInstruments: m.topInstruments || md.topInstruments || [], bestRKR: m.bestRuleKeeping || null, worstRKR: m.worstRuleKeeping || null, realBestRKR: m.bestRuleKeeping || null, realWorstRKR: m.worstRuleKeeping || null, demoBestRKR: md.bestRuleKeeping || null, demoWorstRKR: md.worstRuleKeeping || null }); } catch { downloadStatsHTML(editForm, {}); } }} className="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-semibold hover:bg-amber-500/20 transition-all">📊 Challenge Stats</button>
+              <button onClick={async () => { try { const r = await fetch(`/api/management/challenge/${challengeId}/overview`); const d = await r.json(); const metrics = d.metrics || {}; const m = metrics.real || metrics.combined || {}; const md = metrics.demo || {}; const lb = await fetch(`/api/management/challenge/${challengeId}/admin-leaderboard?category=all`).then(r2 => r2.json()).catch(() => ({ leaderboard: [] })); const realTop = (lb.leaderboard || []).filter((e: any) => e.accountType === 'real' && !e.isDisqualified).sort((a: any, b: any) => { const aVal = a.isCent ? (a.adjustedBalance || 0) / 100 : (a.adjustedBalance || 0); const bVal = b.isCent ? (b.adjustedBalance || 0) / 100 : (b.adjustedBalance || 0); return bVal - aVal; })[0]; const demoTop = (lb.leaderboard || []).filter((e: any) => e.accountType === 'demo' && !e.isDisqualified).sort((a: any, b: any) => (b.adjustedBalance || 0) - (a.adjustedBalance || 0))[0]; const blownReal = m.blownAccounts || 0; const blownDemo = md.blownAccounts || 0; const dqReal = m.disqualifiedAccounts || 0; const dqDemo = md.disqualifiedAccounts || 0; downloadStatsHTML(editForm, { totalParticipants: d.totalParticipants || 0, realParticipants: d.participants?.real || 0, demoParticipants: d.participants?.demo || 0, realAboveTarget: d.realAboveTarget || 0, demoAboveTarget: d.demoAboveTarget || 0, totalTrades: d.totalTrades || 0, mostTradedPair: m.mostTradedPair?.symbol || md.mostTradedPair?.symbol || '—', realHighestProfit: m.maxProfitTrade ? { nickname: m.maxProfitTrade.nickname, profit: `${m.maxProfitTrade.isCent ? m.maxProfitTrade.profit?.toFixed(2) + '¢' : '$' + m.maxProfitTrade.profit?.toFixed(2)}` } : null, demoHighestProfit: md.maxProfitTrade ? { nickname: md.maxProfitTrade.nickname, profit: `$${md.maxProfitTrade.profit?.toFixed(2)}` } : null, realBestWinRate: m.bestOverallWinRate ? { nickname: m.bestOverallWinRate.nickname, rate: `${Math.min(100, m.bestOverallWinRate.winRate)}%` } : null, demoBestWinRate: md.bestOverallWinRate ? { nickname: md.bestOverallWinRate.nickname, rate: `${Math.min(100, md.bestOverallWinRate.winRate)}%` } : null, realTopBalance: realTop ? { nickname: realTop.nickname, balance: `${realTop.isCent ? Number(realTop.adjustedBalance).toFixed(0) + '¢' : '$' + Number(realTop.adjustedBalance).toFixed(2)}` } : null, demoTopBalance: demoTop ? { nickname: demoTop.nickname, balance: `$${Number(demoTop.adjustedBalance).toFixed(2)}` } : null, mostBrokenRule: d.mostBrokenRule || null, blownReal, blownDemo, dqReal, dqDemo, challengeType: d.challengeType || challenge?.type || 'hybrid', instrumentsCount: d.instrumentsCount || 0, mostActiveDay: d.mostActiveDay || null, topInstruments: m.topInstruments || md.topInstruments || [], bestRKR: m.bestRuleKeeping || null, worstRKR: m.worstRuleKeeping || null, realBestRKR: m.bestRuleKeeping || null, realWorstRKR: m.worstRuleKeeping || null, demoBestRKR: md.bestRuleKeeping || null, demoWorstRKR: md.worstRuleKeeping || null }); } catch { downloadStatsHTML(editForm, {}); } }} className="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-semibold hover:bg-amber-500/20 transition-all">📊 Challenge Stats</button>
             </div>
           </div>
         </div>
@@ -3415,7 +3478,7 @@ function ChallengeSettingsPanel({ challengeId, challenges, onRefresh }: { challe
               onClick={async () => {
                 setOhlcUpdating(true); setOhlcMsg(""); setOhlcResult(null); setOhlcPopupOpen(true);
                 try {
-                  const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/ohlc-update`, { method: "POST", signal: AbortSignal.timeout(300000) });
+                  const res = await fetch(`/api/management/challenge/${challengeId}/ohlc-update`, { method: "POST", signal: AbortSignal.timeout(300000) });
                   const d = await res.json();
                   if (res.ok && d.success) {
                     setOhlcResult(d);
@@ -3435,7 +3498,7 @@ function ChallengeSettingsPanel({ challengeId, challenges, onRefresh }: { challe
             </button>
             <button
               onClick={() => {
-                const url = `${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/ohlc-download`;
+                const url = `/api/management/challenge/${challengeId}/ohlc-download`;
                 const a = document.createElement("a");
                 a.href = url; a.download = `${(editForm.title || `challenge_${challengeId}`).replace(/\s+/g, '_')}_ohlc.csv`; a.click();
               }}
@@ -3531,8 +3594,8 @@ function ChallengeSettingsPanel({ challengeId, challenges, onRefresh }: { challe
           <p className="text-xs text-gray-400 font-semibold mb-1 uppercase tracking-wider">Debug Log</p>
           <p className="text-[10px] text-gray-500 mb-3">In-memory diagnostic log from pull/evaluation cycles. Download after a force pull to diagnose issues.</p>
           <div className="grid grid-cols-2 gap-2">
-            <button onClick={async () => { try { const res = await fetch(`${apiUrl}/api/admin/${secretPath}/debug-log`); if (res.ok) { const blob = await res.blob(); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `debug_log_${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.txt`; a.click(); setMsg("✅ Debug log downloaded"); } else { setMsg("❌ Failed to download"); } } catch { setMsg("❌ Network error"); } }} className="p-2.5 rounded-lg bg-white/5 border border-white/10 text-gray-300 text-xs font-semibold hover:bg-white/10 transition-all">📥 Download Debug Log</button>
-            <button onClick={async () => { try { await fetch(`${apiUrl}/api/admin/${secretPath}/debug-log/clear`, { method: "POST" }); setMsg("✅ Debug log cleared"); } catch { setMsg("❌ Failed"); } }} className="p-2.5 rounded-lg bg-white/5 border border-white/10 text-gray-300 text-xs font-semibold hover:bg-white/10 transition-all">🗑️ Clear Log</button>
+            <button onClick={async () => { try { const res = await fetch(`/api/management/debug-log`); if (res.ok) { const blob = await res.blob(); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `debug_log_${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.txt`; a.click(); setMsg("✅ Debug log downloaded"); } else { setMsg("❌ Failed to download"); } } catch { setMsg("❌ Network error"); } }} className="p-2.5 rounded-lg bg-white/5 border border-white/10 text-gray-300 text-xs font-semibold hover:bg-white/10 transition-all">📥 Download Debug Log</button>
+            <button onClick={async () => { try { await fetch(`/api/management/debug-log/clear`, { method: "POST" }); setMsg("✅ Debug log cleared"); } catch { setMsg("❌ Failed"); } }} className="p-2.5 rounded-lg bg-white/5 border border-white/10 text-gray-300 text-xs font-semibold hover:bg-white/10 transition-all">🗑️ Clear Log</button>
           </div>
         </div>
 
@@ -3852,7 +3915,7 @@ function SlFailuresPanel({ challengeId, slFailures, apiUrl, secretPath }: { chal
   const handleRetry = async (regId: number, nickname: string) => {
     setRetrying(String(regId));
     try {
-      const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/retry-sl-check`, {
+      const res = await fetch(`/api/management/challenge/${challengeId}/retry-sl-check`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ registrationId: regId }),
@@ -3950,11 +4013,11 @@ function AboveTargetList({ challengeId }: { challengeId: string }) {
     const fetchAboveTarget = async () => {
       try {
         const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
-        const secretPath = process.env.NEXT_PUBLIC_ADMIN_PATH || "";
-        const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/admin-leaderboard?category=all`);
+        const secretPath = "management";
+        const res = await fetch(`/api/management/challenge/${challengeId}/admin-leaderboard?category=all`);
         if (res.ok) {
           const data = await res.json();
-          const challengeRes = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/overview`);
+          const challengeRes = await fetch(`/api/management/challenge/${challengeId}/overview`);
           const challengeData = challengeRes.ok ? await challengeRes.json() : null;
           const targetBalance = challengeData?.challenge?.targetBalance || 60;
 
@@ -4032,7 +4095,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
   const fetchReconcileFailures = async () => {
     setReconcileLoading(true);
     try {
-      const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/reconciliation-failures`);
+      const res = await fetch(`/api/management/challenge/${challengeId}/reconciliation-failures`);
       if (res.ok) {
         const data = await res.json();
         setReconcileFailures(data.accounts || []);
@@ -4047,12 +4110,12 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
   };
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
-  const secretPath = process.env.NEXT_PUBLIC_ADMIN_PATH || "";
+  const secretPath = "management";
 
   const fetchFailed = async () => {
     setLoadingFailed(true);
     try {
-      const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/failed-accounts`);
+      const res = await fetch(`/api/management/challenge/${challengeId}/failed-accounts`);
       if (res.ok) { const data = await res.json(); setFailedAccounts(data.failed || []); setCredentialFailures(data.credentialFailures || []); setSkippedAccounts(data.skipped || []); }
     } catch (_e) {}
     setLoadingFailed(false);
@@ -4061,7 +4124,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
   const fetchIncomplete = async () => {
     setIncompleteLoading(true);
     try {
-      const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/incomplete-trades`);
+      const res = await fetch(`/api/management/challenge/${challengeId}/incomplete-trades`);
       if (res.ok) { const data = await res.json(); setIncompleteTrades(data.trades || []); }
     } catch (_e) {}
     setIncompleteLoading(false);
@@ -4070,7 +4133,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
   const handleResolveIncomplete = async (positionIds: number[]) => {
     setIncompleteResolving(positionIds.length === 1 ? String(positionIds[0]) : "all");
     try {
-      const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/resolve-incomplete`, {
+      const res = await fetch(`/api/management/challenge/${challengeId}/resolve-incomplete`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(positionIds.length === incompleteTrades.length ? { all: true } : { positionIds }),
@@ -4085,7 +4148,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
   const handleForcePull = async () => {
     setActionMsg("⏳ Starting pull cycle...");
     try {
-      const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/force-pull`, { method: "POST" });
+      const res = await fetch(`/api/management/challenge/${challengeId}/force-pull`, { method: "POST" });
       if (res.ok) { const data = await res.json(); setActionMsg(`✅ ${data.message}`); startPolling(); }
       else setActionMsg("❌ Failed to trigger pull");
     } catch (_e) { setActionMsg("❌ Connection error"); }
@@ -4094,7 +4157,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
   const handleForcePullRank = async () => {
     setActionMsg("⏳ Starting full pull (non-DQ) — active accounts only, full history...");
     try {
-      const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/force-pull-rank`, { method: "POST" });
+      const res = await fetch(`/api/management/challenge/${challengeId}/force-pull-rank`, { method: "POST" });
       if (res.ok) { const data = await res.json(); setActionMsg(`✅ ${data.message}`); startPolling(); }
       else setActionMsg("❌ Failed to trigger pull");
     } catch (_e) { setActionMsg("❌ Connection error"); }
@@ -4103,26 +4166,16 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
   const handleFullPull = async () => {
     setActionMsg("⏳ Starting full pull (non-incremental) + evaluate + rank...");
     try {
-      const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/full-pull`, { method: "POST" });
+      const res = await fetch(`/api/management/challenge/${challengeId}/full-pull`, { method: "POST" });
       if (res.ok) { const data = await res.json(); setActionMsg(`✅ ${data.message}`); startPolling(); }
       else setActionMsg("❌ Failed to trigger full pull");
-    } catch (_e) { setActionMsg("❌ Connection error"); }
-  };
-
-  const handleFullPullReplace = async () => {
-    if (!confirm("⚠️ This will DELETE all existing trades, deals, and balance ops for this challenge and pull fresh. Are you sure?")) return;
-    setActionMsg("⏳ Wiping all data and starting fresh full pull...");
-    try {
-      const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/full-pull-replace`, { method: "POST" });
-      if (res.ok) { const data = await res.json(); setActionMsg(`✅ ${data.message}`); startPolling(); }
-      else setActionMsg("❌ Failed to trigger replace pull");
     } catch (_e) { setActionMsg("❌ Connection error"); }
   };
 
   const handleFullPullAll = async () => {
     setActionMsg("⏳ Starting full pull (ALL accounts incl. DQ)...");
     try {
-      const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/full-pull-all`, { method: "POST" });
+      const res = await fetch(`/api/management/challenge/${challengeId}/full-pull-all`, { method: "POST" });
       if (res.ok) { const data = await res.json(); setActionMsg(`✅ ${data.message}`); startPolling(); }
       else setActionMsg("❌ Failed to trigger pull");
     } catch (_e) { setActionMsg("❌ Connection error"); }
@@ -4132,7 +4185,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
     setRetrying("prestart");
     setActionMsg("⏳ Starting pre-start balance check...");
     try {
-      const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/prestart-check-flagged`, { method: "POST" });
+      const res = await fetch(`/api/management/challenge/${challengeId}/prestart-check-flagged`, { method: "POST" });
       if (res.ok) {
         const data = await res.json();
         if (data.total === 0) {
@@ -4144,7 +4197,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
         // Poll for progress
         const pollInterval = setInterval(async () => {
           try {
-            const statusRes = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/prestart-check-status`);
+            const statusRes = await fetch(`/api/management/challenge/${challengeId}/prestart-check-status`);
             if (statusRes.ok) {
               const progress = await statusRes.json();
               if (!progress.running) {
@@ -4168,7 +4221,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
     setRetrying("snapshot");
     setActionMsg("⏳ Triggering pre-start snapshot...");
     try {
-      const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/trigger-prestart-snapshot`, { method: "POST" });
+      const res = await fetch(`/api/management/challenge/${challengeId}/trigger-prestart-snapshot`, { method: "POST" });
       if (res.ok) {
         const data = await res.json();
         if (data.success) {
@@ -4188,7 +4241,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
     setRetrying("evaluate");
     setActionMsg("⏳ Starting evaluation (no pull)...");
     try {
-      const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/evaluate-only`, { method: "POST" });
+      const res = await fetch(`/api/management/challenge/${challengeId}/evaluate-only`, { method: "POST" });
       if (res.ok) {
         const data = await res.json();
         if (data.success) {
@@ -4217,7 +4270,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
     setPolling(true);
     pollIntervalRef.current = window.setInterval(async () => {
       try {
-        const r = await fetch(`${apiUrl}/api/admin/${secretPath}/pull-status?challengeId=${challengeId}`);
+        const r = await fetch(`/api/management/pull-status?challengeId=${challengeId}`);
         const d = await r.json();
         setPullProgress(d);
         if (!d.isRunning) {
@@ -4233,7 +4286,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
   useEffect(() => {
     async function check() {
       try {
-        const r = await fetch(`${apiUrl}/api/admin/${secretPath}/pull-status?challengeId=${challengeId}`);
+        const r = await fetch(`/api/management/pull-status?challengeId=${challengeId}`);
         const d = await r.json();
         setPullProgress(d);
         if (d.isRunning) { startPolling(); }
@@ -4246,7 +4299,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
   const handleRetryAccount = async (regId: number) => {
     setRetrying(String(regId));
     try {
-      const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/retry-account`, {
+      const res = await fetch(`/api/management/challenge/${challengeId}/retry-account`, {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ registrationId: regId }),
       });
       const data = await res.json();
@@ -4270,7 +4323,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
     setRetryResult(null);
     setRetryProgress({ current: 0, total: credentialFailures.length, recovered: 0, stillFailing: 0 });
     try {
-      const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/retry-all-failed`, { method: "POST" });
+      const res = await fetch(`/api/management/challenge/${challengeId}/retry-all-failed`, { method: "POST" });
       const data = await res.json();
       if (!data.success && data.error === 'Retry already in progress') {
         // Already running — just start polling
@@ -4301,7 +4354,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
   const startRetryPolling = () => {
     const pollInterval = setInterval(async () => {
       try {
-        const sr = await fetch(`${apiUrl}/api/admin/${secretPath}/retry-all-status`);
+        const sr = await fetch(`/api/management/retry-all-status`);
         const status = await sr.json();
         if (!status.running) {
           clearInterval(pollInterval);
@@ -4323,7 +4376,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
   useEffect(() => {
     (async () => {
       try {
-        const sr = await fetch(`${apiUrl}/api/admin/${secretPath}/retry-all-status`);
+        const sr = await fetch(`/api/management/retry-all-status`);
         const status = await sr.json();
         if (status.running) {
           setRetrying("all");
@@ -4336,7 +4389,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
 
   const handleStopRetry = async () => {
     try {
-      await fetch(`${apiUrl}/api/admin/${secretPath}/stop-retry-all`, { method: "POST" });
+      await fetch(`/api/management/stop-retry-all`, { method: "POST" });
       setRetrying(null);
       setRetryProgress(null);
       setActionMsg("Retry stopped");
@@ -4346,7 +4399,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
   const handleUpdatePassword = async (regId: number, newPassword: string) => {
     setRetrying(String(regId));
     try {
-      const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/update-password`, {
+      const res = await fetch(`/api/management/challenge/${challengeId}/update-password`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ registrationId: regId, newPassword }),
       });
@@ -4375,7 +4428,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
 
   const handleReinstateAccount = async (regId: number) => {
     try {
-      const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/reinstate-account`, {
+      const res = await fetch(`/api/management/challenge/${challengeId}/reinstate-account`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ registrationId: regId, confirm: true }),
       });
@@ -4393,7 +4446,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
     setIndivUser(null);
     setIndivResult(null);
     try {
-      const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/finduser?q=${encodeURIComponent(q)}`);
+      const res = await fetch(`/api/management/challenge/${challengeId}/finduser?q=${encodeURIComponent(q)}`);
       if (res.ok) {
         const data = await res.json();
         setIndivUser(data.found ? data.user : null);
@@ -4407,7 +4460,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
     setIndivPulling(true);
     setIndivResult(null);
     try {
-      const startRes = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/pull-single-account`, {
+      const startRes = await fetch(`/api/management/challenge/${challengeId}/pull-single-account`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ registrationId: indivUser.id }),
       });
@@ -4419,7 +4472,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
       const deadline = Date.now() + 5 * 60 * 1000;
       while (Date.now() < deadline) {
         await new Promise(r => setTimeout(r, 3000));
-        const res = await fetch(`${apiUrl}/api/admin/${secretPath}/pull-single-status?registrationId=${indivUser.id}`);
+        const res = await fetch(`/api/management/pull-single-status?registrationId=${indivUser.id}`);
         const data = await res.json();
         if (data.done) { setIndivResult(data); setIndivPulling(false); return; }
       }
@@ -4441,7 +4494,6 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
           <button onClick={handleForcePull} className="px-4 py-2.5 rounded-xl bg-royal/20 border border-royal/30 text-royal text-xs font-bold hover:bg-royal/30 transition-all">⚡ Force Pull Now</button>
           <button onClick={handleFullPull} className="px-4 py-2.5 rounded-xl bg-profit/20 border border-profit/30 text-profit text-xs font-bold hover:bg-profit/30 transition-all">🔄 Full Pull + Evaluate + Rank</button>
           <button onClick={handleFullPullAll} className="px-4 py-2.5 rounded-xl bg-amber-500/20 border border-amber-500/30 text-amber-400 text-xs font-bold hover:bg-amber-500/30 transition-all">🔄 Full Pull (All incl. DQ)</button>
-          <button onClick={handleFullPullReplace} className="px-4 py-2.5 rounded-xl bg-loss/20 border border-loss/30 text-loss text-xs font-bold hover:bg-loss/30 transition-all">🗑️ Full Pull (Replace)</button>
           <button onClick={fetchFailed} disabled={loadingFailed} className="px-4 py-2.5 rounded-xl bg-loss/10 border border-loss/30 text-loss text-xs font-bold hover:bg-loss/20 transition-all">{loadingFailed ? "Loading..." : "🔍 View Failed Accounts"}</button>
           <button onClick={handleRetryAll} disabled={retrying === "all" || failedAccounts.length === 0} className="px-4 py-2.5 rounded-xl bg-gold/10 border border-gold/30 text-gold text-xs font-bold hover:bg-gold/20 transition-all disabled:opacity-50">{retrying === "all" ? "Retrying..." : "🔄 Retry All Failed"}</button>
           <button onClick={handleCheckPreStartBalances} disabled={retrying === "prestart"} className="px-4 py-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-bold hover:bg-amber-500/20 transition-all disabled:opacity-50">{retrying === "prestart" ? "Checking..." : "🛡️ Check Pre-Start Balances"}</button>
@@ -4468,7 +4520,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
                 onClick={async () => {
                   try {
                     try {
-                      await fetch(`${apiUrl}/api/admin/${secretPath}/cancel-pull`, { method: "POST" });
+                      await fetch(`/api/management/cancel-pull`, { method: "POST" });
                     } catch (_e) {}
                     setPullProgress((prev: any) => ({ ...prev, isRunning: false }));
                     if (pollIntervalRef.current) { clearInterval(pollIntervalRef.current); pollIntervalRef.current = null; }
@@ -4823,7 +4875,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
                     </div>
                   </div>
                   {/* Diff preview — show what changed */}
-                  {indivResult.pendingApproval && indivResult.tradeChanges && indivResult.tradeChanges.length > 0 && (
+                  {(indivResult.pendingApproval || indivResult.applied) && indivResult.tradeChanges && indivResult.tradeChanges.length > 0 && (
                     <div className="bg-royal/5 border border-royal/20 rounded-xl p-3 space-y-1">
                       <p className="text-[10px] text-royal font-semibold uppercase tracking-wider mb-2">Trade Data Changes ({indivResult.tradeChanges.length})</p>
                       {indivResult.tradeChanges.slice(0, 10).map((tc: any, i: number) => (
@@ -4839,7 +4891,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
                       {indivResult.tradeChanges.length > 10 && <p className="text-[9px] text-gray-500">+{indivResult.tradeChanges.length - 10} more changes...</p>}
                     </div>
                   )}
-                  {indivResult.pendingApproval && indivResult.newTrades && indivResult.newTrades.length > 0 && (
+                  {(indivResult.pendingApproval || indivResult.applied) && indivResult.newTrades && indivResult.newTrades.length > 0 && (
                     <div className="bg-profit/5 border border-profit/20 rounded-xl p-3">
                       <p className="text-[10px] text-profit font-semibold uppercase tracking-wider mb-2">New Trades Found ({indivResult.newTrades.length})</p>
                       {indivResult.newTrades.slice(0, 5).map((nt: any, i: number) => (
@@ -4847,7 +4899,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
                       ))}
                     </div>
                   )}
-                  {indivResult.pendingApproval && indivResult.evalDiff && Object.keys(indivResult.evalDiff).length > 0 && (
+                  {(indivResult.pendingApproval || indivResult.applied) && indivResult.evalDiff && Object.keys(indivResult.evalDiff).length > 0 && (
                     <div className="bg-gold/5 border border-gold/20 rounded-xl p-3 space-y-1">
                       <p className="text-[10px] text-gold font-semibold uppercase tracking-wider mb-2">Evaluation Changes</p>
                       {indivResult.evalDiff.qualifiedProfit && <div className="flex justify-between text-[11px]"><span className="text-gray-400">Qualified Profit</span><span><span className="text-gray-500">${indivResult.evalDiff.qualifiedProfit.before.toFixed(2)}</span> → <span className="text-white font-semibold">${indivResult.evalDiff.qualifiedProfit.after.toFixed(2)}</span></span></div>}
@@ -4872,7 +4924,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
                     <div className="flex gap-2">
                       <button onClick={async () => {
                         try {
-                          const r = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/approve-pull`, { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ registrationId: indivUser.id }) });
+                          const r = await fetch(`/api/management/challenge/${challengeId}/approve-pull`, { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ registrationId: indivUser.id }) });
                           const d = await r.json();
                           if (d.success) {
                             setIndivResult((prev: any) => ({ ...prev, pendingApproval: false, approved: true, newRank: d.newRank }));
@@ -4881,7 +4933,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
                       }} className="flex-1 py-2.5 rounded-xl bg-profit/20 border border-profit/30 text-profit text-xs font-semibold hover:bg-profit/30 transition-all">✓ Approve & Apply</button>
                       <button onClick={async () => {
                         try {
-                          const r = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/reject-pull`, { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ registrationId: indivUser.id }) });
+                          const r = await fetch(`/api/management/challenge/${challengeId}/reject-pull`, { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ registrationId: indivUser.id }) });
                           const d = await r.json();
                           if (d.success) {
                             setIndivResult((prev: any) => ({ ...prev, pendingApproval: false, rejected: true }));
@@ -4940,7 +4992,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
             <button disabled={ptLoading || !ptAccountId || !ptTicket} onClick={async () => {
               setPtLoading(true); setPtResult(null);
               try {
-                const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/pull-trade`, {
+                const res = await fetch(`/api/management/challenge/${challengeId}/pull-trade`, {
                   method: "POST", headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({ accountIdentifier: ptAccountId, ticket: parseInt(ptTicket) }),
                 });
@@ -5047,7 +5099,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
                         const body = ptResult.isGroup
                           ? { registrationId: ptResult.registrationId, ticket: ptTicket, freshTrades: f._partials }
                           : { registrationId: ptResult.registrationId, ticket: f.ticket, freshTrade: f };
-                        const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/pull-trade/replace`, {
+                        const res = await fetch(`/api/management/challenge/${challengeId}/pull-trade/replace`, {
                           method: "POST", headers: { "Content-Type": "application/json" },
                           body: JSON.stringify(body),
                         });
@@ -5135,7 +5187,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
                     <p className="text-sm text-white font-semibold">{a.accountNumber} <span className="text-gray-500 text-[10px]">@{a.username || a.nickname}</span></p>
                     <p className="text-[10px] text-gray-400">VPS: {a.isCent ? `${a.vpsBalance.toFixed(0)}¢` : `$${a.vpsBalance.toFixed(2)}`} · Expected: {a.isCent ? `${a.expectedBalance.toFixed(0)}¢` : `$${a.expectedBalance.toFixed(2)}`} · <span className="text-loss font-semibold">Gap: {a.isCent ? `${a.gap.toFixed(0)}¢` : `$${a.gap.toFixed(2)}`}</span></p>
                   </div>
-                  <button onClick={async () => { const btn = document.activeElement as HTMLButtonElement; btn.textContent = "⏳"; btn.disabled = true; try { await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/pull-single-account`, { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ registrationId: a.id }) }); btn.textContent = "✅ Queued"; } catch { btn.textContent = "❌"; } setTimeout(() => { btn.textContent = "🔄 Retry"; btn.disabled = false; }, 3000); }} className="px-3 py-1.5 rounded-lg bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 text-[10px] font-bold hover:bg-cyan-500/20 transition-all">🔄 Retry</button>
+                  <button onClick={async () => { const btn = document.activeElement as HTMLButtonElement; btn.textContent = "⏳"; btn.disabled = true; try { await fetch(`/api/management/challenge/${challengeId}/pull-single-account`, { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ registrationId: a.id }) }); btn.textContent = "✅ Queued"; } catch { btn.textContent = "❌"; } setTimeout(() => { btn.textContent = "🔄 Retry"; btn.disabled = false; }, 3000); }} className="px-3 py-1.5 rounded-lg bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 text-[10px] font-bold hover:bg-cyan-500/20 transition-all">🔄 Retry</button>
                 </div>
               ))}
             </div>
@@ -5232,9 +5284,9 @@ function VerifyButton({ challengeId, registrationId, onResult }: { challengeId: 
   const handleVerify = async () => {
     setChecking(true);
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
-    const secretPath = process.env.NEXT_PUBLIC_ADMIN_PATH || "";
+    const secretPath = "management";
     try {
-      const res = await fetch(`${apiUrl}/api/admin/${secretPath}/challenge/${challengeId}/verify-account`, {
+      const res = await fetch(`/api/management/challenge/${challengeId}/verify-account`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ registrationId }),
       });

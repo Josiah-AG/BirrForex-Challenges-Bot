@@ -4,8 +4,8 @@
  * When split_category_settings is ON for a hybrid challenge, demo and real
  * participants can have different starting balances, targets, deposit modes, and rules.
  * 
- * When OFF (default), or for non-hybrid challenges, falls back to the
- * shared starting_balance/target_balance — zero behavior change.
+ * When OFF, or for non-hybrid challenges, the challenge uses its unified configuration.
+ * Split categories require their own complete values and never inherit from it.
  */
 
 export interface ChallengeBalances {
@@ -40,62 +40,25 @@ function toBool(v: any, def: boolean): boolean {
  * @returns { startingBalance, targetBalance, depositMode, targetPercent } in raw $ (before cent conversion)
  */
 export function resolveCategoryBalances(challenge: any, accountType: string): ChallengeBalances {
-  const sharedStart = parseFloat(challenge.starting_balance || challenge.startingBalance || '30');
-  const sharedTarget = parseFloat(challenge.target_balance || challenge.targetBalance || '60');
-  const sharedDepositMode = challenge.deposit_mode || challenge.depositMode || 'fixed';
-  const sharedTargetPercent = challenge.target_percent != null ? parseFloat(challenge.target_percent) :
-                              challenge.targetPercent != null ? parseFloat(challenge.targetPercent) : null;
-  // Optional-target flags: default to today's behavior (target required, losers excluded).
-  const sharedTargetEnabled = toBool(challenge.target_enabled ?? challenge.targetEnabled, true);
-  const sharedAllowBelowStart = toBool(challenge.allow_below_start ?? challenge.allowBelowStart, false);
-
-  // Only apply per-category when split is explicitly ON and challenge is hybrid
-  const isSplit = challenge.split_category_settings === true || challenge.splitCategorySettings === true;
-  const isHybrid = challenge.type === 'hybrid';
-
-  if (!isSplit || !isHybrid) {
-    return { startingBalance: sharedStart, targetBalance: sharedTarget, depositMode: sharedDepositMode, targetPercent: sharedTargetPercent, targetEnabled: sharedTargetEnabled, allowBelowStart: sharedAllowBelowStart };
+  if (!['demo','real'].includes(accountType)) throw new Error('Valid account category required');
+  const split = (challenge.split_category_settings === true || challenge.splitCategorySettings === true) && challenge.type === 'hybrid';
+  const prefix = split ? accountType + '_' : '';
+  const get = (field: string) => {
+    const key = prefix + field;
+    const camel = key.replace(/_([a-z])/g, (_: string, c: string) => c.toUpperCase());
+    return challenge[key] ?? challenge[camel];
+  };
+  for (const field of ['starting_balance','target_balance', ...(split ? ['deposit_mode','target_enabled','allow_below_start'] : [])]) {
+    if (get(field) == null) throw new Error(`Missing independent setting: ${prefix}${field}`);
   }
-
-  if (accountType === 'demo') {
-    const depositMode = challenge.demo_deposit_mode || challenge.demoDepositMode || sharedDepositMode;
-    const targetPercent = challenge.demo_target_percent != null ? parseFloat(challenge.demo_target_percent) :
-                          challenge.demoTargetPercent != null ? parseFloat(challenge.demoTargetPercent) : sharedTargetPercent;
-    // Per-category flag is nullable — fall back to shared when not set.
-    const rawDemoTargetEnabled = challenge.demo_target_enabled ?? challenge.demoTargetEnabled;
-    const rawDemoAllowBelow = challenge.demo_allow_below_start ?? challenge.demoAllowBelowStart;
-    return {
-      startingBalance: challenge.demo_starting_balance != null ? parseFloat(challenge.demo_starting_balance) :
-                       challenge.demoStartingBalance != null ? parseFloat(challenge.demoStartingBalance) : sharedStart,
-      targetBalance: challenge.demo_target_balance != null ? parseFloat(challenge.demo_target_balance) :
-                     challenge.demoTargetBalance != null ? parseFloat(challenge.demoTargetBalance) : sharedTarget,
-      depositMode,
-      targetPercent,
-      targetEnabled: toBool(rawDemoTargetEnabled, sharedTargetEnabled),
-      allowBelowStart: toBool(rawDemoAllowBelow, sharedAllowBelowStart),
-    };
-  }
-
-  if (accountType === 'real') {
-    const depositMode = challenge.real_deposit_mode || challenge.realDepositMode || sharedDepositMode;
-    const targetPercent = challenge.real_target_percent != null ? parseFloat(challenge.real_target_percent) :
-                          challenge.realTargetPercent != null ? parseFloat(challenge.realTargetPercent) : sharedTargetPercent;
-    const rawRealTargetEnabled = challenge.real_target_enabled ?? challenge.realTargetEnabled;
-    const rawRealAllowBelow = challenge.real_allow_below_start ?? challenge.realAllowBelowStart;
-    return {
-      startingBalance: challenge.real_starting_balance != null ? parseFloat(challenge.real_starting_balance) :
-                       challenge.realStartingBalance != null ? parseFloat(challenge.realStartingBalance) : sharedStart,
-      targetBalance: challenge.real_target_balance != null ? parseFloat(challenge.real_target_balance) :
-                     challenge.realTargetBalance != null ? parseFloat(challenge.realTargetBalance) : sharedTarget,
-      depositMode,
-      targetPercent,
-      targetEnabled: toBool(rawRealTargetEnabled, sharedTargetEnabled),
-      allowBelowStart: toBool(rawRealAllowBelow, sharedAllowBelowStart),
-    };
-  }
-
-  // Fallback for unknown account type
-  return { startingBalance: sharedStart, targetBalance: sharedTarget, depositMode: sharedDepositMode, targetPercent: sharedTargetPercent, targetEnabled: sharedTargetEnabled, allowBelowStart: sharedAllowBelowStart };
+  return {
+    startingBalance: Number(get('starting_balance')),
+    targetBalance: Number(get('target_balance')),
+    depositMode: get('deposit_mode') ?? 'fixed',
+    targetPercent: get('target_percent') == null ? null : Number(get('target_percent')),
+    targetEnabled: toBool(get('target_enabled'), true),
+    allowBelowStart: toBool(get('allow_below_start'), false),
+  };
 }
 
 /**

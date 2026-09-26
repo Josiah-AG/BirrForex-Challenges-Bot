@@ -1,3 +1,4 @@
+import { snapshotWinnerPipResults } from './winnerSelection';
 import { db } from '../database/db';
 
 /**
@@ -16,7 +17,10 @@ export class LeaderboardService {
    * Called at the START of a new pull cycle (using data from the PREVIOUS cycle).
    * Exception: Final Saturday sync → called immediately after pull completes.
    */
-  async updateRankings(challengeId: number, saveSnapshot = false): Promise<void> {
+  async updateRankings(challengeId: number, saveSnapshot = false, overrideLock = false): Promise<void> {
+    return db.transaction(async()=>{
+    const lock=await db.query('SELECT leaderboard_locked_at,status FROM trading_challenges WHERE id=$1 FOR UPDATE',[challengeId]);
+    if((lock.rows[0]?.leaderboard_locked_at || lock.rows[0]?.status==='completed') && !overrideLock)return;
     console.log(`📊 Leaderboard: Updating rankings for challenge ${challengeId}${saveSnapshot ? ' (saving previous_rank snapshot)' : ''}`);
 
     // Determine ranking mode based on deposit_mode (per-category when split is ON)
@@ -24,7 +28,7 @@ export class LeaderboardService {
     const { resolveCategoryBalances } = require('../utils/categorySettings');
 
     // Ensure previous_rank column exists (safe to call multiple times)
-    await db.query(`ALTER TABLE wp_leaderboard ADD COLUMN IF NOT EXISTS previous_rank INTEGER`).catch(() => {});
+
 
     // Sync DQ flags before ranking — ensures r.disqualified is reflected in l.is_disqualified
     await db.query(
@@ -71,21 +75,21 @@ export class LeaderboardService {
       const tier1SortExpr = rankByGrowth
         ? `COALESCE(l.growth_percent, 0) DESC`
         : `CASE WHEN COALESCE(l.is_withdrawn, false) THEN 0
-                          ELSE COALESCE(l.normalized_balance, l.adjusted_balance) - COALESCE(l.total_withdrawn, 0) END DESC`;
+                          ELSE COALESCE(l.normalized_balance, l.adjusted_balance) - (COALESCE(l.total_withdrawn, 0) / CASE WHEN l.is_cent THEN 100.0 ELSE 1 END) END DESC`;
       await db.query(
         `UPDATE wp_leaderboard SET rank = sub.rn FROM (
           SELECT l.id, ROW_NUMBER() OVER (
             ORDER BY ${tier1SortExpr},
                      l.total_trades DESC,
                      l.last_trade_time ASC NULLS LAST,
-                     r.registered_at ASC
+                     r.registered_at ASC, l.registration_id ASC
           ) as rn
           FROM wp_leaderboard l
           JOIN trading_registrations r ON r.id = l.registration_id
           WHERE l.challenge_id=$1 AND l.account_type=$2 AND l.is_disqualified=false AND r.disqualified=false
             AND COALESCE(l.is_withdrawn, false) = false
             AND l.zero_balance_at IS NULL
-            AND (COALESCE(l.normalized_balance, l.adjusted_balance) - COALESCE(l.total_withdrawn, 0) > 0 OR l.adjusted_balance IS NULL)
+            AND (COALESCE(l.normalized_balance, l.adjusted_balance) - (COALESCE(l.total_withdrawn, 0) / CASE WHEN l.is_cent THEN 100.0 ELSE 1 END) > 0 OR l.adjusted_balance IS NULL)
         ) sub WHERE wp_leaderboard.id = sub.id`,
         [challengeId, accountType]
       );
@@ -96,7 +100,7 @@ export class LeaderboardService {
          WHERE l.challenge_id=$1 AND l.account_type=$2 AND l.is_disqualified=false AND r.disqualified=false
            AND COALESCE(l.is_withdrawn, false) = false
            AND l.zero_balance_at IS NULL
-           AND (COALESCE(l.normalized_balance, l.adjusted_balance) - COALESCE(l.total_withdrawn, 0) > 0 OR l.adjusted_balance IS NULL)`,
+           AND (COALESCE(l.normalized_balance, l.adjusted_balance) - (COALESCE(l.total_withdrawn, 0) / CASE WHEN l.is_cent THEN 100.0 ELSE 1 END) > 0 OR l.adjusted_balance IS NULL)`,
         [challengeId, accountType]
       );
       offset = parseInt(tier1Count.rows[0].cnt);
@@ -104,7 +108,7 @@ export class LeaderboardService {
       // Tier 2a: withdrawn accounts — exited voluntarily, rank above blown, below active
       await db.query(
         `UPDATE wp_leaderboard SET rank = sub.rn FROM (
-          SELECT id, (ROW_NUMBER() OVER (ORDER BY total_trades DESC)) + $3 as rn
+          SELECT id, (ROW_NUMBER() OVER (ORDER BY total_trades DESC, registration_id ASC)) + $3 as rn
           FROM wp_leaderboard
           WHERE challenge_id=$1 AND account_type=$2 AND is_disqualified=false
             AND COALESCE(is_withdrawn, false) = true
@@ -129,23 +133,23 @@ export class LeaderboardService {
         `UPDATE wp_leaderboard SET rank = sub.rn FROM (
           SELECT id, (ROW_NUMBER() OVER (
             ORDER BY ${tier2bSortExpr},
-                     total_trades DESC
+                     total_trades DESC, registration_id ASC
           )) + $3 as rn
-          FROM wp_leaderboard
+          FROM wp_leaderboard l
           WHERE challenge_id=$1 AND account_type=$2 AND is_disqualified=false
             AND COALESCE(is_withdrawn, false) = false
             AND zero_balance_at IS NULL
-            AND COALESCE(normalized_balance, adjusted_balance) <= 0 AND adjusted_balance IS NOT NULL
+            AND (COALESCE(normalized_balance, adjusted_balance) - COALESCE(total_withdrawn,0) / CASE WHEN is_cent THEN 100.0 ELSE 1 END) <= 0 AND adjusted_balance IS NOT NULL
         ) sub WHERE wp_leaderboard.id = sub.id`,
         [challengeId, accountType, offset]
       );
 
       const tier2bCount = await db.query(
-        `SELECT COUNT(*) as cnt FROM wp_leaderboard
+        `SELECT COUNT(*) as cnt FROM wp_leaderboard l
          WHERE challenge_id=$1 AND account_type=$2 AND is_disqualified=false
            AND COALESCE(is_withdrawn, false) = false
            AND zero_balance_at IS NULL
-           AND COALESCE(normalized_balance, adjusted_balance) <= 0 AND adjusted_balance IS NOT NULL`,
+           AND (COALESCE(normalized_balance, adjusted_balance) - COALESCE(total_withdrawn,0) / CASE WHEN is_cent THEN 100.0 ELSE 1 END) <= 0 AND adjusted_balance IS NOT NULL`,
         [challengeId, accountType]
       );
       offset += parseInt(tier2bCount.rows[0].cnt);
@@ -159,9 +163,9 @@ export class LeaderboardService {
           SELECT id, (ROW_NUMBER() OVER (
             ORDER BY ${tier2cSortExpr},
                      total_trades DESC,
-                     zero_balance_at DESC NULLS LAST
+                     zero_balance_at DESC NULLS LAST, registration_id ASC
           )) + $3 as rn
-          FROM wp_leaderboard
+          FROM wp_leaderboard l
           WHERE challenge_id=$1 AND account_type=$2 AND is_disqualified=false
             AND COALESCE(is_withdrawn, false) = false
             AND zero_balance_at IS NOT NULL
@@ -170,7 +174,7 @@ export class LeaderboardService {
       );
 
       const tier2cCount = await db.query(
-        `SELECT COUNT(*) as cnt FROM wp_leaderboard
+        `SELECT COUNT(*) as cnt FROM wp_leaderboard l
          WHERE challenge_id=$1 AND account_type=$2 AND is_disqualified=false
            AND COALESCE(is_withdrawn, false) = false
            AND zero_balance_at IS NOT NULL`,
@@ -181,7 +185,7 @@ export class LeaderboardService {
       // Tier 3: DQ — by disqualified_at DESC (most recent DQ = higher)
       await db.query(
         `UPDATE wp_leaderboard SET rank = sub.rn FROM (
-          SELECT l.id, (ROW_NUMBER() OVER (ORDER BY r.disqualified_at DESC NULLS LAST)) + $3 as rn
+          SELECT l.id, (ROW_NUMBER() OVER (ORDER BY r.disqualified_at DESC NULLS LAST, l.registration_id ASC)) + $3 as rn
           FROM wp_leaderboard l
           JOIN trading_registrations r ON l.registration_id = r.id
           WHERE l.challenge_id=$1 AND l.account_type=$2 AND l.is_disqualified=true
@@ -197,13 +201,18 @@ export class LeaderboardService {
     );
 
     console.log(`✅ Leaderboard: Rankings updated for challenge ${challengeId}`);
+    if(lock.rows[0]?.leaderboard_locked_at && overrideLock)await snapshotWinnerPipResults(challengeId,'explicit_admin_rerank');
+    });
   }
 
   /**
    * Ensure all registered participants have a leaderboard entry.
    * Called before ranking to guarantee everyone gets a rank.
    */
-  async ensureAllParticipantsHaveEntries(challengeId: number): Promise<void> {
+  async ensureAllParticipantsHaveEntries(challengeId: number, overrideLock=false): Promise<void> {
+    return db.transaction(async()=>{
+    const challenge=await db.query('SELECT leaderboard_locked_at,status FROM trading_challenges WHERE id=$1 FOR UPDATE',[challengeId]);
+    if((challenge.rows[0]?.leaderboard_locked_at || challenge.rows[0]?.status==='completed') && !overrideLock)throw new Error('Final results are locked');
     // Insert entries for NON-DQ'd participants that don't already have a leaderboard entry
     await db.query(
       `INSERT INTO wp_leaderboard
@@ -225,7 +234,7 @@ export class LeaderboardService {
               0, 0, 0, 0, 0, 0, 0, false, NOW()
        FROM trading_registrations r
        JOIN trading_challenges c ON r.challenge_id = c.id
-       WHERE r.challenge_id = $1
+       WHERE r.challenge_id = $1 AND r.status IS DISTINCT FROM 'removed'
          AND r.investor_password IS NOT NULL
          AND r.connection_verified = true
          AND r.disqualified = false
@@ -253,7 +262,7 @@ export class LeaderboardService {
               0, 0, 0, 0, 0, 0, 0, false, NOW()
        FROM trading_registrations r
        JOIN trading_challenges c ON r.challenge_id = c.id
-       WHERE r.challenge_id = $1
+       WHERE r.challenge_id = $1 AND r.status IS DISTINCT FROM 'removed'
          AND r.investor_password IS NOT NULL
          AND r.connection_verified = true
          AND r.disqualified = true
@@ -288,17 +297,23 @@ export class LeaderboardService {
          AND (l.is_cent IS NULL OR l.normalized_balance IS NULL)`,
       [challengeId]
     );
+    });
   }
 
   /**
    * Flush staging data to live leaderboard table.
    * Called at the START of each new cycle — copies all staging data to live in one transaction.
    */
-  async flushStagingToLive(challengeId: number): Promise<void> {
+  async flushStagingToLive(challengeId: number, registrationId?: number, overrideLock = false): Promise<void> {
+    return db.transaction(async()=>{
+    const lock=await db.query('SELECT leaderboard_locked_at,status FROM trading_challenges WHERE id=$1 FOR UPDATE',[challengeId]);
+    if((lock.rows[0]?.leaderboard_locked_at || lock.rows[0]?.status==='completed') && !overrideLock)throw new Error('Results are locked; explicit admin override required');
+    const scope=registrationId == null ? '' : ' AND registration_id=$2';
+    const args=registrationId == null ? [challengeId] : [challengeId,registrationId];
     // Check if staging has data for this challenge
     const stagingCount = await db.query(
-      `SELECT COUNT(*) as cnt FROM wp_leaderboard_staging WHERE challenge_id = $1`,
-      [challengeId]
+      `SELECT COUNT(*) as cnt FROM wp_leaderboard_staging WHERE challenge_id = $1${scope}`,
+      args
     );
     if (parseInt(stagingCount.rows[0].cnt) === 0) return;
 
@@ -306,15 +321,17 @@ export class LeaderboardService {
 
     // Upsert from staging to live in one query
     await db.query(
-      `INSERT INTO wp_leaderboard
+      `WITH published AS (DELETE FROM wp_leaderboard_staging WHERE challenge_id=$1${scope} RETURNING *)
+       INSERT INTO wp_leaderboard
        (challenge_id, registration_id, account_number, user_id, username, nickname, account_type, is_cent,
         starting_balance, current_balance, adjusted_balance, normalized_balance, qualified_profit, gross_profit, profit_removed,
         total_trades, qualified_trades, flagged_trades, active_days, is_qualified, last_trade_time, last_updated, zero_balance_at, growth_percent)
        SELECT challenge_id, registration_id, account_number, user_id, username, nickname, account_type, is_cent,
               starting_balance, current_balance, adjusted_balance, normalized_balance, qualified_profit, gross_profit, profit_removed,
               total_trades, qualified_trades, flagged_trades, active_days, is_qualified, last_trade_time, NOW(), zero_balance_at, COALESCE(growth_percent, 0)
-       FROM wp_leaderboard_staging WHERE challenge_id = $1
+       FROM published
        ON CONFLICT (challenge_id, registration_id) DO UPDATE SET
+         account_number=EXCLUDED.account_number, nickname=EXCLUDED.nickname, account_type=EXCLUDED.account_type, starting_balance=EXCLUDED.starting_balance,
          current_balance=EXCLUDED.current_balance, adjusted_balance=EXCLUDED.adjusted_balance,
          normalized_balance=EXCLUDED.normalized_balance, is_cent=EXCLUDED.is_cent,
          qualified_profit=EXCLUDED.qualified_profit, gross_profit=EXCLUDED.gross_profit,
@@ -323,29 +340,27 @@ export class LeaderboardService {
          active_days=EXCLUDED.active_days, is_qualified=EXCLUDED.is_qualified,
          last_trade_time=EXCLUDED.last_trade_time, last_updated=NOW(),
          zero_balance_at=EXCLUDED.zero_balance_at, growth_percent=EXCLUDED.growth_percent`,
-      [challengeId]
+      args
     );
+
+    // Rebuild withdrawal state after insert too: ingestion may precede the first live row.
+    await db.query(`UPDATE wp_leaderboard l SET total_withdrawn=ledger.total,
+      is_withdrawn=(ledger.total>0 AND l.current_balance<=0)
+      FROM (SELECT r.id,COALESCE(SUM(ABS(o.amount)) FILTER(WHERE o.op_type='withdrawal'),0) AS total
+        FROM trading_registrations r LEFT JOIN wp_balance_ops o ON o.registration_id=r.id AND o.challenge_id=r.challenge_id
+        WHERE r.challenge_id=$1 GROUP BY r.id) ledger
+      WHERE l.registration_id=ledger.id AND l.challenge_id=$1${registrationId == null ? '' : ' AND l.registration_id=$2'}`,args);
 
     // Clear staging after flush
-    await db.query(`DELETE FROM wp_leaderboard_staging WHERE challenge_id = $1`, [challengeId]);
+    // Rows were consumed atomically by DELETE ... RETURNING above.
 
-    // Sync is_disqualified flag from trading_registrations → wp_leaderboard.
-    // The evaluation engine DQs accounts (over-balance, recharge, etc.) by setting
-    // trading_registrations.disqualified = true, but staging doesn't carry that flag.
-    // This ensures DQ'd users are properly excluded from active rankings.
-    await db.query(
-      `UPDATE wp_leaderboard l
-       SET is_disqualified = true,
-           disqualify_reason = COALESCE(r.disqualified_reason, l.disqualify_reason)
-       FROM trading_registrations r
-       WHERE l.registration_id = r.id
-         AND l.challenge_id = $1
-         AND r.disqualified = true
-         AND l.is_disqualified = false`,
-      [challengeId]
-    );
+    // Registration is the authoritative DQ state; preserve manual causes there.
+    await db.query(`UPDATE wp_leaderboard l SET is_disqualified=r.disqualified,
+      disqualify_reason=CASE WHEN r.disqualified THEN r.disqualified_reason ELSE NULL END
+      FROM trading_registrations r WHERE l.registration_id=r.id AND l.challenge_id=$1${registrationId == null ? '' : ' AND l.registration_id=$2'}`,args);
 
     console.log(`✅ Leaderboard: Staging flushed to live for challenge ${challengeId}`);
+    });
   }
 
   /**
@@ -399,7 +414,7 @@ export class LeaderboardService {
          ORDER BY created_at DESC
          LIMIT 1
        ) dm ON true
-       WHERE r.challenge_id = $1
+       WHERE r.challenge_id = $1 AND r.status IS DISTINCT FROM 'removed'
          AND (
            r.disqualified = false
            -- Credential failures stay visible even after the 48h auto-DQ rule fires —

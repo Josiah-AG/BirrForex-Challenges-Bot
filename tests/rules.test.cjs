@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 require('ts-node/register/transpile-only');
 const dbPath = require.resolve('../src/database/db');
 let query = async () => { throw new Error('No test database configured'); };
-require.cache[dbPath] = { id: dbPath, filename: dbPath, loaded: true, exports: { db: { query: (...args) => query(...args) } } };
+require.cache[dbPath] = { id: dbPath, filename: dbPath, loaded: true, exports: { db: { transaction: (work)=>work(), query: (...args) => query(...args) } } };
 const configPath = require.resolve('../src/config');
 require.cache[configPath] = { id: configPath, filename: configPath, loaded: true, exports: { config: {} } };
 const { WpEvaluationEngine } = require('../src/services/wpEvaluationEngine');
@@ -21,6 +21,7 @@ async function evaluate(rules, trades, options={}) {
   if (sql.includes('FROM wp_trades')) return {rows:trades};
   if (sql.includes('FROM wp_deals')) return {rows:[]};
   if (sql.includes('FROM trading_registrations')) return {rows:[{registration_balance:1000,actual_starting_balance:1000,last_known_balance:1000,disqualified:false,last_known_equity:1000}]};
+  if (sql.includes('FROM wp_balance_ops')) return {rows:options.balanceOps || []};
   if (sql.includes('FROM wp_pull_errors')) return {rows:[]};
   if (sql.includes('wp_ohlc')) return {rows:[]};
   throw new Error(`Unexpected test query: ${sql}`);
@@ -98,7 +99,7 @@ test('scheduler weekend collection runs when either independent category permits
 });
 test('cent-account conversion preserves OFF switches and uses the right category',async()=>{
  const engine=new WpEvaluationEngine();let captured;
- const challenge={type:'hybrid',split_category_settings:true,starting_balance:1000,target_balance:2000,demo_starting_balance:1000,real_starting_balance:2000};
+ const challenge={type:'hybrid',split_category_settings:true,starting_balance:1000,target_balance:2000,demo_starting_balance:1000,real_starting_balance:2000,real_target_balance:4000,real_deposit_mode:'fixed',real_target_enabled:true,real_allow_below_start:false};
  const rules=base();query=async(sql,params)=>{
   if(sql.includes('wp_challenge_rules')) {assert.equal(params[1],'config_real');return {rows:[{parameters:rules}]};}
   if(sql.includes('FROM trading_registrations')) return {rows:[{id:2,account_type:'real',is_cent:true}]};

@@ -14,6 +14,7 @@ import {
 interface BalanceChartProps {
   // Client mode: fetches own data via auth token
   authToken?: string;
+  hostToken?: string;
   // Admin mode: fetches for a specific registration
   registrationId?: number;
   challengeId?: number;
@@ -32,6 +33,7 @@ interface DataPoint {
 
 export default function BalanceChart({
   authToken,
+  hostToken,
   registrationId,
   challengeId,
   adminSecretPath,
@@ -49,9 +51,12 @@ export default function BalanceChart({
         let url: string;
         let headers: Record<string, string> = {};
 
-        if (registrationId && challengeId && adminSecretPath) {
+        if (registrationId && challengeId && hostToken) {
+          url = `${apiUrl}/api/host/challenge/${challengeId}/balance-history?registration_id=${registrationId}`;
+          headers = { Authorization: `Bearer ${hostToken}` };
+        } else if (registrationId && challengeId && adminSecretPath) {
           // Admin mode
-          url = `${apiUrl}/api/admin/${adminSecretPath}/challenge/${challengeId}/balance-history?registration_id=${registrationId}`;
+          url = `/api/management/challenge/${challengeId}/balance-history?registration_id=${registrationId}`;
         } else if (authToken) {
           // Client mode
           url = `${apiUrl}/api/me/balance-history`;
@@ -85,7 +90,7 @@ export default function BalanceChart({
       }
     };
     fetchData();
-  }, [authToken, registrationId, challengeId, adminSecretPath]);
+  }, [authToken, hostToken, registrationId, challengeId, adminSecretPath]);
 
   if (loading) {
     return (

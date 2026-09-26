@@ -52,17 +52,17 @@ export interface VerifyAccountResult {
   data?: { client_uid?: string } | null;
 }
 
-class ExnessService {
+export class ExnessService {
   private token: string | null = null;
   private tokenExpiry: Date | null = null;
   private baseUrl: string;
 
-  constructor() {
+  constructor(private credentials = { email: config.exnessPartnerEmail, password: config.exnessPartnerPassword }) {
     this.baseUrl = config.exnessApiBaseUrl;
   }
 
   private async authenticate(): Promise<boolean> {
-    if (!config.exnessPartnerEmail || !config.exnessPartnerPassword) {
+    if (!this.credentials.email || !this.credentials.password) {
       console.error('❌ Exness API credentials not configured');
       return false;
     }
@@ -70,7 +70,7 @@ class ExnessService {
     try {
       const response = await axios.post<AuthResponse>(
         `${this.baseUrl}/api/v2/auth/`,
-        { login: config.exnessPartnerEmail, password: config.exnessPartnerPassword },
+        { login: this.credentials.email, password: this.credentials.password },
         { headers: { 'Content-Type': 'application/json' }, timeout: 10000 }
       );
 
@@ -290,7 +290,7 @@ class ExnessService {
    * Initialize — authenticate on startup
    */
   async initialize(): Promise<void> {
-    if (config.exnessPartnerEmail && config.exnessPartnerPassword) {
+    if (this.credentials.email && this.credentials.password) {
       const success = await this.authenticate();
       if (!success) {
         console.log('⚠️ Exness API auth failed on startup — will retry on first use');

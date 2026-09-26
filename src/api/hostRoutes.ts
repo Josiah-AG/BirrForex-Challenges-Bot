@@ -1,3 +1,7 @@
+import { countAboveTargets } from '../services/challengeMetrics';
+import { saveVerifiedCredential } from '../services/credentialRecovery';
+import { transitionChallenge } from '../services/challengeState';
+import { ConfigurationError } from '../utils/configValidation';
 /**
  * Host Dashboard API Routes
  * These mirror admin endpoints but are scoped to the host's own challenges.
@@ -7,6 +11,22 @@ import { Router, Request, Response } from 'express';
 import { db } from '../database/db';
 
 const router = Router();
+router.use(async(req:any,res,next)=>{
+  const match=req.path.match(/^\/challenge\/(\d+)(?:\/|$)/);
+  if(!match)return next();
+  try {
+    const challenge=await db.query('SELECT id,leaderboard_locked_at,status FROM trading_challenges WHERE id=$1 AND host_id=$2',[Number(match[1]),req.hostAccount.hostId]);
+    if(!challenge.rows.length)return res.status(404).json({error:'Challenge not found'});
+    const registrationId=req.body?.registrationId || req.query.registrationId || req.query.registration_id;
+    if(registrationId){
+      const reg=await db.query('SELECT id FROM trading_registrations WHERE id=$1 AND challenge_id=$2',[registrationId,Number(match[1])]);
+      if(!reg.rows.length)return res.status(404).json({error:'Participant not found'});
+    }
+    if(req.method!=='GET' && (challenge.rows[0].leaderboard_locked_at || challenge.rows[0].status==='completed') && /pull|evaluat|retry|disqual|reinstate|remove|force-update|approve/.test(req.path))return res.status(409).json({error:'Results are locked. An admin override is required.'});
+    next();
+  } catch {return res.status(503).json({error:'Access verification unavailable'});}
+});
+
 
 // Ownership verification helper
 async function verifyOwnership(req: any, res: Response): Promise<number | null> {
@@ -59,28 +79,8 @@ router.get('/challenge/:id/full-overview', async (req: any, res: Response) => {
        JOIN trading_registrations r ON t.registration_id = r.id
        WHERE t.challenge_id=$1${tradeFilter}`, tradeParams);
 
-    // Above target — cent-aware comparison (matching admin)
-    const aboveTarget = await db.query(
-      `SELECT COUNT(*) as cnt
-       FROM wp_leaderboard l
-       JOIN trading_challenges tc ON tc.id = l.challenge_id
-       JOIN trading_registrations r ON r.id = l.registration_id
-       WHERE l.challenge_id=$1
-         AND (r.disqualified IS NULL OR r.disqualified = false)
-         AND (r.status IS NULL OR r.status != 'removed')
-         -- Only count accounts whose category actually has a target set.
-         -- No-target categories are excluded from the above-target metric entirely.
-         AND CASE
-               WHEN tc.split_category_settings = true AND tc.type = 'hybrid' AND r.account_type = 'demo'
-                 THEN COALESCE(tc.demo_target_enabled, tc.target_enabled, true)
-               WHEN tc.split_category_settings = true AND tc.type = 'hybrid' AND r.account_type = 'real'
-                 THEN COALESCE(tc.real_target_enabled, tc.target_enabled, true)
-               ELSE COALESCE(tc.target_enabled, true)
-             END = true
-         AND CASE WHEN COALESCE(r.is_cent, false)
-               THEN l.adjusted_balance >= (CASE WHEN tc.split_category_settings = true AND tc.type = 'hybrid' AND r.account_type = 'demo' AND tc.demo_target_balance IS NOT NULL THEN tc.demo_target_balance WHEN tc.split_category_settings = true AND tc.type = 'hybrid' AND r.account_type = 'real' AND tc.real_target_balance IS NOT NULL THEN tc.real_target_balance ELSE tc.target_balance END) * 100
-               ELSE l.adjusted_balance >= (CASE WHEN tc.split_category_settings = true AND tc.type = 'hybrid' AND r.account_type = 'demo' AND tc.demo_target_balance IS NOT NULL THEN tc.demo_target_balance WHEN tc.split_category_settings = true AND tc.type = 'hybrid' AND r.account_type = 'real' AND tc.real_target_balance IS NOT NULL THEN tc.real_target_balance ELSE tc.target_balance END)
-             END`, [challengeId]);
+    const targetCounts=await countAboveTargets(challengeId);
+    const aboveTarget={rows:[{cnt:String(targetCounts.total)}]};
 
     // Authoritative qualified count — from the engine's is_qualified flag (accounts for
     // deposit mode, growth %, and no-target / allow-below-start logic). Used instead of
@@ -106,27 +106,7 @@ router.get('/challenge/:id/full-overview', async (req: any, res: Response) => {
     const realQualified = parseInt(qualifiedByCat.rows.find((x: any) => x.account_type === 'real')?.cnt || '0');
     const demoQualified = parseInt(qualifiedByCat.rows.find((x: any) => x.account_type === 'demo')?.cnt || '0');
 
-    // Per-category above-target counts (cent-aware), gated on each category's target being enabled
-    const aboveTargetByCat = await db.query(
-      `SELECT r.account_type, COUNT(*) as cnt
-       FROM wp_leaderboard l
-       JOIN trading_challenges tc ON tc.id = l.challenge_id
-       JOIN trading_registrations r ON r.id = l.registration_id
-       WHERE l.challenge_id=$1
-         AND (r.disqualified IS NULL OR r.disqualified = false)
-         AND (r.status IS NULL OR r.status != 'removed')
-         AND CASE
-               WHEN tc.split_category_settings = true AND tc.type = 'hybrid' AND r.account_type = 'demo'
-                 THEN COALESCE(tc.demo_target_enabled, tc.target_enabled, true)
-               WHEN tc.split_category_settings = true AND tc.type = 'hybrid' AND r.account_type = 'real'
-                 THEN COALESCE(tc.real_target_enabled, tc.target_enabled, true)
-               ELSE COALESCE(tc.target_enabled, true)
-             END = true
-         AND CASE WHEN COALESCE(r.is_cent, false)
-               THEN l.adjusted_balance >= (CASE WHEN tc.split_category_settings = true AND tc.type = 'hybrid' AND r.account_type = 'demo' AND tc.demo_target_balance IS NOT NULL THEN tc.demo_target_balance WHEN tc.split_category_settings = true AND tc.type = 'hybrid' AND r.account_type = 'real' AND tc.real_target_balance IS NOT NULL THEN tc.real_target_balance ELSE tc.target_balance END) * 100
-               ELSE l.adjusted_balance >= (CASE WHEN tc.split_category_settings = true AND tc.type = 'hybrid' AND r.account_type = 'demo' AND tc.demo_target_balance IS NOT NULL THEN tc.demo_target_balance WHEN tc.split_category_settings = true AND tc.type = 'hybrid' AND r.account_type = 'real' AND tc.real_target_balance IS NOT NULL THEN tc.real_target_balance ELSE tc.target_balance END)
-             END
-       GROUP BY r.account_type`, [challengeId]);
+    const aboveTargetByCat={rows:[{account_type:'real',cnt:String(targetCounts.real)},{account_type:'demo',cnt:String(targetCounts.demo)}]};
     const realAboveTarget = parseInt(aboveTargetByCat.rows.find((x: any) => x.account_type === 'real')?.cnt || '0');
     const demoAboveTarget = parseInt(aboveTargetByCat.rows.find((x: any) => x.account_type === 'demo')?.cnt || '0');
 
@@ -375,6 +355,7 @@ router.get('/challenge/:id/full-overview', async (req: any, res: Response) => {
     });
   } catch (error) {
     console.error('Host full overview error:', error);
+    if(error instanceof ConfigurationError)return res.status(400).json({error:error.message});
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -453,6 +434,7 @@ router.get('/challenge/:id/full-participants', async (req: any, res: Response) =
     });
   } catch (error) {
     console.error('Host participants error:', error);
+    if(error instanceof ConfigurationError)return res.status(400).json({error:error.message});
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -475,6 +457,7 @@ router.get('/challenge/:id/violations', async (req: any, res: Response) => {
        LIMIT 50`, [challengeId]);
     return res.json({ violations: result.rows });
   } catch (error) {
+    if(error instanceof ConfigurationError)return res.status(400).json({error:error.message});
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -496,6 +479,7 @@ router.get('/challenge/:id/failed-accounts', async (req: any, res: Response) => 
 
     return res.json({ failed, credentialFailures, skipped: skipped.rows });
   } catch (error) {
+    if(error instanceof ConfigurationError)return res.status(400).json({error:error.message});
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -507,9 +491,10 @@ router.post('/challenge/:id/force-update', async (req: any, res: Response) => {
   try {
     const globalScheduler = (global as any).__vpsPullScheduler;
     if (!globalScheduler) return res.status(503).json({ error: 'Update system not available' });
-    globalScheduler.runPullCycleForChallenge(challengeId).catch(() => {});
-    return res.json({ success: true, message: 'Full update started' });
+    await globalScheduler.enqueueChallengePull(challengeId);
+    return res.json({ success: true, message: 'Full update queued' });
   } catch (error) {
+    if(error instanceof ConfigurationError)return res.status(400).json({error:error.message});
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -523,15 +508,12 @@ router.post('/challenge/:id/force-update-all', async (req: any, res: Response) =
     if (!['active', 'reviewing'].includes(challenge.rows[0]?.status)) {
       return res.status(400).json({ error: 'Challenge must be active or reviewing' });
     }
-    await db.query(
-      `UPDATE trading_registrations SET last_pull_at = NULL
-       WHERE challenge_id = $1
-         AND investor_password IS NOT NULL AND connection_verified = true
-         AND (pull_status IS NULL OR pull_status NOT IN ('password_changed'))`, [challengeId]);
     const globalScheduler = (global as any).__vpsPullScheduler;
-    if (globalScheduler) globalScheduler.runPullCycleForChallenge(challengeId).catch(() => {});
-    return res.json({ success: true, message: 'Full update (all accounts) started' });
+    if (!globalScheduler) return res.status(503).json({error:'Update system not available'});
+    await globalScheduler.enqueueChallengePull(challengeId,{fullHistory:true,includeDisqualified:true});
+    return res.json({ success: true, message: 'Full update queued' });
   } catch (error) {
+    if(error instanceof ConfigurationError)return res.status(400).json({error:error.message});
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -545,15 +527,12 @@ router.post('/challenge/:id/force-update-rank', async (req: any, res: Response) 
     if (!['active', 'reviewing'].includes(challenge.rows[0]?.status)) {
       return res.status(400).json({ error: 'Challenge must be active or reviewing' });
     }
-    await db.query(
-      `UPDATE trading_registrations SET last_pull_at = NULL
-       WHERE challenge_id = $1 AND disqualified = false
-         AND investor_password IS NOT NULL AND connection_verified = true
-         AND (pull_status IS NULL OR pull_status NOT IN ('password_changed'))`, [challengeId]);
     const globalScheduler = (global as any).__vpsPullScheduler;
-    if (globalScheduler) globalScheduler.runPullCycleForChallenge(challengeId).catch(() => {});
-    return res.json({ success: true, message: 'Update (non-disqualified) started' });
+    if (!globalScheduler) return res.status(503).json({error:'Update system not available'});
+    await globalScheduler.enqueueChallengePull(challengeId,{fullHistory:true,includeDisqualified:false});
+    return res.json({ success: true, message: 'Update queued' });
   } catch (error) {
+    if(error instanceof ConfigurationError)return res.status(400).json({error:error.message});
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -573,24 +552,18 @@ router.post('/challenge/:id/check-balance', async (req: any, res: Response) => {
     const result = await vpsService.verifyConnection(account_number, mt5_server, passwordToUse);
     if (result.success) {
       // Persist balance + update password if new one was provided
-      if (newPassword) {
-        await db.query(
-          `UPDATE trading_registrations SET last_known_balance = $1, pull_status = 'success', pull_error = NULL, investor_password = $2, connection_verified = true, connection_verified_at = NOW(), last_pull_at = NOW() WHERE id = $3`,
-          [result.balance, newPassword, registrationId]);
-      } else {
-        await db.query(
-          `UPDATE trading_registrations SET last_known_balance = $1, pull_status = 'success', last_pull_at = NOW() WHERE id = $2`,
-          [result.balance, registrationId]);
-      }
-      return res.json({ success: true, verified: true, balance: result.balance, equity: result.equity, isCent: is_cent, passwordUpdated: !!newPassword });
+      if (newPassword) await saveVerifiedCredential(registrationId,challengeId,newPassword,'user');
+      await db.query('UPDATE trading_registrations SET last_known_balance=$1 WHERE id=$2 AND challenge_id=$3',[result.balance,registrationId,challengeId]);
+      return res.json({ success: true, verified: true, balance: result.balance, equity: result.equity, isCent: is_cent, passwordUpdated: !!newPassword, recoveryPending: !!newPassword });
     } else {
       // Mark credential failure if applicable
       if (result.status === 'invalid_credentials' && !newPassword) {
-        await db.query(`UPDATE trading_registrations SET pull_status = 'password_changed' WHERE id = $1`, [registrationId]);
+        await db.query(`UPDATE trading_registrations SET pull_status = 'password_changed', credential_failure_detected_at=COALESCE(credential_failure_detected_at,NOW()) WHERE id = $1`, [registrationId]);
       }
       return res.json({ success: true, verified: false, error: result.message || 'Connection failed', credential_fail: result.status === 'invalid_credentials' });
     }
   } catch (error) {
+    if(error instanceof ConfigurationError)return res.status(400).json({error:error.message});
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -608,10 +581,11 @@ router.post('/challenge/:id/re-evaluate-user', async (req: any, res: Response) =
     const { evaluationEngine } = require('../services/wpEvaluationEngine');
     await evaluationEngine.evaluateSingleAccount(challengeId, registrationId);
     const { leaderboardService } = require('../services/leaderboardService');
-    await leaderboardService.flushStagingToLive(challengeId);
+    await leaderboardService.flushStagingToLive(challengeId, registrationId);
     await leaderboardService.updateRankings(challengeId);
     return res.json({ success: true });
   } catch (error) {
+    if(error instanceof ConfigurationError)return res.status(400).json({error:error.message});
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -629,7 +603,7 @@ router.post('/challenge/:id/disqualify', async (req: any, res: Response) => {
     const challengeInfo = await db.query(`SELECT c.title, h.display_name as host_name, h.support_link as host_support_link, h.main_link as host_main_link FROM trading_challenges c LEFT JOIN hosts h ON h.id = c.host_id WHERE c.id=$1`, [challengeId]);
 
     await db.query(
-      `UPDATE trading_registrations SET disqualified=true, disqualified_reason=$1 WHERE id=$2 AND challenge_id=$3`,
+      `UPDATE trading_registrations SET disqualified=true, disqualified_at=NOW(),disqualified_source='manual',disqualified_reason=$1 WHERE id=$2 AND challenge_id=$3`,
       [reason || 'Disqualified by host', registrationId, challengeId]);
     await db.query(
       `UPDATE wp_leaderboard SET is_disqualified=true, disqualify_reason=$1 WHERE registration_id=$2 AND challenge_id=$3`,
@@ -653,6 +627,7 @@ router.post('/challenge/:id/disqualify', async (req: any, res: Response) => {
 
     return res.json({ success: true });
   } catch (error) {
+    if(error instanceof ConfigurationError)return res.status(400).json({error:error.message});
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -669,7 +644,7 @@ router.post('/challenge/:id/unverify', async (req: any, res: Response) => {
     const participant = await db.query(`SELECT nickname, email FROM trading_registrations WHERE id=$1 AND challenge_id=$2`, [registrationId, challengeId]);
     const challengeInfo = await db.query(`SELECT c.title, h.display_name as host_name, h.support_link as host_support_link, h.main_link as host_main_link FROM trading_challenges c LEFT JOIN hosts h ON h.id = c.host_id WHERE c.id=$1`, [challengeId]);
 
-    await db.query(`UPDATE trading_registrations SET status='removed', email = 'removed_' || id::text || '_' || email, account_number = account_number || '_removed_' || id::text WHERE id=$1 AND challenge_id=$2`, [registrationId, challengeId]);
+    await db.query(`UPDATE trading_registrations SET status='removed', disqualified=true, disqualified_source='removed', disqualified_reason='Removed by host' WHERE id=$1 AND challenge_id=$2`, [registrationId, challengeId]);
     await db.query(`DELETE FROM wp_leaderboard WHERE registration_id=$1 AND challenge_id=$2`, [registrationId, challengeId]);
     await db.query(`DELETE FROM wp_leaderboard_staging WHERE registration_id=$1 AND challenge_id=$2`, [registrationId, challengeId]);
 
@@ -691,6 +666,7 @@ router.post('/challenge/:id/unverify', async (req: any, res: Response) => {
 
     return res.json({ success: true });
   } catch (error) {
+    if(error instanceof ConfigurationError)return res.status(400).json({error:error.message});
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -703,9 +679,10 @@ router.patch('/challenge/:id/direct-status', async (req: any, res: Response) => 
     const { status } = req.body;
     const allowed = ['registration_open', 'active', 'reviewing', 'completed'];
     if (!allowed.includes(status)) return res.status(400).json({ error: `Status must be one of: ${allowed.join(', ')}` });
-    await db.query(`UPDATE trading_challenges SET status=$1, updated_at=NOW() WHERE id=$2`, [status, challengeId]);
+    await transitionChallenge(challengeId,status);
     return res.json({ success: true });
   } catch (error) {
+    if(error instanceof ConfigurationError)return res.status(400).json({error:error.message});
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -737,6 +714,7 @@ router.get('/challenge/:id/csv-progress/:uploadId', async (req: any, res: Respon
       rowDetails,
     });
   } catch (error) {
+    if(error instanceof ConfigurationError)return res.status(400).json({error:error.message});
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -758,6 +736,7 @@ router.delete('/challenge/:id/csv-upload/:uploadId', async (req: any, res: Respo
     await db.query(`DELETE FROM host_csv_rows WHERE upload_id = $1`, [uploadId]);
     return res.json({ success: true });
   } catch (error) {
+    if(error instanceof ConfigurationError)return res.status(400).json({error:error.message});
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -793,7 +772,7 @@ router.delete('/challenge/:id', async (req: any, res: Response) => {
     try {
       const gatekeeper = require('../services/challengeGatekeeper');
       const { config } = require('../config');
-      const token = gatekeeper.queueDelete(challengeId, title);
+      const token = await gatekeeper.queueDelete(challengeId, title);
       const telegram = (global as any).__bot?.bot?.telegram || null;
       if (telegram) {
         // Format start/end in the challenge's timezone for readability
@@ -827,7 +806,7 @@ router.delete('/challenge/:id', async (req: any, res: Response) => {
             ]),
           }
         );
-        gatekeeper.setMessageId(token, msg.message_id);
+        await gatekeeper.setMessageId(token, msg.message_id);
       } else {
         console.warn('Host delete request: Telegram bot not available to notify admin');
       }
@@ -838,6 +817,7 @@ router.delete('/challenge/:id', async (req: any, res: Response) => {
 
     return res.json({ success: true, pending: true, message: 'Deletion request submitted — awaiting admin approval.' });
   } catch (error) {
+    if(error instanceof ConfigurationError)return res.status(400).json({error:error.message});
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -853,6 +833,7 @@ router.get('/challenge/:id/export-registrations', async (req: any, res: Response
        ORDER BY registered_at ASC`, [challengeId]);
     return res.json({ registrations: result.rows });
   } catch (error) {
+    if(error instanceof ConfigurationError)return res.status(400).json({error:error.message});
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -897,6 +878,7 @@ router.get('/challenge/:id/export-user-trades', async (req: any, res: Response) 
       })),
     });
   } catch (error) {
+    if(error instanceof ConfigurationError)return res.status(400).json({error:error.message});
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -925,19 +907,22 @@ router.post('/challenge/:id/retry-credentials', async (req: any, res: Response) 
        WHERE challenge_id=$1 AND pull_status='password_changed'`, [challengeId]);
 
     // Trigger a pull cycle
-    globalScheduler.runPullCycleForChallenge(challengeId).catch(() => {});
+    await globalScheduler.enqueueChallengePull(challengeId);
     return res.json({ success: true, total: failedAccounts.rows.length, message: `Retrying ${failedAccounts.rows.length} accounts` });
   } catch (error) {
+    if(error instanceof ConfigurationError)return res.status(400).json({error:error.message});
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
 
 // ==================== RETRY ALL CREDENTIAL FAILURES (with progress) ====================
-let hostCredRetryState: { running: boolean; total: number; current: number; recovered: number; stillFailing: number; startedAt: number } | null = null;
+type CredentialRetryProgress = {running:boolean;total:number;current:number;recovered:number;stillFailing:number;startedAt:number};
+const hostCredentialRetries=new Map<number,CredentialRetryProgress>();
 
 router.post('/challenge/:id/retry-all-credentials', async (req: any, res: Response) => {
   const challengeId = await verifyOwnership(req, res);
   if (!challengeId) return;
+  let hostCredRetryState=hostCredentialRetries.get(challengeId);
   try {
     if (hostCredRetryState?.running) return res.json({ success: false, error: 'Retry already in progress' });
 
@@ -951,6 +936,7 @@ router.post('/challenge/:id/retry-all-credentials', async (req: any, res: Respon
 
     const total = failed.rows.length;
     hostCredRetryState = { running: true, total, current: 0, recovered: 0, stillFailing: 0, startedAt: Date.now() };
+    hostCredentialRetries.set(challengeId,hostCredRetryState);
     res.json({ success: true, started: true, total });
 
     // Background: verify each one via VPS
@@ -961,22 +947,25 @@ router.post('/challenge/:id/retry-all-credentials', async (req: any, res: Respon
         try {
           const result = await vpsService.verifyConnection(reg.account_number, reg.mt5_server, reg.investor_password);
           if (result.success) {
-            await db.query(`UPDATE trading_registrations SET pull_status='success', pull_error=NULL, last_known_balance=$1, last_pull_at=NOW() WHERE id=$2`, [result.balance || 0, reg.id]);
-            hostCredRetryState.recovered++;
+            await db.query(`UPDATE trading_registrations SET pull_status='success', pull_error=NULL, last_known_balance=$1, last_pull_at=NULL,credential_failure_detected_at=NULL WHERE id=$2`, [result.balance || 0, reg.id]);
+            const scheduler=(global as any).__vpsPullScheduler;
+            if(scheduler)await scheduler.recoverAccountAfterCredentialFix(reg.id,challengeId,'user');
+            hostCredRetryState!.recovered++;
           } else {
-            hostCredRetryState.stillFailing++;
+            hostCredRetryState!.stillFailing++;
           }
-        } catch { hostCredRetryState.stillFailing++; }
-        hostCredRetryState.current++;
+        } catch { hostCredRetryState!.stillFailing++; }
+        hostCredRetryState!.current++;
       }
-      hostCredRetryState.running = false;
+      hostCredRetryState!.running = false;
     })();
-  } catch { if (hostCredRetryState) hostCredRetryState.running = false; return res.status(500).json({ error: 'Failed' }); }
+  } catch { if (hostCredRetryState) hostCredRetryState!.running = false; return res.status(500).json({ error: 'Failed' }); }
 });
 
 router.get('/challenge/:id/retry-all-status', async (req: any, res: Response) => {
   const challengeId = await verifyOwnership(req, res);
   if (!challengeId) return;
+  const hostCredRetryState=hostCredentialRetries.get(challengeId);
   if (!hostCredRetryState) return res.json({ running: false });
   const elapsed = Date.now() - hostCredRetryState.startedAt;
   const msPerAccount = hostCredRetryState.current > 0 ? elapsed / hostCredRetryState.current : 0;
@@ -1029,6 +1018,7 @@ router.get('/challenge/:id/pull-history', async (req: any, res: Response) => {
 
     return res.json({ batches: result.rows, summary });
   } catch (error) {
+    if(error instanceof ConfigurationError)return res.status(400).json({error:error.message});
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -1159,20 +1149,13 @@ router.post('/challenge/:id/pull-single-account', async (req: any, res: Response
       try {
         const pullResult = await scheduler.retrySingleAccount(registrationId, challengeId);
 
-        // Clear data-based DQs if pull succeeded
-        if (pullResult.success) {
-          const dqCheck = await db.query(`SELECT disqualified, disqualified_reason FROM trading_registrations WHERE id = $1`, [registrationId]);
-          const dqReason = dqCheck.rows[0]?.disqualified_reason || '';
-          const isDataDQ = dqCheck.rows[0]?.disqualified && (
-            dqReason.toLowerCase().includes('starting balance') || dqReason.toLowerCase().includes('exceeds allowed') ||
-            dqReason.toLowerCase().includes('active trading days') || dqReason.toLowerCase().includes('cannot meet minimum')
-          );
-          if (isDataDQ) {
-            await db.query(`UPDATE trading_registrations SET disqualified = false, disqualified_at = NULL, disqualified_reason = NULL WHERE id = $1`, [registrationId]);
-            await db.query(`UPDATE wp_leaderboard SET is_disqualified = false, disqualify_reason = NULL WHERE registration_id = $1`, [registrationId]);
-          }
-        }
-
+        if(!pullResult.success)throw new Error(pullResult.errorMessage || 'Account refresh failed');
+        // Automatic recovery never infers DQ ownership from human-written reason text.
+        const {leaderboardService}=require('../services/leaderboardService');
+        await db.transaction(async()=>{
+          await leaderboardService.flushStagingToLive(challengeId,registrationId);
+          await leaderboardService.updateRankings(challengeId);
+        });
         // Get after state
         const after = await db.query(
           `SELECT l.rank, l.total_trades, l.qualified_trades, l.flagged_trades, l.adjusted_balance, l.current_balance, l.qualified_profit, l.gross_profit, l.profit_removed,
@@ -1227,7 +1210,7 @@ router.post('/challenge/:id/pull-single-account', async (req: any, res: Response
           isDisqualified: a.disqualified || false,
           dqReason: a.disqualified_reason || null,
           hasDiff, tradeChanges, newTrades, evalDiff,
-          pendingApproval: true,
+          pendingApproval: false, applied: true,
         });
       } catch (error) {
         hostPullResults.set(registrationId, { done: true, success: false, errorMessage: String(error) });
@@ -1332,8 +1315,8 @@ router.post('/challenge/:id/cancel-pull', async (req: any, res: Response) => {
       return res.json({ success: false, message: 'No update is currently running' });
     }
     const globalScheduler = (global as any).__vpsPullScheduler;
-    if (globalScheduler) {
-      globalScheduler.cancelPull();
+    if (!globalScheduler || !globalScheduler.cancelPull(challengeId)) {
+      return res.status(409).json({success:false,error:'No cancellable update belongs to this challenge'});
     }
     // Mark batch as cancelled
     await db.query(
@@ -1342,6 +1325,7 @@ router.post('/challenge/:id/cancel-pull', async (req: any, res: Response) => {
     return res.json({ success: true, message: 'Update cancelled' });
   } catch (error) {
     console.error('Host cancel pull error:', error);
+    if(error instanceof ConfigurationError)return res.status(400).json({error:error.message});
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -1358,10 +1342,7 @@ router.post('/challenge/:id/approve-pull', async (req: any, res: Response) => {
 router.post('/challenge/:id/reject-pull', async (req: any, res: Response) => {
   const challengeId = await verifyOwnership(req, res);
   if (!challengeId) return;
-  // For host, pulls are auto-applied (no staging). Reject is a no-op acknowledgment.
-  const { registrationId } = req.body;
-  hostPullResults.delete(registrationId);
-  return res.json({ success: true });
+  return res.status(410).json({error:'This refresh has already been published; it cannot be rejected after publication.'});
 });
 
 export default router;

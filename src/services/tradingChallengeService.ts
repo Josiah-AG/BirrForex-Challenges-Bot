@@ -1,6 +1,11 @@
+import { vpsService } from './vpsService';
+import { validateVerifiedRegistration, validateHostAllocation } from './registrationEligibility';
+import { ConfigurationError, validateChallenge } from '../utils/configValidation';
+import { getLocalTime } from '../utils/timezone';
 import { db } from '../database/db';
 
 export interface TradingChallenge {
+  timezone?: string;
   id: number;
   title: string;
   type: 'demo' | 'real' | 'hybrid';
@@ -76,6 +81,7 @@ class TradingChallengeService {
   // ==================== CHALLENGE CRUD ====================
 
   async createChallenge(data: {
+    [key: string]: any;
     title: string;
     type: 'demo' | 'real' | 'hybrid';
     start_date: Date;
@@ -90,6 +96,8 @@ class TradingChallengeService {
     demo_prizes: number[];
     prize_pool_text?: string;
   }): Promise<TradingChallenge> {
+    validateChallenge(data,false);
+    return db.transaction(async()=>{
     const result = await db.query(
       `INSERT INTO trading_challenges 
        (title, type, status, start_date, end_date, starting_balance, target_balance,
@@ -105,7 +113,15 @@ class TradingChallengeService {
         data.prize_pool_text || null,
       ]
     );
+    const extras=['split_category_settings','demo_starting_balance','demo_target_balance','real_starting_balance','real_target_balance','demo_deposit_mode','real_deposit_mode','demo_target_percent','real_target_percent','demo_target_enabled','real_target_enabled','demo_allow_below_start','real_allow_below_start','timezone','pull_times','pull_interval_hours','first_pull_time'];
+    const selected=extras.filter(key=>data[key]!==undefined);
+    if(selected.length){
+      const values=selected.map(key=>key==='pull_times'?JSON.stringify(data[key]):data[key]);
+      const saved=await db.query(`UPDATE trading_challenges SET ${selected.map((key,i)=>`${key}=$${i+1}`).join(',')} WHERE id=$${values.length+1} RETURNING *`,[...values,result.rows[0].id]);
+      return saved.rows[0];
+    }
     return result.rows[0];
+    });
   }
 
   async getChallengeById(id: number): Promise<TradingChallenge | null> {
@@ -125,11 +141,9 @@ class TradingChallengeService {
     return result.rows;
   }
 
-  async updateChallengeStatus(id: number, status: string): Promise<void> {
-    await db.query(
-      'UPDATE trading_challenges SET status = $1, updated_at = NOW() WHERE id = $2',
-      [status, id]
-    );
+  async updateChallengeStatus(id:number,status:string):Promise<void> {
+    const {transitionChallenge}=require('./challengeState');
+    await transitionChallenge(id,status);
   }
 
   async updateChallengePdf(id: number, pdfUrl: string): Promise<void> {
@@ -153,11 +167,12 @@ class TradingChallengeService {
     );
   }
 
-  async markAnnouncementPosted(id: number): Promise<void> {
-    await db.query(
-      'UPDATE trading_challenges SET announcement_posted = true, status = $1, updated_at = NOW() WHERE id = $2',
-      ['registration_open', id]
-    );
+  async markAnnouncementPosted(id:number):Promise<void> {
+    await db.transaction(async()=>{
+      const {transitionChallenge}=require('./challengeState');
+      await transitionChallenge(id,'registration_open');
+      await db.query('UPDATE trading_challenges SET announcement_posted=true WHERE id=$1',[id]);
+    });
   }
 
   async setSubmissionDeadline(id: number, deadline: Date): Promise<void> {
@@ -168,8 +183,8 @@ class TradingChallengeService {
   }
 
   async deleteChallenge(id: number): Promise<void> {
-    // CASCADE deletes registrations, submissions, winners, daily_stats
-    await db.query('DELETE FROM trading_challenges WHERE id = $1', [id]);
+    // Archive instead of cascading away registrations and score history.
+    await this.updateChallengeStatus(id,'deleted');
   }
 
   // ==================== REGISTRATIONS ====================
@@ -185,25 +200,28 @@ class TradingChallengeService {
     mt5_server: string | null;
     client_uid: string | null;
     source?: string;
+    investor_password?: string;
   }): Promise<TradingRegistration> {
-    const result = await db.query(
-      `INSERT INTO trading_registrations
-       (challenge_id, user_id, username, nickname, account_type, email, account_number, mt5_server, client_uid, source)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-       RETURNING *`,
-      [
-        data.challenge_id, data.user_id, data.username,
-        data.nickname || null,
-        data.account_type, data.email, data.account_number,
-        data.mt5_server, data.client_uid, data.source || 'telegram',
-      ]
-    );
-    return result.rows[0];
+    if(!data.investor_password || !data.mt5_server)throw new ConfigurationError('VPS verification requires an investor password and server. Complete verified registration first.');
+    const verified=await vpsService.verifyConnection(data.account_number,data.mt5_server,data.investor_password);
+    await validateHostAllocation(data.challenge_id,data.email);
+    return db.transaction(async()=>{
+      await db.query('SELECT id FROM trading_challenges WHERE id=$1 FOR UPDATE',[data.challenge_id]);
+      await validateVerifiedRegistration(data.challenge_id,data.account_type,verified,'native');
+      const result=await db.query(`INSERT INTO trading_registrations
+        (challenge_id,user_id,username,nickname,account_type,email,account_number,mt5_server,client_uid,source,
+         investor_password,connection_verified,connection_verified_at,is_cent,account_subtype,registration_balance,last_known_balance)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,true,NOW(),$12,$13,$14,$14) RETURNING *`,
+        [data.challenge_id,data.user_id,data.username,data.nickname || null,data.account_type,data.email,data.account_number,
+         data.mt5_server,data.client_uid,data.source || 'telegram',data.investor_password,
+         ['USC','USCENT'].includes(verified.currency!.toUpperCase()),verified.account_subtype || 'standard',verified.balance]);
+      return result.rows[0];
+    });
   }
 
   async getRegistration(challengeId: number, userId: number): Promise<TradingRegistration | null> {
     const result = await db.query(
-      'SELECT * FROM trading_registrations WHERE challenge_id = $1 AND user_id = $2',
+      "SELECT * FROM trading_registrations WHERE challenge_id = $1 AND user_id = $2 AND status IS DISTINCT FROM 'removed'",
       [challengeId, userId]
     );
     return result.rows[0] || null;
@@ -211,7 +229,7 @@ class TradingChallengeService {
 
   async getRegistrationByEmail(challengeId: number, email: string): Promise<TradingRegistration | null> {
     const result = await db.query(
-      'SELECT * FROM trading_registrations WHERE challenge_id = $1 AND LOWER(email) = LOWER($2)',
+      "SELECT * FROM trading_registrations WHERE challenge_id = $1 AND LOWER(email) = LOWER($2) AND status IS DISTINCT FROM 'removed'",
       [challengeId, email]
     );
     return result.rows[0] || null;
@@ -219,7 +237,7 @@ class TradingChallengeService {
 
   async isNicknameTaken(challengeId: number, nickname: string): Promise<boolean> {
     const result = await db.query(
-      'SELECT 1 FROM trading_registrations WHERE challenge_id = $1 AND LOWER(nickname) = LOWER($2)',
+      "SELECT 1 FROM trading_registrations WHERE challenge_id = $1 AND LOWER(nickname) = LOWER($2) AND status IS DISTINCT FROM 'removed'",
       [challengeId, nickname.trim()]
     );
     return result.rows.length > 0;
@@ -227,7 +245,7 @@ class TradingChallengeService {
 
   async getAllRegistrations(challengeId: number): Promise<TradingRegistration[]> {
     const result = await db.query(
-      'SELECT * FROM trading_registrations WHERE challenge_id = $1 ORDER BY registered_at ASC',
+      "SELECT * FROM trading_registrations WHERE challenge_id = $1 AND status IS DISTINCT FROM 'removed' ORDER BY registered_at ASC",
       [challengeId]
     );
     return result.rows;
@@ -239,7 +257,7 @@ class TradingChallengeService {
          COUNT(*) as total,
          COUNT(CASE WHEN account_type = 'demo' THEN 1 END) as demo,
          COUNT(CASE WHEN account_type = 'real' THEN 1 END) as real
-       FROM trading_registrations WHERE challenge_id = $1`,
+       FROM trading_registrations WHERE challenge_id = $1 AND status IS DISTINCT FROM 'removed'`,
       [challengeId]
     );
     const row = result.rows[0];
@@ -250,23 +268,18 @@ class TradingChallengeService {
     };
   }
 
-  async updateAccountNumber(registrationId: number, accountNumber: string, mt5Server: string | null): Promise<void> {
-    await db.query(
-      'UPDATE trading_registrations SET account_number = $1, mt5_server = $2, updated_at = NOW() WHERE id = $3',
-      [accountNumber, mt5Server, registrationId]
-    );
-  }
-
   async deleteRegistration(registrationId: number): Promise<void> {
-    await db.query('DELETE FROM wp_leaderboard WHERE registration_id = $1', [registrationId]);
-    await db.query('DELETE FROM wp_leaderboard_staging WHERE registration_id = $1', [registrationId]);
-    await db.query('DELETE FROM wp_trades WHERE registration_id = $1', [registrationId]);
-    await db.query('DELETE FROM trading_registrations WHERE id = $1', [registrationId]);
+    await db.transaction(async () => {
+      // Keep raw trades, deals and funding records available for audit and reversal.
+      await db.query("UPDATE trading_registrations SET status='removed',disqualified=true,disqualified_source='removed',disqualified_reason='Registration removed',disqualified_at=NOW() WHERE id=$1", [registrationId]);
+      await db.query('DELETE FROM wp_leaderboard WHERE registration_id = $1', [registrationId]);
+      await db.query('DELETE FROM wp_leaderboard_staging WHERE registration_id = $1', [registrationId]);
+    });
   }
 
   async deleteRegistrationByUsername(challengeId: number, username: string): Promise<TradingRegistration | null> {
     const result = await db.query(
-      'SELECT * FROM trading_registrations WHERE challenge_id = $1 AND LOWER(username) = LOWER($2)',
+      "SELECT * FROM trading_registrations WHERE challenge_id = $1 AND LOWER(username) = LOWER($2) AND status IS DISTINCT FROM 'removed'",
       [challengeId, username.replace('@', '')]
     );
     const reg = result.rows[0] || null;
@@ -276,7 +289,7 @@ class TradingChallengeService {
 
   async deleteRegistrationByEmail(challengeId: number, email: string): Promise<TradingRegistration | null> {
     const result = await db.query(
-      'SELECT * FROM trading_registrations WHERE challenge_id = $1 AND LOWER(email) = LOWER($2)',
+      "SELECT * FROM trading_registrations WHERE challenge_id = $1 AND LOWER(email) = LOWER($2) AND status IS DISTINCT FROM 'removed'",
       [challengeId, email]
     );
     const reg = result.rows[0] || null;
@@ -416,10 +429,8 @@ class TradingChallengeService {
   // ==================== DAILY STATS ====================
 
   async updateDailyStat(challengeId: number, field: string): Promise<void> {
-    const now = new Date();
-    const eatOffset = 3;
-    const eatTime = new Date(now.getTime() + eatOffset * 60 * 60 * 1000);
-    const dateStr = `${eatTime.getUTCFullYear()}-${(eatTime.getUTCMonth() + 1).toString().padStart(2, '0')}-${eatTime.getUTCDate().toString().padStart(2, '0')}`;
+    const challenge=await this.getChallengeById(challengeId);
+    const dateStr=getLocalTime(new Date(),challenge?.timezone || 'Africa/Nairobi').dateStr;
 
     await db.query(
       `INSERT INTO trading_daily_stats (challenge_id, date, ${field})
@@ -558,7 +569,7 @@ class TradingChallengeService {
 
   async getActiveRegistrations(challengeId: number): Promise<TradingRegistration[]> {
     const result = await db.query(
-      `SELECT * FROM trading_registrations WHERE challenge_id = $1 AND disqualified = false ORDER BY id`,
+      `SELECT * FROM trading_registrations WHERE challenge_id = $1 AND status IS DISTINCT FROM 'removed' AND disqualified = false ORDER BY id`,
       [challengeId]
     );
     return result.rows;
@@ -587,7 +598,7 @@ class TradingChallengeService {
 
   async markDisqualifiedPartner(registrationId: number): Promise<void> {
     await db.query(
-      `UPDATE trading_registrations SET disqualified = true, disqualified_at = NOW(), disqualified_reason = 'Partner changed from BirrForex', partner_status = 'LEFT' WHERE id = $1`,
+      `UPDATE trading_registrations SET disqualified = true, disqualified_at = NOW(), disqualified_source='partner_departure',disqualified_reason = 'Account left the required broker partnership', partner_status = 'LEFT' WHERE id = $1`,
       [registrationId]
     );
   }
@@ -629,7 +640,7 @@ class TradingChallengeService {
   async getCumulativePartnerStats(challengeId: number): Promise<{ changed_real: number; changed_demo: number; still_changing_real: number; still_changing_demo: number; cleared: number }> {
     // Changed = disqualified due to partner change
     const disqualified = await db.query(
-      `SELECT account_type, COUNT(*) as cnt FROM trading_registrations WHERE challenge_id = $1 AND disqualified = true AND disqualified_reason = 'Partner changed from BirrForex' GROUP BY account_type`,
+      `SELECT account_type, COUNT(*) as cnt FROM trading_registrations WHERE challenge_id = $1 AND disqualified = true AND (disqualified_source='partner_departure' OR disqualified_reason='Partner changed from BirrForex') GROUP BY account_type`,
       [challengeId]
     );
     // Still changing = warned but not yet disqualified

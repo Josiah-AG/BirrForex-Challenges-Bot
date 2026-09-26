@@ -1,3 +1,4 @@
+import { getLocalTime } from '../utils/timezone';
 import { Context, Markup } from 'telegraf';
 import axios from 'axios';
 import * as fs from 'fs';
@@ -437,8 +438,9 @@ class EvaluationHandler {
       rules_enabled: wpRules.rules_enabled,
       weekendTradingAllowed: wpRules.weekend_trading,
       minTotalTrades: wpRules.min_total_trades || 0,
-      challengeStartDate: startDate.getUTCFullYear() + '-' + String(startDate.getUTCMonth() + 1).padStart(2, '0') + '-' + String(startDate.getUTCDate()).padStart(2, '0'),
-      challengeEndDate: endDate.getUTCFullYear() + '-' + String(endDate.getUTCMonth() + 1).padStart(2, '0') + '-' + String(endDate.getUTCDate()).padStart(2, '0'),
+      timezone: (challenge as any).timezone || 'Africa/Nairobi',
+      challengeStartDate: getLocalTime(startDate,(challenge as any).timezone || 'Africa/Nairobi').dateStr,
+      challengeEndDate: getLocalTime(endDate,(challenge as any).timezone || 'Africa/Nairobi').dateStr,
       startingBalanceLimit: Number(challenge.starting_balance) || 50,
       targetBalance: Number(challenge.target_balance) || 100,
       // OFF is enforced explicitly by the evaluator; no artificial numeric limits.

@@ -1,3 +1,6 @@
+import { queueCredentialRecovery } from '../services/credentialRecovery';
+import { getLocalTime } from '../utils/timezone';
+import { zonedTimeToUtc } from 'date-fns-tz';
 import { isRuleEnabled, isWeekendProhibited } from '../utils/rulePolicy';
 // VPS Pull Scheduler v4.0 — unified continuous shared-queue model.
 // Single queue, all terminals run continuously until it's empty. -6 credential
@@ -262,6 +265,7 @@ class SharedQueue {
 export class VpsPullScheduler {
   private bot: Bot;
   private isRunning = false;
+  private runningChallengeId: number | null = null;
   private cancelRequested = false;
   private abortController: AbortController | null = null;
   private baseUrl: string;
@@ -279,8 +283,8 @@ export class VpsPullScheduler {
    */
   private credentialFailureCache = new Set<string>();
 
-  cancelPull() {
-    if (!this.isRunning) return false;
+  cancelPull(challengeId?: number) {
+    if (!this.isRunning || (challengeId !== undefined && this.runningChallengeId !== challengeId)) return false;
     this.cancelRequested = true;
     this.sharedQueue.load([]); // drain queue so no new accounts are picked up
     this.abortController?.abort(); // abort any in-flight axios requests immediately
@@ -331,6 +335,7 @@ export class VpsPullScheduler {
 
     // Per-challenge pull schedule: check every minute if any challenge needs a pull now
     cron.schedule('* * * * *', () => this.checkPullSchedule(), { timezone: 'UTC' });
+    cron.schedule('* * * * *', () => this.retryCredentialRecoveries(), { timezone: 'UTC' });
 
     // Check for 48h disqualifications every hour
     cron.schedule('30 * * * *', () => this.checkDisqualifications(), { timezone: 'UTC' });
@@ -378,48 +383,52 @@ export class VpsPullScheduler {
    */
   private pullScheduleTriggered = new Set<string>();
 
+  async enqueueChallengePull(challengeId: number, options: {overrideLock?:boolean;includeDisqualified?:boolean;fullHistory?:boolean} = {}): Promise<number> {
+    return db.transaction(async()=>{
+      const challenge=await db.query('SELECT status,leaderboard_locked_at FROM trading_challenges WHERE id=$1 FOR UPDATE',[challengeId]);
+      if(!challenge.rows[0] || (!options.overrideLock && (challenge.rows[0].leaderboard_locked_at || !['active','reviewing'].includes(challenge.rows[0].status))))throw new Error('Challenge is not open for updates');
+      const queued=await db.query(`INSERT INTO challenge_pull_jobs(challenge_id,slot,override_lock,include_disqualified,full_history) VALUES($1,$2,$3,$4,$5) RETURNING id`,[challengeId,`manual:${Date.now()}:${require('crypto').randomUUID()}`,!!options.overrideLock,!!options.includeDisqualified,!!options.fullHistory]);
+      return Number(queued.rows[0].id);
+    });
+  }
+
   private async checkPullSchedule() {
-    if (this.isRunning) {
-      // Don't queue from the scheduler — it runs every minute and would flood the queue
-      return;
-    }
-
+    const coordinator=await db.getClient();
+    let ownsCoordinator=false;
     try {
-      const { getLocalTime } = require('../utils/timezone');
-
-      const challenges = await db.query(
-        `SELECT id, status, pull_times, end_date, evaluation_type, winners_posted_at, timezone
-         FROM trading_challenges
-         WHERE status IN ('active', 'reviewing')
-           AND (status = 'active' OR (winners_posted_at IS NULL AND end_date > NOW() - INTERVAL '48 hours'))`
-      );
-
-      const now = new Date();
-
-      for (const challenge of challenges.rows) {
-        const tz = challenge.timezone || 'Africa/Nairobi';
-        const local = getLocalTime(now, tz);
-        const currentHHMM = local.timeStr;
-        const dateKey = local.dateStr;
-
-        const pullTimes: string[] = challenge.pull_times || ['00:00','04:00','08:00','12:00','16:00','20:00'];
-        const dedupKey = `${challenge.id}_${currentHHMM}_${dateKey}`;
-
-        if (pullTimes.includes(currentHHMM) && !this.pullScheduleTriggered.has(dedupKey)) {
-          this.pullScheduleTriggered.add(dedupKey);
-          for (const key of this.pullScheduleTriggered) {
-            if (!key.includes(dateKey)) this.pullScheduleTriggered.delete(key);
-          }
-          console.log(`⏰ VPS Pull: Scheduled pull triggered for challenge ${challenge.id} at ${currentHHMM} (${tz})`);
-          this.runPullCycleForChallenge(challenge.id).catch(e =>
-            console.error(`Scheduled pull error for challenge ${challenge.id}:`, e)
-          );
-          return; // One at a time — next minute will pick up any others
+      const lock=await coordinator.query('SELECT pg_try_advisory_lock(26092604,0) AS locked');
+      ownsCoordinator=lock.rows[0].locked;
+      if(!ownsCoordinator)return;
+      const {getLocalTime}=require('../utils/timezone');
+      const challenges=await db.query(`SELECT id,pull_times,timezone FROM trading_challenges
+        WHERE status IN ('active','reviewing') AND leaderboard_locked_at IS NULL
+        AND (status='active' OR (winners_posted_at IS NULL AND end_date>NOW()-INTERVAL '48 hours'))`);
+      for(const challenge of challenges.rows){
+        const local=getLocalTime(new Date(),challenge.timezone || 'Africa/Nairobi');
+        for(const slot of challenge.pull_times || ['00:00','04:00','08:00','12:00','16:00','20:00']){
+          if(slot>local.timeStr)continue;
+          await db.query(`INSERT INTO challenge_pull_jobs(challenge_id,slot) VALUES($1,$2) ON CONFLICT DO NOTHING`,[challenge.id,`${local.dateStr} ${slot}`]);
         }
       }
-    } catch (e) {
-      // Silent — runs every minute
-    }
+      if(this.isRunning)return;
+      const job=await db.transaction(async()=>{
+        const rows=await db.query(`SELECT j.* FROM challenge_pull_jobs j JOIN trading_challenges c ON c.id=j.challenge_id
+          WHERE (j.state='pending' OR (j.state='running' AND j.updated_at<NOW()-INTERVAL '2 hours'))
+          AND j.attempts<3 AND (j.override_lock OR (c.status IN ('active','reviewing') AND c.leaderboard_locked_at IS NULL))
+          ORDER BY j.id FOR UPDATE OF j SKIP LOCKED LIMIT 1`);
+        if(!rows.rows[0])return null;
+        await db.query("UPDATE challenge_pull_jobs SET state='running',attempts=attempts+1,updated_at=NOW() WHERE id=$1",[rows.rows[0].id]);
+        return rows.rows[0];
+      });
+      if(!job)return;
+      try {
+        await this.runPullCycleForChallenge(job.challenge_id,job.override_lock,true,job.include_disqualified,job.full_history);
+        await db.query("UPDATE challenge_pull_jobs SET state='completed',updated_at=NOW() WHERE id=$1",[job.id]);
+      } catch(error){
+        await db.query("UPDATE challenge_pull_jobs SET state=CASE WHEN $3::boolean THEN 'cancelled' WHEN attempts>=3 THEN 'failed' ELSE 'pending' END,error=$2,updated_at=NOW() WHERE id=$1",[job.id,(error as Error).message,(error as any).code === 'PULL_CANCELLED']);
+      }
+    } catch(error){ console.error('Scheduled pull job error:',error); }
+    finally { if(ownsCoordinator)await coordinator.query('SELECT pg_advisory_unlock(26092604,0)'); coordinator.release(); }
   }
 
   /**
@@ -427,402 +436,37 @@ export class VpsPullScheduler {
    * If staging has data but cycle wasn't completed, resume pulling remaining accounts.
    */
   private async resumeInterruptedCycle() {
+    // Durable scheduled jobs resume themselves. Legacy staging only schedules its own challenge.
     try {
-      // Check if staging has data (means a cycle was in progress)
-      const staging = await db.query(
-        `SELECT DISTINCT challenge_id FROM wp_leaderboard_staging LIMIT 1`
-      );
-      if (staging.rows.length === 0) return; // No interrupted cycle
-
-      const challengeId = staging.rows[0].challenge_id;
-
-      // Get accounts already in staging (already pulled this cycle)
-      const alreadyPulled = await db.query(
-        `SELECT registration_id FROM wp_leaderboard_staging WHERE challenge_id = $1`,
-        [challengeId]
-      );
-      const pulledIds = new Set(alreadyPulled.rows.map((r: any) => r.registration_id));
-
-      // Get all accounts that should be pulled
-      const allAccounts = await this.getAccountsToPull(challengeId);
-      const remaining = allAccounts.filter(a => !pulledIds.has(a.registrationId));
-
-      if (remaining.length === 0) {
-        console.log(`📊 VPS Pull: Interrupted cycle for challenge ${challengeId} was actually complete. Staging ready for next flush.`);
-        return;
-      }
-
-      console.log(`🔄 VPS Pull: Resuming interrupted cycle — ${remaining.length} accounts remaining (${pulledIds.size} already done)`);
-
-      // Resume pulling remaining accounts
-      if (this.isRunning) return;
-      this.isRunning = true;
-      // Tell the router we're pulling → myFXpath is capped to ~1/3 of terminals.
-      void this.setRouterChallengePullState(true);
-
-      const challenge = await this.resolveChallengeForPull();
-      if (!challenge || challenge.id !== challengeId) {
-        this.isRunning = false;
-        void this.setRouterChallengePullState(false);
-        return;
-      }
-
-      const healthyTerminals = this.terminals.filter(t => t.isHealthy);
-      if (healthyTerminals.length === 0) { this.isRunning = false; void this.setRouterChallengePullState(false); return; }
-
-      // Load remaining into shared queue and process
-      this.sharedQueue.load(remaining.map(a => ({ ...a, isPriority: false })));
-      const batchId = await this.createPullBatch(challengeId, remaining.length);
-      const allResults = await this.runSharedQueueWorkers(healthyTerminals, challenge, batchId);
-
-      const successful = allResults.filter(r => r.success);
-      const failed = allResults.filter(r => !r.success);
-      const successfulAccounts = remaining.filter(a => successful.some(r => r.registrationId === a.registrationId));
-      await this.inlineReconcile(challengeId, batchId, successfulAccounts, successful, healthyTerminals);
-      await this.resolveNullOpenTimes(challengeId, batchId, successfulAccounts, healthyTerminals, challenge);
-      if (!this.cancelRequested) {
-        await this.reconcileUnexplainedBalances(challengeId, batchId, successfulAccounts, healthyTerminals);
-      }
-      await this.evaluateAllAccounts(challengeId, successfulAccounts, batchId);
-      const newTrades = successful.reduce((sum, r) => sum + (r.tradesCount || 0), 0);
-      await this.completePullBatch(batchId, successful.length, failed.length, newTrades, 'completed');
-
-      console.log(`✅ VPS Pull: Resumed cycle complete — ${remaining.length} accounts processed`);
-
-      this.isRunning = false;
-      void this.setRouterChallengePullState(false);
-    } catch (error) {
-      console.error('⚠️ VPS Pull: Resume interrupted cycle error:', error);
-      this.isRunning = false;
-      void this.setRouterChallengePullState(false);
-    }
+      const rows=await db.query(`SELECT s.challenge_id,MAX(s.evaluated_at) AS evaluated_at
+        FROM wp_leaderboard_staging s JOIN trading_challenges c ON c.id=s.challenge_id
+        WHERE c.status IN ('active','reviewing') AND c.leaderboard_locked_at IS NULL GROUP BY s.challenge_id`);
+      for(const row of rows.rows)await db.query(`INSERT INTO challenge_pull_jobs(challenge_id,slot) VALUES($1,$2) ON CONFLICT DO NOTHING`,
+        [row.challenge_id,`resume:${new Date(row.evaluated_at).toISOString()}`]);
+    } catch(error){console.error('Interrupted update recovery failed:',error);}
   }
 
-  /**
-   * Main pull cycle — shared queue architecture
-   */
+  /** Legacy callers enqueue every eligible challenge; one coordinator executes the work. */
   async runPullCycle() {
-    if (this.isRunning) {
-      this.queuePull({ type: 'scheduled' });
-      return;
-    }
-    this.isRunning = true;
-    this.cancelRequested = false;
-    this.abortController = new AbortController();
-    const startTime = Date.now();
-    // Tell the router we're pulling → myFXpath is capped to ~1/3 of terminals.
-    void this.setRouterChallengePullState(true);
-
-    try {
-      const challengeToPull = await this.resolveChallengeForPull();
-      if (!challengeToPull) {
-        this.isRunning = false;
-        this.drainQueue();
-        return;
-      }
-
-      // Weekend logic
-      if (await this.shouldSkipWeekend(challengeToPull)) {
-        this.isRunning = false;
-        return;
-      }
-
-      // Determine if this is a final sync (Saturday OR challenge ended)
-      const isChallengeEnded = challengeToPull.status === 'reviewing' || challengeToPull.status === 'completed';
-      const isFinalSync = this.isSaturdayFinalSync(challengeToPull) || isChallengeEnded;
-
-      // === STEP 1: Build shared queue with failed-first priority ===
-      const accounts = await this.getAccountsToPull(challengeToPull.id);
-      if (accounts.length === 0) {
-        console.log('📊 VPS Pull: No accounts to pull');
-        this.isRunning = false;
-        return;
-      }
-
-      // Mark priority accounts (failed in last cycle)
-      const lastFailures = await leaderboardService.getLastCycleFailures(challengeToPull.id);
-      const prioritySet = new Set(lastFailures);
-      const accountsWithPriority = accounts.map(a => ({
-        ...a,
-        isPriority: prioritySet.has(a.registrationId),
-      }));
-
-      const priorityCount = accountsWithPriority.filter(a => a.isPriority).length;
-      console.log(`📊 VPS Pull: Starting — ${accounts.length} accounts (${priorityCount} priority), ${this.getHealthyTerminalCount()} healthy terminals`);
-
-      // Reset per-cycle state
-      this.terminals.forEach(t => { t.totalProcessed = 0; t.totalSuccess = 0; t.totalFailed = 0; t.isHealthy = true; t.consecutiveFailures = 0; });
-      this.credentialFailureCache.clear();
-      await this.clearRouterCredentialCache();
-
-      // Create batch record
-      const batchId = await this.createPullBatch(challengeToPull.id, accounts.length);
-
-      // Load shared queue
-      this.sharedQueue.load(accountsWithPriority);
-
-      // === STEP 3: Process with shared queue (terminals grab work) ===
-      const healthyTerminals = this.terminals.filter(t => t.isHealthy);
-      console.log(`📊 VPS Pull: ${healthyTerminals.length} healthy terminals available: ${healthyTerminals.map(t => `T${t.id}`).join(', ')}`);
-      if (healthyTerminals.length === 0) {
-        console.error('❌ VPS Pull: ALL terminals unhealthy! Aborting.');
-        await this.completePullBatch(batchId, 0, accounts.length, 0, 'all_terminals_unhealthy');
-        await this.reportCriticalFailure(challengeToPull, 'All 10 terminals are unhealthy.');
-        this.isRunning = false;
-        return;
-      }
-
-      // Launch terminal workers (they pull from shared queue)
-      const allResults = await this.runSharedQueueWorkers(healthyTerminals, challengeToPull, batchId);
-
-      // If admin cancelled — skip retry, leaderboard, and reporting; just clean up
-      if (this.cancelRequested) {
-        console.log('🛑 VPS Pull: Cancelled — skipping retry/leaderboard steps');
-        this.isRunning = false;
-        this.cancelRequested = false;
-        return;
-      }
-
-      // === STEP 4: Retry + credential confirmation are now handled INSIDE the shared
-      // queue itself (see terminalWorker / SharedQueue.requeueForRetry /
-      // requeueForConfirmation). runSharedQueueWorkers() above only returns once the
-      // queue is completely empty — every account is either a final success, a
-      // CONFIRMED invalid_credentials, or a retry_exhausted failure after
-      // MAX_ACCOUNT_ATTEMPTS attempts. No separate retry phases needed here.
-      {
-        const stillUnresolved = allResults.filter(r => !r.success && r.errorCode === 'credential_suspect');
-        if (stillUnresolved.length > 0) {
-          // Should not normally happen — queue only empties once every account reaches
-          // a terminal state. Log loudly so it's visible if it ever does.
-          console.warn(`⚠️ VPS Pull: ${stillUnresolved.length} accounts ended in credential_suspect (unconfirmed) — investigate`);
-        }
-      }
-
-      // === STEP 5: Categorize final results ===
-      const successful = allResults.filter(r => r.success);
-      const credentialFailures = allResults.filter(r => !r.success && r.errorCode === 'invalid_credentials');
-      const otherFailures = allResults.filter(r => !r.success && r.errorCode !== 'invalid_credentials');
-
-      // Handle credential failures — notify users.
-      // NOTE: terminalWorker already calls handleCredentialFailure() immediately the
-      // instant each account is confirmed (so the DB write survives an interrupted
-      // cycle). handleCredentialFailure() is idempotent — this loop is just a safety
-      // net in case any slipped through (e.g. an error swallowed the immediate call).
-      for (const failure of credentialFailures) {
-        await this.handleCredentialFailure(failure, challengeToPull);
-      }
-
-      // Bulk update pull statuses
-      await this.bulkUpdatePullStatus(allResults);
-
-      // Log errors
-      for (const failure of [...credentialFailures, ...otherFailures]) {
-        await this.logPullError(batchId, failure);
-      }
-
-      // === PHASES 2-5 with timing ===
-      const phaseTimes: { pull: number; resolve: number; settle: number; ohlc: number; evaluate: number } = { pull: 0, resolve: 0, settle: 0, ohlc: 0, evaluate: 0 };
-      phaseTimes.pull = Math.round((Date.now() - startTime) / 1000); // Phase 1 just finished
-
-      const successfulAccounts = accountsWithPriority.filter(a => successful.some(r => r.registrationId === a.registrationId));
-
-      // Phase 2: Inline reconcile + resolve null open times
-      const resolveStart = Date.now();
-      await db.query(`UPDATE wp_pull_batches SET phase = 'resolving', phase_started_at = NOW() WHERE id = $1`, [batchId]).catch(() => {});
-      await this.inlineReconcile(challengeToPull.id, batchId, successfulAccounts, successful, healthyTerminals);
-      await this.resolveNullOpenTimes(challengeToPull.id, batchId, successfulAccounts, healthyTerminals, challengeToPull);
-      phaseTimes.resolve = Math.round((Date.now() - resolveStart) / 1000);
-
-      // Phase 2.5: Balance reconciliation — detect accounts where VPS balance
-      // can't be explained by starting_balance + trade_profits + deposits.
-      // These have missing trades. Do a full re-pull for just those accounts.
-      if (!this.cancelRequested) {
-        await this.reconcileUnexplainedBalances(challengeToPull.id, batchId, successfulAccounts, healthyTerminals);
-      }
-
-      // Phase 3: 30s settle delay
-      const settleStart = Date.now();
-      await db.query(`UPDATE wp_pull_batches SET phase = 'settling', phase_started_at = NOW() WHERE id = $1`, [batchId]).catch(() => {});
-      console.log('📊 VPS Pull: Waiting 30s for terminals to settle before OHLC...');
-      await this.delay(30000);
-      phaseTimes.settle = Math.round((Date.now() - settleStart) / 1000);
-
-      // Phase 4: OHLC UPDATE
-      const ohlcStart = Date.now();
-      await db.query(`UPDATE wp_pull_batches SET phase = 'ohlc', phase_started_at = NOW() WHERE id = $1`, [batchId]).catch(() => {});
-      await this.updateOhlcCandles(challengeToPull).catch(e =>
-        console.error('⚠️ OHLC update error (non-fatal):', e)
-      );
-      phaseTimes.ohlc = Math.round((Date.now() - ohlcStart) / 1000);
-
-      // Phase 5: Evaluate
-      const evalStart = Date.now();
-      await db.query(`UPDATE wp_pull_batches SET phase = 'evaluating', phase_started_at = NOW() WHERE id = $1`, [batchId]).catch(() => {});
-      await this.evaluateAllAccounts(challengeToPull.id, successfulAccounts, batchId, successful);
-      phaseTimes.evaluate = Math.round((Date.now() - evalStart) / 1000);
-
-      // === POST-EVAL: Retry SL checks for trades still pending (missing OHLC) ===
-      await this.postEvalSlRetry(challengeToPull);
-
-      // Complete batch — save phase timings
-      const newTrades = successful.reduce((sum, r) => sum + (r.tradesCount || 0), 0);
-      await this.completePullBatch(batchId, successful.length, credentialFailures.length + otherFailures.length, newTrades, 'completed');
-      await db.query(
-        `UPDATE wp_pull_batches SET phase_times = $1 WHERE id = $2`,
-        [JSON.stringify(phaseTimes), batchId]
-      ).catch(() => {});
-      await this.savePullTerminalStats(batchId);
-
-      // Log phase breakdown
-      console.log(`📊 Phase timing: Pull=${phaseTimes.pull}s | Resolve=${phaseTimes.resolve}s | Settle=${phaseTimes.settle}s | OHLC=${phaseTimes.ohlc}s | Evaluate=${phaseTimes.evaluate}s | Total=${phaseTimes.pull + phaseTimes.resolve + phaseTimes.settle + phaseTimes.ohlc + phaseTimes.evaluate}s`);
-
-      // === STEP 6: Flush staging → live + update rankings after every cycle ===
-      // Runs immediately after pull+evaluation so users always see current data,
-      // not data from the previous cycle. The start-of-cycle flush (step 1) stays
-      // as a safety net but will be a no-op once staging is cleared here.
-      if (successful.length > 0) {
-        const flushLabel = isFinalSync ? 'Final sync' : 'Cycle complete';
-        console.log(`📊 VPS Pull: ${flushLabel} — flushing staging + updating leaderboard`);
-        await leaderboardService.flushStagingToLive(challengeToPull.id);
-        await leaderboardService.ensureAllParticipantsHaveEntries(challengeToPull.id);
-        await leaderboardService.updateRankings(challengeToPull.id, true);
-      }
-
-      // === STEP 7: Auto-DQ users who can't meet min_active_days (challenge ended) ===
-      if (isChallengeEnded) {
-        try {
-          for (const { accountType, rules: rulesParams } of await this.categoryRules(challengeToPull.id)) {
-          const minActiveDays = rulesParams.min_active_days || 0;
-          const minActiveDaysEnabled = isRuleEnabled(rulesParams, 'min_active_days');
-
-          if (minActiveDays > 0 && minActiveDaysEnabled) {
-            // DQ users with fewer active days than required (including 0 trades)
-            const underperformers = await db.query(
-              `SELECT r.id, r.account_number, r.username, COALESCE(l.active_days, 0) as active_days
-               FROM trading_registrations r
-               LEFT JOIN wp_leaderboard l ON r.id = l.registration_id
-               WHERE r.challenge_id = $1
-                 AND r.disqualified = false AND r.account_type = $3
-                 AND (COALESCE(l.active_days, 0) < $2)`,
-              [challengeToPull.id, minActiveDays, accountType]
-            );
-
-            if (underperformers.rows.length > 0) {
-              for (const u of underperformers.rows) {
-                await db.query(
-                  `UPDATE trading_registrations SET disqualified = true, disqualified_at = NOW(), disqualified_reason = $1 WHERE id = $2 AND disqualified = false`,
-                  [`Did not meet minimum ${minActiveDays} active trading days (traded ${u.active_days} days)`, u.id]
-                );
-                await db.query(
-                  `UPDATE wp_leaderboard SET is_disqualified = true, disqualify_reason = $1 WHERE registration_id = $2`,
-                  [`Did not meet minimum ${minActiveDays} active days (${u.active_days}/${minActiveDays})`, u.id]
-                );
-              }
-              console.log(`📊 VPS Pull: Auto-DQ'd ${underperformers.rows.length} users for insufficient active days`);
-
-              // Re-rank after DQs
-              await leaderboardService.updateRankings(challengeToPull.id, true);
-            }
-          }
-          }
-        } catch (e) {
-          console.error('⚠️ Auto-DQ check error:', e);
-        }
-
-        // === MIN TOTAL TRADES DQ (challenge ended) ===
-        try {
-          for (const { accountType, rules: rulesParams2 } of await this.categoryRules(challengeToPull.id)) {
-          const minTotalTrades = rulesParams2.min_total_trades || 0;
-          const minTotalTradesEnabled = isRuleEnabled(rulesParams2, 'min_total_trades');
-
-          if (minTotalTrades > 0 && minTotalTradesEnabled) {
-            const underTraders = await db.query(
-              `SELECT r.id, r.account_number, r.username, COALESCE(l.total_trades, 0) as total_trades
-               FROM trading_registrations r
-               LEFT JOIN wp_leaderboard l ON r.id = l.registration_id
-               WHERE r.challenge_id = $1
-                 AND r.disqualified = false AND r.account_type = $3
-                 AND (COALESCE(l.total_trades, 0) < $2)`,
-              [challengeToPull.id, minTotalTrades, accountType]
-            );
-
-            if (underTraders.rows.length > 0) {
-              for (const u of underTraders.rows) {
-                await db.query(
-                  `UPDATE trading_registrations SET disqualified = true, disqualified_at = NOW(), disqualified_reason = $1 WHERE id = $2 AND disqualified = false`,
-                  [`Did not meet minimum ${minTotalTrades} trades (completed ${u.total_trades} trades)`, u.id]
-                );
-                await db.query(
-                  `UPDATE wp_leaderboard SET is_disqualified = true, disqualify_reason = $1 WHERE registration_id = $2`,
-                  [`Minimum ${minTotalTrades} trades not met (${u.total_trades}/${minTotalTrades})`, u.id]
-                );
-              }
-              console.log(`📊 VPS Pull: Auto-DQ'd ${underTraders.rows.length} users for insufficient total trades`);
-              await leaderboardService.updateRankings(challengeToPull.id, true);
-            }
-          }
-          }
-        } catch (e) {
-          console.error('⚠️ Min total trades DQ check error:', e);
-        }
-      }
-
-      const duration = Math.round((Date.now() - startTime) / 1000);
-      const terminalSummary = this.terminals.map(t => `T${t.id}:${t.isHealthy ? '✓' : '✗'}`).join(' ');
-      console.log(`✅ VPS Pull: Done in ${duration}s — ${successful.length}✓ ${credentialFailures.length}🔑 ${otherFailures.length}✗ | ${terminalSummary}`);
-
-      // Log per-terminal distribution (verify work stealing is balanced)
-      const terminalStats = this.terminals
-        .filter(t => t.totalProcessed > 0)
-        .map(t => `T${t.id}:${t.totalSuccess}✓/${t.totalProcessed}`)
-        .join(' ');
-      if (terminalStats) {
-        console.log(`📊 Terminal distribution: ${terminalStats}`);
-      }
-
-      // === POST-CYCLE: Report unresolved candle check failures to admin ===
-      await this.reportCandleFailures(challengeToPull.id, duration);
-
-      // Report to admin
-      await this.maybeReportToAdmin(challengeToPull, successful, credentialFailures, otherFailures, duration);
-
-    } catch (error) {
-      console.error('❌ VPS Pull: Cycle crashed:', error);
-      try {
-        await this.bot.bot.telegram.sendMessage(config.adminUserId,
-          `❌ <b>VPS Pull Cycle Crashed</b>\n\n<code>${(error as Error).message}</code>`,
-          { parse_mode: 'HTML' });
-      } catch (e) {}
-    } finally {
-      this.isRunning = false;
-      this.cancelRequested = false;
-      this.abortController = null;
-      // Pull cycle done → tell the router myFXpath may use all terminals again.
-      void this.setRouterChallengePullState(false);
-      setTimeout(() => this.drainQueue(), 2000);
-    }
+    const challenges=await db.query(`SELECT id FROM trading_challenges WHERE status IN ('active','reviewing') AND leaderboard_locked_at IS NULL`);
+    for(const challenge of challenges.rows)await this.enqueueChallengePull(challenge.id);
   }
 
   /**
    * Run pull cycle for a specific challenge ID — bypasses status checks.
    * Used by admin "Full Pull + Evaluate + Rank" button.
    */
-  async runPullCycleForChallenge(challengeId: number) {
+  async runPullCycleForChallenge(challengeId: number, overrideLock = false, ownsCoordinator = false, includeDisqualified = false, fullHistory = false) {
     if (this.isRunning) {
-      console.log('🛑 VPS Pull: Admin force pull — cancelling running cycle...');
-      this.cancelPull();
-      // Wait up to 60s for the running cycle to release the lock
-      const waited = await this.waitForIdle(60000);
-      if (!waited) {
-        console.error('❌ VPS Pull: Running cycle did not release within 60s — forcing lock reset');
-        this.isRunning = false;
-        this.cancelRequested = false;
-        this.abortController = null;
-      }
-      console.log('✅ VPS Pull: Previous cycle cleared — starting admin force pull');
+      // Never cancel another host's workers or reset their lock.
+      throw new Error('An update is already running. This challenge must wait for the next available slot.');
     }
-    // Admin force pull takes priority — clear any queued scheduled pulls
-    this.pullQueue = [];
+    const coordinator=ownsCoordinator ? null : await db.getClient();
+    if(coordinator){
+      const lock=await coordinator.query('SELECT pg_try_advisory_lock(26092604,0) AS locked');
+      if(!lock.rows[0].locked){coordinator.release();throw new Error('Another worker is updating challenges. Retry after that update completes.');}
+    }
+    this.runningChallengeId=challengeId;
     this.isRunning = true;
     this.cancelRequested = false;
     this.abortController = new AbortController();
@@ -836,18 +480,20 @@ export class VpsPullScheduler {
     try {
       // Load challenge directly by ID — no status check (force pulls work at any status)
       const challengeResult = await db.query(
-        `SELECT id, title, type, status, start_date, end_date, starting_balance, target_balance, evaluation_type, winners_posted_at FROM trading_challenges WHERE id = $1`,
+        `SELECT id, title, type, status, start_date, end_date, starting_balance, target_balance, evaluation_type, winners_posted_at,leaderboard_locked_at,timezone FROM trading_challenges WHERE id = $1`,
         [challengeId]
       );
       if (challengeResult.rows.length === 0) {
-        console.log(`⚠️ VPS Pull: Challenge ${challengeId} not found`);
-        return;
+        throw new Error('Challenge not found');
       }
       const challengeToPull = challengeResult.rows[0];
+      if(!overrideLock && (challengeToPull.leaderboard_locked_at || !['active','reviewing'].includes(challengeToPull.status)))throw new Error('Challenge is not open for ordinary updates');
+      if(!overrideLock && await this.shouldSkipWeekend(challengeToPull))return;
       console.log(`📊 VPS Pull: Admin full pull for "${challengeToPull.title}" (status: ${challengeToPull.status})`);
 
       // Build shared queue — forceAll=true bypasses all filters (admin override)
-      accounts = await this.getAccountsToPull(challengeId, true);
+      accounts = await this.getAccountsToPull(challengeId, includeDisqualified);
+      if(fullHistory)accounts=accounts.map(account=>({...account,lastPullAt:null}));
       if (accounts.length === 0) {
         console.log('📊 VPS Pull: No accounts to pull');
         return;
@@ -865,9 +511,9 @@ export class VpsPullScheduler {
       console.log(`📊 VPS Pull (admin): ${healthyTerminals.length} healthy terminals: ${healthyTerminals.map(t => `T${t.id}`).join(', ')}`);
       if (healthyTerminals.length === 0) {
         console.error('❌ VPS Pull: ALL terminals unhealthy');
-        await this.completePullBatch(batchId, 0, accounts.length, 0, 'all_terminals_unhealthy');
+        await this.completePullBatch(batchId, 0, accounts.length, 0, 'no_terminals');
         batchId = null;
-        return;
+        throw new Error('No VPS terminals are available; the update will retry');
       }
 
       const allResults = await this.runSharedQueueWorkers(healthyTerminals, challengeToPull, batchId);
@@ -876,7 +522,7 @@ export class VpsPullScheduler {
         console.log('🛑 VPS Pull: Admin pull cancelled');
         await this.completePullBatch(batchId, 0, accounts.length, 0, 'cancelled').catch(() => {});
         batchId = null;
-        return;
+        throw Object.assign(new Error('Update cancelled before publication'), { code: 'PULL_CANCELLED' });
       }
 
       // Retry + credential confirmation already happened INSIDE the shared queue
@@ -926,17 +572,16 @@ export class VpsPullScheduler {
       // Phase 5: Evaluate
       const evalStart = Date.now();
       await db.query(`UPDATE wp_pull_batches SET phase = 'evaluating', phase_started_at = NOW() WHERE id = $1`, [batchId]).catch(() => {});
-      await this.evaluateAllAccounts(challengeId, successfulAccounts, batchId);
+      await this.evaluateAllAccounts(challengeId, successfulAccounts, batchId,undefined,overrideLock);
       phaseTimes.evaluate = Math.round((Date.now() - evalStart) / 1000);
 
       // === POST-EVAL: Retry SL checks for trades still pending (missing OHLC) ===
-      await this.postEvalSlRetry(challengeToPull);
+      await this.postEvalSlRetry(challengeToPull,overrideLock,successfulAccounts.map(a=>a.registrationId));
 
       const newTrades = successful.reduce((sum, r) => sum + (r.tradesCount || 0), 0);
-      await this.completePullBatch(batchId, successful.length, failed.length, newTrades, 'completed');
+      // Complete the batch only after publication commits.
       await db.query(`UPDATE wp_pull_batches SET phase_times = $1 WHERE id = $2`, [JSON.stringify(phaseTimes), batchId]).catch(() => {});
       const completedBatchId = batchId;
-      batchId = null;
       await this.savePullTerminalStats(completedBatchId);
 
       // Log phase breakdown
@@ -960,9 +605,14 @@ export class VpsPullScheduler {
       // === FORCE PULL ONLY: Flush staging to live + update rankings immediately ===
       // Regular scheduled cycles flush at the START of the next cycle.
       // Force pull flushes right now so the admin sees correct stats instantly.
-      await leaderboardService.flushStagingToLive(challengeToPull.id);
-      await leaderboardService.ensureAllParticipantsHaveEntries(challengeToPull.id);
-      await leaderboardService.updateRankings(challengeToPull.id, true);
+      if(this.cancelRequested)throw Object.assign(new Error('Update cancelled before publication'), { code: 'PULL_CANCELLED' });
+      await db.transaction(async()=>{
+        for(const account of successfulAccounts)await leaderboardService.flushStagingToLive(challengeToPull.id, account.registrationId, overrideLock);
+        await leaderboardService.ensureAllParticipantsHaveEntries(challengeToPull.id,overrideLock);
+        await leaderboardService.updateRankings(challengeToPull.id, true, overrideLock);
+        await this.completePullBatch(batchId!, successful.length, failed.length, newTrades, 'completed');
+      });
+      batchId=null;
       console.log(`📊 VPS Pull: Staging flushed to live — leaderboard updated`);
 
       const duration = Math.round((Date.now() - startTime) / 1000);
@@ -974,7 +624,10 @@ export class VpsPullScheduler {
       if (batchId !== null) {
         await this.completePullBatch(batchId, 0, accounts.length, 0, 'failed').catch(() => {});
       }
+      throw error;
     } finally {
+      if(coordinator){await coordinator.query('SELECT pg_advisory_unlock(26092604,0)');coordinator.release();}
+      this.runningChallengeId=null;
       this.isRunning = false;
       this.cancelRequested = false;
       this.abortController = null;
@@ -1069,22 +722,7 @@ export class VpsPullScheduler {
         resultsMutex.results.push(result);
         this.sharedQueue.done(account.registrationId, account.accountNumber);
 
-        // Save VPS balance/equity and mark pull time for progress tracking
-        if (result.balance !== undefined || result.equity !== undefined) {
-          await db.query(
-            `UPDATE trading_registrations
-             SET last_known_balance = COALESCE($1, last_known_balance),
-                 last_known_equity  = COALESCE($2, last_known_equity),
-                 last_pull_at = NOW()
-             WHERE id = $3`,
-            [result.balance ?? null, result.equity ?? null, account.registrationId]
-          ).catch(() => {});
-        } else {
-          await db.query(`UPDATE trading_registrations SET last_pull_at = NOW() WHERE id = $1`, [account.registrationId]).catch(() => {});
-        }
-
-        // Store balance operations (deposits / withdrawals) from this pull
-        await this.storeBalanceOps(challenge.id, account.registrationId, account.accountNumber, result.balance_ops || [], result.balance ?? 0);
+        // History, balance operations and ingestion cursor committed together in pullSingleAccount.
 
         // NOTE: per-account evaluation used to run here immediately (streaming).
         // It now runs in a deferred phase 3, AFTER the phase 2 null-open-time
@@ -1137,7 +775,7 @@ export class VpsPullScheduler {
         const requeued = this.sharedQueue.requeueForRetry(account);
         if (!requeued) {
           // Exhausted MAX_ACCOUNT_ATTEMPTS — final failure
-          result.errorCode = 'retry_exhausted';
+          // Preserve the root error code; exhausted attempts are context, not a diagnosis.
           result.errorMessage = `Failed after ${MAX_ACCOUNT_ATTEMPTS} attempts: ${result.errorMessage || ''}`;
           resultsMutex.results.push(result);
           terminal.totalFailed++;
@@ -1203,22 +841,17 @@ export class VpsPullScheduler {
           // Full pull: challenge ended (final sync) OR first-ever pull
           fromDate = challengeStartDate || new Date(2020, 0, 1).toISOString();
         } else if (challenge && this.isMidnightRun(challenge) && !this.isFirstNightSinceChallengeStart(challenge)) {
-          // 25h daily safety pull: yesterday's midnight EAT, minus 1h overlap, to now.
-          const now = new Date();
-          const nowEAT = new Date(now.getTime() + 3 * 60 * 60 * 1000);
-          const yesterdayMidnightEAT = new Date(Date.UTC(
-            nowEAT.getUTCFullYear(), nowEAT.getUTCMonth(), nowEAT.getUTCDate() - 1, 0, 0, 0
-          ));
-          // Convert back to UTC instant, then subtract 1h overlap.
-          const yesterdayMidnightUTC = new Date(yesterdayMidnightEAT.getTime() - 3 * 60 * 60 * 1000);
-          const safetyFrom = new Date(yesterdayMidnightUTC.getTime() - 60 * 60 * 1000);
-          fromDate = safetyFrom.toISOString();
+          const timezone=challenge.timezone || config.timezone;
+          const local=getLocalTime(new Date(),timezone);
+          const yesterday=new Date(Date.UTC(local.year,local.month-1,local.day-1)).toISOString().slice(0,10);
+          const midnight=zonedTimeToUtc(yesterday+'T00:00:00',timezone);
+          fromDate=new Date(midnight.getTime()-3600000).toISOString();
           extendedSync = true;
           console.log(`🌙 VPS Pull: 25h midnight safety pull for ${account.accountNumber} — from ${fromDate}`);
         } else {
           // Incremental: last 5 hours (4h window + 1h overlap for confidence)
           const now = new Date();
-          const incrementalFrom = new Date(now.getTime() - 5 * 60 * 60 * 1000);
+          const incrementalFrom = new Date(Math.min(new Date(account.lastPullAt).getTime()-3600000,now.getTime()-5*3600000));
           fromDate = incrementalFrom.toISOString();
         }
 
@@ -1268,8 +901,12 @@ export class VpsPullScheduler {
             }
           }
 
-          if (tradesCount > 0) await this.saveTrades(account, data.trades);
-          if (dealsCount > 0) await this.saveDeals(account, data.deals);
+          await db.transaction(async()=>{
+            if (tradesCount > 0) await this.saveTrades(account, data.trades);
+            if (dealsCount > 0) await this.saveDeals(account, data.deals);
+            if(challenge?.id)await this.storeBalanceOps(challenge.id,account.registrationId,account.accountNumber,data.balance_ops || [],data.balance ?? 0);
+            await db.query(`UPDATE trading_registrations SET last_known_balance=COALESCE($1,last_known_balance),last_known_equity=COALESCE($2,last_known_equity),last_pull_at=NOW() WHERE id=$3`,[data.balance ?? null,data.equity ?? null,account.registrationId]);
+          });
 
           return {
             registrationId: account.registrationId,
@@ -1289,7 +926,7 @@ export class VpsPullScheduler {
 
         // Credential failure check — prefer explicit error_type field, fall back to message parsing
         const err = (data.message || '').toLowerCase();
-        if (data.error_type === 'credential_failure' || err.includes('authorization') || err.includes('invalid') || err.includes('password') || err.includes('credential')) {
+        if (data.error_type === 'credential_failure' || err.includes('authorization failed') || err.includes('invalid credentials') || err.includes('invalid password') || err.includes('credential failure') || err.includes('invalid login')) {
           if (isConfirmation) {
             // Second terminal also got -6 — CONFIRMED bad credentials.
             // Cache by normalized accountNumber — blocks all DB registrations for this MT5 account
@@ -1388,7 +1025,7 @@ export class VpsPullScheduler {
           userId: account.userId,
           username: account.username,
           success: false,
-          errorCode: error.code === 'ECONNABORTED' ? 'timeout' : 'network_error',
+          errorCode: /persistence failed/.test(error.message || '') ? 'persistence_error' : error.code === 'ECONNABORTED' ? 'timeout' : 'network_error',
           errorMessage: error.message || 'Connection failed',
           terminalId,
         };
@@ -1401,8 +1038,8 @@ export class VpsPullScheduler {
       userId: account.userId,
       username: account.username,
       success: false,
-      errorCode: 'max_retries',
-      errorMessage: 'Exhausted retries',
+      errorCode: abortSignal?.aborted ? 'cancelled' : 'unknown',
+      errorMessage: abortSignal?.aborted ? 'Update cancelled' : 'Pull ended without a result',
       terminalId,
     };
   }
@@ -1413,10 +1050,20 @@ export class VpsPullScheduler {
    * Retry a single account on demand (admin button).
    * Returns result for admin display.
    */
-  async retrySingleAccount(registrationId: number, challengeId: number): Promise<PullResult & { evaluated?: boolean }> {
+  async retrySingleAccount(registrationId: number, challengeId: number, overrideLock=false, evaluate=true, ownsCoordinator=false): Promise<PullResult & { evaluated?: boolean }> {
+    if(ownsCoordinator)return this.retrySingleAccountUnlocked(registrationId,challengeId,overrideLock,evaluate);
+    const lease=await db.getClient(); let locked=false;
+    try {
+      locked=(await lease.query('SELECT pg_try_advisory_lock(26092604,0) AS locked')).rows[0].locked;
+      if(!locked)return {registrationId,accountNumber:'',userId:0,username:null,success:false,errorCode:'busy',errorMessage:'Another update is running; retry after it finishes'};
+      return await this.retrySingleAccountUnlocked(registrationId,challengeId,overrideLock,evaluate);
+    } finally {try {if(locked)await lease.query('SELECT pg_advisory_unlock(26092604,0)');}finally {lease.release();}}
+  }
+
+  private async retrySingleAccountUnlocked(registrationId: number, challengeId: number, overrideLock=false, evaluate=true): Promise<PullResult & { evaluated?: boolean }> {
     const regResult = await db.query(
       `SELECT id, account_number, mt5_server, investor_password, user_id, username, nickname, last_pull_at
-       FROM trading_registrations WHERE id = $1 AND challenge_id = $2`,
+       FROM trading_registrations WHERE id = $1 AND challenge_id = $2 AND status IS DISTINCT FROM 'removed'`,
       [registrationId, challengeId]
     );
     if (regResult.rows.length === 0) {
@@ -1449,7 +1096,7 @@ export class VpsPullScheduler {
       };
     }
 
-    const challengeData = await db.query(`SELECT id, start_date, status FROM trading_challenges WHERE id = $1`, [challengeId]);
+    const challengeData = await db.query(`SELECT id, start_date, status, timezone FROM trading_challenges WHERE id = $1`, [challengeId]);
     const terminalAttempts: { terminalId: number; errorCode: string; errorMessage: string }[] = [];
 
     for (let i = 0; i < Math.min(3, healthyTerminals.length); i++) {
@@ -1474,12 +1121,15 @@ export class VpsPullScheduler {
           await this.resolveNullOpenTimes(challengeId, null as any, [account], [terminal], challengeData.rows[0]);
         } catch (e) {}
 
+        if(!evaluate)return {...result,evaluated:false};
         // Run evaluation
         let evaluated = false;
         try {
-          await evaluationEngine.evaluateSingleAccount(challengeId, registrationId);
+          await evaluationEngine.evaluateSingleAccount(challengeId, registrationId,overrideLock);
           evaluated = true;
-        } catch (e) {}
+        } catch (e) {
+          return { ...result, success: false, evaluated: false, errorCode: 'evaluation_failed', errorMessage: (e as Error).message };
+        }
 
         return { ...result, evaluated };
       }
@@ -1501,7 +1151,7 @@ export class VpsPullScheduler {
     return {
       registrationId, accountNumber: account.accountNumber,
       userId: account.userId, username: account.username,
-      success: false, errorCode: 'retry_exhausted',
+      success: false, errorCode: terminalAttempts[terminalAttempts.length-1]?.errorCode || 'unknown',
       errorMessage: summary || 'Failed on all terminals',
       terminalAttempts,
     };
@@ -1605,14 +1255,8 @@ export class VpsPullScheduler {
    */
   private isFirstNightSinceChallengeStart(challenge: TradingChallenge): boolean {
     if (!challenge?.start_date) return true; // safe default: skip 25h logic if unknown
-    const now = new Date();
-    const nowEAT = new Date(now.getTime() + 3 * 60 * 60 * 1000);
-    const startEAT = new Date(new Date(challenge.start_date).getTime() + 3 * 60 * 60 * 1000);
-
-    const todayKey = `${nowEAT.getUTCFullYear()}-${nowEAT.getUTCMonth()}-${nowEAT.getUTCDate()}`;
-    const startKey = `${startEAT.getUTCFullYear()}-${startEAT.getUTCMonth()}-${startEAT.getUTCDate()}`;
-
-    return todayKey === startKey;
+    const timezone=challenge.timezone || config.timezone;
+    return getLocalTime(new Date(),timezone).dateStr===getLocalTime(new Date(challenge.start_date),timezone).dateStr;
   }
 
   private async categoryRules(challengeId: number) {
@@ -1767,76 +1411,10 @@ export class VpsPullScheduler {
   // ==================== DATA HELPERS ====================
 
   private async getAccountsToPull(challengeId: number, forceAll = false): Promise<AccountToPull[]> {
-    // First, clear zero_balance_at for accounts that have 0 trades (haven't started, not blown)
-    await db.query(
-      `UPDATE wp_leaderboard SET zero_balance_at = NULL WHERE challenge_id = $1 AND total_trades = 0 AND zero_balance_at IS NOT NULL`,
-      [challengeId]
-    ).catch(() => {});
-
     // Check if we should exclude late depositors (0 balance, 0 trades, not enough days left)
     // Skip entirely for force pulls — admin override pulls everything without triggering auto-DQ side effects
-    let lateExcludeIds: number[] = [];
-    if (!forceAll) try {
-      const challengeInfo = await db.query(
-        `SELECT end_date FROM trading_challenges WHERE id = $1`, [challengeId]);
-      for (const { accountType, rules: rulesParams2 } of await this.categoryRules(challengeId)) {
-      const minActiveDays = rulesParams2.min_active_days || 0;
-      const minActiveDaysEnabled = isRuleEnabled(rulesParams2, 'min_active_days');
-      const endDate = challengeInfo.rows[0]?.end_date;
-
-      if (minActiveDays > 0 && minActiveDaysEnabled && endDate) {
-        // Calculate remaining TRADING days (weekdays only)
-        const now = new Date();
-        const end = new Date(endDate);
-        let tradingDaysLeft = 0;
-        const d = new Date(now);
-        while (d <= end) {
-          const day = d.getDay();
-          if (day !== 0 && day !== 6) tradingDaysLeft++;
-          d.setDate(d.getDate() + 1);
-        }
-
-        // Auto-DQ users who can't possibly meet min_active_days anymore
-        // This covers users with 0 trades (never pulled/evaluated) AND users with some trades but not enough
-        const cantMeetRequirement = await db.query(
-          `SELECT r.id, r.account_number, r.username, COALESCE(l.active_days, 0) as active_days
-           FROM trading_registrations r
-           LEFT JOIN wp_leaderboard l ON r.id = l.registration_id
-           WHERE r.challenge_id = $1
-             AND r.disqualified = false AND r.account_type = $4
-             AND (COALESCE(l.active_days, 0) + $2) < $3`,
-          [challengeId, tradingDaysLeft, minActiveDays, accountType]
-        );
-
-        if (cantMeetRequirement.rows.length > 0) {
-          for (const u of cantMeetRequirement.rows) {
-            await db.query(
-              `UPDATE trading_registrations SET disqualified = true, disqualified_at = NOW(), disqualified_reason = $1 WHERE id = $2 AND disqualified = false`,
-              [`Active trading day requirement not fulfilled (${u.active_days} days traded, ${tradingDaysLeft} trading days left, need ${minActiveDays})`, u.id]
-            );
-            await db.query(
-              `UPDATE wp_leaderboard SET is_disqualified = true, disqualify_reason = $1 WHERE registration_id = $2`,
-              [`Active trading day requirement not fulfilled (${u.active_days}/${minActiveDays} days)`, u.id]
-            );
-          }
-          console.log(`📊 VPS Pull: Auto-DQ'd ${cantMeetRequirement.rows.length} users — cannot meet ${minActiveDays} active days requirement`);
-        }
-
-        // Exclude already-DQ'd users from pull (they'll be filtered by disqualified=false in main query)
-        // Also exclude 0-trade + 0-balance users who haven't deposited (no point pulling empty accounts)
-        const lateUsers = await db.query(
-          `SELECT r.id FROM trading_registrations r
-           LEFT JOIN wp_leaderboard l ON r.id = l.registration_id
-           WHERE r.challenge_id = $1 AND r.disqualified = false AND r.account_type = $2
-             AND (l.total_trades = 0 OR l.total_trades IS NULL)
-             AND (l.current_balance IS NULL OR l.current_balance <= 0)
-             AND r.actual_starting_balance IS NULL`,
-          [challengeId, accountType]
-        );
-        lateExcludeIds.push(...lateUsers.rows.map((r: any) => r.id));
-      }
-      }
-    } catch {}
+    // Eligibility is evaluated from complete history; never stop collecting history based on a forecast.
+    const lateExcludeIds: number[] = [];
 
     // forceAll = admin override: pull every account regardless of balance/blown state
     // or DQ status. Evaluation engine preserves DQ flags — it writes to staging which
@@ -1871,7 +1449,7 @@ export class VpsPullScheduler {
       `SELECT r.id, r.account_number, r.mt5_server, r.investor_password, r.user_id, r.username, r.nickname, r.last_pull_at, r.last_known_balance
        FROM trading_registrations r
        LEFT JOIN wp_leaderboard l ON r.id = l.registration_id
-       WHERE r.challenge_id = $1
+       WHERE r.challenge_id = $1 AND r.status IS DISTINCT FROM 'removed'
          ${disqualifiedFilter}
          AND r.investor_password IS NOT NULL
          ${connectionFilter}
@@ -1957,9 +1535,7 @@ export class VpsPullScheduler {
             trade.comment || null,
           ]
         );
-      } catch (e) {
-        // Skip individual trade errors
-      }
+      } catch (e) { throw new Error(`Trade persistence failed for ticket ${trade.ticket}: ${(e as Error).message}`); }
     }
   }
 
@@ -1978,10 +1554,10 @@ export class VpsPullScheduler {
         await db.query(
           `INSERT INTO wp_deals
            (challenge_id, registration_id, account_number, ticket, deal_type, symbol,
-            direction, volume, price, profit, balance, comment, time, synced_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW())
+            direction, volume, price, profit, balance, comment, time, synced_at, position_id, entry)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW(), $14, $15)
            ON CONFLICT (challenge_id, account_number, ticket) DO UPDATE SET
-             deal_type = EXCLUDED.deal_type,
+             deal_type = EXCLUDED.deal_type, position_id=EXCLUDED.position_id, entry=EXCLUDED.entry,
              symbol = EXCLUDED.symbol,
              direction = EXCLUDED.direction,
              volume = EXCLUDED.volume,
@@ -1993,50 +1569,40 @@ export class VpsPullScheduler {
              synced_at = NOW()`,
           [
             challengeId, account.registrationId, account.accountNumber,
-            deal.ticket, deal.type || null, deal.symbol || null,
+            deal.ticket, deal.type ?? null, deal.symbol || null,
             deal.direction || null, deal.volume || 0, deal.price || 0,
-            deal.profit || 0, deal.balance || 0, deal.comment || null, deal.time || null,
+            deal.profit || 0, deal.balance || 0, deal.comment || null, deal.time || null, deal.position_id ?? null, deal.entry ?? null,
           ]
         );
-      } catch (e) {}
+      } catch (e) { throw new Error(`Deal persistence failed for ticket ${deal.ticket}: ${(e as Error).message}`); }
     }
   }
 
   // ==================== BALANCE OPS (deposits / withdrawals / swap / dividend) ====================
 
   private async storeBalanceOps(challengeId: number, registrationId: number, accountNumber: string, balanceOps: any[], currentBalance: number): Promise<void> {
-    if (!balanceOps || balanceOps.length === 0) return;
+    balanceOps = balanceOps || [];
     for (const op of balanceOps) {
       await db.query(
         `INSERT INTO wp_balance_ops (challenge_id, registration_id, account_number, deal_ticket, op_time, amount, op_type, comment)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
          ON CONFLICT (challenge_id, registration_id, deal_ticket) DO NOTHING`,
         [challengeId, registrationId, accountNumber, op.ticket, op.time, op.amount, op.op_type, op.comment || null]
-      ).catch(() => {});
+      );
     }
-    const withdrawnRes = await db.query(
-      `SELECT COALESCE(SUM(ABS(amount)), 0) as total_withdrawn
-       FROM wp_balance_ops
-       WHERE challenge_id = $1 AND registration_id = $2 AND op_type = 'withdrawal'`,
-      [challengeId, registrationId]
-    ).catch(() => null);
-    const totalWithdrawn = withdrawnRes ? parseFloat(withdrawnRes.rows[0]?.total_withdrawn || '0') : 0;
-    const isWithdrawn = totalWithdrawn > 0 && currentBalance <= 0;
-    await db.query(
-      `UPDATE wp_leaderboard SET total_withdrawn = $1, is_withdrawn = $2
-       WHERE challenge_id = $3 AND registration_id = $4`,
-      [totalWithdrawn, isWithdrawn, challengeId, registrationId]
-    ).catch(() => {});
+    // Raw ingestion never changes published results. Withdrawal state is rebuilt
+    // atomically by the scoped publisher after successful evaluation.
+
   }
 
   // ==================== CREDENTIAL FAILURE HANDLING ====================
 
   private async handleCredentialFailure(failure: PullResult, challenge: TradingChallenge) {
-    const reg = await db.query('SELECT pull_status, source FROM trading_registrations WHERE id = $1', [failure.registrationId]);
-    if (reg.rows[0]?.pull_status === 'password_changed') return;
+    const reg = await db.query('SELECT pull_status, source, credential_failure_detected_at FROM trading_registrations WHERE id = $1', [failure.registrationId]);
+    if (reg.rows[0]?.pull_status === 'password_changed' && reg.rows[0]?.credential_failure_detected_at) return;
 
     await db.query(
-      `UPDATE trading_registrations SET pull_status = 'password_changed', pull_error = $1 WHERE id = $2`,
+      `UPDATE trading_registrations SET pull_status = 'password_changed', credential_failure_detected_at = COALESCE(credential_failure_detected_at,NOW()), pull_error = $1 WHERE id = $2`,
       [`Detected at ${new Date().toISOString()}`, failure.registrationId]
     );
 
@@ -2089,7 +1655,7 @@ export class VpsPullScheduler {
     }
 
     // Notify via email (for winnerpip/web-registered users)
-    if (source === 'winnerpip') {
+    if (source === 'winnerpip' || source === 'csv') {
       try {
         const regData = await db.query(
           `SELECT r.email, r.nickname, c.title as challenge_title, c.id as challenge_id,
@@ -2137,35 +1703,75 @@ export class VpsPullScheduler {
     challengeId: number,
     source: 'user' | 'admin' = 'user'
   ): Promise<(PullResult & { evaluated?: boolean }) | null> {
+    await queueCredentialRecovery(registrationId,challengeId,source);
+    return this.processCredentialRecovery(registrationId);
+  }
+
+  private async retryCredentialRecoveries(): Promise<void> {
+    if(this.isRunning)return;
     try {
-      await db.query(`UPDATE trading_registrations SET last_pull_at = NULL WHERE id = $1`, [registrationId]);
+      const jobs=await db.query(`SELECT registration_id FROM credential_recovery_jobs
+        WHERE state IN ('pending','running') AND updated_at<NOW()-INTERVAL '1 minute'
+        ORDER BY updated_at LIMIT 5`);
+      for(const job of jobs.rows)await this.processCredentialRecovery(job.registration_id);
+    } catch(error){console.error('Credential recovery queue error:',error);}
+  }
 
-      const result = await this.retrySingleAccount(registrationId, challengeId);
-
-      if (result.success) {
-        try {
-          const { leaderboardService } = require('../services/leaderboardService');
-          await leaderboardService.flushStagingToLive(challengeId);
-          await leaderboardService.ensureAllParticipantsHaveEntries(challengeId);
-          await leaderboardService.updateRankings(challengeId);
-          console.log(`✅ recoverAccountAfterCredentialFix: backfill pull + rank update done for reg ${registrationId}`);
-        } catch (e) {
-          console.error(`⚠️ recoverAccountAfterCredentialFix: leaderboard update failed for reg ${registrationId}:`, e);
-        }
-      } else {
-        console.warn(`⚠️ recoverAccountAfterCredentialFix: backfill pull for reg ${registrationId} did not succeed (errorCode=${result.errorCode}) — will resolve on the next scheduled cycle`);
-      }
-
-      // Notify regardless of the backfill pull's outcome — the password fix itself
-      // is what the user/admin cares about confirming; a transient pull hiccup will
-      // just resolve on the next scheduled cycle like any other account.
-      await this.notifyAccountRecovered(registrationId, challengeId, source);
-
+  private async processCredentialRecovery(registrationId: number): Promise<(PullResult & {evaluated?:boolean}) | null> {
+    const lease=await db.getClient();
+    let acquired=false;
+    let coordinator=false;
+    let version:number|undefined;
+    try {
+      coordinator=(await lease.query('SELECT pg_try_advisory_lock(26092604,0) AS locked')).rows[0].locked;
+      if(!coordinator)return null;
+      const lock=await lease.query('SELECT pg_try_advisory_lock(26092603,$1) AS locked',[registrationId]);
+      acquired=lock.rows[0].locked;
+      if(!acquired)return null;
+      const pending=await db.query(`SELECT * FROM credential_recovery_jobs WHERE registration_id=$1 AND state IN ('pending','running')`,[registrationId]);
+      const job=pending.rows[0];
+      if(!job)return null;
+      version=job.version;
+      const challengeId=Number(job.challenge_id);
+      const source=job.source as 'user'|'admin';
+      await db.query(`UPDATE credential_recovery_jobs SET state='running',attempts=attempts+1,updated_at=NOW() WHERE registration_id=$1 AND version=$2`,[registrationId,version]);
+      const result=await this.executeCredentialRecovery(registrationId,challengeId,source);
+      await db.query(`UPDATE credential_recovery_jobs SET state=$3,error=$4,updated_at=NOW() WHERE registration_id=$1 AND version=$2`,
+        [registrationId,version,(result as any)?.publicationPending ? 'awaiting_admin' : result?.success && result.evaluated ? 'completed' : 'pending',result?.errorMessage || null]);
       return result;
-    } catch (e) {
-      console.error(`⚠️ recoverAccountAfterCredentialFix failed for reg ${registrationId}:`, e);
+    } catch(error){
+      if(version!==undefined)await db.query(`UPDATE credential_recovery_jobs SET state='pending',error=$3,updated_at=NOW() WHERE registration_id=$1 AND version=$2`,[registrationId,version,(error as Error).message]);
+      console.error('Credential recovery remains pending:',error);
       return null;
+    } finally {
+      if(acquired)await lease.query('SELECT pg_advisory_unlock(26092603,$1)',[registrationId]);
+      if(coordinator)await lease.query('SELECT pg_advisory_unlock(26092604,0)');
+      lease.release();
     }
+  }
+
+  private async executeCredentialRecovery(registrationId:number,challengeId:number,source:'user'|'admin'): Promise<PullResult & {evaluated?:boolean}> {
+    const registration = await db.query(`SELECT account_number FROM trading_registrations WHERE id=$1 AND challenge_id=$2 AND status IS DISTINCT FROM 'removed'`,[registrationId,challengeId]);
+    if (!registration.rows[0]) throw new Error('Registration not found');
+    this.credentialFailureCache.delete(normalizeAccountNumber(registration.rows[0].account_number));
+    await db.query(`UPDATE trading_registrations SET last_pull_at=NULL,credential_failure_detected_at=NULL WHERE id=$1`,[registrationId]);
+    // Credential repair never reverses a DQ. Explicit reinstatement remains an admin action.
+    const finalState=await db.query('SELECT leaderboard_locked_at,status FROM trading_challenges WHERE id=$1',[challengeId]);
+    const needsAdmin=!!(finalState.rows[0]?.leaderboard_locked_at || finalState.rows[0]?.status==='completed') && source!=='admin';
+    const result = await this.retrySingleAccount(registrationId,challengeId,source==='admin',!needsAdmin,true);
+    if(needsAdmin && result.success)return {...result,publicationPending:true} as PullResult & {evaluated?:boolean};
+    if (!result.success || !result.evaluated) return result;
+    const published = await db.transaction(async()=>{
+      const challenge = await db.query('SELECT leaderboard_locked_at,status FROM trading_challenges WHERE id=$1 FOR UPDATE',[challengeId]);
+      if((challenge.rows[0]?.leaderboard_locked_at || challenge.rows[0]?.status==='completed') && source !== 'admin') return false;
+      const {leaderboardService} = require('../services/leaderboardService');
+      await leaderboardService.flushStagingToLive(challengeId,registrationId,source === 'admin');
+      await leaderboardService.updateRankings(challengeId,false,source === 'admin');
+      return true;
+    });
+    // A verified password alone does not prove synchronization or publication succeeded.
+    if(published) await this.notifyAccountRecovered(registrationId, challengeId, source);
+    return {...result,published} as PullResult & {evaluated?:boolean};
   }
 
   private async notifyAccountRecovered(registrationId: number, challengeId: number, source: 'user' | 'admin') {
@@ -2222,22 +1828,22 @@ export class VpsPullScheduler {
   private async checkDisqualifications() {
     try {
       const challenges = await tradingChallengeService.getActiveChallenges();
-      const activeChallenge = challenges.find(c => c.status === 'active');
-      if (!activeChallenge) return;
+      for (const activeChallenge of challenges.filter(c => c.status === 'active')) {
 
       const result = await db.query(
         `SELECT id, user_id, username, account_number
          FROM trading_registrations
          WHERE challenge_id = $1
            AND pull_status = 'password_changed'
+           AND status IS DISTINCT FROM 'removed'
            AND disqualified = false
-           AND last_pull_at < NOW() - INTERVAL '${PASSWORD_WARNING_HOURS} hours'`,
+           AND credential_failure_detected_at < NOW() - INTERVAL '${PASSWORD_WARNING_HOURS} hours'`,
         [activeChallenge.id]
       );
 
       for (const reg of result.rows) {
         await db.query(
-          `UPDATE trading_registrations SET disqualified = true, disqualified_at = NOW(), disqualified_reason = 'Investor password changed — no update within 24h' WHERE id = $1`,
+          `UPDATE trading_registrations SET disqualified = true, disqualified_at = NOW(), disqualified_source = 'credential_failure', disqualified_reason = 'Investor password changed — no update within 24h' WHERE id = $1`,
           [reg.id]
         );
 
@@ -2254,6 +1860,7 @@ export class VpsPullScheduler {
           await this.bot.bot.telegram.sendMessage(config.adminUserId,
             `🚫 Auto-DQ: @${reg.username || 'unknown'} (${reg.account_number}) — password not updated in 24h`);
         } catch (e) {}
+      }
       }
     } catch (error) {
       console.error('Error in checkDisqualifications:', error);
@@ -2932,7 +2539,7 @@ export class VpsPullScheduler {
            FROM wp_deals WHERE challenge_id = $1 AND registration_id = r.id
              AND (deal_type ILIKE '%balance%' OR deal_type = '2') AND profit > 0
          ) deposit_sum ON true
-         WHERE r.challenge_id = $1
+         WHERE r.challenge_id = $1 AND r.status IS DISTINCT FROM 'removed'
            AND r.disqualified = false
            AND r.investor_password IS NOT NULL
            AND (r.status IS NULL OR r.status != 'removed')
@@ -3074,7 +2681,7 @@ export class VpsPullScheduler {
    * finished (or had nothing to do). Replaces the old per-account streaming
    * evaluate call that used to run inside terminalWorker immediately after pull.
    */
-  async evaluateAllAccounts(challengeId: number, accounts: AccountToPull[], batchId: number | null = null, pullResults?: PullResult[]): Promise<void> {
+  async evaluateAllAccounts(challengeId: number, accounts: AccountToPull[], batchId: number | null = null, pullResults?: PullResult[], overrideLock=false): Promise<void> {
     // Reject missing category configuration before writing any evaluation results.
     await this.categoryRules(challengeId);
     // On scheduled (incremental) pulls: skip accounts that got 0 new trades
@@ -3096,6 +2703,7 @@ export class VpsPullScheduler {
         [accountsToEval.length, batchId]
       ).catch(() => {});
     }
+    const evaluationFailures: string[] = [];
     const EVAL_CONCURRENCY = 10;
     let processed = 0;
     const evalStartTime = Date.now();
@@ -3106,8 +2714,9 @@ export class VpsPullScheduler {
         const account = queue.shift()!;
         const t0 = Date.now();
         try {
-          await evaluationEngine.evaluateSingleAccount(challengeId, account.registrationId);
+          await evaluationEngine.evaluateSingleAccount(challengeId, account.registrationId,overrideLock);
         } catch (evalErr) {
+          evaluationFailures.push(`Registration ${account.registrationId}: ${(evalErr as Error).message}`);
           console.error(`⚠️ Eval error for ${account.accountNumber}:`, evalErr);
         }
         processed++;
@@ -3120,6 +2729,7 @@ export class VpsPullScheduler {
     };
     const workers = Array.from({ length: Math.min(EVAL_CONCURRENCY, accountsToEval.length) }, (_, i) => runWorker(i + 1));
     await Promise.all(workers);
+    if(evaluationFailures.length)throw new Error(`Evaluation incomplete: ${evaluationFailures.join('; ')}`);
     const evalDuration = Math.round((Date.now() - evalStartTime) / 1000);
     console.log(`✅ Evaluation: ${accountsToEval.length} accounts done in ${evalDuration}s (concurrency ${EVAL_CONCURRENCY})`);
   }
@@ -3223,7 +2833,7 @@ export class VpsPullScheduler {
                 COUNT(t.id) as pending_count, MAX(t.sl_check_attempts) as max_attempts
          FROM trading_registrations r
          JOIN wp_trades t ON t.registration_id = r.id AND t.challenge_id = $1 AND t.sl_check_pending = true
-         WHERE r.challenge_id = $1
+         WHERE r.challenge_id = $1 AND r.status IS DISTINCT FROM 'removed'
          GROUP BY r.id, r.account_number, r.nickname, r.account_subtype`,
         [challengeId]
       );
@@ -3234,7 +2844,7 @@ export class VpsPullScheduler {
                 COUNT(t.id) as failed_count, MAX(t.sl_check_attempts) as max_attempts
          FROM trading_registrations r
          JOIN wp_trades t ON t.registration_id = r.id AND t.challenge_id = $1 AND t.sl_check_result = 'check_failed'
-         WHERE r.challenge_id = $1
+         WHERE r.challenge_id = $1 AND r.status IS DISTINCT FROM 'removed'
          GROUP BY r.id, r.account_number, r.nickname, r.account_subtype`,
         [challengeId]
       );
@@ -3320,126 +2930,14 @@ export class VpsPullScheduler {
    */
   private async checkChallengeLifecycle() {
     try {
-      // Auto-start: challenges whose start_date has passed but are still registration_open
-      const toStart = await db.query(
-        `SELECT id, title, type, source, start_date, end_date, starting_balance, target_balance
-         FROM trading_challenges
-         WHERE status = 'registration_open'
-           AND start_date <= NOW()
-           AND (status != 'active')
-         ORDER BY start_date ASC`
-      );
-
-      for (const challenge of toStart.rows) {
-        try {
-          await db.query(
-            `UPDATE trading_challenges SET status = 'active', updated_at = NOW() WHERE id = $1 AND status = 'registration_open'`,
-            [challenge.id]
-          );
-          console.log(`🚀 Auto-started challenge ${challenge.id}: "${challenge.title}"`);
-
-          // Email web-registered participants that challenge has started
-          try {
-            const webRegs = await db.query(
-              `SELECT email, nickname FROM trading_registrations
-               WHERE challenge_id = $1 AND email IS NOT NULL AND (source = 'winnerpip' OR user_id = 0 OR user_id IS NULL)
-               AND disqualified = false`,
-              [challenge.id]
-            );
-            if (webRegs.rows.length > 0) {
-              const { emailService } = require('../services/emailService');
-              for (const reg of webRegs.rows) {
-                try {
-                  await emailService.sendChallengeStarted(reg.email, {
-                    nickname: reg.nickname,
-                    challengeTitle: challenge.title,
-                    endDate: new Date(challenge.end_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-                  });
-                } catch {}
-              }
-              console.log(`📧 Sent challenge-started emails to ${webRegs.rows.length} web participants`);
-            }
-          } catch (emailBatchErr) {
-            console.warn('⚠️ Challenge-started email batch error:', (emailBatchErr as Error).message);
-          }
-          // Send admin notification
-          await this.bot.bot.telegram.sendMessage(
-            config.adminUserId,
-            `🚀 <b>Challenge Auto-Started</b>\n\n<b>${challenge.title}</b>\n\nStatus set to <b>Active</b>. VPS pulls will begin on the next scheduled cycle.\n\n<i>Triggered automatically at scheduled start time.</i>`,
-            { parse_mode: 'HTML' }
-          ).catch(() => {});
-
-          // Trigger an immediate pull cycle for this challenge
-          if (!this.isRunning) {
-            this.runPullCycleForChallenge(challenge.id).catch(e =>
-              console.error(`Auto-start pull error for challenge ${challenge.id}:`, e)
-            );
-          }
-        } catch (e) {
-          console.error(`Auto-start error for challenge ${challenge.id}:`, e);
-        }
+      const {transitionChallenge}=require('../services/challengeState');
+      const due=await db.query(`SELECT id,status FROM trading_challenges WHERE
+        (status='registration_open' AND start_date<=NOW()) OR (status='active' AND end_date<=NOW()) ORDER BY id`);
+      for(const challenge of due.rows){
+        try {await transitionChallenge(challenge.id,challenge.status==='active'?'reviewing':'active',challenge.status);}
+        catch(error){console.error(`Challenge ${challenge.id} transition failed:`,error);}
       }
-
-      // Auto-end: challenges whose end_date has passed but are still active
-      const toEnd = await db.query(
-        `SELECT id, title, type, source
-         FROM trading_challenges
-         WHERE status = 'active'
-           AND end_date <= NOW()
-         ORDER BY end_date ASC`
-      );
-
-      for (const challenge of toEnd.rows) {
-        try {
-          await db.query(
-            `UPDATE trading_challenges SET status = 'reviewing', updated_at = NOW() WHERE id = $1 AND status = 'active'`,
-            [challenge.id]
-          );
-          console.log(`🏁 Auto-ended challenge ${challenge.id}: "${challenge.title}"`);
-
-          // Email web-registered participants that challenge has ended
-          try {
-            const webRegs = await db.query(
-              `SELECT email, nickname FROM trading_registrations
-               WHERE challenge_id = $1 AND email IS NOT NULL AND (source = 'winnerpip' OR user_id = 0 OR user_id IS NULL)
-               AND disqualified = false`,
-              [challenge.id]
-            );
-            if (webRegs.rows.length > 0) {
-              const { emailService } = require('../services/emailService');
-              for (const reg of webRegs.rows) {
-                try {
-                  await emailService.sendChallengeEnded(reg.email, {
-                    nickname: reg.nickname,
-                    challengeTitle: challenge.title,
-                  });
-                } catch {}
-              }
-              console.log(`📧 Sent challenge-ended emails to ${webRegs.rows.length} web participants`);
-            }
-          } catch (emailBatchErr) {
-            console.warn('⚠️ Challenge-ended email batch error:', (emailBatchErr as Error).message);
-          }
-          // Send admin notification
-          await this.bot.bot.telegram.sendMessage(
-            config.adminUserId,
-            `🏁 <b>Challenge Auto-Ended</b>\n\n<b>${challenge.title}</b>\n\nStatus set to <b>Reviewing</b>. Running final pull now.\n\n<i>Triggered automatically at scheduled end time.</i>`,
-            { parse_mode: 'HTML' }
-          ).catch(() => {});
-
-          // Trigger final full pull
-          if (!this.isRunning) {
-            this.runPullCycleForChallenge(challenge.id).catch(e =>
-              console.error(`Auto-end pull error for challenge ${challenge.id}:`, e)
-            );
-          }
-        } catch (e) {
-          console.error(`Auto-end error for challenge ${challenge.id}:`, e);
-        }
-      }
-    } catch (e) {
-      // Non-fatal — lifecycle check will retry next minute
-    }
+    } catch(error){console.error('Lifecycle scheduler failed:',error);}
   }
 
   private async reportCriticalFailure(challenge: TradingChallenge, message: string) {
@@ -3457,7 +2955,7 @@ export class VpsPullScheduler {
    * For those: identify missing symbols, update OHLC for them, then re-evaluate those accounts.
    * This ensures all SL checks complete within the same pull cycle.
    */
-  private async postEvalSlRetry(challenge: TradingChallenge): Promise<void> {
+  private async postEvalSlRetry(challenge: TradingChallenge, overrideLock=false, eligibleRegistrations?:number[]): Promise<void> {
     try {
       const pendingTrades = await db.query(
         `SELECT DISTINCT symbol, MIN(open_time) as earliest_open, MAX(close_time) as latest_close
@@ -3490,7 +2988,8 @@ export class VpsPullScheduler {
       if (pendingAccounts.length > 0) {
         console.log(`📊 Post-eval SL retry: Re-evaluating ${pendingAccounts.length} account(s)...`);
         for (const regId of pendingAccounts) {
-          await evaluationEngine.evaluateSingleAccount(challenge.id, regId);
+          if(eligibleRegistrations && !eligibleRegistrations.includes(regId))continue;
+          await evaluationEngine.evaluateSingleAccount(challenge.id, regId,overrideLock);
         }
       }
 

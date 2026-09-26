@@ -59,9 +59,9 @@ class HostService {
   /**
    * Get host by email (for login)
    */
-  async getHostByEmail(email: string): Promise<{ id: number; display_name: string; email: string; password_hash: string; active: boolean } | null> {
+  async getHostByEmail(email: string): Promise<{ id: number; display_name: string; email: string; password_hash: string; active: boolean; session_version: number } | null> {
     const result = await db.query(
-      `SELECT id, display_name, email, password_hash, active FROM hosts WHERE email = $1`,
+      `SELECT id, display_name, email, password_hash, active, session_version FROM hosts WHERE email = $1`,
       [email.toLowerCase().trim()]
     );
     return result.rows[0] || null;
@@ -107,21 +107,21 @@ class HostService {
    */
   async resetPassword(hostId: number, newPassword: string): Promise<void> {
     const passwordHash = await bcrypt.hash(newPassword, SALT_ROUNDS);
-    await db.query(`UPDATE hosts SET password_hash = $1 WHERE id = $2`, [passwordHash, hostId]);
+    await db.query(`UPDATE hosts SET password_hash = $1, session_version = session_version + 1 WHERE id = $2`, [passwordHash, hostId]);
   }
 
   /**
    * Activate/deactivate host
    */
   async setActive(hostId: number, active: boolean): Promise<void> {
-    await db.query(`UPDATE hosts SET active = $1 WHERE id = $2`, [active, hostId]);
+    await db.query(`UPDATE hosts SET active = $1, session_version = session_version + 1 WHERE id = $2`, [active, hostId]);
   }
 
   /**
    * Delete host (cascade deletes login history, nullifies challenge host_id)
    */
   async deleteHost(hostId: number): Promise<void> {
-    await db.query(`DELETE FROM hosts WHERE id = $1`, [hostId]);
+    await this.setActive(hostId, false); // Preserve challenge ownership and history.
   }
 
   /**
@@ -169,8 +169,7 @@ class HostService {
         apiKey: decrypt(row.broker_api_key_encrypted, row.encryption_iv),
       };
     } catch (error) {
-      console.error(`Failed to decrypt broker credentials for host ${hostId}:`, error);
-      return null;
+      throw new Error('Host broker credentials could not be decrypted');
     }
   }
 
@@ -219,7 +218,7 @@ class HostService {
   async getHostChallenges(hostId: number): Promise<any[]> {
     const result = await db.query(
       `SELECT id, title, type, status, start_date, end_date, starting_balance, target_balance,
-              deposit_mode, target_percent, timezone, registration_mode, created_at,
+              deposit_mode, target_percent, timezone, registration_mode, created_at, prize_pool_text, real_winners_count, demo_winners_count, real_prizes, demo_prizes,
               split_category_settings, demo_starting_balance, demo_target_balance,
               real_starting_balance, real_target_balance,
               demo_deposit_mode, real_deposit_mode, demo_target_percent, real_target_percent,

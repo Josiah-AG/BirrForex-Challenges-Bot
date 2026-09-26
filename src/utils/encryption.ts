@@ -44,7 +44,8 @@ export function generateIV(): string {
  * Encrypt a plaintext value using the master key and host's IV
  * Returns: base64-encoded string containing [authTag (16 bytes) + ciphertext]
  */
-export function encrypt(plaintext: string, ivHex: string): string {
+export function encrypt(plaintext: string, _legacyIv?: string): string {
+  const ivHex = generateIV();
   const key = getMasterKey();
   const iv = Buffer.from(ivHex, 'hex');
 
@@ -55,7 +56,7 @@ export function encrypt(plaintext: string, ivHex: string): string {
   const authTag = cipher.getAuthTag();
 
   // Prepend auth tag to ciphertext for storage
-  return authTag.toString('base64') + ':' + encrypted;
+  return 'v2:' + ivHex + ':' + authTag.toString('base64') + ':' + encrypted;
 }
 
 /**
@@ -64,6 +65,12 @@ export function encrypt(plaintext: string, ivHex: string): string {
  */
 export function decrypt(encryptedData: string, ivHex: string): string {
   const key = getMasterKey();
+  if (encryptedData.startsWith('v2:')) {
+    const envelope = encryptedData.split(':');
+    if (envelope.length !== 4 || !/^[a-f0-9]{32}$/.test(envelope[1])) throw new Error('Invalid encryption envelope');
+    ivHex = envelope[1];
+    encryptedData = envelope.slice(2).join(':');
+  }
   const iv = Buffer.from(ivHex, 'hex');
 
   const parts = encryptedData.split(':');

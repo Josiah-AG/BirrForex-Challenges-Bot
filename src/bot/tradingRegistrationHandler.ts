@@ -1003,7 +1003,7 @@ export class TradingRegistrationHandler {
           if (wasDisqualified) {
             await ctx.reply(
               '✅ <b>Password updated and verified.</b>\n\n' +
-              '⚠️ However, this account was <b>disqualified</b> (password was not updated within the 48h window). ' +
+              '⚠️ However, this account was <b>disqualified</b> (see the recorded disqualification reason). ' +
               'A working password alone does not automatically reinstate it — please contact @birrFXadmin if you\'d like to request reinstatement.',
               { parse_mode: 'HTML' }
             );
@@ -1018,6 +1018,7 @@ export class TradingRegistrationHandler {
               t(lang, 'winnerpip_login_updated'),
               { parse_mode: 'HTML' }
             );
+          }
             // Backfill: force a full pull for this account + push to the live leaderboard
             // immediately, instead of waiting for the next scheduled incremental cron
             // (which would only look back 5h and miss the outage window). Fire-and-forget —
@@ -1031,7 +1032,6 @@ export class TradingRegistrationHandler {
             } catch (e) {
               console.error('Failed to trigger post-recovery backfill pull:', e);
             }
-          }
         } else if (verifyResult.status === 'invalid_credentials') {
           await ctx.reply('❌ <b>Connection failed</b> — the password you entered is incorrect.\n\nPlease enter the correct <b>Investor (Read-Only) Password:</b>', { parse_mode: 'HTML' });
         } else {
@@ -1705,13 +1705,11 @@ export class TradingRegistrationHandler {
         account_number: session.data.account_number,
         mt5_server: session.data.mt5_server || null,
         client_uid: session.data.client_uid || null,
+        investor_password: session.data.investor_password,
       });
 
-      // Save investor password, cent flag, account_subtype, registration balance, and lang
-      if (session.data.investor_password) {
-        await db.query('UPDATE trading_registrations SET investor_password = $1, connection_verified = true, connection_verified_at = NOW(), is_cent = $3, account_subtype = $4, registration_balance = $5, last_known_balance = $5, lang = $6 WHERE id = $2',
-          [session.data.investor_password, reg.id, session.data.is_cent || false, session.data.account_subtype || 'standard', session.data.registration_balance ?? null, session.data.lang || 'en']);
-      }
+      // Identity, currency and funding were saved atomically from fresh VPS verification.
+      await db.query('UPDATE trading_registrations SET lang=$1 WHERE id=$2',[session.data.lang || 'en',reg.id]);
 
       // Remove from failed attempts if they were there
       await tradingChallengeService.markConverted(session.data.challenge_id, telegramId);
@@ -1936,7 +1934,8 @@ export class TradingRegistrationHandler {
 
     const reviewData = {
       challenge_id: session.data.challenge_id,
-      telegram_id: telegramId,
+      user_id: telegramId,
+      investor_password:session.data.investor_password,
       username: ctx.from!.username || null,
       nickname: session.data.nickname || null,
       account_type: session.data.account_type,

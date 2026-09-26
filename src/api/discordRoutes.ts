@@ -1,3 +1,4 @@
+import { ConfigurationError } from '../utils/configValidation';
 import { Router, Request, Response } from 'express';
 import { db } from '../database/db';
 import { vpsService } from '../services/vpsService';
@@ -92,8 +93,19 @@ router.post('/challenges', async (req: Request, res: Response) => {
       starting_balance, target_balance,
       prize_pool_text, real_winners_count, demo_winners_count,
       real_prizes, demo_prizes,
+      rules: req.body.rules,
+      rules_demo:req.body.rules_demo,rules_real:req.body.rules_real,
+      timezone:req.body.timezone,deposit_mode:req.body.deposit_mode,target_percent:req.body.target_percent,
+      target_enabled:req.body.target_enabled,allow_below_start:req.body.allow_below_start,
+      split_category_settings:req.body.split_category_settings,
+      demo_starting_balance:req.body.demo_starting_balance,demo_target_balance:req.body.demo_target_balance,
+      real_starting_balance:req.body.real_starting_balance,real_target_balance:req.body.real_target_balance,
+      demo_deposit_mode:req.body.demo_deposit_mode,real_deposit_mode:req.body.real_deposit_mode,
+      demo_target_percent:req.body.demo_target_percent,real_target_percent:req.body.real_target_percent,
+      demo_target_enabled:req.body.demo_target_enabled,real_target_enabled:req.body.real_target_enabled,
+      demo_allow_below_start:req.body.demo_allow_below_start,real_allow_below_start:req.body.real_allow_below_start,
     };
-    const token = gatekeeper.queueCreate(data);
+    const token = await gatekeeper.queueCreate(data);
 
     // Send confirmation to admin Telegram
     try {
@@ -112,18 +124,19 @@ router.post('/challenges', async (req: Request, res: Response) => {
             ]),
           }
         );
-        gatekeeper.setMessageId(token, msg.message_id);
+        await gatekeeper.setMessageId(token, msg.message_id);
       }
     } catch (_e) { /* silent */ }
 
-    // Return fake success
-    return res.json({
+    // Creation is pending until the durable approval is committed.
+    return res.status(202).json({
+      pendingApproval: true,
       success: true,
       challenge: {
         id: 0,
         title,
         type,
-        status: 'draft',
+        status: 'pending_approval',
         startDate: start_date,
         endDate: end_date,
         registrationDeadline: registration_deadline || end_date,
@@ -131,6 +144,7 @@ router.post('/challenges', async (req: Request, res: Response) => {
       },
     });
   } catch (error) {
+    if(error instanceof ConfigurationError)return res.status(400).json({error:error.message});
     console.error('Discord create challenge error:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
@@ -191,6 +205,7 @@ router.get('/challenges/:id', async (req: Request, res: Response) => {
       },
     });
   } catch (error) {
+    if(error instanceof ConfigurationError)return res.status(400).json({error:error.message});
     console.error('Discord get challenge error:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
@@ -270,13 +285,6 @@ router.post('/challenges/:id/register', async (req: Request, res: Response) => {
       return res.status(409).json({ error: 'Already registered for this challenge' });
     }
 
-    // Delete any old removed registration for this user (so they can re-register cleanly)
-    await db.query(
-      `DELETE FROM trading_registrations 
-       WHERE challenge_id = $1 AND (user_id = $2 OR account_number = $3) AND status = 'removed'`,
-      [challengeId, discord_user_id, account_number]
-    );
-
     // Check account type matches challenge type
     if (c.type === 'demo' && account_type !== 'demo') {
       return res.status(400).json({ error: 'This challenge only accepts demo accounts' });
@@ -285,31 +293,11 @@ router.post('/challenges/:id/register', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'This challenge only accepts real accounts' });
     }
 
-    // Insert registration — user_id holds the Discord user ID, source='discord'
-    const regBalance = registration_balance ?? null;
-    const regResult = await db.query(
-      `INSERT INTO trading_registrations
-       (challenge_id, user_id, username, nickname, account_type, email,
-        account_number, mt5_server, investor_password, source, status,
-        is_cent, account_subtype, registration_balance, last_known_balance,
-        connection_verified, connection_verified_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'discord', 'registered',
-               $10, $11, $12, $12,
-               $13, CASE WHEN $13 THEN NOW() ELSE NULL END)
-       RETURNING *`,
-      [
-        challengeId, discord_user_id,
-        username || '', nickname || username || '',
-        account_type, email || '',
-        account_number, mt5_server, investor_password,
-        is_cent || false,
-        account_subtype || (is_cent ? 'standard_cent' : 'standard'),
-        regBalance,
-        connection_verified || false,
-      ]
-    );
-
-    const registration = regResult.rows[0];
+    // Never trust caller-supplied verification flags, balance or currency.
+    const {tradingChallengeService}=require('../services/tradingChallengeService');
+    const registration=await tradingChallengeService.registerUser({challenge_id:challengeId,user_id:discord_user_id,
+      username:username || null,nickname:nickname || username || null,email:email || '',account_type,
+      account_number,mt5_server,investor_password,client_uid:null,source:'discord'});
 
     return res.json({
       success: true,
@@ -472,6 +460,7 @@ router.post('/verify-connection', async (req: Request, res: Response) => {
       });
     }
   } catch (error) {
+    if(error instanceof ConfigurationError)return res.status(400).json({error:error.message});
     console.error('Discord verify-connection error:', error);
     return res.status(500).json({ error: 'Internal server error', verified: false });
   }
@@ -483,119 +472,19 @@ router.post('/verify-connection', async (req: Request, res: Response) => {
  * POST /api/discord/challenges/:id/verify/:registrationId
  * Triggers VPS connection check for a registration
  */
-router.post('/challenges/:id/verify/:registrationId', async (req: Request, res: Response) => {
+router.post('/challenges/:id/verify/:registrationId', async (req: Request,res: Response)=>{
   try {
-    const registrationId = parseInt(param(req, "registrationId"));
-
-    // Get registration
-    const reg = await db.query(
-      `SELECT * FROM trading_registrations WHERE id = $1`,
-      [registrationId]
-    );
-
-    if (reg.rows.length === 0) {
-      return res.status(404).json({ error: 'Registration not found' });
-    }
-
-    const registration = reg.rows[0];
-
-    // Call VPS service to verify connection
-    try {
-      // Fuzzy match server name
-      const { fuzzyMatchServer } = require('../services/vpsService');
-      const accountType = registration.mt5_server?.toLowerCase().includes('trial') ? 'demo' : 'real';
-      const matchedServer = fuzzyMatchServer(registration.mt5_server, accountType) || registration.mt5_server;
-
-      const vpsResult = await vpsService.verifyConnection(
-        registration.account_number,
-        matchedServer,
-        registration.investor_password
-      );
-
-      if (vpsResult.success) {
-        // Detect cent account by currency from VPS
-        const challengeId = parseInt(param(req, "id"));
-        const challengeData = await db.query(
-          `SELECT c.starting_balance, c.type, r.parameters as rules_config
-           FROM trading_challenges c
-           LEFT JOIN wp_challenge_rules r ON c.id = r.challenge_id AND r.rule_code = CASE WHEN c.type='hybrid' AND c.split_category_settings THEN 'config_' || $2 ELSE 'config' END
-           WHERE c.id = $1`, [challengeId, registration.account_type]);
-        const startingBalance = parseFloat(challengeData.rows[0]?.starting_balance || 30);
-        const challengeType = challengeData.rows[0]?.type || 'real';
-        const onlyCent = challengeData.rows[0]?.rules_config?.only_cent_account || false;
-        const vpsBalance = vpsResult.balance || 0;
-        const vpsCurrency = (vpsResult.currency || '').toUpperCase();
-
-        // Detect cent by currency (USC = US Cent)
-        let isCent = vpsCurrency === 'USC' || vpsCurrency === 'USCENT';
-        const regSubtype = (vpsResult.account_subtype || '').toLowerCase();
-        const regIsProRawZero = ['pro', 'raw_spread', 'zero'].includes(regSubtype);
-
-        // Reject Pro/Raw/Zero subtypes
-        if (registration.account_type === 'demo' && regSubtype && regSubtype !== 'standard' && regSubtype !== 'unknown') {
-          return res.json({
-            success: true, verified: false,
-            rejected: true, rejectionReason: 'account_subtype_not_allowed',
-            message: `Demo category only accepts Standard accounts. Your account is a ${regSubtype} account.`,
-          });
-        }
-        if (registration.account_type === 'real' && !isCent && regIsProRawZero) {
-          return res.json({
-            success: true, verified: false,
-            rejected: true, rejectionReason: 'account_subtype_not_allowed',
-            message: `Only Standard or Standard Cent accounts are accepted. Your account is a ${regSubtype === 'pro' ? 'Pro' : regSubtype === 'zero' ? 'Zero' : 'Raw Spread'} account.`,
-          });
-        }
-
-        // Cent-only challenge: reject if not cent
-        if (onlyCent && registration.account_type === 'real' && !isCent) {
-          return res.json({
-            success: true,
-            verified: true,
-            balance: vpsBalance,
-            equity: vpsResult.equity,
-            server: vpsResult.server,
-            rejected: true,
-            rejectionReason: 'cent_only',
-            message: 'This challenge requires a Cent Account (currency: USC). Your account is Standard (USD).',
-          });
-        }
-
-        // Update registration as verified + save balance + is_cent + account_subtype
-        await db.query(
-          `UPDATE trading_registrations 
-           SET connection_verified = true, connection_verified_at = NOW(), pull_status = 'ready',
-               last_known_balance = $2, registration_balance = $2, is_cent = $3, account_subtype = $4
-           WHERE id = $1`,
-          [registrationId, vpsBalance, isCent, vpsResult.account_subtype || (isCent ? 'standard_cent' : 'standard')]
-        );
-
-        return res.json({
-          success: true,
-          verified: true,
-          balance: vpsResult.balance,
-          equity: vpsResult.equity,
-          server: vpsResult.server,
-          isCent,
-        });
-      } else {
-        return res.json({
-          success: true,
-          verified: false,
-          error: vpsResult.message || 'Connection failed',
-        });
-      }
-    } catch (vpsError: any) {
-      return res.json({
-        success: true,
-        verified: false,
-        error: vpsError.message || 'VPS service unavailable',
-      });
-    }
-  } catch (error) {
-    console.error('Discord verify error:', error);
-    return res.status(500).json({ error: 'Internal server error' });
-  }
+    const challengeId=Number(param(req,'id')), registrationId=Number(param(req,'registrationId'));
+    const registration=(await db.query(`SELECT * FROM trading_registrations WHERE id=$1 AND challenge_id=$2 AND status IS DISTINCT FROM 'removed'`,[registrationId,challengeId])).rows[0];
+    if(!registration)return res.status(404).json({error:'Registration not found'});
+    const verified=await vpsService.verifyConnection(registration.account_number,registration.mt5_server,registration.investor_password);
+    const {validateVerifiedRegistration,validateHostAllocation}=require('../services/registrationEligibility');
+    await validateVerifiedRegistration(challengeId,registration.account_type,verified,'native');
+    await validateHostAllocation(challengeId,registration.email || '');
+    const isCent=['USC','USCENT'].includes((verified.currency || '').toUpperCase());
+    await db.query(`UPDATE trading_registrations SET connection_verified=true,connection_verified_at=NOW(),last_known_balance=$2,registration_balance=$2,is_cent=$3,account_subtype=$4 WHERE id=$1`,[registrationId,verified.balance,isCent,verified.account_subtype]);
+    return res.json({success:true,verified:true,balance:verified.balance,isCent,server:verified.server});
+  }catch(error){return res.status(400).json({success:false,verified:false,error:(error as Error).message});}
 });
 
 // ==================== GET LEADERBOARD ====================
@@ -646,6 +535,7 @@ router.get('/challenges/:id/leaderboard', async (req: Request, res: Response) =>
       })),
     });
   } catch (error) {
+    if(error instanceof ConfigurationError)return res.status(400).json({error:error.message});
     console.error('Discord leaderboard error:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
@@ -684,6 +574,7 @@ router.get('/challenges/:id/winners', async (req: Request, res: Response) => {
       })),
     });
   } catch (error) {
+    if(error instanceof ConfigurationError)return res.status(400).json({error:error.message});
     console.error('Discord winners error:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
@@ -712,6 +603,7 @@ router.patch('/challenges/:id/status', async (req: Request, res: Response) => {
 
     return res.json({ success: true, status });
   } catch (error) {
+    if(error instanceof ConfigurationError)return res.status(400).json({error:error.message});
     console.error('Discord update status error:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
@@ -735,6 +627,7 @@ router.patch('/challenges/:id/message', async (req: Request, res: Response) => {
 
     return res.json({ success: true });
   } catch (error) {
+    if(error instanceof ConfigurationError)return res.status(400).json({error:error.message});
     console.error('Discord save message error:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
@@ -764,7 +657,7 @@ router.delete('/challenges/:id', async (req: Request, res: Response) => {
 
     // Queue for Telegram admin confirmation instead of immediate execution
     const gatekeeper = require('../services/challengeGatekeeper');
-    const token = gatekeeper.queueDelete(challengeId, title);
+    const token = await gatekeeper.queueDelete(challengeId, title);
 
     // Send confirmation to admin Telegram
     try {
@@ -783,16 +676,18 @@ router.delete('/challenges/:id', async (req: Request, res: Response) => {
             ]),
           }
         );
-        gatekeeper.setMessageId(token, msg.message_id);
+        await gatekeeper.setMessageId(token, msg.message_id);
       }
     } catch (_e) { /* silent */ }
 
-    // Return fake success — challenge won't be deleted until confirmed on Telegram
-    return res.json({
+    // Deletion is pending approval.
+    return res.status(202).json({
+      pendingApproval: true,
       success: true,
-      message: `Challenge "${title}" (ID: ${challengeId}) deleted`,
+      message: `Deletion of challenge "${title}" (ID: ${challengeId}) is pending approval`,
     });
   } catch (error) {
+    if(error instanceof ConfigurationError)return res.status(400).json({error:error.message});
     console.error('Discord delete challenge error:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
@@ -823,6 +718,7 @@ router.post('/verify-real-account', async (req: Request, res: Response) => {
       data: result.data || null,
     });
   } catch (error) {
+    if(error instanceof ConfigurationError)return res.status(400).json({error:error.message});
     console.error('Discord verify-real-account error:', error);
     return res.status(500).json({ status: 'api_error', error: 'Internal server error' });
   }
@@ -863,6 +759,7 @@ router.get('/challenges/:id/check-registration/:userId', async (req: Request, re
       },
     });
   } catch (error) {
+    if(error instanceof ConfigurationError)return res.status(400).json({error:error.message});
     console.error('Discord check-registration error:', error);
     return res.status(500).json({ error: 'Internal server error', registered: false });
   }
@@ -884,6 +781,7 @@ router.get('/challenges/:id/check-nickname/:nickname', async (req: Request, res:
 
     return res.json({ taken: result.rows.length > 0 });
   } catch (error) {
+    if(error instanceof ConfigurationError)return res.status(400).json({error:error.message});
     console.error('Discord check-nickname error:', error);
     return res.status(500).json({ error: 'Internal server error', taken: false });
   }
@@ -911,6 +809,7 @@ router.get('/pending-announcements', async (req: Request, res: Response) => {
     }));
     return res.json({ pending });
   } catch (error) {
+    if(error instanceof ConfigurationError)return res.status(400).json({error:error.message});
     console.error('Pending announcements error:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
@@ -931,6 +830,7 @@ router.post('/mark-announced/:id', async (req: Request, res: Response) => {
     );
     return res.json({ success: true });
   } catch (error) {
+    if(error instanceof ConfigurationError)return res.status(400).json({error:error.message});
     console.error('Mark announced error:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
@@ -952,6 +852,7 @@ router.get('/pending-lastchance', async (req: Request, res: Response) => {
     );
     return res.json({ pending: result.rows });
   } catch (error) {
+    if(error instanceof ConfigurationError)return res.status(400).json({error:error.message});
     console.error('Pending lastchance error:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
@@ -971,6 +872,7 @@ router.post('/mark-lastchance-done/:id', async (req: Request, res: Response) => 
     );
     return res.json({ success: true });
   } catch (error) {
+    if(error instanceof ConfigurationError)return res.status(400).json({error:error.message});
     console.error('Mark lastchance done error:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
@@ -1005,7 +907,7 @@ router.post('/admin/unregister', discordAuth, discordLimiter, async (req: Reques
     const reg = regResult.rows[0];
 
     // Hard delete
-    await db.query(`DELETE FROM trading_registrations WHERE id = $1`, [reg.id]);
+    await db.query(`UPDATE trading_registrations SET status='removed',disqualified=true,disqualified_source='removed',disqualified_reason='Registration removed',disqualified_at=NOW() WHERE id=$1`,[reg.id]);
     await db.query(`DELETE FROM wp_leaderboard WHERE registration_id = $1`, [reg.id]);
     await db.query(`DELETE FROM wp_leaderboard_staging WHERE registration_id = $1`, [reg.id]);
 
@@ -1022,6 +924,7 @@ router.post('/admin/unregister', discordAuth, discordLimiter, async (req: Reques
       },
     });
   } catch (error) {
+    if(error instanceof ConfigurationError)return res.status(400).json({error:error.message});
     console.error('Discord admin unregister error:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
@@ -1041,6 +944,7 @@ router.get('/pending-dms', discordAuth, async (req: Request, res: Response) => {
     );
     return res.json({ notifications: result.rows });
   } catch (error) {
+    if(error instanceof ConfigurationError)return res.status(400).json({error:error.message});
     console.error('Discord pending-dms error:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
@@ -1056,6 +960,7 @@ router.post('/mark-dm-sent/:id', discordAuth, async (req: Request, res: Response
     await db.query(`UPDATE discord_dm_queue SET sent = true, sent_at = NOW() WHERE id = $1`, [id]);
     return res.json({ success: true });
   } catch (error) {
+    if(error instanceof ConfigurationError)return res.status(400).json({error:error.message});
     console.error('Discord mark-dm-sent error:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }

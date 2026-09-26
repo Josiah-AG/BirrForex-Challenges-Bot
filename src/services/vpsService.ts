@@ -10,6 +10,7 @@ export interface VpsVerifyResult {
   server?: string;
   currency?: string;
   account_subtype?: string;
+  trade_mode?: number;
 }
 
 export interface VpsAccountInfo {
@@ -174,7 +175,7 @@ class VpsService {
   ): Promise<VpsVerifyResult> {
     if (!this.baseUrl || !this.apiKey) {
       console.log('⚠️ VPS API not configured — skipping verification');
-      return { success: true, status: 'connected', message: 'VPS verification skipped (not configured)' };
+      return { success: false, status: 'api_error', message: 'VPS verification is unavailable; registration cannot be confirmed' };
     }
 
     try {
@@ -215,6 +216,7 @@ class VpsService {
               server: data.server || server,
               currency: data.currency || undefined,
               account_subtype: data.account_subtype || undefined,
+              trade_mode: data.trade_mode,
             };
           }
 

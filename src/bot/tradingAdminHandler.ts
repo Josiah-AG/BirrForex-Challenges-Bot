@@ -1,3 +1,4 @@
+import { selectWinnerPipWinners } from '../services/winnerSelection';
 import { Context, Markup } from 'telegraf';
 import path from 'path';
 import { tradingChallengeService, TradingChallenge } from '../services/tradingChallengeService';
@@ -653,7 +654,7 @@ export class TradingAdminHandler {
         if (answer === 'yes' || answer === 'y') {
           session.data.split_category_settings = true;
           session.step = 'tc_enter_demo_starting_balance';
-          await ctx.reply('📘 <b>Demo Starting Balance</b>?\n\n<i>(Leave as shared value: send /skip)</i>', { parse_mode: 'HTML' });
+          await ctx.reply('📘 <b>Demo Starting Balance</b>?\n\n<i>(Copy the amount entered above into this category: send /skip)</i>', { parse_mode: 'HTML' });
         } else {
           session.data.split_category_settings = false;
           session.step = 'tc_enter_prize_pool_text';
@@ -664,46 +665,46 @@ export class TradingAdminHandler {
 
       case 'tc_enter_demo_starting_balance': {
         if (text === '/skip') {
-          session.data.demo_starting_balance = null;
+          session.data.demo_starting_balance = session.data.starting_balance;
         } else {
           const val = parseFloat(text);
           if (isNaN(val) || val <= 0) { await ctx.reply('❌ Enter a valid number or /skip.'); return; }
           session.data.demo_starting_balance = val;
         }
         session.step = 'tc_enter_demo_target_balance';
-        await ctx.reply('📘 <b>Demo Target Balance</b>?\n\n<i>(Leave as shared value: send /skip)</i>', { parse_mode: 'HTML' });
+        await ctx.reply('📘 <b>Demo Target Balance</b>?\n\n<i>(Copy the amount entered above into this category: send /skip)</i>', { parse_mode: 'HTML' });
         break;
       }
 
       case 'tc_enter_demo_target_balance': {
         if (text === '/skip') {
-          session.data.demo_target_balance = null;
+          session.data.demo_target_balance = session.data.target_balance;
         } else {
           const val = parseFloat(text);
           if (isNaN(val) || val <= 0) { await ctx.reply('❌ Enter a valid number or /skip.'); return; }
           session.data.demo_target_balance = val;
         }
         session.step = 'tc_enter_real_starting_balance';
-        await ctx.reply('📗 <b>Real Starting Balance</b>?\n\n<i>(Leave as shared value: send /skip)</i>', { parse_mode: 'HTML' });
+        await ctx.reply('📗 <b>Real Starting Balance</b>?\n\n<i>(Copy the amount entered above into this category: send /skip)</i>', { parse_mode: 'HTML' });
         break;
       }
 
       case 'tc_enter_real_starting_balance': {
         if (text === '/skip') {
-          session.data.real_starting_balance = null;
+          session.data.real_starting_balance = session.data.starting_balance;
         } else {
           const val = parseFloat(text);
           if (isNaN(val) || val <= 0) { await ctx.reply('❌ Enter a valid number or /skip.'); return; }
           session.data.real_starting_balance = val;
         }
         session.step = 'tc_enter_real_target_balance';
-        await ctx.reply('📗 <b>Real Target Balance</b>?\n\n<i>(Leave as shared value: send /skip)</i>', { parse_mode: 'HTML' });
+        await ctx.reply('📗 <b>Real Target Balance</b>?\n\n<i>(Copy the amount entered above into this category: send /skip)</i>', { parse_mode: 'HTML' });
         break;
       }
 
       case 'tc_enter_real_target_balance': {
         if (text === '/skip') {
-          session.data.real_target_balance = null;
+          session.data.real_target_balance = session.data.target_balance;
         } else {
           const val = parseFloat(text);
           if (isNaN(val) || val <= 0) { await ctx.reply('❌ Enter a valid number or /skip.'); return; }
@@ -1066,7 +1067,7 @@ export class TradingAdminHandler {
       `📅 <b>Period:</b> ${startStr} → ${endStr}\n` +
       `💰 <b>Starting Balance:</b> $${d.starting_balance}\n` +
       `🎯 <b>Target:</b> $${d.target_balance}\n` +
-      (d.split_category_settings ? `🔀 <b>Per-Category:</b> ON\n  📘 Demo: $${d.demo_starting_balance || d.starting_balance} → $${d.demo_target_balance || d.target_balance}\n  📗 Real: $${d.real_starting_balance || d.starting_balance} → $${d.real_target_balance || d.target_balance}\n` : '') +
+      (d.split_category_settings ? `🔀 <b>Per-Category:</b> ON\n  📘 Demo: $${d.demo_starting_balance} → $${d.demo_target_balance}\n  📗 Real: $${d.real_starting_balance} → $${d.real_target_balance}\n` : '') +
       prizesText + '\n' +
       `🏆 <b>Prize Pool:</b> ${d.prize_pool_text ? '✅ Set' : '⏭️ Not set'}\n` +
       `📄 <b>PDF:</b> ${d.pdf_url ? '✅ Linked' : '⏭️ Skipped'}\n` +
@@ -1090,6 +1091,12 @@ export class TradingAdminHandler {
     try {
       const d = session.data;
       const challenge = await tradingChallengeService.createChallenge({
+        ...d,
+        timezone: d.timezone || config.timezone,
+        demo_deposit_mode: 'fixed', real_deposit_mode: 'fixed',
+        demo_target_percent: 0, real_target_percent: 0,
+        demo_target_enabled: true, real_target_enabled: true,
+        demo_allow_below_start: false, real_allow_below_start: false,
         title: d.title,
         type: d.type,
         start_date: d.start_date,
@@ -1104,26 +1111,6 @@ export class TradingAdminHandler {
         demo_prizes: d.demo_prizes || [],
         prize_pool_text: d.prize_pool_text,
       });
-
-      // Save per-category settings if enabled
-      if (d.split_category_settings && challenge.id) {
-        await db.query(
-          `UPDATE trading_challenges SET split_category_settings = true,
-           demo_starting_balance = $1, demo_target_balance = $2,
-           real_starting_balance = $3, real_target_balance = $4
-           WHERE id = $5`,
-          [d.demo_starting_balance || null, d.demo_target_balance || null,
-           d.real_starting_balance || null, d.real_target_balance || null, challenge.id]
-        );
-      }
-
-      // Save pull schedule
-      if (d.pull_times && d.pull_times.length > 0) {
-        await db.query(
-          `UPDATE trading_challenges SET pull_times = $1, pull_interval_hours = $2, first_pull_time = $3 WHERE id = $4`,
-          [JSON.stringify(d.pull_times), d.pull_interval_hours || 4, d.first_pull_time || '00:00', challenge.id]
-        );
-      }
 
       tradingAdminSessions.delete(telegramId);
       await ctx.answerCbQuery('Challenge created!');
@@ -3568,26 +3555,15 @@ export class TradingAdminHandler {
     const realPrizes = typeof challenge.real_prizes === 'string' ? JSON.parse(challenge.real_prizes) : (challenge.real_prizes || []);
     const demoPrizes = typeof challenge.demo_prizes === 'string' ? JSON.parse(challenge.demo_prizes) : (challenge.demo_prizes || []);
 
-    // Query top winners from wp_leaderboard
-    const realWinners = realCount > 0 ? (await db.query(
-      `SELECT l.*, r.username, r.user_id, r.nickname, r.is_cent
-       FROM wp_leaderboard l
-       JOIN trading_registrations r ON l.registration_id = r.id
-       WHERE l.challenge_id = $1 AND l.account_type = 'real'
-         AND l.is_disqualified = false AND l.is_qualified = true
-       ORDER BY l.normalized_balance DESC LIMIT $2`,
-      [challengeId, realCount]
-    )).rows : [];
+    const realWinners=await selectWinnerPipWinners(challengeId,'real');
+    const demoWinners=await selectWinnerPipWinners(challengeId,'demo');
+    if([...realWinners,...demoWinners].some(w=>w.archived)){
+      await ctx.reply(['Archived WinnerPip results (already published):',
+        ...realWinners.map(w=>`Real #${w.rank}: ${w.nickname} — ${w.prize}`),
+        ...demoWinners.map(w=>`Demo #${w.rank}: ${w.nickname} — ${w.prize}`)].join('\n'));
+      return;
+    }
 
-    const demoWinners = demoCount > 0 ? (await db.query(
-      `SELECT l.*, r.username, r.user_id, r.nickname, r.is_cent
-       FROM wp_leaderboard l
-       JOIN trading_registrations r ON l.registration_id = r.id
-       WHERE l.challenge_id = $1 AND l.account_type = 'demo'
-         AND l.is_disqualified = false AND l.is_qualified = true
-       ORDER BY l.normalized_balance DESC LIMIT $2`,
-      [challengeId, demoCount]
-    )).rows : [];
 
     if (realWinners.length === 0 && demoWinners.length === 0) {
       await ctx.reply('❌ No qualified winners found on the WinnerPip leaderboard.');

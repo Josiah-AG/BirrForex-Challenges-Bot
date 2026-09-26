@@ -1,3 +1,5 @@
+import { zonedTimeToUtc } from 'date-fns-tz';
+import { getLocalTime } from '../utils/timezone';
 /**
  * BirrForex Challenge Evaluation Engine
  * Runs all 11 rule checks on parsed MT5 trade data
@@ -7,6 +9,7 @@ import { RulesEnabled, isRuleEnabled } from '../utils/rulePolicy';
 import { MT5Position, MT5Deal, MT5AccountInfo } from './mt5Parser';
 
 export interface EvaluationConfig {
+  timezone?: string;
   rules_enabled?: RulesEnabled;
   weekendTradingAllowed?: boolean;
   minTotalTrades?: number;
@@ -169,6 +172,11 @@ export function evaluateAccount(
   reportedBalance: number,
   config: EvaluationConfig
 ): EvaluationResult {
+  const timezone=config.timezone || 'Africa/Nairobi';
+  const parseTime=(value:string)=> /(?:Z|[+-]\d{2}:?\d{2})$/.test(value) ? new Date(value) : zonedTimeToUtc(value.replace(' ','T'),timezone);
+  const dateKey=(date:Date)=>getLocalTime(date,timezone).dateStr;
+  const isWeekend=(date:Date)=>[0,6].includes(getLocalTime(date,timezone).dayOfWeek);
+  const hoursDiff=(a:string,b:string)=>Math.abs(parseTime(b).getTime()-parseTime(a).getTime())/3600000;
   const tradeFlags = new Map<string, string[]>();
 
   function addFlag(posId: string, reason: string) {
@@ -176,8 +184,8 @@ export function evaluateAccount(
     tradeFlags.get(posId)!.push(reason);
   }
 
-  const challengeStart = new Date(config.challengeStartDate + 'T00:00:00Z');
-  const challengeEnd = new Date(config.challengeEndDate + 'T23:59:59Z');
+  const challengeStart = zonedTimeToUtc(config.challengeStartDate + 'T00:00:00',timezone);
+  const challengeEnd = zonedTimeToUtc(config.challengeEndDate + 'T23:59:59',timezone);
 
   function isInPeriod(d: Date): boolean {
     return d >= challengeStart && d <= challengeEnd;
@@ -218,7 +226,7 @@ export function evaluateAccount(
   // Tolerate day-1 deposits (initial setup) as long as total doesn't exceed starting balance limit
   // Any deposit after day 1 = recharging = disqualify
   const challengeStartDateStr = config.challengeStartDate;
-  const challengeDay1End = new Date(challengeStartDateStr + 'T23:59:59Z');
+  const challengeDay1End = zonedTimeToUtc(challengeStartDateStr + 'T23:59:59',timezone);
 
   // Check if user reset their balance on day 1 (withdrawal to reach exactly $50)
   let balanceResetOnDay1 = false;
@@ -295,8 +303,7 @@ export function evaluateAccount(
   challengePositions.forEach(p => {
     const od = parseTime(p.openTime);
     const cd = parseTime(p.closeTime);
-    if (!isWeekend(od)) activeDaysSet.add(dateKey(od));
-    if (!isWeekend(cd)) activeDaysSet.add(dateKey(cd));
+    activeDaysSet.add(dateKey(cd));
   });
   const activeDaysOk = (!isRuleEnabled(config, 'min_active_days') || activeDaysSet.size >= config.minActiveDays);
 

@@ -1,15 +1,7 @@
-/**
- * Challenge Gatekeeper — requires Telegram admin confirmation for create/delete
- * 
- * External sources (WinnerPip dashboard, Discord bot) cannot create or delete
- * challenges without physical confirmation from the admin on Telegram.
- * 
- * Flow:
- * - API receives create/delete request → responds with fake success
- * - Sends silent Telegram message to admin with Confirm/Reject buttons
- * - On Confirm: executes the actual DB operation
- * - On Reject or 30min timeout: discards the pending action
- */
+import { formatInTimezone } from '../utils/timezone';
+import { validateChallenge, normalizeChallengeInput } from '../utils/configValidation';
+import { transitionChallenge } from './challengeState';
+/** Challenge mutations are persisted for one-time approval by an authenticated admin. */
 
 import { db } from '../database/db';
 import { config } from '../config';
@@ -23,93 +15,67 @@ interface PendingAction {
   messageId?: number;
 }
 
-// In-memory store of pending actions (survives until process restarts — fine for 30min window)
-const pendingActions = new Map<string, PendingAction>();
-
-// Auto-expire after 30 minutes
-const EXPIRY_MS = 30 * 60 * 1000;
-
-function generateToken(): string {
-  return crypto.randomBytes(16).toString('hex');
+async function queue(type: PendingAction['type'], data: any): Promise<string> {
+  const token=crypto.randomBytes(16).toString('hex');
+  await db.query('INSERT INTO challenge_approvals (token,kind,payload) VALUES ($1,$2,$3)',[token,type,JSON.stringify(data)]);
+  return token;
 }
-
-function cleanExpired() {
-  const now = Date.now();
-  for (const [token, action] of pendingActions) {
-    if (now - action.createdAt > EXPIRY_MS) {
-      pendingActions.delete(token);
+export async function queueCreate(data: any): Promise<string> {
+  data=normalizeChallengeInput(data);
+  if(!data.already_inserted)validateChallenge(data);
+  return queue('create',data);
+}
+export async function queueDelete(challengeId: number,title: string): Promise<string> {
+  return queue('delete',{challengeId,title});
+}
+export async function getPending(token: string): Promise<PendingAction | undefined> {
+  const result=await db.query("SELECT * FROM challenge_approvals WHERE token=$1 AND state='pending'",[token]);
+  const row=result.rows[0];
+  return row ? {token,type:row.kind,data:row.payload,createdAt:new Date(row.created_at).getTime(),messageId:row.message_id} : undefined;
+}
+export async function removePending(_token: string): Promise<void> { /* decisions persist for audit */ }
+export async function setMessageId(token: string,messageId: number): Promise<void> {
+  await db.query('UPDATE challenge_approvals SET message_id=$2 WHERE token=$1',[token,messageId]);
+}
+/** Commit decision and its database effects once, before external notifications. */
+export async function decide(token: string, approve: boolean): Promise<any> {
+  return db.transaction(async()=>{
+    const locked=await db.query("SELECT token FROM challenge_approvals WHERE token=$1 AND state='pending' FOR UPDATE",[token]);
+    if(!locked.rows.length)return null;
+    const pending=await getPending(token);
+    if(!pending)return null;
+    let result: any={success:true};
+    if(approve){
+      if(pending.type==='create')result=await executeCreate(pending.data);
+      else if(pending.type==='delete')result=await executeDelete(pending.data.challengeId);
+      else result=await executeStatusChange(pending.data.challengeId,pending.data.toStatus,pending.data.fromStatus);
+      if(!result.success)throw new Error(result.error); // rollback, request remains retryable
+    } else if(pending.type==='create' && pending.data.already_inserted){
+      await db.query("UPDATE trading_challenges SET status='rejected',updated_at=NOW() WHERE id=$1 AND status='pending_approval'",[pending.data.challenge_id]);
     }
-  }
-}
-
-/**
- * Queue a challenge creation for admin approval.
- * Returns a token that the callback handler uses.
- */
-export function queueCreate(data: any): string {
-  cleanExpired();
-  const token = generateToken();
-  pendingActions.set(token, {
-    token,
-    type: 'create',
-    data,
-    createdAt: Date.now(),
+    await db.query('UPDATE challenge_approvals SET state=$2,decided_at=NOW(),result=$3 WHERE token=$1',[token,approve?'approved':'rejected',JSON.stringify(result)]);
+    return {pending,result};
   });
-  return token;
-}
-
-/**
- * Queue a challenge deletion for admin approval.
- */
-export function queueDelete(challengeId: number, title: string): string {
-  cleanExpired();
-  const token = generateToken();
-  pendingActions.set(token, {
-    token,
-    type: 'delete',
-    data: { challengeId, title },
-    createdAt: Date.now(),
-  });
-  return token;
-}
-
-/**
- * Get a pending action by token (for the callback handler).
- */
-export function getPending(token: string): PendingAction | undefined {
-  cleanExpired();
-  return pendingActions.get(token);
-}
-
-/**
- * Remove a pending action (after approve or reject).
- */
-export function removePending(token: string): void {
-  pendingActions.delete(token);
-}
-
-/**
- * Store the Telegram message ID so we can edit it after action.
- */
-export function setMessageId(token: string, messageId: number): void {
-  const action = pendingActions.get(token);
-  if (action) action.messageId = messageId;
 }
 
 /**
  * Execute the actual challenge creation in DB.
  */
 export async function executeCreate(data: any): Promise<{ success: boolean; challenge?: any; error?: string }> {
+  data=normalizeChallengeInput(data);
+  return db.transaction(async () => {
   try {
     // Host-created challenges are already inserted with 'pending_approval' status
     if (data.already_inserted && data.challenge_id) {
       const result = await db.query(
-        `UPDATE trading_challenges SET status = 'draft', updated_at = NOW() WHERE id = $1 RETURNING *`,
+        `UPDATE trading_challenges SET status = 'draft', updated_at = NOW() WHERE id = $1 AND status = 'pending_approval' RETURNING *`,
         [data.challenge_id]
       );
+      if (!result.rows.length) throw new Error("Approval is stale: challenge is no longer pending");
       return { success: true, challenge: result.rows[0] };
     }
 
+    validateChallenge(data);
     // Admin-created challenges: insert fresh
     const evalType = data.evaluation_type === 'legacy' ? 'legacy' : 'winnerpip';
     const result = await db.query(
@@ -127,7 +93,7 @@ export async function executeCreate(data: any): Promise<{ success: boolean; chal
        RETURNING *`,
       [
         data.title, data.type, data.start_date, data.end_date,
-        data.registration_deadline || data.end_date,
+        data.registration_deadline || data.start_date,
         data.starting_balance, data.target_balance || 0,
         data.prize_pool_text || '', data.real_winners_count || 0, data.demo_winners_count || 0,
         JSON.stringify(data.real_prizes || []), JSON.stringify(data.demo_prizes || []),
@@ -141,10 +107,10 @@ export async function executeCreate(data: any): Promise<{ success: boolean; chal
         data.target_percent || null,
         data.host_id || null,
         data.split_category_settings || false,
-        data.demo_starting_balance || null,
-        data.demo_target_balance || null,
-        data.real_starting_balance || null,
-        data.real_target_balance || null,
+        data.demo_starting_balance ?? null,
+        data.demo_target_balance ?? null,
+        data.real_starting_balance ?? null,
+        data.real_target_balance ?? null,
         data.demo_deposit_mode || null,
         data.real_deposit_mode || null,
         data.demo_target_percent || null,
@@ -159,32 +125,15 @@ export async function executeCreate(data: any): Promise<{ success: boolean; chal
       ]
     );
 
-    // Save rules if provided
-    // Save rules if provided
-    if (data.rules && result.rows[0]?.id) {
-      try {
-        const { evaluationEngine } = require('./wpEvaluationEngine');
-        await evaluationEngine.saveRules(result.rows[0].id, data.rules);
-      } catch (_e) { /* silent — rules can be set later */ }
-    }
-    // Save per-category rules
-    if (data.rules_demo && result.rows[0]?.id) {
-      try {
-        const { evaluationEngine } = require('./wpEvaluationEngine');
-        await evaluationEngine.saveRules(result.rows[0].id, data.rules_demo, 'config_demo');
-      } catch (_e) {}
-    }
-    if (data.rules_real && result.rows[0]?.id) {
-      try {
-        const { evaluationEngine } = require('./wpEvaluationEngine');
-        await evaluationEngine.saveRules(result.rows[0].id, data.rules_real, 'config_real');
-      } catch (_e) {}
-    }
+    const { evaluationEngine } = require('./wpEvaluationEngine');
+    if(data.rules) await evaluationEngine.saveRules(result.rows[0].id,data.rules);
+    if(data.rules_demo) await evaluationEngine.saveRules(result.rows[0].id,data.rules_demo,'config_demo');
+    if(data.rules_real) await evaluationEngine.saveRules(result.rows[0].id,data.rules_real,'config_real');
+    await db.query('UPDATE trading_challenges SET timezone=$2 WHERE id=$1',[result.rows[0].id,data.timezone || 'Africa/Nairobi']);
 
     return { success: true, challenge: result.rows[0] };
-  } catch (error) {
-    return { success: false, error: (error as Error).message };
-  }
+  } catch (error) { throw error; }
+  });
 }
 
 /**
@@ -203,10 +152,7 @@ export async function executeDelete(challengeId: number): Promise<{ success: boo
  * Build the Telegram message for a create confirmation.
  */
 export function buildCreateMessage(data: any): string {
-  const toEAT = (d: string) => {
-    const dt = new Date(new Date(d).getTime() + 3 * 60 * 60 * 1000);
-    return dt.toISOString().substring(0, 16).replace('T', ' ') + ' EAT';
-  };
+  const toLocal = (d: string) => formatInTimezone(d,data.timezone || 'Africa/Nairobi');
   const depositModeLabel = data.deposit_mode === 'max_limit' ? 'Max Limit' : data.deposit_mode === 'min_limit' ? 'Min Limit' : 'Fixed';
   const targetDisplay = data.deposit_mode && data.deposit_mode !== 'fixed' && data.target_percent
     ? `${data.target_percent}% growth`
@@ -217,8 +163,8 @@ export function buildCreateMessage(data: any): string {
     `<b>Type:</b> ${data.type}\n` +
     `<b>Source:</b> ${data.source || 'winnerpip'}\n` +
     `<b>Deposit Mode:</b> ${depositModeLabel}\n` +
-    `<b>Start:</b> ${toEAT(data.start_date)}\n` +
-    `<b>End:</b> ${toEAT(data.end_date)}\n` +
+    `<b>Start:</b> ${toLocal(data.start_date)}\n` +
+    `<b>End:</b> ${toLocal(data.end_date)}\n` +
     `<b>Balance:</b> $${data.starting_balance}\n` +
     `<b>Target:</b> ${targetDisplay}\n\n` +
     `⚠️ Confirm to create this challenge.`
@@ -243,28 +189,12 @@ export function buildDeleteMessage(challengeId: number, title: string): string {
 /**
  * Queue a status change for admin approval (used by hosts and admin panel).
  */
-export function queueStatusChange(challengeId: number, title: string, fromStatus: string, toStatus: string, hostName?: string): string {
-  cleanExpired();
-  const token = generateToken();
-  pendingActions.set(token, {
-    token,
-    type: 'status_change',
-    data: { challengeId, title, fromStatus, toStatus, hostName },
-    createdAt: Date.now(),
-  });
-  return token;
+export async function queueStatusChange(challengeId: number,title: string,fromStatus: string,toStatus: string,hostName?: string): Promise<string> {
+  return queue('status_change',{challengeId,title,fromStatus,toStatus,hostName});
 }
-
-/**
- * Execute the actual status change in DB.
- */
-export async function executeStatusChange(challengeId: number, status: string): Promise<{ success: boolean; error?: string }> {
-  try {
-    await db.query(`UPDATE trading_challenges SET status = $1, updated_at = NOW() WHERE id = $2`, [status, challengeId]);
-    return { success: true };
-  } catch (error) {
-    return { success: false, error: (error as Error).message };
-  }
+export async function executeStatusChange(challengeId: number,status: string,expected?: string): Promise<{success:boolean;error?:string}> {
+  await transitionChallenge(challengeId,status,expected);
+  return {success:true};
 }
 
 /**

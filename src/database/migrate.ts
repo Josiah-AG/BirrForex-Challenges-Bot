@@ -1,3 +1,4 @@
+import { migrateHardening } from './hardeningMigration';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { db } from './db';
@@ -115,15 +116,7 @@ async function migrate() {
     // Evaluation type & winners_posted_at migration
     await db.query(`ALTER TABLE trading_challenges ADD COLUMN IF NOT EXISTS evaluation_type VARCHAR(20) DEFAULT 'winnerpip';`).catch(() => {});
     await db.query(`ALTER TABLE trading_challenges ADD COLUMN IF NOT EXISTS winners_posted_at TIMESTAMP;`).catch(() => {});
-    // Backfill: mark old completed/reviewing challenges that already had winners posted
-    // If status is 'completed' or 'reviewing' and end_date is more than 7 days ago, assume winners were posted
-    await db.query(`
-      UPDATE trading_challenges 
-      SET winners_posted_at = end_date, status = 'completed'
-      WHERE winners_posted_at IS NULL 
-        AND status IN ('completed', 'reviewing')
-        AND end_date < NOW() - INTERVAL '7 days'
-    `).catch(() => {});
+    // Finalization is a verified lifecycle operation, never inferred from age at startup.
     console.log('✅ Evaluation type migration OK');
 
     // Discord integration migration
@@ -285,39 +278,8 @@ async function migrate() {
     await db.query(`ALTER TABLE wp_trades ADD COLUMN IF NOT EXISTS sl_conflict_count INTEGER DEFAULT 0;`).catch(() => {});
     console.log('✅ sl_check_attempts / sl_conflict_count migration OK');
 
-    // Fix Discord registrations that have standard_cent accounts but is_cent=false
-    // These registered before the Discord bot passed is_cent/account_subtype to the API
-    await db.query(`
-      UPDATE trading_registrations
-      SET is_cent = true,
-          account_subtype = 'standard_cent'
-      WHERE source = 'discord'
-        AND is_cent = false
-        AND account_subtype = 'standard'
-        AND account_number IN (
-          SELECT account_number FROM trading_registrations
-          WHERE source = 'discord'
-            AND (account_number LIKE '16158%' OR account_number LIKE '16160%')
-        )
-        AND investor_password IS NOT NULL
-    `).catch(() => {});
-
-    // Legacy cent-only backfill: never infer a split-category account currency from shared rules.
-    // Split accounts retain their verified MT5 currency.
-    await db.query(`
-      UPDATE trading_registrations r
-      SET is_cent = true,
-          account_subtype = CASE WHEN r.account_subtype = 'standard' THEN 'standard_cent' ELSE r.account_subtype END
-      FROM wp_challenge_rules cr, trading_challenges c
-      WHERE cr.challenge_id = r.challenge_id AND c.id = r.challenge_id
-        AND NOT (c.type='hybrid' AND c.split_category_settings IS TRUE)
-        AND cr.rule_code = 'config'
-        AND (cr.parameters->>'only_cent_account')::boolean = true
-        AND r.account_type = 'real'
-        AND r.is_cent = false
-    `).catch(() => {});
-
-    console.log('✅ Discord is_cent backfill migration OK');
+    // Historical currency inference is not a startup migration. New registrations
+    // use verified MT5 currency; legacy corrections require a reviewed data journal.
 
     // Discord DM queue for password-changed notifications
     await db.query(`
@@ -337,51 +299,9 @@ async function migrate() {
     await db.query(`CREATE INDEX IF NOT EXISTS idx_discord_dm_queue_unsent ON discord_dm_queue(sent) WHERE sent = false;`).catch(() => {});
     console.log('✅ Discord DM queue migration OK');
 
-    // Fix old-format trade records created by worker.py before the deal-ticket fix.
-    // Old worker stored ticket=position_id and used the closing deal's type directly
-    // (BUY to close a SELL → stored as BUY) — both wrong ticket and wrong direction.
-    //
-    // Step 1: Delete old-format records (ticket = position_id) that now have a correct
-    //         newer record (ticket = closing_deal_ticket, same position_id) — the duplicates.
-    // Old records created before the position_id column existed have position_id = NULL.
-    // First backfill position_id = ticket for those records (since old worker used position_id as ticket).
-    await db.query(`
-      UPDATE wp_trades SET position_id = ticket WHERE position_id IS NULL
-    `).catch(() => {});
-
-    const deleteResult = await db.query(`
-      DELETE FROM wp_trades old
-      WHERE old.ticket = old.position_id
-        AND EXISTS (
-          SELECT 1 FROM wp_trades newer
-          WHERE newer.challenge_id    = old.challenge_id
-            AND newer.account_number  = old.account_number
-            AND newer.position_id     = old.position_id
-            AND newer.ticket         != old.ticket
-        )
-    `).catch(() => ({ rowCount: 0 }));
-    console.log(`✅ Deleted ${(deleteResult as any).rowCount} old-format duplicate trade records`);
-
-    // Step 2: For remaining old-format records with no newer counterpart,
-    //         flip the trade_type (Buy↔Sell) and reset SL check so they get re-evaluated.
-    const fixResult = await db.query(`
-      UPDATE wp_trades
-      SET trade_type        = CASE WHEN trade_type = 'Buy' THEN 'Sell' ELSE 'Buy' END,
-          sl_check_result   = NULL,
-          sl_check_pending  = true,
-          sl_check_attempts = 0,
-          sl_conflict_count = 0
-      WHERE ticket = position_id
-        AND trade_type IN ('Buy', 'Sell')
-        AND NOT EXISTS (
-          SELECT 1 FROM wp_trades newer
-          WHERE newer.challenge_id    = wp_trades.challenge_id
-            AND newer.account_number  = wp_trades.account_number
-            AND newer.position_id     = wp_trades.position_id
-            AND newer.ticket         != wp_trades.ticket
-        )
-    `).catch(() => ({ rowCount: 0 }));
-    console.log(`✅ Fixed trade_type on ${(fixResult as any).rowCount} orphaned old-format trade records`);
+    // Never rewrite or delete historical trades on application startup. The old
+    // direction-flip routine was not idempotent and could flip the same trade on
+    // every deploy. Historical repairs must be explicit and journaled.
 
     // Phase 2 (null open_time resolution) progress tracking on pull batches
     await db.query(`ALTER TABLE wp_pull_batches ADD COLUMN IF NOT EXISTS phase VARCHAR(20) DEFAULT 'pulling';`).catch(() => {});
@@ -563,6 +483,7 @@ async function migrate() {
     await db.query(`ALTER TABLE trading_challenges ADD COLUMN IF NOT EXISTS real_allow_below_start BOOLEAN;`).catch(() => {});
     console.log('✅ Optional-target columns OK');
 
+    await migrateHardening();
     console.log('✅ Database migration completed successfully!');
     process.exit(0);
   } catch (error) {

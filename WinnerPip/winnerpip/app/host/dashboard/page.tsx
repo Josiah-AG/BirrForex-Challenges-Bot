@@ -11,43 +11,7 @@ import BalanceChart from "@/components/BalanceChart";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
 
-// ===== Timezone-aware datetime helpers (module-level so both the dashboard and the create modal can use them) =====
-// The datetime-local input gives a naive wall-clock string (e.g. "2026-09-25T17:00").
-// The host means "5 PM in the challenge timezone", but the system stores/reads dates as UTC.
-// These convert between the two so what the host types is what actually happens.
-
-// How many ms the given IANA timezone is ahead of UTC at the given instant (handles DST).
-function tzOffsetMs(instant: Date, tz: string): number {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit",
-    hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
-  }).formatToParts(instant).reduce((acc: any, p) => { acc[p.type] = p.value; return acc; }, {});
-  const hour = parts.hour === "24" ? "00" : parts.hour;
-  const asUtc = Date.UTC(+parts.year, +parts.month - 1, +parts.day, +hour, +parts.minute, +parts.second);
-  return asUtc - instant.getTime();
-}
-
-// Convert a "YYYY-MM-DDTHH:mm" wall-clock string (in tz) to a UTC ISO string.
-function wallClockToUtcISO(local: string, tz: string): string {
-  if (!local) return local;
-  const guessUtcMs = Date.parse(local + ":00Z");
-  if (isNaN(guessUtcMs)) return local;
-  const offset = tzOffsetMs(new Date(guessUtcMs), tz);
-  return new Date(guessUtcMs - offset).toISOString();
-}
-
-// Convert a stored UTC date to a "YYYY-MM-DDTHH:mm" wall-clock string in tz (for datetime-local inputs).
-function utcToWallClock(iso: string | Date, tz: string): string {
-  if (!iso) return "";
-  const d = typeof iso === "string" ? new Date(iso) : iso;
-  if (isNaN(d.getTime())) return "";
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit",
-    hour: "2-digit", minute: "2-digit", hour12: false,
-  }).formatToParts(d).reduce((acc: any, p) => { acc[p.type] = p.value; return acc; }, {});
-  const hh = parts.hour === "24" ? "00" : parts.hour;
-  return `${parts.year}-${parts.month}-${parts.day}T${hh}:${parts.minute}`;
-}
+import {utcToWallClock,wallClockToUtcISO} from "@/lib/challengeTime";
 
 // Format a target.
 // Fixed: "$X" — everyone starts at the same amount, showing the dollar target is accurate.
@@ -294,17 +258,10 @@ export default function HostDashboardPage() {
           };
           setRulesMissing(!d.rules);
           const emptyRules = {...defaultRules, rules_enabled: Object.fromEntries(Object.keys(defaultRules.rules_enabled).map(key => [key, false]))};
-          setRulesConfig(d.rules || emptyRules);
+          setRulesConfig(d.rules ? {...defaultRules,...d.rules} : emptyRules);
           setSavedRulesSnapshot(JSON.parse(JSON.stringify(d.rules || emptyRules)));
           setRulesLocked(d.locked || false);
-          if (d.splitCategorySettings && d.challengeType === 'hybrid') {
-            setRulesSplit(true);
-            // Split challenges configure Demo/Real only — never the shared fallback row.
-            if (rulesCategory === 'config') setRulesCategory('config_demo');
-          } else {
-            setRulesSplit(false);
-            setRulesCategory('config');
-          }
+          setRulesSplit(!!d.splitCategorySettings && d.challengeType==='hybrid');
         }
         setRulesLoading(false);
       } else if (activeTab === "settings") {
@@ -1259,11 +1216,12 @@ export default function HostDashboardPage() {
                 <h3 className="text-sm font-semibold text-white flex items-center gap-2"><FileText size={16} className="text-royal" /> Challenge Rules Configuration</h3>
                 {rulesLocked && <span className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/5 border border-white/10 text-xs text-gray-400"><Shield size={12} /> Locked &mdash; challenge is {selectedChallenge?.status}</span>}
               </div>
-              <p className="text-xs text-gray-500 mb-6">{rulesLocked ? "Rules are read-only once a challenge is active." : "Set the rules for this challenge. Leave fields empty for unlimited."}</p>
+              <p className="text-xs text-gray-500 mb-6">{rulesLocked ? "Rules are read-only once a challenge is active." : "Only the selected settings mode is enforced. Save each required ruleset before switching modes. Turn a rule OFF to disable it."}</p>
 
               {/* Category selector for split rules — Demo / Real only (no shared fallback) */}
-              {rulesSplit && (
+              {selectedChallenge?.type === 'hybrid' && (
                 <div className="flex gap-2 mb-5">
+                  <button onClick={() => setRulesCategory('config')} className="px-4 py-2 rounded-xl text-xs border border-white/20">Unified mode rules</button>
                   <button onClick={() => setRulesCategory('config_demo')} className={`px-4 py-2 rounded-xl text-xs font-semibold transition-all border ${rulesCategory === 'config_demo' ? 'bg-blue-500/15 border-blue-500/40 text-blue-400' : 'bg-white/5 border-white/10 text-gray-400 hover:text-white'}`}>Demo Rules</button>
                   <button onClick={() => setRulesCategory('config_real')} className={`px-4 py-2 rounded-xl text-xs font-semibold transition-all border ${rulesCategory === 'config_real' ? 'bg-profit/15 border-profit/40 text-profit' : 'bg-white/5 border-white/10 text-gray-400 hover:text-white'}`}>Real Rules</button>
                 </div>
@@ -1436,7 +1394,7 @@ export default function HostDashboardPage() {
               {/* Save */}
               {!rulesLocked && rulesConfig && (
                 (() => {
-                  const rulesChanged = savedRulesSnapshot !== null && JSON.stringify(rulesConfig) !== JSON.stringify(savedRulesSnapshot);
+                  const rulesChanged = rulesMissing || (savedRulesSnapshot !== null && JSON.stringify(rulesConfig) !== JSON.stringify(savedRulesSnapshot));
                   return (
                 <div className="mt-6 flex justify-end">
                   <button onClick={async () => {
@@ -1445,7 +1403,7 @@ export default function HostDashboardPage() {
                     try {
                       const ruleCode = rulesCategory || 'config';
                       const res = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/rules?rule_code=${ruleCode}`, { method: "PUT", headers: headers(), body: JSON.stringify(rulesConfig) });
-                      if (res.ok) { setRulesSaved(true); setSavedRulesSnapshot(JSON.parse(JSON.stringify(rulesConfig))); setTimeout(() => setRulesSaved(false), 3000); }
+                      if (res.ok) { setRulesSaved(true); setRulesMissing(false); setSavedRulesSnapshot(JSON.parse(JSON.stringify(rulesConfig))); setTimeout(() => setRulesSaved(false), 3000); }
                       else { const d = await res.json(); alert(d.error || "Failed to save rules"); }
                     } catch { alert("Connection error"); }
                     setRulesSaving(false);
@@ -1485,6 +1443,11 @@ export default function HostDashboardPage() {
                   {balanceLocked && (
                     <p className="text-[11px] text-gray-400 -mb-1 flex items-center gap-1.5"><Shield size={12} /> Balances &amp; targets are locked once the challenge has started.</p>
                   )}
+                  <div><label className="text-xs text-gray-400 font-medium mb-1 block">Prize description</label><textarea value={settingsForm.prize_pool_text ?? ''} onChange={e=>setSettingsForm((p:any)=>({...p,prize_pool_text:e.target.value}))} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm" /></div>
+                  {!settingsForm.split_category_settings && <div className="grid grid-cols-2 gap-3">
+                    <div><label className="text-xs text-gray-400 font-medium mb-1 block">Deposit mode</label><select disabled={balanceLocked} value={settingsForm.deposit_mode || 'fixed'} onChange={e=>setSettingsForm((p:any)=>({...p,deposit_mode:e.target.value}))} className="w-full p-3 rounded-xl bg-[#151925] border border-white/10 text-white text-sm"><option value="fixed">Fixed balance</option><option value="max_limit">Maximum deposit</option><option value="min_limit">Minimum deposit</option></select></div>
+                    {settingsForm.deposit_mode !== 'fixed' && <div><label className="text-xs text-gray-400 font-medium mb-1 block">Target growth (%)</label><input type="number" min="0" disabled={balanceLocked || !settingsForm.target_enabled} value={settingsForm.target_percent ?? ''} onChange={e=>setSettingsForm((p:any)=>({...p,target_percent:e.target.value}))} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm" /></div>}
+                  </div>}
                   {/* Shared Starting/Target — hidden when per-category settings are ON (redundant with the split fields below) */}
                   {!settingsForm.split_category_settings && (
                     <div className="grid grid-cols-2 gap-3">
@@ -1580,7 +1543,7 @@ export default function HostDashboardPage() {
                               </div>
                             )}
                           </div>
-                          <p className="text-[10px] text-gray-500">Leave empty to use the shared balance above as fallback.</p>
+                          <p className="text-[10px] text-gray-500">Both categories require their own complete settings.</p>
                         </div>
                       )}
                     </div>
@@ -1588,15 +1551,19 @@ export default function HostDashboardPage() {
 
                   <button onClick={async () => {
                     setSettingsSaving(true);
+                    try {
                     const payload: any = {};
                     if (settingsForm.title) payload.title = settingsForm.title;
+                    payload.prize_pool_text = settingsForm.prize_pool_text ?? '';
+                    payload.deposit_mode = settingsForm.deposit_mode;
+                    payload.target_percent = settingsForm.target_percent === '' ? null : Number(settingsForm.target_percent);
                     if (settingsForm.type) payload.type = settingsForm.type;
                     // Convert wall-clock (challenge timezone) back to UTC before saving.
                     { const stz = (selectedChallenge as any)?.timezone || challengeTz;
                       if (settingsForm.end_date) payload.end_date = wallClockToUtcISO(settingsForm.end_date, stz);
                       if (settingsForm.start_date) payload.start_date = wallClockToUtcISO(settingsForm.start_date, stz); }
                     if (settingsForm.starting_balance) payload.starting_balance = parseFloat(settingsForm.starting_balance);
-                    if (settingsForm.target_balance) payload.target_balance = parseFloat(settingsForm.target_balance);
+                    if (settingsForm.target_balance !== '') payload.target_balance = Number(settingsForm.target_balance);
                     if (settingsForm.starting_balance) payload.starting_balance = parseFloat(settingsForm.starting_balance);
                     // Per-category settings
                     payload.split_category_settings = settingsForm.split_category_settings || false;
@@ -1619,19 +1586,23 @@ export default function HostDashboardPage() {
                       payload.demo_allow_below_start = settingsForm.demo_target_enabled ? false : !!settingsForm.demo_allow_below_start;
                       payload.real_allow_below_start = settingsForm.real_target_enabled ? false : !!settingsForm.real_allow_below_start;
                     } else {
-                      payload.demo_starting_balance = null;
-                      payload.demo_target_balance = null;
-                      payload.real_starting_balance = null;
-                      payload.real_target_balance = null;
                       payload.target_enabled = !!settingsForm.target_enabled;
                       payload.allow_below_start = settingsForm.target_enabled ? false : !!settingsForm.allow_below_start;
-                      payload.demo_target_enabled = null;
-                      payload.real_target_enabled = null;
-                      payload.demo_allow_below_start = null;
-                      payload.real_allow_below_start = null;
                     }
-                    await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/settings`, { method: "PUT", headers: headers(), body: JSON.stringify(payload) });
-                    setSettingsSaved(true); setSettingsSaving(false);
+                    if (balanceLocked) {
+                      for (const key of Object.keys(payload)) if (!['title','prize_pool_text','pdf_url','video_url'].includes(key)) delete payload[key];
+                    }
+                      const response=await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/settings`, { method: "PUT", headers: headers(), body: JSON.stringify(payload) });
+                      const result=await response.json();
+                      if(!response.ok || !result.success)throw new Error(result.error || 'Settings could not be saved');
+                      setChallenges(previous=>previous.map(c=>c.id===result.challenge.id?result.challenge:c));
+                      setSettingsForm({...result.challenge,
+                        start_date:utcToWallClock(result.challenge.start_date,result.challenge.timezone || challengeTz),
+                        end_date:utcToWallClock(result.challenge.end_date,result.challenge.timezone || challengeTz),
+                        target_balance:String(result.challenge.target_balance ?? ''),target_percent:result.challenge.target_percent ?? ''});
+                      setSettingsSaved(true);
+                    } catch(error) { setSettingsSaved(false); alert(error instanceof Error?error.message:'Settings could not be saved'); }
+                    finally { setSettingsSaving(false); }
                     setTimeout(() => setSettingsSaved(false), 3000);
                   }} disabled={settingsSaving} className="w-full py-3 rounded-xl bg-gradient-to-r from-royal to-purple-600 text-white font-semibold hover:opacity-90 transition-all disabled:opacity-50">{settingsSaving ? "Saving..." : "Save Changes"}</button>
                 </div>
@@ -1850,7 +1821,7 @@ export default function HostDashboardPage() {
                 <BalanceChart
                   registrationId={selectedParticipant.registrationId || selectedParticipant.id}
                   challengeId={selectedChallengeId!}
-                  adminSecretPath={process.env.NEXT_PUBLIC_ADMIN_PATH || ""}
+                  hostToken={getToken() || undefined}
                   isCent={selectedParticipant.isCent || false}
                   height={160}
                 />

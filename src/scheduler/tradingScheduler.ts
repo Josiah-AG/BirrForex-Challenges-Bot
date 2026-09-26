@@ -1,3 +1,6 @@
+import { getLocalTime } from '../utils/timezone';
+import { accountUnitMultiplier } from '../utils/accountUnits';
+import { evaluationEngine } from '../services/wpEvaluationEngine';
 import cron from 'node-cron';
 import path from 'path';
 import { Bot } from '../bot/bot';
@@ -10,7 +13,7 @@ import { Markup } from 'telegraf';
 import { t, Lang } from '../i18n';
 
 // Convert stored UTC date to EAT for display
-const toEAT = (d: Date) => new Date(new Date(d).getTime() + 3 * 60 * 60 * 1000);
+const toEAT = (d: Date, timezone: string) => { const local=getLocalTime(new Date(d),timezone); return new Date(Date.UTC(local.year,local.month-1,local.day,local.hour,local.minute)); };
 
 export class TradingScheduler {
   private bot: Bot;
@@ -21,35 +24,28 @@ export class TradingScheduler {
 
   start() {
     cron.schedule('* * * * *', () => this.checkTradingSchedules());
+    cron.schedule('* * * * *', () => require('../services/challengeLifecycle').deliverLifecycleEvents(this.bot.bot.telegram).catch((error:any)=>console.error('Lifecycle delivery error:',error)));
     console.log('✅ Trading scheduler started');
   }
 
   /**
    * Get current time in EAT (UTC+3) — same approach as weekly scheduler
    */
-  private getEATTime() {
-    const now = new Date();
-    const eatTime = new Date(now.getTime() + 3 * 60 * 60 * 1000);
-    const dateStr = `${eatTime.getUTCFullYear()}-${(eatTime.getUTCMonth() + 1).toString().padStart(2, '0')}-${eatTime.getUTCDate().toString().padStart(2, '0')}`;
-    const timeStr = `${eatTime.getUTCHours().toString().padStart(2, '0')}:${eatTime.getUTCMinutes().toString().padStart(2, '0')}`;
-    const dayOfWeek = eatTime.getUTCDay();
-    return { dateStr, timeStr, eatTime, dayOfWeek };
+  private getChallengeTime(timezone = config.timezone) {
+    const now=new Date();
+    const local=getLocalTime(now,timezone);
+    // Legacy notification helpers consume UTC getters on a local-wall-clock representation.
+    const eatTime=new Date(Date.UTC(local.year,local.month-1,local.day,local.hour,local.minute,now.getUTCSeconds()));
+    return {...local,eatTime};
   }
 
-  /**
-   * Convert a stored UTC date to EAT date/time strings.
-   * Dates are stored as UTC in DB. Add 3h to get EAT.
-   */
-  private toEATStrings(date: Date): { dateStr: string; timeStr: string } {
-    const d = new Date(new Date(date).getTime() + 3 * 60 * 60 * 1000);
-    const dateStr = `${d.getUTCFullYear()}-${(d.getUTCMonth() + 1).toString().padStart(2, '0')}-${d.getUTCDate().toString().padStart(2, '0')}`;
-    const timeStr = `${d.getUTCHours().toString().padStart(2, '0')}:${d.getUTCMinutes().toString().padStart(2, '0')}`;
-    return { dateStr, timeStr };
+  private localDateStrings(date: Date, timezone: string): {dateStr:string;timeStr:string} {
+    return getLocalTime(new Date(date),timezone);
   }
 
   private async checkTradingSchedules() {
     try {
-      const { dateStr, timeStr, eatTime, dayOfWeek } = this.getEATTime();
+      const { dateStr, timeStr, eatTime, dayOfWeek } = this.getChallengeTime();
       const challenges = await tradingChallengeService.getAllChallenges();
 
       // Daily cleanup at 00:00 EAT — clear all deduplication Sets to prevent memory leaks
@@ -74,8 +70,8 @@ export class TradingScheduler {
       if (timeStr === '08:01') {
         for (const c of challenges) {
           if (['draft', 'completed'].includes(c.status)) continue;
-          const start = this.toEATStrings(c.start_date);
-          const end = this.toEATStrings(c.end_date);
+          const start = this.localDateStrings(c.start_date, c.timezone || config.timezone);
+          const end = this.localDateStrings(c.end_date, c.timezone || config.timezone);
           const startMs = new Date(start.dateStr).getTime();
           const nowMs = new Date(dateStr).getTime();
           const daysToStart = Math.round((startMs - nowMs) / (1000 * 60 * 60 * 24));
@@ -103,13 +99,14 @@ export class TradingScheduler {
       }
 
       for (const challenge of challenges) {
-        if (challenge.status === 'draft' || challenge.status === 'completed') continue;
+        if (['draft','completed','pending_approval','rejected','deleted'].includes(challenge.status)) continue;
+        const {dateStr,timeStr,eatTime,dayOfWeek}=this.getChallengeTime(challenge.timezone || config.timezone);
 
         await this.checkCountdowns(challenge, dateStr, timeStr, eatTime);
         await this.checkPreStartSnapshot(challenge);
-        await this.checkChallengeStart(challenge, dateStr, timeStr);
+
         await this.checkDailyPosts(challenge, dateStr, timeStr, dayOfWeek);
-        await this.checkChallengeEnd(challenge, dateStr, timeStr);
+
         await this.checkLeaderboardLock(challenge);
         await this.checkSubmissionDeadline(challenge, dateStr, timeStr);
         await this.checkDailyAdminSummary(challenge, dateStr, timeStr);
@@ -139,7 +136,7 @@ export class TradingScheduler {
     const minute = eatTime.getUTCMinutes();
     if (hour !== 8 || minute > 4) return;
 
-    const start = this.toEATStrings(challenge.start_date);
+    const start = this.localDateStrings(challenge.start_date, challenge.timezone || config.timezone);
     const startMs = new Date(start.dateStr).getTime();
     const nowMs = new Date(dateStr).getTime();
     const diffDays = Math.round((startMs - nowMs) / (1000 * 60 * 60 * 24));
@@ -156,7 +153,7 @@ export class TradingScheduler {
   }
 
   async postCountdown(challenge: TradingChallenge, daysLeft: number) {
-    const startStr = toEAT(challenge.start_date).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
+    const startStr = toEAT(challenge.start_date, challenge.timezone || config.timezone).toLocaleString('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
     const botInfo = await this.bot.bot.telegram.getMe();
 
     let header = '';
@@ -320,7 +317,6 @@ export class TradingScheduler {
       console.error('Pre-start snapshot: failed to create batch record:', e);
     }
 
-    const depositMode = (challenge as any).deposit_mode || 'fixed';
     const { resolveCategoryBalances } = require('../utils/categorySettings');
     let verified = 0, dqd = 0, failed = 0;
 
@@ -334,12 +330,14 @@ export class TradingScheduler {
         }
 
         const balance   = result.balance as number;
-        const regStartBal = resolveCategoryBalances(challenge, reg.account_type).startingBalance;
-        const limit     = reg.is_cent ? regStartBal * 100 : regStartBal;
+        const categorySettings = resolveCategoryBalances(challenge, reg.account_type);
+        const regStartBal = categorySettings.startingBalance;
+        const depositMode = categorySettings.depositMode;
+        const limit = regStartBal * accountUnitMultiplier(challenge, await evaluationEngine.rulesForAccount(challenge.id, reg.account_type), reg.is_cent);
         const tolerance = limit * 0.01;
 
         await db.query(
-          `UPDATE trading_registrations SET actual_starting_balance = $1, last_known_balance = $1, last_pull_at = NOW() WHERE id = $2`,
+          `UPDATE trading_registrations SET actual_starting_balance = $1, funding_origin = 'prestart_snapshot', last_known_balance = $1, last_pull_at = NOW() WHERE id = $2`,
           [balance, reg.id]
         );
         verified++;
@@ -395,7 +393,7 @@ export class TradingScheduler {
   private async checkChallengeStart(challenge: TradingChallenge, dateStr: string, timeStr: string) {
     if (challenge.status !== 'registration_open') return;
 
-    const start = this.toEATStrings(challenge.start_date);
+    const start = this.localDateStrings(challenge.start_date, challenge.timezone || config.timezone);
     const hour = parseInt(timeStr.split(':')[0]);
     const minute = parseInt(timeStr.split(':')[1]);
 
@@ -498,7 +496,7 @@ export class TradingScheduler {
   }
 
   private getTradingDay(challenge: TradingChallenge, currentDateStr: string): number {
-    const start = this.toEATStrings(challenge.start_date);
+    const start = this.localDateStrings(challenge.start_date, challenge.timezone || config.timezone);
     const startDate = new Date(start.dateStr);
     const currentDate = new Date(currentDateStr);
     let tradingDay = 0;
@@ -594,7 +592,7 @@ export class TradingScheduler {
     if (challenge.status !== 'active') return;
     if (this.challengeEndPosted.has(challenge.id)) return;
 
-    const end = this.toEATStrings(challenge.end_date);
+    const end = this.localDateStrings(challenge.end_date, challenge.timezone || config.timezone);
     const hour = parseInt(timeStr.split(':')[0]);
     const minute = parseInt(timeStr.split(':')[1]);
 
@@ -625,54 +623,8 @@ export class TradingScheduler {
   }
 
   async endChallenge(challenge: TradingChallenge) {
-    // Skip Telegram posts for Discord-source or host challenges
-    const isDiscord = (challenge as any).source === 'discord';
-    const isHosted = !!(challenge as any).host_id;
-
-    // Always use WinnerPip mode: Post "challenge ended, final check in progress" — no automatic submission window
-    // Admin can manually open submissions later via /requestsubmission if needed
-    await tradingChallengeService.updateChallengeStatus(challenge.id, 'reviewing');
-
-    if (!isDiscord && !isHosted) {
-      const text = `<b>🏁 CHALLENGE IS OVER!</b>\n\n` +
-        `<b>${challenge.title}</b> has officially ended!\n\n` +
-        `What an incredible journey! We hope you all gained valuable experience and sharpened your trading skills throughout this challenge.\n\n` +
-        `<i>Thank you to every participant for your dedication and effort!</i> 💪\n\n` +
-        `━━━━━━━━━━━━━━━━━━━━\n\n` +
-        `📊 <b>Final evaluation is in progress.</b>\n\n` +
-        `Our system is performing a final sync on all trade data.\n\n` +
-        `🔍 <b>CHECK YOUR STATUS</b>\n` +
-        `Visit <b>winnerpip.com</b> and review your dashboard.\n` +
-        `If you notice any missing trades or incorrect evaluation, report it within <b>24 hours</b>.\n\n` +
-        `⚠️ <i>After 24 hours, results are final — no disputes will be accepted.</i>\n\n` +
-        `━━━━━━━━━━━━━━━━━━━━\n\n` +
-        `🏆 <b>Winners will be announced in 48 hours.</b>\n\n` +
-        `⏳ <i>Stay tuned!</i>\n\n` +
-        `@${config.mainChannelUsername}`;
-
-      const opts = { parse_mode: 'HTML' as const, link_preview_options: { is_disabled: true } };
-
-      try {
-        const endImg = path.join(process.cwd(), 'assets', 'Challenge Winner.png');
-        const shortCaption = `<b>🏁 CHALLENGE IS OVER!</b>\n\n<b>${challenge.title}</b> has officially ended!`;
-        await this.bot.bot.telegram.sendPhoto(config.mainChannelId, { source: endImg }, { caption: shortCaption, parse_mode: 'HTML' as const });
-        await this.bot.bot.telegram.sendMessage(config.mainChannelId, text, opts);
-        await this.bot.bot.telegram.sendPhoto(config.challengeChannelId, { source: endImg }, { caption: shortCaption, parse_mode: 'HTML' as const });
-        await this.bot.bot.telegram.sendMessage(config.challengeChannelId, text, opts);
-        console.log(`✅ Trading challenge ${challenge.id} ended, final evaluation in progress`);
-      } catch (e) {
-        console.error('Error posting challenge end photo, falling back to text:', e);
-        try {
-          await this.bot.bot.telegram.sendMessage(config.mainChannelId, text, opts);
-          await this.bot.bot.telegram.sendMessage(config.challengeChannelId, text, opts);
-        } catch (e2) {
-          console.error('Error posting challenge end text fallback:', e2);
-        }
-      }
-    }
-
-    // Post Discord end message for team challenges
-    await this.postDiscordEndMessage(challenge);
+    // Transition, queued final pull and notifications commit as one database operation.
+    await tradingChallengeService.updateChallengeStatus(challenge.id,'reviewing');
   }
 
   // ==================== LEADERBOARD LOCK (after 2nd pull post-end) ====================
@@ -680,52 +632,29 @@ export class TradingScheduler {
   private leaderboardLockProcessed = new Set<number>();
 
   private async checkLeaderboardLock(challenge: TradingChallenge) {
-    // Only for reviewing challenges (already ended)
-    if (challenge.status !== 'reviewing') return;
-    if (this.leaderboardLockProcessed.has(challenge.id)) return;
-
-    // Check if already locked
-    if ((challenge as any).leaderboard_locked_at) {
-      this.leaderboardLockProcessed.add(challenge.id);
-      return;
-    }
-
-    // Count how many pull batches have completed AFTER the end_date
-    const endTime = new Date(challenge.end_date);
-    const pullsAfterEnd = await db.query(
-      `SELECT COUNT(*) as cnt FROM wp_pull_batches WHERE challenge_id = $1 AND status = 'completed' AND started_at > $2`,
-      [challenge.id, endTime.toISOString()]
-    );
-    const pullCount = parseInt(pullsAfterEnd.rows[0].cnt);
-
-    // Lock after 2nd pull post-end
-    if (pullCount >= 2) {
-      this.leaderboardLockProcessed.add(challenge.id);
-      console.log(`🔒 Locking leaderboard for "${challenge.title}" (${pullCount} pulls after end)`);
-
-      // Final leaderboard ranking update
-      try {
-        const { leaderboardService } = require('../services/leaderboardService');
-        await leaderboardService.updateRankings(challenge.id, true);
-      } catch (e) {
-        console.error('Error updating final rankings:', e);
-      }
-
-      // Mark as locked
-      await db.query(
-        `UPDATE trading_challenges SET leaderboard_locked_at = NOW() WHERE id = $1`,
-        [challenge.id]
-      );
-
-      // Notify admin
-      try {
-        await this.bot.bot.telegram.sendMessage(config.adminUserId,
-          `🔒 <b>Leaderboard Locked</b>\n\n<b>${challenge.title}</b>\n\nFinal rankings are now frozen (2 pulls completed after end).\nUse /selectwinners to choose winners.`,
-          { parse_mode: 'HTML' });
-      } catch (e) {}
-
-      console.log(`✅ Leaderboard locked for challenge ${challenge.id}`);
-    }
+    if(challenge.status!=='reviewing' || (challenge as any).leaderboard_locked_at)return;
+    const lease=await db.getClient();
+    let acquired=false;
+    let finalized=false;
+    try {
+      acquired=(await lease.query('SELECT pg_try_advisory_lock(26092604,0) AS locked')).rows[0].locked;
+      if(!acquired)return; // Never finalize while an import/evaluation cycle is in flight.
+      await db.transaction(async()=>{
+        const current=await db.query('SELECT leaderboard_locked_at,end_date FROM trading_challenges WHERE id=$1 FOR UPDATE',[challenge.id]);
+        if(!current.rows[0] || current.rows[0].leaderboard_locked_at)return;
+        const batches=await db.query(`SELECT COUNT(*) AS cnt FROM wp_pull_batches WHERE challenge_id=$1 AND status='completed' AND COALESCE(failed,0)=0 AND successful>0 AND error_log IS DISTINCT FROM 'evaluate_only' AND started_at>$2`,[challenge.id,current.rows[0].end_date]);
+        if(Number(batches.rows[0].cnt)<2)return;
+        // Completed cycles already publish atomically. Unpublished staging may belong to a failed cycle.
+        const {leaderboardService}=require('../services/leaderboardService');
+        await leaderboardService.updateRankings(challenge.id,true);
+        const {snapshotWinnerPipResults}=require('../services/winnerSelection');
+        await snapshotWinnerPipResults(challenge.id,'finalization');
+        await db.query('UPDATE trading_challenges SET leaderboard_locked_at=NOW() WHERE id=$1',[challenge.id]);
+        finalized=true;
+      });
+      if(finalized)await this.bot.bot.telegram.sendMessage(config.adminUserId,`Final results locked for ${challenge.title} (#${challenge.id}). Explicit admin override remains available.`).catch(error=>console.error('Finalization notification failed:',error));
+    } catch(error){console.error('Finalization failed; previous results preserved:',error);}
+    finally {if(acquired)await lease.query('SELECT pg_advisory_unlock(26092604,0)');lease.release();}
   }
 
   // ==================== SUBMISSION DEADLINE ====================
@@ -734,7 +663,7 @@ export class TradingScheduler {
     if (challenge.status !== 'submission_open' || !challenge.submission_deadline) return;
     if ((challenge as any).host_id) return; // Host challenges don't post to admin channels
 
-    const dl = this.toEATStrings(challenge.submission_deadline);
+    const dl = this.localDateStrings(challenge.submission_deadline, challenge.timezone || config.timezone);
     const hour = parseInt(timeStr.split(':')[0]);
     const minute = parseInt(timeStr.split(':')[1]);
     const dlHour = parseInt(dl.timeStr.split(':')[0]);
@@ -769,8 +698,8 @@ export class TradingScheduler {
   async sendAdminReport(challenge: TradingChallenge) {
     const counts = await tradingChallengeService.getRegistrationCounts(challenge.id);
     const subCounts = await tradingChallengeService.getSubmissionCount(challenge.id);
-    const startStr = toEAT(challenge.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-    const endStr = toEAT(challenge.end_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    const startStr = toEAT(challenge.start_date, challenge.timezone || config.timezone).toLocaleDateString('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric', year: 'numeric' });
+    const endStr = toEAT(challenge.end_date, challenge.timezone || config.timezone).toLocaleDateString('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric', year: 'numeric' });
     const typeLabel = challenge.type === 'hybrid' ? 'Hybrid (Demo & Real)' : challenge.type === 'demo' ? 'Demo' : 'Real';
 
     // Get blown and disqualified counts
@@ -944,7 +873,7 @@ export class TradingScheduler {
     if (this.engagementRunning) return;
 
     // Check if 1 day before start (last chance — DM everyone unconverted)
-    const start = this.toEATStrings(challenge.start_date);
+    const start = this.localDateStrings(challenge.start_date, challenge.timezone || config.timezone);
     const startMs = new Date(start.dateStr).getTime();
     const nowMs = new Date(dateStr).getTime();
     const daysUntilStart = Math.round((startMs - nowMs) / (1000 * 60 * 60 * 24));
@@ -1052,9 +981,9 @@ export class TradingScheduler {
 
   // ==================== PARTNER SCREENING (10 PM EAT) ====================
 
-  private screeningRunning = false;
+  private screeningRunning = new Set<number>();
   private screeningResults: any = null;
-  private pendingMessages: { telegramId: number; message: string }[] = [];
+  private pendingMessages: { challengeId:number; telegramId: number; message: string }[] = [];
 
   private screeningStarted: Set<string> = new Set();
 
@@ -1066,18 +995,18 @@ export class TradingScheduler {
 
     // Night screening: 10:00-10:04 PM EAT (messages queued for morning)
     const nightKey = `screen_night_${challenge.id}_${dateStr}`;
-    if (hour === 22 && minute <= 4 && !this.screeningRunning && !this.screeningStarted.has(nightKey)) {
+    if (hour === 22 && minute <= 4 && !this.screeningRunning.has(challenge.id) && !this.screeningStarted.has(nightKey)) {
       this.screeningStarted.add(nightKey);
-      this.screeningRunning = true;
-      this.runPartnerScreening(challenge, 'night').finally(() => { this.screeningRunning = false; });
+      this.screeningRunning.add(challenge.id);
+      this.runPartnerScreening(challenge, 'night').catch(error=>{console.error('Partner screening failed:',error);this.screeningStarted.delete(nightKey);}).finally(() => { this.screeningRunning.delete(challenge.id); });
     }
 
     // Day screening: 10:00-10:04 AM EAT (messages sent immediately)
     const dayKey = `screen_day_${challenge.id}_${dateStr}`;
-    if (hour === 10 && minute <= 4 && !this.screeningRunning && !this.screeningStarted.has(dayKey)) {
+    if (hour === 10 && minute <= 4 && !this.screeningRunning.has(challenge.id) && !this.screeningStarted.has(dayKey)) {
       this.screeningStarted.add(dayKey);
-      this.screeningRunning = true;
-      this.runPartnerScreening(challenge, 'day').finally(() => { this.screeningRunning = false; });
+      this.screeningRunning.add(challenge.id);
+      this.runPartnerScreening(challenge, 'day').catch(error=>{console.error('Partner screening failed:',error);this.screeningStarted.delete(dayKey);}).finally(() => { this.screeningRunning.delete(challenge.id); });
     }
 
     // Send queued night messages at 8:00-8:04 AM
@@ -1113,6 +1042,15 @@ export class TradingScheduler {
   private async runPartnerScreening(challenge: TradingChallenge, mode: 'night' | 'day') {
     console.log(`🔍 Partner screening (${mode}) started for ${challenge.title}`);
 
+    const owner=await db.query('SELECT host_id FROM trading_challenges WHERE id=$1',[challenge.id]);
+    let broker=exnessService;
+    if(owner.rows[0]?.host_id){
+      const {hostService}=require('../services/hostService');
+      const credentials=await hostService.getBrokerCredentials(owner.rows[0].host_id);
+      if(!credentials) return; // Integration removed: no global-partner fallback.
+      const {ExnessService}=require('../services/exnessService');
+      broker=new ExnessService(credentials);
+    }
     const registrations = await tradingChallengeService.getActiveRegistrations(challenge.id);
     const stats = { total_screened: 0, all_good: 0, changing_real: 0, changing_demo: 0, left_real: 0, left_demo: 0, warnings_cleared: 0, missed: 0, uids_backfilled: 0 };
     const changingUsers: any[] = [];
@@ -1125,7 +1063,7 @@ export class TradingScheduler {
 
         // Backfill UID if missing
         if (!shortUid) {
-          const alloc = await exnessService.checkAllocation(reg.email);
+          const alloc = await broker.checkAllocation(reg.email);
           if (alloc && alloc.client_uid) {
             shortUid = alloc.client_uid;
             await tradingChallengeService.updateClientUid(reg.id, shortUid);
@@ -1138,10 +1076,10 @@ export class TradingScheduler {
         }
 
         // Get full UUID
-        const fullUuid = await exnessService.getFullUuid(shortUid);
+        const fullUuid = await broker.getFullUuid(shortUid);
         if (!fullUuid) {
           await new Promise(r => setTimeout(r, 10000));
-          const retry = await exnessService.getFullUuid(shortUid);
+          const retry = await broker.getFullUuid(shortUid);
           if (!retry) {
             stats.missed++;
             await new Promise(r => setTimeout(r, 3000));
@@ -1149,22 +1087,22 @@ export class TradingScheduler {
           }
         }
 
-        const uuid = fullUuid || await exnessService.getFullUuid(shortUid);
+        const uuid = fullUuid || await broker.getFullUuid(shortUid);
         if (!uuid) { stats.missed++; await new Promise(r => setTimeout(r, 3000)); continue; }
 
         // Get client status
-        const clientInfo = await exnessService.getKycStatus(uuid);
+        const clientInfo = await broker.getKycStatus(uuid);
         if (!clientInfo) {
           await new Promise(r => setTimeout(r, 10000));
-          const retryInfo = await exnessService.getKycStatus(uuid);
+          const retryInfo = await broker.getKycStatus(uuid);
           if (!retryInfo) {
             await new Promise(r => setTimeout(r, 30000));
-            const retryInfo2 = await exnessService.getKycStatus(uuid);
+            const retryInfo2 = await broker.getKycStatus(uuid);
             if (!retryInfo2) { stats.missed++; await new Promise(r => setTimeout(r, 3000)); continue; }
           }
         }
 
-        const info = clientInfo || await exnessService.getKycStatus(uuid!);
+        const info = clientInfo || await broker.getKycStatus(uuid!);
         if (!info) { stats.missed++; await new Promise(r => setTimeout(r, 3000)); continue; }
 
         stats.total_screened++;
@@ -1178,12 +1116,12 @@ export class TradingScheduler {
             // First time — warn user
             await tradingChallengeService.setPartnerWarning(reg.id);
 
-            const warningMsg = `⚠️ <b>Notice from BirrForex Challenge Team</b>\n\nWe noticed a partner change request on your Exness account.\n\nAs per challenge rules, your Exness account must remain under <b>BirrForex</b> to be eligible for <b>${challenge.title}</b>.\n\nIf you want to continue competing, please <b>cancel your change request</b> in your Exness account.\n\n⚠️ <i>Your registration will be canceled when the partner change is approved.</i>\n\nIf you face any problem, contact <b>@birrFXadmin</b> for assistance.`;
+            const warningMsg = `⚠️ <b>Notice from your challenge host</b>\n\nWe noticed a partner change request on your Exness account.\n\nAs per challenge rules, your Exness account must remain under <b>the required broker partnership</b> to be eligible for <b>${challenge.title}</b>.\n\nIf you want to continue competing, please <b>cancel your change request</b> in your Exness account.\n\n⚠️ <i>Your registration will be canceled when the partner change is approved.</i>\n\nIf you face any problem, contact your challenge host for assistance.`;
 
-            if (mode === 'day') {
+            if (mode === 'day' || (reg as any).source!=='telegram') {
               // Day mode: send DM immediately
               try {
-                await this.bot.bot.telegram.sendMessage(reg.user_id, warningMsg, { parse_mode: 'HTML' });
+                await this.sendPartnerNotice(challenge,reg,warningMsg);
                 console.log(`  ⚠️ Day screening: DM sent to @${reg.username || reg.user_id}`);
               } catch (e) {
                 console.error(`  Failed to DM ${reg.user_id}:`, e);
@@ -1191,7 +1129,7 @@ export class TradingScheduler {
               await new Promise(r => setTimeout(r, 2000));
             } else {
               // Night mode: queue for 8 AM delivery
-              this.pendingMessages.push({ telegramId: reg.user_id, message: warningMsg });
+              this.pendingMessages.push({ challengeId:challenge.id, telegramId: reg.user_id, message: warningMsg });
             }
 
             changingUsers.push({ ...reg, client_uid: shortUid });
@@ -1199,24 +1137,25 @@ export class TradingScheduler {
           // If already warned, don't send again — just count in stats
         } else if (clientStatus === 'LEFT') {
           // Double check allocation
-          const alloc = await exnessService.checkAllocation(reg.email);
-          if (!alloc || !alloc.affiliation) {
+          const alloc = await broker.checkAllocation(reg.email);
+          if (!alloc || typeof alloc.affiliation!=='boolean') { stats.missed++; continue; }
+          if (alloc.affiliation===false) {
             await tradingChallengeService.markDisqualifiedPartner(reg.id);
             const cat = reg.account_type === 'real' ? 'left_real' : 'left_demo';
             (stats as any)[cat]++;
 
-            const disqualifyMsg = `❌ <b>Registration Canceled</b>\n\nWe're sorry to inform you that your registration for <b>${challenge.title}</b> has been canceled.\n\nSince your Exness account is no longer under BirrForex, you are no longer eligible to participate in this challenge.\n\n<i>Thank you for your interest, and we hope to see you in future challenges!</i> 🙏\n\nIf you believe this is an error, contact <b>@birrFXadmin</b> for assistance.`;
+            const disqualifyMsg = `❌ <b>Registration Canceled</b>\n\nWe're sorry to inform you that your registration for <b>${challenge.title}</b> has been canceled.\n\nSince your Exness account is no longer under the required broker partnership, you are no longer eligible to participate in this challenge.\n\n<i>Thank you for your interest, and we hope to see you in future challenges!</i> 🙏\n\nIf you believe this is an error, contact your challenge host for assistance.`;
 
-            if (mode === 'day') {
+            if (mode === 'day' || (reg as any).source!=='telegram') {
               try {
-                await this.bot.bot.telegram.sendMessage(reg.user_id, disqualifyMsg, { parse_mode: 'HTML' });
+                await this.sendPartnerNotice(challenge,reg,disqualifyMsg);
                 console.log(`  ❌ Day screening: Disqualify DM sent to @${reg.username || reg.user_id}`);
               } catch (e) {
                 console.error(`  Failed to DM ${reg.user_id}:`, e);
               }
               await new Promise(r => setTimeout(r, 2000));
             } else {
-              this.pendingMessages.push({ telegramId: reg.user_id, message: disqualifyMsg });
+              this.pendingMessages.push({ challengeId:challenge.id, telegramId: reg.user_id, message: disqualifyMsg });
             }
 
             leftUsers.push({ ...reg, client_uid: shortUid });
@@ -1245,18 +1184,29 @@ export class TradingScheduler {
     }
 
     // Save results to DB (survives reboots)
-    const { dateStr: todayStr } = this.getEATTime();
+    const { dateStr: todayStr } = this.getChallengeTime(challenge.timezone || config.timezone);
     const fullStats = { ...stats, changingUsers, leftUsers, clearedUsers };
     await tradingChallengeService.saveScreeningResult(challenge.id, todayStr, fullStats, mode);
 
     console.log(`✅ Partner screening (${mode}) done: ${stats.total_screened} screened, ${stats.changing_real + stats.changing_demo} changing, ${stats.left_real + stats.left_demo} left, ${stats.missed} missed`);
   }
 
+  private async sendPartnerNotice(challenge:TradingChallenge,registration:any,message:string):Promise<void>{
+    if(!registration.source || registration.source==='telegram'){
+      await this.bot.bot.telegram.sendMessage(registration.user_id,message,{parse_mode:'HTML'});
+    }else if(registration.source==='discord'){
+      await db.query(`INSERT INTO discord_dm_queue(discord_user_id,registration_id,challenge_id,notification_type,message_title,message_body) VALUES($1,$2,$3,'partnership','Challenge partnership notice',$4)`,[String(registration.user_id),registration.id,challenge.id,message.replace(/<[^>]*>/g,'')]);
+    }else if(registration.email){
+      const {emailService}=require('../services/emailService');
+      if(!await emailService.sendGeneric(registration.email,'Challenge partnership notice',message))throw new Error('Partnership email delivery failed');
+    }
+  }
+
   private async sendPendingMessages(challenge: TradingChallenge) {
     if (this.pendingMessages.length === 0) return;
 
-    const messages = [...this.pendingMessages];
-    this.pendingMessages = [];
+    const messages = this.pendingMessages.filter(message=>message.challengeId===challenge.id);
+    this.pendingMessages = this.pendingMessages.filter(message=>message.challengeId!==challenge.id);
     let sent = 0;
 
     for (const msg of messages) {
@@ -1280,7 +1230,7 @@ export class TradingScheduler {
 
     const screeningMode = dbResult.screening_mode || 'night';
     const screeningTime = screeningMode === 'night' ? '10:00 PM' : '10:00 AM';
-    const screeningDate = new Date(dbResult.screening_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    const screeningDate = new Date(dbResult.screening_date).toLocaleDateString('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric', year: 'numeric' });
 
     // Parse JSONB fields
     const changingUsers = typeof dbResult.changing_users === 'string' ? JSON.parse(dbResult.changing_users) : (dbResult.changing_users || []);
@@ -1370,7 +1320,7 @@ export class TradingScheduler {
         text += `<b>Real (${realStill.length}):</b>\n`;
         realStill.forEach((u: any, i: number) => {
           const uid = u.client_uid ? ` [${u.client_uid}]` : '';
-          const warnedDate = u.partner_warned_at ? new Date(u.partner_warned_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'unknown';
+          const warnedDate = u.partner_warned_at ? new Date(u.partner_warned_at).toLocaleDateString('en-US', { timeZone: challenge.timezone || config.timezone, month: 'short', day: 'numeric' }) : 'unknown';
           text += `  ${i + 1}. @${u.username || 'unknown'}${uid} — warned ${warnedDate}\n`;
         });
       }
@@ -1378,7 +1328,7 @@ export class TradingScheduler {
         text += `<b>Demo (${demoStill.length}):</b>\n`;
         demoStill.forEach((u: any, i: number) => {
           const uid = u.client_uid ? ` [${u.client_uid}]` : '';
-          const warnedDate = u.partner_warned_at ? new Date(u.partner_warned_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'unknown';
+          const warnedDate = u.partner_warned_at ? new Date(u.partner_warned_at).toLocaleDateString('en-US', { timeZone: challenge.timezone || config.timezone, month: 'short', day: 'numeric' }) : 'unknown';
           text += `  ${i + 1}. @${u.username || 'unknown'}${uid} — warned ${warnedDate}\n`;
         });
       }
@@ -1425,7 +1375,7 @@ export class TradingScheduler {
 
     const dailyStats = await tradingChallengeService.getDailyStats(challenge.id, yesterdayStr);
     const counts = await tradingChallengeService.getRegistrationCounts(challenge.id);
-    const startStr = toEAT(challenge.start_date).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
+    const startStr = toEAT(challenge.start_date, challenge.timezone || config.timezone).toLocaleString('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
 
     // Query all failure types from trading_failed_attempts (yesterday + totals)
     const yesterdayFailures = await db.query(
@@ -1530,7 +1480,7 @@ export class TradingScheduler {
     if ((challenge as any).source !== 'discord') return;
     if (this.discordFirstDayPosted.has(challenge.id)) return;
 
-    const start = this.toEATStrings(challenge.start_date);
+    const start = this.localDateStrings(challenge.start_date, challenge.timezone || config.timezone);
     const hour = parseInt(timeStr.split(':')[0]);
     const minute = parseInt(timeStr.split(':')[1]);
 
@@ -1567,7 +1517,7 @@ export class TradingScheduler {
     if ((challenge as any).source !== 'discord') return;
     if (this.discordLastDayPosted.has(challenge.id)) return;
 
-    const end = this.toEATStrings(challenge.end_date);
+    const end = this.localDateStrings(challenge.end_date, challenge.timezone || config.timezone);
     const hour = parseInt(timeStr.split(':')[0]);
     const minute = parseInt(timeStr.split(':')[1]);
 
@@ -1605,7 +1555,7 @@ export class TradingScheduler {
     if ((challenge as any).source !== 'discord') return;
     if (this.discordRegReminderPosted.has(challenge.id)) return;
 
-    const start = this.toEATStrings(challenge.start_date);
+    const start = this.localDateStrings(challenge.start_date, challenge.timezone || config.timezone);
     const startMs = new Date(start.dateStr).getTime();
     const nowMs = new Date(dateStr).getTime();
     const daysUntilStart = Math.round((startMs - nowMs) / (1000 * 60 * 60 * 24));
@@ -1665,10 +1615,10 @@ export class TradingScheduler {
   async postDiscordAnnouncement(challenge: TradingChallenge): Promise<void> {
     if ((challenge as any).source !== 'discord') return;
 
-    const startEAT = toEAT(challenge.start_date);
-    const endEAT = toEAT(challenge.end_date);
-    const startStr = startEAT.toLocaleString('en-US', { weekday: 'long', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
-    const endStr = endEAT.toLocaleString('en-US', { weekday: 'long', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
+    const startEAT = toEAT(challenge.start_date, challenge.timezone || config.timezone);
+    const endEAT = toEAT(challenge.end_date, challenge.timezone || config.timezone);
+    const startStr = startEAT.toLocaleString('en-US', { timeZone: 'UTC', weekday: 'long', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
+    const endStr = endEAT.toLocaleString('en-US', { timeZone: 'UTC', weekday: 'long', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
 
     const embed = {
       title: `🎯 ${challenge.title} — Registration Open!`,
@@ -1700,7 +1650,7 @@ export class TradingScheduler {
     // Only at 02:00 EAT (5 min window for resilience)
     if (!timeStr.startsWith('02:0')) return;
     // Only once per day per challenge
-    const today = new Date().toISOString().split('T')[0];
+    const today = getLocalTime(new Date(),challenge.timezone || config.timezone).dateStr;
     const key = `${challenge.id}_${today}`;
     if (this.balanceCheckRanToday.has(key)) return;
     if (this.balanceCheckRunning) return;
@@ -1761,7 +1711,7 @@ export class TradingScheduler {
               credentialFailed++;
               // Set pull_status so we skip this account on subsequent checks
               await db.query(
-                `UPDATE trading_registrations SET pull_status = 'password_changed', pull_error = $1 WHERE id = $2`,
+                `UPDATE trading_registrations SET pull_status = 'password_changed', credential_failure_detected_at=COALESCE(credential_failure_detected_at,NOW()), pull_error = $1 WHERE id = $2`,
                 [`Pre-start check failed at ${new Date().toISOString()}`, reg.id]
               );
 
@@ -1807,7 +1757,7 @@ export class TradingScheduler {
           const catBal2 = rcbSnap(challenge, reg.account_type);
           const regStartBal2 = catBal2.startingBalance;
           const regDepositMode2 = catBal2.depositMode;
-          const limit = reg.is_cent ? regStartBal2 * 100 : regStartBal2;
+          const limit = regStartBal2 * accountUnitMultiplier(challenge, await evaluationEngine.rulesForAccount(challenge.id, reg.account_type), reg.is_cent);
           const tolerance = limit * 0.01;
           const currency = reg.is_cent ? '¢' : '$';
 
@@ -1852,8 +1802,8 @@ export class TradingScheduler {
                 if ((reg.source === 'winnerpip' || !reg.user_id || reg.user_id === 0) && reg.email) {
                   try {
                     const { emailService } = require('../services/emailService');
-                    const startDate = toEAT(challenge.start_date);
-                    const startStr = startDate.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                    const startDate = toEAT(challenge.start_date, challenge.timezone || config.timezone);
+                    const startStr = startDate.toLocaleString('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric', year: 'numeric' });
                     await emailService.sendBalanceWarning(reg.email, {
                       nickname: reg.nickname,
                       challengeTitle: challenge.title,
@@ -1868,8 +1818,8 @@ export class TradingScheduler {
                   // Telegram DM
                   try {
                     const lang: Lang = (reg.lang as Lang) || 'en';
-                    const startDate = toEAT(challenge.start_date);
-                    const startStr = startDate.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                    const startDate = toEAT(challenge.start_date, challenge.timezone || config.timezone);
+                    const startStr = startDate.toLocaleString('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric', year: 'numeric' });
                     await this.bot.bot.telegram.sendMessage(
                       reg.user_id,
                       t(lang, 'prestart_balance_warning', {
