@@ -999,6 +999,10 @@ export class TradingScheduler {
     if ((challenge as any).host_id) return;
     const report = await tradingChallengeService.getUnsentScreeningResult(challenge.id);
     if (report) {
+      const screenedDate = new Date(report.screening_date);
+      if (report.screening_mode === 'night') screenedDate.setUTCDate(screenedDate.getUTCDate()+1);
+      const due = `${screenedDate.toISOString().slice(0,10)} ${report.screening_mode === 'night' ? '09:00' : '21:00'}`;
+      if (`${dateStr} ${timeStr}` < due) return;
       await this.sendScreeningReportFromDB(challenge, report);
       await tradingChallengeService.markScreeningReportSent(challenge.id, report.screening_date, report.screening_mode);
     }
