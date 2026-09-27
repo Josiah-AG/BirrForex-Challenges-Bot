@@ -127,6 +127,8 @@ export default function ChallengeDashboard() {
   }, [selectedUser, params.id]);
 
   const registrationRequested = searchParams.get("register") === "true";
+  const registrationSteps = preAuthChallenge?.type === "hybrid" ? [1, 2, 3, 4, 5] : [1, 2, 4, 5];
+  const registrationStepLabel = `Step ${registrationSteps.indexOf(regStep) + 1} of ${registrationSteps.length}`;
   // Check auth for the selected challenge, not merely the presence of any token.
   useEffect(() => {
     if (!registrationRequested && typeof window !== "undefined" && localStorage.getItem("wp_token")) {
@@ -1971,7 +1973,7 @@ export default function ChallengeDashboard() {
               </div>
               {!regSuccess && (
                 <div className="flex gap-1.5">
-                  {[1,2,3,4,5].filter(s => preAuthChallenge?.type === 'hybrid' || s !== 3).map((s, idx) => {
+                  {registrationSteps.map((s, idx) => {
                     const displayStep = preAuthChallenge?.type === 'hybrid' ? s : (s > 3 ? s - 1 : s);
                     return (
                       <div key={s} className={`flex-1 h-1.5 rounded-full transition-all duration-300 ${displayStep < (preAuthChallenge?.type === 'hybrid' ? regStep : (regStep > 3 ? regStep - 1 : regStep)) ? "bg-profit" : displayStep === (preAuthChallenge?.type === 'hybrid' ? regStep : (regStep > 3 ? regStep - 1 : regStep)) ? "bg-royal" : "bg-white/10"}`} />
@@ -2030,7 +2032,7 @@ export default function ChallengeDashboard() {
                   {regStep === 1 && (
                     <div className="space-y-4">
                       <div className="text-center mb-2">
-                        <p className="text-xs text-gray-400">Step 1 of 5</p>
+                        <p className="text-xs text-gray-400">{registrationStepLabel}</p>
                         <p className="text-sm font-semibold text-white">Your Exness Email</p>
                         <p className="text-[11px] text-gray-500 mt-1">We&apos;ll verify your account is allocated under the required partnership</p>
                       </div>
@@ -2063,7 +2065,7 @@ export default function ChallengeDashboard() {
                   {regStep === 2 && (
                     <div className="space-y-4">
                       <div className="text-center mb-2">
-                        <p className="text-xs text-gray-400">Step 2 of 5</p>
+                        <p className="text-xs text-gray-400">{registrationStepLabel}</p>
                         <p className="text-sm font-semibold text-white">Choose a Username</p>
                         <p className="text-[11px] text-gray-500 mt-1">This will be your display name on the leaderboard</p>
                       </div>
@@ -2094,7 +2096,7 @@ export default function ChallengeDashboard() {
                   {regStep === 3 && preAuthChallenge?.type === 'hybrid' && (
                     <div className="space-y-4">
                       <div className="text-center mb-2">
-                        <p className="text-xs text-gray-400">Step 3 of 5</p>
+                        <p className="text-xs text-gray-400">{registrationStepLabel}</p>
                         <p className="text-sm font-semibold text-white">Account Category</p>
                         <p className="text-[11px] text-gray-500 mt-1">{preAuthChallenge?.type === 'hybrid' ? 'Choose which type of account you will use' : `This challenge is ${preAuthChallenge?.type}-only`}</p>
                       </div>
@@ -2124,7 +2126,7 @@ export default function ChallengeDashboard() {
                   {regStep === 4 && (
                     <div className="space-y-4">
                       <div className="text-center mb-2">
-                        <p className="text-xs text-gray-400">{preAuthChallenge?.type === 'hybrid' ? 'Step 4 of 5' : 'Step 3 of 4'}</p>
+                        <p className="text-xs text-gray-400">{registrationStepLabel}</p>
                         <p className="text-sm font-semibold text-white">MT5 Account Verification</p>
                         <p className="text-[11px] text-gray-500 mt-1">Enter your MT5 credentials — we&apos;ll verify the connection in real-time</p>
                       </div>
@@ -2177,7 +2179,7 @@ export default function ChallengeDashboard() {
                   {regStep === 5 && (
                     <div className="space-y-4">
                       <div className="text-center mb-2">
-                        <p className="text-xs text-gray-400">{preAuthChallenge?.type === 'hybrid' ? 'Step 5 of 5' : 'Step 4 of 4'}</p>
+                        <p className="text-xs text-gray-400">{registrationStepLabel}</p>
                         <p className="text-sm font-semibold text-white">Review & Confirm</p>
                       </div>
                       <div className="space-y-2 bg-white/5 rounded-xl p-4 border border-white/10">

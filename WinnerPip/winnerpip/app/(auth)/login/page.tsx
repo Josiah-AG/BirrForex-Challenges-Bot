@@ -21,6 +21,7 @@ function LoginForm() {
   const [isTeamOnly, setIsTeamOnly] = useState(false);
   const [challengeTitle, setChallengeTitle] = useState("");
   const [isHosted, setIsHosted] = useState(false);
+  const [challengeType, setChallengeType] = useState<string | null>(null);
   const [challengeStatus, setChallengeStatus] = useState<string | null>(null);
   const [registrationMode, setRegistrationMode] = useState<string | null>(null);
   const [hostDisplayName, setHostDisplayName] = useState("");
@@ -34,6 +35,7 @@ function LoginForm() {
     let cancelled = false;
     setChallengeInfoLoaded(!challengeId);
     setChallengeStatus(null);
+    setChallengeType(null);
     setIsHosted(false);
     setIsTeamOnly(false);
     if (challengeId) {
@@ -43,6 +45,7 @@ function LoginForm() {
         .then(data => {
           if (cancelled) return;
           const challenge = data.challenges?.find((c: any) => c.id === parseInt(challengeId));
+          setChallengeType(challenge?.type || null);
           setChallengeStatus(challenge?.displayStatus || challenge?.status || null);
           if (challenge?.teamOnly) {
             setIsTeamOnly(true);
@@ -253,7 +256,7 @@ function LoginForm() {
                       </button>
                     )}
                     <p className="text-center text-xs text-gray-500 mt-3">
-                      {challengeStatus === 'registration_open' ? "You'll be guided through a quick 5-step verification process." : 'Already registered? Sign in above to access your dashboard.'}
+                      {challengeStatus === 'registration_open' ? `You'll be guided through a quick ${challengeType === "hybrid" ? 5 : 4}-step verification process.` : 'Already registered? Sign in above to access your dashboard.'}
                     </p>
                   </>
                 ) : (
