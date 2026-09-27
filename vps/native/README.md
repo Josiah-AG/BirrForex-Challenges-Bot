@@ -27,3 +27,11 @@ A startup connection flag can precede the first EA heartbeat: wait for both. Idl
 4. Do not blindly restore a whole journal snapshot over later manual edits. The application archives pre-enrichment trade/partial-exit data and retains field-level provenance. Retaining the new application with recovery disabled keeps provenance-aware analytics safe while any data rollback is reviewed.
 
 The 2026-09-27 rollout backups and verification records are under `C:\ProgramData\WinnerPip\native-recovery-20260927` (Administrator/SYSTEM only). Original worker is `worker-before.py`; router is `router.py`; configs/profiles are per terminal. Operational test scripts there are specific to the owner's test account and must not be reused as generic account tests.
+
+## EA verification badge (v1.02)
+
+The admin deep check calls authenticated `/ea-health` through the router after a successful terminal login test. The worker attempts its existing lock without waiting; busy or drained terminals report `pending`. No login, order, full history pull, or account switch is performed by the EA probe.
+
+Verification requires a heartbeat no older than 15 seconds and a fresh zero-deal nonce response matching the currently connected account/server. Empty accounts can pass. The bounded probe takes at most about 1.5 seconds; a stale file alone cannot pass. The UI badge expires after 120 seconds and requires another health check. The tooltip includes verification time and last successful native recovery since the worker started (if any). Green without a badge only represents the existing login test.
+
+Health rollout rollback copies are in `native-recovery-20260927/before-health`; the previous compiled reader is `MyFxPathLevels-v1.01.ex5`. Restore worker/module/EA together one drained terminal at a time to undo the probe. The ordinary recovery protocol is unchanged. Restore the pre-health router when idle and revert the UI/backend badge commit if needed.

@@ -2374,6 +2374,7 @@ function HealthCheckPanel() {
                     <Activity size={16} className="text-gold" /> Terminal Login Test
                     <span className={`ml-2 px-2 py-0.5 rounded text-[10px] font-bold ${summaryColor}`}>{summary}</span>
                   </h4>
+                  <p className="mb-3 text-xs text-gray-400">Green means the terminal passed its last login test. EA verified means the recovery reader also responded. EA badges expire after 2 minutes; run the health check again to refresh.</p>
                   <div className="grid grid-cols-5 gap-2">
                     {Array.from({ length: numTerminals }, (_, i) => {
                       const id = i + 1;
