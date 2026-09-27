@@ -43,7 +43,7 @@ function LoginForm() {
         .then(data => {
           if (cancelled) return;
           const challenge = data.challenges?.find((c: any) => c.id === parseInt(challengeId));
-          setChallengeStatus(challenge?.status || null);
+          setChallengeStatus(challenge?.displayStatus || challenge?.status || null);
           if (challenge?.teamOnly) {
             setIsTeamOnly(true);
             setChallengeTitle(challenge.title);

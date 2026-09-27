@@ -150,8 +150,7 @@ export default function ChallengesPage() {
   };
 
   const handleChallengeClick = (challenge: Challenge) => {
-    window.location.href = challenge.hostId && challenge.registrationMode === 'winnerpip' && (challenge.displayStatus || challenge.status) === 'registration_open'
-      ? `/challenge/${challenge.id}?register=true` : `/login?challenge=${challenge.id}`;
+    window.location.href = `/login?challenge=${challenge.id}`;
   };
 
   const handlePastChallengeClick = async (challenge: Challenge) => {
