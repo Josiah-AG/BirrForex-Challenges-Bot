@@ -66,6 +66,24 @@ class RouterTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.sleep(.02);task.cancel();await asyncio.gather(task,return_exceptions=True)
         self.assertNotIn(1,router.dispatcher.external_busy)
 
+    async def test_maintenance_excludes_terminal_and_keeps_other_capacity(self):
+        self.release.set()
+        with patch.object(router, '_maintenance_workers', return_value={1}):
+            r=await self.request(True,1,True)
+            self.assertTrue(r.json()['success'])
+            self.assertNotEqual(r.json()['terminal_used'],1)
+            r=await self.request(False,1,False)
+            self.assertFalse(r.json()['success'])
+        self.assertTrue(all(port != 8001 for port,body in self.seen))
+
+    async def test_native_opt_in_forwarded_only_when_requested(self):
+        self.release.set()
+        r=await self.client.post('/pull',json={'api_key':'synthetic-test-key','account':'123','password':'synthetic','server':'mock','protocol_version':2,'priority':True,'native_sltp':True,'terminal_id':1})
+        self.assertTrue(r.json()['success'])
+        self.assertTrue(self.seen[-1][1]['native_sltp'])
+        await self.request(False,2)
+        self.assertFalse(self.seen[-1][1]['native_sltp'])
+
     async def test_report_and_auth(self):
         r=await self.client.get('/vps-report',params={'api_key':'wrong'});self.assertEqual(r.status_code,401)
         r=await self.client.get('/vps-report',params={'api_key':'synthetic-test-key'});a=r.json()['report']['allocation']

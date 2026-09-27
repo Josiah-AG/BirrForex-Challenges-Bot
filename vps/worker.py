@@ -14,6 +14,7 @@ New in v9.0:
 """
 
 from history_snapshot import collect_snapshot, IncompleteHistory
+from native_sltp import recover as recover_native_levels
 import MetaTrader5 as mt5
 import time
 import sys
@@ -188,6 +189,8 @@ def _write_base_config() -> str | None:
             f"Server={BASE_SERVER}\n"
             f"KeepPrivate=1\n"
         )
+        if os.path.isfile(os.path.join(os.path.dirname(__file__), f"native_sltp_{TERMINAL_ID}.installed")):
+            content += "\n[Experts]\nEnabled=1\nAllowLiveTrading=0\nAllowDllImport=0\nAccount=0\nProfile=0\n[StartUp]\nExpert=MyFxPath\\MyFxPathLevels\nSymbol=EURUSDm\nPeriod=M1\nShutdownTerminal=0\n"
         with open(config_path, "w") as f:
             f.write(content)
         print(f"{tag}    config written: {config_path}")
@@ -1463,6 +1466,8 @@ class PullRequest(BaseModel):
     extended_sync:    Optional[bool] = False
     known_tickets: Optional[list[int]] = None
     protocol_version: int = 1
+    priority: bool = False
+    native_sltp: bool = False
     request_id: Optional[str] = None
     anchor_cutoff: Optional[str] = None
     anchor_balance: Optional[float] = None
@@ -1579,6 +1584,11 @@ def pull(req: PullRequest):
             _consecutive_failures = 0
             anchor = {"cutoff": req.anchor_cutoff, "balance": req.anchor_balance,"digest":req.prior_digest,"repair_from":req.repair_from} if req.anchor_cutoff and req.anchor_balance is not None else None
             result = collect_snapshot(mt5, account_number, req.server, req.from_date, anchor,budget=max(1,90-(time.monotonic()-started)),known_tickets=req.known_tickets)
+            # Optional myFXpath-only evidence, still inside the worker/dispatcher lease.
+            # Per-worker marker is an immediate kill switch, without worker restart.
+            if req.priority and req.native_sltp:
+                enabled = os.path.isfile(os.path.join(os.path.dirname(__file__), f"native_sltp_{TERMINAL_ID}.enabled"))
+                result['native_recovery'] = recover_native_levels(mt5, result, account_number, req.server, enabled=enabled)
             result.update(terminal_used=TERMINAL_ID, terminal_id=TERMINAL_ID, request_id=req.request_id)
             return result
         except IncompleteHistory as error:

@@ -153,6 +153,12 @@ dispatcher = SharedDispatcher(NUM_WORKERS)
 _dispatch_tasks = set()
 
 
+def _maintenance_workers():
+    """Local operator drain markers; never interrupt a leased request."""
+    root = os.path.dirname(__file__)
+    return {i for i in range(1, NUM_WORKERS + 1) if os.path.isfile(os.path.join(root, f"maintenance_{i}.drain"))}
+
+
 def _allocation_report():
     return dispatcher.snapshot() if SHARED_DISPATCH_ENABLED else {"enabled": False}
 
@@ -176,7 +182,7 @@ async def _observe_dispatch_workers():
                     except Exception:
                         return i, False, True
                 states = await asyncio.gather(*(check(i) for i in range(1, NUM_WORKERS+1)))
-            await dispatcher.observe([i for i, ok, busy in states if ok], [i for i, ok, busy in states if busy and i not in dispatcher.active and (i not in held_at_probe or i in dispatcher.external_busy)])
+            await dispatcher.observe([i for i, ok, busy in states if ok and i not in _maintenance_workers()], [i for i, ok, busy in states if busy and i not in dispatcher.active and (i not in held_at_probe or i in dispatcher.external_busy)])
         except Exception:
             await dispatcher.observe([], range(1, NUM_WORKERS+1))
         await asyncio.sleep(2)
@@ -196,7 +202,7 @@ async def _dispatch_post(client, url, json, lane="challenge", flexible=False, ex
     parsed = urlsplit(url)
     requested = parsed.port - WORKER_BASE_PORT + 1
     allowed = set(range(1, NUM_WORKERS+1)) if flexible else {requested}
-    allowed -= set(excluded or [])
+    allowed -= set(excluded or []) | _maintenance_workers()
     if not allowed:
         return httpx.Response(503, json={"success":False,"error_type":"busy","message":"No eligible terminal"}, request=httpx.Request("POST",url))
     # Keep the transport alive even if the caller disconnects. Releasing an
@@ -206,6 +212,8 @@ async def _dispatch_post(client, url, json, lane="challenge", flexible=False, ex
         nonlocal dispatched
         try:
             async with dispatcher.lease(lane, allowed, parsed.path, timeout=60) as wid:
+                if wid in _maintenance_workers():
+                    return httpx.Response(503, json={"success":False,"error_type":"busy","message":"Terminal maintenance","terminal_used":wid}, request=httpx.Request("POST",url))
                 dispatched = True
                 payload = dict(json, terminal_id=wid)
                 target = f"{worker_url(wid)}{parsed.path}"
@@ -813,6 +821,7 @@ class PullRequest(BaseModel):
     excluded_terminals: list[int] = []
     known_tickets: Optional[list[int]] = None
     protocol_version: int = 1
+    native_sltp: bool = False
     request_id: Optional[str] = None
     anchor_cutoff: Optional[str] = None
     anchor_balance: Optional[float] = None
@@ -957,6 +966,7 @@ async def health():
         "alive_workers":        alive,
         "healthy_terminals":    healthy_list,
         "shared_dispatch": SHARED_DISPATCH_ENABLED,
+        "maintenance_terminals": sorted(_maintenance_workers()),
         "busy": bool(dispatcher.active or dispatcher.waiters) if SHARED_DISPATCH_ENABLED else False,
         "unhealthy_terminals":  unhealthy_list,
         "terminal_subtype_map": {str(i + 1): terminal_subtype_map[i] for i in range(NUM_WORKERS)},
