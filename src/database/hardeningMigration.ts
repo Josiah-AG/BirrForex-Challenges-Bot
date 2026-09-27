@@ -27,6 +27,12 @@ export async function migrateHardening(): Promise<void> {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), error TEXT,
       UNIQUE(challenge_id,slot)
     )`);
+    // Legacy jobs have no original creation timestamp; updated_at is the best
+    // available baseline. New jobs receive an immutable creation timestamp.
+    await client.query('ALTER TABLE challenge_pull_jobs ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ');
+    await client.query('UPDATE challenge_pull_jobs SET created_at=updated_at WHERE created_at IS NULL');
+    await client.query('ALTER TABLE challenge_pull_jobs ALTER COLUMN created_at SET DEFAULT NOW()');
+    await client.query('ALTER TABLE challenge_pull_jobs ALTER COLUMN created_at SET NOT NULL');
     await client.query('ALTER TABLE challenge_pull_jobs ADD COLUMN IF NOT EXISTS override_lock BOOLEAN NOT NULL DEFAULT false');
     await client.query('ALTER TABLE challenge_pull_jobs ADD COLUMN IF NOT EXISTS include_disqualified BOOLEAN NOT NULL DEFAULT false');
     await client.query('ALTER TABLE challenge_pull_jobs ADD COLUMN IF NOT EXISTS full_history BOOLEAN NOT NULL DEFAULT false');
