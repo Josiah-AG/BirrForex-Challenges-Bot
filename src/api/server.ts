@@ -4179,7 +4179,12 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/vps-health`, adminIpCheck, async (req, 
           }, { timeout: 35000 });
 
           const data = verifyRes.data;
+          let ea: any = {status: 'unavailable'};
+          if (data.success) {
+            try { ea = (await axios.post(`${vpsUrl}/ea-health`, {api_key: config.vpsApiKey, terminal_id: tid}, {timeout: 5000})).data; } catch {}
+          }
           terminalResults.push({
+            ea,
             terminal: tid,
             success: data.success || false,
             balance: data.balance,

@@ -1080,6 +1080,24 @@ async def configure(req: ConfigureRequest):
     }
 
 
+@app.post("/ea-health")
+async def ea_health(req: dict):
+    if req.get('api_key') != API_KEY:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+    wid = req.get('terminal_id')
+    if not isinstance(wid, int) or not 1 <= wid <= NUM_WORKERS:
+        raise HTTPException(status_code=400, detail="Invalid terminal")
+    if wid in _maintenance_workers():
+        return {"status": "pending"}
+    try:
+        async with httpx.AsyncClient(timeout=3) as client:
+            response = await client.post(f"{worker_url(wid)}/ea-health", json={"api_key": API_KEY})
+            response.raise_for_status()
+            return response.json()
+    except Exception:
+        return {"status": "unavailable"}
+
+
 @app.post("/verify")
 async def verify(req: VerifyRequest):
     # Thin metrics wrapper — runs the original logic unchanged, records the result once.

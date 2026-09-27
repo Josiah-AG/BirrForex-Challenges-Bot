@@ -1,5 +1,5 @@
 #property strict
-#property version "1.01"
+#property version "1.02"
 #property description "Read-only closing SL/TP mailbox. No trading functions or DLLs."
 string dir="MyFxPathLevels\\";
 int OnInit() {
@@ -49,7 +49,7 @@ void ReadRequest() {
   long expires=(long)StringToInteger(FileReadString(f));
   int count=(int)StringToInteger(FileReadString(f));
   ulong tickets[],positions[];
-  bool valid=version=="1" && StringLen(nonce)==32 && count>0 && count<=5000 && expires>=(long)TimeGMT();
+  bool valid=version=="1" && StringLen(nonce)==32 && count>=0 && count<=5000 && expires>=(long)TimeGMT();
   if(valid) {
     ArrayResize(tickets,count);ArrayResize(positions,count);
     for(int i=0;i<count;i++) {

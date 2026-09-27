@@ -14,7 +14,7 @@ New in v9.0:
 """
 
 from history_snapshot import collect_snapshot, IncompleteHistory
-from native_sltp import recover as recover_native_levels
+from native_sltp import recover as recover_native_levels, probe as probe_native_reader
 import MetaTrader5 as mt5
 import time
 import sys
@@ -1541,6 +1541,18 @@ def health():
         "home_account":         str(BASE_ACCOUNT),
         "current_account":      _current_account_str,
     }
+
+
+@app.post("/ea-health")
+def ea_health(req: dict):
+    if req.get('api_key') != API_KEY:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+    if not _lock.acquire(blocking=False):
+        return {"status": "pending"}
+    try:
+        return probe_native_reader(mt5, enabled=os.path.isfile(os.path.join(os.path.dirname(__file__), f"native_sltp_{TERMINAL_ID}.enabled")))
+    finally:
+        _lock.release()
 
 
 @app.post("/verify")

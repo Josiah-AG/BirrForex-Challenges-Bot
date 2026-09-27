@@ -2222,6 +2222,8 @@ async function getWorkloadJson(path: string, signal: AbortSignal) {
 
 function HealthCheckPanel() {
   const [healthData, setHealthData] = useState<any>(null);
+  const [healthClock, setHealthClock] = useState(Date.now());
+  useEffect(() => { const timer = setInterval(() => setHealthClock(Date.now()), 1000); return () => clearInterval(timer); }, []);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [lastChecked, setLastChecked] = useState<string | null>(null);
@@ -2377,6 +2379,8 @@ function HealthCheckPanel() {
                       const id = i + 1;
                       const result = results.find((t: any) => t.terminal === id);
                       const passed = result?.success === true;
+                      const eaVerified = passed && result?.ea?.status === 'verified' && result.ea.expires_at * 1000 > healthClock;
+                      const eaLabel = eaVerified ? 'EA verified' : result?.ea?.status === 'pending' ? 'EA check pending' : result?.ea?.status === 'verified' ? 'EA check expired' : 'EA not verified';
                       const failed = result?.success === false || (!vpsOnline);
                       const untested = !result && vpsOnline;
                       return (
@@ -2385,6 +2389,7 @@ function HealthCheckPanel() {
                           <p className={`text-sm font-bold ${passed ? "text-profit" : failed ? "text-loss" : "text-gray-500"}`}>
                             {passed ? "✓" : failed ? "✗" : "—"}
                           </p>
+                          {passed && <span title={result?.ea?.checked_at ? `Last EA verification: ${new Date(result.ea.checked_at * 1000).toLocaleTimeString()}. Last recovery since worker start: ${result.ea.last_recovery_at ? new Date(result.ea.last_recovery_at * 1000).toLocaleString() : "None yet"}` : `EA status: ${result?.ea?.status || 'not checked'}`} className={`block mt-1 text-[9px] rounded px-1 py-0.5 ${eaVerified ? 'bg-profit/20 text-profit' : 'text-gray-400'}`}>{eaVerified ? '✓ ' : ''}{eaLabel}</span>}
                         </div>
                       );
                     })}
