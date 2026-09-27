@@ -126,34 +126,39 @@ export default function ChallengeDashboard() {
     fetchUserTrades();
   }, [selectedUser, params.id]);
 
-  // Check auth on mount
+  const registrationRequested = searchParams.get("register") === "true";
+  // Check auth for the selected challenge, not merely the presence of any token.
   useEffect(() => {
-    if (typeof window !== "undefined" && localStorage.getItem("wp_token")) {
+    if (!registrationRequested && typeof window !== "undefined" && localStorage.getItem("wp_token")) {
       setIsLoggedIn(true);
     } else {
-      setLoading(false);
+      setIsLoggedIn(false);setLoading(false);
     }
-  }, []);
+  }, [params.id, registrationRequested]);
 
   // Fetch basic challenge info (pre-auth) to show Register button
   useEffect(() => {
     if (!params.id) return;
+    let cancelled=false;setPreAuthChallenge(null);
     const fetchPreAuth = async () => {
       try {
         const res = await fetch(`${API_URL}/api/challenges?include_past=false`);
         if (res.ok) {
           const data = await res.json();
           const c = (data.challenges || []).find((ch: any) => ch.id === Number(params.id));
+          if(cancelled)return;
+          if (!c) setError("Challenge unavailable. Return to the challenge list and try again.");
           if (c) setPreAuthChallenge({ hostId: c.hostId, registrationMode: c.registrationMode, status: c.displayStatus || c.status, type: c.type, title: c.title });
         }
-      } catch {}
+      } catch {if(!cancelled)setError("Could not load this challenge. Please refresh and try again.");}
     };
     fetchPreAuth();
+    return()=>{cancelled=true;};
   }, [params.id]);
 
   // Auto-open registration wizard if ?register=true is in URL
   useEffect(() => {
-    if (searchParams.get('register') === 'true' && preAuthChallenge && !isLoggedIn && !showRegWizard) {
+    if (registrationRequested && preAuthChallenge && !isLoggedIn && !showRegWizard) {
       if (preAuthChallenge.hostId && preAuthChallenge.registrationMode === 'winnerpip' && preAuthChallenge.status === 'registration_open') {
         setRegForm({ email: "", nickname: "", accountNumber: "", mt5Server: "", investorPassword: "", accountType: preAuthChallenge.type === 'real' ? 'real' : preAuthChallenge.type === 'demo' ? 'demo' : 'demo' });
         setRegStep(1); setRegError(""); setRegSuccess(false); setMt5Verified(false); setMt5VerifyData(null); setShowRegWizard(true);
@@ -161,16 +166,26 @@ export default function ChallengeDashboard() {
     }
   }, [preAuthChallenge, searchParams, isLoggedIn]);
 
+  const dashboardScope = useRef(String(params.id));
+  dashboardScope.current = String(params.id);
+  const dashboardRequest = useRef(0);
+
   // Fetch dashboard data when logged in
   const fetchDashboard = useCallback(async () => {
+    const request = ++dashboardRequest.current;
+    const valid = () => dashboardScope.current === String(params.id) && request === dashboardRequest.current;
     const token = localStorage.getItem("wp_token");
     if (!token) { setLoading(false); return; }
 
     try {
-      const res = await fetch(`${API_URL}/api/me/dashboard`, {
+      const res = await fetch(`${API_URL}/api/me/dashboard?challengeId=${params.id}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
+      if (!valid()) return;
+      if (res.status === 409) {
+        setIsLoggedIn(false);setChallenge(null);setMyStats(null);setLoading(false);return;
+      }
       if (res.status === 401) {
         localStorage.removeItem("wp_token");
         localStorage.removeItem("wp_user");
@@ -187,6 +202,8 @@ export default function ChallengeDashboard() {
 
       const data = await res.json();
 
+      if (!valid()) return;
+      if (String(data.challenge?.id) !== String(params.id)) {setIsLoggedIn(false);setLoading(false);return;}
       setChallenge(data.challenge);
       const statsObj = {
         nickname: data.me.nickname,
@@ -219,14 +236,15 @@ export default function ChallengeDashboard() {
       setRecentTrades(data.recentTrades || []);
       setError("");
     } catch {
+      if (!valid()) return;
       setError("Unable to connect to server. Please check your connection.");
     }
     setLoading(false);
-  }, []);
+  }, [params.id]);
 
   useEffect(() => {
-    if (isLoggedIn) fetchDashboard();
-  }, [isLoggedIn, fetchDashboard]);
+    if (isLoggedIn && !registrationRequested) fetchDashboard();
+  }, [isLoggedIn, fetchDashboard, registrationRequested]);
 
   // Fetch leaderboard with pagination
   const [leaderboardHasMore, setLeaderboardHasMore] = useState(false);
@@ -332,6 +350,7 @@ export default function ChallengeDashboard() {
         localStorage.setItem("wp_token", d.token);
         localStorage.setItem("wp_login_pass", loginPassword);
         if (d.user) localStorage.setItem("wp_user", JSON.stringify(d.user));
+        if(registrationRequested){window.location.href=`/challenge/${params.id}`;return;}
         setIsLoggedIn(true); setShowLogin(false);
       } else {
         setLoginError("This account and password are not registered. Check credentials or register first.");
@@ -542,7 +561,7 @@ export default function ChallengeDashboard() {
   };
 
   // Determine challenge state
-  const isNotStarted = challenge && (challenge.status === "registration_open" || challenge.status === "draft");
+  const isNotStarted = challenge && (challenge.status === "registration_open" || challenge.status === "draft" || challenge.status === "scheduled");
   const isActive = challenge && challenge.status === "active";
   const isCompleted = challenge && (challenge.status === "completed" || challenge.status === "submission_open" || challenge.status === "reviewing");
   const daysLeft = challenge
@@ -612,7 +631,7 @@ export default function ChallengeDashboard() {
       <div className="container mx-auto px-4 py-6 max-w-6xl relative">
 
         {/* LOADING STATE — hide when register mode waiting for wizard */}
-        {loading && !(searchParams.get('register') === 'true' && (!preAuthChallenge || preAuthChallenge.status === 'registration_open')) && (
+        {loading  && (
           <div className="flex items-center justify-center py-20">
             <div className="text-center">
               <Loader2 className="w-8 h-8 text-royal animate-spin mx-auto mb-3" />
@@ -622,7 +641,7 @@ export default function ChallengeDashboard() {
         )}
 
         {/* ERROR STATE */}
-        {!loading && error && isLoggedIn && (
+        {!loading && error && (
           <div className="max-w-md mx-auto py-12">
             <div className="glass rounded-3xl border border-loss/20 p-8 text-center">
               <AlertTriangle className="w-12 h-12 text-loss mx-auto mb-4" />
@@ -636,7 +655,7 @@ export default function ChallengeDashboard() {
         )}
 
         {/* AUTH GATE */}
-        {!loading && !isLoggedIn && !showLogin && !showRegWizard && !(searchParams.get('register') === 'true' && (!preAuthChallenge || preAuthChallenge.status === 'registration_open')) && (
+        {!loading && !isLoggedIn && !showLogin && !showRegWizard  && (
           <div className="max-w-md mx-auto py-12">
             <div className="glass rounded-3xl border border-white/10 p-8 text-center">
               <Trophy className="w-12 h-12 text-gold mx-auto mb-4" />
@@ -681,6 +700,7 @@ export default function ChallengeDashboard() {
         {/* NOT STARTED — reuses active dashboard layout, balance = registration balance, no trades */}
 
         {/* ==================== COMPLETED STATE — now shows full dashboard with popup ==================== */}
+        {!loading && !error && isLoggedIn && !isActive && !isNotStarted && !isCompleted && <div className="glass rounded-xl p-6 text-gray-300">This challenge is not currently available. <a className="text-royal underline" href="/challenges">View challenges</a></div>}
         {!loading && !error && isLoggedIn && isCompleted && myStats && challenge && (<>
 
           {/* FULL DASHBOARD (same as active) */}
@@ -1964,6 +1984,12 @@ export default function ChallengeDashboard() {
                   <h3 className="text-xl font-bold text-white mb-2">Registration Complete!</h3>
                   <p className="text-gray-400 text-sm mb-1">Your MT5 account has been verified and connected.</p>
                   <p className="text-gray-500 text-xs mb-6">A confirmation email will be sent to <span className="text-gray-300">{regForm.email}</span></p>
+                  <div className="mb-4 rounded-xl border border-white/10 bg-white/5 p-4 text-left text-sm text-gray-300 space-y-2">
+                    <p><span className="text-gray-500">Nickname:</span> {regForm.nickname}</p>
+                    <p><span className="text-gray-500">Account:</span> {regForm.accountNumber} · {regForm.accountType}</p>
+                    <p className="break-words"><span className="text-gray-500">Server:</span> {mt5VerifyData?.server || regForm.mt5Server}</p>
+                    <p><span className="text-gray-500">Verified balance:</span> <strong className="text-profit">{mt5VerifyData?.balance != null ? `${mt5VerifyData.isCent ? '' : '$'}${mt5VerifyData.balance.toFixed(2)}${mt5VerifyData.isCent ? '¢' : ''}` : 'Unavailable'}</strong></p>
+                  </div>
                   <div className="bg-white/5 rounded-xl p-4 border border-white/10 mb-6 text-left">
                     <p className="text-xs text-gray-400 font-semibold uppercase tracking-wider mb-2">How to Sign In</p>
                     <div className="space-y-2">
@@ -1972,7 +1998,7 @@ export default function ChallengeDashboard() {
                     </div>
                   </div>
                   {preAuthChallenge?.hostId && <RegistrationNotice accountType={regForm.accountType} />}
-                  <button onClick={() => { setShowRegWizard(false); setShowLogin(true); }} className="inline-flex items-center gap-2 px-8 py-3 rounded-xl bg-gradient-brand text-white font-semibold text-sm hover:opacity-90 transition-all">Sign In Now <ArrowRight size={16} /></button>
+                  <button onClick={() => { window.location.href = `/login?challenge=${params.id}`; }} className="inline-flex items-center gap-2 px-8 py-3 rounded-xl bg-gradient-brand text-white font-semibold text-sm hover:opacity-90 transition-all">Sign In Now <ArrowRight size={16} /></button>
                 </div>
               ) : (
                 <>

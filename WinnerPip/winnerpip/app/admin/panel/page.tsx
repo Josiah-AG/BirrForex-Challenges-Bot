@@ -1,4 +1,6 @@
 "use client";
+import DataRefresh from "@/components/DataRefresh";
+import {useDataRefresh} from "@/lib/useDataRefresh";
 import WorkloadExport from '@/components/WorkloadExport';
 import { useState, useEffect, useRef } from "react";
 
@@ -74,6 +76,8 @@ export default function AdminDashboard() {
   const [verifyPopup, setVerifyPopup] = useState<any>(null);
 
   // Lock scroll on modal
+  const dataRefresh = useDataRefresh(selectedChallengeId + ":" + activeSection, isAdmin, !["rules","settings","create"].includes(activeSection));
+  const fetch = dataRefresh.fetch;
   useEffect(() => {
     if (selectedParticipant) document.body.style.overflow = "hidden";
     else document.body.style.overflow = "";
@@ -132,8 +136,8 @@ export default function AdminDashboard() {
   useEffect(()=>{
     if(!isAdmin)return;
     const load=()=>fetch('/api/management/approvals').then(r=>r.ok?r.json():{approvals:[]}).then(d=>setPendingApprovals(d.approvals || [])).catch(()=>{});
-    load();const timer=setInterval(load,30000);return()=>clearInterval(timer);
-  },[isAdmin]);
+    load();
+  },[isAdmin,selectedChallengeId,activeSection,dataRefresh.revision]);
   const decideApproval=async(token:string,approve:boolean)=>{
     try{
       const response=await fetch(`/api/management/approvals/${token}/decision`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({approve})});
@@ -164,6 +168,11 @@ export default function AdminDashboard() {
     fetchChallenges();
   }, [isAdmin]);
 
+  useEffect(()=>{
+    if(!isAdmin || !dataRefresh.revision)return;
+    fetch('/api/management/challenges').then(r=>r.json()).then(d=>setChallenges(d.challenges || [])).catch(()=>{});
+  },[dataRefresh.revision]);
+
   // Reset rules state whenever the selected challenge changes
   useEffect(() => {
     setRulesSaved(false);
@@ -185,7 +194,7 @@ export default function AdminDashboard() {
       } catch {}
     };
     fetchOverview();
-  }, [isAdmin, selectedChallengeId]);
+  }, [isAdmin, selectedChallengeId, activeSection, dataRefresh.revision]);
 
   // Fetch actual saved rules when Rules tab is opened or challenge changes
   useEffect(() => {
@@ -273,7 +282,7 @@ export default function AdminDashboard() {
       setParticipantsLoading(false);
     };
     fetchParticipants();
-  }, [isAdmin, activeSection, selectedChallengeId, participantsPage, participantFilter]);
+  }, [isAdmin, activeSection, selectedChallengeId, participantsPage, participantFilter, dataRefresh.revision]);
 
   // Handle admin actions (DM, unverify, disqualify)
   const handleAction = async (type: string, participant: any, message: string) => {
@@ -349,9 +358,15 @@ export default function AdminDashboard() {
     hostId: selectedChallenge.hostId,
   } : { id: selectedChallengeId, title: "Loading...", status: "—", type: "—" };
 
+  useEffect(()=>{
+    setOverviewData(null);setParticipantsList([]);setParticipantsPagination(null);setParticipantsPage(1);
+    setSelectedParticipant(null);setFoundUser(null);setLeaderboard([]);setFlaggedParticipants([]);
+    setPullHistory([]);setTerminalStatus([]);setScreeningData(null);setSlFailures([]);
+  },[selectedChallengeId]);
+
   // Currency helper — shows ¢ for cent-only real challenges, $ otherwise
   const selectedChall = challenges.find(c => String(c.id) === selectedChallengeId);
-  const isCentChallenge = (rulesConfig.only_cent_account || overviewData?.onlyCentAccount) && selectedChall?.type !== 'demo';
+  const isCentChallenge = (overviewData?.onlyCentAccount) && selectedChall?.type !== 'demo';
   const cur = (amount: number | string | null | undefined, userIsCent?: boolean) => {
     if (amount == null) return "—";
     const num = Number(amount);
@@ -446,7 +461,7 @@ export default function AdminDashboard() {
     };
     fetchLeaderboardRef.current = fetchLeaderboard;
     fetchLeaderboard();
-  }, [isAdmin, activeSection, selectedChallengeId, leaderboardCategory]);
+  }, [isAdmin, activeSection, selectedChallengeId, leaderboardCategory, dataRefresh.revision]);
 
   // Fetch violations when violations tab OR overview is active
   useEffect(() => {
@@ -474,7 +489,7 @@ export default function AdminDashboard() {
       } catch {}
     };
     fetchViolations();
-  }, [isAdmin, activeSection, selectedChallengeId]);
+  }, [isAdmin, activeSection, selectedChallengeId, dataRefresh.revision]);
 
   // Fetch pull data when pulls tab is active
   const [slFailures, setSlFailures] = useState<any[]>([]);
@@ -525,9 +540,8 @@ export default function AdminDashboard() {
     fetchPullsRef.current = fetchPulls;
     setTerminalStatus([]);
     fetchPulls();
-    const timer = setInterval(fetchPulls, 30000);
-    return () => { cancelled = true; clearInterval(timer); };
-  }, [isAdmin, activeSection, selectedChallengeId]);
+    return () => { cancelled = true; };
+  }, [isAdmin, activeSection, selectedChallengeId, dataRefresh.revision]);
 
   // Fetch screening data when screening tab is active
   useEffect(() => {
@@ -544,7 +558,7 @@ export default function AdminDashboard() {
       } catch {}
     };
     fetchScreening();
-  }, [isAdmin, activeSection, selectedChallengeId]);
+  }, [isAdmin, activeSection, selectedChallengeId, dataRefresh.revision]);
 
   // ==================== ADMIN LOGIN GATE ====================
   if (!isAdmin) {
@@ -608,6 +622,7 @@ export default function AdminDashboard() {
           </div>
         </div>
       </header>
+      <DataRefresh state={dataRefresh} />
 
       <div className="container mx-auto px-4 py-6 max-w-7xl relative">
         {pendingApprovals.length>0 && <section className="mb-6 p-4 rounded-xl border border-gold/30 bg-gold/5">
@@ -738,7 +753,7 @@ export default function AdminDashboard() {
                 <div className="flex items-center gap-2"><Trophy size={18} className="text-gold" /><h3 className="text-sm font-bold text-white">Above Target ({overview.aboveTarget})</h3></div>
                 <button onClick={() => setShowAboveTarget(false)} className="p-2 hover:bg-white/10 rounded-lg"><X size={16} className="text-gray-400" /></button>
               </div>
-              <AboveTargetList challengeId={selectedChallengeId} />
+              <AboveTargetList key={`${selectedChallengeId}:${dataRefresh.revision}`} challengeId={selectedChallengeId} />
             </div>
           </div>
         )}
@@ -855,7 +870,7 @@ export default function AdminDashboard() {
 
         {/* ==================== PULL HISTORY + TERMINALS ==================== */}
         {activeSection === "pulls" && (
-          <PullsTab challengeId={selectedChallengeId} pullHistory={pullHistory} terminalStatus={terminalStatus} slFailures={slFailures} onPullFinished={() => { fetchPullsRef.current(); fetchLeaderboardRef.current(); }} />
+          <PullsTab key={selectedChallengeId} challengeId={selectedChallengeId} pullHistory={pullHistory} terminalStatus={terminalStatus} slFailures={slFailures} onPullFinished={() => { fetchPullsRef.current(); fetchLeaderboardRef.current(); }} />
         )}
 
         {/* ==================== PARTICIPANTS (Find User + Export) ==================== */}
@@ -1461,7 +1476,7 @@ export default function AdminDashboard() {
 
       {/* ==================== SETTINGS TAB ==================== */}
       {activeSection === "settings" && (
-        <ChallengeSettingsPanel challengeId={selectedChallengeId} challenges={challenges} onRefresh={async () => {
+        <ChallengeSettingsPanel key={selectedChallengeId} challengeId={selectedChallengeId} challenges={challenges} onRefresh={async () => {
           // Refetch challenges after save
           try {
             const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
@@ -1867,7 +1882,7 @@ function HostsManagementPanel() {
     setLoading(false);
   };
 
-  useEffect(() => { fetchHosts(); }, []);
+  useEffect(() => { fetchHosts(); const reload=()=>fetchHosts();window.addEventListener("winnerpip:refresh",reload);return()=>window.removeEventListener("winnerpip:refresh",reload); }, []);
 
   const handleCreate = async () => {
     setCreateLoading(true);
@@ -2231,7 +2246,7 @@ function HealthCheckPanel() {
     setReportLoading(false);
   };
 
-  useEffect(() => { loadVpsReport(); }, []);
+  useEffect(() => { loadVpsReport(); const reload=()=>loadVpsReport();window.addEventListener("winnerpip:refresh",reload);return()=>window.removeEventListener("winnerpip:refresh",reload); }, []);
 
   const runHealthCheck = async () => {
     setLoading(true);

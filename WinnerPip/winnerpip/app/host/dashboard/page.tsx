@@ -1,4 +1,6 @@
 "use client";
+import DataRefresh from "@/components/DataRefresh";
+import {useDataRefresh} from "@/lib/useDataRefresh";
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import Image from "next/image";
@@ -137,6 +139,8 @@ export default function HostDashboardPage() {
   // Balance/target become read-only once the challenge has started (matches rules locking).
   const balanceLocked = ['active', 'reviewing', 'completed'].includes(selectedChallenge?.status || '');
 
+  const dataRefresh = useDataRefresh(String(selectedChallengeId) + ":" + activeTab, isAuth, !["rules","settings"].includes(activeTab) && !showAccountSettings);
+  const fetch = dataRefresh.fetch;
   // Auth
   useEffect(() => {
     const token = localStorage.getItem("host_token");
@@ -164,6 +168,11 @@ export default function HostDashboardPage() {
       })
       .catch(() => setLoading(false));
   }, [isAuth]);
+
+  useEffect(()=>{
+    if(!isAuth || !dataRefresh.revision)return;
+    fetch(`${API_URL}/api/host/challenges`,{headers:{Authorization:`Bearer ${getToken()}`}}).then(r=>r.json()).then(d=>setChallenges((d.challenges || []).filter((c:any)=>c.status!=='deleted'))).catch(()=>{});
+  },[dataRefresh.revision]);
 
   // Fetch tab data
   const fetchTabData = useCallback(async () => {
@@ -301,6 +310,8 @@ export default function HostDashboardPage() {
   }, [selectedChallengeId, activeTab, isAuth, rulesCategory]);
 
   useEffect(() => { fetchTabData(); }, [fetchTabData]);
+  useEffect(()=>{if(!["rules","settings"].includes(activeTab))fetchTabData();},[dataRefresh.revision]);
+  useEffect(()=>{setOverview(null);setParticipants([]);setParticipantsPagination(null);setSelectedParticipant(null);setFoundUser(null);setLeaderboard([]);setViolations([]);setPullHistory([]);setPullSummary(null);setFailedAccounts(null);setCsvStatus(null);setCsvProgress(null);setRulesConfig(null);setParticipantsPage(1);},[selectedChallengeId]);
 
   // Lock scroll on modal
   useEffect(() => {
@@ -469,6 +480,7 @@ export default function HostDashboardPage() {
           </div>
         </div>
       </header>
+      <DataRefresh state={dataRefresh} />
 
       {showAccountSettings ? (
         <div className="container mx-auto px-4 py-6 max-w-2xl">
@@ -1207,7 +1219,7 @@ export default function HostDashboardPage() {
           )}
 
           {/* ===== SCREENING ===== */}
-          {activeTab === "screening" && <ScreeningTab challengeId={selectedChallengeId!} getToken={getToken} />}
+          {activeTab === "screening" && <ScreeningTab key={`${selectedChallengeId}:${dataRefresh.revision}`} challengeId={selectedChallengeId!} getToken={getToken} />}
 
           {/* ===== RULES ===== */}
           {activeTab === "rules" && (

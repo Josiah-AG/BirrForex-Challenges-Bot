@@ -150,7 +150,8 @@ export default function ChallengesPage() {
   };
 
   const handleChallengeClick = (challenge: Challenge) => {
-    window.location.href = `/login?challenge=${challenge.id}`;
+    window.location.href = challenge.hostId && challenge.registrationMode === 'winnerpip' && (challenge.displayStatus || challenge.status) === 'registration_open'
+      ? `/challenge/${challenge.id}?register=true` : `/login?challenge=${challenge.id}`;
   };
 
   const handlePastChallengeClick = async (challenge: Challenge) => {
@@ -608,6 +609,12 @@ export default function ChallengesPage() {
                   <p className="text-gray-400 text-sm mb-1">Your MT5 account has been verified and connected.</p>
                   <p className="text-gray-500 text-xs mb-6">A confirmation email will be sent to <span className="text-gray-300">{regForm.email}</span></p>
 
+                  <div className="mb-4 rounded-xl border border-white/10 bg-white/5 p-4 text-left text-sm text-gray-300 space-y-2">
+                    <p><span className="text-gray-500">Nickname:</span> {regForm.nickname}</p>
+                    <p><span className="text-gray-500">Account:</span> {regForm.accountNumber} · {regForm.accountType}</p>
+                    <p className="break-words"><span className="text-gray-500">Server:</span> {mt5VerifyData?.server || regForm.mt5Server}</p>
+                    <p><span className="text-gray-500">Verified balance:</span> <strong className="text-profit">{mt5VerifyData?.balance != null ? `${mt5VerifyData.isCent ? '' : '$'}${mt5VerifyData.balance.toFixed(2)}${mt5VerifyData.isCent ? '¢' : ''}` : 'Unavailable'}</strong></p>
+                  </div>
                   <div className="bg-white/5 rounded-xl p-4 border border-white/10 mb-6 text-left">
                     <p className="text-xs text-gray-400 font-semibold uppercase tracking-wider mb-2">How to Sign In</p>
                     <div className="space-y-2">

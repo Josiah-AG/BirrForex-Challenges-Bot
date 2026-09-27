@@ -1718,6 +1718,11 @@ app.get('/api/challenges/:id/user-trades', async (req, res) => {
 app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
   try {
     const { registrationId } = req.user;
+    if (req.query.challengeId) {
+      const context=await db.query('SELECT challenge_id FROM trading_registrations WHERE id=$1',[registrationId]);
+      if(String(context.rows[0]?.challenge_id)!==String(req.query.challengeId))return res.status(409).json({error:'Sign in for the selected challenge'});
+    }
+
 
     // Get leaderboard entry
     const lb = await db.query(
@@ -8251,6 +8256,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/host-csv/:uploadId/approve`, adminIpCh
               challengeTitle: challengeInfo2.rows[0]?.title || 'Trading Challenge',
               accountNumber: row.account_number,
               accountType: row.account_type,
+              balance: isCent ? `${Number(result.balance || 0).toFixed(2)}¢` : `$${Number(result.balance || 0).toFixed(2)}`,
               hosted: Boolean(challengeInfo2.rows[0]?.host_id),
               hostName: challengeInfo2.rows[0]?.host_name || null,
               hostLink: challengeInfo2.rows[0]?.host_support_link || null,
