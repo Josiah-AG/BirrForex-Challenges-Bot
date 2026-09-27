@@ -143,6 +143,7 @@ export default function ChallengeDashboard() {
     const fetchPreAuth = async () => {
       try {
         const res = await fetch(`${API_URL}/api/challenges?include_past=false`);
+        if (!res.ok) throw new Error("Challenge request failed");
         if (res.ok) {
           const data = await res.json();
           const c = (data.challenges || []).find((ch: any) => ch.id === Number(params.id));
@@ -155,6 +156,12 @@ export default function ChallengeDashboard() {
     fetchPreAuth();
     return()=>{cancelled=true;};
   }, [params.id]);
+
+  useEffect(() => {
+    if (registrationRequested && preAuthChallenge && !(preAuthChallenge.hostId && preAuthChallenge.registrationMode === 'winnerpip' && preAuthChallenge.status === 'registration_open')) {
+      window.location.replace(`/login?challenge=${params.id}`);
+    }
+  }, [registrationRequested, preAuthChallenge, params.id]);
 
   // Auto-open registration wizard if ?register=true is in URL
   useEffect(() => {
@@ -631,11 +638,11 @@ export default function ChallengeDashboard() {
       <div className="container mx-auto px-4 py-6 max-w-6xl relative">
 
         {/* LOADING STATE — hide when register mode waiting for wizard */}
-        {loading  && (
+        {(loading || (registrationRequested && !showRegWizard && !error)) && (
           <div className="flex items-center justify-center py-20">
             <div className="text-center">
               <Loader2 className="w-8 h-8 text-royal animate-spin mx-auto mb-3" />
-              <p className="text-gray-400 text-sm">Loading dashboard...</p>
+              <p className="text-gray-400 text-sm">{registrationRequested ? "Loading registration..." : "Loading dashboard..."}</p>
             </div>
           </div>
         )}
@@ -655,7 +662,7 @@ export default function ChallengeDashboard() {
         )}
 
         {/* AUTH GATE */}
-        {!loading && !isLoggedIn && !showLogin && !showRegWizard  && (
+        {!loading && !isLoggedIn && !showLogin && !showRegWizard && !registrationRequested && (
           <div className="max-w-md mx-auto py-12">
             <div className="glass rounded-3xl border border-white/10 p-8 text-center">
               <Trophy className="w-12 h-12 text-gold mx-auto mb-4" />
@@ -1951,7 +1958,7 @@ export default function ChallengeDashboard() {
 
       {/* Registration Wizard Modal (for hosted winnerpip challenges) */}
       {showRegWizard && (
-        <div className="fixed inset-0 bg-black/90 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => { if (!regLoading) window.location.href = '/challenges'; }}>
+        <div className="fixed inset-0 bg-black/90 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => { if (!regLoading) window.location.replace(`/login?challenge=${params.id}`); }}>
           <div className="bg-[#1a2235] rounded-2xl max-w-md w-full max-h-[90vh] overflow-y-auto border border-white/15 shadow-2xl" onClick={e => e.stopPropagation()}>
             {/* Header */}
             <div className="sticky top-0 bg-[#1a2235] px-6 pt-5 pb-4 border-b border-white/10 z-10 rounded-t-2xl">
@@ -1960,7 +1967,7 @@ export default function ChallengeDashboard() {
                   <h3 className="text-lg font-bold text-white">Join Challenge</h3>
                   <p className="text-xs text-gray-500 mt-0.5">{preAuthChallenge?.title || ''}</p>
                 </div>
-                <button onClick={() => { if (!regLoading) window.location.href = '/challenges'; }} className="p-2 hover:bg-white/10 rounded-lg"><X size={18} className="text-gray-400" /></button>
+                <button aria-label="Close registration" disabled={regLoading} onClick={() => { if (!regLoading) window.location.replace(`/login?challenge=${params.id}`); }} className="p-2 hover:bg-white/10 rounded-lg"><X size={18} className="text-gray-400" /></button>
               </div>
               {!regSuccess && (
                 <div className="flex gap-1.5">
