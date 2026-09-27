@@ -75,6 +75,7 @@ class EmailService {
     challengeTitle: string;
     accountNumber: string;
     accountType: string;
+    hosted?: boolean;
     hostName?: string;
     hostLink?: string;
     hostMainLink?: string;
@@ -111,11 +112,19 @@ class EmailService {
           Your account has been verified and connected. You'll receive updates about the challenge via email.
         </p>
 
+        ${data.hosted ? `<div style="background:#fffbeb;padding:16px;border-radius:10px;margin-top:20px;color:#78350f;font-size:14px;line-height:1.6">
+          <strong>Keep your investor password unchanged</strong>
+          <p>Do not change or generate a new investor password for your registered account during the challenge period. Password changes can interrupt trade tracking and may lead to disqualification.</p>
+          ${data.accountType === 'demo' ? `<strong>Keep your Exness demo account active</strong>
+          <p>Exness may delete inactive demo accounts. As a precaution, place a pending order on one instrument well away from the current market price, then remove it when the challenge starts. Monitor the order because it could execute if the market reaches its price. This is not a guaranteed safeguard against deletion.</p>
+          <p>If your account is deleted before the challenge starts, use <strong>Account Settings → Change account or category</strong> in your WinnerPip dashboard to replace and verify it. <strong>Account replacement is unavailable after the challenge starts.</strong></p>` : ''}
+        </div>` : ''}
         <div style="text-align: center; margin-top: 20px;">
           <a href="https://winnerpip.com/challenges" style="display: inline-block; background: linear-gradient(135deg, #6366f1, #8b5cf6); color: #ffffff; padding: 12px 28px; border-radius: 10px; text-decoration: none; font-size: 13px; font-weight: 600;">Log in to Dashboard</a>
         </div>
       `;
-      await resend.emails.send({ from: FROM_ADDRESS, to, subject: `Registration Confirmed — ${data.challengeTitle}`, html: wrapEmail(content) });
+      const delivery = await resend.emails.send({ from: FROM_ADDRESS, to, subject: `Registration Confirmed — ${data.challengeTitle}`, html: wrapEmail(content) });
+      if (delivery.error) throw new Error(delivery.error.message);
       return true;
     } catch (error) {
       console.error('Email send error (registration):', error);
@@ -153,7 +162,8 @@ class EmailService {
           </p>
         </div>
       `;
-      await resend.emails.send({ from: FROM_ADDRESS, to, subject: `Balance Warning — ${data.challengeTitle}`, html: wrapEmail(content) });
+      const delivery = await resend.emails.send({ from: FROM_ADDRESS, to, subject: `Balance Warning — ${data.challengeTitle}`, html: wrapEmail(content) });
+      if (delivery.error) throw new Error(delivery.error.message);
       return true;
     } catch (error) {
       console.error('Email send error (balance warning):', error);
@@ -191,7 +201,8 @@ class EmailService {
           If you believe this is an error, please contact ${hostDisplay} for more information.
         </p>
       `;
-      await resend.emails.send({ from: FROM_ADDRESS, to, subject: `Disqualified — ${data.challengeTitle}`, html: wrapEmail(content) });
+      const delivery = await resend.emails.send({ from: FROM_ADDRESS, to, subject: `Disqualified — ${data.challengeTitle}`, html: wrapEmail(content) });
+      if (delivery.error) throw new Error(delivery.error.message);
       return true;
     } catch (error) {
       console.error('Email send error (DQ):', error);
@@ -228,7 +239,8 @@ class EmailService {
           <a href="https://winnerpip.com/challenges" style="display: inline-block; background: linear-gradient(135deg, #6366f1, #8b5cf6); color: #ffffff; padding: 12px 28px; border-radius: 10px; text-decoration: none; font-size: 13px; font-weight: 600;">Log in to Dashboard</a>
         </div>
       `;
-      await resend.emails.send({ from: FROM_ADDRESS, to, subject: `Challenge Started — ${data.challengeTitle}`, html: wrapEmail(content) });
+      const delivery = await resend.emails.send({ from: FROM_ADDRESS, to, subject: `Challenge Started — ${data.challengeTitle}`, html: wrapEmail(content) });
+      if (delivery.error) throw new Error(delivery.error.message);
       return true;
     } catch (error) {
       console.error('Email send error (challenge started):', error);
@@ -261,7 +273,8 @@ class EmailService {
           <a href="https://winnerpip.com/challenges" style="display: inline-block; background: linear-gradient(135deg, #6366f1, #8b5cf6); color: #ffffff; padding: 12px 28px; border-radius: 10px; text-decoration: none; font-size: 13px; font-weight: 600;">View Results</a>
         </div>
       `;
-      await resend.emails.send({ from: FROM_ADDRESS, to, subject: `Challenge Ended — ${data.challengeTitle}`, html: wrapEmail(content) });
+      const delivery = await resend.emails.send({ from: FROM_ADDRESS, to, subject: `Challenge Ended — ${data.challengeTitle}`, html: wrapEmail(content) });
+      if (delivery.error) throw new Error(delivery.error.message);
       return true;
     } catch (error) {
       console.error('Email send error (challenge ended):', error);
@@ -272,11 +285,12 @@ class EmailService {
   /**
    * Send a generic notification email
    */
-  async sendGeneric(to: string, subject: string, bodyContent: string): Promise<boolean> {
+  async sendGeneric(to: string, subject: string, bodyContent: string, idempotencyKey?: string): Promise<boolean> {
     if (!this.isConfigured()) return false;
     try {
       const content = `<div style="color: #374151; font-size: 14px; line-height: 1.6;">${bodyContent}</div>`;
-      await resend.emails.send({ from: FROM_ADDRESS, to, subject, html: wrapEmail(content) });
+      const delivery = await resend.emails.send({ from: FROM_ADDRESS, to, subject, html: wrapEmail(content) }, idempotencyKey ? {idempotencyKey} : undefined);
+      if (delivery.error) throw new Error(delivery.error.message);
       return true;
     } catch (error) {
       console.error('Email send error (generic):', error);
@@ -313,7 +327,8 @@ class EmailService {
           If you believe this is an error, please contact ${hostDisplay} for more information.
         </p>
       `;
-      await resend.emails.send({ from: FROM_ADDRESS, to, subject: `Registration Removed — ${data.challengeTitle}`, html: wrapEmail(content) });
+      const delivery = await resend.emails.send({ from: FROM_ADDRESS, to, subject: `Registration Removed — ${data.challengeTitle}`, html: wrapEmail(content) });
+      if (delivery.error) throw new Error(delivery.error.message);
       return true;
     } catch (error) {
       console.error('Email send error (unregistered):', error);
@@ -362,7 +377,8 @@ class EmailService {
           If you need help, please contact ${hostDisplay}.
         </p>
       `;
-      await resend.emails.send({ from: FROM_ADDRESS, to, subject: `Action Required — Account Access Issue`, html: wrapEmail(content) });
+      const delivery = await resend.emails.send({ from: FROM_ADDRESS, to, subject: `Action Required — Account Access Issue`, html: wrapEmail(content) });
+      if (delivery.error) throw new Error(delivery.error.message);
       return true;
     } catch (error) {
       console.error('Email send error (credential failure):', error);
@@ -408,7 +424,8 @@ class EmailService {
           Need help getting started? Visit <a href="https://winnerpip.com/host" style="color: #6366f1; text-decoration: underline;">winnerpip.com/host</a> for more information.
         </p>
       `;
-      await resend.emails.send({ from: FROM_ADDRESS, to, subject: `Welcome to WinnerPip — Your Host Account is Ready`, html: wrapEmail(content) });
+      const delivery = await resend.emails.send({ from: FROM_ADDRESS, to, subject: `Welcome to WinnerPip — Your Host Account is Ready`, html: wrapEmail(content) });
+      if (delivery.error) throw new Error(delivery.error.message);
       return true;
     } catch (error) {
       console.error('Email send error (host welcome):', error);
@@ -452,7 +469,8 @@ class EmailService {
           Tip: double-check your challenge Settings and Rules before opening registration.
         </p>
       `;
-      await resend.emails.send({ from: FROM_ADDRESS, to, subject: `Challenge Approved — ${data.challengeTitle}`, html: wrapEmail(content) });
+      const delivery = await resend.emails.send({ from: FROM_ADDRESS, to, subject: `Challenge Approved — ${data.challengeTitle}`, html: wrapEmail(content) });
+      if (delivery.error) throw new Error(delivery.error.message);
       return true;
     } catch (error) {
       console.error('Email send error (challenge approved):', error);

@@ -1,3 +1,4 @@
+import { brokerForChallenge, inspectParticipants } from '../services/partnerScreening';
 import {workloadReport} from '../services/workloadTelemetry';
 import { terminalInventory } from '../utils/terminalInventory';
 import { normalizeChallengeInput } from '../utils/configValidation';
@@ -742,6 +743,7 @@ app.post('/api/challenges/:id/check-allocation', authLimiter, async (req, res) =
           login: credentials.email, password: credentials.password,
         }, { timeout: 15000 });
         const brokerToken = authRes.data?.token;
+        if (!brokerToken) return res.status(503).json({error:'Broker verification is unavailable. Please retry.'});
         if (brokerToken) {
           const allocRes = await axios.post('https://my.exnessaffiliates.com/api/partner/affiliation/', {
             email: email.toLowerCase().trim(),
@@ -757,8 +759,8 @@ app.post('/api/challenges/:id/check-allocation', authLimiter, async (req, res) =
           }
         }
       } catch (allocErr: any) {
-        // If allocation check fails, allow but warn
-        console.warn(`⚠️ Allocation check failed for ${email}:`, (allocErr as Error).message);
+        // Do not label an unavailable broker check as verified.
+        return res.status(503).json({error:'Broker verification is unavailable. Please retry.'});
       }
     }
 
@@ -981,12 +983,13 @@ app.post('/api/challenges/:id/register', authLimiter, async (req, res) => {
     // Send confirmation email
     try {
       const { emailService } = require('../services/emailService');
-      const challengeData = (await db.query(`SELECT c.title, h.display_name as host_name, h.support_link as host_support_link, h.main_link as host_main_link FROM trading_challenges c LEFT JOIN hosts h ON h.id = c.host_id WHERE c.id = $1`, [challengeId])).rows[0];
+      const challengeData = (await db.query(`SELECT c.title, c.host_id, h.display_name as host_name, h.support_link as host_support_link, h.main_link as host_main_link FROM trading_challenges c LEFT JOIN hosts h ON h.id = c.host_id WHERE c.id = $1`, [challengeId])).rows[0];
       await emailService.sendRegistrationConfirmation(email.toLowerCase().trim(), {
         nickname: nickname.trim(),
         challengeTitle: challengeData?.title || '',
         accountNumber: accountNumber.trim(),
         accountType,
+        hosted: Boolean(challengeData?.host_id),
         hostName: challengeData?.host_name || null,
         hostLink: challengeData?.host_support_link || null,
         hostMainLink: challengeData?.host_main_link || null,
@@ -2701,6 +2704,15 @@ app.delete('/api/host/broker-credentials', hostAuthMiddleware, async (req: any, 
  * Requires host to have broker integration configured
  * Returns allocation status per participant
  */
+app.get('/api/host/challenge/:id/screening', hostAuthMiddleware, async (req:any,res) => {
+  try {
+    const owned=await db.query('SELECT c.id,h.has_broker_integration FROM trading_challenges c JOIN hosts h ON h.id=c.host_id WHERE c.id=$1 AND c.host_id=$2',[req.params.id,req.hostAccount.hostId]);
+    if(!owned.rows.length)return res.status(404).json({error:'Challenge not found'});
+    const history=await db.query('SELECT slot,state,results,updated_at FROM partner_screening_runs WHERE challenge_id=$1 ORDER BY updated_at DESC LIMIT 20',[req.params.id]);
+    return res.json({enabled:owned.rows[0].has_broker_integration,history:history.rows});
+  }catch(e){return res.status(500).json({error:'Could not load screening history'});}
+});
+
 app.post('/api/host/challenge/:id/screening', hostAuthMiddleware, async (req: any, res) => {
   try {
     const challengeId = parseInt(req.params.id);
@@ -2713,7 +2725,7 @@ app.post('/api/host/challenge/:id/screening', hostAuthMiddleware, async (req: an
     const { hostService } = require('../services/hostService');
     const credentials = await hostService.getBrokerCredentials(req.hostAccount.hostId);
     if (!credentials) {
-      return res.status(400).json({ error: 'Broker integration not configured. Set up credentials in Settings first.' });
+      return res.json({results:[],total:0,allocated:0,notAllocated:0,failed:0,skipped:true});
     }
 
     // Get all participants with emails
@@ -2729,74 +2741,15 @@ app.post('/api/host/challenge/:id/screening', hostAuthMiddleware, async (req: an
       return res.json({ results: [], total: 0 });
     }
 
-    // Authenticate with broker API using host credentials
-    const axios = require('axios');
-    let brokerToken: string | null = null;
-    try {
-      const authRes = await axios.post('https://my.exnessaffiliates.com/api/v2/auth/', {
-        login: credentials.email,
-        password: credentials.password,
-      }, { timeout: 15000 });
-      brokerToken = authRes.data?.token || null;
-    } catch (authErr: any) {
-      return res.status(502).json({ error: 'Failed to authenticate with broker API. Check your credentials.' });
-    }
-
-    if (!brokerToken) {
-      return res.status(502).json({ error: 'Broker API authentication returned no token.' });
-    }
-
-    // Check allocation for each participant
-    const results: any[] = [];
-    for (const p of participants.rows) {
-      if (!p.email) {
-        results.push({ id: p.id, nickname: p.nickname, email: null, accountNumber: p.account_number, accountType: p.account_type, allocated: null, status: 'no_email', disqualified: p.disqualified });
-        continue;
-      }
-
-      try {
-        const allocRes = await axios.post('https://my.exnessaffiliates.com/api/partner/affiliation/', {
-          email: p.email,
-        }, {
-          headers: { Authorization: `JWT ${brokerToken}`, 'Content-Type': 'application/json' },
-          timeout: 10000,
-        });
-
-        const allocated = allocRes.data?.affiliation === true;
-        const clientUid = allocRes.data?.client_uid || null;
-        results.push({
-          id: p.id,
-          nickname: p.nickname,
-          email: p.email,
-          accountNumber: p.account_number,
-          accountType: p.account_type,
-          allocated,
-          clientUid,
-          status: allocated ? 'allocated' : 'not_allocated',
-          disqualified: p.disqualified,
-        });
-      } catch (allocErr: any) {
-        results.push({
-          id: p.id,
-          nickname: p.nickname,
-          email: p.email,
-          accountNumber: p.account_number,
-          accountType: p.account_type,
-          allocated: null,
-          status: 'check_failed',
-          disqualified: p.disqualified,
-        });
-      }
-
-      // Rate limit — small delay between API calls
-      await new Promise(r => setTimeout(r, 500));
-    }
+    const broker = await brokerForChallenge({host_id:req.hostAccount.hostId});
+    if(!broker) return res.json({results:[],total:0,skipped:true});
+    const results = await inspectParticipants(broker,participants.rows);
 
     const allocated = results.filter(r => r.status === 'allocated').length;
     const notAllocated = results.filter(r => r.status === 'not_allocated').length;
     const failed = results.filter(r => r.status === 'check_failed' || r.status === 'no_email').length;
 
-    return res.json({ results, total: results.length, allocated, notAllocated, failed });
+    return res.json({ results, total: results.length, allocated, notAllocated, failed, changing:results.filter(r=>r.status==='changing').length });
   } catch (error) {
     console.error('Host screening error:', error);
     if ((error as any)?.code === '23505') return res.status(409).json({error:'Account, email or nickname is already registered'});
@@ -2940,13 +2893,14 @@ app.post('/api/host/challenge/:id/upload-csv', hostAuthMiddleware, async (req: a
             // Send registration confirmation email for hosted challenges
             if (row.email) {
               try {
-                const challengeInfo = await db.query(`SELECT c.title, h.display_name as host_name, h.support_link as host_support_link, h.main_link as host_main_link FROM trading_challenges c LEFT JOIN hosts h ON h.id = c.host_id WHERE c.id = $1`, [challengeId]);
+                const challengeInfo = await db.query(`SELECT c.title, c.host_id, h.display_name as host_name, h.support_link as host_support_link, h.main_link as host_main_link FROM trading_challenges c LEFT JOIN hosts h ON h.id = c.host_id WHERE c.id = $1`, [challengeId]);
                 const { emailService } = require('../services/emailService');
                 emailService.sendRegistrationConfirmation(row.email, {
                   nickname: row.nickname,
                   challengeTitle: challengeInfo.rows[0]?.title || 'Trading Challenge',
                   accountNumber: row.account_number,
                   accountType: row.account_type,
+                  hosted: Boolean(challengeInfo.rows[0]?.host_id),
                   hostName: challengeInfo.rows[0]?.host_name || null,
                   hostLink: challengeInfo.rows[0]?.host_support_link || null,
                   hostMainLink: challengeInfo.rows[0]?.host_main_link || null,
@@ -8290,13 +8244,14 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/host-csv/:uploadId/approve`, adminIpCh
         // Send registration confirmation email for hosted challenges
         if (row.email) {
           try {
-            const challengeInfo2 = await db.query(`SELECT c.title, h.display_name as host_name, h.support_link as host_support_link, h.main_link as host_main_link FROM trading_challenges c LEFT JOIN hosts h ON h.id = c.host_id WHERE c.id = $1`, [challengeId]);
+            const challengeInfo2 = await db.query(`SELECT c.title, c.host_id, h.display_name as host_name, h.support_link as host_support_link, h.main_link as host_main_link FROM trading_challenges c LEFT JOIN hosts h ON h.id = c.host_id WHERE c.id = $1`, [challengeId]);
             const { emailService } = require('../services/emailService');
             emailService.sendRegistrationConfirmation(row.email, {
               nickname: row.nickname,
               challengeTitle: challengeInfo2.rows[0]?.title || 'Trading Challenge',
               accountNumber: row.account_number,
               accountType: row.account_type,
+              hosted: Boolean(challengeInfo2.rows[0]?.host_id),
               hostName: challengeInfo2.rows[0]?.host_name || null,
               hostLink: challengeInfo2.rows[0]?.host_support_link || null,
               hostMainLink: challengeInfo2.rows[0]?.host_main_link || null,

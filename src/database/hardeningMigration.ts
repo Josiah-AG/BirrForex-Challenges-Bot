@@ -53,6 +53,22 @@ export async function migrateHardening(): Promise<void> {
     await client.query(`CREATE TABLE IF NOT EXISTS challenge_lifecycle_deliveries (
       event_id BIGINT NOT NULL REFERENCES challenge_lifecycle_events(id),recipient TEXT NOT NULL,sent_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),PRIMARY KEY(event_id,recipient)
     )`);
+    await client.query(`CREATE TABLE IF NOT EXISTS partner_screening_runs (
+      challenge_id INTEGER NOT NULL REFERENCES trading_challenges(id), slot TEXT NOT NULL,
+      state TEXT NOT NULL DEFAULT 'running', results JSONB NOT NULL DEFAULT '[]',
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), PRIMARY KEY(challenge_id,slot)
+    )`);
+    await client.query(`CREATE TABLE IF NOT EXISTS partner_screening_changes (
+      id BIGSERIAL PRIMARY KEY, registration_id INTEGER NOT NULL REFERENCES trading_registrations(id),
+      slot TEXT NOT NULL, previous_state JSONB NOT NULL, new_status TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`);
+    await client.query(`CREATE TABLE IF NOT EXISTS partner_notice_outbox (
+      id BIGSERIAL PRIMARY KEY, registration_id INTEGER NOT NULL REFERENCES trading_registrations(id),
+      challenge_id INTEGER NOT NULL REFERENCES trading_challenges(id), kind TEXT NOT NULL,
+      message TEXT NOT NULL, available_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), sent_at TIMESTAMPTZ,
+      attempts INTEGER NOT NULL DEFAULT 0, error TEXT
+    )`);
     await client.query(`CREATE TABLE IF NOT EXISTS app_schema_migrations(name TEXT PRIMARY KEY,applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`);
     const registrationIndexes=await client.query("SELECT 1 FROM app_schema_migrations WHERE name='active_registration_identity_v1'");
     if(!registrationIndexes.rows.length){

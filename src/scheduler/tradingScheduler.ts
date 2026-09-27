@@ -1,3 +1,4 @@
+import { runPartnerScreening, deliverPartnerNotices, screeningSlot } from '../services/partnerScreening';
 import { getLocalTime } from '../utils/timezone';
 import { accountUnitMultiplier } from '../utils/accountUnits';
 import { evaluationEngine } from '../services/wpEvaluationEngine';
@@ -5,7 +6,6 @@ import cron from 'node-cron';
 import path from 'path';
 import { Bot } from '../bot/bot';
 import { tradingChallengeService, TradingChallenge } from '../services/tradingChallengeService';
-import { exnessService } from '../services/exnessService';
 import { vpsService } from '../services/vpsService';
 import { config } from '../config';
 import { db } from '../database/db';
@@ -98,6 +98,7 @@ export class TradingScheduler {
         }
       }
 
+      await deliverPartnerNotices(this.bot.bot.telegram);
       for (const challenge of challenges) {
         if (['draft','completed','pending_approval','rejected','deleted'].includes(challenge.status)) continue;
         const {dateStr,timeStr,eatTime,dayOfWeek}=this.getChallengeTime(challenge.timezone || config.timezone);
@@ -982,248 +983,29 @@ export class TradingScheduler {
   // ==================== PARTNER SCREENING (10 PM EAT) ====================
 
   private screeningRunning = new Set<number>();
-  private screeningResults: any = null;
-  private pendingMessages: { challengeId:number; telegramId: number; message: string }[] = [];
 
   private screeningStarted: Set<string> = new Set();
 
   private async checkPartnerScreening(challenge: TradingChallenge, dateStr: string, timeStr: string) {
     if (challenge.status !== 'active') return;
 
-    const hour = parseInt(timeStr.split(':')[0]);
-    const minute = parseInt(timeStr.split(':')[1]);
-
-    // Night screening: 10:00-10:04 PM EAT (messages queued for morning)
-    const nightKey = `screen_night_${challenge.id}_${dateStr}`;
-    if (hour === 22 && minute <= 4 && !this.screeningRunning.has(challenge.id) && !this.screeningStarted.has(nightKey)) {
-      this.screeningStarted.add(nightKey);
+    const slot = screeningSlot(dateStr, timeStr);
+    if (!this.screeningRunning.has(challenge.id) && this.screeningRunning.size < 2) {
       this.screeningRunning.add(challenge.id);
-      this.runPartnerScreening(challenge, 'night').catch(error=>{console.error('Partner screening failed:',error);this.screeningStarted.delete(nightKey);}).finally(() => { this.screeningRunning.delete(challenge.id); });
+      runPartnerScreening(challenge, slot).catch(error => console.error('Partner screening failed', error))
+        .finally(() => this.screeningRunning.delete(challenge.id));
     }
-
-    // Day screening: 10:00-10:04 AM EAT (messages sent immediately)
-    const dayKey = `screen_day_${challenge.id}_${dateStr}`;
-    if (hour === 10 && minute <= 4 && !this.screeningRunning.has(challenge.id) && !this.screeningStarted.has(dayKey)) {
-      this.screeningStarted.add(dayKey);
-      this.screeningRunning.add(challenge.id);
-      this.runPartnerScreening(challenge, 'day').catch(error=>{console.error('Partner screening failed:',error);this.screeningStarted.delete(dayKey);}).finally(() => { this.screeningRunning.delete(challenge.id); });
+    // Hosted reports are dashboard-only, including previously unsent reports.
+    if ((challenge as any).host_id) return;
+    const report = await tradingChallengeService.getUnsentScreeningResult(challenge.id);
+    if (report) {
+      await this.sendScreeningReportFromDB(challenge, report);
+      await tradingChallengeService.markScreeningReportSent(challenge.id, report.screening_date, report.screening_mode);
     }
-
-    // Send queued night messages at 8:00-8:04 AM
-    const msgKey = `screenmsg_${challenge.id}_${dateStr}`;
-    if (hour === 8 && minute <= 4 && this.pendingMessages.length > 0 && !this.screeningStarted.has(msgKey)) {
-      this.screeningStarted.add(msgKey);
-      this.sendPendingMessages(challenge);
-    }
-
-    // Morning report at 9:00-9:04 AM
-    const amReportKey = `report_am_${challenge.id}_${dateStr}`;
-    if (hour === 9 && minute <= 4 && !this.screeningStarted.has(amReportKey)) {
-      const dbResult = await tradingChallengeService.getUnsentScreeningResult(challenge.id);
-      if (dbResult) {
-        this.screeningStarted.add(amReportKey);
-        await this.sendScreeningReportFromDB(challenge, dbResult);
-        await tradingChallengeService.markScreeningReportSent(challenge.id, dbResult.screening_date, dbResult.screening_mode);
-      }
-    }
-
-    // Evening report at 9:00-9:04 PM
-    const pmReportKey = `report_pm_${challenge.id}_${dateStr}`;
-    if (hour === 21 && minute <= 4 && !this.screeningStarted.has(pmReportKey)) {
-      const dbResult = await tradingChallengeService.getUnsentScreeningResult(challenge.id);
-      if (dbResult) {
-        this.screeningStarted.add(pmReportKey);
-        await this.sendScreeningReportFromDB(challenge, dbResult);
-        await tradingChallengeService.markScreeningReportSent(challenge.id, dbResult.screening_date, dbResult.screening_mode);
-      }
-    }
-  }
-
-  private async runPartnerScreening(challenge: TradingChallenge, mode: 'night' | 'day') {
-    console.log(`🔍 Partner screening (${mode}) started for ${challenge.title}`);
-
-    const owner=await db.query('SELECT host_id FROM trading_challenges WHERE id=$1',[challenge.id]);
-    let broker=exnessService;
-    if(owner.rows[0]?.host_id){
-      const {hostService}=require('../services/hostService');
-      const credentials=await hostService.getBrokerCredentials(owner.rows[0].host_id);
-      if(!credentials) return; // Integration removed: no global-partner fallback.
-      const {ExnessService}=require('../services/exnessService');
-      broker=new ExnessService(credentials);
-    }
-    const registrations = await tradingChallengeService.getActiveRegistrations(challenge.id);
-    const stats = { total_screened: 0, all_good: 0, changing_real: 0, changing_demo: 0, left_real: 0, left_demo: 0, warnings_cleared: 0, missed: 0, uids_backfilled: 0 };
-    const changingUsers: any[] = [];
-    const leftUsers: any[] = [];
-    const clearedUsers: any[] = [];
-
-    for (const reg of registrations) {
-      try {
-        let shortUid = reg.client_uid;
-
-        // Backfill UID if missing
-        if (!shortUid) {
-          const alloc = await broker.checkAllocation(reg.email);
-          if (alloc && alloc.client_uid) {
-            shortUid = alloc.client_uid;
-            await tradingChallengeService.updateClientUid(reg.id, shortUid);
-            stats.uids_backfilled++;
-          } else {
-            stats.missed++;
-            await new Promise(r => setTimeout(r, 3000));
-            continue;
-          }
-        }
-
-        // Get full UUID
-        const fullUuid = await broker.getFullUuid(shortUid);
-        if (!fullUuid) {
-          await new Promise(r => setTimeout(r, 10000));
-          const retry = await broker.getFullUuid(shortUid);
-          if (!retry) {
-            stats.missed++;
-            await new Promise(r => setTimeout(r, 3000));
-            continue;
-          }
-        }
-
-        const uuid = fullUuid || await broker.getFullUuid(shortUid);
-        if (!uuid) { stats.missed++; await new Promise(r => setTimeout(r, 3000)); continue; }
-
-        // Get client status
-        const clientInfo = await broker.getKycStatus(uuid);
-        if (!clientInfo) {
-          await new Promise(r => setTimeout(r, 10000));
-          const retryInfo = await broker.getKycStatus(uuid);
-          if (!retryInfo) {
-            await new Promise(r => setTimeout(r, 30000));
-            const retryInfo2 = await broker.getKycStatus(uuid);
-            if (!retryInfo2) { stats.missed++; await new Promise(r => setTimeout(r, 3000)); continue; }
-          }
-        }
-
-        const info = clientInfo || await broker.getKycStatus(uuid!);
-        if (!info) { stats.missed++; await new Promise(r => setTimeout(r, 3000)); continue; }
-
-        stats.total_screened++;
-        const clientStatus = info.client_status;
-
-        if (clientStatus === 'CHANGING') {
-          const cat = reg.account_type === 'real' ? 'changing_real' : 'changing_demo';
-          (stats as any)[cat]++;
-
-          if (!reg.partner_warned_at) {
-            // First time — warn user
-            await tradingChallengeService.setPartnerWarning(reg.id);
-
-            const warningMsg = `⚠️ <b>Notice from your challenge host</b>\n\nWe noticed a partner change request on your Exness account.\n\nAs per challenge rules, your Exness account must remain under <b>the required broker partnership</b> to be eligible for <b>${challenge.title}</b>.\n\nIf you want to continue competing, please <b>cancel your change request</b> in your Exness account.\n\n⚠️ <i>Your registration will be canceled when the partner change is approved.</i>\n\nIf you face any problem, contact your challenge host for assistance.`;
-
-            if (mode === 'day' || (reg as any).source!=='telegram') {
-              // Day mode: send DM immediately
-              try {
-                await this.sendPartnerNotice(challenge,reg,warningMsg);
-                console.log(`  ⚠️ Day screening: DM sent to @${reg.username || reg.user_id}`);
-              } catch (e) {
-                console.error(`  Failed to DM ${reg.user_id}:`, e);
-              }
-              await new Promise(r => setTimeout(r, 2000));
-            } else {
-              // Night mode: queue for 8 AM delivery
-              this.pendingMessages.push({ challengeId:challenge.id, telegramId: reg.user_id, message: warningMsg });
-            }
-
-            changingUsers.push({ ...reg, client_uid: shortUid });
-          }
-          // If already warned, don't send again — just count in stats
-        } else if (clientStatus === 'LEFT') {
-          // Double check allocation
-          const alloc = await broker.checkAllocation(reg.email);
-          if (!alloc || typeof alloc.affiliation!=='boolean') { stats.missed++; continue; }
-          if (alloc.affiliation===false) {
-            await tradingChallengeService.markDisqualifiedPartner(reg.id);
-            const cat = reg.account_type === 'real' ? 'left_real' : 'left_demo';
-            (stats as any)[cat]++;
-
-            const disqualifyMsg = `❌ <b>Registration Canceled</b>\n\nWe're sorry to inform you that your registration for <b>${challenge.title}</b> has been canceled.\n\nSince your Exness account is no longer under the required broker partnership, you are no longer eligible to participate in this challenge.\n\n<i>Thank you for your interest, and we hope to see you in future challenges!</i> 🙏\n\nIf you believe this is an error, contact your challenge host for assistance.`;
-
-            if (mode === 'day' || (reg as any).source!=='telegram') {
-              try {
-                await this.sendPartnerNotice(challenge,reg,disqualifyMsg);
-                console.log(`  ❌ Day screening: Disqualify DM sent to @${reg.username || reg.user_id}`);
-              } catch (e) {
-                console.error(`  Failed to DM ${reg.user_id}:`, e);
-              }
-              await new Promise(r => setTimeout(r, 2000));
-            } else {
-              this.pendingMessages.push({ challengeId:challenge.id, telegramId: reg.user_id, message: disqualifyMsg });
-            }
-
-            leftUsers.push({ ...reg, client_uid: shortUid });
-          } else {
-            stats.all_good++;
-          }
-        } else {
-          // ACTIVE or INACTIVE — all good
-          if (reg.partner_warned_at) {
-            // Was warned but now back to active — clear warning
-            await tradingChallengeService.clearPartnerWarning(reg.id);
-            stats.warnings_cleared++;
-            clearedUsers.push({ ...reg, client_uid: shortUid });
-          }
-          stats.all_good++;
-        }
-
-        // 3 second delay between checks
-        await new Promise(r => setTimeout(r, 3000));
-
-      } catch (e) {
-        console.error(`Screening error for ${reg.email}:`, e);
-        stats.missed++;
-        await new Promise(r => setTimeout(r, 10000));
-      }
-    }
-
-    // Save results to DB (survives reboots)
-    const { dateStr: todayStr } = this.getChallengeTime(challenge.timezone || config.timezone);
-    const fullStats = { ...stats, changingUsers, leftUsers, clearedUsers };
-    await tradingChallengeService.saveScreeningResult(challenge.id, todayStr, fullStats, mode);
-
-    console.log(`✅ Partner screening (${mode}) done: ${stats.total_screened} screened, ${stats.changing_real + stats.changing_demo} changing, ${stats.left_real + stats.left_demo} left, ${stats.missed} missed`);
-  }
-
-  private async sendPartnerNotice(challenge:TradingChallenge,registration:any,message:string):Promise<void>{
-    if(!registration.source || registration.source==='telegram'){
-      await this.bot.bot.telegram.sendMessage(registration.user_id,message,{parse_mode:'HTML'});
-    }else if(registration.source==='discord'){
-      await db.query(`INSERT INTO discord_dm_queue(discord_user_id,registration_id,challenge_id,notification_type,message_title,message_body) VALUES($1,$2,$3,'partnership','Challenge partnership notice',$4)`,[String(registration.user_id),registration.id,challenge.id,message.replace(/<[^>]*>/g,'')]);
-    }else if(registration.email){
-      const {emailService}=require('../services/emailService');
-      if(!await emailService.sendGeneric(registration.email,'Challenge partnership notice',message))throw new Error('Partnership email delivery failed');
-    }
-  }
-
-  private async sendPendingMessages(challenge: TradingChallenge) {
-    if (this.pendingMessages.length === 0) return;
-
-    const messages = this.pendingMessages.filter(message=>message.challengeId===challenge.id);
-    this.pendingMessages = this.pendingMessages.filter(message=>message.challengeId!==challenge.id);
-    let sent = 0;
-
-    for (const msg of messages) {
-      try {
-        await this.bot.bot.telegram.sendMessage(msg.telegramId, msg.message, { parse_mode: 'HTML' });
-        sent++;
-      } catch (e) {
-        // User blocked bot
-      }
-      await new Promise(r => setTimeout(r, 2000));
-      if (sent % 20 === 0) await new Promise(r => setTimeout(r, 10000));
-    }
-
-    console.log(`✅ Screening messages sent: ${sent}/${messages.length}`);
   }
 
   private async sendScreeningReportFromDB(challenge: TradingChallenge, dbResult: any) {
+    if ((challenge as any).host_id) return;
     // Get cumulative stats from DB (all-time totals)
     const cumulative = await tradingChallengeService.getCumulativePartnerStats(challenge.id);
     const stillChanging = await tradingChallengeService.getStillChangingUsers(challenge.id);
@@ -1338,7 +1120,7 @@ export class TradingScheduler {
     if (dbResult.missed > 0) text += `❌ <b>Missed (API error):</b> ${dbResult.missed}\n`;
     if (dbResult.uids_backfilled > 0) text += `🔑 <b>UIDs Backfilled:</b> ${dbResult.uids_backfilled}\n`;
 
-    if (newChanging === 0 && newLeft === 0 && clearedUsers.length === 0 && stillChanging.length === 0) {
+    if (newChanging === 0 && newLeft === 0 && clearedUsers.length === 0 && stillChanging.length === 0 && !dbResult.missed) {
       text += `\n✅ <i>No partner issues detected.</i>`;
     }
 
@@ -1347,6 +1129,7 @@ export class TradingScheduler {
       console.log(`✅ Screening report sent to admin (${screeningMode})`);
     } catch (e) {
       console.error('Error sending screening report:', e);
+      throw e;
     }
   }
 
@@ -1799,7 +1582,7 @@ export class TradingScheduler {
 
                 // Web-registered / hosted participants (no Telegram) — send the over-balance reset email.
                 // Matches admin behavior: notify the participant to fix their balance before start.
-                if ((reg.source === 'winnerpip' || !reg.user_id || reg.user_id === 0) && reg.email) {
+                if ((reg.source === 'winnerpip' || reg.source === 'csv' || !reg.user_id || reg.user_id === 0) && reg.email) {
                   try {
                     const { emailService } = require('../services/emailService');
                     const startDate = toEAT(challenge.start_date, challenge.timezone || config.timezone);

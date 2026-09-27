@@ -53,6 +53,8 @@ export interface VerifyAccountResult {
 }
 
 export class ExnessService {
+  private clientIds: Promise<string[]> | null = null;
+  private clientIdsAt = 0;
   private token: string | null = null;
   private tokenExpiry: Date | null = null;
   private baseUrl: string;
@@ -122,14 +124,14 @@ export class ExnessService {
     if (!await this.ensureAuth()) return null;
 
     try {
-      const response = await axios.get(`${this.baseUrl}/api/v2/reports/clients/filters/`, {
-        headers: this.getHeaders(),
-        timeout: 10000,
-      });
-
-      const clientUids: string[] = response.data?.client_uid || [];
-      const fullUuid = clientUids.find((uid: string) => uid.startsWith(shortUid));
-      return fullUuid || null;
+      if (!this.clientIds || Date.now()-this.clientIdsAt>300000) {
+        this.clientIdsAt=Date.now();
+        this.clientIds=axios.get(`${this.baseUrl}/api/v2/reports/clients/filters/`,{headers:this.getHeaders(),timeout:10000})
+          .then(response=>response.data?.client_uid || []).catch(error=>{this.clientIds=null;throw error;});
+      }
+      const ids=await this.clientIds;
+      const matches=ids.filter((uid:string)=>uid===shortUid || uid.startsWith(shortUid));
+      return matches.length===1 ? matches[0] : null;
     } catch (error: any) {
       console.error('❌ Get full UUID error:', error.response?.status || error.message);
       return null;

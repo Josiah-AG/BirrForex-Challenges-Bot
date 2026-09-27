@@ -515,7 +515,7 @@ export default function HostDashboardPage() {
               { key: "leaderboard", label: "Leaderboard" },
               { key: "violations", label: "Violations" },
               { key: "updates", label: "Updates" },
-              ...(hostInfo?.hasBrokerIntegration ? [{ key: "screening", label: "Screening" }] : []),
+              { key: "screening", label: "Screening" },
               { key: "rules", label: "Rules" },
               { key: "settings", label: "Settings" },
             ].map(tab => (
@@ -2133,17 +2133,31 @@ function MetricCard({ title, value, sub, user, color }: { title: string; value: 
 
 function ScreeningTab({ challengeId, getToken }: { challengeId: number; getToken: () => string }) {
   const [results, setResults] = useState<any[]>([]);
+  const [history, setHistory] = useState<any[]>([]);
+  const [enabled, setEnabled] = useState(true);
   const [stats, setStats] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
+
+  useEffect(() => {
+    let cancelled=false;
+    const load=async()=>{try{
+      const response=await fetch(`${apiUrl}/api/host/challenge/${challengeId}/screening`,{headers:{Authorization:`Bearer ${getToken()}`}});
+      const data=await response.json();
+      if(!cancelled && response.ok){setHistory(data.history || []);setEnabled(Boolean(data.enabled));}
+    }catch{if(!cancelled)setError("Could not load screening history");}};
+    setHistory([]);setResults([]);setStats(null);load();
+    const timer=setInterval(load,30000);
+    return()=>{cancelled=true;clearInterval(timer);};
+  },[challengeId]);
 
   const runScreening = async () => {
     setLoading(true); setError("");
     try {
       const res = await fetch(`${apiUrl}/api/host/challenge/${challengeId}/screening`, { method: "POST", headers: { Authorization: `Bearer ${getToken()}` } });
       const data = await res.json();
-      if (res.ok) { setResults(data.results || []); setStats({ total: data.total, allocated: data.allocated, notAllocated: data.notAllocated, failed: data.failed }); }
+      if (res.ok) { setResults(data.results || []); setStats({ total: data.total, allocated: data.allocated, notAllocated: data.notAllocated, failed: data.failed, changing:data.changing || 0 }); }
       else setError(data.error || "Failed");
     } catch { setError("Network error"); }
     setLoading(false);
@@ -2152,12 +2166,16 @@ function ScreeningTab({ challengeId, getToken }: { challengeId: number; getToken
   return (
     <div className="glass rounded-2xl border border-white/10 p-5">
       <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2"><Target size={16} className="text-gold" /> Partner Screening</h3>
-      <button onClick={runScreening} disabled={loading} className="px-5 py-2.5 rounded-xl bg-gold/10 text-gold text-sm font-semibold border border-gold/20 hover:bg-gold/20 disabled:opacity-50 mb-4">{loading ? "Checking..." : "Run Screening"}</button>
+      <button onClick={runScreening} disabled={loading || !enabled} className="px-5 py-2.5 rounded-xl bg-gold/10 text-gold text-sm font-semibold border border-gold/20 hover:bg-gold/20 disabled:opacity-50 mb-4">{loading ? "Checking..." : "Run Screening"}</button>
+      {!enabled && <p className="text-sm text-gray-400 mb-4">Screening is skipped because broker integration is not configured.</p>}
+      <p className="text-xs text-gray-400 mb-4">Manual checks show partnership status without changing eligibility. Automatic checks run twice daily and apply challenge rules.</p>
+      {history.length > 0 && <div className="mb-5 space-y-2"><h4 className="text-sm text-white">Automatic screening history</h4>{history.map(run=><details key={run.slot} className="rounded-lg bg-white/5 p-3 text-xs"><summary className="cursor-pointer text-gray-300">{run.slot} · {run.state} · {new Date(run.updated_at).toLocaleString()}</summary><div className="mt-2 space-y-2">{run.results.map((r:any)=><div key={r.id} className="flex justify-between gap-3"><span>{r.nickname}</span><span>{({allocated:'Allocated',changing:'Partner change pending',not_allocated:'Left partnership',check_failed:'Unverified',no_email:'Missing email'} as Record<string,string>)[r.status] || 'Unverified'}</span></div>)}</div></details>)}</div>}
       {error && <p className="text-loss text-sm mb-3">{error}</p>}
       {stats && (
-        <div className="grid grid-cols-4 gap-3 mb-4">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-4">
           <div className="bg-white/5 rounded-lg p-3 text-center"><p className="text-lg font-bold text-white">{stats.total}</p><p className="text-[10px] text-gray-500">Total</p></div>
           <div className="bg-profit/5 rounded-lg p-3 text-center"><p className="text-lg font-bold text-profit">{stats.allocated}</p><p className="text-[10px] text-gray-500">Allocated</p></div>
+          <div className="bg-gold/5 rounded-lg p-3 text-center"><p className="text-lg font-bold text-gold">{stats.changing}</p><p className="text-[10px] text-gray-500">Change Pending</p></div>
           <div className="bg-loss/5 rounded-lg p-3 text-center"><p className="text-lg font-bold text-loss">{stats.notAllocated}</p><p className="text-[10px] text-gray-500">Not Allocated</p></div>
           <div className="bg-white/5 rounded-lg p-3 text-center"><p className="text-lg font-bold text-gray-400">{stats.failed}</p><p className="text-[10px] text-gray-500">No Data</p></div>
         </div>
@@ -2167,7 +2185,7 @@ function ScreeningTab({ challengeId, getToken }: { challengeId: number; getToken
           {results.map((r: any) => (
             <div key={r.id} className="flex items-center justify-between p-2 rounded-lg bg-white/5 text-xs">
               <span className="text-white font-medium">{r.nickname}</span>
-              <span className={`font-semibold ${r.status === 'allocated' ? 'text-profit' : r.status === 'not_allocated' ? 'text-loss' : 'text-gray-500'}`}>{r.status === 'allocated' ? 'Allocated' : r.status === 'not_allocated' ? 'Not Allocated' : '—'}</span>
+              <span className={`font-semibold ${r.status === 'allocated' ? 'text-profit' : r.status === 'not_allocated' ? 'text-loss' : 'text-gray-500'}`}>{r.status === 'allocated' ? 'Allocated' : r.status === 'not_allocated' ? 'Left partnership' : r.status === 'changing' ? 'Partner change pending' : 'Unverified'}</span>
             </div>
           ))}
         </div>

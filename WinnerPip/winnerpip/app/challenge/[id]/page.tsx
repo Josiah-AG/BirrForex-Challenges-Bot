@@ -1,4 +1,5 @@
 "use client";
+import RegistrationNotice from "@/components/RegistrationNotice";
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import Image from "next/image";
@@ -1962,7 +1963,7 @@ export default function ChallengeDashboard() {
                   </div>
                   <h3 className="text-xl font-bold text-white mb-2">Registration Complete!</h3>
                   <p className="text-gray-400 text-sm mb-1">Your MT5 account has been verified and connected.</p>
-                  <p className="text-gray-500 text-xs mb-6">A confirmation email has been sent to <span className="text-gray-300">{regForm.email}</span></p>
+                  <p className="text-gray-500 text-xs mb-6">A confirmation email will be sent to <span className="text-gray-300">{regForm.email}</span></p>
                   <div className="bg-white/5 rounded-xl p-4 border border-white/10 mb-6 text-left">
                     <p className="text-xs text-gray-400 font-semibold uppercase tracking-wider mb-2">How to Sign In</p>
                     <div className="space-y-2">
@@ -1970,6 +1971,7 @@ export default function ChallengeDashboard() {
                       <div className="flex items-start gap-2"><span className="text-royal text-xs font-bold mt-0.5">2.</span><p className="text-xs text-gray-300">Use your <strong className="text-white">Investor Password</strong> as password</p></div>
                     </div>
                   </div>
+                  {preAuthChallenge?.hostId && <RegistrationNotice accountType={regForm.accountType} />}
                   <button onClick={() => { setShowRegWizard(false); setShowLogin(true); }} className="inline-flex items-center gap-2 px-8 py-3 rounded-xl bg-gradient-brand text-white font-semibold text-sm hover:opacity-90 transition-all">Sign In Now <ArrowRight size={16} /></button>
                 </div>
               ) : (

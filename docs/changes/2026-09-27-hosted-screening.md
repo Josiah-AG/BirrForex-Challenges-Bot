@@ -1,0 +1,13 @@
+# Hosted screening and registration notices
+
+Scope: hosted broker checks always use the owning host's integration. Missing/removed integration skips screening. Hosted screening reports remain in the host dashboard; participant warnings still use the participant's notification channel. Admin challenge reports retain Telegram delivery.
+
+Automatic checks use the latest due 10:00/22:00 challenge-local slot, durable completion, per-challenge PostgreSQL advisory locks, and ten-minute retry of unverified participants. At most two automatic challenges and three participants per challenge run concurrently. Broker UUID lists are cached per broker instance for five minutes. Manual checks share classification but do not enforce eligibility. Unknown responses never clear warnings or disqualify; LEFT requires explicit non-affiliation.
+
+New additive tables: partner_screening_runs, partner_notice_outbox, partner_screening_changes. State changes and participant notification creation are transactional. Previous eligibility/warning state is recorded without credentials. Email provider errors are recognised; queued screening email failures retry with a stable provider idempotency key. Telegram delivery is at-least-once: a crash between sending and recording success can duplicate a notice.
+
+Registration email and both success dialogs show the password warning for hosted registrations only; demo registrations additionally show the agreed pending-order precaution, its limitation, and replacement instructions. CSV is included. Additional fixes: CSV balance warnings, correct credential-disqualification notification channel, no false email-delivery success claim, and unavailable preliminary affiliation checks reject rather than claim verification.
+
+Validation: backend TypeScript build; Next production build; automated tests; isolated local PostgreSQL schema exercises migration, concurrent leases, duplicate slot prevention, unknown statuses, warning recovery, departure, and notification delivery; Chromium/WebKit notice fixtures at 375, 430, 768, 1440 widths. Synthetic broker responses only: tests do not contact users or alter live registrations.
+
+Rollback: revert the implementation commit and redeploy both services. Leave the three additive tables in place; old code ignores them. No VPS/MT5 worker change is part of this release. To reverse a specific enforcement decision, first stop screening for that challenge, review partner_screening_changes against current registration state and later manual decisions, then restore only the reviewed previous fields and suppress its unsent outbox notice. Do not blindly bulk restore eligibility. Emails already delivered cannot be recalled.

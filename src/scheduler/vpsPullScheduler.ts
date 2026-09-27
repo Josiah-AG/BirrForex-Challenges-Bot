@@ -1994,7 +1994,7 @@ export class VpsPullScheduler {
       for (const activeChallenge of challenges.filter(c => c.status === 'active')) {
 
       const result = await db.query(
-        `SELECT id, user_id, username, account_number
+        `SELECT id, user_id, username, account_number, source, email, nickname
          FROM trading_registrations
          WHERE challenge_id = $1
            AND pull_status = 'password_changed'
@@ -2013,7 +2013,12 @@ export class VpsPullScheduler {
         if(!marked.rows.length)continue; // A concurrent password repair or manual decision wins.
 
         try {
-          await this.bot.bot.telegram.sendMessage(reg.user_id,
+          if (reg.source === 'winnerpip' || reg.source === 'csv') {
+            const {emailService}=require('../services/emailService');
+            if(reg.email) await emailService.sendDisqualification(reg.email,{nickname:reg.nickname,challengeTitle:activeChallenge.title,reason:'Account access was not restored within 24 hours.'});
+          } else if (reg.source === 'discord') {
+            await db.query(`INSERT INTO discord_dm_queue(discord_user_id,registration_id,challenge_id,notification_type,message_title,message_body) VALUES($1,$2,$3,'disqualified','Registration disqualified',$4)`,[String(reg.user_id),reg.id,activeChallenge.id,'Account access was not restored within 24 hours.']);
+          } else await this.bot.bot.telegram.sendMessage(reg.user_id,
             `🚫 <b>Registration Disqualified — ${activeChallenge.title}</b>\n\n` +
             `Account <b>${reg.account_number}</b> has been disqualified.\n\n` +
             `📛 <b>Reason:</b> Investor password was changed and not updated within 24 hours.\n\n` +
