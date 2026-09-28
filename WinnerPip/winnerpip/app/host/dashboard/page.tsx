@@ -1607,6 +1607,7 @@ export default function HostDashboardPage() {
                       const response=await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/settings`, { method: "PUT", headers: headers(), body: JSON.stringify(payload) });
                       const result=await response.json();
                       if(!response.ok || !result.success)throw new Error(result.error || 'Settings could not be saved');
+                      if(result.pendingApproval) { alert('Schedule changes submitted for Telegram admin approval. Your current settings remain in effect. You will receive an email when approved or rejected.'); setSettingsSaved(false); return; }
                       setChallenges(previous=>previous.map(c=>c.id===result.challenge.id?result.challenge:c));
                       setSettingsForm({...result.challenge,
                         start_date:utcToWallClock(result.challenge.start_date,result.challenge.timezone || challengeTz),
@@ -1619,6 +1620,7 @@ export default function HostDashboardPage() {
                   }} disabled={settingsSaving} className="w-full py-3 rounded-xl bg-gradient-to-r from-royal to-purple-600 text-white font-semibold hover:opacity-90 transition-all disabled:opacity-50">{settingsSaving ? "Saving..." : "Save Changes"}</button>
                 </div>
 
+                {selectedChallenge?.status === 'registration_open' && <p className="text-sm text-amber-300">Date changes require admin approval. The current schedule stays active until approved. Registration closes at the challenge start when those dates are linked.</p>}
                 {/* Status Actions */}
                 <div className="border-t border-white/10 pt-5">
                   <p className="text-xs text-gray-400 font-semibold mb-3 uppercase tracking-wider">Status Actions</p>
