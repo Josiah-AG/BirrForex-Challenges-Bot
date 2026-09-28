@@ -15,6 +15,9 @@ export async function migrateHardening(): Promise<void> {
     await client.query('ALTER TABLE trading_challenges ADD COLUMN IF NOT EXISTS configuration_frozen_at TIMESTAMPTZ');
     await client.query('ALTER TABLE trading_challenges ADD COLUMN IF NOT EXISTS pre_start_check_started_at TIMESTAMPTZ');
     await client.query('ALTER TABLE trading_challenges ADD COLUMN IF NOT EXISTS pre_start_lead_hours INTEGER');
+    await client.query('ALTER TABLE trading_registrations ADD COLUMN IF NOT EXISTS prestart_snapshot_at TIMESTAMPTZ');
+    await client.query('ALTER TABLE trading_registrations ADD COLUMN IF NOT EXISTS prestart_snapshot_balance NUMERIC');
+    await client.query('ALTER TABLE trading_registrations ADD COLUMN IF NOT EXISTS prestart_snapshot_until TIMESTAMPTZ');
     await client.query('ALTER TABLE trading_challenges ADD COLUMN IF NOT EXISTS starting_balance_policy TEXT');
     await client.query("ALTER TABLE trading_challenges ALTER COLUMN starting_balance_policy SET DEFAULT 'decimal'");
     await client.query(`CREATE TABLE IF NOT EXISTS prestart_balance_checks (

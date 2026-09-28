@@ -1,3 +1,4 @@
+import { reconcilePrestart } from '../utils/prestartReconciliation';
 import { startingBalanceProblem } from '../utils/startingBalancePolicy';
 import { peakPositionVolume } from '../utils/positionExposure';
 import { getLocalTime } from '../utils/timezone';
@@ -514,10 +515,10 @@ export class WpEvaluationEngine {
     const challengeEnd = challengeDates.rows[0]?.end_date;
     const challengeTimezone = challengeDates.rows[0]?.timezone || 'Africa/Nairobi';
 
-    // Apply 3-hour grace window before start (for Sunday market open → Monday server time)
+    // Preserve historical windows only for legacy challenges. New challenges explicitly exclude pre-start entries.
     let startFilter = '';
     const params: any[] = [challengeId, reg.id];
-    if (challengeStart) {
+    if (challengeStart && challengeDates.rows[0]?.starting_balance_policy === 'legacy_percent') {
       const graceStart = new Date(new Date(challengeStart).getTime() - 3 * 60 * 60 * 1000);
       startFilter = ` AND close_time >= $3`;
       params.push(graceStart.toISOString());
@@ -534,7 +535,13 @@ export class WpEvaluationEngine {
     );
 
     // Funding and recharge checks use the same path with zero or many trades.
-    const allTrades: TradeRow[] = trades.rows;
+    const excluded: TradeRow[] = challengeDates.rows[0]?.starting_balance_policy === 'legacy_percent' ? [] : trades.rows.filter(t => challengeStart && new Date(t.open_time).getTime() < new Date(challengeStart).getTime());
+    if (excluded.length) {
+      await db.query(`UPDATE wp_trades SET is_qualified = $1, violations = $2, sl_check_pending=false WHERE id = ANY($3::int[])`,
+        [false,JSON.stringify(['Opened before challenge start — excluded from challenge results']),excluded.map(t=>t.id)]);
+    }
+    const excludedIds=new Set(excluded.map(t=>t.id));
+    const allTrades: TradeRow[] = trades.rows.filter(t=>!excludedIds.has(t.id));
     if (!isRiskRuleEnabled(rules)) {
       await db.query(`UPDATE wp_trades SET sl_check_result = 'skipped', sl_check_pending = false,
         sl_check_attempts = 0, sl_conflict_count = 0, sl_allowed_price = NULL, sl_max_adverse_price = NULL
@@ -559,7 +566,7 @@ export class WpEvaluationEngine {
     let actualStartBalance = startingBalance;
     try {
       const regData = await db.query(
-        `SELECT registration_balance, actual_starting_balance, registered_at, funding_origin FROM trading_registrations WHERE id = $1`, [reg.id]
+        `SELECT registration_balance, actual_starting_balance, registered_at, funding_origin, prestart_snapshot_at, prestart_snapshot_until, prestart_snapshot_balance, history_sync_state, history_verified_balance, history_verified_through FROM trading_registrations WHERE id = $1`, [reg.id]
       );
       const savedActual = regData.rows[0]?.actual_starting_balance;
       const regBalance  = parseFloat(regData.rows[0]?.registration_balance ?? '0') || 0;
@@ -626,6 +633,20 @@ export class WpEvaluationEngine {
             );
           }
         }
+      }
+
+      // Reconcile the final-check/start gap only with a verified broker ledger.
+      // Keep the immutable snapshot separate from the computed competition baseline.
+      if (regData.rows[0]?.prestart_snapshot_at) {
+        const row=regData.rows[0];
+        if(row.history_sync_state!=='verified')throw new Error('Pre-start reconciliation awaits verified broker history');
+        const ledger=await db.query(`SELECT time,deal_type,profit,commission,swap,fee,comment FROM wp_deals
+          WHERE challenge_id=$1 AND registration_id=$2 AND time >= $3 AND time <= $4 ORDER BY time,ticket`,
+          [challengeId,reg.id,row.prestart_snapshot_at,row.history_verified_through]);
+        const reconciled=reconcilePrestart({snapshotBalance:Number(row.prestart_snapshot_balance),snapshotAt:row.prestart_snapshot_at,snapshotUntil:row.prestart_snapshot_until,
+          startAt:challengeStart,verifiedBalance:Number(row.history_verified_balance),verifiedThrough:row.history_verified_through,deals:ledger.rows});
+        actualStartBalance=reconciled.competitionBalance;
+        await db.query('UPDATE trading_registrations SET actual_starting_balance=$1 WHERE id=$2',[actualStartBalance,reg.id]);
       }
 
       // Validate the captured starting balance, never the current trading balance.

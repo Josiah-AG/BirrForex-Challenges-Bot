@@ -340,6 +340,7 @@ export class TradingScheduler {
 
     for (const reg of pending.rows) {
       try {
+        const snapshotAt = new Date();
         const result = await vpsService.verifyConnection(reg.account_number, reg.mt5_server, reg.investor_password);
         if (!result.success || result.status !== 'connected' || !Number.isFinite(result.balance) || Number(result.balance)<0) {
           failed++;
@@ -356,8 +357,8 @@ export class TradingScheduler {
 
         const problem=startingBalanceProblem(balance,limit,depositMode,(challenge as any).starting_balance_policy);
         await db.query(
-          `UPDATE trading_registrations SET actual_starting_balance = $1, funding_origin = 'prestart_snapshot', last_known_balance = $1, last_pull_at = NOW(), balance_warning=$3 WHERE id = $2`,
-          [balance, reg.id,!!problem]
+          `UPDATE trading_registrations SET actual_starting_balance = $1, funding_origin = 'prestart_snapshot', last_known_balance = $1, last_pull_at = NOW(), balance_warning=$3, prestart_snapshot_at=$4, prestart_snapshot_balance=$1, prestart_snapshot_until=$5 WHERE id = $2`,
+          [balance, reg.id,!!problem,snapshotAt,new Date()]
         );
         verified++;
 

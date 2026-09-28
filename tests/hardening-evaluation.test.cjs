@@ -14,14 +14,15 @@ const trade = (id, overrides={}) => ({id,ticket:id,position_id:id,symbol:'XAUUSD
 async function evaluate(rules, trades, options={}) {
  const engine = new WpEvaluationEngine();
  const writes=[]; let summary;
- const challenge={start_date:'2026-09-01T00:00:00Z',end_date: options.ended ? '2026-09-26T00:00:00Z' : '2099-01-01T00:00:00Z',status:options.ended?'completed':'active',timezone:options.timezone || 'UTC'};
+ const challenge={start_date:'2026-09-01T00:00:00Z',end_date: options.ended ? '2026-09-26T00:00:00Z' : '2099-01-01T00:00:00Z',status:options.ended?'completed':'active',timezone:options.timezone || 'UTC',starting_balance_policy:'decimal'};
  query=async(sql,params=[])=>{
   if (/^(UPDATE|INSERT|DELETE)/.test(sql.trim())) {writes.push({sql,params});return {rows:[],rowCount:1};}
   if (sql.includes('FROM trading_challenges')) return {rows:[challenge]};
   if (sql.includes('FROM wp_trades')) return {rows:trades};
   if (sql.includes('FROM wp_deals') && options.fundingFailure)throw new Error('synthetic funding read failure');
+  if (sql.includes('SELECT time,deal_type,profit')) return {rows:options.ledger || []};
   if (sql.includes('FROM wp_deals')) return {rows:options.deposits || []};
-  if (sql.includes('FROM trading_registrations')) return {rows:[{registration_balance:options.regBalance ?? 1000,actual_starting_balance:options.savedActual === undefined ? 1000 : options.savedActual,last_known_balance:1000,disqualified:false,last_known_equity:1000}]};
+  if (sql.includes('FROM trading_registrations')) return {rows:[{registration_balance:options.regBalance ?? 1000,actual_starting_balance:options.savedActual === undefined ? 1000 : options.savedActual,last_known_balance:1000,disqualified:false,last_known_equity:1000,...options.snapshot}]};
   if (sql.includes('FROM wp_balance_ops')) return {rows:options.balanceOps || []};
   if (sql.includes('FROM wp_pull_errors')) return {rows:[]};
   if (sql.includes('wp_ohlc')) return {rows:[]};
@@ -81,4 +82,28 @@ test('lower starting balances never cause funding DQ; excess still does',async()
   const fundingDq=r.writes.some(w=>/SET disqualified\s*=\s*true/.test(w.sql)&&w.sql.includes("disqualified_source='funding'"));
   assert.equal(fundingDq,savedActual===101,`starting balance ${savedActual}`);
  }
+});
+
+test('pre-start entries are flagged but neither profits nor losses count, including closes after start',async()=>{
+ const old=[trade(41,{profit:50,open_time:'2026-08-31T23:00:00Z',close_time:'2026-09-01T01:00:00Z'}),trade(42,{profit:-20,open_time:'2026-08-31T22:00:00Z',close_time:'2026-08-31T23:00:00Z'})];
+ const r=await evaluate(base(),[...old,trade(43,{profit:5,open_time:'2026-09-01T00:00:00Z'})]);
+ assert.equal(r.summary.totalTrades,1);assert.equal(r.summary.grossProfit,5);
+ assert.deepEqual(r.writes.find(w=>w.sql.includes('ANY($3::int[])')).params[2],[41,42]);
+ assert(r.flags.some(f=>f.includes('Opened before challenge start')));
+ assert(!r.writes.some(w=>/SET disqualified\s*=\s*true/.test(w.sql)));
+});
+test('snapshot reconciliation excludes pre-start profits but catches extra deposits and fails closed on missing history',async()=>{
+ const pre='2026-08-31T23:00:00Z';
+ for(const extra of [0,50]){
+  const snapshot={prestart_snapshot_at:'2026-08-31T22:00:00Z',prestart_snapshot_balance:100,history_sync_state:'verified',history_verified_balance:150+extra,history_verified_through:'2026-09-26T00:00:00Z',funding_origin:'prestart_snapshot'};
+  const ledger=[{time:pre,deal_type:0,profit:50},...(extra?[{time:pre,deal_type:2,profit:extra}]:[])];
+  const r=await evaluate(base(),[],{startingBalance:100,regBalance:100,savedActual:100,snapshot,ledger});
+  assert.equal(r.summary.grossProfit,0);assert.equal(r.writes.some(w=>/SET disqualified\s*=\s*true/.test(w.sql)),extra>0);
+  await assert.rejects(()=>evaluate(base(),[],{startingBalance:100,savedActual:100,snapshot,ledger:[]}),/unexplained/);
+ }
+});
+
+test('post-start recharge still disqualifies an already-funded account',async()=>{
+ const r=await evaluate(base(),[],{startingBalance:100,regBalance:100,savedActual:95,deposits:[{profit:1,time:'2026-09-01T00:00:00Z'}]});
+ assert(r.writes.some(w=>w.sql.includes("disqualified_source='funding'")&&String(w.params[0]).includes('recharged')));
 });
