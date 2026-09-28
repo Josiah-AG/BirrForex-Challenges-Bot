@@ -1159,6 +1159,7 @@ export class TradingScheduler {
 
   private async checkDailyAdminSummary(challenge: TradingChallenge, dateStr: string, timeStr: string) {
     if (challenge.status !== 'registration_open') return;
+    if ((challenge as any).host_id) return; // Hosted registration summaries stay in the host dashboard.
     const hour = parseInt(timeStr.split(':')[0]);
     const minute = parseInt(timeStr.split(':')[1]);
     if (hour !== 8 || minute > 4) return;
