@@ -1,3 +1,4 @@
+import { updateChallengeSettings, sameSetting } from './challengeSettings';
 import { formatInTimezone } from '../utils/timezone';
 import { validateChallenge, normalizeChallengeInput } from '../utils/configValidation';
 import { transitionChallenge } from './challengeState';
@@ -9,7 +10,7 @@ import crypto from 'crypto';
 
 interface PendingAction {
   token: string;
-  type: 'create' | 'delete' | 'status_change';
+  type: 'create' | 'delete' | 'status_change' | 'schedule_change';
   data: any;
   createdAt: number;
   messageId?: number;
@@ -38,16 +39,24 @@ export async function setMessageId(token: string,messageId: number): Promise<voi
   await db.query('UPDATE challenge_approvals SET message_id=$2 WHERE token=$1',[token,messageId]);
 }
 /** Commit decision and its database effects once, before external notifications. */
-export async function decide(token: string, approve: boolean): Promise<any> {
+export async function decide(token: string, approve: boolean, channel: 'telegram' | 'web' = 'web'): Promise<any> {
   return db.transaction(async()=>{
     const locked=await db.query("SELECT token FROM challenge_approvals WHERE token=$1 AND state='pending' FOR UPDATE",[token]);
     if(!locked.rows.length)return null;
     const pending=await getPending(token);
     if(!pending)return null;
+    if(pending.type==='schedule_change' && channel!=='telegram')throw new Error('Schedule changes must be decided in Telegram.');
     let result: any={success:true};
     if(approve){
       if(pending.type==='create')result=await executeCreate(pending.data);
       else if(pending.type==='delete')result=await executeDelete(pending.data.challengeId);
+      else if(pending.type==='schedule_change') {
+        const d=pending.data;
+        const row=await db.query('SELECT * FROM trading_challenges WHERE id=$1 FOR UPDATE',[d.challengeId]);
+        const current=row.rows[0];
+        if(!current || current.host_id!==d.hostId || current.status!=='registration_open' || current.configuration_frozen_at || new Date(current.start_date).getTime()<=Date.now() || Object.keys(d.baseline).some(k=>!sameSetting(k,current[k],d.baseline[k]))) throw new Error('Schedule request is stale. Reject it and ask the host to submit again.');
+        result={success:true,challenge:await updateChallengeSettings(d.challengeId,d.fields)};
+      }
       else result=await executeStatusChange(pending.data.challengeId,pending.data.toStatus,pending.data.fromStatus);
       if(!result.success)throw new Error(result.error); // rollback, request remains retryable
     } else if(pending.type==='create' && pending.data.already_inserted){

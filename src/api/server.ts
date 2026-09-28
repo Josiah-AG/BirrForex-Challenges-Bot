@@ -127,7 +127,7 @@ app.use('/api/admin', (req: any, res: any, next: any) => {
 app.get(`/api/admin/${ADMIN_SECRET_PATH}/session`, adminIpCheck, (_req, res) => res.json({ success: true }));
 
 app.get(`/api/admin/${ADMIN_SECRET_PATH}/approvals`, adminIpCheck, async (_req,res)=>{
-  const rows=await db.query("SELECT token,kind,payload,state,created_at FROM challenge_approvals WHERE state='pending' ORDER BY created_at");
+  const rows=await db.query("SELECT token,kind,payload,state,created_at FROM challenge_approvals WHERE state='pending' AND kind!='schedule_change' ORDER BY created_at");
   return res.json({approvals:rows.rows});
 });
 app.post(`/api/admin/${ADMIN_SECRET_PATH}/approvals/:token/decision`, adminIpCheck, async (req,res)=>{
@@ -2549,7 +2549,7 @@ app.put('/api/host/challenge/:id/rules', hostAuthMiddleware, async (req: any, re
 app.put('/api/host/challenge/:id/settings', hostAuthMiddleware, async (req: any, res) => {
   try {
     const challenge=await updateChallengeSettings(Number(req.params.id),req.body,req.hostAccount.hostId);
-    return res.json({success:true,challenge});
+    return res.status(challenge.pendingApproval ? 202 : 200).json({success:true,challenge,pendingApproval:!!challenge.pendingApproval});
   } catch(error) {
     if(error instanceof ConfigurationError || (error as any)?.code==='23514')return res.status(400).json({error:(error as Error).message});
     return res.status(500).json({error:'Settings could not be saved'});
@@ -8636,6 +8636,9 @@ app.get('/api/host/challenge/:id/balance-history', hostAuthMiddleware, async (re
 // ==================== START SERVER ====================
 
 export function startApiServer() {
+  const deliverScheduleNotifications = () => require('../services/scheduleNotifications').deliverScheduleNotifications(getTelegram()).catch((e: Error)=>console.error('Schedule notification delivery failed:',e.message));
+  void deliverScheduleNotifications();
+  setInterval(deliverScheduleNotifications, 15000).unref();
   const port = parseInt(process.env.API_PORT || process.env.PORT || '3001');
   app.listen(port, '0.0.0.0', () => {
     console.log(`✅ WinnerPip API server running on port ${port}`);

@@ -530,7 +530,7 @@ export class Bot {
 
         const gatekeeper = require('../services/challengeGatekeeper');
         const token = data.replace('gate_approve_', '').replace('gate_reject_', '');
-        const decision = await gatekeeper.decide(token, data.startsWith('gate_approve_'));
+        const decision = await gatekeeper.decide(token, data.startsWith('gate_approve_'), 'telegram');
         const pending = decision?.pending;
 
         if (!pending) {
@@ -539,6 +539,13 @@ export class Bot {
           return;
         }
 
+        if (pending.type === 'schedule_change') {
+          const approved=data.startsWith('gate_approve_');
+          await ctx.answerCbQuery(approved ? 'Approved' : 'Rejected');
+          await ctx.editMessageText(`${approved ? '✅ Schedule approved and applied' : '🚫 Schedule rejected; existing dates retained'}\nChallenge #${pending.data.challengeId}`);
+          // Durable notification delivery is retried by the API notification worker.
+          return;
+        }
         if (data.startsWith('gate_approve_')) {
           await ctx.answerCbQuery('Confirmed');
           if (pending.type === 'create') {
