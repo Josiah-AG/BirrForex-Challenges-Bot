@@ -31,8 +31,8 @@ test('before warning window or after final verification no new checks are run',a
 test('admin participants receive Telegram, hosted participants email',async()=>{reset();delete challenge.host_id;for(const r of regs){r.source='telegram';r.user_id=r.id;}const messages=[];await run(1,{sendMessage:async(...args)=>messages.push(args)});assert.equal(messages.length,1);assert.equal(sends.length,0);});
 test('hybrid real and demo checks use independent limits and modes',async()=>{reset();challenge.type='hybrid';challenge.split_category_settings=true;Object.assign(challenge,{demo_starting_balance:100,demo_target_balance:200,demo_deposit_mode:'fixed',demo_target_enabled:true,demo_allow_below_start:false,real_starting_balance:200,real_target_balance:400,real_deposit_mode:'min_limit',real_target_enabled:true,real_allow_below_start:false});regs[1].account_type='real';results['2']={success:true,status:'connected',balance:199.99};await run(1,null);assert.equal(sends.length,2);assert.match(sends[1][2]+sends[0][2],/at least USD 200.00/);});
 
-test('lower balance still sends a correction reminder without threatening DQ',async()=>{
+test('lower balance still sends the simplified correction reminder',async()=>{
  reset();results['1']={success:true,status:'connected',balance:95};await run(1,null);
  assert.equal(regs[0].balance_warning,true);assert.equal(sends.length,1);
- assert.match(sends[0][2],/lower balance triggers a reminder only and will not disqualify/);
+ assert.match(sends[0][2],/Reset your demo account balance to USD 100.00/);assert.doesNotMatch(sends[0][2],/decimal|whole-unit|lower balance triggers/);
 });
