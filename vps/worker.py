@@ -1535,6 +1535,8 @@ def health():
         "terminal_id":          TERMINAL_ID,
         "port":                 PORT,
         "ipc_connected":        _ipc_connected,
+        "recovery_in_progress": _recovery_in_progress,
+        "idle_recovery": {"version": 1, "last_check": _idle_recovery.last_check, "result": _idle_recovery.last_result, "recovered": _idle_recovery.recovered},
         "consecutive_failures": _consecutive_failures,
         "dead_mode":            _dead_mode,
         "dead_since":           _dead_since if _dead_mode else None,
@@ -1688,6 +1690,36 @@ def ohlc_bulk(req: OhlcBulkRequest):
     return result
 
 
+# Independent idle recovery: unhealthy workers receive no routed traffic, so
+# request-triggered recovery alone can leave them disconnected indefinitely.
+from idle_recovery import IdleRecovery
+_idle_recovery = IdleRecovery()
+
+def _watchdog_probe():
+    global _ipc_connected
+    if not _ipc_connected:
+        return False
+    info = mt5.terminal_info()
+    if info is None:
+        _ipc_connected = False
+        return False
+    return bool(info.connected)
+
+def _watchdog_reconnect():
+    global _consecutive_failures
+    ok = _try_initialize_and_login()
+    if ok:
+        _consecutive_failures = 0
+    return ok
+
+def _idle_recovery_loop():
+    while True:
+        time.sleep(15)
+        _idle_recovery.tick(_lock, _recovery_lock, _watchdog_probe,
+            _watchdog_reconnect, lambda: _kill_and_restart_terminal() and _watchdog_reconnect(),
+            disabled=_dead_mode or _recovery_in_progress or os.path.isfile(
+                os.path.join(os.path.dirname(__file__), f"watchdog_{TERMINAL_ID}.disabled")))
+
 # ==================== STARTUP ====================
 
 if __name__ == "__main__":
@@ -1729,4 +1761,5 @@ if __name__ == "__main__":
             print(f"  [W{TERMINAL_ID}] WARNING: Could not init after 5 attempts. Starting anyway — self-heal on first request.")
 
     print(f"  [W{TERMINAL_ID}] Starting on port {PORT}...")
+    threading.Thread(target=_idle_recovery_loop, daemon=True).start()
     uvicorn.run(app, host="127.0.0.1", port=PORT, log_level="warning")

@@ -15,8 +15,12 @@ goto :eof
 :single_worker
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0launch_vps.ps1" -ConsoleOnly
 title WinnerPip Worker %~2
+:worker_run
 py -3.12 -u vps\worker.py %~2 %~3
-goto :eof
+if exist "%~dp0stop_worker_%~2.flag" goto :eof
+echo Worker %~2 exited. Restarting in 15 seconds; close this CMD to stop it.
+timeout /t 15 /nobreak >nul
+goto worker_run
 
 :single_router
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0launch_vps.ps1" -ConsoleOnly

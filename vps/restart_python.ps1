@@ -55,6 +55,20 @@ foreach ($ownedProcess in $owned) {
         $health = Invoke-RestMethod "http://127.0.0.1:$port/health" -TimeoutSec 8
     }
     if ($health.busy) { throw "Worker on port $port is still busy; deployment deferred" }
+    # Stop the matching visible supervisor before its Python child so it cannot
+    # respawn a duplicate while the replacement console is starting.
+    $ancestor = Get-CimInstance Win32_Process -Filter "ProcessId=$($ownedProcess.Pid)"
+    for ($level=0; $level -lt 4; $level++) {
+        $ancestor = Get-CimInstance Win32_Process -Filter "ProcessId=$($ancestor.ParentProcessId)"
+        if (!$ancestor) { break }
+        if ($ancestor.Name -eq 'cmd.exe') {
+            $expectedRole = if ($port -eq 8000) { '--router\s+' } else { "--worker\s+$($port-8000)\s+$port" }
+            if ($ancestor.SessionId -eq $session -and $ancestor.CommandLine -match $expectedRole) {
+                Stop-Process -Id $ancestor.ProcessId -ErrorAction Stop
+            }
+            break
+        }
+    }
     Stop-Process -Id $ownedProcess.Pid -ErrorAction Stop
     $roleArguments = if ($port -eq 8000) { "--router $WorkerCount" } else { "--worker $($port-8000) $port" }
     $arguments = '/k call "' + (Join-Path $PSScriptRoot 'start_vps.bat') + '" ' + $roleArguments
