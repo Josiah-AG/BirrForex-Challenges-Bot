@@ -1096,7 +1096,7 @@ export default function ChallengeDashboard() {
               <div className={`glass rounded-2xl p-4 md:p-5 border mb-6 ${myStats.balanceWarning ? 'border-amber-500/30 bg-amber-500/5' : 'border-white/10'}`}>
                 <p className="text-sm font-bold text-amber-400 mb-2">{myStats.balanceWarning ? 'Balance needs attention' : 'Starting balance verification'}</p>
                 <p className="text-sm text-gray-300">{myStats.accountType === 'demo' ? 'Reset your demo balance' : 'Adjust your account balance'} to {challenge.depositMode === 'min_limit' ? 'at least ' : challenge.depositMode === 'max_limit' ? 'no more than the permitted maximum, targeting ' : ''}<b>{formatBalance(challenge.startingBalance, myStats.accountType, effectiveIsCent)}</b> before <b>{new Date(challenge.balanceCheckDeadline).toLocaleString(undefined, {timeZone: challenge.timezone || 'Africa/Addis_Ababa', dateStyle: 'medium', timeStyle: 'short'})} ({challenge.timezone || 'Africa/Addis_Ababa'})</b>.</p>
-                <p className="text-xs text-gray-400 mt-2">{challenge.balancePolicy !== 'legacy_percent' && challenge.depositMode !== 'min_limit' ? 'Only decimal amounts above the requirement are allowed, not a whole-unit excess. ' : ''}Keep your balance within the requirement until the challenge starts. Accounts outside the permitted range at verification will be disqualified. Warnings reflect the latest check and clear after a successful recheck.</p>
+                <p className="text-xs text-gray-400 mt-2">{challenge.balancePolicy !== 'legacy_percent' && challenge.depositMode !== 'min_limit' ? 'Only decimal amounts above the requirement are allowed, not a whole-unit excess. ' : ''}Keep your balance within the requirement until the challenge starts. A lower balance triggers a reminder only, not disqualification. Balances above the permitted maximum at verification will be disqualified. Warnings reflect the latest check and clear after a successful recheck.</p>
               </div>
             )}
 
@@ -1315,7 +1315,7 @@ export default function ChallengeDashboard() {
               </div>
               {leaderboardPreStart && challenge && (
                 <div className="px-4 py-3 bg-amber-500/5 border-b border-amber-500/20">
-                  <p className="text-xs text-amber-300"><span className="font-semibold">⚠️ Balance must be {isMinLimit ? '≥' : '≤'} {formatBalance(challenge.startingBalance, myStats.accountType, effectiveIsCent)}</span> before the challenge starts. Users {isMinLimit ? 'with balance below the minimum required deposit' : 'with balance above the maximum allowed starting balance'} will be automatically disqualified.</p>
+                  <p className="text-xs text-amber-300"><span className="font-semibold">⚠️ Balance must be {isMinLimit ? '≥' : '≤'} {formatBalance(challenge.startingBalance, myStats.accountType, effectiveIsCent)}</span> before the challenge starts. Lower balances receive a reminder only; balances above the permitted maximum will be disqualified.</p>
                 </div>
               )}
               {leaderboardLoading ? (
@@ -1538,7 +1538,7 @@ export default function ChallengeDashboard() {
             </div>
             {leaderboardPreStart && challenge && (
               <div className="px-4 py-3 bg-amber-500/5 border-b border-amber-500/20">
-                <p className="text-xs text-amber-300"><span className="font-semibold">⚠️ Balance must be {isMinLimit ? '≥' : '≤'} {formatBalance(challenge.startingBalance, myStats?.accountType || 'real', effectiveIsCent)}</span> before the challenge starts. Users {isMinLimit ? 'with balance below the minimum required deposit' : 'with balance above the maximum'} will be disqualified.</p>
+                <p className="text-xs text-amber-300"><span className="font-semibold">⚠️ Balance must be {isMinLimit ? '≥' : '≤'} {formatBalance(challenge.startingBalance, myStats?.accountType || 'real', effectiveIsCent)}</span> before the challenge starts. Lower balances receive a reminder only; balances above the permitted maximum will be disqualified.</p>
               </div>
             )}
             {!selectedUser ? (

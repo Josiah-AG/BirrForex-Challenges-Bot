@@ -74,3 +74,11 @@ test('a prior-day withdrawal lowers the next actual opening-balance percentage c
  const result=await evaluate(rules,[trade(1,{profit:-7}),trade(2,{profit:1,close_time:'2026-09-25T09:00:00Z'})],{regBalance:100,savedActual:100,startingBalance:100,balanceOps:[{op_time:'2026-09-24T08:00:00Z',amount:-50}]});
  assert(result.flags.some(f=>f.includes('drawdown breach')));
 });
+
+test('lower starting balances never cause funding DQ; excess still does',async()=>{
+ for(const savedActual of [0,95,100,100.99,101]) {
+  const r=await evaluate(base(),[trade(1)],{startingBalance:100,regBalance:100,savedActual});
+  const fundingDq=r.writes.some(w=>/SET disqualified\s*=\s*true/.test(w.sql)&&w.sql.includes("disqualified_source='funding'"));
+  assert.equal(fundingDq,savedActual===101,`starting balance ${savedActual}`);
+ }
+});

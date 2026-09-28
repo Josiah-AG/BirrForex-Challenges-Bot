@@ -361,7 +361,7 @@ export class TradingScheduler {
         );
         verified++;
 
-        if(problem && problem!=='invalid') {
+        if(problem === 'high') {
           const currency=reg.is_cent?'¢':'$';
           await db.query(`UPDATE trading_registrations SET disqualified=true,disqualified_at=NOW(),disqualified_reason=$1,disqualified_source='funding' WHERE id=$2 AND disqualified=false`,
             [`Starting balance ${currency}${balance.toFixed(2)} is ${problem==='high'?'above':'below'} the required ${depositMode} balance of ${currency}${limit.toFixed(2)}`,reg.id]);
