@@ -1,3 +1,4 @@
+import { startingBalanceProblem } from '../utils/startingBalancePolicy';
 import { db } from '../database/db';
 import { evaluationEngine } from './wpEvaluationEngine';
 import { resolveCategoryBalances } from '../utils/categorySettings';
@@ -28,10 +29,11 @@ export async function validateVerifiedRegistration(challengeId: number, category
   if(!rules.allow_professional && ['pro','raw_spread','zero'].includes(result.account_subtype || ''))throw new ConfigurationError('Professional account subtype is not allowed');
   const settings=resolveCategoryBalances(challenge,category);
   const limit=settings.startingBalance*accountUnitMultiplier(challenge,rules,cent);
-  const balance=Number(result.balance),tolerance=limit*.01;
-  if(settings.depositMode==='min_limit' && balance<limit-tolerance)throw new ConfigurationError(`Balance is below the required minimum (${limit} account-currency units)`);
-  if(settings.depositMode!=='min_limit' && balance>limit+tolerance)throw new ConfigurationError(`Balance exceeds the allowed maximum (${limit} account-currency units)`);
-  if(category==='demo' && settings.depositMode==='fixed' && Math.abs(balance-limit)>tolerance)throw new ConfigurationError(`Demo balance must match ${limit} account-currency units`);
+  const problem=startingBalanceProblem(Number(result.balance),limit,settings.depositMode,challenge.starting_balance_policy);
+  if(problem==='invalid')throw new ConfigurationError('Valid balance is required');
+  if(problem==='high')throw new ConfigurationError(`Balance exceeds the allowed maximum: reset to ${limit} account-currency units; only the decimal portion may differ`);
+  if(problem==='low')throw new ConfigurationError(`Balance is below the required ${settings.depositMode==='min_limit'?'minimum':'fixed starting balance'} (${limit} account-currency units)`);
+
 }
 
 /** Optional integration is intentional; configured but unavailable integration must fail closed. */

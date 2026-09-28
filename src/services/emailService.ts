@@ -112,6 +112,7 @@ class EmailService {
           Your account has been verified and connected. You'll receive updates about the challenge via email.
         </p>
 
+        <p style="color:#92400e;font-size:14px;line-height:1.6">Prepare your required starting balance before final verification, which begins 2 or 3 hours before the challenge starts. Check your dashboard for the exact deadline and account-specific requirement. Keep the balance within that requirement until the challenge starts. A warning message is not a grace period.</p>
         ${data.hosted ? `<div style="background:#fffbeb;padding:16px;border-radius:10px;margin-top:20px;color:#78350f;font-size:14px;line-height:1.6">
           <strong>Keep your investor password unchanged</strong>
           <p>Do not change or generate a new investor password for your registered account during the challenge period. Password changes can interrupt trade tracking and may lead to disqualification.</p>

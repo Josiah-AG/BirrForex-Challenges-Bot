@@ -1,5 +1,6 @@
 export default function RegistrationNotice({accountType}:{accountType:string}) {
   return <div className="mb-6 rounded-xl border border-amber-400/30 bg-amber-400/5 p-4 text-left text-sm leading-relaxed text-gray-300">
+    <p className="mb-4">Prepare your required starting balance before final verification, 2 or 3 hours before the challenge starts. Your dashboard shows the exact deadline. Keep the balance within the requirement until the challenge starts.</p>
     <h4 className="font-semibold text-amber-300">Keep your investor password unchanged</h4>
     <p className="mt-2">Do not change or generate a new investor password for your registered account during the challenge period. Password changes can interrupt trade tracking and may lead to disqualification.</p>
     {accountType === 'demo' && <><h4 className="mt-4 font-semibold text-amber-300">Keep your Exness demo account active</h4>

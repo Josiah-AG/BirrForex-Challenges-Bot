@@ -42,6 +42,7 @@ export async function updateChallengeSettings(id: number, fields: any, hostId?: 
       await db.query('INSERT INTO challenge_approvals (token,kind,payload) VALUES ($1,$2,$3)',[token,'schedule_change',JSON.stringify({challengeId:id,hostId,title:current.title,baseline,fields:proposed})]);
       return {...current,pendingApproval:true,approvalToken:token};
     }
+    if(changed.includes('start_date')) await db.query('UPDATE trading_challenges SET pre_start_lead_hours=NULL WHERE id=$1',[id]);
     const values=changed.map(k=>['real_prizes','demo_prizes'].includes(k)?JSON.stringify(fields[k]):fields[k]);
     const saved=await db.query(`UPDATE trading_challenges SET ${changed.map((k,i)=>`${k}=$${i+1}`).join(',')},updated_at=NOW() WHERE id=$${values.length+1} RETURNING *`,[...values,id]);
     return saved.rows[0];

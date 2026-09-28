@@ -1774,7 +1774,7 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
       `SELECT r.id, r.nickname, r.email, r.account_number, r.account_type, r.account_subtype, r.mt5_server, r.challenge_id, r.pull_status,
               r.actual_starting_balance, r.registration_balance, r.last_known_balance, r.disqualified, r.disqualified_reason, r.is_cent,
               r.last_pull_at, r.balance_warning,
-              c.title, c.status, c.start_date, c.end_date, c.starting_balance, c.target_balance, c.leaderboard_updated_at,
+              c.title, c.status, c.start_date, c.end_date, c.pre_start_lead_hours, c.starting_balance_policy, c.starting_balance, c.target_balance, c.leaderboard_updated_at,
               c.real_winners_count, c.demo_winners_count, c.type as challenge_type, c.timezone,
               c.split_category_settings, c.demo_starting_balance, c.demo_target_balance, c.real_starting_balance, c.real_target_balance,
               c.demo_deposit_mode, c.real_deposit_mode, c.demo_target_percent, c.real_target_percent, c.deposit_mode, c.target_percent,
@@ -1787,6 +1787,9 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
     );
 
     const registration = reg.rows[0];
+    const preStartParticipants=Number((await db.query('SELECT COUNT(*) AS cnt FROM trading_registrations WHERE challenge_id=$1 AND investor_password IS NOT NULL AND connection_verified=true',[cId])).rows[0].cnt);
+    const balanceTimes=require('../utils/startingBalancePolicy').balanceCheckTimes(registration.start_date,preStartParticipants,registration.pre_start_lead_hours);
+
     const publishedRegistration=(await db.query('SELECT registration_state FROM wp_account_publications WHERE registration_id=$1',[registrationId])).rows[0]?.registration_state;
     if(publishedRegistration && registration.history_sync_state !== 'published'){
       registration.actual_starting_balance=publishedRegistration.actual_starting_balance;
@@ -1826,6 +1829,9 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
         status: registration.status,
         type: registration.challenge_type || 'hybrid',
         startDate: registration.start_date,
+        balanceCheckDeadline: balanceTimes.finalAt.toISOString(),
+        balanceWarningCheckAt: balanceTimes.warningAt.toISOString(),
+        balancePolicy: registration.starting_balance_policy,
         endDate: registration.end_date,
         timezone: registration.timezone || 'Africa/Nairobi',
         // Balance targets: resolve per-category if split is ON, then apply cent conversion
@@ -1852,15 +1858,15 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
         })(),
         allowBelowStart: (() => {
           const { resolveCategoryBalances: rcbDashA } = require('../utils/categorySettings');
-          return rcbDashA(registration, registration.account_type).allowBelowStart;
+          return rcbDashA({...registration,type:registration.challenge_type}, registration.account_type).allowBelowStart;
         })(),
         depositMode: (() => {
           const { resolveCategoryBalances: rcbDashM } = require('../utils/categorySettings');
-          return rcbDashM(registration, registration.account_type).depositMode;
+          return rcbDashM({...registration,type:registration.challenge_type}, registration.account_type).depositMode;
         })(),
         targetPercent: (() => {
           const { resolveCategoryBalances: rcbDashP } = require('../utils/categorySettings');
-          return rcbDashP(registration, registration.account_type).targetPercent;
+          return rcbDashP({...registration,type:registration.challenge_type}, registration.account_type).targetPercent;
         })(),
         winnersCount: parseInt(registration.real_winners_count || 0) + parseInt(registration.demo_winners_count || 0),
         realWinnersCount: parseInt(registration.real_winners_count || 0),
@@ -7358,7 +7364,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/trigger-prestart-snapsho
       [challengeId]
     );
     const participantCount = parseInt(totalParticipants.rows[0].cnt);
-    const leadHours = participantCount > 500 ? 3 : 2;
+    const leadHours = require('../utils/startingBalancePolicy').preStartLeadHours(participantCount,challenge.pre_start_lead_hours);
 
     const nowMs = Date.now();
     const startMs = new Date(challenge.start_date).getTime();
@@ -7410,89 +7416,18 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/prestart-check-flagged`,
     const existing = prestartCheckProgress.get(challengeId);
     if (existing?.running) return res.json({ success: true, alreadyRunning: true, ...existing });
 
-    const challengeInfo = await db.query(`SELECT starting_balance, title FROM trading_challenges WHERE id = $1`, [challengeId]);
-    if (challengeInfo.rows.length === 0) return res.status(404).json({ error: 'Challenge not found' });
-    const startingBalance = Number(challengeInfo.rows[0].starting_balance);
-    const challengeTitle = challengeInfo.rows[0].title;
+    const challengeInfo=await db.query('SELECT status,pre_start_check_started_at FROM trading_challenges WHERE id=$1',[challengeId]);
+    if(!challengeInfo.rows.length)return res.status(404).json({error:'Challenge not found'});
+    if(challengeInfo.rows[0].status!=='registration_open' || challengeInfo.rows[0].pre_start_check_started_at)return res.status(400).json({error:'Pre-start verification has begun or registration is closed'});
+    prestartCheckProgress.set(challengeId,{running:true,total:0,checked:0,updated:0,failed:0,credentialFailed:0,dmsSent:0,message:'Checking balances...'});
+    res.json({success:true,started:true,message:'Checking current balances using each account category’s settings.'});
+    const {runBalanceWarningCheck}=require('../services/prestartBalanceChecks');
+    void runBalanceWarningCheck(challengeId,getTelegram(),true).then((result:any)=>{
+      prestartCheckProgress.set(challengeId,{running:false,total:result.checked || 0,checked:result.checked || 0,updated:result.checked || 0,failed:result.failed || 0,credentialFailed:0,dmsSent:result.sent || 0,message:result.running?'An automatic balance check is already running.':`Done: ${result.checked || 0} checked, ${result.warned || 0} flagged, ${result.sent || 0} notices sent; failed notices will retry automatically.`});
+    }).catch((error:Error)=>{
+      const progress=prestartCheckProgress.get(challengeId)!;progress.running=false;progress.message=error.message;progress.failed++;
+    });
 
-    const accounts = await db.query(
-      `SELECT id, account_number, mt5_server, investor_password, is_cent, nickname, user_id, source, lang,
-              COALESCE(last_known_balance, registration_balance, 0) as current_balance
-       FROM trading_registrations
-       WHERE challenge_id = $1 AND disqualified = false AND investor_password IS NOT NULL AND connection_verified = true
-         AND (pull_status IS NULL OR pull_status NOT IN ('password_changed'))
-         AND (COALESCE(last_known_balance, registration_balance, 0) = 0
-           OR CASE WHEN is_cent THEN COALESCE(last_known_balance, registration_balance, 0) > ($2 * 100 * 1.01)
-              ELSE COALESCE(last_known_balance, registration_balance, 0) > ($2 * 1.01) END)`,
-      [challengeId, startingBalance]
-    );
-
-    if (accounts.rows.length === 0) {
-      return res.json({ success: true, running: false, total: 0, updated: 0, failed: 0, dmsSent: 0, message: 'No accounts need checking' });
-    }
-
-    prestartCheckProgress.set(challengeId, { running: true, total: accounts.rows.length, checked: 0, updated: 0, failed: 0, credentialFailed: 0, dmsSent: 0, message: 'Starting...' });
-    res.json({ success: true, started: true, total: accounts.rows.length, message: `Checking ${accounts.rows.length} accounts...` });
-
-    (async () => {
-      const { vpsService } = require('../services/vpsService');
-      const telegram = getTelegram();
-      const progress = prestartCheckProgress.get(challengeId)!;
-
-      for (const reg of accounts.rows) {
-        try {
-          const result = await vpsService.verifyConnection(reg.account_number, reg.mt5_server, reg.investor_password);
-          if (!result.success || result.balance === undefined || result.balance === null) {
-            progress.failed++;
-            if (!result.success) progress.credentialFailed++;
-            progress.checked++;
-            progress.message = `Checking... ${progress.checked}/${progress.total}`;
-            continue;
-          }
-          const balance = result.balance as number;
-          await db.query(`UPDATE trading_registrations SET last_known_balance = $1 WHERE id = $2`, [balance, reg.id]);
-          const limit = reg.is_cent ? startingBalance * 100 : startingBalance;
-          const tolerance = limit * 0.01;
-          const currency = reg.is_cent ? '\u00a2' : '$';
-
-          if (balance > limit + tolerance) {
-            await db.query(`UPDATE trading_registrations SET balance_warning = true WHERE id = $1`, [reg.id]);
-            if (reg.user_id && reg.source !== 'discord' && telegram) {
-              try {
-                const excess = balance - limit;
-                const lang = reg.lang || 'en';
-                const msg = lang === 'am'
-                  ? `\u26a0\ufe0f <b>\u1263\u120b\u1295\u1235 \u12a8\u134d \u12eb\u1208 \u1290\u12cd \u2014 ${challengeTitle}</b>\n\n\u12e8\u12a5\u122d\u1235\u12ee MT5 \u12a0\u12ab\u12cd\u1295\u1275 (${reg.account_number}) \u1263\u120b\u1295\u1235 <b>${currency}${balance.toFixed(2)}</b> \u1232\u1206\u1295 \u12a8\u1270\u1348\u1240\u12f0\u12cd <b>${currency}${limit.toFixed(2)}</b> \u1260\u120b\u12ed \u1290\u12cd\u1362\n\n\ud83d\udccc \u127b\u120c\u1295\u1305 \u12a8\u1218\u1300\u1218\u1229 \u1260\u134a\u1275 <b>${currency}${excess.toFixed(2)}</b> \u12eb\u12cd\u1321 \u12c8\u12ed\u121d \u12eb\u1235\u1270\u120b\u120d\u1349\u1362 \u12ab\u120d\u1270\u1235\u1270\u12ab\u12a8\u1208 \u1260\u122b\u1235-\u1230\u122d \u12ed\u12c8\u1323\u1209\u1362`
-                  : `\u26a0\ufe0f <b>Balance Too High \u2014 ${challengeTitle}</b>\n\nYour MT5 account (${reg.account_number}) balance is <b>${currency}${balance.toFixed(2)}</b>, which exceeds the allowed limit of <b>${currency}${limit.toFixed(2)}</b>.\n\n\ud83d\udccc Please withdraw or transfer <b>${currency}${excess.toFixed(2)}</b> before the challenge starts or you will be automatically disqualified.`;
-                await telegram.sendMessage(reg.user_id, msg, { parse_mode: 'HTML' });
-                progress.dmsSent++;
-              } catch (_e) {}
-            }
-          } else if (balance === 0) {
-            await db.query(`UPDATE trading_registrations SET balance_warning = false WHERE id = $1`, [reg.id]);
-            if (reg.user_id && reg.source !== 'discord' && telegram) {
-              try {
-                const lang = reg.lang || 'en';
-                const msg = lang === 'am'
-                  ? `\u26a0\ufe0f <b>\u1263\u120b\u1295\u1235 $0 \u2014 ${challengeTitle}</b>\n\n\u12e8\u12a5\u122d\u1235\u12ee MT5 \u12a0\u12ab\u12cd\u1295\u1275 (${reg.account_number}) \u1263\u120b\u1295\u1235 <b>${currency}0.00</b> \u1290\u12cd\u1362\n\n\ud83d\udccc \u127b\u120c\u1295\u1305 \u12a8\u1218\u1300\u1218\u1229 \u1260\u134a\u1275 \u12a5\u1263\u12ad\u12ee \u12c8\u12f0 \u12a0\u12ab\u12cd\u1295\u1276 \u1308\u1295\u12d8\u1265 \u12eb\u1235\u1308\u1261\u1362 \u12eb\u1208 \u1263\u120b\u1295\u1235 \u127b\u120c\u1295\u1301\u1295 \u1218\u1300\u1218\u122d \u12a0\u12ed\u127d\u1209\u121d\u1362`
-                  : `\u26a0\ufe0f <b>Deposit Required \u2014 ${challengeTitle}</b>\n\nYour MT5 account (${reg.account_number}) currently has a <b>${currency}0.00</b> balance.\n\n\ud83d\udccc Please deposit funds to your account before the challenge starts. You cannot participate with zero balance.`;
-                await telegram.sendMessage(reg.user_id, msg, { parse_mode: 'HTML' });
-                progress.dmsSent++;
-              } catch (_e) {}
-            }
-          } else {
-            await db.query(`UPDATE trading_registrations SET balance_warning = false WHERE id = $1`, [reg.id]);
-          }
-          progress.updated++;
-        } catch (e) {
-          progress.failed++;
-        }
-        progress.checked++;
-        progress.message = `Checking... ${progress.checked}/${progress.total}`;
-      }
-      progress.running = false;
-      progress.message = `Done: ${progress.updated} updated, ${progress.failed} failed${progress.credentialFailed > 0 ? ` (${progress.credentialFailed} credential)` : ''}, ${progress.dmsSent} DMs sent`;
-    })();
   } catch (error) {
     console.error('prestart-check-flagged error:', error);
     if ((error as any)?.code === '23505') return res.status(409).json({error:'Account, email or nickname is already registered'});

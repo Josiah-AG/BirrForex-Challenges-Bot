@@ -1,3 +1,4 @@
+import { startingBalanceProblem } from '../utils/startingBalancePolicy';
 import { peakPositionVolume } from '../utils/positionExposure';
 import { getLocalTime } from '../utils/timezone';
 import { validateRules } from '../utils/configValidation';
@@ -506,7 +507,7 @@ export class WpEvaluationEngine {
 
     // Get challenge dates for period filtering
     const challengeDates = await db.query(
-      `SELECT start_date, end_date, timezone FROM trading_challenges WHERE id = $1`,
+      `SELECT start_date, end_date, timezone, starting_balance_policy FROM trading_challenges WHERE id = $1`,
       [challengeId]
     );
     const challengeStart = challengeDates.rows[0]?.start_date;
@@ -551,7 +552,7 @@ export class WpEvaluationEngine {
     //   - If user had balance before start AND any deposit arrives after start → DQ (recharging).
     //   - If user had $0 before start → first post-start deposit = actualStartBalance.
     //     Second post-start deposit → DQ.
-    //   - If actualStartBalance > startingBalance (+1% tolerance) → DQ (deposited above limit).
+    //   - If actualStartBalance > startingBalance (decimal-only allowance for new challenges) → DQ (deposited above limit).
     //
     // Units: registration_balance and wp_deals.profit are raw VPS values.
     // The startingBalance param is already ×100 for cent users — same units on both sides.
@@ -587,7 +588,7 @@ export class WpEvaluationEngine {
       const capturedAt = regData.rows[0]?.registered_at ? new Date(regData.rows[0].registered_at).getTime() : 0;
       const preDeposits = allDeposits.rows.filter(d => new Date(d.time).getTime() < csTime && new Date(d.time).getTime() > capturedAt);
       const postDeposits = allDeposits.rows.filter(d => new Date(d.time).getTime() >= csTime);
-      const tolerance    = startingBalance * 0.01; // 1% tolerance
+
 
       if (savedActual !== null && savedActual !== undefined && parseFloat(savedActual) > 0) {
         // Already determined in a previous cycle — reuse it for starting balance.
@@ -627,23 +628,12 @@ export class WpEvaluationEngine {
         }
       }
 
-      // === STEP 2: Over-balance / Under-balance DQ (deposit mode aware) ===
-      if (depositMode === 'min_limit') {
-        // Min limit: DQ if below minimum (no upper limit)
-        if (actualStartBalance > 0 && actualStartBalance < startingBalance - tolerance) {
-          await db.query(
-            `UPDATE trading_registrations SET disqualified = true, disqualified_at = NOW(), disqualified_reason = $1, disqualified_source='funding' WHERE id = $2 AND (disqualified = false OR disqualified_source IN ('min_active_days','min_total_trades'))`,
-            [`Starting balance ${currency}${actualStartBalance.toFixed(2)} is below minimum required deposit of ${currency}${startingBalance.toFixed(2)}`, reg.id]
-          );
-        }
-      } else {
-        // Fixed and max_limit: DQ if exceeds upper limit
-        if (actualStartBalance > startingBalance + tolerance) {
-          await db.query(
-            `UPDATE trading_registrations SET disqualified = true, disqualified_at = NOW(), disqualified_reason = $1, disqualified_source='funding' WHERE id = $2 AND (disqualified = false OR disqualified_source IN ('min_active_days','min_total_trades'))`,
-            [`Starting balance ${currency}${actualStartBalance.toFixed(2)} exceeds allowed starting balance of ${currency}${startingBalance.toFixed(2)}`, reg.id]
-          );
-        }
+      // Validate the captured starting balance, never the current trading balance.
+      const fundingProblem=startingBalanceProblem(actualStartBalance,startingBalance,depositMode,challengeDates.rows[0]?.starting_balance_policy);
+      if(fundingProblem && fundingProblem!=='invalid') {
+        await db.query(
+          `UPDATE trading_registrations SET disqualified=true,disqualified_at=NOW(),disqualified_reason=$1,disqualified_source='funding' WHERE id=$2 AND (disqualified=false OR disqualified_source IN ('min_active_days','min_total_trades'))`,
+          [`Starting balance ${currency}${actualStartBalance.toFixed(2)} is ${fundingProblem==='high'?'above':'below'} the required ${depositMode} balance of ${currency}${startingBalance.toFixed(2)}`,reg.id]);
       }
 
       // === STEP 3: Post-start deposit DQ (recharging) — ALWAYS runs ===

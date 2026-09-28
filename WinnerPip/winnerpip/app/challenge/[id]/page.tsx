@@ -34,6 +34,7 @@ interface LeaderboardEntry {
 interface ChallengeInfo {
   id: number; title: string; status: string; type?: string;
   startDate: string; endDate: string; timezone?: string;
+  balanceCheckDeadline?: string; balanceWarningCheckAt?: string; balancePolicy?: string;
   startingBalance: number; myStartingBalance?: number; targetBalance: number;
   winnersCount: number; realWinnersCount: number; demoWinnersCount: number;
   onlyCentAccount?: boolean;
@@ -1091,23 +1092,11 @@ export default function ChallengeDashboard() {
               </div>
             </div>
 
-            {/* BALANCE WARNING BANNER — shown when balance exceeds allowed limit before challenge start */}
-            {myStats.balanceWarning && isNotStarted && !isMinLimit && (
-              <div className="glass rounded-2xl p-4 md:p-5 border border-amber-500/30 bg-amber-500/5 mb-6">
-                <div className="flex items-start gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-amber-500/20 flex items-center justify-center flex-shrink-0">
-                    <span className="text-xl">⚠️</span>
-                  </div>
-                  <div>
-                    <p className="text-sm font-bold text-amber-400 mb-1">Balance Too High</p>
-                    <p className="text-xs text-gray-300">
-                      Your account balance exceeds the challenge starting limit of <b>{formatBalance(challenge.startingBalance, myStats.accountType, effectiveIsCent)}</b>.
-                    </p>
-                    <p className="text-xs text-gray-400 mt-2">
-                      Please withdraw or transfer the excess amount before the challenge starts. If your balance is still above the limit at challenge start, you will be <span className="text-amber-400 font-semibold">automatically disqualified</span>.
-                    </p>
-                  </div>
-                </div>
+            {isNotStarted && challenge.balanceCheckDeadline && (
+              <div className={`glass rounded-2xl p-4 md:p-5 border mb-6 ${myStats.balanceWarning ? 'border-amber-500/30 bg-amber-500/5' : 'border-white/10'}`}>
+                <p className="text-sm font-bold text-amber-400 mb-2">{myStats.balanceWarning ? 'Balance needs attention' : 'Starting balance verification'}</p>
+                <p className="text-sm text-gray-300">{myStats.accountType === 'demo' ? 'Reset your demo balance' : 'Adjust your account balance'} to {challenge.depositMode === 'min_limit' ? 'at least ' : challenge.depositMode === 'max_limit' ? 'no more than the permitted maximum, targeting ' : ''}<b>{formatBalance(challenge.startingBalance, myStats.accountType, effectiveIsCent)}</b> before <b>{new Date(challenge.balanceCheckDeadline).toLocaleString(undefined, {timeZone: challenge.timezone || 'Africa/Addis_Ababa', dateStyle: 'medium', timeStyle: 'short'})} ({challenge.timezone || 'Africa/Addis_Ababa'})</b>.</p>
+                <p className="text-xs text-gray-400 mt-2">{challenge.balancePolicy !== 'legacy_percent' && challenge.depositMode !== 'min_limit' ? 'Only decimal amounts above the requirement are allowed, not a whole-unit excess. ' : ''}Keep your balance within the requirement until the challenge starts. Accounts outside the permitted range at verification will be disqualified. Warnings reflect the latest check and clear after a successful recheck.</p>
               </div>
             )}
 

@@ -1,0 +1,36 @@
+const assert=require('node:assert/strict');
+const url=process.env.TEST_DATABASE_URL;
+if(!url || !['127.0.0.1','localhost'].includes(new URL(url).hostname))throw Error('Local synthetic database required');
+process.env.TZ='UTC';process.env.PGOPTIONS='-c timezone=UTC';process.env.DATABASE_URL=url;process.env.NODE_ENV='test';require('ts-node/register/transpile-only');
+const {db}=require('../../src/database/db');
+const {vpsService}=require('../../src/services/vpsService');
+const {emailService}=require('../../src/services/emailService');
+let deliveries=0,failEmail=true,calls=0;
+vpsService.verifyConnection=async(account)=>{calls++;return {success:true,status:'connected',balance:account==='991001'?120:100.25,currency:'USD',trade_mode:0};};
+emailService.sendGeneric=async()=>{deliveries++;return !failEmail;};
+const {runBalanceWarningCheck}=require('../../src/services/prestartBalanceChecks');
+const {TradingScheduler}=require('../../src/scheduler/tradingScheduler');
+(async()=>{
+ await require('../../src/database/hardeningMigration').migrateHardening();
+ const rules={stop_loss_required:false,weekend_trading:true,only_cent_account:false,allow_professional:false,rules_enabled:Object.fromEntries(['max_lot_size','max_open_trades','pair_limit','stop_loss_required','daily_loss_cap','max_hold_hours','min_trade_duration','weekend_trading','min_active_days','min_total_trades'].map(k=>[k,false]))};
+ const start=new Date(Date.now()+4*3600000).toISOString();
+ const {challenge}=await require('../../src/services/challengeGatekeeper').executeCreate({title:'SYNTHETIC balance '+Date.now(),type:'demo',start_date:start,end_date:new Date(Date.now()+86400000).toISOString(),starting_balance:100,target_balance:0,target_enabled:false,rules});
+ const id=challenge.id;await require('../../src/services/challengeState').transitionChallenge(id,'registration_open');
+ for(const [i,acct] of ['991001','991002'].entries())await db.query(`INSERT INTO trading_registrations(challenge_id,user_id,email,nickname,account_number,account_type,connection_verified,investor_password,source) VALUES($1,$2,$3,$4,$5,'demo',true,'SYNTHETIC','winnerpip')`,[id,-900-i,`${acct}@example.invalid`,acct,acct]);
+ await runBalanceWarningCheck(id,null);assert.equal(calls,2);assert.equal(deliveries,1);
+ let rows=(await db.query('SELECT * FROM prestart_balance_checks WHERE challenge_id=$1 ORDER BY registration_id',[id])).rows;
+ assert.equal(rows[0].notified_at,null);assert.equal(rows[0].problem,'high');assert.equal(rows[1].problem,null);
+ await db.query("UPDATE prestart_balance_checks SET attempted_at=NOW()-INTERVAL '6 minutes' WHERE challenge_id=$1",[id]);failEmail=false;
+ await runBalanceWarningCheck(id,null);assert.equal(deliveries,2);assert.equal(calls,3);
+ await runBalanceWarningCheck(id,null);assert.equal(deliveries,2);assert.equal(calls,3);
+ // Correct the warned account, leave the previously valid one one whole unit too high.
+ vpsService.verifyConnection=async(account)=>({success:true,status:'connected',balance:account==='991001'?100.1:101,currency:'USD',trade_mode:0});
+ await db.query("UPDATE trading_challenges SET start_date=NOW()+INTERVAL '90 minutes' WHERE id=$1",[id]);
+ const fresh=(await db.query('SELECT * FROM trading_challenges WHERE id=$1',[id])).rows[0];
+ const scheduler=new TradingScheduler({bot:{telegram:{sendMessage:async()=>{throw Error('Unexpected live notification');}}}});
+ await scheduler.checkPreStartSnapshot(fresh);
+ const accounts=(await db.query('SELECT account_number,disqualified,actual_starting_balance FROM trading_registrations WHERE challenge_id=$1 ORDER BY account_number',[id])).rows;
+ assert.equal(accounts[0].disqualified,false);assert.equal(Number(accounts[0].actual_starting_balance),100.1);assert.equal(accounts[1].disqualified,true);
+ await assert.rejects(()=>require('../../src/services/challengeSettings').updateChallengeSettings(id,{end_date:new Date(Date.now()+172800000).toISOString()}),/pre-start check/);
+ console.log('PASS: real SQL warning ledger, retry, duplicate protection, decimal final check and schedule lock; no external requests.');
+})().catch(e=>{console.error(e);process.exitCode=1}).finally(()=>db.close());

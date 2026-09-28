@@ -1,3 +1,5 @@
+import { validateVerifiedRegistration } from '../services/registrationEligibility';
+import { startingBalanceProblem } from '../utils/startingBalancePolicy';
 import { Context, Markup } from 'telegraf';
 import { tradingChallengeService } from '../services/tradingChallengeService';
 import { exnessService } from '../services/exnessService';
@@ -1216,14 +1218,14 @@ export class TradingRegistrationHandler {
       if (account_type === 'demo') {
         // For demo cent accounts, compare in cent units
         const expectedBalance = isCentAccount ? (startingBalance * 100) : startingBalance;
-        const tolerance = expectedBalance * 0.01; // 1% tolerance for rounding
+        const balanceProblem = startingBalanceProblem(vpsBalance, expectedBalance, depositMode3);
 
         let demoBalanceOk = true;
         let demoRejectReason = '';
 
         if (depositMode3 === 'fixed') {
           // Fixed: must be exactly the starting balance
-          if (Math.abs(vpsBalance - expectedBalance) > tolerance) {
+          if (balanceProblem !== null) {
             demoBalanceOk = false;
             const displayExpected = isCentAccount ? `${startingBalance * 100}¢ ($${startingBalance})` : `$${startingBalance}`;
             const displayActual = isCentAccount ? `${vpsBalance}¢ ($${(vpsBalance/100).toFixed(2)})` : `$${vpsBalance.toFixed(2)}`;
@@ -1231,12 +1233,12 @@ export class TradingRegistrationHandler {
           }
         } else if (depositMode3 === 'max_limit') {
           // Max limit: must be ≤ limit
-          if (vpsBalance > expectedBalance + tolerance) {
+          if (balanceProblem !== null) {
             demoBalanceOk = false;
           }
         } else if (depositMode3 === 'min_limit') {
           // Min limit: must be ≥ limit
-          if (vpsBalance < expectedBalance - tolerance) {
+          if (balanceProblem !== null) {
             demoBalanceOk = false;
           }
         }
@@ -1290,14 +1292,15 @@ export class TradingRegistrationHandler {
       // Deposit mode determines which balance check to apply:
       //   fixed / max_limit: reject if balance > limit (too high)
       //   min_limit: no upper limit — accept any balance (under-deposit checked at pre-start)
-      const shouldRejectHighBalance = depositMode3 !== 'min_limit' && vpsBalance > compareBalance;
+      const realBalanceProblem = startingBalanceProblem(vpsBalance, compareBalance, depositMode3);
+      const shouldRejectHighBalance = realBalanceProblem !== null;
 
       if (shouldRejectHighBalance) {
         // Balance exceeds starting balance — reject
         session.step = 'tc_enter_account_number';
         const lang: Lang = session.data.lang || 'en';
         await ctx.reply(
-          t(lang, 'balance_too_high', { balance: balanceDisplay, limit: startDisplay }),
+          `Balance ${balanceDisplay} does not meet the ${depositMode3} starting requirement ${startDisplay}. Please adjust it and try again.`,
           { parse_mode: 'HTML' }
         );
         return;
@@ -1604,22 +1607,8 @@ export class TradingRegistrationHandler {
         return;
       }
 
-      // For demo: balance must match starting_balance (within 1% tolerance)
-      if (session.data.account_type === 'demo') {
-        const expected  = isCent ? startingBalance * 100 : startingBalance;
-        const tolerance = expected * 0.01;
-        if (Math.abs(vpsBalance - expected) > tolerance) {
-          session.step = 'tc_change_acct_number';
-          const displayExpected = isCent ? `${expected}¢` : `$${startingBalance}`;
-          const displayActual   = isCent ? `${vpsBalance}¢` : `$${vpsBalance.toFixed(2)}`;
-          await ctx.reply(
-            `❌ <b>Balance Mismatch</b>\n\nBalance is <b>${displayActual}</b> but challenge requires exactly <b>${displayExpected}</b>.\n\nPlease adjust and send the account number again:`,
-            { parse_mode: 'HTML' }
-          );
-          return;
-        }
-      }
-
+      try { await validateVerifiedRegistration(session.data.challenge_id, session.data.account_type, vpsResult, 'change'); }
+      catch(error) { session.step='tc_change_acct_number'; await ctx.reply((error as Error).message); return; }
       // All checks passed — save new account number, server, investor password, cent flag, subtype
       await db.query(
         `UPDATE trading_registrations
@@ -1754,7 +1743,7 @@ export class TradingRegistrationHandler {
           number: session.data.account_number,
           server: session.data.mt5_server || 'N/A',
           startDate: startStr,
-        }) + linksText,
+        }) + '\n\n⚠️ Prepare your required starting balance before final verification, 2 or 3 hours before the challenge starts. Check the dashboard for the exact deadline and keep the balance within the requirement until the challenge starts.' + linksText,
         { parse_mode: 'HTML', link_preview_options: { is_disabled: true }, ...Markup.inlineKeyboard(buttons) }
       );
     } catch (error: any) {

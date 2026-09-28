@@ -14,6 +14,15 @@ export async function migrateHardening(): Promise<void> {
     await client.query('ALTER TABLE hosts ADD COLUMN IF NOT EXISTS session_version INTEGER NOT NULL DEFAULT 0');
     await client.query('ALTER TABLE trading_challenges ADD COLUMN IF NOT EXISTS configuration_frozen_at TIMESTAMPTZ');
     await client.query('ALTER TABLE trading_challenges ADD COLUMN IF NOT EXISTS pre_start_check_started_at TIMESTAMPTZ');
+    await client.query('ALTER TABLE trading_challenges ADD COLUMN IF NOT EXISTS pre_start_lead_hours INTEGER');
+    await client.query('ALTER TABLE trading_challenges ADD COLUMN IF NOT EXISTS starting_balance_policy TEXT');
+    await client.query("ALTER TABLE trading_challenges ALTER COLUMN starting_balance_policy SET DEFAULT 'decimal'");
+    await client.query(`CREATE TABLE IF NOT EXISTS prestart_balance_checks (
+      challenge_id INTEGER NOT NULL REFERENCES trading_challenges(id), registration_id INTEGER NOT NULL REFERENCES trading_registrations(id),
+      slot TEXT NOT NULL, checked_at TIMESTAMPTZ, balance NUMERIC, problem TEXT, notified_at TIMESTAMPTZ,
+      attempted_at TIMESTAMPTZ, error TEXT, PRIMARY KEY (registration_id,slot)
+    )`);
+
     await client.query(`CREATE TABLE IF NOT EXISTS challenge_approvals (
       token TEXT PRIMARY KEY, kind TEXT NOT NULL, payload JSONB NOT NULL,
       state TEXT NOT NULL DEFAULT 'pending', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -43,10 +52,12 @@ export async function migrateHardening(): Promise<void> {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),reason TEXT NOT NULL,winners JSONB NOT NULL
     )`);
     await client.query(readFileSync(join(__dirname,'hardening_guards.sql'),'utf8'));
+    await client.query('CREATE INDEX IF NOT EXISTS idx_prestart_balance_slot ON prestart_balance_checks(challenge_id,slot)');
     await client.query('ALTER TABLE wp_deals ADD COLUMN IF NOT EXISTS position_id BIGINT');
     await client.query('ALTER TABLE wp_deals ADD COLUMN IF NOT EXISTS entry INTEGER');
     await client.query('ALTER TABLE trading_registrations ADD COLUMN IF NOT EXISTS funding_origin TEXT');
     await client.query(`UPDATE trading_challenges c SET pre_start_check_started_at=NOW() WHERE pre_start_check_started_at IS NULL AND (EXISTS (SELECT 1 FROM wp_pull_batches b WHERE b.challenge_id=c.id AND b.error_log='pre_start_check') OR EXISTS (SELECT 1 FROM trading_registrations r WHERE r.challenge_id=c.id AND r.funding_origin='prestart_snapshot'))`);
+    await client.query(`UPDATE trading_challenges SET starting_balance_policy=CASE WHEN status IN ('draft','pending_approval','registration_open') AND configuration_frozen_at IS NULL AND pre_start_check_started_at IS NULL THEN 'decimal' ELSE 'legacy_percent' END WHERE starting_balance_policy IS NULL`);
     await client.query(`CREATE TABLE IF NOT EXISTS credential_recovery_jobs (
       registration_id INTEGER PRIMARY KEY REFERENCES trading_registrations(id),
       challenge_id INTEGER NOT NULL REFERENCES trading_challenges(id), source TEXT NOT NULL,

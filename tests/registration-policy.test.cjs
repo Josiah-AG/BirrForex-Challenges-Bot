@@ -31,3 +31,11 @@ test('actual account mode, registration window and host-managed mode are enforce
  reset();challenge.host_id=1;challenge.registration_mode='csv';await assert.rejects(()=>validate(1,'real',verified(),'web'),/host-managed/);
  await validate(1,'real',verified(),'csv');
 });
+test('decimal boundary is consistent for hosted/admin registration and replacement',async()=>{
+ for(const host of [null,1])for(const mode of ['web','native','change','csv']){
+  reset();challenge.host_id=host;challenge.registration_mode='winnerpip';
+  for(const balance of [100,100.1,100.99])await validate(1,'real',verified({balance}),mode);
+  await assert.rejects(()=>validate(1,'real',verified({balance:101}),mode),/maximum/);
+  await assert.rejects(()=>validate(1,'real',verified({balance:99.99}),mode),/below/);
+ }
+});
