@@ -234,6 +234,17 @@ export class TradingScheduler {
     const startMs = new Date(challenge.start_date).getTime();
     if (nowMs < startMs - leadHours * 60 * 60 * 1000) return; // Still too early
 
+    // Serialize against schedule edits/approval, and recheck the current dates before any side effects.
+    const lockedChallenge = await db.transaction(async () => {
+      const row = await db.query('SELECT * FROM trading_challenges WHERE id=$1 FOR UPDATE', [challenge.id]);
+      const fresh = row.rows[0];
+      if (!fresh || fresh.status !== 'registration_open' || Date.now() < new Date(fresh.start_date).getTime() - leadHours * 3600000) return null;
+      await db.query('UPDATE trading_challenges SET pre_start_check_started_at=COALESCE(pre_start_check_started_at,NOW()) WHERE id=$1', [challenge.id]);
+      return fresh;
+    });
+    if (!lockedChallenge) return;
+    challenge = lockedChallenge;
+
     // Check how many accounts still need the snapshot (actual_starting_balance IS NULL)
     const pending = await db.query(
       `SELECT id, account_number, mt5_server, investor_password, is_cent, account_type

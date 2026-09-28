@@ -20,6 +20,7 @@ export async function updateChallengeSettings(id: number, fields: any, hostId?: 
     if (fields.start_date && fields.registration_deadline === undefined && (!current.registration_deadline || sameSetting('start_date', current.registration_deadline, current.start_date))) fields.registration_deadline = fields.start_date;
     const changed=Object.keys(fields).filter(k=>!sameSetting(k,fields[k],current[k]));
     const scheduleChanged=changed.some(k=>scheduleKeys.includes(k));
+    if (scheduleChanged && current.pre_start_check_started_at) throw new ConfigurationError('Schedule is locked because the pre-start check has already begun.');
     if (scheduleChanged && (current.configuration_frozen_at || new Date(current.start_date).getTime() <= Date.now())) throw new ConfigurationError('Schedule is locked once the challenge starts.');
     if (scheduleChanged && new Date(fields.start_date || current.start_date).getTime() <= Date.now()) throw new ConfigurationError('The new challenge start must be in the future.');
     if(frozen && changed.some(k=>!presentation.has(k)))throw new ConfigurationError('Competition settings are locked after start. Only title, description and links can change.');

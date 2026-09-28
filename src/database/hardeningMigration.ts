@@ -13,6 +13,7 @@ export async function migrateHardening(): Promise<void> {
     await client.query('ALTER TABLE wp_pull_batches ADD COLUMN IF NOT EXISTS phase_started_at TIMESTAMPTZ');
     await client.query('ALTER TABLE hosts ADD COLUMN IF NOT EXISTS session_version INTEGER NOT NULL DEFAULT 0');
     await client.query('ALTER TABLE trading_challenges ADD COLUMN IF NOT EXISTS configuration_frozen_at TIMESTAMPTZ');
+    await client.query('ALTER TABLE trading_challenges ADD COLUMN IF NOT EXISTS pre_start_check_started_at TIMESTAMPTZ');
     await client.query(`CREATE TABLE IF NOT EXISTS challenge_approvals (
       token TEXT PRIMARY KEY, kind TEXT NOT NULL, payload JSONB NOT NULL,
       state TEXT NOT NULL DEFAULT 'pending', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -45,6 +46,7 @@ export async function migrateHardening(): Promise<void> {
     await client.query('ALTER TABLE wp_deals ADD COLUMN IF NOT EXISTS position_id BIGINT');
     await client.query('ALTER TABLE wp_deals ADD COLUMN IF NOT EXISTS entry INTEGER');
     await client.query('ALTER TABLE trading_registrations ADD COLUMN IF NOT EXISTS funding_origin TEXT');
+    await client.query(`UPDATE trading_challenges c SET pre_start_check_started_at=NOW() WHERE pre_start_check_started_at IS NULL AND (EXISTS (SELECT 1 FROM wp_pull_batches b WHERE b.challenge_id=c.id AND b.error_log='pre_start_check') OR EXISTS (SELECT 1 FROM trading_registrations r WHERE r.challenge_id=c.id AND r.funding_origin='prestart_snapshot'))`);
     await client.query(`CREATE TABLE IF NOT EXISTS credential_recovery_jobs (
       registration_id INTEGER PRIMARY KEY REFERENCES trading_registrations(id),
       challenge_id INTEGER NOT NULL REFERENCES trading_challenges(id), source TEXT NOT NULL,

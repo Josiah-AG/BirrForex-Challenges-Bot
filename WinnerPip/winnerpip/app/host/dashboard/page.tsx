@@ -1449,9 +1449,10 @@ export default function HostDashboardPage() {
                     </select>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div><label className="text-xs text-gray-400 font-medium mb-1 block">Start ({tzAbbr || 'EAT'})</label><input type="datetime-local" disabled={balanceLocked} value={settingsForm.start_date || ""} onChange={e => setSettingsForm((p: any) => ({...p, start_date: e.target.value}))} className={`w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none ${balanceLocked ? "opacity-40 cursor-not-allowed" : ""}`} /></div>
-                    <div><label className="text-xs text-gray-400 font-medium mb-1 block">End ({tzAbbr || 'EAT'})</label><input type="datetime-local" disabled={balanceLocked} value={settingsForm.end_date || ""} onChange={e => setSettingsForm((p: any) => ({...p, end_date: e.target.value}))} className={`w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none ${balanceLocked ? "opacity-40 cursor-not-allowed" : ""}`} /></div>
+                    <div><label className="text-xs text-gray-400 font-medium mb-1 block">Start ({tzAbbr || 'EAT'})</label><input type="datetime-local" disabled={balanceLocked || !!selectedChallenge?.pre_start_check_started_at} value={settingsForm.start_date || ""} onChange={e => setSettingsForm((p: any) => ({...p, start_date: e.target.value}))} className={`w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none ${balanceLocked ? "opacity-40 cursor-not-allowed" : ""}`} /></div>
+                    <div><label className="text-xs text-gray-400 font-medium mb-1 block">End ({tzAbbr || 'EAT'})</label><input type="datetime-local" disabled={balanceLocked || !!selectedChallenge?.pre_start_check_started_at} value={settingsForm.end_date || ""} onChange={e => setSettingsForm((p: any) => ({...p, end_date: e.target.value}))} className={`w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none ${balanceLocked ? "opacity-40 cursor-not-allowed" : ""}`} /></div>
                   </div>
+                  {selectedChallenge?.pre_start_check_started_at && <p className="text-sm text-amber-300">Schedule locked: the pre-start check has begun.</p>}
                   {balanceLocked && (
                     <p className="text-[11px] text-gray-400 -mb-1 flex items-center gap-1.5"><Shield size={12} /> Balances &amp; targets are locked once the challenge has started.</p>
                   )}
