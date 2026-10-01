@@ -507,17 +507,17 @@ export default function AdminDashboard() {
           if (cancelled) return;
           const pulls = (data.pulls || []).map((p: any) => {
             const startEAT = new Date(new Date(p.started_at).getTime() + 3*60*60*1000);
-            const duration = p.completed_at ? Math.round((new Date(p.completed_at).getTime() - new Date(p.started_at).getTime()) / 1000) : null;
+            const duration = p.durationSec;
             return {
               time: `${startEAT.getUTCHours().toString().padStart(2,'0')}:${startEAT.getUTCMinutes().toString().padStart(2,'0')}`,
               success: p.successful || 0,
               failed: p.failed || 0,
               passwordChanged: 0,
               newTrades: p.new_trades_found || 0,
-              duration: duration ? `${duration}s` : "...",
+              duration: duration != null ? `${duration}s` : p.status === "running" ? "Running…" : "Unavailable",
               status: p.status,
               isPreStart: p.error_log === 'pre_start_check',
-              isBalanceCheck: p.error_log === 'balance_check',
+              isBalanceCheck: p.isBalanceCheck,
             };
           });
           setPullHistory(pulls);
@@ -2477,7 +2477,7 @@ function HealthCheckPanel() {
                     <div className="flex items-center gap-4 text-xs">
                       <span className="text-profit font-semibold">✓{b.successful}</span>
                       <span className="text-loss font-semibold">✗{b.failed}</span>
-                      <span className="text-gray-400">{b.durationSec ? `${b.durationSec}s` : "..."}</span>
+                      <span className="text-gray-400">{b.durationSec != null ? `${b.durationSec}s` : "Unavailable"}</span>
                     </div>
                   </div>
                 ))}
@@ -4612,18 +4612,21 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
       {pullProgress && !pullProgress.isRunning && pullProgress.lastBatch && (() => {
         const lb = pullProgress.lastBatch;
         const completedEAT = lb.completedAt ? (() => { const d = new Date(new Date(lb.completedAt).getTime() + 3*60*60*1000); return `${String(d.getUTCHours()).padStart(2,"0")}:${String(d.getUTCMinutes()).padStart(2,"0")} EAT`; })() : "";
-        const allOk = lb.failed === 0 && lb.reconciled;
+        const balanceCheck = lb.isBalanceCheck;
+        const allOk = lb.failed === 0 && (balanceCheck || lb.reconciled);
         return (
         <div className={`glass rounded-2xl border p-4 ${allOk ? "border-profit/20" : "border-amber-500/30"}`}>
           <p className={`text-xs font-bold ${allOk ? "text-profit" : "text-amber-400"}`}>
-            {allOk
+            {balanceCheck
+              ? `${lb.failed ? "⚠️" : "✅"} Balance check completed — ${lb.successful} checked, ${lb.failed} failed as of ${completedEAT}`
+              : allOk
               ? `✅ All ${lb.totalAccounts} accounts pulled and evaluated — data up to date as of ${completedEAT}`
               : `⚠️ ${lb.failed} of ${lb.totalAccounts} account(s) failed — data up to date as of ${completedEAT} (see below)`}
           </p>
-          <p className="text-[11px] text-gray-400 mt-1">{lb.successful}✓ {lb.failed}✗ — {lb.newTrades} new trades — {lb.durationSec}s</p>
+          <p className="text-[11px] text-gray-400 mt-1">{lb.successful}✓ {lb.failed}✗ — {balanceCheck ? `${lb.warningCount} balance warning(s)` : `${lb.newTrades} new trades`} — {lb.durationSec != null ? `${lb.durationSec}s` : "Duration unavailable"}</p>
 
           {/* Phase Timing Breakdown */}
-          {lb.phaseTimes && (
+          {!balanceCheck && lb.phaseTimes && (
             <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1.5">
               <span className="text-[10px] text-gray-500">⏱ Pull: <span className="text-white font-semibold">{lb.phaseTimes.pull}s</span></span>
               <span className="text-[10px] text-gray-500">Resolve: <span className="text-white font-semibold">{lb.phaseTimes.resolve}s</span></span>
@@ -4644,16 +4647,16 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
             </div>
           )}
 
-          <p className={`text-[11px] mt-2.5 font-medium ${lb.reconciled ? "text-profit/80" : "text-amber-400/90"}`}>
+          {!balanceCheck && <p className={`text-[11px] mt-2.5 font-medium ${lb.reconciled ? "text-profit/80" : "text-amber-400/90"}`}>
             {lb.phase2Total === 0
               ? "✅ Reconciliation: nothing to fix — all trades had open_time on first pass"
               : lb.reconciled
               ? `✅ Reconciliation successful — ${lb.phase2Total} account(s) resolved in ${lb.phase2Round} round(s)`
               : `⚠️ Reconciliation incomplete — ${lb.stillNullCount} trade(s) still missing open_time after ${lb.phase2Round} round(s)`}
-          </p>
+          </p>}
 
           {/* OHLC Candle Data Summary */}
-          {lb.ohlc && lb.ohlc.symbolCount > 0 && (
+          {!balanceCheck && lb.ohlc && lb.ohlc.symbolCount > 0 && (
             <div className="mt-2.5 p-2.5 rounded-xl bg-white/5 border border-white/10">
               <p className="text-[11px] text-royal font-semibold mb-1">📊 OHLC Candle Data — {lb.ohlc.totalCandles.toLocaleString()} candles across {lb.ohlc.symbolCount} instruments</p>
               <div className="flex flex-wrap gap-x-4 gap-y-0.5">
@@ -5266,7 +5269,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
         {terminalStatus.length === 0 && <p className="text-xs text-gray-400">Live terminal inventory unavailable or loading. No terminal availability is assumed.</p>}
         {terminalStatus.length > 0 && <p className="text-[11px] text-gray-500 mt-3">{terminalStatus.length} started terminals. Availability refreshes every 30 seconds; counts are from the last pull cycle.</p>}
         {terminalStatus.length > 0 && terminalStatus.every((t: any) => t.processed === 0) && (
-          <p className="text-[11px] text-gray-500 mt-3">Per-terminal data will appear here after the next pull cycle completes.</p>
+          <p className="text-[11px] text-gray-500 mt-3">{pullProgress?.lastBatch?.isBalanceCheck ? "The latest operation was a balance check. Per-terminal trade-pull statistics are not recorded for balance checks." : "Per-terminal data will appear here after the next pull cycle completes."}</p>
         )}
       </div>
 
@@ -5283,7 +5286,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
                 <th className="text-left py-3 px-4 text-[10px] text-gray-400 uppercase">Time (EAT)</th>
                 <th className="text-center py-3 px-4 text-[10px] text-gray-400 uppercase">Success</th>
                 <th className="text-center py-3 px-4 text-[10px] text-gray-400 uppercase">Failed</th>
-                <th className="text-center py-3 px-4 text-[10px] text-gray-400 uppercase">New Trades</th>
+                <th className="text-center py-3 px-4 text-[10px] text-gray-400 uppercase">New Trades / Warnings</th>
                 <th className="text-right py-3 px-4 text-[10px] text-gray-400 uppercase">Duration</th>
               </tr></thead>
               <tbody>{pullHistory.map((p, i) => (
@@ -5295,7 +5298,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
                   </td>
                   <td className="py-3 px-4 text-center text-sm text-profit">{p.success}</td>
                   <td className="py-3 px-4 text-center text-sm text-loss">{p.failed}</td>
-                  <td className="py-3 px-4 text-center text-sm text-gray-300">{p.isPreStart ? "—" : p.isBalanceCheck ? `${p.newTrades} ⚠️` : p.newTrades}</td>
+                  <td className="py-3 px-4 text-center text-sm text-gray-300">{p.isPreStart ? "—" : p.isBalanceCheck ? `${p.newTrades} warnings` : p.newTrades}</td>
                   <td className="py-3 px-4 text-right text-sm text-gray-400">{p.duration}</td>
                 </tr>
               ))}</tbody>

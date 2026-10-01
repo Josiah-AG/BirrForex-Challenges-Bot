@@ -1193,21 +1193,21 @@ export default function HostDashboardPage() {
                 {pullHistory.length === 0 ? <p className="text-gray-500 text-sm text-center py-6">No updates yet</p> : (
                   <div className="space-y-2">
                     {pullHistory.map((b: any, i: number) => {
-                      const durationSec = b.completed_at && b.started_at ? Math.round((new Date(b.completed_at).getTime() - new Date(b.started_at).getTime()) / 1000) : null;
+                      const durationSec = b.durationSec;
                       return (
                       <div key={b.id} className="flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/10">
                         <div className="flex items-center gap-3">
                           <div className={`w-2.5 h-2.5 rounded-full ${b.status === 'completed' ? 'bg-profit' : b.status === 'running' ? 'bg-gold animate-pulse' : 'bg-loss'}`} />
                           <div>
-                            <p className="text-sm text-white font-medium">Update #{pullHistory.length - i}</p>
+                            <p className="text-sm text-white font-medium">{b.isBalanceCheck ? "Balance check" : "Update"} #{pullHistory.length - i}</p>
                             <p className="text-[10px] text-gray-500">{fmtTime(b.started_at)}</p>
                           </div>
                         </div>
                         <div className="flex items-center gap-4 text-xs">
-                          <span className="text-profit font-semibold">{b.successful} updated</span>
+                          <span className="text-profit font-semibold">{b.successful} {b.isBalanceCheck ? "checked" : "updated"}</span>
                           {b.failed > 0 && <span className="text-loss font-semibold">{b.failed} failed</span>}
                           <span className="text-gray-500">{b.total_accounts} processed</span>
-                          {durationSec != null && <span className="text-gray-500">{durationSec}s</span>}
+                          <span className="text-gray-500">{durationSec != null ? `${durationSec}s` : b.status === "running" ? "Running…" : "Duration unavailable"}</span>
                         </div>
                       </div>
                       );

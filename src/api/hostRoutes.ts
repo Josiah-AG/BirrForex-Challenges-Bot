@@ -1,3 +1,4 @@
+import { pullBatchReport } from '../utils/pullBatchReport';
 import { countAboveTargets } from '../services/challengeMetrics';
 import { saveVerifiedCredential } from '../services/credentialRecovery';
 import { transitionChallenge } from '../services/challengeState';
@@ -987,7 +988,7 @@ router.get('/challenge/:id/pull-history', async (req: any, res: Response) => {
   if (!challengeId) return;
   try {
     const result = await db.query(
-      `SELECT id, started_at, completed_at, total_accounts, successful, failed, status
+      `SELECT id, started_at, completed_at, total_accounts, successful, failed, status, error_log, new_trades_found
        FROM wp_pull_batches WHERE challenge_id=$1 ORDER BY started_at DESC LIMIT 30`, [challengeId]);
 
     // Live account breakdown for the "last update summary" card.
@@ -1016,7 +1017,7 @@ router.get('/challenge/:id/pull-history', async (req: any, res: Response) => {
       lastUpdateAt: result.rows[0]?.started_at ?? null,
     };
 
-    return res.json({ batches: result.rows, summary });
+    return res.json({ batches: result.rows.map(b => ({...b,...pullBatchReport(b)})), summary });
   } catch (error) {
     if(error instanceof ConfigurationError)return res.status(400).json({error:error.message});
     return res.status(500).json({ error: 'Internal server error' });

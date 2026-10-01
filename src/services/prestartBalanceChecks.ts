@@ -38,6 +38,8 @@ export async function runBalanceWarningCheck(challengeId:number,telegram:any,man
     client=await db.getClient();
     locked=(await client.query('SELECT pg_try_advisory_lock(26092803,$1) AS locked',[challengeId])).rows[0].locked;
     if(!locked)return {running:true};
+    // Keep the database clock and timestamp convention used by the history table.
+    const startedAt=(await db.query('SELECT clock_timestamp()::timestamp::text AS started_at')).rows[0].started_at;
     let challenge=(await db.query('SELECT * FROM trading_challenges WHERE id=$1',[challengeId])).rows[0];
     if(!challenge || challenge.status!=='registration_open' || challenge.pre_start_check_started_at)return totals;
     const count=Number((await db.query('SELECT COUNT(*) AS cnt FROM trading_registrations WHERE challenge_id=$1 AND investor_password IS NOT NULL AND connection_verified=true',[challengeId])).rows[0].cnt);
@@ -129,8 +131,8 @@ export async function runBalanceWarningCheck(challengeId:number,telegram:any,man
     const rejected=workers.find(r=>r.status==='rejected');
     if(rejected?.status==='rejected')throw rejected.reason;
     if(totals.checked || totals.failed){
-      await db.query(`INSERT INTO wp_pull_batches(challenge_id,total_accounts,successful,failed,new_trades_found,status,error_log,completed_at)
-        VALUES($1,$2,$3,$4,$5,'completed',$6,NOW())`,[challengeId,totals.checked+totals.failed,totals.checked,totals.failed,totals.warned,isFinal?'final_balance_warning':'balance_check']);
+      await db.query(`INSERT INTO wp_pull_batches(challenge_id,total_accounts,successful,failed,new_trades_found,status,error_log,started_at,completed_at)
+        VALUES($1,$2,$3,$4,$5,'completed',$6,$7::timestamp,clock_timestamp())`,[challengeId,totals.checked+totals.failed,totals.checked,totals.failed,totals.warned,isFinal?'final_balance_warning':'balance_check',startedAt]);
     }
     return {...totals,running:false};
   }finally{

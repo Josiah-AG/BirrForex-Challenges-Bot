@@ -1,3 +1,4 @@
+import { pullBatchReport } from '../utils/pullBatchReport';
 import { brokerForChallenge, inspectParticipants } from '../services/partnerScreening';
 import {workloadReport} from '../services/workloadTelemetry';
 import { terminalInventory } from '../utils/terminalInventory';
@@ -4090,7 +4091,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/pulls`, adminIpCheck, asy
       });
       liveTerminals = terminalInventory(health.data);
     } catch { /* Preserve history when the VPS cannot be reached. */ }
-    return res.json({ pulls: batches.rows, terminalStats, slFailures, liveTerminals });
+    return res.json({ pulls: batches.rows.map(b => ({...b, ...pullBatchReport(b)})), terminalStats, slFailures, liveTerminals });
   } catch (error) {
     if ((error as any)?.code === '23505') return res.status(409).json({error:'Account, email or nickname is already registered'});
     if (error instanceof ConfigurationError) return res.status(400).json({ error: error.message });
@@ -4250,7 +4251,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/vps-health`, adminIpCheck, async (req, 
           failed: b.failed,
           newTrades: b.new_trades_found,
           status: b.status,
-          durationSec: b.completed_at ? Math.round((new Date(b.completed_at).getTime() - new Date(b.started_at).getTime()) / 1000) : null,
+          ...pullBatchReport(b),
         })),
         last24h: {
           batches: parseInt(s.batches),
@@ -6629,9 +6630,9 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/pull-status`, adminIpCheck, async (req,
 
     // Not running — get last completed batch (filtered by challenge if specified)
     const lastQuery = filterChallengeId
-      ? `SELECT id, challenge_id, total_accounts, successful, failed, new_trades_found, status, started_at, completed_at, phase, phase2_total, phase2_processed, phase2_round, phase_times
+      ? `SELECT id, challenge_id, total_accounts, successful, failed, new_trades_found, status, error_log, started_at, completed_at, phase, phase2_total, phase2_processed, phase2_round, phase_times
          FROM wp_pull_batches WHERE challenge_id = $1 ORDER BY started_at DESC LIMIT 1`
-      : `SELECT id, challenge_id, total_accounts, successful, failed, new_trades_found, status, started_at, completed_at, phase, phase2_total, phase2_processed, phase2_round, phase_times
+      : `SELECT id, challenge_id, total_accounts, successful, failed, new_trades_found, status, error_log, started_at, completed_at, phase, phase2_total, phase2_processed, phase2_round, phase_times
          FROM wp_pull_batches ORDER BY started_at DESC LIMIT 1`;
     const lastParams = filterChallengeId ? [filterChallengeId] : [];
     const last = await db.query(lastQuery, lastParams);
@@ -6693,7 +6694,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/pull-status`, adminIpCheck, async (req,
           status: b.status,
           startedAt: b.started_at,
           completedAt: b.completed_at,
-          durationSec: b.completed_at ? Math.round((new Date(b.completed_at).getTime() - new Date(b.started_at).getTime()) / 1000) : null,
+          ...pullBatchReport(b),
           phase: b.phase,
           phase2Total: b.phase2_total,
           phase2Processed: b.phase2_processed,
