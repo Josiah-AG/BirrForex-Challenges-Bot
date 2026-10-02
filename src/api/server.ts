@@ -1139,10 +1139,12 @@ app.post('/api/challenges/:id/change-account', authLimiter, async (req, res) => 
         last_known_balance = $5, registration_balance = $5, actual_starting_balance = NULL,
         connection_verified = true, connection_verified_at = NOW(),
         pull_status = NULL, pull_error = NULL, last_pull_at = NULL,
-        balance_warning = false
+        balance_warning = false, credential_failure_detected_at=NULL
        WHERE id = $6`,
       [newAccountNumber.trim(), serverToUse, newInvestorPassword.trim(), isCent, balance, reg.rows[0].id]);
 
+    await queueCredentialRecovery(reg.rows[0].id,challengeId,'user');
+    void (global as any).__vpsPullScheduler?.processCredentialRecovery(reg.rows[0].id);
     return res.json({ success: true, message: 'Account updated successfully', balance, isCent, server: serverToUse });
   } catch (error) {
     if(error instanceof ConfigurationError || (error as any)?.code==='23514')return res.status(400).json({error:(error as Error).message});
@@ -1251,10 +1253,12 @@ app.post('/api/challenges/:id/change-registration', authLimiter, async (req: any
         registration_balance = $6, actual_starting_balance = NULL,
         connection_verified = true, connection_verified_at = NOW(),
         pull_status = NULL, pull_error = NULL, last_pull_at = NULL,
-        balance_warning = false
+        balance_warning = false, credential_failure_detected_at=NULL
        WHERE id = $8`,
       [newAccountNumber.trim(), serverToUse, newInvestorPassword.trim(), newAccountType, isCent, balance, accountSubtype, existingRegId]);
 
+    await queueCredentialRecovery(existingRegId,challengeId,'user');
+    void (global as any).__vpsPullScheduler?.processCredentialRecovery(existingRegId);
     return res.json({
       success: true,
       message: `Registration updated to ${newAccountType} account.`,
@@ -7424,7 +7428,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/prestart-check-flagged`,
     res.json({success:true,started:true,message:'Checking current balances using each account category’s settings.'});
     const {runBalanceWarningCheck}=require('../services/prestartBalanceChecks');
     void runBalanceWarningCheck(challengeId,getTelegram(),true).then((result:any)=>{
-      prestartCheckProgress.set(challengeId,{running:false,total:result.checked || 0,checked:result.checked || 0,updated:result.checked || 0,failed:result.failed || 0,credentialFailed:0,dmsSent:result.sent || 0,message:result.running?'An automatic balance check is already running.':`Done: ${result.checked || 0} checked, ${result.warned || 0} flagged, ${result.sent || 0} notices sent; failed notices will retry automatically.`});
+      prestartCheckProgress.set(challengeId,{running:false,total:result.checked || 0,checked:result.checked || 0,updated:result.checked || 0,failed:result.failed || 0,credentialFailed:result.credentialFailed || 0,dmsSent:result.sent || 0,message:result.running?'An automatic balance check is already running.':`Done: ${result.checked || 0} checked, ${result.warned || 0} flagged, ${result.sent || 0} balance notices sent. Temporary failures receive at most two retry rounds; credential failures wait for account updates.`});
     }).catch((error:Error)=>{
       const progress=prestartCheckProgress.get(challengeId)!;progress.running=false;progress.message=error.message;progress.failed++;
     });

@@ -26,6 +26,15 @@ export async function migrateHardening(): Promise<void> {
       attempted_at TIMESTAMPTZ, error TEXT, PRIMARY KEY (registration_id,slot)
     )`);
 
+    await client.query(`CREATE TABLE IF NOT EXISTS prestart_balance_rounds (
+      challenge_id INTEGER NOT NULL REFERENCES trading_challenges(id), slot TEXT NOT NULL,
+      attempts INTEGER NOT NULL DEFAULT 0, finished_at TIMESTAMPTZ, batch_id INTEGER,
+      PRIMARY KEY(challenge_id,slot)
+    )`);
+    await client.query('ALTER TABLE prestart_balance_checks ADD COLUMN IF NOT EXISTS credential_error BOOLEAN NOT NULL DEFAULT false');
+    await client.query('ALTER TABLE prestart_balance_checks ADD COLUMN IF NOT EXISTS credential_notified_at TIMESTAMPTZ');
+    await client.query('ALTER TABLE prestart_balance_checks ADD COLUMN IF NOT EXISTS notice_attempted_at TIMESTAMPTZ');
+
     await client.query(`CREATE TABLE IF NOT EXISTS challenge_approvals (
       token TEXT PRIMARY KEY, kind TEXT NOT NULL, payload JSONB NOT NULL,
       state TEXT NOT NULL DEFAULT 'pending', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),

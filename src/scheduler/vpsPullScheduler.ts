@@ -1880,7 +1880,7 @@ export class VpsPullScheduler {
     } catch(error){console.error('Credential recovery queue error:',error);}
   }
 
-  private async processCredentialRecovery(registrationId: number): Promise<(PullResult & {evaluated?:boolean}) | null> {
+  async processCredentialRecovery(registrationId: number): Promise<(PullResult & {evaluated?:boolean}) | null> {
     const lease=await db.getClient();
     let acquired=false;
     let coordinator=false;
@@ -1900,7 +1900,7 @@ export class VpsPullScheduler {
       await db.query(`UPDATE credential_recovery_jobs SET state='running',attempts=attempts+1,updated_at=NOW() WHERE registration_id=$1 AND version=$2`,[registrationId,version]);
       const result=await this.executeCredentialRecovery(registrationId,challengeId,source);
       await db.query(`UPDATE credential_recovery_jobs SET state=$3,error=$4,updated_at=NOW() WHERE registration_id=$1 AND version=$2`,
-        [registrationId,version,(result as any)?.publicationPending ? 'awaiting_admin' : result?.success && result.evaluated ? 'completed' : 'pending',result?.errorMessage || null]);
+        [registrationId,version,(result as any)?.recoveryStopped ? 'awaiting_update' : (result as any)?.publicationPending ? 'awaiting_admin' : result?.success && result.evaluated ? 'completed' : 'pending',result?.errorMessage || null]);
       return result;
     } catch(error){
       if(version!==undefined)await db.query(`UPDATE credential_recovery_jobs SET state='pending',error=$3,updated_at=NOW() WHERE registration_id=$1 AND version=$2`,[registrationId,version,(error as Error).message]);
@@ -1917,6 +1917,15 @@ export class VpsPullScheduler {
     const registration = await db.query(`SELECT account_number FROM trading_registrations WHERE id=$1 AND challenge_id=$2 AND status IS DISTINCT FROM 'removed'`,[registrationId,challengeId]);
     if (!registration.rows[0]) throw new Error('Registration not found');
     this.credentialFailureCache.delete(normalizeAccountNumber(registration.rows[0].account_number));
+    const prestart=(await db.query('SELECT status,pre_start_check_started_at FROM trading_challenges WHERE id=$1',[challengeId])).rows[0];
+    if(prestart?.status==='registration_open' && !prestart.pre_start_check_started_at){
+      const {runBalanceWarningCheck}=require('../services/prestartBalanceChecks');
+      const outcome=await runBalanceWarningCheck(challengeId,this.bot.bot.telegram,false,registrationId);
+      const latest=(await db.query('SELECT pull_status FROM trading_registrations WHERE id=$1',[registrationId])).rows[0];
+      const success=!!(outcome.checked || outcome.completed) && !outcome.failed;
+      return {registrationId,accountNumber:registration.rows[0].account_number,userId:0,username:null,
+        success,evaluated:success,recoveryStopped:outcome.exhausted || ['password_changed','invalid_credentials'].includes(latest?.pull_status)} as PullResult & {evaluated?:boolean};
+    }
     await db.query(`UPDATE trading_registrations SET last_pull_at=NULL,credential_failure_detected_at=NULL WHERE id=$1`,[registrationId]);
     // Credential repair never reverses a DQ. Explicit reinstatement remains an admin action.
     const finalState=await db.query('SELECT leaderboard_locked_at,status FROM trading_challenges WHERE id=$1',[challengeId]);

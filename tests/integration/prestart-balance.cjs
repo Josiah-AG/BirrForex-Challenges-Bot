@@ -20,7 +20,7 @@ const {TradingScheduler}=require('../../src/scheduler/tradingScheduler');
  await runBalanceWarningCheck(id,null);assert.equal(calls,3);assert.equal(deliveries,1);
  let rows=(await db.query('SELECT * FROM prestart_balance_checks WHERE challenge_id=$1 ORDER BY registration_id',[id])).rows;
  assert.equal(rows[0].notified_at,null);assert.equal(rows[0].problem,'high');assert.equal(rows[1].problem,null);
- await db.query("UPDATE prestart_balance_checks SET attempted_at=NOW()-INTERVAL '6 minutes' WHERE challenge_id=$1",[id]);failEmail=false;
+ await db.query("UPDATE prestart_balance_rounds SET finished_at=NOW()-INTERVAL '6 minutes' WHERE challenge_id=$1",[id]);failEmail=false;
  await runBalanceWarningCheck(id,null);assert.equal(deliveries,2);assert.equal(calls,4);
  await runBalanceWarningCheck(id,null);assert.equal(deliveries,2);assert.equal(calls,4);
  // Correct the warned account, leave the previously valid one one whole unit too high.

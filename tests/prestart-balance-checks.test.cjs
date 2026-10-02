@@ -1,27 +1,34 @@
 const {test}=require('node:test');const assert=require('node:assert/strict');require('ts-node/register/transpile-only');
-let challenge,regs,ledger,count,now,deliver,results,calls,sends,afterVerify,batches;
+let challenge,regs,ledger,count,now,deliver,results,calls,sends,afterVerify,batches,rounds;
 const realNow=Date.now;Date.now=()=>now;
 function mock(p,exports){const id=require.resolve(p);require.cache[id]={id,filename:id,loaded:true,exports};}
 const key=(id,slot)=>`${id}/${slot}`;
 const db={transaction:async fn=>fn(),getClient:async()=>({query:async()=>({rows:[{locked:true}]}),release(){}}),query:async(sql,args=[])=>{
+ if(sql.startsWith('SELECT b.registration_id'))return {rows:regs.flatMap(r=>[...ledger.values()].filter(b=>b.registration_id===r.id&&b.credential_error&&!b.credential_notified_at&&r.pull_status==='password_changed'&&(!b.notice_attempted_at||now-+b.notice_attempted_at>=300000)).map(b=>({...r,...b})))};
+ if(sql.startsWith('INSERT INTO prestart_balance_rounds')){if(!rounds.has(args[1]))rounds.set(args[1],{attempts:0});return {rows:[]};}
+ if(sql.startsWith('SELECT * FROM prestart_balance_rounds'))return {rows:[{...rounds.get(args[1])}]};
+ if(sql.startsWith('UPDATE prestart_balance_rounds')){const r=rounds.get(args[1]);if(sql.includes('attempts=attempts+1'))r.attempts++;if(sql.includes('finished_at='))r.finished_at=new Date(now);if(sql.includes('batch_id='))r.batch_id=args[2];return {rows:[]};}
+ if(sql.startsWith('SELECT COUNT(*)::int total')){const rows=[...ledger.values()].filter(b=>b.slot===args[1]);return {rows:[{total:rows.length,successful:rows.filter(b=>b.checked_at).length,failed:rows.filter(b=>!b.checked_at).length,warned:rows.filter(b=>b.problem).length}]};}
+ if(sql.startsWith("UPDATE trading_registrations SET pull_status='password_changed'")){const r=regs.find(r=>r.id===args[0]);r.pull_status='password_changed';return {rows:[{id:r.id}]};}
+ if(sql.startsWith('UPDATE wp_pull_batches'))return {rows:[]};
  if(sql.startsWith('SELECT clock_timestamp()'))return {rows:[{started_at:new Date(now).toISOString()}]};
  if(sql.startsWith('SELECT * FROM trading_challenges'))return {rows:[{...challenge}]};
  if(sql.startsWith('SELECT COUNT'))return {rows:[{cnt:count}]};
  if(sql.startsWith('UPDATE trading_challenges SET pre_start_lead_hours')){challenge.pre_start_lead_hours??=args[1];return {rows:[]};}
- if(sql.startsWith('INSERT INTO prestart_balance_checks')){for(const r of regs){const k=key(r.id,args[1]);if(!ledger.has(k))ledger.set(k,{registration_id:r.id,slot:args[1]});}return {rows:[]};}
- if(sql.startsWith('SELECT r.id'))return {rows:regs.filter(r=>{const b=ledger.get(key(r.id,args[1]));return b&&(!b.checked_at||(b.problem&&!b.notified_at))&&(!b.attempted_at||now-+b.attempted_at>=300000);})};
+ if(sql.startsWith('INSERT INTO prestart_balance_checks')){for(const r of regs.filter(r=>r.pull_status!=='password_changed')){const k=key(r.id,args[1]);if(!ledger.has(k))ledger.set(k,{registration_id:r.id,slot:args[1]});}return {rows:[]};}
+ if(sql.startsWith('SELECT r.id'))return {rows:regs.filter(r=>{const b=ledger.get(key(r.id,args[1]));return b&&!b.credential_error&&r.pull_status!=='password_changed'&&(!b.checked_at||(b.problem&&!b.notified_at));})};
  if(sql.startsWith('SELECT * FROM prestart_balance_checks'))return {rows:[{...ledger.get(key(...args))}]};
  if(sql.startsWith('UPDATE prestart_balance_checks SET checked_at=NULL')){for(const b of ledger.values())if(b.slot===args[1])Object.assign(b,{checked_at:null,attempted_at:null,error:null});return {rows:[]};}
- if(sql.startsWith('UPDATE prestart_balance_checks')){const b=ledger.get(key(args[0],args[1]));if(sql.includes('attempted_at=NOW()'))b.attempted_at=new Date(now);else if(sql.includes('checked_at=COALESCE'))Object.assign(b,{checked_at:new Date(now),balance:args[2],problem:args[3],error:null});else if(sql.includes('notified_at=NOW()'))Object.assign(b,{notified_at:new Date(now),error:null});else if(sql.includes('SET error='))b.error=args[2];return {rows:[]};}
- if(sql.startsWith('UPDATE trading_registrations SET last_known_balance')){const r=regs.find(r=>r.id===args[0]);r.last_known_balance=args[1];r.balance_warning=args[2];return {rows:[]};}
- if(sql.startsWith('INSERT INTO wp_pull_batches')){batches.push({sql,args,finished:now});return {rows:[]};}
+ if(sql.startsWith('UPDATE prestart_balance_checks')){const b=ledger.get(key(args[0],args[1]));if(sql.includes('credential_notified_at=NOW()'))b.credential_notified_at=new Date(now);else if(sql.includes('notice_attempted_at=NOW()'))b.notice_attempted_at=new Date(now);else if(sql.includes('credential_error=true')){b.credential_error=true;b.error='credential';}else if(sql.includes('attempted_at=NOW()'))b.attempted_at=new Date(now);else if(sql.includes('checked_at=COALESCE'))Object.assign(b,{checked_at:new Date(now),balance:args[2],problem:args[3],error:null});else if(sql.includes('notified_at=NOW()'))Object.assign(b,{notified_at:new Date(now),error:null});else if(sql.includes('SET error='))b.error=args[2];return {rows:[]};}
+ if(sql.startsWith('UPDATE trading_registrations SET last_known_balance')){const r=regs.find(r=>r.id===args[0]);r.last_known_balance=args[1];r.balance_warning=args[2];return {rows:[{id:r.id}]};}
+ if(sql.startsWith('INSERT INTO wp_pull_batches')){batches.push({sql,args,finished:now});return {rows:[{id:batches.length}]};}
  throw Error(sql);
 }};
 mock('../src/database/db',{db});mock('../src/services/wpEvaluationEngine',{evaluationEngine:{rulesForAccount:async()=>({})}});
 mock('../src/services/vpsService',{vpsService:{verifyConnection:async(account)=>{calls++;if(afterVerify)afterVerify();return results[account]||{success:true,status:'connected',balance:100};}}});
 mock('../src/services/emailService',{emailService:{sendGeneric:async(...args)=>{sends.push(args);return deliver;}}});
 const {runBalanceWarningCheck:run,balanceNotice}=require('../src/services/prestartBalanceChecks');
-function reset(n=2){now=+new Date('2099-10-01T07:00:00Z');count=n;challenge={id:1,host_id:2,status:'registration_open',start_date:'2099-10-01T12:00:00Z',timezone:'UTC',title:'Test <unsafe>',type:'demo',starting_balance:100,target_balance:200,deposit_mode:'fixed',starting_balance_policy:'decimal'};regs=[1,2].map(id=>({id,account_number:String(id),account_type:'demo',is_cent:false,source:'winnerpip',email:`${id}@example.invalid`}));ledger=new Map();results={'1':{success:true,status:'connected',balance:120}};deliver=true;calls=0;sends=[];afterVerify=null;batches=[];}
+function reset(n=2){now=+new Date('2099-10-01T07:00:00Z');count=n;challenge={id:1,host_id:2,status:'registration_open',start_date:'2099-10-01T12:00:00Z',timezone:'UTC',title:'Test <unsafe>',type:'demo',starting_balance:100,target_balance:200,deposit_mode:'fixed',starting_balance_policy:'decimal'};regs=[1,2].map(id=>({id,account_number:String(id),account_type:'demo',is_cent:false,source:'winnerpip',email:`${id}@example.invalid`}));ledger=new Map();results={'1':{success:true,status:'connected',balance:120}};deliver=true;calls=0;sends=[];afterVerify=null;batches=[];rounds=new Map();}
 test('T-5 checks all accounts and emails only mismatches, once across repeated ticks',async()=>{reset();await run(1,null);assert.equal(calls,2);assert.equal(sends.length,1);assert.equal(regs[0].balance_warning,true);assert.equal(regs[1].balance_warning,false);assert.equal(challenge.pre_start_lead_hours,2);assert.match(sends[0][2],/10:00/);assert.match(sends[0][2],/Reset your demo/);assert.match(sends[0][2],/Test &lt;unsafe&gt;/);now+=600000;await run(1,null);assert.equal(calls,2);assert.equal(sends.length,1);});
 test('T-6 for large challenges; threshold crossing does not shorten correction window',async()=>{reset(501);now-=3600000;await run(1,null);assert.equal(challenge.pre_start_lead_hours,3);assert.match(sends[0][2],/09:00/);reset();await run(1,null);count=501;now+=600000;await run(1,null);assert.equal(challenge.pre_start_lead_hours,2);assert.equal(sends.length,1);});
 test('failed email retries after five minutes and successful deliveries are not repeated',async()=>{reset();deliver=false;await run(1,null);assert.equal([...ledger.values()].filter(b=>b.notified_at).length,0);now+=60000;await run(1,null);assert.equal(sends.length,1);now+=300000;deliver=true;await run(1,null);assert.equal(sends.length,2);assert.equal(sends[0][3],sends[1][3]);});
@@ -39,3 +46,20 @@ test('lower balance still sends the simplified correction reminder',async()=>{
 });
 
 test('balance history retains start before broker work rather than insertion time',async()=>{reset();const start=now;afterVerify=()=>{now+=15000;};await run(1,null);assert.equal(batches.length,1);assert.equal(+new Date(batches[0].args[6]),start);assert.ok(batches[0].finished-start>=30000);assert.match(batches[0].sql,/started_at,completed_at/);});
+
+test('credential rejection stops broker retries and retries email independently',async()=>{
+ reset();results['1']={success:false,status:'invalid_credentials'};deliver=false;
+ await run(1,null);assert.equal(calls,2);assert.equal(regs[0].pull_status,'password_changed');assert.equal(sends.length,1);
+ now+=300001;deliver=true;await run(1,null);assert.equal(calls,2);assert.equal(sends.length,2);
+ assert.equal(sends[0][3],sends[1][3]);assert.match(sends[1][2],/update your investor password/);
+ now+=300001;await run(1,null);assert.equal(calls,2);assert.equal(sends.length,2);
+});
+test('twenty transient failures retry together only twice, five minutes after full round ends',async()=>{
+ reset();regs=Array.from({length:20},(_,i)=>({id:i+1,account_number:String(i+1),account_type:'demo',source:'winnerpip',email:'test@example.invalid'}));
+ results=Object.fromEntries(regs.map(r=>[r.account_number,{success:false,status:'timeout'}]));
+ afterVerify=()=>{now+=10000;};await run(1,null);assert.equal(calls,20);const finished=now;
+ now=finished+299999;await run(1,null);assert.equal(calls,20);
+ now=finished+300001;await run(1,null);assert.equal(calls,40);
+ now+=300001;await run(1,null);assert.equal(calls,60);
+ now+=3600000;await run(1,null);assert.equal(calls,60);assert.equal(batches.length,1);
+});

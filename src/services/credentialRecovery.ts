@@ -15,4 +15,7 @@ export async function saveVerifiedCredential(registrationId: number, challengeId
     if (!saved.rows.length) throw new Error('Registration not found or removed');
     await queueCredentialRecovery(registrationId,challengeId,source);
   });
+  // Persist first; start recovery immediately, with the durable job as restart fallback.
+  const scheduler=(global as any).__vpsPullScheduler;
+  if(scheduler)void scheduler.processCredentialRecovery(registrationId).catch((error:any)=>console.error('Immediate credential recovery pending',error));
 }
