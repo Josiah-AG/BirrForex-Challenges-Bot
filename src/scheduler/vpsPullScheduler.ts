@@ -1435,7 +1435,10 @@ export class VpsPullScheduler {
       try { await this.bot.bot.telegram.sendMessage(config.adminUserId, text, { parse_mode: 'HTML' }); }
       catch (error: any) { console.warn('Terminal health alert delivery failed:', error.message); }
     };
-    const time = (ms: number) => new Date(ms).toISOString().replace('T', ' ').replace('.000Z', ' UTC');
+    const time = (ms: number) => new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Africa/Addis_Ababa', year: 'numeric', month: 'short', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+    }).format(new Date(ms)) + ' EAT';
     try {
       let data: any;
       let inventory: ReturnType<typeof terminalInventory>;
