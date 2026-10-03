@@ -1,4 +1,5 @@
 import {withWorkloadContext} from '../services/workloadTelemetry';
+import { TerminalHealthMonitor, outageDuration } from '../utils/terminalHealthMonitor';
 import { terminalInventory } from '../utils/terminalInventory';
 import { beginPullJournal, checkpointPullJournal } from '../services/pullRollbackJournal';
 import { validateHistorySnapshot } from '../utils/historySnapshot';
@@ -49,7 +50,7 @@ const ACCOUNT_TIMEOUT_MS = 195000;
 const HISTORY_RESOLVE_TIMEOUT_MS = 195000;
 const BATCH_DELAY_MS = 1500;
 const PASSWORD_WARNING_HOURS = 24;
-const TERMINAL_HEALTH_RECHECK_MS = 10 * 60 * 1000;
+
 const TERMINAL_FAILURE_THRESHOLD = 5;
 // Unified continuous-queue retry model (replaces the old multi-phase retry system):
 //   - Credential failure (-6) on T1 → account is NOT labeled yet. It jumps to the FRONT
@@ -349,8 +350,8 @@ export class VpsPullScheduler {
     // Check for 48h disqualifications every hour
     cron.schedule('30 * * * *', () => this.checkDisqualifications(), { timezone: 'UTC' });
 
-    // Terminal health recheck every 10 min
-    cron.schedule('*/10 * * * *', () => this.recheckUnhealthyTerminals(), { timezone: 'UTC' });
+    // Read-only monitoring continues during pulls; one snapshot every 30 seconds.
+    cron.schedule('*/30 * * * * *', () => this.recheckUnhealthyTerminals(), { timezone: 'UTC' });
 
     // Auto-start / auto-end challenges based on scheduled EAT times — runs every minute
     cron.schedule('* * * * *', () => this.checkChallengeLifecycle(), { timezone: 'UTC' });
@@ -1419,96 +1420,68 @@ export class VpsPullScheduler {
 
   // ==================== TERMINAL HEALTH ====================
 
-  // Terminal alert state
-  private hadTerminalDown = false;
+  private readonly healthMonitor = new TerminalHealthMonitor();
+  private healthCheckRunning = false;
   private lastCriticalDmAt = 0;
-  private readonly CRITICAL_DM_INTERVAL_MS = 2 * 60 * 60 * 1000; // 2 hours
-  private terminalUnhealthyMsgIds = new Map<number, number>(); // terminalId → message_id
+  private routerCheckFailures = 0;
+  private routerUnavailableSince: number | null = null;
+  private routerAlertSent = false;
+  private readonly CRITICAL_DM_INTERVAL_MS = 2 * 60 * 60 * 1000;
 
   private async recheckUnhealthyTerminals() {
-    if(this.isRunning)return;
-    const previouslyDown = new Map(this.terminals.filter(t=>!t.isHealthy).map(t=>[t.id,t.unhealthySince]));
-    try {await this.refreshTerminalInventory();}catch{return;}
-    // Preserve recovery transitions until the alert path verifies and reports them.
-    for(const terminal of this.terminals){if(previouslyDown.has(terminal.id)){
-      terminal.isHealthy=false;terminal.unhealthySince=previouslyDown.get(terminal.id)||new Date();
-    }}
-    const unhealthy = this.terminals.filter(t => !t.isHealthy && t.unhealthySince);
-    if (unhealthy.length === 0) return;
-
-    this.hadTerminalDown = true;
-
-    for (const terminal of unhealthy) {
-      const elapsed = Date.now() - (terminal.unhealthySince?.getTime() || 0);
-      if (elapsed < TERMINAL_HEALTH_RECHECK_MS) continue;
-
-      console.log(`🔍 VPS Pull: Health-checking terminal ${terminal.id}...`);
-      const healthy = await this.checkTerminalHealth(terminal.id);
-
-      if (healthy) {
-        terminal.isHealthy = true;
-        terminal.consecutiveFailures = 0;
-        terminal.unhealthySince = null;
-        console.log(`✅ Terminal ${terminal.id} recovered`);
-
-        // Delete the unhealthy DM and send recovered DM
-        const oldMsgId = this.terminalUnhealthyMsgIds.get(terminal.id);
-        if (oldMsgId) {
-          try { await this.bot.bot.telegram.deleteMessage(config.adminUserId, oldMsgId); } catch (e) {}
-          this.terminalUnhealthyMsgIds.delete(terminal.id);
-        }
-        try {
-          await this.bot.bot.telegram.sendMessage(config.adminUserId,
-            `✅ <b>Terminal ${terminal.id} Recovered</b>\n\nHealthy: ${this.getHealthyTerminalCount()}/${this.terminals.length}`,
-            { parse_mode: 'HTML' });
-        } catch (e) {}
-      } else {
-        console.log(`❌ Terminal ${terminal.id} still unhealthy`);
-        // Only send DM if we don't already have one for this terminal
-        if (!this.terminalUnhealthyMsgIds.has(terminal.id)) {
-          try {
-            const msg = await this.bot.bot.telegram.sendMessage(config.adminUserId,
-              `⚠️ <b>VPS Terminal ${terminal.id} Unhealthy</b>\n\n` +
-              `Down since ${terminal.unhealthySince?.toISOString()}\n` +
-              `Healthy terminals: ${this.getHealthyTerminalCount()}/${this.terminals.length}`,
-              { parse_mode: 'HTML' });
-            this.terminalUnhealthyMsgIds.set(terminal.id, msg.message_id);
-          } catch (e) {}
-        }
-        terminal.unhealthySince = new Date();
-      }
-    }
-
-    // Check if ALL terminals recovered
-    const healthyCount = this.getHealthyTerminalCount();
-    if (this.hadTerminalDown && healthyCount === this.terminals.length) {
-      this.hadTerminalDown = false;
-      this.lastCriticalDmAt = 0;
+    if (this.healthCheckRunning) return;
+    this.healthCheckRunning = true;
+    const send = async (text: string) => {
+      try { await this.bot.bot.telegram.sendMessage(config.adminUserId, text, { parse_mode: 'HTML' }); }
+      catch (error: any) { console.warn('Terminal health alert delivery failed:', error.message); }
+    };
+    const time = (ms: number) => new Date(ms).toISOString().replace('T', ' ').replace('.000Z', ' UTC');
+    try {
+      let data: any;
+      let inventory: ReturnType<typeof terminalInventory>;
       try {
-        await this.bot.bot.telegram.sendMessage(config.adminUserId,
-          `✅ <b>All VPS Terminals Recovered</b>\n\n` +
-          `All ${this.terminals.length}/${this.terminals.length} terminals are healthy and operational.`,
-          { parse_mode: 'HTML' });
-      } catch (e) {}
-    }
-
-    // Critical alert: half or more terminals down (≤7 healthy)
-    if (healthyCount <= Math.floor(this.terminals.length / 2)) {
-      const now = Date.now();
-      if (now - this.lastCriticalDmAt >= this.CRITICAL_DM_INTERVAL_MS) {
-        this.lastCriticalDmAt = now;
-        const downCount = this.terminals.length - healthyCount;
-        try {
-          await this.bot.bot.telegram.sendMessage(config.adminUserId,
-            `🚨 <b>CRITICAL: ${downCount} VPS Terminals Down</b>\n\n` +
-            `Only <b>${healthyCount}/${this.terminals.length}</b> terminals are healthy.\n` +
-            `Pull performance is severely degraded.\n\n` +
-            `⚠️ Please check the VPS immediately.\n` +
-            `<i>This alert repeats every 2 hours until recovery.</i>`,
-            { parse_mode: 'HTML' });
-        } catch (e) {}
+        const response = await axios.get(`${this.baseUrl}/health`, { timeout: 15000 });
+        data = response.data;
+        inventory = terminalInventory(data);
+      } catch (error: any) {
+        this.healthMonitor.unknown();
+        this.routerUnavailableSince ??= Date.now();
+        if (++this.routerCheckFailures >= 2 && !this.routerAlertSent) {
+          this.routerAlertSent = true;
+          await send('⚠️ <b>VPS health check unavailable</b>\n\nThe router could not be reached or returned invalid health data. Terminal status is unknown; this does not confirm that all terminals are down.\nFirst detected: ' + time(this.routerUnavailableSince));
+        }
+        console.warn('VPS health snapshot unavailable:', error.message);
+        return;
       }
-    }
+      const now = Date.now();
+      if (this.routerAlertSent) {
+        await send(`✅ <b>VPS health checks restored</b>\n\nObserved monitoring gap: ${outageDuration(now - this.routerUnavailableSince!)}\nHealthy: ${inventory.healthyIds.length}/${inventory.ids.length}`);
+      }
+      this.routerCheckFailures = 0;
+      this.routerUnavailableSince = null;
+      this.routerAlertSent = false;
+      const maintenance = Array.isArray(data.maintenance_terminals) ? data.maintenance_terminals : [];
+      const result = this.healthMonitor.observe(inventory.ids, inventory.healthyIds, now, maintenance);
+      const count = `Healthy: ${inventory.healthyIds.length}/${inventory.ids.length}`;
+      for (const incident of result.down) {
+        console.warn(`Terminal ${incident.id} confirmed unhealthy; first detected ${time(incident.since)}`);
+        await send(`⚠️ <b>VPS Terminal ${incident.id} Unhealthy</b>\n\nFirst detected: ${time(incident.since)}\n${count}\nConfirmed by two consecutive checks.`);
+      }
+      for (const incident of result.recovered) {
+        console.log(`Terminal ${incident.id} recovered; observed downtime ${outageDuration(now - incident.since)}`);
+        await send(`✅ <b>Terminal ${incident.id} Recovered</b>\n\nObserved downtime: <b>${outageDuration(now - incident.since)}</b>\nFirst detected down: ${time(incident.since)}\nRecovery detected: ${time(now)}\n${count}`);
+      }
+      if (result.recovered.length && inventory.healthyIds.length === inventory.ids.length) {
+        this.lastCriticalDmAt = 0;
+        await send(`✅ <b>All VPS Terminals Recovered</b>\n\nAll ${inventory.ids.length}/${inventory.ids.length} terminals are healthy.\nChecked: ${time(now)}`);
+      }
+      if (!result.confirmedDown.length) this.lastCriticalDmAt = 0;
+      if (result.confirmedDown.length >= Math.ceil(inventory.ids.length / 2) &&
+          now - this.lastCriticalDmAt >= this.CRITICAL_DM_INTERVAL_MS) {
+        this.lastCriticalDmAt = now;
+        await send(`🚨 <b>CRITICAL: ${result.confirmedDown.length} VPS Terminals Unhealthy</b>\n\n${count}\nConfirmed by consecutive checks.\nChecked: ${time(now)}\nPlease check the VPS. Repeats every 2 hours while confirmed unhealthy.`);
+      }
+    } finally { this.healthCheckRunning = false; }
   }
 
   /**
@@ -1542,15 +1515,6 @@ export class VpsPullScheduler {
       );
     } catch (e: any) {
       console.warn(`⚠️ VPS Pull: Failed to signal challenge-pull-state=${active} (non-fatal):`, e.message);
-    }
-  }
-
-  private async checkTerminalHealth(_terminalId: number): Promise<boolean> {
-    try {
-      const response = await axios.get(`${this.baseUrl}/health`, { timeout: 15000 });
-      return response.status === 200 && terminalInventory(response.data).healthyIds.includes(_terminalId);
-    } catch {
-      return false;
     }
   }
 
