@@ -4206,7 +4206,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/vps-health`, adminIpCheck, async (req, 
           terminalResults.push({
             terminal: tid,
             success: false,
-            error: err.code === 'ECONNABORTED' ? 'Timeout (20s)' : (err.message || 'Connection failed'),
+            error: err.code === 'ECONNABORTED' ? 'Login test timed out (35s); worker may be busy or stalled' : (err.message || 'Connection failed'),
           });
         }
       }

@@ -41,6 +41,10 @@ def configure_log_streams():
 
 
 configure_log_streams()
+from worker_resilience import NonBlockingConsole, TimedLock, disable_quick_edit, start_stall_guard
+disable_quick_edit()
+sys.stdout = NonBlockingConsole(sys.stdout)
+sys.stderr = NonBlockingConsole(sys.stderr)
 
 
 def _get_git_commit() -> str:
@@ -104,7 +108,7 @@ BASE_SERVER   = os.environ.get("VPS_BASE_SERVER",   "Exness-MT5Trial9")
 API_KEY = os.environ.get("VPS_API_KEY", "")
 
 # Lock — one operation at a time per terminal
-_lock = threading.Lock()
+_lock = TimedLock()
 
 # Recovery lock — prevents concurrent heal/recovery threads from racing
 _recovery_lock = threading.Lock()
@@ -1527,7 +1531,10 @@ class ResolveTradesRequest(BaseModel):
 @app.get("/health")
 def health():
     return {
-        "status":               "dead" if _dead_mode else "ok",
+        "status":               "stalled" if _lock.age() >= 600 else ("dead" if _dead_mode else "ok"),
+        "resilience_version": 1,
+        "operation_age_seconds": round(_lock.age(), 1),
+        "console_dropped_writes": sys.stdout.dropped,
         "git_commit":           GIT_COMMIT,
         "history_protocol":      2,
         "busy":                  _lock.locked(),
@@ -1761,5 +1768,6 @@ if __name__ == "__main__":
             print(f"  [W{TERMINAL_ID}] WARNING: Could not init after 5 attempts. Starting anyway — self-heal on first request.")
 
     print(f"  [W{TERMINAL_ID}] Starting on port {PORT}...")
+    start_stall_guard(_lock)
     threading.Thread(target=_idle_recovery_loop, daemon=True).start()
     uvicorn.run(app, host="127.0.0.1", port=PORT, log_level="warning")
