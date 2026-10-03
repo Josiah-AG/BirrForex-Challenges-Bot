@@ -6795,6 +6795,41 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/retry-sl-check`, adminIp
  * Retry a single failed account — actually pulls from VPS now
  * Body: { registrationId }
  */
+// Manual warning resend does not mutate credential failure or disqualification timers.
+const credentialWarningResends = new Set<string>();
+app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/resend-credential-warning`, adminIpCheck, async (req, res) => {
+  const challengeId = Number(req.params.id), registrationId = Number(req.body.registrationId);
+  if (![challengeId, registrationId].every(n => Number.isSafeInteger(n) && n > 0)) {
+    return res.status(400).json({ error: 'Valid challenge and registration required' });
+  }
+  const key = `${challengeId}:${registrationId}`;
+  if (credentialWarningResends.has(key)) return res.status(429).json({ error: 'Warning is sending or was just sent. Please wait one minute.' });
+  credentialWarningResends.add(key);
+  let sent = false;
+  try {
+    const result = await db.query(`SELECT r.*, c.title AS challenge_title, c.host_id,
+      h.display_name AS host_name, h.support_link AS host_link
+      FROM trading_registrations r JOIN trading_challenges c ON c.id=r.challenge_id
+      LEFT JOIN hosts h ON h.id=c.host_id WHERE r.id=$1 AND r.challenge_id=$2`, [registrationId, challengeId]);
+    const registration = result.rows[0];
+    if (!registration) return res.status(404).json({ error: 'Registration not found in this challenge' });
+    if (!['password_changed', 'invalid_credentials'].includes(registration.pull_status)) {
+      return res.status(409).json({ error: 'This account no longer has a credential failure' });
+    }
+    const { resendCredentialWarning } = await import('../services/credentialWarningResend');
+    const { emailService } = await import('../services/emailService');
+    const channel = await resendCredentialWarning(registration, emailService, getTelegram());
+    sent = true;
+    return res.json({ success: true, message: `Warning resent by ${channel}.` });
+  } catch (error) {
+    console.error('Credential warning resend failed:', error);
+    return res.status(502).json({ error: 'Warning could not be sent. Check the recipient and notification service, then try again.' });
+  } finally {
+    if (sent) setTimeout(() => credentialWarningResends.delete(key), 60000).unref();
+    else credentialWarningResends.delete(key);
+  }
+});
+
 app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/retry-account`, adminIpCheck, async (req,res)=>{
   try {
     const challengeId=Number(req.params.id),registrationId=Number(req.body.registrationId);

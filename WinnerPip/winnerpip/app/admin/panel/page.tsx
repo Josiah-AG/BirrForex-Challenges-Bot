@@ -4331,6 +4331,20 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
     return () => { stopPoll(); };
   }, []);
 
+  const [resendingWarning, setResendingWarning] = useState<number | null>(null);
+  const handleResendWarning = async (regId: number) => {
+    setResendingWarning(regId);
+    try {
+      const res = await fetch(`/api/management/challenge/${challengeId}/resend-credential-warning`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ registrationId: regId }),
+      });
+      const data = await res.json();
+      setActionMsg(res.ok && data.success ? `✅ ${data.message}` : `❌ ${data.error || "Could not resend warning"}`);
+    } catch { setActionMsg("❌ Connection error. Check delivery before retrying."); }
+    finally { setResendingWarning(null); }
+  };
+
   const handleRetryAccount = async (regId: number) => {
     setRetrying(String(regId));
     try {
@@ -4746,6 +4760,12 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
                   <button onClick={() => { const pw = prompt("Enter new investor password:"); if (pw) handleUpdatePassword(f.registration_id, pw); }} className="px-3 py-1.5 rounded-lg bg-gold/20 border border-gold/30 text-gold text-[10px] font-bold hover:bg-gold/30 transition-all">
                     🔑 Update PW
                   </button>
+                  {["password_changed", "invalid_credentials"].includes(f.pull_status) && (
+                    <button onClick={() => handleResendWarning(f.registration_id)} disabled={resendingWarning !== null}
+                      className="px-3 py-1.5 rounded-lg bg-royal/20 border border-royal/30 text-royal text-[10px] font-bold hover:bg-royal/30 transition-all disabled:opacity-50">
+                      {resendingWarning === f.registration_id ? "Sending..." : "✉ Resend warning"}
+                    </button>
+                  )}
                   {f.disqualified && f.pull_status === "success" && (
                     <button
                       onClick={() => {
