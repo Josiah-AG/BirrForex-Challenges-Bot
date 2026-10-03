@@ -77,7 +77,7 @@ export default function ChallengeDashboard() {
   const [loginLoading, setLoginLoading] = useState(false);
 
   // Pre-auth challenge info (for showing Register button before login)
-  const [preAuthChallenge, setPreAuthChallenge] = useState<{ hostId?: number; registrationMode?: string; status?: string; type?: string; title?: string } | null>(null);
+  const [preAuthChallenge, setPreAuthChallenge] = useState<{ hostId?: number; hostDisplayName?: string; hostMainLink?: string; registrationMode?: string; status?: string; type?: string; title?: string } | null>(null);
   const [showRegWizard, setShowRegWizard] = useState(false);
   const [regForm, setRegForm] = useState({ email: "", nickname: "", accountNumber: "", mt5Server: "", investorPassword: "", accountType: "demo" });
   const [regStep, setRegStep] = useState(1);
@@ -152,7 +152,7 @@ export default function ChallengeDashboard() {
           const c = (data.challenges || []).find((ch: any) => ch.id === Number(params.id));
           if(cancelled)return;
           if (!c) setError("Challenge unavailable. Return to the challenge list and try again.");
-          if (c) setPreAuthChallenge({ hostId: c.hostId, registrationMode: c.registrationMode, status: c.displayStatus || c.status, type: c.type, title: c.title });
+          if (c) setPreAuthChallenge({ hostDisplayName: c.hostDisplayName, hostMainLink: c.hostMainLink, hostId: c.hostId, registrationMode: c.registrationMode, status: c.displayStatus || c.status, type: c.type, title: c.title });
         }
       } catch {if(!cancelled)setError("Could not load this challenge. Please refresh and try again.");}
     };
@@ -1957,6 +1957,16 @@ export default function ChallengeDashboard() {
                 <div>
                   <h3 className="text-lg font-bold text-white">Join Challenge</h3>
                   <p className="text-xs text-gray-500 mt-0.5">{preAuthChallenge?.title || ''}</p>
+                  {preAuthChallenge?.hostDisplayName && (
+                    <p className="text-xs text-gray-400 mt-1 break-words">
+                      By {preAuthChallenge.hostMainLink ? (
+                        <a href={/^https?:\/\//i.test(preAuthChallenge.hostMainLink) ? preAuthChallenge.hostMainLink : `https://${preAuthChallenge.hostMainLink}`}
+                          target="_blank" rel="noopener noreferrer" className="text-blue-400 underline underline-offset-2 hover:text-blue-300">
+                          {preAuthChallenge.hostDisplayName}
+                        </a>
+                      ) : preAuthChallenge.hostDisplayName}
+                    </p>
+                  )}
                 </div>
                 <button aria-label="Close registration" disabled={regLoading} onClick={() => { if (!regLoading) window.location.replace(`/login?challenge=${params.id}`); }} className="p-2 hover:bg-white/10 rounded-lg"><X size={18} className="text-gray-400" /></button>
               </div>
