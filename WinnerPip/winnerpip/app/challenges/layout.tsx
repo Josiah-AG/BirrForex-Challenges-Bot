@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
+  alternates: {canonical: "/challenges"},
   title: "Trading Challenges",
   description: "Browse active and past forex trading challenges on WinnerPip. Join competitions with real prizes, demo or real accounts, and compete on live leaderboards.",
   openGraph: {

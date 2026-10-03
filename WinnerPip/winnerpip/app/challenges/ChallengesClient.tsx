@@ -1,0 +1,1049 @@
+"use client";
+import RegistrationNotice from "@/components/RegistrationNotice";
+
+import { useState, useEffect, useRef } from "react";
+import Link from "next/link";
+import Image from "next/image";
+import {
+  Trophy,
+  Calendar,
+  Users,
+  Target,
+  Sparkles,
+  Loader2,
+  ArrowRight,
+  CheckCircle,
+  X,
+} from "lucide-react";
+
+interface Challenge {
+  id: number;
+  title: string;
+  type: string;
+  status: string;
+  displayStatus?: string;
+  startDate: string;
+  endDate: string;
+  startingBalance: number;
+  targetBalance: number;
+  depositMode?: string;
+  targetPercent?: number | null;
+  targetEnabled?: boolean;
+  splitCategorySettings?: boolean;
+  demoStartingBalance?: number | null;
+  demoTargetBalance?: number | null;
+  realStartingBalance?: number | null;
+  realTargetBalance?: number | null;
+  demoDepositMode?: string | null;
+  realDepositMode?: string | null;
+  demoTargetPercent?: number | null;
+  realTargetPercent?: number | null;
+  demoTargetEnabled?: boolean | null;
+  realTargetEnabled?: boolean | null;
+  prizePoolText: string | null;
+  realPrizes: number[];
+  demoPrizes: number[];
+  participants: { total: number; demo: number; real: number };
+  teamOnly?: boolean;
+  source?: string;
+  registrationDeadline?: string;
+  hostId?: number | null;
+  hostDisplayName?: string | null;
+  hostMainLink?: string | null;
+  registrationMode?: string | null;
+}
+
+interface Winner {
+  rank: number;
+  nickname: string;
+  trades: number;
+  flagged: number;
+  prize: string;
+}
+
+interface WinnersData {
+  hasWinners: boolean;
+  real: Winner[];
+  demo: Winner[];
+  teamOnly?: boolean;
+}
+
+export default function ChallengesPage({initialChallenges = []}: {initialChallenges?: Challenge[]}) {
+  const [challenges, setChallenges] = useState<Challenge[]>(initialChallenges);
+  const [loading, setLoading] = useState(initialChallenges.length === 0);
+  const [activeTab, setActiveTab] = useState<"current" | "past">("current");
+  const [selectedPastChallenge, setSelectedPastChallenge] = useState<Challenge | null>(null);
+  const [winnersData, setWinnersData] = useState<WinnersData | null>(null);
+  const [winnersLoading, setWinnersLoading] = useState(false);
+
+  // Registration modal state
+  const [registerChallenge, setRegisterChallenge] = useState<Challenge | null>(null);
+  const [regForm, setRegForm] = useState({ email: "", nickname: "", accountNumber: "", mt5Server: "", investorPassword: "", accountType: "demo" });
+  const [regStep, setRegStep] = useState(1);
+  const [regLoading, setRegLoading] = useState(false);
+  const [regError, setRegError] = useState("");
+  const [regSuccess, setRegSuccess] = useState(false);
+  const [regResult, setRegResult] = useState<{ id?: number; balance?: number; isCent?: boolean; server?: string } | null>(null);
+  const [mt5Verified, setMt5Verified] = useState(false);
+  const [mt5VerifyData, setMt5VerifyData] = useState<{ balance?: number; isCent?: boolean; server?: string; accountSubtype?: string; depositMode?: string; startingBalance?: number } | null>(null);
+  const [showNotOpenPopup, setShowNotOpenPopup] = useState(false);
+  const [allocError, setAllocError] = useState<{ hostName?: string; hostMainLink?: string; hostSupportLink?: string } | null>(null);
+
+  useEffect(() => {
+    const fetchChallenges = async () => {
+      try {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+        const res = await fetch(`${apiUrl}/api/challenges?include_past=true`);
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data.challenges)) {
+            setChallenges(data.challenges);
+            setLoading(false);
+            return;
+          }
+        }
+      } catch (err) {
+        console.log("API unavailable:", err);
+      }
+      // Preserve server-rendered entries on refresh failure.
+      setLoading(false);
+    };
+    fetchChallenges();
+  }, []);
+
+  const currentChallenges = challenges.filter(c => {
+    const ds = c.displayStatus || c.status;
+    return ds !== "ended" && ds !== "completed";
+  });
+
+  const pastChallenges = challenges.filter(c => {
+    const ds = c.displayStatus || c.status;
+    return ds === "ended" || c.status === "completed";
+  });
+
+  const formatDate = (dateStr: string) => {
+    return new Date(dateStr).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  };
+
+  const getStatusBadge = (challenge: Challenge) => {
+    const status = challenge.displayStatus || challenge.status;
+    switch (status) {
+      case "coming_soon":
+        return { label: "Coming Soon", color: "bg-white/10 text-gray-300 border-white/20" };
+      case "registration_open":
+        return { label: "Registration Open", color: "bg-profit/20 text-profit border-profit/30" };
+      case "ongoing":
+      case "active":
+        return { label: "Ongoing (Live)", color: "bg-gold/20 text-gold border-gold/30" };
+      case "evaluation":
+        return { label: "Final Review", color: "bg-royal/20 text-royal border-royal/30" };
+      case "ended":
+      case "completed":
+        return { label: "Completed", color: "bg-profit/20 text-profit border-profit/30" };
+      case "submission_open":
+        return { label: "Submissions Open", color: "bg-royal/20 text-royal border-royal/30" };
+      case "reviewing":
+        return { label: "Final Review", color: "bg-royal/20 text-royal border-royal/30" };
+      default:
+        return { label: status, color: "bg-white/10 text-gray-400 border-white/20" };
+    }
+  };
+
+  const handleChallengeClick = (challenge: Challenge) => {
+    window.location.href = `/login?challenge=${challenge.id}`;
+  };
+
+  const handlePastChallengeClick = async (challenge: Challenge) => {
+    setSelectedPastChallenge(challenge);
+    setWinnersData(null);
+    setWinnersLoading(true);
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+      const res = await fetch(`${apiUrl}/api/challenges/${challenge.id}/winners`);
+      if (res.ok) {
+        const data = await res.json();
+        setWinnersData(data);
+      } else {
+        setWinnersData({ hasWinners: false, real: [], demo: [] });
+      }
+    } catch {
+      setWinnersData({ hasWinners: false, real: [], demo: [] });
+    }
+    setWinnersLoading(false);
+  };
+
+  const medalEmoji = (rank: number) => {
+    if (rank === 1) return "🥇";
+    if (rank === 2) return "🥈";
+    if (rank === 3) return "🥉";
+    return `${rank}.`;
+  };
+
+  const renderChallengeCard = (challenge: Challenge, isPast: boolean) => {
+    const badge = getStatusBadge(challenge);
+
+    // Build a per-category-aware target descriptor for the card.
+    // Returns { start, target } strings where target may be "No target" / "$X" / "85%".
+    const fmtTargetFor = (start: any, tgt: any, mode: string | null | undefined, pct: any, enabled: boolean) => {
+      const startStr = `$${start}`;
+      if (!enabled) return { start: startStr, target: "No target" };
+      if ((mode || 'fixed') !== 'fixed') {
+        const pctVal = pct ?? 100;
+        const modeLabel = mode === 'min_limit' ? 'Min' : 'Max';
+        return { start: `${modeLabel} $${start}`, target: `${pctVal}% growth` };
+      }
+      // Fixed: start→target are both exact dollar amounts — safe to show dollar target
+      return { start: startStr, target: `$${tgt}` };
+    };
+    const isSplit = !!challenge.splitCategorySettings && challenge.type === 'hybrid';
+    const sharedTargetEnabled = challenge.targetEnabled !== false;
+    const demoT = fmtTargetFor(
+      challenge.demoStartingBalance ?? challenge.startingBalance,
+      challenge.demoTargetBalance ?? challenge.targetBalance,
+      challenge.demoDepositMode || challenge.depositMode,
+      challenge.demoTargetPercent ?? challenge.targetPercent,
+      challenge.demoTargetEnabled == null ? sharedTargetEnabled : challenge.demoTargetEnabled !== false
+    );
+    const realT = fmtTargetFor(
+      challenge.realStartingBalance ?? challenge.startingBalance,
+      challenge.realTargetBalance ?? challenge.targetBalance,
+      challenge.realDepositMode || challenge.depositMode,
+      challenge.realTargetPercent ?? challenge.targetPercent,
+      challenge.realTargetEnabled == null ? sharedTargetEnabled : challenge.realTargetEnabled !== false
+    );
+    const sharedT = fmtTargetFor(
+      challenge.startingBalance,
+      challenge.targetBalance,
+      challenge.depositMode,
+      challenge.targetPercent,
+      sharedTargetEnabled
+    );
+    // Show two lines only when split AND the two categories actually differ.
+    const showSplitTarget = isSplit && (demoT.start !== realT.start || demoT.target !== realT.target);
+
+    return (
+      <button
+        key={challenge.id}
+        onClick={() => {
+          if (isPast) return handlePastChallengeClick(challenge);
+          const ds = challenge.displayStatus || challenge.status;
+          if (ds === 'coming_soon' || ds === 'draft') { setShowNotOpenPopup(true); return; }
+          handleChallengeClick(challenge);
+        }}
+        className="text-left w-full glass-hover card-glow rounded-2xl group shadow-[0_12px_40px_rgba(0,0,0,0.4)] border border-white/20 relative overflow-hidden"
+      >
+        <div className="absolute inset-0 bg-gradient-to-br from-royal/10 to-gold/10 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+        <div className="absolute inset-0 bg-gradient-to-br from-[#0f1629] to-[#1a1f3a]"></div>
+
+        <div className="p-6 relative">
+          {/* Title + Badge */}
+          <div className="mb-5">
+            <h3 className="text-xl font-bold text-white mb-3 group-hover:gradient-text transition-all line-clamp-2">
+              {challenge.title}
+            </h3>
+            <div className="flex flex-wrap gap-2">
+              {isPast ? (
+                <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-profit/20 text-profit border border-profit/30 text-xs font-semibold">
+                  <CheckCircle size={12} /> Completed
+                </span>
+              ) : (
+                <span className={`px-3 py-1.5 rounded-full text-xs font-semibold border ${badge.color}`}>
+                  {badge.label}
+                </span>
+              )}
+              <span className="px-3 py-1.5 rounded-full bg-white/10 text-gray-300 border border-white/20 text-xs font-medium capitalize">
+                {challenge.type}
+              </span>
+              {challenge.teamOnly && (
+                <span className="px-3 py-1.5 rounded-full bg-red-500/20 text-red-400 border border-red-500/30 text-xs font-semibold">
+                  Team Only
+                </span>
+              )}
+              {challenge.hostId && challenge.hostDisplayName && (
+                challenge.hostMainLink ? (
+                  <a href={challenge.hostMainLink.startsWith('http') ? challenge.hostMainLink : `https://${challenge.hostMainLink}`} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="px-3 py-1.5 rounded-full bg-gold/20 text-gold border border-gold/30 text-xs font-semibold hover:bg-gold/30 transition-all">
+                    Hosted by {challenge.hostDisplayName}
+                  </a>
+                ) : (
+                  <span className="px-3 py-1.5 rounded-full bg-gold/20 text-gold border border-gold/30 text-xs font-semibold">
+                    Hosted by {challenge.hostDisplayName}
+                  </span>
+                )
+              )}
+            </div>
+          </div>
+
+          {/* Details */}
+          <div className="space-y-3 mb-5">
+            <div className="flex items-center gap-3 p-3 rounded-xl bg-white/5 border border-white/10">
+              <Calendar size={16} className="text-gray-400 flex-shrink-0" />
+              <div className="min-w-0">
+                <p className="text-xs text-gray-500">Period</p>
+                <p className="text-sm text-white font-medium truncate">
+                  {formatDate(challenge.startDate)} — {formatDate(challenge.endDate)}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3 p-3 rounded-xl bg-white/5 border border-white/10">
+              <Target size={16} className="text-gold flex-shrink-0" />
+              <div>
+                <p className="text-xs text-gray-500">Target</p>
+                {showSplitTarget ? (
+                  <div className={`text-sm font-medium space-y-0.5 ${challenge.teamOnly ? 'blur-[5px] select-none' : ''}`}>
+                    <p>
+                      <span className="text-blue-400 text-xs mr-1">Demo</span>
+                      <span className="text-white">{demoT.start}</span>
+                      <span className="text-gray-500 mx-1">&rarr;</span>
+                      <span className={demoT.target === 'No target' ? 'text-gray-400 italic' : 'text-gold'}>{demoT.target}</span>
+                    </p>
+                    <p>
+                      <span className="text-profit text-xs mr-1">Real</span>
+                      <span className="text-white">{realT.start}</span>
+                      <span className="text-gray-500 mx-1">&rarr;</span>
+                      <span className={realT.target === 'No target' ? 'text-gray-400 italic' : 'text-gold'}>{realT.target}</span>
+                    </p>
+                  </div>
+                ) : sharedT.target === 'No target' ? (
+                  <p className={`text-sm font-medium ${challenge.teamOnly ? 'blur-[5px] select-none' : ''}`}>
+                    <span className="text-gray-400 italic">No target &mdash; ranked by {(challenge.depositMode || 'fixed') !== 'fixed' ? 'growth %' : 'balance'}</span>
+                  </p>
+                ) : (
+                  <p className="text-sm font-medium">
+                    <span className={`text-white ${challenge.teamOnly ? 'blur-[5px] select-none' : ''}`}>{sharedT.start}</span>
+                    <span className="text-gray-500 mx-1">&rarr;</span>
+                    <span className={`text-gold ${challenge.teamOnly ? 'blur-[5px] select-none' : ''}`}>{sharedT.target}</span>
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3 p-3 rounded-xl bg-white/5 border border-white/10">
+              <Users size={16} className="text-royal flex-shrink-0" />
+              <div>
+                <p className="text-xs text-gray-500">Participants</p>
+                <p className={`text-sm text-white font-medium ${challenge.teamOnly ? 'blur-[5px] select-none' : ''}`}>{challenge.participants.total}</p>
+              </div>
+            </div>
+
+            {(challenge.realPrizes?.length > 0 || challenge.demoPrizes?.length > 0) && (
+              <div className="p-3 rounded-xl bg-gradient-to-r from-gold/10 to-gold/5 border border-gold/20">
+                <div className="flex items-center gap-2 mb-2">
+                  <Trophy size={14} className="text-gold flex-shrink-0" />
+                  <p className="text-xs text-gray-500">Prize Pool</p>
+                </div>
+                {challenge.realPrizes?.length > 0 && (
+                  <div className="mb-1.5">
+                    <p className="text-[10px] text-gray-400 uppercase tracking-wider mb-1">{challenge.type === "hybrid" ? "Real Account" : "Prizes"}</p>
+                    <div className={`flex flex-wrap gap-1.5 ${challenge.teamOnly ? 'blur-[5px] select-none' : ''}`}>
+                      {challenge.realPrizes.map((p: number, i: number) => (
+                        <span key={i} className="px-2 py-0.5 bg-gold/20 rounded text-xs font-bold text-gold">
+                          {["🥇","🥈","🥉"][i] || `${i+1}.`} {typeof p === "number" ? `$${p}` : (isNaN(Number(p)) ? p : `$${p}`)}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {challenge.demoPrizes?.length > 0 && (
+                  <div>
+                    <p className="text-[10px] text-gray-400 uppercase tracking-wider mb-1">{challenge.type === "hybrid" ? "Demo Account" : "Prizes"}</p>
+                    <div className={`flex flex-wrap gap-1.5 ${challenge.teamOnly ? 'blur-[5px] select-none' : ''}`}>
+                      {challenge.demoPrizes.map((p: number, i: number) => (
+                        <span key={i} className="px-2 py-0.5 bg-royal/20 rounded text-xs font-bold text-royal">
+                          {["🥇","🥈","🥉"][i] || `${i+1}.`} {typeof p === "number" ? `$${p}` : (isNaN(Number(p)) ? p : `$${p}`)}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* CTA */}
+          <div className={`flex items-center justify-between p-3 rounded-xl ${isPast ? 'bg-profit/10 border border-profit/20 group-hover:bg-profit/20' : 'bg-royal/10 border border-royal/20 group-hover:bg-royal/20'} transition-all`}>
+            <span className={`text-sm font-semibold ${isPast ? 'text-profit' : 'text-royal'}`}>
+              {isPast ? "View Winners" : (() => {
+                const ds = challenge.displayStatus || challenge.status;
+                if (ds === "registration_open" && challenge.hostId && challenge.registrationMode === 'winnerpip') return "Register Now";
+                if (ds === "registration_open" && challenge.hostId && challenge.registrationMode === 'manual') return "View Challenge";
+                if (ds === "registration_open") return "Join Challenge";
+                if ((ds === "ongoing" || ds === "active") && challenge.hostId && challenge.registrationMode === 'winnerpip') return "Registration Closed";
+                if (ds === "ongoing" || ds === "active") return "View Dashboard";
+                if (ds === "coming_soon" || ds === "draft") return "Registration Opening Soon";
+                return "View Details";
+              })()}
+            </span>
+            <ArrowRight size={16} className={`${isPast ? 'text-profit' : 'text-royal'} group-hover:translate-x-1 transition-transform`} />
+          </div>
+        </div>
+      </button>
+    );
+  };
+
+  return (
+    <div className="min-h-screen bg-[#0a0e1a]">
+      {/* Background */}
+      <div className="fixed inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute top-0 left-1/4 w-96 h-96 bg-royal/10 rounded-full blur-3xl animate-float"></div>
+        <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-gold/10 rounded-full blur-3xl animate-float" style={{ animationDelay: "1s" }}></div>
+      </div>
+
+      {/* Header */}
+      <header className="glass sticky top-0 z-50 border-b border-white/5">
+        <div className="container mx-auto px-4 py-4">
+          <div className="flex items-center justify-between">
+            <Link href="/" className="flex items-center gap-3 group">
+              <div className="relative">
+                <div className="absolute inset-0 bg-gradient-brand rounded-xl blur-xl opacity-50 group-hover:opacity-75 transition-opacity"></div>
+                <Image src="/winnerpip-icon.png" alt="WinnerPip" width={44} height={44} className="rounded-xl relative" />
+              </div>
+              <span className="text-xl font-bold gradient-text hidden sm:inline">WinnerPip</span>
+            </Link>
+          </div>
+        </div>
+      </header>
+
+      <div className="container mx-auto px-4 py-10 md:py-16 max-w-6xl relative">
+        {/* Page Title */}
+        <div className="text-center mb-10">
+          <div className="flex items-center justify-center gap-2 mb-4">
+            <Sparkles className="text-gold w-6 h-6" />
+            <span className="text-sm text-gray-400 uppercase tracking-wider font-semibold">Trading Competitions</span>
+          </div>
+          <h1 className="text-4xl md:text-5xl font-bold mb-4">
+            <span className="gradient-text">Challenges</span>
+          </h1>
+          <p className="text-gray-400 text-lg max-w-2xl mx-auto">
+            Join a challenge, trade with discipline, and climb the leaderboard
+          </p>
+        </div>
+
+        {/* Tabs */}
+        <div className="flex items-center justify-center gap-2 mb-10">
+          <button
+            onClick={() => setActiveTab("current")}
+            className={`px-6 py-3 rounded-xl text-sm font-semibold transition-all ${activeTab === "current" ? "bg-royal/20 text-royal border border-royal/30" : "bg-white/5 text-gray-400 border border-white/10 hover:bg-white/10"}`}
+          >
+            Current Challenges
+            {currentChallenges.length > 0 && <span className="ml-2 px-2 py-0.5 rounded-full bg-royal/30 text-royal text-xs">{currentChallenges.length}</span>}
+          </button>
+          <button
+            onClick={() => setActiveTab("past")}
+            className={`px-6 py-3 rounded-xl text-sm font-semibold transition-all ${activeTab === "past" ? "bg-profit/20 text-profit border border-profit/30" : "bg-white/5 text-gray-400 border border-white/10 hover:bg-white/10"}`}
+          >
+            Past Challenges
+            {pastChallenges.length > 0 && <span className="ml-2 px-2 py-0.5 rounded-full bg-profit/30 text-profit text-xs">{pastChallenges.length}</span>}
+          </button>
+        </div>
+
+        {/* Loading */}
+        {loading && (
+          <div className="flex items-center justify-center py-20">
+            <Loader2 className="w-8 h-8 text-royal animate-spin" />
+          </div>
+        )}
+
+        {/* Current Challenges */}
+        {!loading && activeTab === "current" && (
+          <>
+            {currentChallenges.length === 0 ? (
+              <div className="text-center py-20">
+                <Trophy className="w-16 h-16 text-gray-600 mx-auto mb-4" />
+                <p className="text-gray-400 text-lg">No active challenges right now</p>
+                <p className="text-gray-500 text-sm mt-2">Check back soon or follow <a href="https://www.birrforex.com/contact-winnerpip" target="_blank" rel="noopener noreferrer" className="font-bold text-white hover:text-royal transition-colors">BirrForex</a> for announcements</p>
+              </div>
+            ) : (
+              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {currentChallenges.map(c => renderChallengeCard(c, false))}
+              </div>
+            )}
+          </>
+        )}
+
+        {/* Past Challenges */}
+        {!loading && activeTab === "past" && (
+          <>
+            {pastChallenges.length === 0 ? (
+              <div className="text-center py-20">
+                <Trophy className="w-16 h-16 text-gray-600 mx-auto mb-4" />
+                <p className="text-gray-400 text-lg">No past challenges yet</p>
+              </div>
+            ) : (
+              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {pastChallenges.map(c => renderChallengeCard(c, true))}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* Winners Modal */}
+      {selectedPastChallenge && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setSelectedPastChallenge(null)}>
+          <div className="glass rounded-2xl max-w-lg w-full max-h-[85vh] overflow-y-auto border border-white/10" onClick={e => e.stopPropagation()}>
+            <div className="sticky top-0 glass p-4 border-b border-white/10 flex items-center justify-between z-10 rounded-t-2xl">
+              <div className="flex items-center gap-3">
+                <Trophy size={20} className="text-gold" />
+                <h3 className="text-lg font-bold text-white">{selectedPastChallenge.title}</h3>
+              </div>
+              <button onClick={() => setSelectedPastChallenge(null)} className="p-2 hover:bg-white/10 rounded-lg">
+                <X size={18} className="text-gray-400" />
+              </button>
+            </div>
+
+            <div className="p-5">
+              {winnersLoading && (
+                <div className="flex items-center justify-center py-10">
+                  <Loader2 className="w-6 h-6 text-royal animate-spin" />
+                </div>
+              )}
+
+              {!winnersLoading && winnersData && !winnersData.hasWinners && (
+                <div className="text-center py-10">
+                  <Target className="w-12 h-12 text-gray-600 mx-auto mb-3" />
+                  <p className="text-gray-400 font-semibold">No participant hit the target</p>
+                  <p className="text-gray-500 text-sm mt-1">Better luck next time!</p>
+                </div>
+              )}
+
+              {!winnersLoading && winnersData && winnersData.hasWinners && (
+                <div className="space-y-6">
+                  {/* Real Winners */}
+                  {winnersData.real.length > 0 && (
+                    <div>
+                      {selectedPastChallenge.type === "hybrid" && (
+                        <p className="text-xs text-gray-400 uppercase tracking-wider font-semibold mb-3">Real Account</p>
+                      )}
+                      <div className="space-y-2">
+                        {winnersData.real.map(w => (
+                          <div key={w.rank} className="flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/10">
+                            <div className="flex items-center gap-3">
+                              <span className="text-xl">{medalEmoji(w.rank)}</span>
+                              <div>
+                                <p className="text-sm font-bold text-white">{w.nickname}</p>
+                                <p className="text-[10px] text-gray-500">{w.trades} trades • {w.flagged} flagged</p>
+                              </div>
+                            </div>
+                            <p className={`text-sm font-bold ${winnersData.teamOnly ? 'blur-[6px] select-none' : ''} text-gold`}>{w.prize}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Demo Winners */}
+                  {winnersData.demo.length > 0 && (
+                    <div>
+                      {selectedPastChallenge.type === "hybrid" && (
+                        <p className="text-xs text-gray-400 uppercase tracking-wider font-semibold mb-3">Demo Account</p>
+                      )}
+                      <div className="space-y-2">
+                        {winnersData.demo.map(w => (
+                          <div key={w.rank} className="flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/10">
+                            <div className="flex items-center gap-3">
+                              <span className="text-xl">{medalEmoji(w.rank)}</span>
+                              <div>
+                                <p className="text-sm font-bold text-white">{w.nickname}</p>
+                                <p className="text-[10px] text-gray-500">{w.trades} trades • {w.flagged} flagged</p>
+                              </div>
+                            </div>
+                            <p className={`text-sm font-bold ${winnersData.teamOnly ? 'blur-[6px] select-none' : ''} text-gold`}>{w.prize}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Registration Not Open Popup */}
+      {showNotOpenPopup && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setShowNotOpenPopup(false)}>
+          <div className="bg-[#1a2235] rounded-2xl max-w-sm w-full border border-white/15 shadow-2xl p-6 text-center" onClick={e => e.stopPropagation()}>
+            <div className="w-14 h-14 rounded-full bg-gold/10 border-2 border-gold/30 flex items-center justify-center mx-auto mb-4">
+              <Calendar size={24} className="text-gold" />
+            </div>
+            <h3 className="text-lg font-bold text-white mb-2">Registration Not Open Yet</h3>
+            <p className="text-sm text-gray-400 mb-5">Registration will open soon. Stay tuned for updates!</p>
+            <button onClick={() => setShowNotOpenPopup(false)} className="px-6 py-2.5 rounded-xl bg-white/10 border border-white/20 text-gray-300 font-medium text-sm hover:bg-white/15 transition-all">Got it</button>
+          </div>
+        </div>
+      )}
+
+      {/* Registration Modal — 5-Step Wizard with Per-Step Validation */}
+      {registerChallenge && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => !regLoading && setRegisterChallenge(null)}>
+          <div className="bg-[#1a2235] rounded-2xl max-w-md w-full max-h-[90vh] overflow-y-auto border border-white/15 shadow-2xl" onClick={e => e.stopPropagation()}>
+            {/* Header */}
+            <div className="sticky top-0 bg-[#1a2235] px-6 pt-5 pb-4 border-b border-white/10 z-10 rounded-t-2xl">
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <h3 className="text-lg font-bold text-white">Join Challenge</h3>
+                  <p className="text-xs text-gray-500 mt-0.5">{registerChallenge.title}{registerChallenge.hostDisplayName ? ` · ${registerChallenge.hostDisplayName}` : ''}</p>
+                </div>
+                <button onClick={() => !regLoading && setRegisterChallenge(null)} className="p-2 hover:bg-white/10 rounded-lg"><X size={18} className="text-gray-400" /></button>
+              </div>
+              {!regSuccess && (
+                <div className="flex gap-1.5">
+                  {[1,2,3,4,5].map(s => (
+                    <div key={s} className={`flex-1 h-1.5 rounded-full transition-all duration-300 ${s < regStep ? "bg-profit" : s === regStep ? "bg-royal" : "bg-white/10"}`} />
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="px-6 py-5">
+              {/* Success State — Go to Dashboard */}
+              {regSuccess ? (
+                <div className="text-center py-6">
+                  <div className="w-20 h-20 rounded-full bg-profit/10 border-2 border-profit/30 flex items-center justify-center mx-auto mb-5">
+                    <CheckCircle className="w-10 h-10 text-profit" />
+                  </div>
+                  <h3 className="text-xl font-bold text-white mb-2">Registration Complete!</h3>
+                  <p className="text-gray-400 text-sm mb-1">Your MT5 account has been verified and connected.</p>
+                  <p className="text-gray-500 text-xs mb-6">A confirmation email will be sent to <span className="text-gray-300">{regForm.email}</span></p>
+
+                  <div className="mb-4 rounded-xl border border-white/10 bg-white/5 p-4 text-left text-sm text-gray-300 space-y-2">
+                    <p><span className="text-gray-500">Nickname:</span> {regForm.nickname}</p>
+                    <p><span className="text-gray-500">Account:</span> {regForm.accountNumber} · {regForm.accountType}</p>
+                    <p className="break-words"><span className="text-gray-500">Server:</span> {mt5VerifyData?.server || regForm.mt5Server}</p>
+                    <p><span className="text-gray-500">Verified balance:</span> <strong className="text-profit">{mt5VerifyData?.balance != null ? `${mt5VerifyData.isCent ? '' : '$'}${mt5VerifyData.balance.toFixed(2)}${mt5VerifyData.isCent ? '¢' : ''}` : 'Unavailable'}</strong></p>
+                  </div>
+                  <div className="bg-white/5 rounded-xl p-4 border border-white/10 mb-6 text-left">
+                    <p className="text-xs text-gray-400 font-semibold uppercase tracking-wider mb-2">How to Sign In</p>
+                    <div className="space-y-2">
+                      <div className="flex items-start gap-2">
+                        <span className="text-royal text-xs font-bold mt-0.5">1.</span>
+                        <p className="text-xs text-gray-300">Go to your challenge dashboard</p>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <span className="text-royal text-xs font-bold mt-0.5">2.</span>
+                        <p className="text-xs text-gray-300">Sign in with your <strong className="text-white">MT5 Account Number</strong></p>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <span className="text-royal text-xs font-bold mt-0.5">3.</span>
+                        <p className="text-xs text-gray-300">Use your <strong className="text-white">Investor Password</strong> as the password</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {registerChallenge.hostId && <RegistrationNotice accountType={regForm.accountType} />}
+                  <a
+                    href={`/login?challenge=${registerChallenge.id}`}
+                    className="inline-flex items-center gap-2 px-8 py-3 rounded-xl bg-gradient-brand text-white font-semibold text-sm hover:opacity-90 transition-all"
+                  >
+                    Go to Dashboard <ArrowRight size={16} />
+                  </a>
+                </div>
+              ) : (
+                <>
+                  {regError && (
+                    <div className="p-3 rounded-xl bg-loss/10 border border-loss/30 mb-4">
+                      {regError === 'allocation_failed' && allocError ? (
+                        <div className="text-sm text-loss space-y-2">
+                          <p>Please double-check your email spelling. If it is correct, your account is not allocated under {allocError.hostMainLink ? <a href={allocError.hostMainLink.startsWith('http') ? allocError.hostMainLink : `https://${allocError.hostMainLink}`} target="_blank" rel="noopener noreferrer" className="font-bold underline">{allocError.hostName}</a> : <span className="font-bold">{allocError.hostName}</span>}.</p>
+                          <p>Contact {allocError.hostSupportLink ? <a href={allocError.hostSupportLink.startsWith('http') ? allocError.hostSupportLink : `https://${allocError.hostSupportLink}`} target="_blank" rel="noopener noreferrer" className="font-bold underline">{allocError.hostName} Support</a> : <span className="font-bold">{allocError.hostName} Support</span>} to guide you on how to register under their link.</p>
+                        </div>
+                      ) : regError === 'registration_blocked' && allocError ? (
+                        <p className="text-sm text-loss">
+                          Registrations are temporarily paused by {allocError.hostMainLink ? <a href={allocError.hostMainLink.startsWith('http') ? allocError.hostMainLink : `https://${allocError.hostMainLink}`} target="_blank" rel="noopener noreferrer" className="font-bold underline">{allocError.hostName}</a> : <span className="font-bold">{allocError.hostName}</span>}. Please try again later or contact {allocError.hostSupportLink ? <a href={allocError.hostSupportLink.startsWith('http') ? allocError.hostSupportLink : `https://${allocError.hostSupportLink}`} target="_blank" rel="noopener noreferrer" className="font-bold underline">{allocError.hostName} Support</a> : <span className="font-bold">{allocError.hostName} Support</span>} for assistance.
+                        </p>
+                      ) : (
+                        <p className="text-sm text-loss">{regError}</p>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Step 1: Email — Allocation Check */}
+                  {regStep === 1 && (
+                    <div className="space-y-4">
+                      <div className="text-center mb-2">
+                        <p className="text-xs text-gray-400">Step 1 of 5</p>
+                        <p className="text-sm font-semibold text-white">Your Exness Email</p>
+                        <p className="text-[11px] text-gray-500 mt-1">We&apos;ll verify your account is allocated under the required partnership</p>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs text-gray-400 font-medium mb-1.5">Exness Account Email *</label>
+                        <input
+                          type="email"
+                          value={regForm.email}
+                          onChange={e => { setRegForm({...regForm, email: e.target.value}); if (regError) setRegError(""); }}
+                          className="w-full p-3.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none focus:border-royal/50 transition-all"
+                          placeholder="your@email.com"
+                          disabled={regLoading}
+                        />
+                        <p className="text-[10px] text-gray-600 mt-1">This must be the email linked to your Exness trading account</p>
+                      </div>
+
+                      <button
+                        onClick={async () => {
+                          if (!regForm.email || !regForm.email.includes('@')) { setRegError("Please enter a valid email address"); return; }
+                          setRegError(""); setRegLoading(true);
+                          try {
+                            const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+                            const res = await fetch(`${apiUrl}/api/challenges/${registerChallenge.id}/check-allocation`, {
+                              method: "POST", headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ email: regForm.email }),
+                            });
+                            const data = await res.json();
+                            if (res.ok && data.success) { setRegStep(2); setAllocError(null); }
+                            else if (data.error === 'allocation_failed' || data.error === 'registration_blocked') {
+                              setAllocError({ hostName: data.hostName, hostMainLink: data.hostMainLink, hostSupportLink: data.hostSupportLink });
+                              setRegError(data.error);
+                            }
+                            else { setRegError(data.error || "Allocation check failed"); setAllocError(null); }
+                          } catch { setRegError("Could not connect to server. Please try again."); setAllocError(null); }
+                          setRegLoading(false);
+                        }}
+                        disabled={regLoading}
+                        className="w-full py-3.5 rounded-xl bg-royal text-white font-semibold text-sm hover:opacity-90 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                      >
+                        {regLoading ? <><Loader2 size={16} className="animate-spin" /> Verifying...</> : "Verify Email"}
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Step 2: Username — Uniqueness Check */}
+                  {regStep === 2 && (
+                    <div className="space-y-4">
+                      <div className="text-center mb-2">
+                        <p className="text-xs text-gray-400">Step 2 of 5</p>
+                        <p className="text-sm font-semibold text-white">Choose a Username</p>
+                        <p className="text-[11px] text-gray-500 mt-1">This will be your display name on the leaderboard</p>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs text-gray-400 font-medium mb-1.5">Username (nickname) *</label>
+                        <input
+                          type="text"
+                          value={regForm.nickname}
+                          onChange={e => setRegForm({...regForm, nickname: e.target.value})}
+                          className="w-full p-3.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none focus:border-royal/50 transition-all"
+                          placeholder="Your leaderboard display name"
+                          disabled={regLoading}
+                        />
+                        <p className="text-[10px] text-gray-600 mt-1">2-30 characters · Shown publicly on the leaderboard</p>
+                      </div>
+
+                      <div className="flex gap-3 mt-2">
+                        <button onClick={() => { setRegStep(1); setRegError(""); }} disabled={regLoading} className="flex-1 py-3 rounded-xl bg-white/5 border border-white/10 text-gray-300 font-medium text-sm hover:bg-white/10 transition-all disabled:opacity-50">Back</button>
+                        <button
+                          onClick={async () => {
+                            if (!regForm.nickname || regForm.nickname.length < 2 || regForm.nickname.length > 30) { setRegError("Username must be 2-30 characters"); return; }
+                            setRegError(""); setRegLoading(true);
+                            try {
+                              const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+                              const res = await fetch(`${apiUrl}/api/challenges/${registerChallenge.id}/check-username`, {
+                                method: "POST", headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ nickname: regForm.nickname }),
+                              });
+                              const data = await res.json();
+                              if (res.ok && data.success) { setRegStep(3); }
+                              else { setRegError(data.error || "Username check failed"); }
+                            } catch { setRegError("Could not connect to server. Please try again."); }
+                            setRegLoading(false);
+                          }}
+                          disabled={regLoading}
+                          className="flex-1 py-3 rounded-xl bg-royal text-white font-semibold text-sm hover:opacity-90 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                        >
+                          {regLoading ? <><Loader2 size={14} className="animate-spin" /> Checking...</> : "Next"}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Step 3: Account Category */}
+                  {regStep === 3 && (
+                    <div className="space-y-4">
+                      <div className="text-center mb-2">
+                        <p className="text-xs text-gray-400">Step 3 of 5</p>
+                        <p className="text-sm font-semibold text-white">Account Category</p>
+                        <p className="text-[11px] text-gray-500 mt-1">
+                          {registerChallenge.type === 'hybrid' ? 'Choose which type of account you will use' : `This challenge is ${registerChallenge.type}-only`}
+                        </p>
+                      </div>
+
+                      {registerChallenge.type === 'hybrid' ? (
+                        <div className="grid grid-cols-2 gap-3">
+                          <button
+                            type="button"
+                            onClick={() => setRegForm({...regForm, accountType: 'demo'})}
+                            className={`p-4 rounded-xl border text-center transition-all ${regForm.accountType === 'demo' ? 'border-royal bg-royal/10 text-royal ring-1 ring-royal/30' : 'border-white/20 text-gray-400 hover:border-white/30'}`}
+                          >
+                            <p className="text-base font-semibold">Demo</p>
+                            <p className="text-[11px] opacity-70 mt-1">Practice account</p>
+                            <p className="text-[10px] opacity-50 mt-0.5">No real money</p>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setRegForm({...regForm, accountType: 'real'})}
+                            className={`p-4 rounded-xl border text-center transition-all ${regForm.accountType === 'real' ? 'border-gold bg-gold/10 text-gold ring-1 ring-gold/30' : 'border-white/20 text-gray-400 hover:border-white/30'}`}
+                          >
+                            <p className="text-base font-semibold">Real</p>
+                            <p className="text-[11px] opacity-70 mt-1">Live account</p>
+                            <p className="text-[10px] opacity-50 mt-0.5">Real funds</p>
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="p-4 rounded-xl bg-white/5 border border-white/10 text-center">
+                          <p className={`text-base font-bold ${registerChallenge.type === 'real' ? 'text-gold' : 'text-royal'}`}>{registerChallenge.type === 'real' ? 'Real' : 'Demo'} Account</p>
+                          <p className="text-[11px] text-gray-500 mt-1">This challenge only accepts {registerChallenge.type} accounts</p>
+                        </div>
+                      )}
+
+                      <div className="flex gap-3 mt-2">
+                        <button onClick={() => { setRegStep(2); setRegError(""); }} className="flex-1 py-3 rounded-xl bg-white/5 border border-white/10 text-gray-300 font-medium text-sm hover:bg-white/10 transition-all">Back</button>
+                        <button onClick={() => { setRegError(""); setRegStep(4); }} className="flex-1 py-3 rounded-xl bg-royal text-white font-semibold text-sm hover:opacity-90 transition-all">Next</button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Step 4: MT5 Details + Verification */}
+                  {regStep === 4 && (
+                    <div className="space-y-4">
+                      <div className="text-center mb-2">
+                        <p className="text-xs text-gray-400">Step 4 of 5</p>
+                        <p className="text-sm font-semibold text-white">MT5 Account Verification</p>
+                        <p className="text-[11px] text-gray-500 mt-1">Enter your MT5 credentials — we&apos;ll verify the connection in real-time</p>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs text-gray-400 font-medium mb-1.5">Account Number *</label>
+                        <input
+                          type="text"
+                          value={regForm.accountNumber}
+                          onChange={e => { setRegForm({...regForm, accountNumber: e.target.value}); setMt5Verified(false); }}
+                          className="w-full p-3.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none focus:border-royal/50 transition-all"
+                          placeholder="e.g., 12345678"
+                          disabled={regLoading}
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs text-gray-400 font-medium mb-1.5">MT5 Server *</label>
+                        <ServerDropdown value={regForm.mt5Server} accountType={regForm.accountType} onChange={v => { setRegForm({...regForm, mt5Server: v}); setMt5Verified(false); }} disabled={regLoading} />
+                        <p className="text-[10px] text-gray-600 mt-1">Select or type your server name</p>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs text-gray-400 font-medium mb-1.5">Investor Password *</label>
+                        <input
+                          type="password"
+                          value={regForm.investorPassword}
+                          onChange={e => { setRegForm({...regForm, investorPassword: e.target.value}); setMt5Verified(false); }}
+                          className="w-full p-3.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none focus:border-royal/50 transition-all"
+                          placeholder="Read-only investor password"
+                          disabled={regLoading}
+                        />
+                        <div className="flex items-start gap-1.5 mt-2 p-2.5 rounded-lg bg-profit/5 border border-profit/20">
+                          <span className="text-profit text-xs mt-0.5">🔒</span>
+                          <p className="text-[10px] text-gray-400 leading-relaxed">This is your <strong className="text-gray-300">read-only</strong> investor password. It only allows viewing — it cannot trade, withdraw, or access your funds.</p>
+                        </div>
+                      </div>
+
+                      {/* Verification result */}
+                      {mt5Verified && mt5VerifyData && (
+                        <div className="p-3 rounded-xl bg-profit/10 border border-profit/30">
+                          <div className="flex items-center gap-2 mb-2">
+                            <CheckCircle size={14} className="text-profit" />
+                            <span className="text-xs font-semibold text-profit">Account Verified</span>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2 text-[11px]">
+                            <div><span className="text-gray-500">Balance:</span> <span className="text-white font-medium">{mt5VerifyData.isCent ? `${mt5VerifyData.balance?.toFixed(0)}¢` : `$${mt5VerifyData.balance?.toFixed(2)}`}</span></div>
+                            <div><span className="text-gray-500">Type:</span> <span className="text-white font-medium capitalize">{mt5VerifyData.accountSubtype || 'Standard'}{mt5VerifyData.isCent ? ' (Cent)' : ''}</span></div>
+                            <div className="col-span-2"><span className="text-gray-500">Server:</span> <span className="text-white font-medium">{mt5VerifyData.server}</span></div>
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="flex gap-3 mt-2">
+                        <button onClick={() => { setRegStep(3); setRegError(""); }} disabled={regLoading} className="flex-1 py-3 rounded-xl bg-white/5 border border-white/10 text-gray-300 font-medium text-sm hover:bg-white/10 transition-all disabled:opacity-50">Back</button>
+                        <button
+                          onClick={async () => {
+                            if (!regForm.accountNumber || !regForm.mt5Server || !regForm.investorPassword) { setRegError("Please fill in all fields"); return; }
+                            setRegError(""); setRegLoading(true);
+                            try {
+                              const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+                              const res = await fetch(`${apiUrl}/api/challenges/${registerChallenge.id}/verify-mt5`, {
+                                method: "POST", headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({
+                                  accountNumber: regForm.accountNumber,
+                                  mt5Server: regForm.mt5Server,
+                                  investorPassword: regForm.investorPassword,
+                                  accountType: regForm.accountType,
+                                  email: regForm.email,
+                                }),
+                              });
+                              const data = await res.json();
+                              if (res.ok && data.success) {
+                                setMt5Verified(true);
+                                setMt5VerifyData({ balance: data.balance, isCent: data.isCent, server: data.server, accountSubtype: data.accountSubtype, depositMode: data.depositMode, startingBalance: data.startingBalance });
+                                setRegStep(5);
+                              } else { setRegError(data.error || "Verification failed. Please check your credentials."); }
+                            } catch { setRegError("Could not connect to server. Please try again."); }
+                            setRegLoading(false);
+                          }}
+                          disabled={regLoading}
+                          className="flex-1 py-3 rounded-xl bg-royal text-white font-semibold text-sm hover:opacity-90 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                        >
+                          {regLoading ? <><Loader2 size={14} className="animate-spin" /> Verifying...</> : "Verify Account"}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Step 5: Review & Submit */}
+                  {regStep === 5 && (
+                    <div className="space-y-4">
+                      <div className="text-center mb-2">
+                        <p className="text-xs text-gray-400">Step 5 of 5</p>
+                        <p className="text-sm font-semibold text-white">Review & Confirm</p>
+                        <p className="text-[11px] text-gray-500 mt-1">All checks passed. Review your details and submit.</p>
+                      </div>
+
+                      <div className="space-y-2 bg-white/5 rounded-xl p-4 border border-white/10">
+                        <div className="flex justify-between items-center text-xs">
+                          <span className="text-gray-500">Email</span>
+                          <span className="text-white font-medium truncate ml-3 max-w-[200px]">{regForm.email}</span>
+                        </div>
+                        <div className="flex justify-between text-xs">
+                          <span className="text-gray-500">Username</span>
+                          <span className="text-white font-medium">{regForm.nickname}</span>
+                        </div>
+                        <div className="flex justify-between text-xs">
+                          <span className="text-gray-500">Category</span>
+                          <span className={`font-medium capitalize ${regForm.accountType === 'real' ? 'text-gold' : 'text-royal'}`}>{regForm.accountType}</span>
+                        </div>
+                        <div className="border-t border-white/10 my-2" />
+                        <div className="flex justify-between text-xs">
+                          <span className="text-gray-500">Account</span>
+                          <span className="text-white font-medium">{regForm.accountNumber}</span>
+                        </div>
+                        <div className="flex justify-between text-xs">
+                          <span className="text-gray-500">Server</span>
+                          <span className="text-white font-medium">{mt5VerifyData?.server || regForm.mt5Server}</span>
+                        </div>
+                        <div className="flex justify-between text-xs">
+                          <span className="text-gray-500">Balance</span>
+                          <span className="text-profit font-medium">{mt5VerifyData?.isCent ? `${mt5VerifyData.balance?.toFixed(0)}¢` : `$${mt5VerifyData?.balance?.toFixed(2)}`}</span>
+                        </div>
+                        <div className="flex justify-between text-xs">
+                          <span className="text-gray-500">Status</span>
+                          <span className="text-profit font-medium flex items-center gap-1"><CheckCircle size={11} /> Verified</span>
+                        </div>
+                      </div>
+
+                      {/* Low balance warning for fixed real challenges */}
+                      {mt5VerifyData?.depositMode === 'fixed' && regForm.accountType === 'real' && mt5VerifyData.startingBalance && mt5VerifyData.balance !== undefined && (() => {
+                        const requiredBal = mt5VerifyData.isCent ? mt5VerifyData.startingBalance * 100 : mt5VerifyData.startingBalance;
+                        return mt5VerifyData.balance < requiredBal;
+                      })() && (
+                        <div className="p-3 rounded-xl bg-gold/10 border border-gold/30">
+                          <p className="text-xs text-gold font-semibold mb-1">⚠️ Balance Below Deposit Limit</p>
+                          <p className="text-[11px] text-gray-300">Your balance ({mt5VerifyData.isCent ? `${mt5VerifyData.balance?.toFixed(0)}¢` : `$${mt5VerifyData.balance?.toFixed(2)}`}) is lower than the required deposit of {mt5VerifyData.isCent ? `${(mt5VerifyData.startingBalance! * 100).toFixed(0)}¢` : `$${mt5VerifyData.startingBalance?.toFixed(2)}`}. You can still register, but the target remains the same. Top up your account before the challenge starts for the best chance.</p>
+                        </div>
+                      )}
+
+                      <div className="flex gap-3">
+                        <button onClick={() => { setRegStep(4); setRegError(""); }} disabled={regLoading} className="flex-1 py-3 rounded-xl bg-white/5 border border-white/10 text-gray-300 font-medium text-sm hover:bg-white/10 transition-all disabled:opacity-50">Back</button>
+                        <button
+                          onClick={async () => {
+                            setRegError(""); setRegLoading(true);
+                            try {
+                              const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+                              const res = await fetch(`${apiUrl}/api/challenges/${registerChallenge.id}/register`, {
+                                method: "POST", headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify(regForm),
+                              });
+                              const data = await res.json();
+                              if (res.ok && data.success) {
+                                setRegResult(data.registration);
+                                setRegSuccess(true);
+                              } else { setRegError(data.error || "Registration failed. Please try again."); }
+                            } catch { setRegError("Could not connect to server. Please try again."); }
+                            setRegLoading(false);
+                          }}
+                          disabled={regLoading}
+                          className="flex-1 py-3 rounded-xl bg-gradient-brand text-white font-semibold text-sm hover:opacity-90 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                        >
+                          {regLoading ? <><Loader2 size={14} className="animate-spin" /> Submitting...</> : "Confirm & Register"}
+                        </button>
+                      </div>
+
+                      <p className="text-[10px] text-gray-600 text-center">By registering, you agree to the challenge rules. Your investor password provides read-only access only.</p>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ==================== SERVER DROPDOWN ====================
+const MT5_SERVERS_LIST = {
+  demo: ['Exness-MT5Trial2','Exness-MT5Trial3','Exness-MT5Trial4','Exness-MT5Trial5','Exness-MT5Trial6','Exness-MT5Trial7','Exness-MT5Trial8','Exness-MT5Trial9','Exness-MT5Trial10','Exness-MT5Trial11','Exness-MT5Trial12','Exness-MT5Trial13','Exness-MT5Trial14'],
+  real: ['Exness-MT5Real2','Exness-MT5Real3','Exness-MT5Real4','Exness-MT5Real5','Exness-MT5Real6','Exness-MT5Real7','Exness-MT5Real8','Exness-MT5Real9','Exness-MT5Real10','Exness-MT5Real11','Exness-MT5Real12','Exness-MT5Real13','Exness-MT5Real14','Exness-MT5Real15','Exness-MT5Real16','Exness-MT5Real17','Exness-MT5Real18','Exness-MT5Real19','Exness-MT5Real20','Exness-MT5Real21','Exness-MT5Real22','Exness-MT5Real23','Exness-MT5Real24','Exness-MT5Real25','Exness-MT5Real26','Exness-MT5Real27','Exness-MT5Real28','Exness-MT5Real29','Exness-MT5Real30'],
+};
+
+function ServerDropdown({ value, accountType, onChange, disabled }: { value: string; accountType: string; onChange: (v: string) => void; disabled?: boolean }) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState(value);
+  const ref = useRef<HTMLDivElement>(null);
+
+  const servers = accountType === 'real' ? MT5_SERVERS_LIST.real : MT5_SERVERS_LIST.demo;
+
+  const filtered = servers.filter(s => {
+    if (!search) return true;
+    const q = search.toLowerCase().replace(/[-_\s]/g, '');
+    const sNorm = s.toLowerCase().replace(/[-_\s]/g, '');
+    const numMatch = q.match(/\d+$/);
+    if (numMatch && s.endsWith(numMatch[0])) return true;
+    return sNorm.includes(q) || q.includes(sNorm.slice(-3));
+  });
+
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, []);
+
+  useEffect(() => { setSearch(value); }, [value]);
+
+  return (
+    <div className="relative" ref={ref}>
+      <input
+        type="text"
+        value={search}
+        onChange={e => { setSearch(e.target.value); onChange(e.target.value); setOpen(true); }}
+        onFocus={() => setOpen(true)}
+        className="w-full p-3.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none focus:border-royal/50 transition-all"
+        placeholder={accountType === 'demo' ? 'e.g., Exness-MT5Trial9' : 'e.g., Exness-MT5Real21'}
+        disabled={disabled}
+      />
+      {open && filtered.length > 0 && (
+        <div className="absolute z-50 mt-1 w-full max-h-40 overflow-y-auto rounded-xl bg-[#1a2235] border border-white/15 shadow-xl">
+          {filtered.map(s => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => { onChange(s); setSearch(s); setOpen(false); }}
+              className={`w-full text-left px-4 py-2.5 text-sm hover:bg-royal/20 transition-all ${s === value ? 'bg-royal/10 text-royal font-medium' : 'text-gray-300'}`}
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}

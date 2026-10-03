@@ -1,7 +1,11 @@
+import PublicCompetitionDirectory from "@/components/PublicCompetitionDirectory";
 import Image from "next/image";
 import Link from "next/link";
 import { Sparkles, Zap, Shield, TrendingUp, Users, BarChart3, ArrowRight } from "lucide-react";
 import { StatsSection } from "./StatsSection";
+
+export const revalidate = 60;
+export const metadata = {alternates: {canonical: "https://winnerpip.com"}};
 
 export default function Home() {
   return (
@@ -78,6 +82,7 @@ export default function Home() {
             </div>
           </div>
         </section>
+      <PublicCompetitionDirectory currentOnly />
 
         {/* Features Section */}
         <section id="features" className="py-16 md:py-24 relative">
