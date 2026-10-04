@@ -1,4 +1,5 @@
 "use client";
+import RaceCountdown from "@/components/RaceCountdown";
 import RegistrationNotice from "@/components/RegistrationNotice";
 
 import { useState, useEffect, useRef } from "react";
@@ -109,6 +110,10 @@ export default function ChallengesPage({initialChallenges = []}: {initialChallen
       setLoading(false);
     };
     fetchChallenges();
+    const refresh = window.setInterval(fetchChallenges, 60000);
+    const onVisible = () => { if (document.visibilityState === "visible") void fetchChallenges(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => { window.clearInterval(refresh); document.removeEventListener("visibilitychange", onVisible); };
   }, []);
 
   const currentChallenges = challenges.filter(c => {
@@ -272,6 +277,10 @@ export default function ChallengesPage({initialChallenges = []}: {initialChallen
               )}
             </div>
           </div>
+
+          {!isPast && (challenge.displayStatus || challenge.status) === "registration_open" && (
+            <RaceCountdown startDate={challenge.startDate} />
+          )}
 
           {/* Details */}
           <div className="space-y-3 mb-5">
