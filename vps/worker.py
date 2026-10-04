@@ -204,12 +204,17 @@ def _write_base_config() -> str | None:
         return None
 
 
+_ipc_startup_failures = 0
+_ipc_hard_restarts = 0
+
+
 def _kill_and_restart_terminal() -> bool:
     """
     Kill the terminal process and relaunch it with the base account config file.
     The /config flag tells MT5 to auto-login on startup — no dialog, no manual input.
     Waits 25s for the broker connection before returning.
     """
+    global _ipc_hard_restarts
     tag = f"  [W{TERMINAL_ID}]"
     print(f"{tag} ── terminal restart with base config ──")
 
@@ -220,6 +225,16 @@ def _kill_and_restart_terminal() -> bool:
     # Kill the terminal (also calls mt5.shutdown internally)
     kill_terminal()
     time.sleep(3)
+    _ipc_hard_restarts += 1
+    # Broker login failures alone must never reset the local cache. Require
+    # repeated IPC initialization failures and two unsuccessful hard restarts.
+    if _ipc_startup_failures >= 3 and _ipc_hard_restarts >= 3:
+        try:
+            from account_cache_recovery import quarantine_account_cache
+            backup = quarantine_account_cache(TERMINAL_PATH)
+            print(f"{tag} Account cache recovery: {backup or 'cooldown/no cache'}")
+        except Exception as exc:
+            print(f"{tag} Account cache recovery skipped: {exc}")
 
     # Relaunch with /config flag — MT5 reads credentials and auto-logs in
     try:
@@ -240,7 +255,7 @@ def _try_initialize_and_login() -> bool:
     Single attempt: mt5.shutdown → mt5.initialize → mt5.login to base account.
     Returns True on success.
     """
-    global _ipc_connected, _current_account_str
+    global _ipc_connected, _current_account_str, _ipc_startup_failures, _ipc_hard_restarts
     tag = f"  [W{TERMINAL_ID}]"
     try:
         mt5.shutdown()
@@ -253,8 +268,11 @@ def _try_initialize_and_login() -> bool:
     init_ok = mt5.initialize(TERMINAL_PATH, timeout=15000)
     print(f"{tag}    mt5.initialize → {'OK' if init_ok else f'FAILED {mt5.last_error()}'}")
     if not init_ok:
+        _ipc_startup_failures += 1
         return False
 
+    _ipc_startup_failures = 0
+    _ipc_hard_restarts = 0
     _ipc_connected = True
     print(f"{tag}    mt5.login({BASE_ACCOUNT}) ...")
     login_ok = mt5.login(BASE_ACCOUNT, password=BASE_PASSWORD, server=BASE_SERVER)
@@ -1532,7 +1550,7 @@ class ResolveTradesRequest(BaseModel):
 def health():
     return {
         "status":               "stalled" if _lock.age() >= 600 else ("dead" if _dead_mode else "ok"),
-        "resilience_version": 1,
+        "resilience_version": 2,
         "operation_age_seconds": round(_lock.age(), 1),
         "console_dropped_writes": sys.stdout.dropped,
         "git_commit":           GIT_COMMIT,
