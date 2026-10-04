@@ -70,6 +70,7 @@ interface WinnersData {
 }
 
 export default function ChallengesPage({initialChallenges = []}: {initialChallenges?: Challenge[]}) {
+  const [expandedPrizes, setExpandedPrizes] = useState<Record<number, boolean>>({});
   const [challenges, setChallenges] = useState<Challenge[]>(initialChallenges);
   const [loading, setLoading] = useState(initialChallenges.length === 0);
   const [activeTab, setActiveTab] = useState<"current" | "past">("current");
@@ -227,7 +228,7 @@ export default function ChallengesPage({initialChallenges = []}: {initialChallen
     const showSplitTarget = isSplit && (demoT.start !== realT.start || demoT.target !== realT.target);
 
     return (
-      <button
+      <article
         key={challenge.id}
         onClick={() => {
           if (isPast) return handlePastChallengeClick(challenge);
@@ -240,10 +241,10 @@ export default function ChallengesPage({initialChallenges = []}: {initialChallen
         <div className="absolute inset-0 bg-gradient-to-br from-royal/10 to-gold/10 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
         <div className="absolute inset-0 bg-gradient-to-br from-[#0f1629] to-[#1a1f3a]"></div>
 
-        <div className="p-6 relative">
+        <div className="p-4 sm:p-6 relative">
           {/* Title + Badge */}
-          <div className="mb-5">
-            <h3 className="text-xl font-bold text-white mb-3 group-hover:gradient-text transition-all line-clamp-2">
+          <div className="mb-3 sm:mb-5">
+            <h3 className="text-lg sm:text-xl font-bold text-white mb-2 sm:mb-3 group-hover:gradient-text transition-all line-clamp-2">
               {challenge.title}
             </h3>
             <div className="flex flex-wrap gap-2">
@@ -283,8 +284,8 @@ export default function ChallengesPage({initialChallenges = []}: {initialChallen
           )}
 
           {/* Details */}
-          <div className="space-y-3 mb-5">
-            <div className="flex items-center gap-3 p-3 rounded-xl bg-white/5 border border-white/10">
+          <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 sm:gap-3 mb-3 sm:mb-5">
+            <div className="col-span-2 flex items-center gap-2 p-2.5 sm:p-3 rounded-xl bg-white/5 border border-white/10">
               <Calendar size={16} className="text-gray-400 flex-shrink-0" />
               <div className="min-w-0">
                 <p className="text-xs text-gray-500">Period</p>
@@ -294,7 +295,7 @@ export default function ChallengesPage({initialChallenges = []}: {initialChallen
               </div>
             </div>
 
-            <div className="flex items-center gap-3 p-3 rounded-xl bg-white/5 border border-white/10">
+            <div className="min-w-0 flex items-center gap-2 p-2.5 sm:p-3 rounded-xl bg-white/5 border border-white/10">
               <Target size={16} className="text-gold flex-shrink-0" />
               <div>
                 <p className="text-xs text-gray-500">Target</p>
@@ -327,7 +328,7 @@ export default function ChallengesPage({initialChallenges = []}: {initialChallen
               </div>
             </div>
 
-            <div className="flex items-center gap-3 p-3 rounded-xl bg-white/5 border border-white/10">
+            <div className="min-w-0 flex items-center gap-2 p-2.5 sm:p-3 rounded-xl bg-white/5 border border-white/10">
               <Users size={16} className="text-royal flex-shrink-0" />
               <div>
                 <p className="text-xs text-gray-500">Participants</p>
@@ -336,7 +337,11 @@ export default function ChallengesPage({initialChallenges = []}: {initialChallen
             </div>
 
             {(challenge.realPrizes?.length > 0 || challenge.demoPrizes?.length > 0) && (
-              <div className="p-3 rounded-xl bg-gradient-to-r from-gold/10 to-gold/5 border border-gold/20">
+              <div onClick={e => e.stopPropagation()} className="col-span-2 p-3 rounded-xl bg-gradient-to-r from-gold/10 to-gold/5 border border-gold/20">
+                <button type="button" aria-expanded={!!expandedPrizes[challenge.id]} aria-controls={`prizes-${challenge.id}`} onClick={() => setExpandedPrizes(prev => ({...prev, [challenge.id]: !prev[challenge.id]}))} className="w-full text-left cursor-pointer text-sm font-semibold text-gold sm:hidden">
+                  Prizes <span className="text-xs font-normal text-gray-400">({(challenge.realPrizes?.length || 0) + (challenge.demoPrizes?.length || 0)} places) · {expandedPrizes[challenge.id] ? "Hide prizes" : "View prizes"}</span>
+                </button>
+                <div id={`prizes-${challenge.id}`} className={`${expandedPrizes[challenge.id] ? "block" : "hidden"} mt-3 sm:mt-0 sm:block`}>
                 <div className="flex items-center gap-2 mb-2">
                   <Trophy size={14} className="text-gold flex-shrink-0" />
                   <p className="text-xs text-gray-500">Prize Pool</p>
@@ -365,12 +370,13 @@ export default function ChallengesPage({initialChallenges = []}: {initialChallen
                     </div>
                   </div>
                 )}
+                </div>
               </div>
             )}
           </div>
 
           {/* CTA */}
-          <div className={`flex items-center justify-between p-3 rounded-xl ${isPast ? 'bg-profit/10 border border-profit/20 group-hover:bg-profit/20' : 'bg-royal/10 border border-royal/20 group-hover:bg-royal/20'} transition-all`}>
+          <button type="button" className={`w-full flex items-center justify-between p-3 rounded-xl ${isPast ? 'bg-profit/10 border border-profit/20 group-hover:bg-profit/20' : 'bg-royal/10 border border-royal/20 group-hover:bg-royal/20'} transition-all`}>
             <span className={`text-sm font-semibold ${isPast ? 'text-profit' : 'text-royal'}`}>
               {isPast ? "View Winners" : (() => {
                 const ds = challenge.displayStatus || challenge.status;
@@ -384,9 +390,9 @@ export default function ChallengesPage({initialChallenges = []}: {initialChallen
               })()}
             </span>
             <ArrowRight size={16} className={`${isPast ? 'text-profit' : 'text-royal'} group-hover:translate-x-1 transition-transform`} />
-          </div>
+          </button>
         </div>
-      </button>
+      </article>
     );
   };
 
