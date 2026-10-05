@@ -45,6 +45,7 @@ interface ChallengeInfo {
   targetPercent?: number | null;
 }
 interface MyStats {
+  totalWithdrawn?: number;
   nickname: string; email: string; accountNumber: string; accountType: string; accountSubtype: string | null; server: string;
   rank: number | null; currentBalance: number; adjustedBalance: number;
   qualifiedProfit: number; grossProfit: number; profitRemoved: number;
@@ -225,6 +226,7 @@ export default function ChallengeDashboard() {
         rank: data.me.rank,
         currentBalance: data.me.currentBalance,
         adjustedBalance: data.me.adjustedBalance,
+        totalWithdrawn: data.me.totalWithdrawn || 0,
         qualifiedProfit: data.me.qualifiedProfit,
         grossProfit: data.me.grossProfit,
         profitRemoved: data.me.profitRemoved,
@@ -729,7 +731,7 @@ export default function ChallengeDashboard() {
               </div>
               <div className="glass rounded-2xl p-4 md:p-5 border border-white/10">
                 <div className="flex items-center gap-2 mb-2"><Target size={16} className="text-royal" /><p className="text-[10px] text-gray-400 uppercase tracking-wider font-medium">Final Balance</p></div>
-                <p className="text-3xl md:text-4xl font-bold text-white">{formatBalance(myStats.adjustedBalance, myStats.accountType, effectiveIsCent)}</p>
+                <p className="text-3xl md:text-4xl font-bold text-white">{formatBalance(myStats.adjustedBalance - (myStats.totalWithdrawn || 0), myStats.accountType, effectiveIsCent)}</p>
                 <p className="text-xs text-gray-500 mt-1">Gross: {formatBalance(myStats.currentBalance, myStats.accountType, effectiveIsCent)}</p>
               </div>
               <div className="glass rounded-2xl p-4 md:p-5 border border-white/10">
@@ -1082,7 +1084,7 @@ export default function ChallengeDashboard() {
               </div>
               <div className="glass rounded-2xl p-4 md:p-5 border border-white/10">
                 <div className="flex items-center gap-2 mb-2"><Target size={16} className="text-royal" /><p className="text-[10px] text-gray-400 uppercase tracking-wider font-medium">Balance</p></div>
-                <p className="text-3xl md:text-4xl font-bold text-white">{formatBalance(myStats.adjustedBalance, myStats.accountType, effectiveIsCent)}</p>
+                <p className="text-3xl md:text-4xl font-bold text-white">{formatBalance(myStats.adjustedBalance - (myStats.totalWithdrawn || 0), myStats.accountType, effectiveIsCent)}</p>
                 <p className="text-xs text-gray-500 mt-1">Gross: {formatBalance(myStats.currentBalance, myStats.accountType, effectiveIsCent)}</p>
               </div>
               <div className="glass rounded-2xl p-4 md:p-5 border border-white/10">
@@ -1144,7 +1146,7 @@ export default function ChallengeDashboard() {
                   <span className={growthPercent >= 0 ? "text-profit" : "text-loss"}>
                     {growthPercent < 0 && challenge.allowBelowStart === false ? "▼ below start — not eligible" : "Ranked by growth"}
                   </span>
-                  <span className="text-gray-500">Now: {formatBalance(myStats.adjustedBalance, myStats.accountType, effectiveIsCent)}</span>
+                  <span className="text-gray-500">Now: {formatBalance(myStats.adjustedBalance - (myStats.totalWithdrawn || 0), myStats.accountType, effectiveIsCent)}</span>
                 </div>
                 <p className="text-[10px] text-gray-500 mt-2 text-center">This challenge has no target — winners are decided by ranking.</p>
               </div>
@@ -1623,7 +1625,7 @@ export default function ChallengeDashboard() {
                   <div>
                     <p className="text-xl font-bold text-white">{selectedUser.nickname}</p>
                     <p className="text-sm text-gray-400">
-                      {selectedUser.isDisqualified ? <span className="text-loss font-semibold">Disqualified</span> : selectedUser.isWithdrawn ? <span className="text-gray-400 font-semibold">🚪 User exited the challenge{selectedUser.totalWithdrawn ? ` • withdrew ${formatBalance(selectedUser.totalWithdrawn, selectedUser.accountType, selectedUser.isCent)}` : ''}</span> : selectedUser.isBlown ? <span className="text-gray-400 font-semibold">💀 Balance is zero from trading</span> : isGrowthMode ? <span className="text-white text-xs font-medium">{selectedUser.actualStartingBalance != null ? `Start: ${formatBalance(selectedUser.actualStartingBalance, selectedUser.accountType, selectedUser.isCent)} ` : ''}Current: {formatBalance(selectedUser.adjustedBalance, selectedUser.accountType, selectedUser.isCent)} &bull; Growth: <span className={Number(selectedUser.growthPercent || 0) >= 0 ? "text-profit" : "text-loss"}>{Number(selectedUser.growthPercent || 0) >= 0 ? '↑' : '↓'} {Number(selectedUser.growthPercent || 0) >= 0 ? '+' : '-'}{Math.abs(Number(selectedUser.growthPercent || 0)).toFixed(2)}%</span></span> : <>Balance: <span className="text-white font-semibold">{formatBalance(selectedUser.adjustedBalance - (selectedUser.totalWithdrawn || 0), selectedUser.accountType, selectedUser.isCent)}</span></>}
+                      {selectedUser.isDisqualified ? <span className="text-loss font-semibold">Disqualified</span> : selectedUser.isWithdrawn ? <span className="text-gray-400 font-semibold">🚪 User exited the challenge{selectedUser.totalWithdrawn ? ` • withdrew ${formatBalance(selectedUser.totalWithdrawn, selectedUser.accountType, selectedUser.isCent)}` : ''}</span> : selectedUser.isBlown ? <span className="text-gray-400 font-semibold">💀 Balance is zero from trading</span> : isGrowthMode ? <span className="text-white text-xs font-medium">{selectedUser.actualStartingBalance != null ? `Start: ${formatBalance(selectedUser.actualStartingBalance, selectedUser.accountType, selectedUser.isCent)} ` : ''}Current: {formatBalance(selectedUser.adjustedBalance - (selectedUser.totalWithdrawn || 0), selectedUser.accountType, selectedUser.isCent)} &bull; Growth: <span className={Number(selectedUser.growthPercent || 0) >= 0 ? "text-profit" : "text-loss"}>{Number(selectedUser.growthPercent || 0) >= 0 ? '↑' : '↓'} {Number(selectedUser.growthPercent || 0) >= 0 ? '+' : '-'}{Math.abs(Number(selectedUser.growthPercent || 0)).toFixed(2)}%</span></span> : <>Balance: <span className="text-white font-semibold">{formatBalance(selectedUser.adjustedBalance - (selectedUser.totalWithdrawn || 0), selectedUser.accountType, selectedUser.isCent)}</span></>}
                     </p>
                   </div>
                 </div>
@@ -1889,7 +1891,7 @@ export default function ChallengeDashboard() {
                 </div>
                 <div className="bg-white/5 rounded-xl p-3 text-center">
                   <p className="text-[10px] text-gray-500 uppercase mb-1">Adjusted Balance</p>
-                  <p className="text-2xl font-bold text-white">{formatBalance(myStats.adjustedBalance, myStats.accountType, effectiveIsCent)}</p>
+                  <p className="text-2xl font-bold text-white">{formatBalance(myStats.adjustedBalance - (myStats.totalWithdrawn || 0), myStats.accountType, effectiveIsCent)}</p>
                 </div>
                 <div className="bg-white/5 rounded-xl p-3 text-center">
                   <p className="text-[10px] text-gray-500 uppercase mb-1">Net Qualified Profit</p>

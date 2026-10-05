@@ -42,6 +42,7 @@ export default function BalanceChart({
 }: BalanceChartProps) {
   const [data, setData] = useState<DataPoint[]>([]);
   const [startingBalance, setStartingBalance] = useState(0);
+  const [adjustmentNote, setAdjustmentNote] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -71,14 +72,15 @@ export default function BalanceChart({
         const json = await res.json();
 
         setStartingBalance(json.startingBalance || 0);
+        setAdjustmentNote(json.adjustmentNote || null);
 
         // Format data points with readable time labels
         const series = (json.series || []).map((p: any, i: number) => {
           const d = new Date(p.time);
           const eatTime = new Date(d.getTime() + 3 * 60 * 60 * 1000);
-          const label = i === 0
+          const label = p.label || (i === 0
             ? "Start"
-            : `${eatTime.getUTCDate()}/${eatTime.getUTCMonth() + 1} ${String(eatTime.getUTCHours()).padStart(2, "0")}:${String(eatTime.getUTCMinutes()).padStart(2, "0")}`;
+            : `${eatTime.getUTCDate()}/${eatTime.getUTCMonth() + 1} ${String(eatTime.getUTCHours()).padStart(2, "0")}:${String(eatTime.getUTCMinutes()).padStart(2, "0")}`);
           return { ...p, label };
         });
 
@@ -136,6 +138,7 @@ export default function BalanceChart({
           </span>
         </div>
       </div>
+      {adjustmentNote && <p className="text-[10px] text-gray-400 mb-2">{adjustmentNote}</p>}
       <ResponsiveContainer width="100%" height={height - 30}>
         <LineChart data={data} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
           <XAxis

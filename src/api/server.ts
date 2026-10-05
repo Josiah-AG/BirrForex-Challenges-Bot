@@ -1,3 +1,5 @@
+import { qualifiedBalanceSeries } from '../utils/qualifiedBalanceSeries';
+import { leaderboardOrderSql } from '../utils/qualifiedRanking';
 import { queuedPullProgress } from '../utils/queuedPullProgress';
 import { pullBatchReport } from '../utils/pullBatchReport';
 import { brokerForChallenge, inspectParticipants } from '../services/partnerScreening';
@@ -1285,7 +1287,7 @@ app.get('/api/challenges/:id/leaderboard', async (req, res) => {
 
     // Check challenge status — pre-start uses registration-based ranking
     const challengeStatus = await db.query(
-      `SELECT status, leaderboard_updated_at FROM trading_challenges WHERE id = $1`,
+      `SELECT status, deposit_mode, leaderboard_updated_at FROM trading_challenges WHERE id = $1`,
       [challengeId]
     );
     const status = challengeStatus.rows[0]?.status;
@@ -1440,7 +1442,7 @@ app.get('/api/challenges/:id/leaderboard', async (req, res) => {
       params.push(category);
     }
 
-    query += ` ORDER BY CASE WHEN l.is_disqualified = true OR r.disqualified = true THEN 1 ELSE 0 END, l.rank ASC NULLS LAST, l.qualified_profit DESC`;
+    query += ` ${leaderboardOrderSql(category, !!challengeStatus.rows[0]?.deposit_mode && challengeStatus.rows[0].deposit_mode !== 'fixed')}`;
     query += ` LIMIT ${limit} OFFSET ${offset}`;
 
     const result = await db.query(query, params);
@@ -1553,11 +1555,12 @@ app.get('/api/challenges/:id/leaderboard', async (req, res) => {
         let currentRank = offset;
         return result.rows.map((r: any) => {
           const isDq = r.is_disqualified || r.reg_disqualified || false;
-          if (!isDq) currentRank++;
+          const hasLeaderboard = r.rank != null;
+          if (!isDq && hasLeaderboard) currentRank++;
           return {
             nickname: r.nickname,
             accountType: r.account_type,
-            rank: isDq ? null : currentRank,
+            rank: isDq || !hasLeaderboard ? null : ((category === 'demo' || category === 'real') ? r.rank : currentRank),
             rankChange: (!isDq && r.previous_rank && r.rank) ? (r.previous_rank - r.rank) : null,
             currentBalance: parseFloat(r.current_balance),
             adjustedBalance: parseFloat(r.adjusted_balance),
@@ -1903,6 +1906,7 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
         currentBalance: isPreStart
           ? (actualStartingBalance ?? (leaderboard ? parseFloat(leaderboard.current_balance) : 0))
           : (leaderboard ? parseFloat(leaderboard.current_balance) : (actualStartingBalance ?? 0)),
+        totalWithdrawn: isPreStart ? 0 : Number(leaderboard?.total_withdrawn || 0),
         adjustedBalance: isPreStart
           ? (actualStartingBalance ?? (leaderboard ? parseFloat(leaderboard.adjusted_balance) : 0))
           : (leaderboard ? parseFloat(leaderboard.adjusted_balance) : (actualStartingBalance ?? 0)),
@@ -2308,7 +2312,7 @@ app.get('/api/host/challenge/:id/leaderboard', hostAuthMiddleware, async (req: a
     const category = req.query.category as string || 'all';
 
     // Determine challenge status — pre-start ranks from registrations (matching admin)
-    const statusRow = await db.query(`SELECT status FROM trading_challenges WHERE id = $1`, [challengeId]);
+    const statusRow = await db.query(`SELECT status, deposit_mode FROM trading_challenges WHERE id = $1`, [challengeId]);
     const hlStatus = statusRow.rows[0]?.status;
     const hlIsPreStart = hlStatus !== 'active' && hlStatus !== 'reviewing' && hlStatus !== 'completed';
 
@@ -2408,7 +2412,7 @@ app.get('/api/host/challenge/:id/leaderboard', hostAuthMiddleware, async (req: a
        FROM wp_leaderboard l
        JOIN trading_registrations r ON l.registration_id = r.id
        WHERE l.challenge_id = $1${catFilter}
-       ORDER BY CASE WHEN l.is_disqualified OR r.disqualified THEN 1 ELSE 0 END, l.rank ASC NULLS LAST
+       ${leaderboardOrderSql(category, !!statusRow.rows[0]?.deposit_mode && statusRow.rows[0].deposit_mode !== 'fixed')}
        LIMIT 100`,
       params
     );
@@ -4362,7 +4366,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/finduser`, adminIpCheck, 
               r.account_type, r.mt5_server, r.registered_at, r.last_pull_at, r.pull_status,
               r.partner_status, r.disqualified, r.disqualified_reason, r.is_cent,
               r.registration_balance, r.last_known_balance,
-              l.rank, l.current_balance, l.adjusted_balance, l.qualified_profit, l.gross_profit,
+              l.rank, l.current_balance, l.adjusted_balance, l.total_withdrawn, l.qualified_profit, l.gross_profit,
               l.profit_removed, l.total_trades, l.qualified_trades, l.flagged_trades, l.active_days,
               l.is_qualified, l.last_trade_time, l.last_updated as lb_updated
        FROM trading_registrations r
@@ -4427,6 +4431,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/finduser`, adminIpCheck, 
         qualifiedProfit: r.qualified_profit != null ? parseFloat(r.qualified_profit) : 0,
         grossProfit: r.gross_profit != null ? parseFloat(r.gross_profit) : 0,
         profitRemoved: r.profit_removed != null ? parseFloat(r.profit_removed) : 0,
+        totalWithdrawn: Number(r.total_withdrawn || 0),
         adjustedBalance: r.adjusted_balance != null ? parseFloat(r.adjusted_balance) : 0,
         currentBalance: r.current_balance != null ? parseFloat(r.current_balance) : (r.last_known_balance != null ? parseFloat(r.last_known_balance) : 0),
         totalTrades: r.total_trades || 0,
@@ -5549,21 +5554,9 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/admin-leaderboard`, admin
     // ACTIVE/REVIEWING/COMPLETED: use wp_leaderboard data
     // For growth-% challenges (max_limit/min_limit): sort by growth_percent DESC.
     // For fixed: sort by normalized_balance (or l.rank for per-category).
-    const orderByActive = (category === 'demo' || category === 'real')
-      ? `ORDER BY
-         CASE WHEN l.is_disqualified = true OR r.disqualified = true THEN 1 ELSE 0 END,
-         CASE WHEN COALESCE(l.zero_balance_at::text, '') != '' THEN 1 ELSE 0 END,
-         ${rankByGrowth ? 'COALESCE(l.growth_percent, 0) DESC NULLS LAST' : 'l.rank ASC NULLS LAST, COALESCE(l.normalized_balance, l.adjusted_balance, r.last_known_balance, r.registration_balance, 0) DESC NULLS LAST'}`
-      : `ORDER BY
-         CASE WHEN l.is_disqualified = true OR r.disqualified = true THEN 1 ELSE 0 END,
-         CASE WHEN COALESCE(l.zero_balance_at::text, '') != '' THEN 1 ELSE 0 END,
-         ${rankByGrowth
-           ? 'COALESCE(l.growth_percent, 0) DESC NULLS LAST'
-           : `COALESCE(l.normalized_balance,
-               CASE WHEN COALESCE(r.is_cent, false) THEN COALESCE(l.adjusted_balance, r.last_known_balance, r.registration_balance, 0) / 100.0
-                    ELSE COALESCE(l.adjusted_balance, r.last_known_balance, r.registration_balance, 0) END
-             ) DESC NULLS LAST,
-             r.registered_at ASC`}`;
+    // Category views use the published rank. The combined view uses the same
+    // qualified balance and status tiers; raw broker balances never rank unevaluated rows.
+    const orderByActive = leaderboardOrderSql(category, rankByGrowth);
 
     const result = await db.query(
       `SELECT r.id as registration_id, r.nickname, r.account_type, r.is_cent,
@@ -5601,14 +5594,14 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/admin-leaderboard`, admin
             ? parseFloat(r.last_known_balance)
             : r.registration_balance != null ? parseFloat(r.registration_balance) : 0;
           const isDq = r.is_disqualified || r.disqualified || false;
-          if (!isDq) currentRank++;
+          if (!isDq && hasLeaderboard) currentRank++;
           return {
             registrationId: r.registration_id,
             nickname: r.nickname,
             email: r.email || null,
             accountNumber: r.account_number || null,
             accountType: r.account_type,
-            rank: isDq ? null : currentRank,
+            rank: isDq || !hasLeaderboard ? null : ((category === 'demo' || category === 'real') ? r.rank : currentRank),
             rankChange: (!isDq && r.previous_rank && r.rank) ? (r.previous_rank - r.rank) : null,
             currentBalance: hasLeaderboard ? parseFloat(r.current_balance) : fallbackBalance,
             adjustedBalance: hasLeaderboard ? parseFloat(r.adjusted_balance) : fallbackBalance,
@@ -8493,8 +8486,8 @@ app.get('/api/me/balance-history', authMiddleware, async (req: any, res) => {
     const tradesParams: any[] = [challengeId, registrationId];
     let dateFilter = '';
     if (reg.start_date) {
-      const graceStart = new Date(new Date(reg.start_date).getTime() - 3 * 60 * 60 * 1000);
-      dateFilter += ` AND close_time >= $3`;
+      const graceStart = new Date(new Date(reg.start_date).getTime());
+      dateFilter += ` AND open_time >= $3`;
       tradesParams.push(graceStart.toISOString());
     }
     if (reg.end_date) {
@@ -8512,28 +8505,12 @@ app.get('/api/me/balance-history', authMiddleware, async (req: any, res) => {
     );
 
     // Build balance series
-    let grossBalance = startingBalance;
-    let adjustedBalance = startingBalance;
-    const series: { time: string; gross: number; adjusted: number }[] = [
-      { time: reg.start_date || new Date().toISOString(), gross: startingBalance, adjusted: startingBalance }
-    ];
-
-    for (const t of trades.rows) {
-      const net = parseFloat(t.profit) + parseFloat(t.commission || 0) + parseFloat(t.swap || 0);
-      grossBalance += net;
-      // Qualified balance: include all losses (flagged or not) + only qualified profits.
-      // Flagged losses are informational only — losses always count as-is.
-      if (t.is_qualified || net <= 0) {
-        adjustedBalance += net;
-      }
-      series.push({
-        time: t.close_time,
-        gross: Math.round(grossBalance * 100) / 100,
-        adjusted: Math.round(adjustedBalance * 100) / 100,
-      });
-    }
-
-    return res.json({ startingBalance, series, isCent: reg.is_cent || false });
+    const published = (await db.query(
+      'SELECT current_balance,adjusted_balance,total_withdrawn,last_updated FROM wp_leaderboard WHERE challenge_id=$1 AND registration_id=$2',
+      [challengeId,registrationId]
+    )).rows[0];
+    const chart = qualifiedBalanceSeries(startingBalance, reg.start_date || new Date().toISOString(), trades.rows, published);
+    return res.json({ startingBalance, ...chart, isCent: reg.is_cent || false });
   } catch (error) {
     console.error('Balance history error:', error);
     if ((error as any)?.code === '23505') return res.status(409).json({error:'Account, email or nickname is already registered'});
@@ -8568,8 +8545,8 @@ async function managementBalanceHistory(req: any, res: any) {
     const tradesParams: any[] = [challengeId, registrationId];
     let dateFilter = '';
     if (reg.start_date) {
-      const graceStart = new Date(new Date(reg.start_date).getTime() - 3 * 60 * 60 * 1000);
-      dateFilter += ` AND close_time >= $3`;
+      const graceStart = new Date(new Date(reg.start_date).getTime());
+      dateFilter += ` AND open_time >= $3`;
       tradesParams.push(graceStart.toISOString());
     }
     if (reg.end_date) {
@@ -8586,27 +8563,12 @@ async function managementBalanceHistory(req: any, res: any) {
       tradesParams
     );
 
-    let grossBalance = startingBalance;
-    let adjustedBalance = startingBalance;
-    const series: { time: string; gross: number; adjusted: number }[] = [
-      { time: reg.start_date || new Date().toISOString(), gross: startingBalance, adjusted: startingBalance }
-    ];
-
-    for (const t of trades.rows) {
-      const net = parseFloat(t.profit) + parseFloat(t.commission || 0) + parseFloat(t.swap || 0);
-      grossBalance += net;
-      // Qualified balance: include all losses (flagged or not) + only qualified profits.
-      if (t.is_qualified || net <= 0) {
-        adjustedBalance += net;
-      }
-      series.push({
-        time: t.close_time,
-        gross: Math.round(grossBalance * 100) / 100,
-        adjusted: Math.round(adjustedBalance * 100) / 100,
-      });
-    }
-
-    return res.json({ startingBalance, series, isCent: reg.is_cent || false });
+    const published = (await db.query(
+      'SELECT current_balance,adjusted_balance,total_withdrawn,last_updated FROM wp_leaderboard WHERE challenge_id=$1 AND registration_id=$2',
+      [challengeId,registrationId]
+    )).rows[0];
+    const chart = qualifiedBalanceSeries(startingBalance, reg.start_date || new Date().toISOString(), trades.rows, published);
+    return res.json({ startingBalance, ...chart, isCent: reg.is_cent || false });
   } catch (error) {
     console.error('Admin balance history error:', error);
     if ((error as any)?.code === '23505') return res.status(409).json({error:'Account, email or nickname is already registered'});

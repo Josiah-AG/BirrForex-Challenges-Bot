@@ -1,3 +1,4 @@
+import { qualifiedRankingSql } from '../utils/qualifiedRanking';
 import { beginPullJournal, checkpointPullJournal } from './pullRollbackJournal';
 import { snapshotWinnerPipResults } from './winnerSelection';
 import { db } from '../database/db';
@@ -77,7 +78,7 @@ export class LeaderboardService {
       const tier1SortExpr = rankByGrowth
         ? `COALESCE(l.growth_percent, 0) DESC`
         : `CASE WHEN COALESCE(l.is_withdrawn, false) THEN 0
-                          ELSE COALESCE(l.normalized_balance, l.adjusted_balance) - (COALESCE(l.total_withdrawn, 0) / CASE WHEN l.is_cent THEN 100.0 ELSE 1 END) END DESC`;
+                          ELSE ${qualifiedRankingSql()} END DESC`;
       await db.query(
         `UPDATE wp_leaderboard SET rank = sub.rn FROM (
           SELECT l.id, ROW_NUMBER() OVER (
@@ -91,7 +92,7 @@ export class LeaderboardService {
           WHERE l.challenge_id=$1 AND l.account_type=$2 AND l.is_disqualified=false AND r.disqualified=false
             AND COALESCE(l.is_withdrawn, false) = false
             AND l.zero_balance_at IS NULL
-            AND (COALESCE(l.normalized_balance, l.adjusted_balance) - (COALESCE(l.total_withdrawn, 0) / CASE WHEN l.is_cent THEN 100.0 ELSE 1 END) > 0 OR l.adjusted_balance IS NULL)
+            AND (${qualifiedRankingSql()} > 0 OR l.adjusted_balance IS NULL)
         ) sub WHERE wp_leaderboard.id = sub.id`,
         [challengeId, accountType]
       );
@@ -102,7 +103,7 @@ export class LeaderboardService {
          WHERE l.challenge_id=$1 AND l.account_type=$2 AND l.is_disqualified=false AND r.disqualified=false
            AND COALESCE(l.is_withdrawn, false) = false
            AND l.zero_balance_at IS NULL
-           AND (COALESCE(l.normalized_balance, l.adjusted_balance) - (COALESCE(l.total_withdrawn, 0) / CASE WHEN l.is_cent THEN 100.0 ELSE 1 END) > 0 OR l.adjusted_balance IS NULL)`,
+           AND (${qualifiedRankingSql()} > 0 OR l.adjusted_balance IS NULL)`,
         [challengeId, accountType]
       );
       offset = parseInt(tier1Count.rows[0].cnt);
@@ -130,7 +131,7 @@ export class LeaderboardService {
       // These rank above blown accounts regardless of balance value
       const tier2bSortExpr = rankByGrowth
         ? `COALESCE(l.growth_percent, 0) DESC`
-        : `COALESCE(normalized_balance, adjusted_balance) DESC`;
+        : `${qualifiedRankingSql()} DESC`;
       await db.query(
         `UPDATE wp_leaderboard SET rank = sub.rn FROM (
           SELECT id, (ROW_NUMBER() OVER (
@@ -141,7 +142,7 @@ export class LeaderboardService {
           WHERE challenge_id=$1 AND account_type=$2 AND is_disqualified=false
             AND COALESCE(is_withdrawn, false) = false
             AND zero_balance_at IS NULL
-            AND (COALESCE(normalized_balance, adjusted_balance) - COALESCE(total_withdrawn,0) / CASE WHEN is_cent THEN 100.0 ELSE 1 END) <= 0 AND adjusted_balance IS NOT NULL
+            AND (${qualifiedRankingSql()}) <= 0 AND adjusted_balance IS NOT NULL
         ) sub WHERE wp_leaderboard.id = sub.id`,
         [challengeId, accountType, offset]
       );
@@ -151,7 +152,7 @@ export class LeaderboardService {
          WHERE challenge_id=$1 AND account_type=$2 AND is_disqualified=false
            AND COALESCE(is_withdrawn, false) = false
            AND zero_balance_at IS NULL
-           AND (COALESCE(normalized_balance, adjusted_balance) - COALESCE(total_withdrawn,0) / CASE WHEN is_cent THEN 100.0 ELSE 1 END) <= 0 AND adjusted_balance IS NOT NULL`,
+           AND (${qualifiedRankingSql()}) <= 0 AND adjusted_balance IS NOT NULL`,
         [challengeId, accountType]
       );
       offset += parseInt(tier2bCount.rows[0].cnt);
@@ -159,7 +160,7 @@ export class LeaderboardService {
       // Tier 2c: blown accounts (zero_balance_at IS NOT NULL) — always rank below non-blown
       const tier2cSortExpr = rankByGrowth
         ? `COALESCE(growth_percent, 0) DESC`
-        : `COALESCE(normalized_balance, adjusted_balance) DESC`;
+        : `${qualifiedRankingSql()} DESC`;
       await db.query(
         `UPDATE wp_leaderboard SET rank = sub.rn FROM (
           SELECT id, (ROW_NUMBER() OVER (
