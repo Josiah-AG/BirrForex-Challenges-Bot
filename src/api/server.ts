@@ -3913,7 +3913,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
           if (/lot size.*exceeds max/i.test(rule)) return 'Lot size exceeded';
           if (/held.*exceeds max.*h/i.test(rule)) return 'Max hold time exceeded';
           if (/weekend trading/i.test(rule)) return 'Weekend trading';
-          if (/below minimum.*min/i.test(rule)) return rule.replace(/\s*\(.*\)\s*$/, '').trim();
+          if (/below minimum.*min|trade held.*< min.*min/i.test(rule)) return 'Below minimum trade duration';
           return rule.replace(/\s*\(also open:.*\)\s*$/i, '').replace(/\s*\(.*\)\s*$/, '').trim();
         };
         const categorized: Record<string, number> = {};
