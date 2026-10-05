@@ -66,7 +66,7 @@ class SnapshotTests(unittest.TestCase):
             if n[0]>1:r.balance=1
             return r
         mt.account_info=info
-        with self.assertRaisesRegex(IncompleteHistory,'changed'):self.collect(mt)
+        with self.assertRaises(IncompleteHistory):self.collect(mt)
     def test_independent_position_omission(self):
         mt=MT([deal(1,type=2,profit=100,position=0),deal(2),deal(3,entry=1,type=1,t=200)],100)
         orig=mt.history_deals_get
@@ -104,3 +104,53 @@ class ConnectionTests(unittest.TestCase):
     def test_cached_history_cannot_verify_an_offline_terminal(self):
         mt=MT([],0);mt.terminal_info=lambda:N(connected=False)
         with self.assertRaisesRegex(IncompleteHistory,'not live'):collect_snapshot(mt,1,'Broker',sleep=lambda _:None)
+
+class RefreshTests(unittest.TestCase):
+    def test_stale_login_balance_refreshes_without_relaxing_ledger(self):
+        mt=MT([deal(1,type=2,profit=100,position=0)],100)
+        original=mt.account_info;n=[0]
+        def info():
+            r=original();n[0]+=1
+            if n[0]<4:r.balance=90
+            return r
+        mt.account_info=info
+        r=collect_snapshot(mt,1,'Broker',sleep=lambda _:None)
+        self.assertEqual(r['balance'],100)
+        self.assertEqual(r['ledger_expected'],100)
+    def test_balance_change_during_final_verification_is_still_rejected(self):
+        rows=[deal(1,type=2,profit=100,position=0),deal(2),deal(3,entry=1,type=1,t=200)]
+        mt=MT(rows,100)
+        def orders(**kw):
+            mt.balance=101
+            return []
+        mt.history_orders_get=orders
+        with self.assertRaisesRegex(IncompleteHistory,'changed during snapshot'):
+            collect_snapshot(mt,1,'Broker',sleep=lambda _:None)
+    def test_wrong_identity_during_sync_is_rejected(self):
+        mt=MT([],0);orig=mt.account_info;n=[0]
+        def info():
+            r=orig();n[0]+=1
+            if n[0]>2:r.login=2
+            return r
+        mt.account_info=info
+        with self.assertRaisesRegex(IncompleteHistory,'identity'):
+            collect_snapshot(mt,1,'Broker',sleep=lambda _:None)
+
+class RangeFallbackTests(unittest.TestCase):
+    def test_empty_epoch_read_with_full_count_recovers(self):
+        from datetime import datetime,timezone
+        rows=[deal(1,type=2,profit=100,position=0,t=int(datetime(2026,1,1,tzinfo=timezone.utc).timestamp()))]
+        mt=MT(rows,100);original=mt.history_deals_get
+        def get(*a,**kw):
+            if a and a[0].year==1970:return []
+            return original(*a,**kw)
+        mt.history_deals_get=get
+        r=collect_snapshot(mt,1,'Broker',sleep=lambda _:None)
+        self.assertEqual(r['history_count'],1)
+        self.assertEqual(r['ledger_expected'],100)
+    def test_fallback_must_match_full_count_even_if_balance_matches(self):
+        mt=MT([deal(1,type=2,profit=100,position=0)],100)
+        mt.history_deals_total=lambda *a:2
+        original=mt.history_deals_get
+        mt.history_deals_get=lambda *a,**kw:[] if a and a[0].year==1970 else original(*a,**kw)
+        with self.assertRaises(IncompleteHistory):collect_snapshot(mt,1,'Broker',sleep=lambda _:None)

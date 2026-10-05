@@ -117,6 +117,7 @@ def collect_snapshot(mt5, account, server, from_date=None, anchor=None, sleep=ti
     if before is None or int(before.login) != int(account) or before.server.lower() != server.lower():
         raise IncompleteHistory('Account identity unavailable or mismatched')
     balance = amount(before.balance)
+    initial_balance = balance
     digits = int(getattr(before, 'currency_digits', 2))
     tolerance = Decimal(10) ** -max(0, min(8, digits))
     cutoff = datetime.now(timezone.utc)
@@ -124,23 +125,52 @@ def collect_snapshot(mt5, account, server, from_date=None, anchor=None, sleep=ti
     anchor_balance = Decimal(0)
     # Reconcile the full signed cash ledger on every read, including backdated corrections.
     # Only position reconstruction and returned rows are incremental.
+    read_start = start
     previous = None
     stable = 0
     accepted = None
+    candidate_balance = None
+    count = None
+    history = None
+    known_present = False
     # Deliberately re-read the broker range; None must never become an empty tuple.
     for _ in range(45):
         if monotonic() >= deadline:
             break
-        history = mt5.history_deals_get(start, cutoff)
+        # Balance/history synchronize independently after login. Bracket each
+        # candidate read with live identity+balance checks, refreshing its cutoff.
+        # Never compare newly loaded history with a permanently frozen balance.
+        before = mt5.account_info()
+        if before is None or int(before.login) != int(account) or before.server.lower() != server.lower():
+            raise IncompleteHistory('Account identity changed while loading history')
+        balance = amount(before.balance)
+        cutoff = datetime.now(timezone.utc)
+        history = mt5.history_deals_get(read_start, cutoff)
         count = mt5.history_deals_total(start, cutoff)
         if history is None or count is None or count < 0:
             previous, stable = None, 0
             sleep(1)
             continue
         history = list(history)
+        # Some terminal history caches report a non-zero full-range count but
+        # return no rows for the epoch-start request. Try a modern range, but
+        # accept it ONLY if it contains the full-range count; ledger, identity,
+        # known-ticket and stability checks below remain mandatory.
+        if not history and (count > 0 or balance != 0) and monotonic() < deadline:
+            alternate = mt5.history_deals_get(datetime(2000, 1, 1, tzinfo=timezone.utc), cutoff)
+            if alternate is not None and len(alternate) == count:
+                history = list(alternate)
+                read_start = datetime(2000, 1, 1, tzinfo=timezone.utc)
         if len({int(d.ticket) for d in history}) != len(history):
             raise IncompleteHistory('Duplicate deal tickets in source response')
-        digest = signature(history)
+        observed = mt5.account_info()
+        if observed is None or int(observed.login) != int(account) or observed.server.lower() != server.lower():
+            raise IncompleteHistory('Account identity changed while loading history')
+        if amount(observed.balance) != balance or amount(getattr(observed, 'credit', 0)) != amount(getattr(before, 'credit', 0)):
+            previous, stable = None, 0
+            sleep(1)
+            continue
+        digest = (signature(history), balance, amount(getattr(before, 'credit', 0)))
         stable = stable + 1 if digest == previous and count == len(history) else 0
         previous = digest
         if stable >= 2 and count == len(history):
@@ -155,7 +185,8 @@ def collect_snapshot(mt5, account, server, from_date=None, anchor=None, sleep=ti
                 break
         sleep(1)
     if accepted is None:
-        raise IncompleteHistory('Broker history did not stabilize or ledger did not reconcile')
+        current = mt5.account_info()
+        raise IncompleteHistory(f'Broker history did not stabilize or ledger did not reconcile: stable={stable}, returned={len(history) if history is not None else None}, total={count}, ledger={candidate_balance}, initial_balance={initial_balance}, compared_balance={balance}, current_balance={getattr(current, "balance", None)}, known_present={known_present}, cutoff={cutoff.isoformat()}')
     cutoff_ms = int(cutoff.timestamp() * 1000)
     start_ms = int(start.timestamp() * 1000)
     ledger = [d for d in accepted if start_ms < millis(d) <= cutoff_ms]
@@ -210,7 +241,12 @@ def collect_snapshot(mt5, account, server, from_date=None, anchor=None, sleep=ti
     if amount(after.balance) != balance or amount(getattr(after, 'credit', 0)) != amount(getattr(before, 'credit', 0)):
         raise IncompleteHistory('Account ledger changed during snapshot; retry required')
     # Final independent range read detects late-arriving history during metadata work.
-    final = mt5.history_deals_get(start, cutoff)
+    final = mt5.history_deals_get(read_start, cutoff)
+    if final is not None and not final and accepted:
+        full_count = mt5.history_deals_total(start, cutoff)
+        alternate = mt5.history_deals_get(datetime(2000, 1, 1, tzinfo=timezone.utc), cutoff)
+        if alternate is not None and len(alternate) == full_count:
+            final = alternate
     if final is None or signature(final) != signature(accepted):
         raise IncompleteHistory('History changed during snapshot; retry required')
     if monotonic() >= deadline:
