@@ -1779,3 +1779,71 @@ Important finding: dispatcher targets8/4 only from current router demand; it is 
 - Export API accepts a validated fixed end timestamp so pagination uses one time window. Existing authenticated routes/proxy preserved; no new credentials exposed.
 - Validation: both frontend and backend production builds passed. Exercised multi-page file generation/JSON parsing, consistent page timestamps and failed-export behavior.
 - Reversible through reverting this UI/API commit; no schema or VPS runtime changes.
+
+
+## 2026-10-05 — Session-log maintenance and missing history backfill
+
+The user confirmed that this log must retain the history of application updates and bug fixes. The log had not been maintained consistently after September 26; Git retained 47 subsequent commits. The chronological index below restores that missing commit history. Commit titles describe recorded changes, not independent proof of deployment or successful testing. Uncommitted work and unrecorded discussions are not reconstructed or presented as completed.
+
+### Ongoing logging requirement
+- Append an entry for every completed update or bug fix and material decision; retain prior entries and explicitly note superseded behavior.
+- Record the date, affected application/component, request or bug, resulting behavior, validation actually performed, commit reference, deployment status and any outstanding limitations.
+- Distinguish planned, implemented, tested and verified-live states. Never infer deployment from a Git push.
+- Keep credentials and private customer data out of the log. Record changes in the relevant application's repository, with cross-references for shared VPS changes.
+
+### Verified latest changes
+- `787331b`, `50c7286`: unified trophy/highlight behavior across leaderboard views. With no target, only eligible prize positions receive green highlighting. The starting-balance floor applies unless below-start winners are allowed. With a target, target achievers are highlighted, with trophies for prize positions. Minimum-trade progress does not suppress provisional prize-position badges. Thirteen badge regression cases passed. The later `50c7286` backend deployment was confirmed SUCCESS when checked on October 5; earlier build delays were not reported as successful deployment.
+- `f44b9e7`: minimum trade eligibility now uses qualified trades instead of all closed trades. Flagged trades do not satisfy the minimum; compliant losing trades can count. Disqualification for this requirement remains at challenge end. Replaced the large amber badge with an inline red qualified count and “Minimum qualified trades not met” notice; updated admin, host, client, exports, rule descriptions and tooltips. Targeted rule, badge and evaluation tests passed, backend/frontend type checks passed, frontend production build passed, and the inline component was visually inspected in a local fixture. Backend deployment `7ebb56c9-c443-4716-8294-ebd684eaca6d` and frontend deployment `855b883b-f5db-4c80-aad6-c682c5089a10` both reached SUCCESS. Persisted configuration key remains `min_total_trades` for compatibility.
+- `7d5544b`: minimum-duration violations were split by the full message, including individual holding durations. Admin and host summaries now combine them into one “Below minimum trade duration” group, preserving each original detail. Exercised all three actual categorization functions with different durations and legacy wording; backend/frontend type checks passed. Both Railway services reached SUCCESS for this commit.
+
+### Chronological index of previously unlogged commits
+
+| Commit | Commit timestamp (recorded timezone) | Recorded change |
+| --- | --- | --- |
+| `9cfbd5a` | 2026-09-27T00:33:31+03:00 | Add visible TLS ingress for shared VPS without restarting workers |
+| `6bcf65b` | 2026-09-27T00:36:07+03:00 | Set explicit HTTPS listener port for encrypted ingress |
+| `01f48d1` | 2026-09-27T15:04:15+03:00 | Make hosted partnership screening durable and add registration notices |
+| `077aa73` | 2026-09-27T15:05:55+03:00 | Preserve admin screening report hours with catch-up delivery |
+| `6a72dde` | 2026-09-27T15:17:35+03:00 | Restore workload event capture for legacy pull job schema |
+| `b70047d` | 2026-09-27T16:21:01+03:00 | Fix challenge registration routing and isolate refreshed admin data |
+| `65b24a0` | 2026-09-27T18:27:20+03:00 | Restore sign-in first challenge card navigation |
+| `a08610d` | 2026-09-27T18:42:22+03:00 | Keep registration transition clean and close to challenge sign-in |
+| `4b1619c` | 2026-09-27T18:55:08+03:00 | Match registration step labels to challenge category flow |
+| `00705a0` | 2026-09-28T00:13:35+03:00 | Add opt-in read-only native SL/TP reader with rolling terminal drain |
+| `ef0561b` | 2026-09-28T01:20:29+03:00 | Verify EA mailbox health and show expiring terminal badge |
+| `3f99961` | 2026-09-28T01:37:13+03:00 | Explain EA badge freshness and health rollback |
+| `0e6cb65` | 2026-09-28T11:41:53+03:00 | Require Telegram approval for hosted schedule changes after registration opens |
+| `5f6b565` | 2026-09-28T11:42:56+03:00 | Explain pending schedule approval in host settings |
+| `00b25d3` | 2026-09-28T12:40:34+03:00 | Lock challenge schedules when pre-start checks begin |
+| `62d364e` | 2026-09-28T12:43:43+03:00 | Expose pre-start schedule lock to host settings |
+| `1e4f1c7` | 2026-09-28T13:05:44+03:00 | Skip hosted daily registration summaries in admin Telegram |
+| `e1489aa` | 2026-09-28T14:49:19+03:00 | Unify starting balance policy and schedule durable pre-start warnings |
+| `17b7205` | 2026-09-28T15:03:12+03:00 | Keep lower pre-start balances eligible with correction reminders |
+| `05ec43c` | 2026-09-28T17:24:58+03:00 | Simplify participant starting balance notices |
+| `8b2f453` | 2026-09-28T17:43:05+03:00 | Reconcile pre-start funding and exclude trades opened before challenge start |
+| `8a30e9d` | 2026-09-28T19:56:08+03:00 | Recover idle MT5 connections and restart exited visible workers |
+| `237c7c4` | 2026-10-01T16:32:37+03:00 | Report balance check timing and operation type accurately |
+| `fe036ab` | 2026-10-02T15:37:09+03:00 | Bound balance-check retries and notify credential failures reliably |
+| `f7fea31` | 2026-10-03T07:06:15+03:00 | Improve terminal health alert freshness and report observed downtime |
+| `331b973` | 2026-10-03T07:19:57+03:00 | Prevent selected worker consoles from blocking operations and recover stalled locks |
+| `a936a34` | 2026-10-03T13:48:50+03:00 | Publish crawlable challenge and host pages with accurate metadata and sitemap |
+| `846bdfe` | 2026-10-03T16:55:02+03:00 | Display terminal Telegram health timestamps in East African Time |
+| `7f151e1` | 2026-10-03T18:14:44+03:00 | Add manual credential warning resend for hosted and admin challenges |
+| `7a3e4d2` | 2026-10-03T22:07:41+03:00 | Keep challenge listings off the landing page |
+| `9823cec` | 2026-10-03T22:17:45+03:00 | Show linked host attribution in registration wizard |
+| `26bf1d5` | 2026-10-04T09:52:31+03:00 | Recover repeated MT5 IPC startup failures with backed-up login cache rebuild |
+| `dfc28e9` | 2026-10-04T14:50:03+03:00 | Add live race-start countdown to registration-open challenge cards |
+| `cc6f882` | 2026-10-04T22:59:06+03:00 | Compact mobile challenge cards and expand prize details on demand |
+| `26c1ed2` | 2026-10-05T10:54:59+03:00 | Restore queued pull progress and 30-second OHLC settling; correct reporting |
+| `8613ab9` | 2026-10-05T11:27:06+03:00 | Retry non-credential failures through pull pipeline and recover candle checks |
+| `d82c432` | 2026-10-05T11:57:06+03:00 | Wake pull jobs promptly and report live batch progress |
+| `31ec1a5` | 2026-10-05T13:19:11+03:00 | Align leaderboard ordering and popups with qualified balances |
+| `ec8f612` | 2026-10-05T14:11:11+03:00 | Recover empty broker history reads and refresh ledger verification snapshots |
+| `f5df2ca` | 2026-10-05T14:24:18+03:00 | Avoid epoch-zero boundary in full broker history requests |
+| `8ae48e4` | 2026-10-05T14:53:50+03:00 | Use consistent numeric MT5 history ranges for reads and counts |
+| `bf725b8` | 2026-10-05T16:46:31+03:00 | Refresh stalled MT5 history through native reader without relaxing reconciliation |
+| `7c2e141` | 2026-10-05T17:40:53+03:00 | Record verified history refresh rollout and rollback evidence |
+| `787331b` | 2026-10-05T18:28:59+03:00 | Unify leaderboard prize highlights and show pending minimum trades |
+| `50c7286` | 2026-10-05T18:41:45+03:00 | Limit no-target green highlights to eligible prize positions |
+| `f44b9e7` | 2026-10-05T19:47:00+03:00 | Count qualified trades for minimum eligibility and show compact inline notice |
+| `7d5544b` | 2026-10-05T19:52:48+03:00 | Group minimum-duration violations under one rule in overview summaries |
