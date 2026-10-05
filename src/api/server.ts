@@ -1,3 +1,4 @@
+import { queuedPullProgress } from '../utils/queuedPullProgress';
 import { pullBatchReport } from '../utils/pullBatchReport';
 import { brokerForChallenge, inspectParticipants } from '../services/partnerScreening';
 import {workloadReport} from '../services/workloadTelemetry';
@@ -6632,6 +6633,11 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/pull-status`, adminIpCheck, async (req,
       }
     }
 
+    const queued = await db.query(`SELECT id, challenge_id FROM challenge_pull_jobs
+      WHERE (state='running' OR (state='pending' AND attempts < 3))
+        AND ($1::integer IS NULL OR challenge_id=$1) ORDER BY id LIMIT 1`, [filterChallengeId]);
+    if (queued.rows[0]) return res.json(queuedPullProgress(queued.rows[0]));
+
     // Not running — get last completed batch (filtered by challenge if specified)
     const lastQuery = filterChallengeId
       ? `SELECT id, challenge_id, total_accounts, successful, failed, new_trades_found, status, error_log, started_at, completed_at, phase, phase2_total, phase2_processed, phase2_round, phase_times
@@ -6672,13 +6678,13 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/pull-status`, adminIpCheck, async (req,
       // OHLC candle stats for this challenge
       const ohlcStats = await db.query(
         `SELECT symbol, COUNT(*) as candle_count, MIN(time) as first_candle, MAX(time) as last_candle
-         FROM ohlc_candles WHERE challenge_id = $1
+         FROM ohlc_candles WHERE challenge_id = $1 AND time <= $2::timestamp
          GROUP BY symbol ORDER BY symbol`,
-        [b.challenge_id]
+        [b.challenge_id, b.completed_at || new Date()]
       );
       const challengeForOhlc = await db.query(`SELECT start_date FROM trading_challenges WHERE id = $1`, [b.challenge_id]);
       const ohlcChallengeStartMs = challengeForOhlc.rows[0] ? new Date(challengeForOhlc.rows[0].start_date).getTime() : 0;
-      const ohlcNowMs = Date.now();
+      const ohlcNowMs = b.completed_at ? new Date(b.completed_at).getTime() : Date.now();
       const totalExpectedMinutes = ohlcChallengeStartMs > 0 ? Math.floor((ohlcNowMs - ohlcChallengeStartMs) / 60000) : 0;
       const ohlcSymbols = ohlcStats.rows.map((r: any) => ({
         symbol: r.symbol,
@@ -6705,6 +6711,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/pull-status`, adminIpCheck, async (req,
           phase2Round: b.phase2_round,
           phaseTimes: b.phase_times || null,
           reconciled,
+          verifiedHistory: process.env.VPS_VERIFIED_HISTORY === 'true',
           stillNullCount,
           ohlc: {
             totalCandles: totalOhlcCandles,

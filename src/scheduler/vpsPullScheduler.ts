@@ -574,8 +574,8 @@ export class VpsPullScheduler {
       // Phase 3: Settle
       const settleStart = Date.now();
       await db.query(`UPDATE wp_pull_batches SET phase = 'settling', phase_started_at = NOW() WHERE id = $1`, [batchId]).catch(() => {});
-      if(process.env.VPS_VERIFIED_HISTORY !== 'true')console.log('📊 VPS Pull: Legacy terminal settle delay...');
-      if(process.env.VPS_VERIFIED_HISTORY !== 'true')await this.delay(30000);
+      console.log('📊 VPS Pull: Settling terminals for 30 seconds before OHLC...');
+      await this.delay(30000);
       phaseTimes.settle = Math.round((Date.now() - settleStart) / 1000);
 
       // Phase 4: OHLC

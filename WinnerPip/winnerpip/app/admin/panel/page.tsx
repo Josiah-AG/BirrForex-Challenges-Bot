@@ -4558,7 +4558,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold text-white flex items-center gap-2">
               <Loader2 size={16} className="text-royal animate-spin" />
-              {pullProgress.phase === 'reconciling' ? 'Reconciling Trades' : pullProgress.phase === 'resolving' ? 'Resolving Missing Data' : pullProgress.phase === 'resolving_nulls' ? 'Resolving Open Times' : pullProgress.phase === 'full_pull_open_price' ? 'Fixing Open Prices' : pullProgress.phase === 'balance_reconcile' ? 'Balance Reconciliation' : pullProgress.phase === 'settling' ? 'Settling (30s wait)' : pullProgress.phase === 'ohlc' ? 'Updating OHLC Candles' : pullProgress.phase === 'evaluating' ? 'Evaluating Accounts' : 'Pulling Accounts'}
+              {pullProgress.phase === 'queued' ? 'Update queued — waiting for an available slot' : pullProgress.phase === 'reconciling' ? 'Reconciling Trades' : pullProgress.phase === 'resolving' ? 'Resolving Missing Data' : pullProgress.phase === 'resolving_nulls' ? 'Resolving Open Times' : pullProgress.phase === 'full_pull_open_price' ? 'Fixing Open Prices' : pullProgress.phase === 'balance_reconcile' ? 'Balance Reconciliation' : pullProgress.phase === 'settling' ? 'Settling (30s wait)' : pullProgress.phase === 'ohlc' ? 'Updating OHLC Candles' : pullProgress.phase === 'evaluating' ? 'Evaluating Accounts' : 'Pulling Accounts'}
             </h3>
             <div className="flex items-center gap-3">
               <span className="text-xs text-gray-400">{pullProgress.elapsedSeconds}s elapsed</span>
@@ -4566,6 +4566,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
                 <span className="text-xs text-royal font-semibold">~{pullProgress.etaSeconds < 60 ? `${pullProgress.etaSeconds}s` : `${Math.round(pullProgress.etaSeconds / 60)}m`} left</span>
               )}
               <button
+                disabled={pullProgress.isQueued}
                 onClick={async () => {
                   try {
                     try {
@@ -4605,11 +4606,11 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
           {/* Main progress bar */}
           <div className="flex items-center gap-2 mb-1">
             <div className="flex-1 h-3 bg-white/10 rounded-full overflow-hidden">
-              <div className="h-full rounded-full bg-gradient-to-r from-royal to-profit transition-all duration-1000" style={{ width: `${pullProgress.phase === 'pulling' ? (pullProgress.percent || 0) : (pullProgress.phase2Total > 0 ? (pullProgress.phase2Percent || 0) : 100)}%` }} />
+              <div className="h-full rounded-full bg-gradient-to-r from-royal to-profit transition-all duration-1000" style={{ width: `${pullProgress.phase === 'queued' ? 0 : pullProgress.phase === 'pulling' ? (pullProgress.percent || 0) : (pullProgress.phase2Total > 0 ? (pullProgress.phase2Percent || 0) : 100)}%` }} />
             </div>
           </div>
           <div className="flex items-center justify-between text-xs text-gray-400 mb-1">
-            {pullProgress.phase === 'pulling' ? (
+            {pullProgress.phase === 'queued' ? (<span>Your update will start automatically. This page will show its progress.</span>) : pullProgress.phase === 'pulling' ? (
               <><span>{pullProgress.processed || 0} / {pullProgress.totalAccounts || 0} accounts</span><span className="text-royal font-semibold">{pullProgress.percent || 0}%</span></>
             ) : pullProgress.phase === 'evaluating' || pullProgress.phase === 'resolving' || pullProgress.phase === 'resolving_nulls' || pullProgress.phase === 'reconciling' || pullProgress.phase === 'balance_reconcile' || pullProgress.phase === 'full_pull_open_price' ? (
               <><span>{pullProgress.phase2Processed || 0} / {pullProgress.phase2Total || 0} accounts</span><span className="text-royal font-semibold">{pullProgress.phase2Percent || 0}%</span></>
@@ -4662,7 +4663,9 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
           )}
 
           {!balanceCheck && <p className={`text-[11px] mt-2.5 font-medium ${lb.reconciled ? "text-profit/80" : "text-amber-400/90"}`}>
-            {lb.phase2Total === 0
+            {lb.verifiedHistory
+              ? `History verified for ${lb.successful} account(s); ${lb.failed} account(s) failed this update. See failure details below.`
+              : lb.phase2Total === 0
               ? "✅ Reconciliation: nothing to fix — all trades had open_time on first pass"
               : lb.reconciled
               ? `✅ Reconciliation successful — ${lb.phase2Total} account(s) resolved in ${lb.phase2Round} round(s)`

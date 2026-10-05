@@ -1,3 +1,4 @@
+import { queuedPullProgress } from '../utils/queuedPullProgress';
 import { pullBatchReport } from '../utils/pullBatchReport';
 import { countAboveTargets } from '../services/challengeMetrics';
 import { saveVerifiedCredential } from '../services/credentialRecovery';
@@ -1243,6 +1244,9 @@ router.get('/challenge/:id/pull-status', async (req: any, res: Response) => {
       [challengeId]
     );
     if (running.rows.length === 0) {
+      const queued = await db.query(`SELECT id, challenge_id FROM challenge_pull_jobs
+        WHERE challenge_id=$1 AND (state='running' OR (state='pending' AND attempts < 3)) ORDER BY id LIMIT 1`, [challengeId]);
+      if (queued.rows[0]) return res.json(queuedPullProgress(queued.rows[0]));
       // Check last completed
       const last = await db.query(
         `SELECT id, total_accounts, successful, failed, status, started_at, completed_at
