@@ -1,4 +1,6 @@
 "use client";
+import { leaderboardBadges } from "@/lib/leaderboardBadges";
+import MinimumTradesBadge from "@/components/MinimumTradesBadge";
 import RegistrationNotice from "@/components/RegistrationNotice";
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
@@ -395,20 +397,7 @@ export default function ChallengeDashboard() {
     return <>{formatBalance(entry.adjustedBalance - (entry.totalWithdrawn || 0), entry.accountType, entry.isCent)}</>;
   };
 
-  // Top-N by rank AND qualified for target
-  const isWinner = (entry: LeaderboardEntry) => {
-    if (!challenge || leaderboardPreStart || entry.isDisqualified || entry.isWithdrawn || entry.isBlown) return false;
-    const count = entry.accountType === 'demo' ? (challenge.demoWinnersCount || 0) : (challenge.realWinnersCount || 0);
-    // No-target: winners are top-N qualified by rank
-    if (noTarget) return count > 0 && entry.isQualified && !!entry.rank && entry.rank <= count;
-    // Growth-% mode (max_limit / min_limit): qualification is growth % vs target_percent.
-    // The engine already computed entry.isQualified correctly — use it directly.
-    if (isGrowthMode) return count > 0 && !!entry.rank && entry.rank <= count && !!entry.isQualified;
-    // Fixed mode: compare dollar balance to target
-    const isRealCentOnly = challenge.onlyCentAccount && effectiveIsCent;
-    const effectiveTarget = (entry.isCent && !isRealCentOnly) ? challenge.targetBalance * 100 : challenge.targetBalance;
-    return count > 0 && entry.rank <= count && (entry.adjustedBalance - (entry.totalWithdrawn || 0)) >= effectiveTarget;
-  };
+  const isWinner = (entry: LeaderboardEntry) => leaderboardBadges(entry, challenge, leaderboardPreStart).trophy;
   const rankIcon = (entry: LeaderboardEntry) => {
     if (leaderboardPreStart) return entry.rank || "—";
     if (entry.isDisqualified) return "🚫";
@@ -417,17 +406,7 @@ export default function ChallengeDashboard() {
     if (isWinner(entry)) return "🏆";
     return entry.rank || "—";
   };
-  const isAboveTarget = (entry: LeaderboardEntry) => {
-    if (!challenge || entry.isDisqualified || entry.isWithdrawn || entry.isBlown || leaderboardPreStart) return false;
-    // No "above target" highlighting when there is no target.
-    if (noTarget) return false;
-    // Growth-% mode: use engine's isQualified (growth % vs target_percent).
-    if (isGrowthMode) return !!entry.isQualified;
-    // Fixed mode: dollar balance comparison
-    const isRealCentOnly = challenge.onlyCentAccount && effectiveIsCent;
-    const effectiveTarget = (entry.isCent && !isRealCentOnly) ? challenge.targetBalance * 100 : challenge.targetBalance;
-    return (entry.adjustedBalance - (entry.totalWithdrawn || 0)) >= effectiveTarget;
-  };
+  const isAboveTarget = (entry: LeaderboardEntry) => leaderboardBadges(entry, challenge, leaderboardPreStart).highlight;
   const totalParticipants = leaderboardTotal || leaderboard.length;
   const isCentAccount = myStats?.accountType === 'real' && myStats.currentBalance > 500; // heuristic for cent
   // isCent: trust registration flag, fallback to challenge onlyCentAccount for real accounts
@@ -870,8 +849,9 @@ export default function ChallengeDashboard() {
                       {rankIcon(entry)}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <p className={`text-sm font-semibold truncate ${isWinner(entry) ? "text-profit font-bold" : isAboveTarget(entry) ? "text-profit/80" : entry.isMe ? "text-royal" : !leaderboardPreStart && entry.isDisqualified ? "text-gray-500" : "text-white"}`}>{entry.nickname}</p>
+                        <MinimumTradesBadge entry={entry} required={minimumTradesByCategory[entry.accountType]} hidden={leaderboardPreStart} />
                         {isWinner(entry) && <span className="px-1.5 py-0.5 bg-profit/20 text-profit text-[10px] rounded font-bold">#{entry.rank}</span>}
                         {entry.isMe && !isWinner(entry) && <span className="px-1.5 py-0.5 bg-royal/20 text-royal text-[10px] rounded font-bold">YOU</span>}
                         {!leaderboardPreStart && entry.isDisqualified && <span className="px-1.5 py-0.5 bg-loss/20 text-loss text-[10px] rounded font-bold">DQ</span>}
@@ -918,8 +898,9 @@ export default function ChallengeDashboard() {
                             {entry.rank || "—"}
                           </div>
                           <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2">
+                            <div className="flex flex-wrap items-center gap-2">
                               <p className={`text-sm font-semibold truncate ${entry.isMe ? "text-royal" : "text-white"}`}>{entry.nickname}</p>
+                        <MinimumTradesBadge entry={entry} required={minimumTradesByCategory[entry.accountType]} hidden={leaderboardPreStart} />
                               {entry.isMe && <span className="px-1.5 py-0.5 bg-royal/20 text-royal text-[10px] rounded font-bold">YOU</span>}
                             </div>
                             <p className="text-[10px] text-gray-500">{entry.totalTrades} trades • {entry.qualifiedTrades} qualified</p>
@@ -1333,8 +1314,9 @@ export default function ChallengeDashboard() {
                   <button key={entry.rank || entry.nickname} onClick={() => { setShowLeaderboardModal(true); setSelectedUser(entry); }} className={`w-full flex items-center gap-4 px-4 py-3 text-left hover:bg-white/5 transition-colors ${isWinner(entry) ? "bg-profit/15 border-l-2 border-profit hover:bg-profit/20" : isAboveTarget(entry) ? "bg-profit/5 border-l-2 border-profit/30 hover:bg-profit/10" : entry.isMe ? "bg-royal/10 border-l-2 border-royal" : ""} ${entry.isDisqualified ? "opacity-60 bg-loss/10" : ""} ${(entry.isWithdrawn || entry.isBlown) && !entry.isDisqualified ? "opacity-40 bg-loss/5" : ""}`}>
                     <div className={`flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center text-sm font-bold ${entry.isDisqualified ? "bg-loss/20 text-loss" : (entry.isBlown || entry.isWithdrawn) ? "bg-white/5 text-gray-500" : isWinner(entry) ? "bg-profit/20 text-profit" : isAboveTarget(entry) ? "bg-profit/10 text-profit/70" : "bg-white/5 text-gray-500"}`}>{rankIcon(entry)}</div>
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <p className={`text-sm font-semibold truncate ${isWinner(entry) ? "text-profit font-bold" : isAboveTarget(entry) ? "text-profit/80" : entry.isMe ? "text-royal" : entry.isDisqualified ? "text-gray-500" : "text-white"}`}>{entry.nickname}</p>
+                        <MinimumTradesBadge entry={entry} required={minimumTradesByCategory[entry.accountType]} hidden={leaderboardPreStart} />
                         {entry.isMe && <span className="px-1.5 py-0.5 bg-royal/20 text-royal text-[10px] rounded font-bold">YOU</span>}
                         {entry.isDisqualified && <span className="px-1.5 py-0.5 bg-loss/20 text-loss text-[10px] rounded font-bold">DQ</span>}
                         {entry.isWithdrawn && !entry.isDisqualified && <span className="px-1.5 py-0.5 bg-gray-500/20 text-gray-400 text-[10px] rounded font-bold">🚪 Exited</span>}
@@ -1376,11 +1358,12 @@ export default function ChallengeDashboard() {
                     </div>
                     <div className="divide-y divide-white/5">
                       {myContext.map((entry) => (
-                        <div key={entry.rank || entry.nickname} className={`w-full flex items-center gap-4 px-4 py-3 text-left ${entry.isMe ? "bg-royal/10 border-l-2 border-royal" : ""}`}>
-                          <div className={`flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center text-sm font-bold ${entry.isMe ? "bg-royal/20 text-royal" : "bg-white/5 text-gray-500"}`}>{entry.rank || "—"}</div>
+                        <div key={entry.rank || entry.nickname} className={`w-full flex items-center gap-4 px-4 py-3 text-left ${isWinner(entry) ? "bg-profit/15 border-l-2 border-profit" : isAboveTarget(entry) ? "bg-profit/5 border-l-2 border-profit/30" : entry.isMe ? "bg-royal/10 border-l-2 border-royal" : ""}`}>
+                          <div className={`flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center text-sm font-bold ${isWinner(entry) ? "bg-profit/20 text-profit" : entry.isMe ? "bg-royal/20 text-royal" : "bg-white/5 text-gray-500"}`}>{rankIcon(entry)}</div>
                           <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2">
+                            <div className="flex flex-wrap items-center gap-2">
                               <p className={`text-sm font-semibold truncate ${entry.isMe ? "text-royal" : "text-white"}`}>{entry.nickname}</p>
+                        <MinimumTradesBadge entry={entry} required={minimumTradesByCategory[entry.accountType]} hidden={leaderboardPreStart} />
                               {entry.isMe && <span className="px-1.5 py-0.5 bg-royal/20 text-royal text-[10px] rounded font-bold">YOU</span>}
                             </div>
                             <p className="text-[10px] text-gray-500">{entry.totalTrades} trades • {entry.qualifiedTrades} qualified</p>
@@ -1551,8 +1534,9 @@ export default function ChallengeDashboard() {
                       {rankIcon(entry)}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <p className={`text-sm font-semibold truncate ${isWinner(entry) ? "text-profit font-bold" : isAboveTarget(entry) ? "text-profit/80" : entry.isMe ? "text-royal" : entry.isDisqualified ? "text-gray-500" : "text-white"}`}>{entry.nickname}</p>
+                        <MinimumTradesBadge entry={entry} required={minimumTradesByCategory[entry.accountType]} hidden={leaderboardPreStart} />
                         {entry.isMe && <span className="px-1.5 py-0.5 bg-royal/20 text-royal text-[10px] rounded font-bold">YOU</span>}
                         {entry.isDisqualified && <span className="px-1.5 py-0.5 bg-loss/20 text-loss text-[10px] rounded font-bold">DQ</span>}
                         {entry.isWithdrawn && !entry.isDisqualified && <span className="px-1.5 py-0.5 bg-gray-500/20 text-gray-400 text-[10px] rounded font-bold">🚪 Exited</span>}
@@ -1592,10 +1576,11 @@ export default function ChallengeDashboard() {
                       <div className="divide-y divide-white/5">
                         {myContext.map((entry) => (
                           <button key={entry.rank || entry.nickname} onClick={() => setSelectedUser(entry)} className={`w-full flex items-center gap-4 px-4 py-3 text-left transition-colors ${entry.isMe ? "bg-royal/10 border-l-2 border-royal" : "hover:bg-white/5"}`}>
-                            <div className={`flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center text-sm font-bold ${entry.isMe ? "bg-royal/20 text-royal" : "bg-white/5 text-gray-500"}`}>{entry.rank || "—"}</div>
+                            <div className={`flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center text-sm font-bold ${isWinner(entry) ? "bg-profit/20 text-profit" : entry.isMe ? "bg-royal/20 text-royal" : "bg-white/5 text-gray-500"}`}>{rankIcon(entry)}</div>
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2">
                                 <p className={`text-sm font-semibold truncate ${entry.isMe ? "text-royal" : "text-white"}`}>{entry.nickname}</p>
+                        <MinimumTradesBadge entry={entry} required={minimumTradesByCategory[entry.accountType]} hidden={leaderboardPreStart} />
                                 {entry.isMe && <span className="px-1.5 py-0.5 bg-royal/20 text-royal text-[10px] rounded font-bold">YOU</span>}
                               </div>
                               <p className="text-[10px] text-gray-500">{entry.totalTrades} trades • {entry.qualifiedTrades} qualified</p>
@@ -1624,6 +1609,7 @@ export default function ChallengeDashboard() {
                   </div>
                   <div>
                     <p className="text-xl font-bold text-white">{selectedUser.nickname}</p>
+                    <MinimumTradesBadge entry={selectedUser} required={minimumTradesByCategory[selectedUser.accountType]} hidden={leaderboardPreStart} />
                     <p className="text-sm text-gray-400">
                       {selectedUser.isDisqualified ? <span className="text-loss font-semibold">Disqualified</span> : selectedUser.isWithdrawn ? <span className="text-gray-400 font-semibold">🚪 User exited the challenge{selectedUser.totalWithdrawn ? ` • withdrew ${formatBalance(selectedUser.totalWithdrawn, selectedUser.accountType, selectedUser.isCent)}` : ''}</span> : selectedUser.isBlown ? <span className="text-gray-400 font-semibold">💀 Balance is zero from trading</span> : isGrowthMode ? <span className="text-white text-xs font-medium">{selectedUser.actualStartingBalance != null ? `Start: ${formatBalance(selectedUser.actualStartingBalance, selectedUser.accountType, selectedUser.isCent)} ` : ''}Current: {formatBalance(selectedUser.adjustedBalance - (selectedUser.totalWithdrawn || 0), selectedUser.accountType, selectedUser.isCent)} &bull; Growth: <span className={Number(selectedUser.growthPercent || 0) >= 0 ? "text-profit" : "text-loss"}>{Number(selectedUser.growthPercent || 0) >= 0 ? '↑' : '↓'} {Number(selectedUser.growthPercent || 0) >= 0 ? '+' : '-'}{Math.abs(Number(selectedUser.growthPercent || 0)).toFixed(2)}%</span></span> : <>Balance: <span className="text-white font-semibold">{formatBalance(selectedUser.adjustedBalance - (selectedUser.totalWithdrawn || 0), selectedUser.accountType, selectedUser.isCent)}</span></>}
                     </p>
@@ -1638,13 +1624,6 @@ export default function ChallengeDashboard() {
                 )}
                 {/* Only show stats for non-DQ users */}
                 {!selectedUser.isDisqualified && (<>
-                  {/* Min total trades blue flag */}
-                  {minimumTradesByCategory[selectedUser.accountType] && selectedUser.totalTrades < minimumTradesByCategory[selectedUser.accountType]! && (
-                    <div className="flex items-center gap-2 p-3 rounded-xl bg-royal/10 border border-royal/30 mb-4">
-                      <span className="text-sm">📊</span>
-                      <p className="text-xs text-royal font-medium">Minimum trades not met — {selectedUser.totalTrades}/{minimumTradesByCategory[selectedUser.accountType]} trades</p>
-                    </div>
-                  )}
                   <div className="grid grid-cols-3 gap-3 mb-4">
                     <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500 mb-1">Trades</p><p className="text-lg font-bold text-white">{selectedUser.totalTrades}</p></div>
                     <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500 mb-1">Qualified</p><p className="text-lg font-bold text-white">{selectedUser.qualifiedTrades}</p></div>

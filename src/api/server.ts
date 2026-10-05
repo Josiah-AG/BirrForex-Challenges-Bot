@@ -2417,6 +2417,8 @@ app.get('/api/host/challenge/:id/leaderboard', hostAuthMiddleware, async (req: a
       params
     );
 
+    const badgeMinimums = Object.fromEntries(await Promise.all([...new Set<string>(result.rows.map((row: any) => row.account_type))].map(async cat =>
+      [cat, minimumTrades(await ruleEngine.rulesForAccount(challengeId, cat))])));
     return res.json({
       leaderboard: result.rows.map((r: any) => ({
         nickname: r.nickname,
@@ -2425,6 +2427,8 @@ app.get('/api/host/challenge/:id/leaderboard', hostAuthMiddleware, async (req: a
         accountType: r.account_type,
         accountSubtype: r.account_subtype || null,
         server: r.mt5_server || '',
+        minimumTradesRequired: badgeMinimums[r.account_type],
+        categoryRank: r.rank,
         rank: r.rank,
         rankChange: null,
         currentBalance: parseFloat(r.current_balance),
@@ -5579,6 +5583,8 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/admin-leaderboard`, admin
       [challengeId]
     );
 
+    const badgeMinimums = Object.fromEntries(await Promise.all([...new Set<string>(result.rows.map((row: any) => row.account_type))].map(async cat =>
+      [cat, minimumTrades(await ruleEngine.rulesForAccount(challengeId, cat))])));
     return res.json({
       dataFrom,
       preStart: false,
@@ -5601,6 +5607,8 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/admin-leaderboard`, admin
             email: r.email || null,
             accountNumber: r.account_number || null,
             accountType: r.account_type,
+            minimumTradesRequired: badgeMinimums[r.account_type],
+            categoryRank: r.rank,
             rank: isDq || !hasLeaderboard ? null : ((category === 'demo' || category === 'real') ? r.rank : currentRank),
             rankChange: (!isDq && r.previous_rank && r.rank) ? (r.previous_rank - r.rank) : null,
             currentBalance: hasLeaderboard ? parseFloat(r.current_balance) : fallbackBalance,

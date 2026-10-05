@@ -1,4 +1,6 @@
 "use client";
+import { leaderboardBadges } from "@/lib/leaderboardBadges";
+import MinimumTradesBadge from "@/components/MinimumTradesBadge";
 import DataRefresh from "@/components/DataRefresh";
 import {useDataRefresh} from "@/lib/useDataRefresh";
 
@@ -1018,22 +1020,15 @@ export default function HostDashboardPage() {
                     <th className="text-center py-3 px-4 text-[10px] text-gray-400 uppercase">Violations</th>
                   </tr></thead>
                   <tbody>{leaderboard.length === 0 ? <tr><td colSpan={10} className="py-8 text-center text-gray-500">No leaderboard data yet — will populate after updates and evaluation</td></tr> : leaderboard.filter((e: any) => leaderboardCategory === 'all' || e.accountType === leaderboardCategory).map((e: any) => {
-                    const eWinnersCount = e.accountType === 'demo' ? parseInt(selectedChallenge?.demo_winners_count || 3) : parseInt(selectedChallenge?.real_winners_count || 3);
-                    const eNoTarget = (selectedChallenge as any)?.target_enabled === false;
-                    const eDepositMode = (selectedChallenge as any)?.deposit_mode || 'fixed';
-                    const isRealCentOnly = (selectedChallenge as any)?.only_cent_account && e.isCent;
-                    // For growth-% modes, use e.isQualified (engine already checked growth vs target_percent).
-                    // For fixed mode, compare adjusted balance to target_balance.
-                    const eQualifiesTarget = eNoTarget ? !!e.isQualified
-                      : eDepositMode !== 'fixed' ? !!e.isQualified
-                      : (Number(e.adjustedBalance) - Number(e.totalWithdrawn || 0)) >= (e.isCent && !isRealCentOnly ? Number((selectedChallenge as any)?.target_balance || 0) * 100 : Number((selectedChallenge as any)?.target_balance || 0));
-                    const eIsWinner = !leaderboardPreStart && !e.isDisqualified && !e.isWithdrawn && !e.isBlown && e.rank && e.rank <= eWinnersCount && (eNoTarget ? !!e.isQualified : eQualifiesTarget);
-                    const eIsAboveTarget = !leaderboardPreStart && !e.isDisqualified && !e.isWithdrawn && !e.isBlown && eQualifiesTarget;
+                  const badges = leaderboardBadges(e, { ...selectedChallenge, onlyCentAccount: rulesConfig?.only_cent_account }, leaderboardPreStart);
+                  const eIsWinner = badges.trophy;
+                  const eIsAboveTarget = badges.highlight;
+                  const eDepositMode = selectedChallenge?.depositMode || (selectedChallenge as any)?.deposit_mode || 'fixed';
                     return (
                     <tr key={e.rank || e.nickname} className={`border-b border-white/5 hover:bg-white/5 cursor-pointer ${e.isDisqualified ? "opacity-50 bg-loss/10" : (e.isWithdrawn || e.isBlown) ? "opacity-40 bg-loss/5" : eIsWinner ? "bg-profit/15" : eIsAboveTarget ? "bg-profit/5" : ""}`} onClick={() => setSelectedParticipant(e)}>
                       <td className="py-3 px-4"><span className={`text-sm font-bold ${e.isDisqualified ? "text-loss" : eIsWinner ? "text-profit" : eIsAboveTarget ? "text-profit/70" : e.rank && e.rank <= 3 ? "text-gold" : "text-gray-400"}`}>{e.isDisqualified ? <span className="text-[10px]">DQ</span> : eIsWinner ? "\u{1F3C6}" : (e.rank || "—")}</span></td>
                       <td className="py-3 px-2 text-center w-10">{e.rankChange > 0 ? <span className="text-[10px] text-profit font-semibold px-1.5 py-0.5 rounded bg-profit/10">&blacktriangle;{e.rankChange}</span> : e.rankChange < 0 ? <span className="text-[10px] text-loss font-semibold px-1.5 py-0.5 rounded bg-loss/10">&blacktriangledown;{Math.abs(e.rankChange)}</span> : e.rankChange === 0 ? <span className="text-[10px] text-gray-600 px-1.5 py-0.5 rounded bg-white/5">&mdash;</span> : <span className="text-[10px] text-gray-600 px-1.5 py-0.5 rounded bg-white/5">&middot;</span>}</td>
-                      <td className="py-3 px-4"><p className={`text-sm font-semibold ${eIsWinner ? "text-profit font-bold" : eIsAboveTarget ? "text-profit/80" : "text-white"}`}>{e.nickname}{e.isDisqualified ? <span className="ml-2 text-[10px] text-loss">DQ</span> : e.isWithdrawn ? <span className="ml-2 text-[10px] text-gray-400" title="User withdrew all funds">🚪 Exited</span> : e.isBlown ? <span className="ml-2 text-[10px] text-amber-400" title="Account blown">💀 Blown</span> : ""}</p><p className="text-[10px] text-gray-500 mt-0.5">{e.email || ""}</p>{!e.isDisqualified && rulesConfig?.min_total_trades > 0 && rulesConfig?.rules_enabled?.min_total_trades !== false && (e.totalTrades || 0) < rulesConfig.min_total_trades && <p className="text-[9px] text-royal mt-0.5 font-semibold">📊 {e.totalTrades || 0}/{rulesConfig.min_total_trades} trades</p>}</td>
+                      <td className="py-3 px-4"><p className={`text-sm font-semibold ${eIsWinner ? "text-profit font-bold" : eIsAboveTarget ? "text-profit/80" : "text-white"}`}>{e.nickname}{e.isDisqualified ? <span className="ml-2 text-[10px] text-loss">DQ</span> : e.isWithdrawn ? <span className="ml-2 text-[10px] text-gray-400" title="User withdrew all funds">🚪 Exited</span> : e.isBlown ? <span className="ml-2 text-[10px] text-amber-400" title="Account blown">💀 Blown</span> : ""}</p><p className="text-[10px] text-gray-500 mt-0.5">{e.email || ""}</p><MinimumTradesBadge entry={e} hidden={leaderboardPreStart} /></td>
                       <td className="py-3 px-4"><p className="text-xs text-gray-300 font-mono">{e.accountNumber || "—"}</p></td>
                       <td className="py-3 px-4"><span className={`px-2 py-1 rounded text-[10px] font-semibold ${e.accountType === "real" ? "bg-gold/10 text-gold" : "bg-royal/10 text-royal"}`}>{e.accountType}</span></td>
                       <td className="py-3 px-4 text-right">
@@ -1810,7 +1805,7 @@ export default function HostDashboardPage() {
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-hidden" onClick={() => setSelectedParticipant(null)}>
           <div className="glass rounded-2xl max-w-md w-full max-h-[85vh] overflow-y-auto border border-white/10" onClick={e => e.stopPropagation()}>
             <div className="sticky top-0 glass p-4 border-b border-white/10 flex items-center justify-between z-10 rounded-t-2xl">
-              <h3 className="text-lg font-bold text-white">{selectedParticipant.nickname}</h3>
+              <div className="min-w-0"><h3 className="text-lg font-bold text-white">{leaderboardBadges(selectedParticipant, { ...selectedChallenge, onlyCentAccount: rulesConfig?.only_cent_account }, leaderboardPreStart).trophy && <span title="Current winning position">🏆 </span>}{selectedParticipant.nickname}</h3><MinimumTradesBadge entry={selectedParticipant} hidden={leaderboardPreStart} /></div>
               <button onClick={() => setSelectedParticipant(null)} className="p-2 hover:bg-white/10 rounded-lg"><X size={18} className="text-gray-400" /></button>
             </div>
             <div className="p-5 space-y-4">

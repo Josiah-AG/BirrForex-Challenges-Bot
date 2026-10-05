@@ -1,4 +1,6 @@
 "use client";
+import { leaderboardBadges } from "@/lib/leaderboardBadges";
+import MinimumTradesBadge from "@/components/MinimumTradesBadge";
 import DataRefresh from "@/components/DataRefresh";
 import {useDataRefresh} from "@/lib/useDataRefresh";
 import WorkloadExport from '@/components/WorkloadExport';
@@ -787,22 +789,16 @@ export default function AdminDashboard() {
                   <th className="text-center py-3 px-4 text-[10px] text-gray-400 uppercase">Violations</th></>}
                 </tr></thead>
                 <tbody>{leaderboard.length === 0 ? <tr><td colSpan={leaderboardPreStart ? 5 : 9} className="py-8 text-center text-gray-500">No leaderboard data yet — will populate after VPS pulls and evaluation</td></tr> : leaderboard.map((e: any) => {
-                  const eWinnersCount = e.accountType === 'demo' ? parseInt(selectedChall?.demoWinnersCount || 0) : parseInt(selectedChall?.realWinnersCount || 0);
-                  // Only multiply ×100 when user is cent AND challenge is NOT cent-only-real
-                  const isRealCentOnly = selectedChall?.type === 'real' && leaderboardCentOnly;
-                  const eEffectiveTarget = (e.isCent && !isRealCentOnly) ? Number(selectedChall?.targetBalance || 0) * 100 : Number(selectedChall?.targetBalance || 0);
-                  // No-target challenge: eligibility comes from the engine's isQualified (rank + floor), not a target compare.
-                  const eNoTarget = (selectedChall as any)?.targetEnabled === false;
-                  const eDepositMode = (selectedChall as any)?.depositMode || (selectedChall as any)?.deposit_mode || 'fixed';
+                  const badges = leaderboardBadges(e, { ...selectedChall, onlyCentAccount: leaderboardCentOnly }, leaderboardPreStart);
+                  const eIsWinner = badges.trophy;
+                  const eIsAboveTarget = badges.highlight;
+                  const eDepositMode = selectedChall?.depositMode || (selectedChall as any)?.deposit_mode || 'fixed';
                   const eGrowthMode = eDepositMode !== 'fixed';
-                  const eQualifies = eNoTarget ? !!e.isQualified : eGrowthMode ? !!e.isQualified : Number(e.adjustedBalance) >= eEffectiveTarget;
-                  const eIsWinner = !leaderboardPreStart && !e.isDisqualified && !e.isWithdrawn && !e.isBlown && e.rank && e.rank <= eWinnersCount && eQualifies;
-                  const eIsAboveTarget = !e.isDisqualified && !e.isWithdrawn && !e.isBlown && !leaderboardPreStart && eQualifies;
                   return (
                   <tr key={e.rank || e.nickname} className={`border-b border-white/5 hover:bg-white/5 cursor-pointer ${!leaderboardPreStart && e.isDisqualified ? "opacity-50 bg-loss/10" : !leaderboardPreStart && (e.isWithdrawn || e.isBlown) ? "opacity-40 bg-loss/5" : eIsWinner ? "bg-profit/15" : eIsAboveTarget ? "bg-profit/5" : ""}`} onClick={() => setSelectedParticipant(e)}>
                     <td className="py-3 px-4"><span className={`text-sm font-bold ${!leaderboardPreStart && e.isDisqualified ? "text-loss" : eIsWinner ? "text-profit" : eIsAboveTarget ? "text-profit/70" : e.rank && e.rank <= 3 ? "text-gold" : "text-gray-400"}`}>{e.isDisqualified ? <span className="text-[10px]">DQ</span> : eIsWinner ? "🏆" : (e.rank || (e.notYetEvaluated ? <span className="text-[10px] text-gray-600">—</span> : "—"))}</span></td>
                     {!leaderboardPreStart && <td className="py-3 px-2 text-center w-10">{e.rankChange > 0 ? <span className="text-[10px] text-profit font-semibold px-1.5 py-0.5 rounded bg-profit/10">▲{e.rankChange}</span> : e.rankChange < 0 ? <span className="text-[10px] text-loss font-semibold px-1.5 py-0.5 rounded bg-loss/10">▼{Math.abs(e.rankChange)}</span> : e.rankChange === 0 ? <span className="text-[10px] text-gray-600 px-1.5 py-0.5 rounded bg-white/5">—</span> : <span className="text-[10px] text-gray-600 px-1.5 py-0.5 rounded bg-white/5">·</span>}</td>}
-                    <td className="py-3 px-4"><p className={`text-sm font-semibold ${eIsWinner ? "text-profit font-bold" : eIsAboveTarget ? "text-profit/80" : "text-white"}`}>{e.nickname}{!leaderboardPreStart && e.isDisqualified ? <span className="ml-2 text-[10px] text-loss">DQ</span> : !leaderboardPreStart && e.isWithdrawn ? <span className="ml-2 text-[10px] text-gray-400" title="User withdrew all funds — out of challenge">🚪 Exited</span> : !leaderboardPreStart && e.isBlown ? <span className="ml-2 text-[10px] text-amber-400" title="Account blown">💀 Blown</span> : ""}</p><p className="text-[10px] text-gray-500 mt-0.5">{e.email || ""}</p>{!leaderboardPreStart && !e.isDisqualified && (rulesConfig?.min_total_trades ?? 0) > 0 && rulesConfig?.rules_enabled?.min_total_trades !== false && (e.totalTrades || 0) < (rulesConfig.min_total_trades ?? 0) && <p className="text-[9px] text-royal mt-0.5 font-semibold">📊 {e.totalTrades || 0}/{rulesConfig.min_total_trades} trades</p>}</td>
+                    <td className="py-3 px-4"><p className={`text-sm font-semibold ${eIsWinner ? "text-profit font-bold" : eIsAboveTarget ? "text-profit/80" : "text-white"}`}>{e.nickname}{!leaderboardPreStart && e.isDisqualified ? <span className="ml-2 text-[10px] text-loss">DQ</span> : !leaderboardPreStart && e.isWithdrawn ? <span className="ml-2 text-[10px] text-gray-400" title="User withdrew all funds — out of challenge">🚪 Exited</span> : !leaderboardPreStart && e.isBlown ? <span className="ml-2 text-[10px] text-amber-400" title="Account blown">💀 Blown</span> : ""}</p><p className="text-[10px] text-gray-500 mt-0.5">{e.email || ""}</p><MinimumTradesBadge entry={e} hidden={leaderboardPreStart} /></td>
                     <td className="py-3 px-4"><p className="text-xs text-gray-300 font-mono">{e.accountNumber || "—"}</p></td>
                     <td className="py-3 px-4"><span className={`px-2 py-1 rounded text-[10px] font-semibold ${e.accountType === "real" ? "bg-gold/10 text-gold" : "bg-royal/10 text-royal"}`}>{e.accountType}</span></td>
                     <td className="py-3 px-4 text-right">
@@ -1507,7 +1503,7 @@ export default function AdminDashboard() {
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-hidden" onClick={() => setSelectedParticipant(null)}>
           <div className="glass rounded-2xl max-w-md w-full max-h-[85vh] overflow-y-auto border border-white/10" onClick={(e) => e.stopPropagation()}>
             <div className="sticky top-0 glass p-4 border-b border-white/10 flex items-center justify-between z-10 rounded-t-2xl">
-              <h3 className="text-lg font-bold text-white">{selectedParticipant.nickname}</h3>
+              <div className="min-w-0"><h3 className="text-lg font-bold text-white">{leaderboardBadges(selectedParticipant, { ...selectedChall, onlyCentAccount: leaderboardCentOnly }, leaderboardPreStart).trophy && <span title="Current winning position">🏆 </span>}{selectedParticipant.nickname}</h3><MinimumTradesBadge entry={selectedParticipant} hidden={leaderboardPreStart} /></div>
               <button onClick={() => setSelectedParticipant(null)} className="p-2 hover:bg-white/10 rounded-lg"><X size={18} className="text-gray-400" /></button>
             </div>
             <div className="p-5 space-y-4">
@@ -3494,10 +3490,10 @@ function ChallengeSettingsPanel({ challengeId, challenges, onRefresh }: { challe
             <p className="text-[10px] text-gray-500 uppercase tracking-wider font-medium">Social Media Images</p>
             <div className="grid grid-cols-2 gap-2">
               {editForm.type === 'hybrid' ? (<>
-                <button onClick={async () => { try { const r = await fetch(`${apiUrl}/api/challenges/${challengeId}/leaderboard?limit=10&category=real`); const d = await r.json(); downloadLeaderboardHTML({ ...editForm, real_winners_count: challenge?.realWinnersCount ?? 3, demo_winners_count: challenge?.demoWinnersCount ?? 3 }, d.leaderboard || [], 'Real'); } catch { downloadLeaderboardHTML(editForm, [], 'Real'); } }} className="p-2.5 rounded-lg bg-gold/10 border border-gold/30 text-gold text-xs font-semibold hover:bg-gold/20 transition-all">🏆 Real Leaderboard</button>
-                <button onClick={async () => { try { const r = await fetch(`${apiUrl}/api/challenges/${challengeId}/leaderboard?limit=10&category=demo`); const d = await r.json(); downloadLeaderboardHTML({ ...editForm, real_winners_count: challenge?.realWinnersCount ?? 3, demo_winners_count: challenge?.demoWinnersCount ?? 3 }, d.leaderboard || [], 'Demo'); } catch { downloadLeaderboardHTML(editForm, [], 'Demo'); } }} className="p-2.5 rounded-lg bg-gold/10 border border-gold/30 text-gold text-xs font-semibold hover:bg-gold/20 transition-all">🏆 Demo Leaderboard</button>
+                <button onClick={async () => { try { const r = await fetch(`${apiUrl}/api/challenges/${challengeId}/leaderboard?limit=10&category=real`); const d = await r.json(); downloadLeaderboardHTML({ ...editForm, real_winners_count: challenge?.realWinnersCount ?? 3, demo_winners_count: challenge?.demoWinnersCount ?? 3 }, (d.leaderboard || []).map((e: any) => ({ ...e, minimumTradesRequired: d.minTotalTradesByCategory?.[e.accountType] })), 'Real'); } catch { downloadLeaderboardHTML(editForm, [], 'Real'); } }} className="p-2.5 rounded-lg bg-gold/10 border border-gold/30 text-gold text-xs font-semibold hover:bg-gold/20 transition-all">🏆 Real Leaderboard</button>
+                <button onClick={async () => { try { const r = await fetch(`${apiUrl}/api/challenges/${challengeId}/leaderboard?limit=10&category=demo`); const d = await r.json(); downloadLeaderboardHTML({ ...editForm, real_winners_count: challenge?.realWinnersCount ?? 3, demo_winners_count: challenge?.demoWinnersCount ?? 3 }, (d.leaderboard || []).map((e: any) => ({ ...e, minimumTradesRequired: d.minTotalTradesByCategory?.[e.accountType] })), 'Demo'); } catch { downloadLeaderboardHTML(editForm, [], 'Demo'); } }} className="p-2.5 rounded-lg bg-gold/10 border border-gold/30 text-gold text-xs font-semibold hover:bg-gold/20 transition-all">🏆 Demo Leaderboard</button>
               </>) : (
-                <button onClick={async () => { try { const r = await fetch(`${apiUrl}/api/challenges/${challengeId}/leaderboard?limit=10`); const d = await r.json(); downloadLeaderboardHTML({ ...editForm, real_winners_count: challenge?.realWinnersCount ?? 3, demo_winners_count: challenge?.demoWinnersCount ?? 3 }, d.leaderboard || []); } catch { downloadLeaderboardHTML(editForm, []); } }} className="p-2.5 rounded-lg bg-gold/10 border border-gold/30 text-gold text-xs font-semibold hover:bg-gold/20 transition-all">🏆 Leaderboard Image</button>
+                <button onClick={async () => { try { const r = await fetch(`${apiUrl}/api/challenges/${challengeId}/leaderboard?limit=10`); const d = await r.json(); downloadLeaderboardHTML({ ...editForm, real_winners_count: challenge?.realWinnersCount ?? 3, demo_winners_count: challenge?.demoWinnersCount ?? 3 }, (d.leaderboard || []).map((e: any) => ({ ...e, minimumTradesRequired: d.minTotalTradesByCategory?.[e.accountType] }))); } catch { downloadLeaderboardHTML(editForm, []); } }} className="p-2.5 rounded-lg bg-gold/10 border border-gold/30 text-gold text-xs font-semibold hover:bg-gold/20 transition-all">🏆 Leaderboard Image</button>
               )}
               <button onClick={async () => { try { const r = await fetch(`/api/management/challenge/${challengeId}/overview`); const d = await r.json(); const metrics = d.metrics || {}; const m = metrics.real || metrics.combined || {}; const md = metrics.demo || {}; const lb = await fetch(`/api/management/challenge/${challengeId}/admin-leaderboard?category=all`).then(r2 => r2.json()).catch(() => ({ leaderboard: [] })); const realTop = (lb.leaderboard || []).filter((e: any) => e.accountType === 'real' && !e.isDisqualified).sort((a: any, b: any) => { const aVal = a.isCent ? (a.adjustedBalance || 0) / 100 : (a.adjustedBalance || 0); const bVal = b.isCent ? (b.adjustedBalance || 0) / 100 : (b.adjustedBalance || 0); return bVal - aVal; })[0]; const demoTop = (lb.leaderboard || []).filter((e: any) => e.accountType === 'demo' && !e.isDisqualified).sort((a: any, b: any) => (b.adjustedBalance || 0) - (a.adjustedBalance || 0))[0]; const blownReal = m.blownAccounts || 0; const blownDemo = md.blownAccounts || 0; const dqReal = m.disqualifiedAccounts || 0; const dqDemo = md.disqualifiedAccounts || 0; downloadStatsHTML(editForm, { totalParticipants: d.totalParticipants || 0, realParticipants: d.participants?.real || 0, demoParticipants: d.participants?.demo || 0, realAboveTarget: d.realAboveTarget || 0, demoAboveTarget: d.demoAboveTarget || 0, totalTrades: d.totalTrades || 0, mostTradedPair: m.mostTradedPair?.symbol || md.mostTradedPair?.symbol || '—', realHighestProfit: m.maxProfitTrade ? { nickname: m.maxProfitTrade.nickname, profit: `${m.maxProfitTrade.isCent ? m.maxProfitTrade.profit?.toFixed(2) + '¢' : '$' + m.maxProfitTrade.profit?.toFixed(2)}` } : null, demoHighestProfit: md.maxProfitTrade ? { nickname: md.maxProfitTrade.nickname, profit: `$${md.maxProfitTrade.profit?.toFixed(2)}` } : null, realBestWinRate: m.bestOverallWinRate ? { nickname: m.bestOverallWinRate.nickname, rate: `${Math.min(100, m.bestOverallWinRate.winRate)}%` } : null, demoBestWinRate: md.bestOverallWinRate ? { nickname: md.bestOverallWinRate.nickname, rate: `${Math.min(100, md.bestOverallWinRate.winRate)}%` } : null, realTopBalance: realTop ? { nickname: realTop.nickname, balance: `${realTop.isCent ? Number(realTop.adjustedBalance).toFixed(0) + '¢' : '$' + Number(realTop.adjustedBalance).toFixed(2)}` } : null, demoTopBalance: demoTop ? { nickname: demoTop.nickname, balance: `$${Number(demoTop.adjustedBalance).toFixed(2)}` } : null, mostBrokenRule: d.mostBrokenRule || null, blownReal, blownDemo, dqReal, dqDemo, challengeType: d.challengeType || challenge?.type || 'hybrid', instrumentsCount: d.instrumentsCount || 0, mostActiveDay: d.mostActiveDay || null, topInstruments: m.topInstruments || md.topInstruments || [], bestRKR: m.bestRuleKeeping || null, worstRKR: m.worstRuleKeeping || null, realBestRKR: m.bestRuleKeeping || null, realWorstRKR: m.worstRuleKeeping || null, demoBestRKR: md.bestRuleKeeping || null, demoWorstRKR: md.worstRuleKeeping || null }); } catch { downloadStatsHTML(editForm, {}); } }} className="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-semibold hover:bg-amber-500/20 transition-all">📊 Challenge Stats</button>
             </div>
@@ -3708,24 +3704,9 @@ function downloadRulesHTML(challenge: any, rulesList: string[], isCent: boolean)
 
 function downloadLeaderboardHTML(challenge: any, lb: any[], categoryLabel?: string) {
   const top10 = lb.slice(0, 10);
-  const realWinners = parseInt(challenge.real_winners_count || challenge.realWinnersCount || 0);
-  const demoWinners = parseInt(challenge.demo_winners_count || challenge.demoWinnersCount || 0);
-  const targetBalance = parseFloat(challenge.target_balance || challenge.targetBalance || 0);
 
-  const isWinnerEntry = (e: any) => {
-    if (e.isDisqualified || e.isWithdrawn || e.isBlown) return false;
-    const count = e.accountType === 'demo' ? demoWinners : realWinners;
-    const bal = Number(e.adjustedBalance || 0) - Number(e.totalWithdrawn || 0);
-    const effectiveTarget = e.isCent ? targetBalance * 100 : targetBalance;
-    return count > 0 && e.rank <= count && bal >= effectiveTarget;
-  };
-
-  const isAboveTarget = (e: any) => {
-    if (e.isDisqualified || e.isWithdrawn || e.isBlown) return false;
-    const bal = Number(e.adjustedBalance || 0) - Number(e.totalWithdrawn || 0);
-    const effectiveTarget = e.isCent ? targetBalance * 100 : targetBalance;
-    return bal >= effectiveTarget && effectiveTarget > 0;
-  };
+  const isWinnerEntry = (e: any) => leaderboardBadges(e, challenge).trophy;
+  const isAboveTarget = (e: any) => leaderboardBadges(e, challenge).highlight;
 
   const isCent = top10.some((e: any) => e.isCent);
   const formatBal = (e: any) => {
@@ -3740,7 +3721,7 @@ function downloadLeaderboardHTML(challenge: any, lb: any[], categoryLabel?: stri
     const rowClass = winner ? 'winner' : aboveTarget ? 'above-target' : '';
     const rankLabel = winner ? '🏆' : `${e.rank}`;
     const bal = formatBal(e);
-    return `<div class="lb-row ${rowClass}"><div class="lb-rank">${rankLabel}</div><div class="lb-name">${e.nickname || '—'}</div><div class="lb-type" style="background:${e.accountType === 'real' ? 'rgba(249,115,22,0.15)' : 'rgba(59,130,246,0.15)'};color:${e.accountType === 'real' ? '#fb923c' : '#60a5fa'}">${e.accountType}</div><div class="lb-balance">${bal}</div><div class="lb-trades">${e.totalTrades} trades</div></div>`;
+    return `<div class="lb-row ${rowClass}"><div class="lb-rank">${rankLabel}</div><div class="lb-name">${e.nickname || '—'}${!e.isDisqualified && e.minimumTradesRequired > Number(e.totalTrades || 0) ? `<small style="display:block;color:#fcd34d;font-size:12px;margin-top:4px">Minimum trades pending · ${Number(e.totalTrades || 0)}/${Number(e.minimumTradesRequired)}</small>` : ''}</div><div class="lb-type" style="background:${e.accountType === 'real' ? 'rgba(249,115,22,0.15)' : 'rgba(59,130,246,0.15)'};color:${e.accountType === 'real' ? '#fb923c' : '#60a5fa'}">${e.accountType}</div><div class="lb-balance">${bal}</div><div class="lb-trades">${e.totalTrades} trades</div></div>`;
   }).join('');
 
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${challenge.title} - Leaderboard</title><style>
