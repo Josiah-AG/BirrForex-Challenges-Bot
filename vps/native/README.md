@@ -35,3 +35,27 @@ The admin deep check calls authenticated `/ea-health` through the router after a
 Verification requires a heartbeat no older than 15 seconds and a fresh zero-deal nonce response matching the currently connected account/server. Empty accounts can pass. The bounded probe takes at most about 1.5 seconds; a stale file alone cannot pass. The UI badge expires after 120 seconds and requires another health check. The tooltip includes verification time and last successful native recovery since the worker started (if any). Green without a badge only represents the existing login test.
 
 Health rollout rollback copies are in `native-recovery-20260927/before-health`; the previous compiled reader is `MyFxPathLevels-v1.01.ex5`. Restore worker/module/EA together one drained terminal at a time to undo the probe. The ordinary recovery protocol is unchanged. Restore the pre-health router when idle and revert the UI/backend badge commit if needed.
+
+## History synchronization (v1.03)
+
+Protocol-2 pulls can request a native `HistorySelect` when ten Python history
+reads have still not produced a reconciled snapshot. Enable per terminal with
+`native_history_N.enabled`. This is separate from optional SL/TP recovery and
+does not change the levels returned to WinnerPip. The terminal must retain the
+worker lock throughout the request and subsequent verification.
+
+`history_request.csv` carries a version, nonce, account, server and five-second
+expiry. The EA selects account history and returns a nonce-bound acknowledgement;
+Python waits at most three seconds. The acknowledgement is never a substitute
+for financial data: fresh Python reads must still pass account identity, stable
+history, count, full signed balance, position reconstruction and final checks.
+Successful ordinary reads do not invoke this fallback. Missing or unresponsive
+EAs do not weaken reconciliation. No trades, account settings or money are changed.
+
+Remove the marker to disable the fallback immediately. Roll back the worker and
+history module together if reverting code; retain the native_history module until
+all workers have restarted. EA v1.03 remains compatible with the earlier SL/TP
+and health protocols. The October 5 rollout preserves per-terminal EX5 backups
+under `C:\ProgramData\WinnerPip\history-native-backup-N.ex5`; Terminal 1's original
+pre-pilot EX5 is `history-native-before.ex5`. Install the same EA on standby
+terminals 13–15 before enabling their workers. Never restart the whole pool.

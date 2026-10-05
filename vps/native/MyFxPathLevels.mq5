@@ -1,5 +1,5 @@
 #property strict
-#property version "1.02"
+#property version "1.03"
 #property description "Read-only closing SL/TP mailbox. No trading functions or DLLs."
 string dir="MyFxPathLevels\\";
 int OnInit() {
@@ -33,12 +33,35 @@ void OnTimer() {
     if(beat!=INVALID_HANDLE){FileWrite(beat,"1",TimeGMT());FileClose(beat);}
     lastBeat=GetTickCount64();
   }
-  if(!FileIsExist(dir+"request.csv")) return;
+  if(!FileIsExist(dir+"request.csv") && !FileIsExist(dir+"history_request.csv")) return;
   // Exclusive handle also prevents duplicate chart attachments from competing.
   int guard=FileOpen(dir+"reader.lock",FILE_WRITE|FILE_BIN);
   if(guard==INVALID_HANDLE) return;
-  ReadRequest();
+  if(FileIsExist(dir+"history_request.csv")) ReadHistoryRequest();
+  if(FileIsExist(dir+"request.csv")) ReadRequest();
   FileClose(guard);
+}
+// Explicitly request the terminal's history cache after a stalled Python read.
+// No acknowledgement is treated as a verified financial snapshot by Python.
+void ReadHistoryRequest() {
+  int f=FileOpen(dir+"history_request.csv",FILE_READ|FILE_CSV|FILE_ANSI,',',CP_UTF8);
+  if(f==INVALID_HANDLE) return;
+  string version=FileReadString(f),nonce=FileReadString(f);
+  long login=(long)StringToInteger(FileReadString(f));
+  string server=FileReadString(f);
+  long expires=(long)StringToInteger(FileReadString(f));
+  FileClose(f);FileDelete(dir+"history_request.csv");
+  if(version!="1" || StringLen(nonce)!=32 || expires<(long)TimeGMT() || !Identity(login,server)) return;
+  ResetLastError();
+  datetime end=TimeCurrent();
+  bool ok=HistorySelect(D'2000.01.01',end);
+  int error=GetLastError(),count=HistoryDealsTotal();
+  if(!Identity(login,server) || expires<(long)TimeGMT()) return;
+  int out=FileOpen(dir+"history_response.tmp",FILE_WRITE|FILE_CSV|FILE_ANSI,',',CP_UTF8);
+  if(out==INVALID_HANDLE) return;
+  FileWrite(out,"1",nonce,login,server,ok?1:0,error,count,(long)end);
+  FileClose(out);
+  FileMove(dir+"history_response.tmp",0,dir+"history_response.csv",FILE_REWRITE);
 }
 void ReadRequest() {
   int f=FileOpen(dir+"request.csv",FILE_READ|FILE_CSV|FILE_ANSI,',',CP_UTF8);

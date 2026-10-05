@@ -15,6 +15,7 @@ New in v9.0:
 
 from history_snapshot import collect_snapshot, IncompleteHistory
 from native_sltp import recover as recover_native_levels, probe as probe_native_reader
+from native_history import prime as prime_native_history
 import MetaTrader5 as mt5
 import time
 import sys
@@ -1555,6 +1556,9 @@ def health():
         "console_dropped_writes": sys.stdout.dropped,
         "git_commit":           GIT_COMMIT,
         "history_protocol":      2,
+        "history_sync_version":  1,
+        "mt5_connector_version": mt5.__version__,
+        "native_history_enabled": os.path.isfile(os.path.join(os.path.dirname(__file__), f"native_history_{TERMINAL_ID}.enabled")),
         "busy":                  _lock.locked(),
         "git_commit_time":      GIT_COMMIT_TIME,
         "terminal_id":          TERMINAL_ID,
@@ -1622,7 +1626,10 @@ def pull(req: PullRequest):
             _current_account_str = str(account_number)
             _consecutive_failures = 0
             anchor = {"cutoff": req.anchor_cutoff, "balance": req.anchor_balance,"digest":req.prior_digest,"repair_from":req.repair_from} if req.anchor_cutoff and req.anchor_balance is not None else None
-            result = collect_snapshot(mt5, account_number, req.server, req.from_date, anchor,budget=max(1,90-(time.monotonic()-started)),known_tickets=req.known_tickets)
+            result = collect_snapshot(mt5, account_number, req.server, req.from_date, anchor,
+                budget=max(1,90-(time.monotonic()-started)), known_tickets=req.known_tickets,
+                refresh_history=lambda: prime_native_history(mt5, account_number, req.server,
+                    enabled=os.path.isfile(os.path.join(os.path.dirname(__file__), f"native_history_{TERMINAL_ID}.enabled"))))
             # Optional myFXpath-only evidence, still inside the worker/dispatcher lease.
             # Per-worker marker is an immediate kill switch, without worker restart.
             if req.priority and req.native_sltp:

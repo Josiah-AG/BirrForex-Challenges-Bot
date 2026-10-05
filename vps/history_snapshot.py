@@ -105,7 +105,7 @@ def reconstruct_position(deals):
 
 
 def collect_snapshot(mt5, account, server, from_date=None, anchor=None, sleep=time.sleep,
-                     monotonic=time.monotonic, budget=70, known_tickets=None):
+                     monotonic=time.monotonic, budget=70, known_tickets=None, refresh_history=None):
     """One account lock must cover this entire operation. No network or login retry here.
     A stable manifest, account identity and signed ledger must all agree.
     """
@@ -136,10 +136,18 @@ def collect_snapshot(mt5, account, server, from_date=None, anchor=None, sleep=ti
     count = None
     history = None
     known_present = False
+    recovery = None
     # Deliberately re-read the broker range; None must never become an empty tuple.
-    for _ in range(45):
+    for attempt in range(45):
         if monotonic() >= deadline:
             break
+        # Python may repeatedly return the same incomplete terminal cache after
+        # an account switch. Request native HistorySelect once, under the same
+        # worker lock; its response is NOT proof of completeness. All checks
+        # below must still pass using fresh Python history and live balance.
+        if attempt == 10 and refresh_history is not None and deadline - monotonic() > 5:
+            recovery = refresh_history()
+            previous, stable = None, 0
         # Balance/history synchronize independently after login. Bracket each
         # candidate read with live identity+balance checks, refreshing its cutoff.
         # Never compare newly loaded history with a permanently frozen balance.
@@ -255,6 +263,6 @@ def collect_snapshot(mt5, account, server, from_date=None, anchor=None, sleep=ti
                 source_cutoff=cutoff.isoformat(), observed_at=datetime.now(timezone.utc).isoformat(),
                 balance=float(balance), equity=float(after.equity), currency=after.currency,
                 ledger_expected=float(expected), ledger_tolerance=float(tolerance),
-                history_digest=signature(accepted), history_count=len(accepted),
+                history_recovery=recovery, history_digest=signature(accepted), history_count=len(accepted),
                 trades=trades, deals=raw, balance_ops=operations,
                 position_ids=positions, closing_tickets=sorted(t['ticket'] for t in trades))

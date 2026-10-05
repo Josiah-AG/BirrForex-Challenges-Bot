@@ -169,3 +169,70 @@ class TimestampBoundaryTests(unittest.TestCase):
             return total(*a)
         mt.history_deals_get=checked_get;mt.history_deals_total=checked_total
         self.assertTrue(collect_snapshot(mt,1,'Broker',sleep=lambda _:None)['complete'])
+
+class BalanceAccountingTests(unittest.TestCase):
+    def test_floating_equity_is_not_used_to_reconcile_balance(self):
+        mt=MT([deal(1,type=2,profit=100,position=0)],100)
+        original=mt.account_info
+        def info():
+            row=original();row.equity=73.42;return row
+        mt.account_info=info
+        result=collect_snapshot(mt,1,'Broker',sleep=lambda _:None)
+        self.assertEqual(result['ledger_expected'],100)
+        self.assertEqual(result['balance'],100)
+        self.assertEqual(result['equity'],73.42)
+
+    def test_all_booked_costs_and_cash_movements_reconcile_once(self):
+        rows=[deal(1,type=2,profit=100,position=0),
+              deal(2,commission=-2,fee=-.5),
+              deal(3,entry=1,type=1,profit=10,commission=-1,fee=-.25,t=200),
+              deal(4,type=7,profit=-3,position=0),
+              deal(5,type=12,profit=.5,position=0),
+              deal(6,type=17,profit=-.75,position=0),
+              deal(7,type=2,profit=-20,position=0)]
+        rows[2].swap=-1.25
+        result=collect_snapshot(MT(rows,81.75),1,'Broker',sleep=lambda _:None)
+        self.assertEqual(result['ledger_expected'],81.75)
+        self.assertEqual(result['trades'][0]['commission'],-3.75)
+        self.assertEqual(result['trades'][0]['swap'],-1.25)
+
+    def test_broker_credit_is_not_a_cash_deposit(self):
+        rows=[deal(1,type=2,profit=100,position=0),deal(2,type=3,profit=50,position=0)]
+        mt=MT(rows,100);original=mt.account_info
+        def info():
+            row=original();row.credit=50;row.equity=150;return row
+        mt.account_info=info
+        result=collect_snapshot(mt,1,'Broker',sleep=lambda _:None)
+        self.assertEqual(result['ledger_expected'],100)
+        self.assertEqual(len(result['balance_ops']),1)
+
+class NativeHistoryRefreshTests(unittest.TestCase):
+    def test_native_refresh_does_not_replace_independent_verification(self):
+        mt=MT([],100);calls=[]
+        def refresh():
+            calls.append(True)
+            mt.deals=[deal(1,type=2,profit=100,position=0)]
+            return {'status':'requested'}
+        result=collect_snapshot(mt,1,'Broker',sleep=lambda _:None,refresh_history=refresh)
+        self.assertEqual(len(calls),1)
+        self.assertEqual(result['ledger_expected'],100)
+        self.assertEqual(result['history_recovery']['status'],'requested')
+
+    def test_native_success_cannot_hide_missing_history(self):
+        with self.assertRaises(IncompleteHistory):
+            collect_snapshot(MT([],100),1,'Broker',sleep=lambda _:None,
+                             refresh_history=lambda:{'status':'requested','native_count':50})
+
+    def test_verified_history_does_not_need_native_request(self):
+        def forbidden():raise AssertionError('Unnecessary native request')
+        result=collect_snapshot(MT([deal(1,type=2,profit=100,position=0)],100),1,'Broker',
+                                sleep=lambda _:None,refresh_history=forbidden)
+        self.assertIsNone(result['history_recovery'])
+
+    def test_native_refresh_cannot_accept_another_account(self):
+        mt=MT([],100)
+        def refresh():
+            mt.account_info=lambda:N(login=2,server='Broker',balance=100,credit=0)
+            return {'status':'requested'}
+        with self.assertRaisesRegex(IncompleteHistory,'identity'):
+            collect_snapshot(mt,1,'Broker',sleep=lambda _:None,refresh_history=refresh)
