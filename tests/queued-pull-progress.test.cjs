@@ -8,3 +8,9 @@ test('queued job keeps both existing progress pollers alive without claiming wor
  assert.equal(p.challengeId,38);assert.equal(p.jobId,'78');
  assert.equal(p.currentStep,1);assert.equal(p.totalSteps,4);
 });
+test('queue reports real wait duration and distinguishes terminal preparation',()=>{
+ const now=Date.parse('2026-10-05T09:00:20Z');
+ const job={id:1,challenge_id:38,created_at:'2026-10-05T09:00:00Z'};
+ assert.equal(queuedPullProgress(job,now).elapsedSeconds,20);
+ assert.match(queuedPullProgress({...job,state:'running'},now).stepLabel,/preparing terminals/);
+});

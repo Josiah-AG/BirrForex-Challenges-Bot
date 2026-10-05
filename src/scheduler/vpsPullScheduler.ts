@@ -346,6 +346,7 @@ export class VpsPullScheduler {
 
     // Per-challenge pull schedule: check every minute if any challenge needs a pull now
     cron.schedule('* * * * *', () => this.checkPullSchedule(), { timezone: 'UTC' });
+    cron.schedule('*/5 * * * * *', () => this.drainPullJobs(), { timezone: 'UTC' });
     cron.schedule('* * * * *', () => this.retryCredentialRecoveries(), { timezone: 'UTC' });
     cron.schedule('* * * * *', () => this.retryIncompleteHistory(), { timezone: 'UTC' });
 
@@ -396,21 +397,32 @@ export class VpsPullScheduler {
   private pullScheduleTriggered = new Set<string>();
 
   async enqueueChallengePull(challengeId: number, options: {overrideLock?:boolean;includeDisqualified?:boolean;fullHistory?:boolean;failedOnly?:boolean} = {}): Promise<number> {
-    return db.transaction(async()=>{
+    const jobId = await db.transaction(async()=>{
       const challenge=await db.query('SELECT status,leaderboard_locked_at FROM trading_challenges WHERE id=$1 FOR UPDATE',[challengeId]);
       if(!challenge.rows[0] || (!options.overrideLock && (challenge.rows[0].leaderboard_locked_at || !['active','reviewing'].includes(challenge.rows[0].status))))throw new Error('Challenge is not open for updates');
       const queued=await db.query(`INSERT INTO challenge_pull_jobs(challenge_id,slot,override_lock,include_disqualified,full_history,failed_only) VALUES($1,$2,$3,$4,$5,$6) RETURNING id`,[challengeId,`manual:${Date.now()}:${require('crypto').randomUUID()}`,!!options.overrideLock,!!options.includeDisqualified,!!options.fullHistory,!!options.failedOnly]);
       return Number(queued.rows[0].id);
     });
+    // Wake only after commit: the job must be visible to every scheduler replica.
+    void this.drainPullJobs();
+    return jobId;
+  }
+
+  private async hasPendingPullJobs(): Promise<boolean> {
+    const result = await db.query(`SELECT 1 FROM challenge_pull_jobs j JOIN trading_challenges c ON c.id=j.challenge_id
+      WHERE j.state='pending' AND j.attempts<3
+        AND (j.override_lock OR (c.status IN ('active','reviewing') AND c.leaderboard_locked_at IS NULL)) LIMIT 1`);
+    return result.rows.length > 0;
   }
 
   private async checkPullSchedule() {
-    const coordinator=await db.getClient();
-    let ownsCoordinator=false;
     try {
-      const lock=await coordinator.query('SELECT pg_try_advisory_lock(26092604,0) AS locked');
-      ownsCoordinator=lock.rows[0].locked;
-      if(!ownsCoordinator)return;
+      await this.scheduleDuePulls();
+      await this.drainPullJobs();
+    } catch(error) { console.error('Pull schedule error:', error); }
+  }
+
+  private async scheduleDuePulls() {
       const {getLocalTime}=require('../utils/timezone');
       const challenges=await db.query(`SELECT id,pull_times,timezone FROM trading_challenges
         WHERE status IN ('active','reviewing') AND leaderboard_locked_at IS NULL
@@ -422,6 +434,20 @@ export class VpsPullScheduler {
           await db.query(`INSERT INTO challenge_pull_jobs(challenge_id,slot) VALUES($1,$2) ON CONFLICT DO NOTHING`,[challenge.id,`${local.dateStr} ${slot}`]);
         }
       }
+  }
+
+  private drainingPullJobs = false;
+  private async drainPullJobs() {
+    if(this.drainingPullJobs || this.isRunning)return;
+    this.drainingPullJobs=true;
+    let coordinator: any;
+    let ownsCoordinator=false;
+    let completedJob=false;
+    try {
+      coordinator=await db.getClient();
+      const lock=await coordinator.query('SELECT pg_try_advisory_lock(26092604,0) AS locked');
+      ownsCoordinator=lock.rows[0].locked;
+      if(!ownsCoordinator)return;
       if(this.isRunning)return;
       const job=await db.transaction(async()=>{
         const rows=await db.query(`SELECT j.* FROM challenge_pull_jobs j JOIN trading_challenges c ON c.id=j.challenge_id
@@ -436,11 +462,16 @@ export class VpsPullScheduler {
       try {
         await this.runPullCycleForChallenge(job.challenge_id,job.override_lock,true,job.include_disqualified,job.full_history,job.failed_only);
         await db.query("UPDATE challenge_pull_jobs SET state='completed',updated_at=NOW() WHERE id=$1",[job.id]);
+        completedJob=true;
       } catch(error){
         await db.query("UPDATE challenge_pull_jobs SET state=CASE WHEN $3::boolean THEN 'cancelled' WHEN attempts>=3 THEN 'failed' ELSE 'pending' END,error=$2,updated_at=NOW() WHERE id=$1",[job.id,(error as Error).message,(error as any).code === 'PULL_CANCELLED']);
       }
     } catch(error){ console.error('Scheduled pull job error:',error); }
-    finally { if(ownsCoordinator)await coordinator.query('SELECT pg_advisory_unlock(26092604,0)'); coordinator.release(); }
+    finally {
+      try { if(ownsCoordinator)await coordinator.query('SELECT pg_advisory_unlock(26092604,0)'); }
+      finally { coordinator?.release(); this.drainingPullJobs=false; }
+      if(completedJob)void this.drainPullJobs();
+    }
   }
 
   /**
@@ -681,6 +712,18 @@ export class VpsPullScheduler {
       }
     }, 30000); // check every 30s
 
+    let progressWrite: Promise<any> | undefined;
+    const reportProgress = () => {
+      if(progressWrite)return progressWrite;
+      const successful=allResults.filter(r=>r.success).length;
+      const failed=allResults.length-successful;
+      progressWrite=db.query(`UPDATE wp_pull_batches SET successful=$1,failed=$2 WHERE id=$3 AND status='running'`,
+        [successful,failed,batchId]).catch(error=>console.error('Pull progress persistence failed:',error.message))
+        .finally(()=>{progressWrite=undefined;});
+      return progressWrite;
+    };
+    const progressTimer=setInterval(()=>{void reportProgress();},1000);
+
     const workerPromises = healthyTerminals.map(terminal =>
       this.terminalWorker(terminal, challenge, batchId, resultsMutex).catch(error=>{
         this.cancelRequested=true;this.abortController?.abort();throw error;
@@ -693,7 +736,7 @@ export class VpsPullScheduler {
       if(failed)throw failed.reason;
       return resultsMutex.results;
     }
-    finally { clearInterval(watchdog); }
+    finally { clearInterval(watchdog); clearInterval(progressTimer); await progressWrite; await reportProgress(); }
   }
 
   /**
@@ -838,7 +881,7 @@ export class VpsPullScheduler {
     const lease=await db.getClient();let locked=false;
     try {
       locked=(await lease.query('SELECT pg_try_advisory_lock(26092604,0) AS locked')).rows[0].locked;
-      if(!locked)return;
+      if(!locked || await this.hasPendingPullJobs())return;
       const rows=await db.query(`SELECT r.id,r.challenge_id FROM trading_registrations r
         JOIN trading_challenges c ON c.id=r.challenge_id
         WHERE r.history_sync_state IN ('incomplete','verified','evaluation_failed') AND r.history_retry_at<=NOW()
@@ -850,6 +893,7 @@ export class VpsPullScheduler {
         await this.refreshTerminalInventory();
       }
       for(const row of rows.rows){
+        if(await this.hasPendingPullJobs())break;
         const result=await this.retrySingleAccountUnlocked(row.id,row.challenge_id);
         if(!result.success && !['history_incomplete','evaluation_failed'].includes(result.errorCode||'')){
           await this.recordHistoryFailure(row.id,row.challenge_id,result.errorMessage||'Recovery pending');
@@ -866,7 +910,7 @@ export class VpsPullScheduler {
         }
       }
     } catch(error){console.error('History recovery pending:',(error as Error).message);}
-    finally{if(locked)await lease.query('SELECT pg_advisory_unlock(26092604,0)');lease.release();}
+    finally{if(locked)await lease.query('SELECT pg_advisory_unlock(26092604,0)');lease.release();if(locked)void this.drainPullJobs();}
   }
 
   private async recordHistoryFailure(registrationId:number,challengeId:number,message:string,evaluation=false){
@@ -1856,7 +1900,7 @@ export class VpsPullScheduler {
     let version:number|undefined;
     try {
       coordinator=(await lease.query('SELECT pg_try_advisory_lock(26092604,0) AS locked')).rows[0].locked;
-      if(!coordinator)return null;
+      if(!coordinator || await this.hasPendingPullJobs())return null;
       const lock=await lease.query('SELECT pg_try_advisory_lock(26092603,$1) AS locked',[registrationId]);
       acquired=lock.rows[0].locked;
       if(!acquired)return null;
@@ -1879,6 +1923,7 @@ export class VpsPullScheduler {
       if(acquired)await lease.query('SELECT pg_advisory_unlock(26092603,$1)',[registrationId]);
       if(coordinator)await lease.query('SELECT pg_advisory_unlock(26092604,0)');
       lease.release();
+      if(coordinator)void this.drainPullJobs();
     }
   }
 

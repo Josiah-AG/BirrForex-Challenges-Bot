@@ -1246,6 +1246,7 @@ router.get('/challenge/:id/pull-single-status', async (req: any, res: Response) 
 
 // ==================== PULL STATUS (progress) ====================
 router.get('/challenge/:id/pull-status', async (req: any, res: Response) => {
+  res.setHeader('Cache-Control', 'no-store');
   const challengeId = await verifyOwnership(req, res);
   if (!challengeId) return;
   try {
@@ -1255,7 +1256,7 @@ router.get('/challenge/:id/pull-status', async (req: any, res: Response) => {
       [challengeId]
     );
     if (running.rows.length === 0) {
-      const queued = await db.query(`SELECT id, challenge_id FROM challenge_pull_jobs
+      const queued = await db.query(`SELECT id, challenge_id, created_at, state FROM challenge_pull_jobs
         WHERE challenge_id=$1 AND (state='running' OR (state='pending' AND attempts < 3)) ORDER BY id LIMIT 1`, [challengeId]);
       if (queued.rows[0]) return res.json(queuedPullProgress(queued.rows[0]));
       // Check last completed

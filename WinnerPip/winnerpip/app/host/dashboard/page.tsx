@@ -116,6 +116,7 @@ export default function HostDashboardPage() {
   const [actionResult, setActionResult] = useState("");
   const [pullProgress, setPullProgress] = useState<{ isRunning: boolean; currentStep?: number; totalSteps?: number; stepLabel?: string; percent?: number; processed?: number; total?: number; elapsed?: number; etaSeconds?: number | null; totalAccounts?: number; successful?: number; failed?: number; justCompleted?: boolean } | null>(null);
   const pullPollRef = useRef<NodeJS.Timeout | null>(null);
+  const pullPollGeneration = useRef(0);
   const [expandedViolation, setExpandedViolation] = useState<string | null>(null);
   const [leaderboardCategory, setLeaderboardCategory] = useState<"all" | "real" | "demo">("all");
   const [participantFilter, setParticipantFilter] = useState("all");
@@ -345,11 +346,16 @@ export default function HostDashboardPage() {
   const startPullPolling = useCallback(() => {
     if (pullPollRef.current) return; // Already polling
     if (!selectedChallengeId) return;
-    pullPollRef.current = setInterval(async () => {
+    const generation = ++pullPollGeneration.current;
+    let fetching = false;
+    const poll = async () => {
+      if (fetching || generation !== pullPollGeneration.current) return;
+      fetching = true;
       try {
-        const res = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/pull-status`, { headers: { Authorization: `Bearer ${getToken()}` } });
+        const res = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/pull-status`, { cache: "no-store", headers: { Authorization: `Bearer ${getToken()}` } });
         if (!res.ok) return;
         const data = await res.json();
+        if (generation !== pullPollGeneration.current) return;
         if (data.isRunning) {
           setPullProgress(data);
         } else {
@@ -357,25 +363,30 @@ export default function HostDashboardPage() {
           setPullProgress((prev) => prev?.isRunning ? { ...prev, isRunning: false, justCompleted: true } : null);
           if (pullPollRef.current) { clearInterval(pullPollRef.current); pullPollRef.current = null; }
           fetchTabData();
-          setTimeout(() => setPullProgress(null), 3000);
+          setTimeout(() => { if (generation === pullPollGeneration.current) setPullProgress(null); }, 3000);
         }
-      } catch { /* silent — will retry on next interval */ }
-    }, 2000);
+      } catch { /* retry on next interval */ } finally { fetching = false; }
+    };
+    pullPollRef.current = setInterval(poll, 2000);
+    void poll();
   }, [selectedChallengeId]);
 
   const stopPullPolling = useCallback(() => {
+    pullPollGeneration.current++;
     if (pullPollRef.current) { clearInterval(pullPollRef.current); pullPollRef.current = null; }
   }, []);
 
   // On mount / challenge change: check if a pull is already running
   useEffect(() => {
     if (!isAuth || !selectedChallengeId) return;
+    const generation = pullPollGeneration.current;
     // Immediate check
     (async () => {
       try {
-        const res = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/pull-status`, { headers: { Authorization: `Bearer ${getToken()}` } });
+        const res = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/pull-status`, { cache: "no-store", headers: { Authorization: `Bearer ${getToken()}` } });
         if (!res.ok) return;
         const data = await res.json();
+        if (generation !== pullPollGeneration.current) return;
         if (data.isRunning) {
           setPullProgress(data);
           startPullPolling();

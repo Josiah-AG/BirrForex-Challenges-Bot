@@ -6548,14 +6548,15 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/re-evaluate-user`, admin
  * Get current pull cycle status (is it running, progress)
  */
 app.get(`/api/admin/${ADMIN_SECRET_PATH}/pull-status`, adminIpCheck, async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
   try {
     const filterChallengeId = req.query.challengeId ? parseInt(req.query.challengeId as string) : null;
 
 
     // Check if there's a currently running batch
     const running = await db.query(
-      `SELECT id, challenge_id, total_accounts, started_at, phase, phase2_total, phase2_processed, phase2_round, phase_times, phase_started_at
-       FROM wp_pull_batches WHERE status = 'running' ORDER BY started_at DESC LIMIT 1`
+      `SELECT id, challenge_id, total_accounts, successful, failed, started_at, phase, phase2_total, phase2_processed, phase2_round, phase_times, phase_started_at
+       FROM wp_pull_batches WHERE status = 'running' AND ($1::integer IS NULL OR challenge_id=$1) ORDER BY started_at DESC LIMIT 1`, [filterChallengeId]
     );
 
     if (running.rows.length > 0) {
@@ -6602,12 +6603,8 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/pull-status`, adminIpCheck, async (req,
         });
       }
 
-      // Count how many have been processed so far (success + failed since batch started)
-      const processed = await db.query(
-        `SELECT COUNT(*) as cnt FROM trading_registrations WHERE challenge_id = $1 AND last_pull_at >= $2`,
-        [batch.challenge_id, batch.started_at]
-      );
-      const processedCount = Math.min(parseInt(processed.rows[0].cnt), batch.total_accounts);
+      // Batch outcomes include failed attempts; account source timestamps do not.
+      const processedCount = Math.min(Number(batch.successful || 0) + Number(batch.failed || 0), batch.total_accounts);
       const percent = batch.total_accounts > 0 ? Math.min(100, Math.round((processedCount / batch.total_accounts) * 100)) : 0;
       // ETA for pull phase
       const pullElapsedMs = Date.now() - new Date(batch.started_at).getTime();
@@ -6633,7 +6630,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/pull-status`, adminIpCheck, async (req,
       }
     }
 
-    const queued = await db.query(`SELECT id, challenge_id FROM challenge_pull_jobs
+    const queued = await db.query(`SELECT id, challenge_id, created_at, state FROM challenge_pull_jobs
       WHERE (state='running' OR (state='pending' AND attempts < 3))
         AND ($1::integer IS NULL OR challenge_id=$1) ORDER BY id LIMIT 1`, [filterChallengeId]);
     if (queued.rows[0]) return res.json(queuedPullProgress(queued.rows[0]));

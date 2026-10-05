@@ -4117,6 +4117,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
   const [pullProgress, setPullProgress] = useState<any>(null);
   const [polling, setPolling] = useState(false);
   const pollIntervalRef = useRef<number | null>(null);
+  const pollGeneration = useRef(0);
 
   // Incomplete trades state
   const [incompleteTrades, setIncompleteTrades] = useState<any[]>([]);
@@ -4293,6 +4294,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
   };
 
   const stopPoll = () => {
+    pollGeneration.current++;
     if (pollIntervalRef.current !== null) {
       window.clearInterval(pollIntervalRef.current);
       pollIntervalRef.current = null;
@@ -4302,34 +4304,33 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
 
   const startPolling = () => {
     stopPoll();
+    const generation = pollGeneration.current;
+    let fetching = false;
     setPolling(true);
-    pollIntervalRef.current = window.setInterval(async () => {
+    const poll = async () => {
+      if (fetching || generation !== pollGeneration.current) return;
+      fetching = true;
       try {
-        const r = await fetch(`/api/management/pull-status?challengeId=${challengeId}`);
+        const r = await fetch(`/api/management/pull-status?challengeId=${challengeId}`, {cache:"no-store"});
+        if (!r.ok) return;
         const d = await r.json();
+        if (generation !== pollGeneration.current) return;
         setPullProgress(d);
         if (!d.isRunning) {
           stopPoll();
           fetchFailed();
           onPullFinished?.();
         }
-      } catch (_e) {}
-    }, 3000);
+      } catch {} finally { fetching = false; }
+    };
+    pollIntervalRef.current = window.setInterval(poll, 2000);
+    void poll();
   };
 
-  // Check if a pull is already running on mount
   useEffect(() => {
-    async function check() {
-      try {
-        const r = await fetch(`/api/management/pull-status?challengeId=${challengeId}`);
-        const d = await r.json();
-        setPullProgress(d);
-        if (d.isRunning) { startPolling(); }
-      } catch (_e) {}
-    }
-    check();
-    return () => { stopPoll(); };
-  }, []);
+    startPolling();
+    return () => stopPoll();
+  }, [challengeId]);
 
   const [resendingWarning, setResendingWarning] = useState<number | null>(null);
   const handleResendWarning = async (regId: number) => {
@@ -4569,7 +4570,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold text-white flex items-center gap-2">
               <Loader2 size={16} className="text-royal animate-spin" />
-              {pullProgress.phase === 'queued' ? 'Update queued — waiting for an available slot' : pullProgress.phase === 'reconciling' ? 'Reconciling Trades' : pullProgress.phase === 'resolving' ? 'Resolving Missing Data' : pullProgress.phase === 'resolving_nulls' ? 'Resolving Open Times' : pullProgress.phase === 'full_pull_open_price' ? 'Fixing Open Prices' : pullProgress.phase === 'balance_reconcile' ? 'Balance Reconciliation' : pullProgress.phase === 'settling' ? 'Settling (30s wait)' : pullProgress.phase === 'ohlc' ? 'Updating OHLC Candles' : pullProgress.phase === 'evaluating' ? 'Evaluating Accounts' : 'Pulling Accounts'}
+              {pullProgress.phase === 'queued' ? pullProgress.stepLabel : pullProgress.phase === 'reconciling' ? 'Reconciling Trades' : pullProgress.phase === 'resolving' ? 'Resolving Missing Data' : pullProgress.phase === 'resolving_nulls' ? 'Resolving Open Times' : pullProgress.phase === 'full_pull_open_price' ? 'Fixing Open Prices' : pullProgress.phase === 'balance_reconcile' ? 'Balance Reconciliation' : pullProgress.phase === 'settling' ? 'Settling (30s wait)' : pullProgress.phase === 'ohlc' ? 'Updating OHLC Candles' : pullProgress.phase === 'evaluating' ? 'Evaluating Accounts' : 'Pulling Accounts'}
             </h3>
             <div className="flex items-center gap-3">
               <span className="text-xs text-gray-400">{pullProgress.elapsedSeconds}s elapsed</span>
