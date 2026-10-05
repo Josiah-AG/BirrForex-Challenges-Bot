@@ -59,3 +59,19 @@ and health protocols. The October 5 rollout preserves per-terminal EX5 backups
 under `C:\ProgramData\WinnerPip\history-native-backup-N.ex5`; Terminal 1's original
 pre-pilot EX5 is `history-native-before.ex5`. Install the same EA on standby
 terminals 13–15 before enabling their workers. Never restart the whole pool.
+
+October 5 verification: two consecutive challenge-38 batches (803 and 804)
+published verified history for all 94 eligible accounts, with no failures, in
+216 and 211 seconds respectively. The preceding batch had 65 successes and 29
+failures. These are observed runs, not a guarantee against future broker outages.
+All 12 active readers passed fresh native-history acknowledgements; compiled
+readers and enable markers were also staged for inactive terminals 13–15.
+Python connector 5.0.5735 remains in use: an isolated newer-connector trial did
+not resolve the stale-history failure by itself. No ledger tolerance was relaxed.
+
+During rollout, worker readiness preceded reader readiness after terminal
+restarts. Do not clear maintenance merely because the worker is healthy: wait
+for a fresh reader acknowledgement. Terminals 2 and 3 have backed-up chart
+profiles at `history-native-profile-2` and `history-native-profile-3` beneath
+the same ProgramData directory. Temporary rollout tasks were removed after
+verification; normal worker startup remains responsible for the reader.
