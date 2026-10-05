@@ -1847,3 +1847,10 @@ The user confirmed that this log must retain the history of application updates 
 | `50c7286` | 2026-10-05T18:41:45+03:00 | Limit no-target green highlights to eligible prize positions |
 | `f44b9e7` | 2026-10-05T19:47:00+03:00 | Count qualified trades for minimum eligibility and show compact inline notice |
 | `7d5544b` | 2026-10-05T19:52:48+03:00 | Group minimum-duration violations under one rule in overview summaries |
+
+## 2026-10-06 — Readable risk violation amounts and challenge timezone
+- Request: remove floating-point amount noise from risk explanations, include the percentage and calculated balance basis, and show candle timestamps in the challenge timezone rather than hardcoded GMT+3.
+- Risk explanations format monetary amounts to two decimals and show percentage of balance at trade open, taken from the same balance timeline used to calculate the risk. The display replaces the virtual SL price with this explanation. Calculation and deduction precision remain unchanged. Standard rounding makes 379.15139999999997 display as 379.15, not 379.16.
+- Passed the challenge timezone through initial, retry and partial-close candle checks. Timestamp formatting derives the timezone offset/abbreviation from the actual candle date, including daylight saving. Removed hardcoded EAT formatting from the manual evaluation candle-message path as well.
+- Validation: 43 targeted risk-display, rule and evaluation regression tests passed; backend TypeScript check passed. Existing saved violation text will refresh when reevaluated; no historical data rewrite was performed.
+- Release pending at this entry; production verification will be appended after Railway reports success.

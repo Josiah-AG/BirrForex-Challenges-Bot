@@ -1,3 +1,4 @@
+import { riskViolationDisplay, riskViolationTime } from '../utils/riskViolationDisplay';
 import { reconcilePrestart } from '../utils/prestartReconciliation';
 import { startingBalanceProblem } from '../utils/startingBalancePolicy';
 import { peakPositionVolume } from '../utils/positionExposure';
@@ -257,18 +258,6 @@ function selectTimeframe(holdMinutes: number, maxHoldHours: number | null): { ti
 }
 
 /**
- * Format candle open time in EAT for violation messages.
- * Returns simple time like "10:30 EAT" or "13:00 EAT"
- */
-function formatCandleTimeEAT(candleTimeISO: string, _periodMs: number, timezone?: string): string {
-  const { formatInTimezone, getTimezoneAbbr } = require('../utils/timezone');
-  const tz = timezone || 'Africa/Nairobi';
-  const formatted = formatInTimezone(candleTimeISO, tz);
-  const abbr = getTimezoneAbbr(tz);
-  return `${formatted} ${abbr}`;
-}
-
-/**
  * Fake SL Detection — only runs on winning trades where SL was set at entry.
  * Checks if price went past the max allowed risk level during the trade, which
  * means the SL was removed or widened after opening (cheating).
@@ -291,7 +280,7 @@ async function validateSlWithCandles(
   trade: TradeRow,
   maxHoldHours: number | null = null,
   maxRiskDollars: number = 0,
-  opts?: { windowStart?: Date; windowEnd?: Date; effectiveVolume?: number }
+  opts?: { windowStart?: Date; windowEnd?: Date; effectiveVolume?: number; timezone: string }
 ): Promise<SlCheckOutcome> {
   if (!trade.open_time || !trade.close_time) return SL_SKIPPED;
   if (!maxRiskDollars || maxRiskDollars <= 0) return SL_SKIPPED;
@@ -346,24 +335,24 @@ async function validateSlWithCandles(
     : Math.max(...safeCandles.map(c => c.high));
 
   // Message shows admin-set max (not tolerance-adjusted)
-  const riskLabel = trade.symbol.endsWith('c') ? `¢${maxRiskDollars}` : `$${maxRiskDollars}`;
+  const riskLabel = trade.symbol.endsWith('c') ? `¢${maxRiskDollars.toFixed(2)}` : `$${maxRiskDollars.toFixed(2)}`;
 
   const netLabel = trade.symbol.endsWith('c') ? `¢${tradeNet.toFixed(2)}` : `$${tradeNet.toFixed(2)}`;
 
   for (const candle of safeCandles) {
     if (isBuy) {
       if (candle.low <= maxSlPrice) {
-        const eatTime = formatCandleTimeEAT(candle.time, tf.periodMs);
+        const candleTimeLabel = riskViolationTime(candle.time, opts?.timezone || 'UTC');
         return {
-          violation: `Price exceeded the maximum allowed risk (${riskLabel}, virtual SL @ ${maxSlPrice.toFixed(5)}) on the ${tf.timeframe} candle formed at ${eatTime}. Trade should have been closed at that point. Profit of ${netLabel} not counted — max allowed loss of ${riskLabel} deducted instead.`,
+          violation: `Price exceeded the maximum allowed risk (${riskLabel}, virtual SL @ ${maxSlPrice.toFixed(5)}) on the ${tf.timeframe} candle formed at ${candleTimeLabel}. Trade should have been closed at that point. Profit of ${netLabel} not counted — max allowed loss of ${riskLabel} deducted instead.`,
           slAllowedPrice: maxSlPrice, slMaxAdversePrice, slCheckResult: 'fake_sl',
         };
       }
     } else {
       if (candle.high >= maxSlPrice) {
-        const eatTime = formatCandleTimeEAT(candle.time, tf.periodMs);
+        const candleTimeLabel = riskViolationTime(candle.time, opts?.timezone || 'UTC');
         return {
-          violation: `Price exceeded the maximum allowed risk (${riskLabel}, virtual SL @ ${maxSlPrice.toFixed(5)}) on the ${tf.timeframe} candle formed at ${eatTime}. Trade should have been closed at that point. Profit of ${netLabel} not counted — max allowed loss of ${riskLabel} deducted instead.`,
+          violation: `Price exceeded the maximum allowed risk (${riskLabel}, virtual SL @ ${maxSlPrice.toFixed(5)}) on the ${tf.timeframe} candle formed at ${candleTimeLabel}. Trade should have been closed at that point. Profit of ${netLabel} not counted — max allowed loss of ${riskLabel} deducted instead.`,
           slAllowedPrice: maxSlPrice, slMaxAdversePrice, slCheckResult: 'fake_sl',
         };
       }
@@ -382,10 +371,11 @@ async function runSlCheckForTrade(
   trade: TradeRow,
   siblings: TradeRow[],
   maxHoldHours: number | null,
-  maxRiskDollars: number
+  maxRiskDollars: number,
+  timezone: string
 ): Promise<SlCheckOutcome> {
   if (siblings.length <= 1) {
-    return validateSlWithCandles(trade, maxHoldHours, maxRiskDollars);
+    return validateSlWithCandles(trade, maxHoldHours, maxRiskDollars, { timezone });
   }
 
   const totalLot = siblings.reduce((s, t) => s + parseFloat(String(t.volume)), 0);
@@ -393,6 +383,7 @@ async function runSlCheckForTrade(
 
   // Window 0: open → first partial close with total lot
   const w0 = await validateSlWithCandles(trade, maxHoldHours, maxRiskDollars, {
+    timezone,
     windowStart: new Date(trade.open_time),
     windowEnd:   new Date(siblings[0].close_time),
     effectiveVolume: totalLot,
@@ -406,6 +397,7 @@ async function runSlCheckForTrade(
   const windowStart  = new Date(siblings[thisIdx - 1].close_time);
   const remainingLot = siblings.slice(thisIdx).reduce((s, t) => s + parseFloat(String(t.volume)), 0);
   return validateSlWithCandles(trade, maxHoldHours, maxRiskDollars, {
+    timezone,
     windowStart,
     effectiveVolume: remainingLot,
   });
@@ -942,6 +934,7 @@ export class WpEvaluationEngine {
     const isRiskPercentMode = rules.max_risk_mode === 'percentage' && rules.max_risk_percent;
     // Map: positionId → effective max risk dollars for that position (computed from balance at open)
     const positionEffectiveMaxRisk = new Map<number, number>();
+    const positionRiskBalance = new Map<number, number>();
 
     if (isRiskPercentMode) {
       // Build running balance timeline: for each position, determine balance when it was opened
@@ -969,6 +962,7 @@ export class WpEvaluationEngine {
 
         const effectiveRisk = balanceTimeline * (rules.max_risk_percent! / 100);
         positionEffectiveMaxRisk.set(posId, effectiveRisk);
+        positionRiskBalance.set(posId, balanceTimeline);
       }
     }
 
@@ -1029,6 +1023,7 @@ export class WpEvaluationEngine {
 
           // Window 0: full lot
           const w0 = await validateSlWithCandles(entryTrade, rules.max_hold_hours || null, posEffectiveRisk, {
+            timezone: challengeTimezone,
             windowStart: new Date(entryTrade.open_time),
             windowEnd: new Date(siblings[0].close_time),
             effectiveVolume: totalLot,
@@ -1053,6 +1048,7 @@ export class WpEvaluationEngine {
               const windowStart = new Date(siblings[i - 1].close_time);
               const remainingLot = siblings.slice(i).reduce((s, t) => s + parseFloat(String(t.volume)), 0);
               const wN = await validateSlWithCandles(siblings[i], rules.max_hold_hours || null, posEffectiveRisk, {
+            timezone: challengeTimezone,
                 windowStart,
                 effectiveVolume: remainingLot,
               });
@@ -1232,7 +1228,7 @@ export class WpEvaluationEngine {
             const siblings = allTrades
               .filter(t => (t.position_id ?? t.ticket) === posId2)
               .sort((a, b) => new Date(a.close_time).getTime() - new Date(b.close_time).getTime());
-            const slOutcome = await runSlCheckForTrade(trade, siblings, rules.max_hold_hours || null, tradeEffectiveRisk);
+            const slOutcome = await runSlCheckForTrade(trade, siblings, rules.max_hold_hours || null, tradeEffectiveRisk, challengeTimezone);
 
             if (slOutcome.violation === 'FAILED') {
               if (isDefinitive(existingResult)) {
@@ -1311,6 +1307,14 @@ export class WpEvaluationEngine {
             violations.push(`Maximum risk exceeded — loss of ${riskDisplay}`);
           }
         }
+      }
+
+      // Use the exact balance basis used by the risk calculation; format only the explanation.
+      const riskPositionId = trade.position_id ?? trade.ticket;
+      for (let i = 0; i < violations.length; i++) {
+        violations[i] = riskViolationDisplay(violations[i], getEffectiveMaxRisk(riskPositionId),
+          positionRiskBalance.get(riskPositionId) ?? effectiveStartBalance,
+          isRiskPercentMode ? rules.max_risk_percent! : null, reg.is_cent);
       }
 
       // Apply

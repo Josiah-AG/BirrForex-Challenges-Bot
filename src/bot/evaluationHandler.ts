@@ -1,3 +1,4 @@
+import { riskViolationTime } from '../utils/riskViolationDisplay';
 import { getLocalTime } from '../utils/timezone';
 import { Context, Markup } from 'telegraf';
 import axios from 'axios';
@@ -544,20 +545,18 @@ class EvaluationHandler {
           for (const candle of safeCandles) {
             if (isBuy && parseFloat(candle.low) <= maxSlPrice) {
               breached = true;
-              const eat = new Date(new Date(candle.time).getTime() + 3 * 60 * 60 * 1000);
-              breachTime = `${String(eat.getUTCHours()).padStart(2,'0')}:${String(eat.getUTCMinutes()).padStart(2,'0')} EAT`;
+              breachTime = riskViolationTime(candle.time, (challenge as any).timezone || 'UTC');
               break;
             }
             if (!isBuy && parseFloat(candle.high) >= maxSlPrice) {
               breached = true;
-              const eat = new Date(new Date(candle.time).getTime() + 3 * 60 * 60 * 1000);
-              breachTime = `${String(eat.getUTCHours()).padStart(2,'0')}:${String(eat.getUTCMinutes()).padStart(2,'0')} EAT`;
+              breachTime = riskViolationTime(candle.time, (challenge as any).timezone || 'UTC');
               break;
             }
           }
 
           if (breached) {
-            const riskLabel = `$${maxRisk}`;
+            const riskLabel = `$${maxRisk.toFixed(2)}`;
             result.flaggedTrades.push({
               positionId: pos.positionId,
               symbol: pos.symbol,
