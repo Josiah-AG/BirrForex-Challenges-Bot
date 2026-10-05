@@ -3,9 +3,9 @@ const {test}=require('node:test'),assert=require('node:assert/strict');
 const {leaderboardBadges:badge}=require('../WinnerPip/winnerpip/lib/leaderboardBadges');
 const c={type:'demo',targetEnabled:false,allowBelowStart:false,startingBalance:100,targetBalance:120,demoWinnersCount:3};
 const e={accountType:'demo',rank:1,adjustedBalance:110,actualStartingBalance:100,totalTrades:2,isQualified:false};
-test('no target: above floor highlighted; only prize positions get trophies despite unfinished requirements',()=>{
+test('no target: only prize positions above floor are highlighted and badged despite unfinished requirements',()=>{
  assert.deepEqual(badge(e,c),{highlight:true,trophy:true});
- assert.deepEqual(badge({...e,rank:4},c),{highlight:true,trophy:false});
+ assert.deepEqual(badge({...e,rank:4},c),{highlight:false,trophy:false});
  assert.deepEqual(badge({...e,adjustedBalance:99},c),{highlight:false,trophy:false});
 });
 test('floor uses published starting balance and preserves equality policy',()=>{
@@ -20,6 +20,7 @@ test('below-start permitted: losing top ranks get highlighted and badged; others
 test('fixed targets use qualified balance after withdrawals, never gross',()=>{
  const x={...c,targetEnabled:true};
  assert.equal(badge({...e,adjustedBalance:120},x).trophy,true);
+ assert.deepEqual(badge({...e,rank:4,adjustedBalance:120},x),{highlight:true,trophy:false});
  assert.equal(badge({...e,currentBalance:1000,adjustedBalance:119},x).highlight,false);
  assert.equal(badge({...e,adjustedBalance:125,totalWithdrawn:10},x).highlight,false);
 });

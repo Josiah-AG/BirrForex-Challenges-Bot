@@ -20,9 +20,9 @@ export function leaderboardBadges(entry: any, challenge: any, preStart = false) 
   const targetEnabled = bool(setting("target_enabled"), true);
   let highlight = false;
   if (!targetEnabled) {
-    // With the floor disabled, highlight prize positions even when losing.
+    // No-target highlights are limited to prize positions, respecting the balance floor.
     const floor = entry.actualStartingBalance != null ? number(entry.actualStartingBalance) : number(setting("starting_balance")) * factor;
-    highlight = bool(setting("allow_below_start"), false) ? top : Number.isFinite(floor) && balance >= floor;
+    highlight = top && (bool(setting("allow_below_start"), false) || (Number.isFinite(floor) && balance >= floor));
   } else if ((setting("deposit_mode") ?? "fixed") !== "fixed" && number(setting("target_percent")) > 0) {
     highlight = number(entry.growthPercent) >= number(setting("target_percent"));
   } else {
