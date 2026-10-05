@@ -137,20 +137,35 @@ class RefreshTests(unittest.TestCase):
             collect_snapshot(mt,1,'Broker',sleep=lambda _:None)
 
 class RangeFallbackTests(unittest.TestCase):
-    def test_empty_epoch_read_with_full_count_recovers(self):
+    def test_history_reads_avoid_unreliable_epoch_window(self):
         from datetime import datetime,timezone
         rows=[deal(1,type=2,profit=100,position=0,t=int(datetime(2026,1,1,tzinfo=timezone.utc).timestamp()))]
         mt=MT(rows,100);original=mt.history_deals_get
         def get(*a,**kw):
-            if a and a[0].year==1970:return []
+            if a and a[0] < 946684800:return []
             return original(*a,**kw)
         mt.history_deals_get=get
         r=collect_snapshot(mt,1,'Broker',sleep=lambda _:None)
         self.assertEqual(r['history_count'],1)
         self.assertEqual(r['ledger_expected'],100)
-    def test_fallback_must_match_full_count_even_if_balance_matches(self):
+    def test_read_must_match_count_even_if_balance_matches(self):
         mt=MT([deal(1,type=2,profit=100,position=0)],100)
         mt.history_deals_total=lambda *a:2
         original=mt.history_deals_get
-        mt.history_deals_get=lambda *a,**kw:[] if a and a[0].year==1970 else original(*a,**kw)
+        mt.history_deals_get=lambda *a,**kw:[] if a and a[0] < 946684800 else original(*a,**kw)
         with self.assertRaises(IncompleteHistory):collect_snapshot(mt,1,'Broker',sleep=lambda _:None)
+
+class TimestampBoundaryTests(unittest.TestCase):
+    def test_all_range_reads_use_explicit_unix_seconds(self):
+        mt=MT([deal(1,type=2,profit=100,position=0)],100)
+        get=mt.history_deals_get;total=mt.history_deals_total
+        def checked_get(*a,**kw):
+            if a:
+                self.assertTrue(all(isinstance(v,int) for v in a))
+                self.assertGreater(a[1],a[0])
+            return get(*a,**kw)
+        def checked_total(*a):
+            self.assertTrue(all(isinstance(v,int) for v in a))
+            return total(*a)
+        mt.history_deals_get=checked_get;mt.history_deals_total=checked_total
+        self.assertTrue(collect_snapshot(mt,1,'Broker',sleep=lambda _:None)['complete'])
