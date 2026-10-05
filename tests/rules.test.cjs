@@ -113,3 +113,28 @@ test('batch evaluation refuses missing category rules before any writes',async()
  query=async(sql,params)=>{seen.push(sql);if(sql.includes('wp_challenge_rules'))return {rows:params[1]==='config_demo'?[{parameters:base()}]:[]};return {rows:[{type:'hybrid',split_category_settings:true}]};};
  await assert.rejects(scheduler.evaluateAllAccounts(1,[]),/config_real/);assert(seen.every(sql=>sql.startsWith('SELECT')));
 });
+
+test('minimum qualified trades excludes flagged wins and losses; disqualification waits until end', async()=>{
+ const rules=base();rules.min_total_trades=2;rules.rules_enabled.min_total_trades=true;rules.rules_enabled.max_lot_size=true;
+ const trades=[trade(1,{volume:.01}),trade(2),trade(3,{profit:-2})];
+ for(const ended of [false,true]) {
+  const r=await evaluate(rules,trades,{ended});
+  assert.equal(r.summary.totalTrades,3);assert.equal(r.summary.qualifiedTrades,1);assert.equal(r.summary.isQualified,false);
+  assert.equal(r.writes.some(w=>w.sql.includes('SET disqualified = true')),ended);
+  if(ended)assert(r.writes.some(w=>String(w.params[0]).includes('2 qualified trades (completed 1 qualified trades)')));
+ }
+});
+test('minimum qualified trades counts compliant losses and clears eligibility at the exact threshold',async()=>{
+ const rules=base();rules.min_total_trades=2;rules.rules_enabled.min_total_trades=true;rules.rules_enabled.max_lot_size=true;
+ const r=await evaluate(rules,[trade(1,{volume:.01}),trade(2,{volume:.01,profit:-2}),trade(3)],{ended:true});
+ assert.equal(r.summary.qualifiedTrades,2);assert.equal(r.summary.isQualified,true);
+ assert(!r.writes.some(w=>w.sql.includes('SET disqualified = true')));
+});
+test('manual engine excludes rule-breaking losses from the qualified minimum without extra loss deduction',()=>{
+ const {evaluateAccount}=require('../src/services/evaluationEngine');
+ const cfg={challengeStartDate:'2026-09-01',challengeEndDate:'2026-09-30',startingBalanceLimit:1000,targetBalance:1000,maxLot:1,minTotalTrades:1,rules_enabled:{...base().rules_enabled,max_lot_size:true,min_total_trades:true},targetEnabled:false,allowBelowStart:true};
+ const p={openTime:'2026-09-26 08:03:00',closeTime:'2026-09-26 08:17:00',positionId:'1',symbol:'BTCUSD',type:'buy',volume:2,profit:-10,commission:0,swap:0};
+ const result=evaluateAccount({},[p],[],990,cfg);
+ assert.equal(result.adjustedBalance,990);assert.equal(result.isQualified,false);
+ assert(result.disqualifyReasons.some(r=>r.includes('qualified trades')));
+});

@@ -3147,7 +3147,7 @@ app.post('/api/host/challenges', hostAuthMiddleware, async (req: any, res) => {
           if (en.max_hold_hours !== false && r.max_hold_hours != null) rows.push(`  • Max Hold: ${r.max_hold_hours}h`);
           if (en.min_trade_duration !== false && r.min_trade_duration_minutes != null) rows.push(`  • Min Duration: ${r.min_trade_duration_minutes}min`);
           if (en.min_active_days !== false && r.min_active_days != null) rows.push(`  • Min Active Days: ${r.min_active_days}`);
-          if (en.min_total_trades !== false && r.min_total_trades != null) rows.push(`  • Min Total Trades: ${r.min_total_trades}`);
+          if (en.min_total_trades !== false && r.min_total_trades != null) rows.push(`  • Min Qualified Trades: ${r.min_total_trades}`);
           if (en.weekend_trading !== false) rows.push(`  • Weekend Trading: Prohibited`);
           if (r.only_cent_account) rows.push(`  • Cent Account: Required`);
           if (r.allow_professional) rows.push(`  • Professional Accounts: Allowed`);

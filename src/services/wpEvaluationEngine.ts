@@ -1394,10 +1394,10 @@ export class WpEvaluationEngine {
 
     // === MIN TOTAL TRADES DQ — only DQ at challenge end ===
     // During the challenge: no DQ (user still has time to trade more).
-    // At challenge end: DQ if total trades < min_total_trades.
+    // At challenge end: DQ if qualified trades < min_total_trades.
     // Also undo any incorrect min-trades DQ if user now meets the requirement.
     if (rules.min_total_trades && isRuleEnabled(rules, 'min_total_trades')) {
-      const totalTradeCount = allTrades.length;
+      const totalTradeCount = qualifiedTrades;
       const challengeEndResult2 = await db.query(`SELECT end_date, status FROM trading_challenges WHERE id = $1`, [challengeId]);
       const challengeEnd2 = challengeEndResult2.rows[0]?.end_date;
       const challengeStatus2 = challengeEndResult2.rows[0]?.status;
@@ -1416,7 +1416,7 @@ export class WpEvaluationEngine {
         // Challenge ended and user didn't meet min trades → DQ
         await db.query(
           `UPDATE trading_registrations SET disqualified = true, disqualified_at = NOW(), disqualified_reason = $1, disqualified_source = 'min_total_trades' WHERE id = $2 AND disqualified = false`,
-          [`Did not meet minimum ${rules.min_total_trades} trades (completed ${totalTradeCount} trades)`, reg.id]
+          [`Did not meet minimum ${rules.min_total_trades} qualified trades (completed ${totalTradeCount} qualified trades)`, reg.id]
         );
       }
       // During challenge + not met: no action (blue flag shown on frontend only)
@@ -1447,6 +1447,7 @@ export class WpEvaluationEngine {
       isQualified = adjustedBalance >= targetBalance && activeDays >= minDaysRequired;
     }
 
+    if (qualifiedTrades < (isRuleEnabled(rules, 'min_total_trades') ? (rules.min_total_trades || 0) : 0)) isQualified = false;
     if(allTrades.length===0)isQualified=false; // Preserve existing no-trade eligibility policy.
     const lastTrade = allTrades.reduce((last,t)=>!last || new Date(t.close_time)>new Date(last.close_time) ? t:last, undefined as TradeRow | undefined);
 
@@ -1789,7 +1790,7 @@ export class WpEvaluationEngine {
     if (cfg.min_trade_duration_minutes && isRuleEnabled(cfg, 'min_trade_duration')) rules.push(`⏱️ Minimum trade duration: ${cfg.min_trade_duration_minutes} minutes`);
     if (!cfg.weekend_trading && isRuleEnabled(cfg, 'weekend_trading')) rules.push('🚫 No weekend trading');
     if (cfg.min_active_days && isRuleEnabled(cfg, 'min_active_days')) rules.push(`📅 Minimum ${cfg.min_active_days} active trading days to qualify`);
-    if (cfg.min_total_trades && isRuleEnabled(cfg, 'min_total_trades')) rules.push(`📊 Minimum ${cfg.min_total_trades} total trades to qualify`);
+    if (cfg.min_total_trades && isRuleEnabled(cfg, 'min_total_trades')) rules.push(`📊 Minimum ${cfg.min_total_trades} qualified trades to qualify`);
     // Track whether any enforcement rules are active (rules above this line, not the always-shown ones)
     const hasActiveRules = rules.length > 0;
     rules.push('🚫 No recharging (additional deposits) allowed during the challenge');

@@ -1028,7 +1028,7 @@ export default function HostDashboardPage() {
                     <tr key={e.rank || e.nickname} className={`border-b border-white/5 hover:bg-white/5 cursor-pointer ${e.isDisqualified ? "opacity-50 bg-loss/10" : (e.isWithdrawn || e.isBlown) ? "opacity-40 bg-loss/5" : eIsWinner ? "bg-profit/15" : eIsAboveTarget ? "bg-profit/5" : ""}`} onClick={() => setSelectedParticipant(e)}>
                       <td className="py-3 px-4"><span className={`text-sm font-bold ${e.isDisqualified ? "text-loss" : eIsWinner ? "text-profit" : eIsAboveTarget ? "text-profit/70" : e.rank && e.rank <= 3 ? "text-gold" : "text-gray-400"}`}>{e.isDisqualified ? <span className="text-[10px]">DQ</span> : eIsWinner ? "\u{1F3C6}" : (e.rank || "—")}</span></td>
                       <td className="py-3 px-2 text-center w-10">{e.rankChange > 0 ? <span className="text-[10px] text-profit font-semibold px-1.5 py-0.5 rounded bg-profit/10">&blacktriangle;{e.rankChange}</span> : e.rankChange < 0 ? <span className="text-[10px] text-loss font-semibold px-1.5 py-0.5 rounded bg-loss/10">&blacktriangledown;{Math.abs(e.rankChange)}</span> : e.rankChange === 0 ? <span className="text-[10px] text-gray-600 px-1.5 py-0.5 rounded bg-white/5">&mdash;</span> : <span className="text-[10px] text-gray-600 px-1.5 py-0.5 rounded bg-white/5">&middot;</span>}</td>
-                      <td className="py-3 px-4"><p className={`text-sm font-semibold ${eIsWinner ? "text-profit font-bold" : eIsAboveTarget ? "text-profit/80" : "text-white"}`}>{e.nickname}{e.isDisqualified ? <span className="ml-2 text-[10px] text-loss">DQ</span> : e.isWithdrawn ? <span className="ml-2 text-[10px] text-gray-400" title="User withdrew all funds">🚪 Exited</span> : e.isBlown ? <span className="ml-2 text-[10px] text-amber-400" title="Account blown">💀 Blown</span> : ""}</p><p className="text-[10px] text-gray-500 mt-0.5">{e.email || ""}</p><MinimumTradesBadge entry={e} hidden={leaderboardPreStart} /></td>
+                      <td className="py-3 px-4"><p className={`text-sm font-semibold ${eIsWinner ? "text-profit font-bold" : eIsAboveTarget ? "text-profit/80" : "text-white"}`}>{e.nickname}{e.isDisqualified ? <span className="ml-2 text-[10px] text-loss">DQ</span> : e.isWithdrawn ? <span className="ml-2 text-[10px] text-gray-400" title="User withdrew all funds">🚪 Exited</span> : e.isBlown ? <span className="ml-2 text-[10px] text-amber-400" title="Account blown">💀 Blown</span> : ""}</p><p className="text-[10px] text-gray-500 mt-0.5">{e.email || ""}</p></td>
                       <td className="py-3 px-4"><p className="text-xs text-gray-300 font-mono">{e.accountNumber || "—"}</p></td>
                       <td className="py-3 px-4"><span className={`px-2 py-1 rounded text-[10px] font-semibold ${e.accountType === "real" ? "bg-gold/10 text-gold" : "bg-royal/10 text-royal"}`}>{e.accountType}</span></td>
                       <td className="py-3 px-4 text-right">
@@ -1370,12 +1370,12 @@ export default function HostDashboardPage() {
                     <p className="text-[10px] text-gray-500">Minimum days user must trade to qualify for prizes</p>
                   </div>
 
-                  {/* Min Total Trades */}
+                  {/* Min Qualified Trades */}
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <label className="text-sm font-medium text-gray-300">Min Total Trades</label>
-                        <div className="relative group"><span className="cursor-help text-gray-500 hover:text-royal transition-colors">&#9432;</span><div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-[#1a1a2e] border border-white/20 rounded-lg text-xs text-gray-300 w-56 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity z-50 shadow-xl">Minimum total closed trades to qualify. At challenge end, users who haven&apos;t met this are DQ&apos;d.</div></div>
+                        <label className="text-sm font-medium text-gray-300">Min Qualified Trades</label>
+                        <div className="relative group"><span className="cursor-help text-gray-500 hover:text-royal transition-colors">&#9432;</span><div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-[#1a1a2e] border border-white/20 rounded-lg text-xs text-gray-300 w-56 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity z-50 shadow-xl">Only qualified closed trades that pass the rules count; flagged trades do not count. At challenge end, users who haven&apos;t met this are DQ&apos;d.</div></div>
                       </div>
                       <button onClick={() => !rulesLocked && setRulesConfig({...rulesConfig, rules_enabled: {...rulesConfig.rules_enabled, min_total_trades: !rulesConfig.rules_enabled?.min_total_trades}})} className={`w-10 h-5 rounded-full transition-all ${rulesConfig.rules_enabled?.min_total_trades ? "bg-profit" : "bg-white/20"}`}><div className={`w-4 h-4 bg-white rounded-full transition-transform ${rulesConfig.rules_enabled?.min_total_trades ? "translate-x-5" : "translate-x-0.5"}`}></div></button>
                     </div>
@@ -1805,7 +1805,7 @@ export default function HostDashboardPage() {
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-hidden" onClick={() => setSelectedParticipant(null)}>
           <div className="glass rounded-2xl max-w-md w-full max-h-[85vh] overflow-y-auto border border-white/10" onClick={e => e.stopPropagation()}>
             <div className="sticky top-0 glass p-4 border-b border-white/10 flex items-center justify-between z-10 rounded-t-2xl">
-              <div className="min-w-0"><h3 className="text-lg font-bold text-white">{leaderboardBadges(selectedParticipant, { ...selectedChallenge, onlyCentAccount: rulesConfig?.only_cent_account }, leaderboardPreStart).trophy && <span title="Current winning position">🏆 </span>}{selectedParticipant.nickname}</h3><MinimumTradesBadge entry={selectedParticipant} hidden={leaderboardPreStart} /></div>
+              <div className="min-w-0"><h3 className="text-lg font-bold text-white">{leaderboardBadges(selectedParticipant, { ...selectedChallenge, onlyCentAccount: rulesConfig?.only_cent_account }, leaderboardPreStart).trophy && <span title="Current winning position">🏆 </span>}{selectedParticipant.nickname}</h3></div>
               <button onClick={() => setSelectedParticipant(null)} className="p-2 hover:bg-white/10 rounded-lg"><X size={18} className="text-gray-400" /></button>
             </div>
             <div className="p-5 space-y-4">
@@ -1833,7 +1833,7 @@ export default function HostDashboardPage() {
                   <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">{(selectedChallenge as any)?.deposit_mode && (selectedChallenge as any).deposit_mode !== 'fixed' ? 'Qualified growth' : 'Qualified balance'}</p><p className={`text-2xl font-bold ${(selectedChallenge as any)?.deposit_mode && (selectedChallenge as any).deposit_mode !== 'fixed' ? (Number(selectedParticipant.growthPercent || 0) >= 0 ? 'text-profit' : 'text-loss') : 'text-white'}`}>{(selectedChallenge as any)?.deposit_mode && (selectedChallenge as any).deposit_mode !== 'fixed' ? <>{Number(selectedParticipant.growthPercent || 0) >= 0 ? '↑' : '↓'} {Number(selectedParticipant.growthPercent || 0) >= 0 ? '+' : '-'}{Math.abs(Number(selectedParticipant.growthPercent || 0)).toFixed(2)}%</> : cur(Number(selectedParticipant.adjustedBalance) - Number(selectedParticipant.totalWithdrawn || 0), selectedParticipant.isCent)}</p>{(selectedChallenge as any)?.deposit_mode && (selectedChallenge as any).deposit_mode !== 'fixed' ? <><p className="text-[10px] text-gray-500 mt-0.5">Start: {cur(selectedParticipant.actualStartingBalance ?? selectedParticipant.adjustedBalance, selectedParticipant.isCent)}</p><p className="text-[10px] text-gray-500">Now: {cur(Number(selectedParticipant.adjustedBalance) - Number(selectedParticipant.totalWithdrawn || 0), selectedParticipant.isCent)}</p></> : null}</div>
                   <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Profit</p><p className={`text-lg font-bold ${(selectedParticipant.qualifiedProfit || 0) >= 0 ? "text-profit" : "text-loss"}`}>{cur(selectedParticipant.qualifiedProfit, selectedParticipant.isCent)}</p></div>
                   <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Gross</p><p className="text-lg font-bold text-white">{cur(selectedParticipant.grossProfit, selectedParticipant.isCent)}</p></div>
-                  <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Trades</p><p className="text-lg font-bold text-white">{selectedParticipant.totalTrades || 0}</p></div>
+                  <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Trades</p><p className="text-lg font-bold text-white">{selectedParticipant.totalTrades || 0}</p><p className="text-[10px] text-gray-400 mt-1"><MinimumTradesBadge entry={selectedParticipant} hidden={leaderboardPreStart} /></p></div>
                   <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500">Flagged</p><p className={`text-lg font-bold ${(selectedParticipant.flaggedTrades || 0) > 0 ? "text-loss" : "text-profit"}`}>{selectedParticipant.flaggedTrades || 0}</p><p className="text-[10px] text-gray-500 mt-0.5">RKR: <span className="text-white font-semibold">{(selectedParticipant.totalTrades || 0) > 0 ? `${Math.round(((selectedParticipant.qualifiedTrades || 0) / selectedParticipant.totalTrades) * 100)}%` : "—"}</span></p></div>
                 </div>
               )}
@@ -2729,12 +2729,12 @@ function CreateChallengeModal({ createStep, setCreateStep, createForm, setCreate
                   <input type="number" value={createRules.min_active_days || ""} onChange={e => setCreateRules({...createRules, min_active_days: parseInt(e.target.value) || 0})} disabled={!createRules.rules_enabled.min_active_days} className={`w-20 p-2 rounded-lg bg-white/10 border border-white/10 text-white text-sm text-center outline-none ${!createRules.rules_enabled.min_active_days ? "cursor-not-allowed" : ""}`} />
                 </div>
 
-                {/* Min Total Trades */}
+                {/* Min Qualified Trades */}
                 <div className={`flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10 ${!createRules.rules_enabled.min_total_trades ? "opacity-50" : ""}`}>
                   <div className="flex items-center gap-2">
                     <button type="button" onClick={() => setCreateRules({...createRules, rules_enabled: {...createRules.rules_enabled, min_total_trades: !createRules.rules_enabled.min_total_trades}})} className={`w-9 h-5 rounded-full transition-all flex-shrink-0 ${createRules.rules_enabled.min_total_trades ? "bg-royal" : "bg-white/20"}`}><div className={`w-4 h-4 bg-white rounded-full transition-transform ${createRules.rules_enabled.min_total_trades ? "translate-x-4" : "translate-x-0.5"}`}></div></button>
-                    <p className="text-sm text-white font-medium">Min Total Trades</p>
-                    <Tip text="Minimum closed trades to qualify. Users who don't meet this are DQ'd at challenge end." />
+                    <p className="text-sm text-white font-medium">Min Qualified Trades</p>
+                    <Tip text="Only qualified closed trades that pass the rules count; flagged trades do not count. Users who don't meet this are DQ'd at challenge end." />
                   </div>
                   <input type="number" value={createRules.min_total_trades || ""} onChange={e => setCreateRules({...createRules, min_total_trades: parseInt(e.target.value) || null})} disabled={!createRules.rules_enabled.min_total_trades} className={`w-20 p-2 rounded-lg bg-white/10 border border-white/10 text-white text-sm text-center outline-none ${!createRules.rules_enabled.min_total_trades ? "cursor-not-allowed" : ""}`} />
                 </div>
@@ -2841,7 +2841,7 @@ function CreateChallengeModal({ createStep, setCreateStep, createForm, setCreate
                         {createRulesDemo.rules_enabled.max_hold_hours && <div className="flex justify-between py-1"><span className="text-gray-500">Max Hold</span><span className="text-white">{createRulesDemo.max_hold_hours}h</span></div>}
                         {createRulesDemo.rules_enabled.min_trade_duration && <div className="flex justify-between py-1"><span className="text-gray-500">Min Duration</span><span className="text-white">{createRulesDemo.min_trade_duration_minutes}min</span></div>}
                         {createRulesDemo.rules_enabled.min_active_days && <div className="flex justify-between py-1"><span className="text-gray-500">Min Active Days</span><span className="text-white">{createRulesDemo.min_active_days}</span></div>}
-                        {createRulesDemo.rules_enabled.min_total_trades && <div className="flex justify-between py-1"><span className="text-gray-500">Min Total Trades</span><span className="text-white">{createRulesDemo.min_total_trades}</span></div>}
+                        {createRulesDemo.rules_enabled.min_total_trades && <div className="flex justify-between py-1"><span className="text-gray-500">Min Qualified Trades</span><span className="text-white">{createRulesDemo.min_total_trades}</span></div>}
                         {createRulesDemo.rules_enabled.weekend_trading && <div className="flex justify-between py-1"><span className="text-gray-500">Weekend Trading</span><span className="text-white">Prohibited</span></div>}
                       </div>
                       <div className="p-3 rounded-lg bg-profit/5 border border-profit/10">
@@ -2854,7 +2854,7 @@ function CreateChallengeModal({ createStep, setCreateStep, createForm, setCreate
                         {createRulesReal.rules_enabled.max_hold_hours && <div className="flex justify-between py-1"><span className="text-gray-500">Max Hold</span><span className="text-white">{createRulesReal.max_hold_hours}h</span></div>}
                         {createRulesReal.rules_enabled.min_trade_duration && <div className="flex justify-between py-1"><span className="text-gray-500">Min Duration</span><span className="text-white">{createRulesReal.min_trade_duration_minutes}min</span></div>}
                         {createRulesReal.rules_enabled.min_active_days && <div className="flex justify-between py-1"><span className="text-gray-500">Min Active Days</span><span className="text-white">{createRulesReal.min_active_days}</span></div>}
-                        {createRulesReal.rules_enabled.min_total_trades && <div className="flex justify-between py-1"><span className="text-gray-500">Min Total Trades</span><span className="text-white">{createRulesReal.min_total_trades}</span></div>}
+                        {createRulesReal.rules_enabled.min_total_trades && <div className="flex justify-between py-1"><span className="text-gray-500">Min Qualified Trades</span><span className="text-white">{createRulesReal.min_total_trades}</span></div>}
                         {createRulesReal.rules_enabled.weekend_trading && <div className="flex justify-between py-1"><span className="text-gray-500">Weekend Trading</span><span className="text-white">Prohibited</span></div>}
                         {createRulesReal.only_cent_account && <div className="flex justify-between py-1"><span className="text-gray-500">Cent Account</span><span className="text-white">Required</span></div>}
                       </div>
@@ -2869,7 +2869,7 @@ function CreateChallengeModal({ createStep, setCreateStep, createForm, setCreate
                   {createRules.rules_enabled.max_hold_hours && <div className="flex justify-between py-1.5"><span className="text-gray-500">Max Hold</span><span className="text-white">{createRules.max_hold_hours}h</span></div>}
                   {createRules.rules_enabled.min_trade_duration && <div className="flex justify-between py-1.5"><span className="text-gray-500">Min Duration</span><span className="text-white">{createRules.min_trade_duration_minutes}min</span></div>}
                   {createRules.rules_enabled.min_active_days && <div className="flex justify-between py-1.5"><span className="text-gray-500">Min Active Days</span><span className="text-white">{createRules.min_active_days}</span></div>}
-                  {createRules.rules_enabled.min_total_trades && <div className="flex justify-between py-1.5"><span className="text-gray-500">Min Total Trades</span><span className="text-white">{createRules.min_total_trades}</span></div>}
+                  {createRules.rules_enabled.min_total_trades && <div className="flex justify-between py-1.5"><span className="text-gray-500">Min Qualified Trades</span><span className="text-white">{createRules.min_total_trades}</span></div>}
                   {createRules.rules_enabled.weekend_trading && <div className="flex justify-between py-1.5"><span className="text-gray-500">Weekend Trading</span><span className="text-white">Prohibited</span></div>}
                   {createRules.only_cent_account && <div className="flex justify-between py-1.5"><span className="text-gray-500">Cent Account</span><span className="text-white">Required</span></div>}
                   {createRules.allow_professional && <div className="flex justify-between py-1.5"><span className="text-gray-500">Professional Accounts</span><span className="text-white">Allowed</span></div>}
@@ -3577,12 +3577,12 @@ function SplitRulesEditor({ rulesDemo, setRulesDemo, rulesReal, setRulesReal, Ti
         <input type="number" value={rules.min_active_days || ""} onChange={e => setRules({...rules, min_active_days: parseInt(e.target.value) || 0})} disabled={!rules.rules_enabled.min_active_days} className={`w-20 p-2 rounded-lg bg-white/10 border border-white/10 text-white text-sm text-center outline-none ${!rules.rules_enabled.min_active_days ? "cursor-not-allowed" : ""}`} />
       </div>
 
-      {/* Min Total Trades */}
+      {/* Min Qualified Trades */}
       <div className={`flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10 ${!rules.rules_enabled.min_total_trades ? "opacity-50" : ""}`}>
         <div className="flex items-center gap-2">
           <button type="button" onClick={() => setRules({...rules, rules_enabled: {...rules.rules_enabled, min_total_trades: !rules.rules_enabled.min_total_trades}})} className={`w-9 h-5 rounded-full transition-all flex-shrink-0 ${rules.rules_enabled.min_total_trades ? "bg-royal" : "bg-white/20"}`}><div className={`w-4 h-4 bg-white rounded-full transition-transform ${rules.rules_enabled.min_total_trades ? "translate-x-4" : "translate-x-0.5"}`}></div></button>
-          <p className="text-sm text-white font-medium">Min Total Trades</p>
-          <Tip text="Minimum closed trades to qualify. DQ at end if not met." />
+          <p className="text-sm text-white font-medium">Min Qualified Trades</p>
+          <Tip text="Only qualified closed trades that pass the rules count; flagged trades do not count. DQ at end if not met." />
         </div>
         <input type="number" value={rules.min_total_trades || ""} onChange={e => setRules({...rules, min_total_trades: parseInt(e.target.value) || null})} disabled={!rules.rules_enabled.min_total_trades} className={`w-20 p-2 rounded-lg bg-white/10 border border-white/10 text-white text-sm text-center outline-none ${!rules.rules_enabled.min_total_trades ? "cursor-not-allowed" : ""}`} />
       </div>

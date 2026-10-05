@@ -26,7 +26,7 @@ export interface RuleConfig {
   min_trade_duration_minutes: number | null;     // Minimum trade hold time in minutes — trades shorter than this are flagged
   weekend_trading: boolean;
   min_active_days: number;
-  min_total_trades: number | null;               // Minimum total trades to qualify — blue flag during challenge, DQ at end
+  min_total_trades: number | null;               // Minimum qualified trades to qualify — blue flag during challenge, DQ at end
   only_cent_account: boolean;
   allow_professional: boolean;
   rules_enabled?: RulesEnabled;

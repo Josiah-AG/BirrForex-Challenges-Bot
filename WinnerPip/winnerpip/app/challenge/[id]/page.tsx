@@ -851,14 +851,14 @@ export default function ChallengeDashboard() {
                     <div className="flex-1 min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         <p className={`text-sm font-semibold truncate ${isWinner(entry) ? "text-profit font-bold" : isAboveTarget(entry) ? "text-profit/80" : entry.isMe ? "text-royal" : !leaderboardPreStart && entry.isDisqualified ? "text-gray-500" : "text-white"}`}>{entry.nickname}</p>
-                        <MinimumTradesBadge entry={entry} required={minimumTradesByCategory[entry.accountType]} hidden={leaderboardPreStart} />
+
                         {isWinner(entry) && <span className="px-1.5 py-0.5 bg-profit/20 text-profit text-[10px] rounded font-bold">#{entry.rank}</span>}
                         {entry.isMe && !isWinner(entry) && <span className="px-1.5 py-0.5 bg-royal/20 text-royal text-[10px] rounded font-bold">YOU</span>}
                         {!leaderboardPreStart && entry.isDisqualified && <span className="px-1.5 py-0.5 bg-loss/20 text-loss text-[10px] rounded font-bold">DQ</span>}
                         {!leaderboardPreStart && entry.isWithdrawn && !entry.isDisqualified && <span className="px-1.5 py-0.5 bg-gray-500/20 text-gray-400 text-[10px] rounded font-bold">🚪 Exited</span>}
                         {!leaderboardPreStart && entry.isBlown && !entry.isDisqualified && !entry.isWithdrawn && <span className="px-1.5 py-0.5 bg-gray-500/20 text-gray-400 text-[10px] rounded font-bold">💀</span>}
                       </div>
-                      <p className="text-[10px] text-gray-500">{depositMode !== 'fixed' && !entry.isDisqualified && !entry.isWithdrawn ? <><span className="text-gray-400">{formatBalance(entry.adjustedBalance - (entry.totalWithdrawn || 0), entry.accountType, entry.isCent)}</span> • </> : null}{entry.totalTrades} trades • {entry.qualifiedTrades} qualified{entry.isWithdrawn && entry.totalWithdrawn ? ` • withdrew ${formatBalance(entry.totalWithdrawn, entry.accountType, entry.isCent)}` : ""}</p>
+                      <p className="text-[10px] text-gray-500">{depositMode !== 'fixed' && !entry.isDisqualified && !entry.isWithdrawn ? <><span className="text-gray-400">{formatBalance(entry.adjustedBalance - (entry.totalWithdrawn || 0), entry.accountType, entry.isCent)}</span> • </> : null}{entry.totalTrades} trades • <MinimumTradesBadge entry={entry} required={minimumTradesByCategory[entry.accountType]} hidden={leaderboardPreStart} />{entry.isWithdrawn && entry.totalWithdrawn ? ` • withdrew ${formatBalance(entry.totalWithdrawn, entry.accountType, entry.isCent)}` : ""}</p>
                     </div>
                     <div className="flex items-center gap-3 flex-shrink-0">
                       <p className={`text-sm font-bold ${isWinner(entry) ? "text-profit" : "text-white"}`}>
@@ -900,10 +900,10 @@ export default function ChallengeDashboard() {
                           <div className="flex-1 min-w-0">
                             <div className="flex flex-wrap items-center gap-2">
                               <p className={`text-sm font-semibold truncate ${entry.isMe ? "text-royal" : "text-white"}`}>{entry.nickname}</p>
-                        <MinimumTradesBadge entry={entry} required={minimumTradesByCategory[entry.accountType]} hidden={leaderboardPreStart} />
+
                               {entry.isMe && <span className="px-1.5 py-0.5 bg-royal/20 text-royal text-[10px] rounded font-bold">YOU</span>}
                             </div>
-                            <p className="text-[10px] text-gray-500">{entry.totalTrades} trades • {entry.qualifiedTrades} qualified</p>
+                            <p className="text-[10px] text-gray-500">{entry.totalTrades} trades • <MinimumTradesBadge entry={entry} required={minimumTradesByCategory[entry.accountType]} hidden={leaderboardPreStart} /></p>
                           </div>
                           <p className="text-sm font-bold text-white">{fmtEntryValue(entry)}</p>
                         </button>
@@ -1084,16 +1084,16 @@ export default function ChallengeDashboard() {
             )}
 
             {/* MIN TOTAL TRADES BLUE FLAG — shown when user hasn't met minimum trades during active challenge */}
-            {minTotalTrades && myStats.totalTrades < minTotalTrades && !myStats.disqualified && !isNotStarted && (
+            {minTotalTrades && myStats.qualifiedTrades < minTotalTrades && !myStats.disqualified && !isNotStarted && (
               <div className="glass rounded-2xl p-4 md:p-5 border border-royal/30 bg-royal/5 mb-6">
                 <div className="flex items-start gap-3">
                   <div className="w-10 h-10 rounded-xl bg-royal/20 flex items-center justify-center flex-shrink-0">
                     <span className="text-xl">📊</span>
                   </div>
                   <div>
-                    <p className="text-sm font-bold text-royal mb-1">Minimum Trades Not Met</p>
+                    <p className="text-sm font-bold text-royal mb-1">Minimum Qualified Trades Not Met</p>
                     <p className="text-xs text-gray-300">
-                      You need at least <b>{minTotalTrades} trades</b> to qualify. You currently have <b>{myStats.totalTrades}</b> trade{myStats.totalTrades !== 1 ? 's' : ''}.
+                      You need at least <b>{minTotalTrades} qualified trades</b> to qualify. You currently have <b>{myStats.qualifiedTrades}</b> qualified trade{myStats.qualifiedTrades !== 1 ? 's' : ''}.
                     </p>
                     <p className="text-xs text-gray-400 mt-2">
                       Keep trading — you won&apos;t be disqualified until the challenge ends.
@@ -1316,13 +1316,13 @@ export default function ChallengeDashboard() {
                     <div className="flex-1 min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         <p className={`text-sm font-semibold truncate ${isWinner(entry) ? "text-profit font-bold" : isAboveTarget(entry) ? "text-profit/80" : entry.isMe ? "text-royal" : entry.isDisqualified ? "text-gray-500" : "text-white"}`}>{entry.nickname}</p>
-                        <MinimumTradesBadge entry={entry} required={minimumTradesByCategory[entry.accountType]} hidden={leaderboardPreStart} />
+
                         {entry.isMe && <span className="px-1.5 py-0.5 bg-royal/20 text-royal text-[10px] rounded font-bold">YOU</span>}
                         {entry.isDisqualified && <span className="px-1.5 py-0.5 bg-loss/20 text-loss text-[10px] rounded font-bold">DQ</span>}
                         {entry.isWithdrawn && !entry.isDisqualified && <span className="px-1.5 py-0.5 bg-gray-500/20 text-gray-400 text-[10px] rounded font-bold">🚪 Exited</span>}
                         {entry.isBlown && !entry.isDisqualified && !entry.isWithdrawn && <span className="px-1.5 py-0.5 bg-gray-500/20 text-gray-400 text-[10px] rounded font-bold">💀</span>}
                       </div>
-                      <p className="text-[10px] text-gray-500">{leaderboardPreStart ? entry.accountType : `${entry.totalTrades} trades • ${entry.qualifiedTrades} qualified • ${entry.accountType}${entry.isWithdrawn && entry.totalWithdrawn ? ` • withdrew ${formatBalance(entry.totalWithdrawn, entry.accountType, entry.isCent)}` : ""}`}</p>
+                      <p className="text-[10px] text-gray-500">{leaderboardPreStart ? entry.accountType : <>{entry.totalTrades} trades • <MinimumTradesBadge entry={entry} required={minimumTradesByCategory[entry.accountType]} /> • {entry.accountType}{entry.isWithdrawn && entry.totalWithdrawn ? ` • withdrew ${formatBalance(entry.totalWithdrawn, entry.accountType, entry.isCent)}` : ""}</>}</p>
 
                     </div>
                     <div className="flex items-center gap-3 flex-shrink-0">
@@ -1363,10 +1363,10 @@ export default function ChallengeDashboard() {
                           <div className="flex-1 min-w-0">
                             <div className="flex flex-wrap items-center gap-2">
                               <p className={`text-sm font-semibold truncate ${entry.isMe ? "text-royal" : "text-white"}`}>{entry.nickname}</p>
-                        <MinimumTradesBadge entry={entry} required={minimumTradesByCategory[entry.accountType]} hidden={leaderboardPreStart} />
+
                               {entry.isMe && <span className="px-1.5 py-0.5 bg-royal/20 text-royal text-[10px] rounded font-bold">YOU</span>}
                             </div>
-                            <p className="text-[10px] text-gray-500">{entry.totalTrades} trades • {entry.qualifiedTrades} qualified</p>
+                            <p className="text-[10px] text-gray-500">{entry.totalTrades} trades • <MinimumTradesBadge entry={entry} required={minimumTradesByCategory[entry.accountType]} hidden={leaderboardPreStart} /></p>
                           </div>
                           <p className="text-sm font-bold text-white">{fmtEntryValue(entry)}</p>
                         </div>
@@ -1536,13 +1536,13 @@ export default function ChallengeDashboard() {
                     <div className="flex-1 min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         <p className={`text-sm font-semibold truncate ${isWinner(entry) ? "text-profit font-bold" : isAboveTarget(entry) ? "text-profit/80" : entry.isMe ? "text-royal" : entry.isDisqualified ? "text-gray-500" : "text-white"}`}>{entry.nickname}</p>
-                        <MinimumTradesBadge entry={entry} required={minimumTradesByCategory[entry.accountType]} hidden={leaderboardPreStart} />
+
                         {entry.isMe && <span className="px-1.5 py-0.5 bg-royal/20 text-royal text-[10px] rounded font-bold">YOU</span>}
                         {entry.isDisqualified && <span className="px-1.5 py-0.5 bg-loss/20 text-loss text-[10px] rounded font-bold">DQ</span>}
                         {entry.isWithdrawn && !entry.isDisqualified && <span className="px-1.5 py-0.5 bg-gray-500/20 text-gray-400 text-[10px] rounded font-bold">🚪 Exited</span>}
                         {entry.isBlown && !entry.isDisqualified && !entry.isWithdrawn && <span className="px-1.5 py-0.5 bg-gray-500/20 text-gray-400 text-[10px] rounded font-bold">💀</span>}
                       </div>
-                      <p className="text-[10px] text-gray-500">{entry.totalTrades} trades • {entry.qualifiedTrades} qualified{entry.isWithdrawn && entry.totalWithdrawn ? ` • withdrew ${formatBalance(entry.totalWithdrawn, entry.accountType, entry.isCent)}` : ""}</p>
+                      <p className="text-[10px] text-gray-500">{entry.totalTrades} trades • <MinimumTradesBadge entry={entry} required={minimumTradesByCategory[entry.accountType]} hidden={leaderboardPreStart} />{entry.isWithdrawn && entry.totalWithdrawn ? ` • withdrew ${formatBalance(entry.totalWithdrawn, entry.accountType, entry.isCent)}` : ""}</p>
                     </div>
                     <div className="flex items-center gap-3 flex-shrink-0">
                       <p className={`text-sm font-bold ${entry.isDisqualified ? "text-loss" : isWinner(entry) ? "text-profit" : isAboveTarget(entry) ? "text-profit/80" : "text-white"}`}>
@@ -1580,10 +1580,10 @@ export default function ChallengeDashboard() {
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2">
                                 <p className={`text-sm font-semibold truncate ${entry.isMe ? "text-royal" : "text-white"}`}>{entry.nickname}</p>
-                        <MinimumTradesBadge entry={entry} required={minimumTradesByCategory[entry.accountType]} hidden={leaderboardPreStart} />
+
                                 {entry.isMe && <span className="px-1.5 py-0.5 bg-royal/20 text-royal text-[10px] rounded font-bold">YOU</span>}
                               </div>
-                              <p className="text-[10px] text-gray-500">{entry.totalTrades} trades • {entry.qualifiedTrades} qualified</p>
+                              <p className="text-[10px] text-gray-500">{entry.totalTrades} trades • <MinimumTradesBadge entry={entry} required={minimumTradesByCategory[entry.accountType]} hidden={leaderboardPreStart} /></p>
                             </div>
                             <p className="text-sm font-bold text-white">{fmtEntryValue(entry)}</p>
                           </button>
@@ -1609,7 +1609,7 @@ export default function ChallengeDashboard() {
                   </div>
                   <div>
                     <p className="text-xl font-bold text-white">{selectedUser.nickname}</p>
-                    <MinimumTradesBadge entry={selectedUser} required={minimumTradesByCategory[selectedUser.accountType]} hidden={leaderboardPreStart} />
+
                     <p className="text-sm text-gray-400">
                       {selectedUser.isDisqualified ? <span className="text-loss font-semibold">Disqualified</span> : selectedUser.isWithdrawn ? <span className="text-gray-400 font-semibold">🚪 User exited the challenge{selectedUser.totalWithdrawn ? ` • withdrew ${formatBalance(selectedUser.totalWithdrawn, selectedUser.accountType, selectedUser.isCent)}` : ''}</span> : selectedUser.isBlown ? <span className="text-gray-400 font-semibold">💀 Balance is zero from trading</span> : isGrowthMode ? <span className="text-white text-xs font-medium">{selectedUser.actualStartingBalance != null ? `Start: ${formatBalance(selectedUser.actualStartingBalance, selectedUser.accountType, selectedUser.isCent)} ` : ''}Current: {formatBalance(selectedUser.adjustedBalance - (selectedUser.totalWithdrawn || 0), selectedUser.accountType, selectedUser.isCent)} &bull; Growth: <span className={Number(selectedUser.growthPercent || 0) >= 0 ? "text-profit" : "text-loss"}>{Number(selectedUser.growthPercent || 0) >= 0 ? '↑' : '↓'} {Number(selectedUser.growthPercent || 0) >= 0 ? '+' : '-'}{Math.abs(Number(selectedUser.growthPercent || 0)).toFixed(2)}%</span></span> : <>Balance: <span className="text-white font-semibold">{formatBalance(selectedUser.adjustedBalance - (selectedUser.totalWithdrawn || 0), selectedUser.accountType, selectedUser.isCent)}</span></>}
                     </p>
@@ -1626,7 +1626,7 @@ export default function ChallengeDashboard() {
                 {!selectedUser.isDisqualified && (<>
                   <div className="grid grid-cols-3 gap-3 mb-4">
                     <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500 mb-1">Trades</p><p className="text-lg font-bold text-white">{selectedUser.totalTrades}</p></div>
-                    <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500 mb-1">Qualified</p><p className="text-lg font-bold text-white">{selectedUser.qualifiedTrades}</p></div>
+                    <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500 mb-1">Qualified</p><p className="text-[10px] leading-relaxed text-gray-400"><MinimumTradesBadge entry={selectedUser} required={minimumTradesByCategory[selectedUser.accountType]} hidden={leaderboardPreStart} /></p></div>
                     <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500 mb-1">Flagged</p><p className="text-lg font-bold text-loss">{selectedUser.flaggedTrades}</p><p className="text-[10px] text-gray-500 mt-0.5">RKR: <span className="text-white font-semibold">{selectedUser.totalTrades > 0 ? `${Math.round((selectedUser.qualifiedTrades / selectedUser.totalTrades) * 100)}%` : "—"}</span></p></div>
                   </div>
                   {/* Win Rate & Avg RR */}

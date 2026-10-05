@@ -316,7 +316,7 @@ export function evaluateAccount(
     if (isRuleEnabled(config, 'weekend_trading') && !config.weekendTradingAllowed && (isWeekend(open) || isWeekend(close))) {
       if (isCryptoPair(p.symbol)) {
         weekendOk = false;
-        if (p.profit > 0) addFlag(p.positionId, 'Weekend trading');
+        addFlag(p.positionId, 'Weekend trading');
       }
     }
   });
@@ -326,7 +326,7 @@ export function evaluateAccount(
   challengePositions.forEach(p => {
     if (isRuleEnabled(config, 'max_lot_size') && config.maxLot > 0 && p.volume > config.maxLot) {
       lotSizeOk = false;
-      if (p.profit > 0) addFlag(p.positionId, 'Lot size ' + p.volume + ' > ' + config.maxLot);
+      addFlag(p.positionId, 'Lot size ' + p.volume + ' > ' + config.maxLot);
     }
   });
 
@@ -349,7 +349,7 @@ export function evaluateAccount(
   }
   violating4Plus.forEach(id => {
     const p = challengePositions.find(pp => pp.positionId === id);
-    if (p && p.profit > 0) addFlag(id, (config.maxOpenTrades + 1) + '+ trades open simultaneously');
+    if (p) addFlag(id, (config.maxOpenTrades + 1) + '+ trades open simultaneously');
   });
 
   // Step 8: Same pair limit
@@ -374,7 +374,7 @@ export function evaluateAccount(
   });
   pairViolations.forEach(id => {
     const p = challengePositions.find(pp => pp.positionId === id);
-    if (p && p.profit > 0) addFlag(id, 'Same pair 3+ open (' + p.symbol + ')');
+    if (p) addFlag(id, 'Same pair 3+ open (' + p.symbol + ')');
   });
 
   // Step 9: Stop loss — DISABLED (now handled by candle-based fake SL check post-evaluation)
@@ -442,14 +442,14 @@ export function evaluateAccount(
     const h = hoursDiff(p.openTime, p.closeTime);
     if (isRuleEnabled(config, 'max_hold_hours') && config.maxHoldHours > 0 && h > config.maxHoldHours) {
       holdOk = false;
-      if (p.profit > 0) addFlag(p.positionId, 'Held ' + h.toFixed(1) + 'h > ' + config.maxHoldHours + 'h');
+      addFlag(p.positionId, 'Held ' + h.toFixed(1) + 'h > ' + config.maxHoldHours + 'h');
     }
     // Min trade duration
     if (isRuleEnabled(config, 'min_trade_duration') && config.minTradeDurationMinutes > 0) {
       const mins = h * 60;
       if (mins < config.minTradeDurationMinutes) {
         holdOk = false;
-        if (p.profit > 0) addFlag(p.positionId, 'Trade held ' + mins.toFixed(1) + ' min < min ' + config.minTradeDurationMinutes + ' min');
+        addFlag(p.positionId, 'Trade held ' + mins.toFixed(1) + ' min < min ' + config.minTradeDurationMinutes + ' min');
       }
     }
   });
@@ -484,13 +484,15 @@ export function evaluateAccount(
   }
   if (!activeDaysOk) disqualifyReasons.push('Only ' + activeDaysSet.size + ' active days (min ' + config.minActiveDays + ')');
   if (!startingBalanceOk) disqualifyReasons.push('Starting balance $' + startingBalance + ' exceeds $' + config.startingBalanceLimit);
-  if (isRuleEnabled(config, 'min_total_trades') && config.minTotalTrades && new Date() > challengeEnd && challengePositions.length < config.minTotalTrades) disqualifyReasons.push(`Minimum ${config.minTotalTrades} trades not met (${challengePositions.length})`);
+  const qualifiedTradeCount = challengePositions.filter(p => !tradeFlags.has(p.positionId)).length;
+  const minimumTradesMet = !isRuleEnabled(config, 'min_total_trades') || qualifiedTradeCount >= (config.minTotalTrades || 0);
+  if (!minimumTradesMet && new Date() > challengeEnd) disqualifyReasons.push(`Minimum ${config.minTotalTrades} qualified trades not met (${qualifiedTradeCount})`);
   const isDisqualified = disqualifyReasons.length > 0;
   // No-target mode: qualify without a target (rank by metric). Floor at starting balance
   // unless allowBelowStart is on. Otherwise require adjustedBalance >= target (current behavior).
   const isQualified = config.targetEnabled === false
-    ? !isDisqualified && (config.allowBelowStart ? true : adjustedBalance >= startingBalance)
-    : !isDisqualified && adjustedBalance >= config.targetBalance;
+    ? minimumTradesMet && !isDisqualified && (config.allowBelowStart ? true : adjustedBalance >= startingBalance)
+    : minimumTradesMet && !isDisqualified && adjustedBalance >= config.targetBalance;
 
   const drawdownBreachCount = dailyDrawdowns.filter(d => d.breached).length;
 
