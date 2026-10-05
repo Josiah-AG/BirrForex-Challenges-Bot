@@ -4367,12 +4367,23 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
   const [retryResult, setRetryResult] = useState<{ total: number; recovered: number; stillFailing: number } | null>(null);
 
   const handleRetryAll = async () => {
+    setRetrying("failed");
+    try {
+      const res = await fetch(`/api/management/challenge/${challengeId}/retry-all-failed`, { method: "POST" });
+      const data = await res.json();
+      setActionMsg(res.ok ? data.message : `❌ ${data.error || "Could not queue retry"}`);
+      if (res.ok) startPolling();
+    } catch { setActionMsg("❌ Connection error"); }
+    finally { setRetrying(null); }
+  };
+
+  const handleRetryCredentials = async () => {
     setRetrying("all");
     setActionMsg("");
     setRetryResult(null);
     setRetryProgress({ current: 0, total: credentialFailures.length, recovered: 0, stillFailing: 0 });
     try {
-      const res = await fetch(`/api/management/challenge/${challengeId}/retry-all-failed`, { method: "POST" });
+      const res = await fetch(`/api/management/challenge/${challengeId}/retry-all-credentials`, { method: "POST" });
       const data = await res.json();
       if (!data.success && data.error === 'Retry already in progress') {
         // Already running — just start polling
@@ -4544,7 +4555,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
           <button onClick={handleFullPull} className="px-4 py-2.5 rounded-xl bg-profit/20 border border-profit/30 text-profit text-xs font-bold hover:bg-profit/30 transition-all">🔄 Full Pull + Evaluate + Rank</button>
           <button onClick={handleFullPullAll} className="px-4 py-2.5 rounded-xl bg-amber-500/20 border border-amber-500/30 text-amber-400 text-xs font-bold hover:bg-amber-500/30 transition-all">🔄 Full Pull (All incl. DQ)</button>
           <button onClick={fetchFailed} disabled={loadingFailed} className="px-4 py-2.5 rounded-xl bg-loss/10 border border-loss/30 text-loss text-xs font-bold hover:bg-loss/20 transition-all">{loadingFailed ? "Loading..." : "🔍 View Failed Accounts"}</button>
-          <button onClick={handleRetryAll} disabled={retrying === "all" || failedAccounts.length === 0} className="px-4 py-2.5 rounded-xl bg-gold/10 border border-gold/30 text-gold text-xs font-bold hover:bg-gold/20 transition-all disabled:opacity-50">{retrying === "all" ? "Retrying..." : "🔄 Retry All Failed"}</button>
+          <button onClick={handleRetryAll} disabled={retrying === "failed" || !!pullProgress?.isRunning || failedAccounts.length === 0} className="px-4 py-2.5 rounded-xl bg-gold/10 border border-gold/30 text-gold text-xs font-bold hover:bg-gold/20 transition-all disabled:opacity-50">{retrying === "all" ? "Retrying..." : "🔄 Retry All Failed"}</button>
           <button onClick={handleCheckPreStartBalances} disabled={retrying === "prestart"} className="px-4 py-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-bold hover:bg-amber-500/20 transition-all disabled:opacity-50">{retrying === "prestart" ? "Checking..." : "🛡️ Check Pre-Start Balances"}</button>
           <button onClick={handleTriggerPreStartSnapshot} disabled={retrying === "snapshot"} className="px-4 py-2.5 rounded-xl bg-purple-500/10 border border-purple-500/30 text-purple-400 text-xs font-bold hover:bg-purple-500/20 transition-all disabled:opacity-50">{retrying === "snapshot" ? "Triggering..." : "📸 Pre-Start Snapshot"}</button>
           <button onClick={handleEvaluateOnly} disabled={retrying === "evaluate"} className="px-4 py-2.5 rounded-xl bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 text-xs font-bold hover:bg-cyan-500/20 transition-all disabled:opacity-50">{retrying === "evaluate" ? "Evaluating..." : "📊 Evaluate Only"}</button>
@@ -4708,7 +4719,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
         <div className="glass rounded-2xl border border-gold/20 p-5">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-semibold text-gold">🔑 Credential Failures ({credentialFailures.length})</h3>
-            {credentialFailures.length > 0 && <button onClick={handleRetryAll} disabled={retrying === "all"} className="px-3 py-1.5 rounded-lg bg-gold/10 border border-gold/30 text-gold text-[10px] font-bold hover:bg-gold/20 transition-all disabled:opacity-50">{retrying === "all" ? "Retrying..." : "🔄 Retry All"}</button>}
+            {credentialFailures.length > 0 && <button onClick={handleRetryCredentials} disabled={retrying === "all"} className="px-3 py-1.5 rounded-lg bg-gold/10 border border-gold/30 text-gold text-[10px] font-bold hover:bg-gold/20 transition-all disabled:opacity-50">{retrying === "all" ? "Retrying..." : "🔄 Retry All"}</button>}
           </div>
           {/* Progress bar during retry */}
           {retryProgress && (

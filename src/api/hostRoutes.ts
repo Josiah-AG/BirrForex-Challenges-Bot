@@ -885,6 +885,17 @@ router.get('/challenge/:id/export-user-trades', async (req: any, res: Response) 
   }
 });
 
+router.post('/challenge/:id/retry-all-failed', async (req: any, res: Response) => {
+  const challengeId = await verifyOwnership(req, res);
+  if (!challengeId) return;
+  try {
+    const scheduler = (global as any).__vpsPullScheduler;
+    if (!scheduler) return res.status(503).json({error:'Pull scheduler unavailable'});
+    const jobId = await scheduler.enqueueChallengePull(challengeId, {fullHistory:true,failedOnly:true});
+    return res.status(202).json({success:true,jobId,message:'Failed-account retry queued. Credential failures are excluded.'});
+  } catch (error) { return res.status(409).json({error:(error as Error).message}); }
+});
+
 // ==================== RETRY CREDENTIAL FAILURES ====================
 router.post('/challenge/:id/retry-credentials', async (req: any, res: Response) => {
   const challengeId = await verifyOwnership(req, res);

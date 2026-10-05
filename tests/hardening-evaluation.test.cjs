@@ -107,3 +107,13 @@ test('post-start recharge still disqualifies an already-funded account',async()=
  const r=await evaluate(base(),[],{startingBalance:100,regBalance:100,savedActual:95,deposits:[{profit:1,time:'2026-09-01T00:00:00Z'}]});
  assert(r.writes.some(w=>w.sql.includes("disqualified_source='funding'")&&String(w.params[0]).includes('recharged')));
 });
+
+for (const state of ['verified','published','incomplete','evaluation_failed']) {
+ test(`funding reevaluation handles history state ${state}`, async()=>{
+  const snapshot={prestart_snapshot_at:'2026-08-31T22:00:00Z',prestart_snapshot_balance:100,history_sync_state:state,history_verified_balance:100,history_verified_through:'2026-09-26T00:00:00Z',funding_origin:'prestart_snapshot'};
+  const run=()=>evaluate(base(),[],{startingBalance:100,regBalance:100,savedActual:100,snapshot,ledger:[]});
+  if(['verified','published'].includes(state)) {
+   const result=await run();assert(!result.writes.some(w=>/SET disqualified\s*=\s*true/.test(w.sql)));
+  } else await assert.rejects(run,/awaits verified broker history/);
+ });
+}

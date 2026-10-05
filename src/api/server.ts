@@ -7490,6 +7490,15 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/prestart-check-status`, a
   return res.json(progress);
 });
 
+app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/retry-all-failed`, adminIpCheck, async (req, res) => {
+  try {
+    const scheduler = (global as any).__vpsPullScheduler;
+    if (!scheduler) return res.status(503).json({error:'Pull scheduler unavailable'});
+    const jobId = await scheduler.enqueueChallengePull(Number(req.params.id), {overrideLock:true,fullHistory:true,failedOnly:true});
+    return res.status(202).json({success:true,jobId,message:'Failed-account retry queued. Credential failures are excluded.'});
+  } catch (error) { return res.status(409).json({error:(error as Error).message}); }
+});
+
 // In-memory state for credential retry progress
 let credRetryState: { running: boolean; cancelled: boolean; total: number; current: number; recovered: number; stillFailing: number; startedAt: number; challengeId: number } | null = null;
 
@@ -7498,7 +7507,7 @@ let credRetryState: { running: boolean; cancelled: boolean; total: number; curre
  * Retry all credential-failed accounts in background using all terminals in parallel.
  * Returns immediately. Poll /retry-all-status for progress.
  */
-app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/retry-all-failed`, adminIpCheck, async (req, res) => {
+app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/retry-all-credentials`, adminIpCheck, async (req, res) => {
   try {
     const challengeId = parseInt(req.params.id);
     const vpsUrl = config.vpsApiUrl;

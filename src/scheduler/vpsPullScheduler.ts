@@ -1,3 +1,5 @@
+import { recoverMissingCandles } from '../services/candleFallback';
+import { isNonCredentialPullFailure } from '../utils/pullFailure';
 import {withWorkloadContext} from '../services/workloadTelemetry';
 import { TerminalHealthMonitor, outageDuration } from '../utils/terminalHealthMonitor';
 import { terminalInventory } from '../utils/terminalInventory';
@@ -393,11 +395,11 @@ export class VpsPullScheduler {
    */
   private pullScheduleTriggered = new Set<string>();
 
-  async enqueueChallengePull(challengeId: number, options: {overrideLock?:boolean;includeDisqualified?:boolean;fullHistory?:boolean} = {}): Promise<number> {
+  async enqueueChallengePull(challengeId: number, options: {overrideLock?:boolean;includeDisqualified?:boolean;fullHistory?:boolean;failedOnly?:boolean} = {}): Promise<number> {
     return db.transaction(async()=>{
       const challenge=await db.query('SELECT status,leaderboard_locked_at FROM trading_challenges WHERE id=$1 FOR UPDATE',[challengeId]);
       if(!challenge.rows[0] || (!options.overrideLock && (challenge.rows[0].leaderboard_locked_at || !['active','reviewing'].includes(challenge.rows[0].status))))throw new Error('Challenge is not open for updates');
-      const queued=await db.query(`INSERT INTO challenge_pull_jobs(challenge_id,slot,override_lock,include_disqualified,full_history) VALUES($1,$2,$3,$4,$5) RETURNING id`,[challengeId,`manual:${Date.now()}:${require('crypto').randomUUID()}`,!!options.overrideLock,!!options.includeDisqualified,!!options.fullHistory]);
+      const queued=await db.query(`INSERT INTO challenge_pull_jobs(challenge_id,slot,override_lock,include_disqualified,full_history,failed_only) VALUES($1,$2,$3,$4,$5,$6) RETURNING id`,[challengeId,`manual:${Date.now()}:${require('crypto').randomUUID()}`,!!options.overrideLock,!!options.includeDisqualified,!!options.fullHistory,!!options.failedOnly]);
       return Number(queued.rows[0].id);
     });
   }
@@ -432,7 +434,7 @@ export class VpsPullScheduler {
       });
       if(!job)return;
       try {
-        await this.runPullCycleForChallenge(job.challenge_id,job.override_lock,true,job.include_disqualified,job.full_history);
+        await this.runPullCycleForChallenge(job.challenge_id,job.override_lock,true,job.include_disqualified,job.full_history,job.failed_only);
         await db.query("UPDATE challenge_pull_jobs SET state='completed',updated_at=NOW() WHERE id=$1",[job.id]);
       } catch(error){
         await db.query("UPDATE challenge_pull_jobs SET state=CASE WHEN $3::boolean THEN 'cancelled' WHEN attempts>=3 THEN 'failed' ELSE 'pending' END,error=$2,updated_at=NOW() WHERE id=$1",[job.id,(error as Error).message,(error as any).code === 'PULL_CANCELLED']);
@@ -466,10 +468,10 @@ export class VpsPullScheduler {
    * Run pull cycle for a specific challenge ID — bypasses status checks.
    * Used by admin "Full Pull + Evaluate + Rank" button.
    */
-  async runPullCycleForChallenge(challengeId:number,overrideLock=false,ownsCoordinator=false,includeDisqualified=false,fullHistory=false) {
-    return withWorkloadContext(`challenge:${challengeId}`,()=>this.runPullCycleForChallengeImpl(challengeId,overrideLock,ownsCoordinator,includeDisqualified,fullHistory));
+  async runPullCycleForChallenge(challengeId:number,overrideLock=false,ownsCoordinator=false,includeDisqualified=false,fullHistory=false,failedOnly=false) {
+    return withWorkloadContext(`challenge:${challengeId}`,()=>this.runPullCycleForChallengeImpl(challengeId,overrideLock,ownsCoordinator,includeDisqualified,fullHistory,failedOnly));
   }
-  private async runPullCycleForChallengeImpl(challengeId: number, overrideLock = false, ownsCoordinator = false, includeDisqualified = false, fullHistory = false) {
+  private async runPullCycleForChallengeImpl(challengeId: number, overrideLock = false, ownsCoordinator = false, includeDisqualified = false, fullHistory = false, failedOnly = false) {
     if (this.isRunning) {
       // Never cancel another host's workers or reset their lock.
       throw new Error('An update is already running. This challenge must wait for the next available slot.');
@@ -505,7 +507,7 @@ export class VpsPullScheduler {
       console.log(`📊 VPS Pull: Admin full pull for "${challengeToPull.title}" (status: ${challengeToPull.status})`);
 
       // Build shared queue — forceAll=true bypasses all filters (admin override)
-      accounts = await this.getAccountsToPull(challengeId, includeDisqualified);
+      accounts = await this.getAccountsToPull(challengeId, includeDisqualified, failedOnly);
       if(fullHistory)accounts=accounts.map(account=>({...account,lastPullAt:null}));
       if (accounts.length === 0) {
         console.log('📊 VPS Pull: No accounts to pull');
@@ -1527,7 +1529,7 @@ export class VpsPullScheduler {
 
   // ==================== DATA HELPERS ====================
 
-  private async getAccountsToPull(challengeId: number, forceAll = false): Promise<AccountToPull[]> {
+  private async getAccountsToPull(challengeId: number, forceAll = false, failedOnly = false): Promise<AccountToPull[]> {
     // Check if we should exclude late depositors (0 balance, 0 trades, not enough days left)
     // Skip entirely for force pulls — admin override pulls everything without triggering auto-DQ side effects
     // Eligibility is evaluated from complete history; never stop collecting history based on a forecast.
@@ -1560,10 +1562,10 @@ export class VpsPullScheduler {
     // (which flips connection_verified back to true / clears pull_status) — see
     // tradingRegistrationHandler.ts's credential-recovery flow.
     const connectionFilter = 'AND r.connection_verified = true';
-    const passwordChangedFilter = "AND (r.pull_status IS NULL OR r.pull_status != 'password_changed')";
+    const passwordChangedFilter = "AND (r.pull_status IS NULL OR r.pull_status NOT IN ('password_changed','invalid_credentials'))";
 
     const result = await db.query(
-      `SELECT r.id, r.account_number, r.mt5_server, r.investor_password, r.user_id, r.username, r.nickname, r.last_pull_at, r.last_known_balance
+      `SELECT r.id, r.account_number, r.mt5_server, r.investor_password, r.user_id, r.username, r.nickname, r.last_pull_at, r.last_known_balance, r.pull_status
        FROM trading_registrations r
        LEFT JOIN wp_leaderboard l ON r.id = l.registration_id
        WHERE r.challenge_id = $1 AND r.status IS DISTINCT FROM 'removed'
@@ -1581,7 +1583,7 @@ export class VpsPullScheduler {
       ? result.rows
       : result.rows.filter((r: any) => !lateExcludeIds.includes(r.id));
 
-    return accounts.map((r: any) => ({
+    return accounts.filter((r: any) => !failedOnly || isNonCredentialPullFailure(r.pull_status)).map((r: any) => ({
       registrationId: r.id,
       accountNumber: r.account_number,
       server: r.mt5_server,
@@ -3317,14 +3319,20 @@ export class VpsPullScheduler {
       }, { timeout: 180000 });
       response = res.data;
     } catch (e: any) {
-      console.error(`⚠️ OHLC: VPS request failed:`, e?.message || e);
-      return 0;
+      console.error(`⚠️ OHLC: Bulk request failed; trying alternate-worker route:`, e?.message || e);
     }
 
     if (!response?.results) {
-      console.error('⚠️ OHLC: Invalid response from VPS');
-      return 0;
+      console.warn('⚠️ OHLC: No bulk results; recovering requested symbols individually');
+      response = {results:{}};
     }
+
+    response.results = await recoverMissingCandles(symbolRanges, response.results, async range => {
+      const res = await axios.post(`${this.baseUrl}/candles`, {
+        ...range, timeframe:'M1', required_subtype:'standard', api_key:this.apiKey,
+      }, {timeout:180000});
+      return res.data;
+    }, message => console.warn(message));
 
     let totalInserted = 0;
     for (const [symbol, data] of Object.entries(response.results) as [string, any][]) {

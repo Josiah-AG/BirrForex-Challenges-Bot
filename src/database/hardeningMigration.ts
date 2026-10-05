@@ -58,6 +58,7 @@ export async function migrateHardening(): Promise<void> {
     await client.query('ALTER TABLE challenge_pull_jobs ADD COLUMN IF NOT EXISTS override_lock BOOLEAN NOT NULL DEFAULT false');
     await client.query('ALTER TABLE challenge_pull_jobs ADD COLUMN IF NOT EXISTS include_disqualified BOOLEAN NOT NULL DEFAULT false');
     await client.query('ALTER TABLE challenge_pull_jobs ADD COLUMN IF NOT EXISTS full_history BOOLEAN NOT NULL DEFAULT false');
+    await client.query('ALTER TABLE challenge_pull_jobs ADD COLUMN IF NOT EXISTS failed_only BOOLEAN NOT NULL DEFAULT false');
     await client.query('ALTER TABLE wp_leaderboard ADD COLUMN IF NOT EXISTS previous_rank INTEGER');
     await client.query(`CREATE TABLE IF NOT EXISTS challenge_result_snapshots (
       id BIGSERIAL PRIMARY KEY,challenge_id INTEGER NOT NULL REFERENCES trading_challenges(id),

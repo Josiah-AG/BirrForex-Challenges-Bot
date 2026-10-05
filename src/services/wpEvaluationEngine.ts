@@ -639,7 +639,7 @@ export class WpEvaluationEngine {
       // Keep the immutable snapshot separate from the computed competition baseline.
       if (regData.rows[0]?.prestart_snapshot_at) {
         const row=regData.rows[0];
-        if(row.history_sync_state!=='verified')throw new Error('Pre-start reconciliation awaits verified broker history');
+        if(!['verified','published'].includes(row.history_sync_state))throw new Error('Pre-start reconciliation awaits verified broker history');
         const ledger=await db.query(`SELECT time,deal_type,profit,commission,swap,fee,comment FROM wp_deals
           WHERE challenge_id=$1 AND registration_id=$2 AND time >= $3 AND time <= $4 ORDER BY time,ticket`,
           [challengeId,reg.id,row.prestart_snapshot_at,row.history_verified_through]);
