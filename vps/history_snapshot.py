@@ -121,7 +121,8 @@ def collect_snapshot(mt5, account, server, from_date=None, anchor=None, sleep=ti
     digits = int(getattr(before, 'currency_digits', 2))
     tolerance = Decimal(10) ** -max(0, min(8, digits))
     cutoff = datetime.now(timezone.utc)
-    start = datetime(1970, 1, 1, tzinfo=timezone.utc)
+    # Avoid an epoch-zero request boundary; keep the full available trading history.
+    start = datetime(1970, 1, 1, 0, 0, 1, tzinfo=timezone.utc)
     anchor_balance = Decimal(0)
     # Reconcile the full signed cash ledger on every read, including backdated corrections.
     # Only position reconstruction and returned rows are incremental.
