@@ -1,4 +1,6 @@
 "use client";
+
+import TradeProtectionLevel from "@/components/TradeProtectionLevel";
 import { balanceOperationTime } from "@/lib/balanceOperationTime";
 import { leaderboardBadges } from "@/lib/leaderboardBadges";
 import MinimumTradesBadge from "@/components/MinimumTradesBadge";
@@ -1736,8 +1738,8 @@ export default function AdminDashboard() {
                 <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">{isGroup ? 'Total Lots' : 'Lots'}</p><p className="text-white font-semibold">{t.openingVolume && t.openingVolume > Number(t.volume) ? `${Number(t.volume).toFixed(2)} / ${Number(t.openingVolume).toFixed(2)}` : Number(t.volume).toFixed(2)}</p></div>
                 <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Open</p><p className="text-white">{t.openPrice}</p><p className="text-[10px] text-gray-500">{fmtEAT(t.openTime)}</p></div>
                 {!isGroup && <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Close</p><p className="text-white">{t.closePrice}</p><p className="text-[10px] text-gray-500">{fmtEAT(t.closeTime)}</p></div>}
-                <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Stop Loss</p>{t.stopLoss ? <p className="text-white">{t.stopLoss}</p> : <><p className="text-gray-500">—</p><p className="text-[9px] text-gray-600">not detected at entry</p></>}</div>
-                <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Take Profit</p>{t.takeProfit ? <p className="text-white">{t.takeProfit}</p> : <><p className="text-gray-500">—</p><p className="text-[9px] text-gray-600">not detected at entry</p></>}</div>
+                <TradeProtectionLevel trade={t} kind="sl" />
+                <TradeProtectionLevel trade={t} kind="tp" />
                 <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">{isGroup ? 'Total Profit' : 'Profit'}</p><p className={`font-bold ${t.profit >= 0 ? 'text-profit' : 'text-loss'}`}>{cur(t.profit)}</p></div>
                 {!isGroup && <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Commission</p><p className="text-gray-300">{cur(t.commission ?? 0)}</p></div>}
               </div>

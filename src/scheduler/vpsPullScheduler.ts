@@ -1,3 +1,4 @@
+import { validatedNativeLevels } from '../utils/nativeTradeLevels';
 import { recoverMissingCandles } from '../services/candleFallback';
 import { isNonCredentialPullFailure } from '../utils/pullFailure';
 import {withWorkloadContext} from '../services/workloadTelemetry';
@@ -961,6 +962,7 @@ export class VpsPullScheduler {
       const response=await axios.post(`${this.baseUrl}/pull`,{
         account:normalizeAccountNumber(account.accountNumber),server:account.server,password:account.investorPassword,api_key:this.apiKey,
         terminal_id:terminalId,protocol_version:2,request_id:requestId,
+        native_sltp: process.env.WINNERPIP_NATIVE_SLTP !== 'false',
         from_date: anchor ? new Date(anchor).toISOString() : importFrom,
         anchor_cutoff:anchor?new Date(anchor).toISOString():null,
         anchor_balance:anchor?Number(registration.history_verified_balance):null,
@@ -1688,6 +1690,7 @@ export class VpsPullScheduler {
       close_time: trade.close_time || null,
       open_price: trade.open_price || 0,
       close_price: trade.close_price || 0,
+      native_sl_tp: validatedNativeLevels(trade),
       stop_loss: trade.stop_loss || null,
       take_profit: trade.take_profit || null,
       profit: trade.profit || 0,
@@ -1696,8 +1699,8 @@ export class VpsPullScheduler {
       comment: trade.comment || null,
       synced_at: new Date().toISOString()
       }));
-      const result=await db.query(`INSERT INTO wp_trades (challenge_id,registration_id,account_number,ticket,position_id,symbol,trade_type,volume,open_time,close_time,open_price,close_price,stop_loss,take_profit,profit,commission,swap,comment,synced_at)
-        SELECT challenge_id,registration_id,account_number,ticket,position_id,symbol,trade_type,volume,open_time,close_time,open_price,close_price,stop_loss,take_profit,profit,commission,swap,comment,synced_at FROM jsonb_populate_recordset(NULL::wp_trades,$1::jsonb)
+      const result=await db.query(`INSERT INTO wp_trades (challenge_id,registration_id,account_number,ticket,position_id,symbol,trade_type,volume,open_time,close_time,open_price,close_price,stop_loss,take_profit,native_sl_tp,profit,commission,swap,comment,synced_at)
+        SELECT challenge_id,registration_id,account_number,ticket,position_id,symbol,trade_type,volume,open_time,close_time,open_price,close_price,stop_loss,take_profit,native_sl_tp,profit,commission,swap,comment,synced_at FROM jsonb_populate_recordset(NULL::wp_trades,$1::jsonb)
         ON CONFLICT (challenge_id, account_number, ticket) DO UPDATE SET
              position_id = EXCLUDED.position_id,
              symbol = EXCLUDED.symbol,
@@ -1715,6 +1718,7 @@ export class VpsPullScheduler {
              take_profit = CASE WHEN EXCLUDED.take_profit IS NULL OR EXCLUDED.take_profit = 0
                                 THEN COALESCE(wp_trades.take_profit, EXCLUDED.take_profit)
                                 ELSE EXCLUDED.take_profit END,
+             native_sl_tp = COALESCE(EXCLUDED.native_sl_tp, wp_trades.native_sl_tp),
              profit = EXCLUDED.profit,
              commission = EXCLUDED.commission,
              swap = EXCLUDED.swap,

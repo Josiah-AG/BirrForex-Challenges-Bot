@@ -1,4 +1,6 @@
 "use client";
+
+import TradeProtectionLevel from "@/components/TradeProtectionLevel";
 import PublicLeaderboard, { canViewPublicLeaderboard } from "@/components/PublicLeaderboard";
 import { balanceOperationTime } from "@/lib/balanceOperationTime";
 import { leaderboardBadges } from "@/lib/leaderboardBadges";
@@ -16,6 +18,7 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
 
 // ==================== TYPES ====================
 interface Trade {
+  nativeSlTp?: { source: string; sl: number; tp: number; time_msc: number } | null;
   ticket: number; positionId?: number; symbol: string; type: string; volume: number;
   openingVolume?: number | null;
   openPrice: number; closePrice: number; openTime: string; closeTime: string;
@@ -1475,8 +1478,8 @@ export default function ChallengeDashboard() {
                 <DRow label="Opened" value={formatDate(selectedTrade.openTime)} />
                 <DRow label="Entry" value={selectedTrade.openPrice.toString()} />
                 <DRow label="Exit" value={selectedTrade.closePrice.toString()} />
-                <div className="bg-white/5 rounded-lg p-3"><p className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">Stop Loss</p>{selectedTrade.stopLoss ? <p className="text-sm font-semibold text-loss">{selectedTrade.stopLoss}</p> : <><p className="text-sm font-semibold text-gray-500">—</p><p className="text-[9px] text-gray-600">not detected at entry</p></>}</div>
-                <div className="bg-white/5 rounded-lg p-3"><p className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">Take Profit</p>{selectedTrade.takeProfit ? <p className="text-sm font-semibold text-profit">{selectedTrade.takeProfit}</p> : <><p className="text-sm font-semibold text-gray-500">—</p><p className="text-[9px] text-gray-600">not detected at entry</p></>}</div>
+                <TradeProtectionLevel trade={selectedTrade} kind="sl" />
+                <TradeProtectionLevel trade={selectedTrade} kind="tp" />
               </div>
               <div className="bg-white/5 rounded-lg p-4 flex items-center justify-between">
                 <span className="text-sm text-gray-400">Net Profit/Loss</span>

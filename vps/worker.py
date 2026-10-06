@@ -1558,6 +1558,7 @@ def health():
         "history_protocol":      2,
         "history_sync_version":  1,
         "mt5_connector_version": mt5.__version__,
+        "native_sltp_challenge_supported": True,
         "native_history_enabled": os.path.isfile(os.path.join(os.path.dirname(__file__), f"native_history_{TERMINAL_ID}.enabled")),
         "busy":                  _lock.locked(),
         "git_commit_time":      GIT_COMMIT_TIME,
@@ -1630,9 +1631,9 @@ def pull(req: PullRequest):
                 budget=max(1,90-(time.monotonic()-started)), known_tickets=req.known_tickets,
                 refresh_history=lambda: prime_native_history(mt5, account_number, req.server,
                     enabled=os.path.isfile(os.path.join(os.path.dirname(__file__), f"native_history_{TERMINAL_ID}.enabled"))))
-            # Optional myFXpath-only evidence, still inside the worker/dispatcher lease.
+            # Optional closing-level evidence for either app, inside the worker/dispatcher lease.
             # Per-worker marker is an immediate kill switch, without worker restart.
-            if req.priority and req.native_sltp:
+            if req.native_sltp:
                 enabled = os.path.isfile(os.path.join(os.path.dirname(__file__), f"native_sltp_{TERMINAL_ID}.enabled"))
                 result['native_recovery'] = recover_native_levels(mt5, result, account_number, req.server, enabled=enabled)
             result.update(terminal_used=TERMINAL_ID, terminal_id=TERMINAL_ID, request_id=req.request_id)

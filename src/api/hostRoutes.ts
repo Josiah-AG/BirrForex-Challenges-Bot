@@ -858,7 +858,7 @@ router.get('/challenge/:id/export-user-trades', async (req: any, res: Response) 
 
     const trades = await db.query(
       `SELECT ticket, symbol, trade_type, volume, open_time, close_time, open_price, close_price,
-              stop_loss, take_profit, profit, commission, swap, is_qualified, violations, position_id,
+              stop_loss, take_profit, native_sl_tp, profit, commission, swap, is_qualified, violations, position_id,
               sl_check_result, sl_check_pending, sl_allowed_price, sl_max_adverse_price
        FROM wp_trades WHERE challenge_id=$1 AND registration_id=$2 ORDER BY close_time ASC`, [challengeId, registrationId]);
 
@@ -869,6 +869,7 @@ router.get('/challenge/:id/export-user-trades', async (req: any, res: Response) 
         ticket: t.ticket, symbol: t.symbol, type: t.trade_type, volume: parseFloat(t.volume),
         openTime: t.open_time, closeTime: t.close_time,
         openPrice: parseFloat(t.open_price), closePrice: parseFloat(t.close_price),
+        nativeSlTp: t.native_sl_tp || null,
         stopLoss: t.stop_loss ? parseFloat(t.stop_loss) : null,
         takeProfit: t.take_profit ? parseFloat(t.take_profit) : null,
         profit: parseFloat(t.profit), commission: parseFloat(t.commission || 0), swap: parseFloat(t.swap || 0),
@@ -1060,7 +1061,7 @@ router.get('/challenge/:id/user-trades', async (req: any, res: Response) => {
 
     const trades = await db.query(
       `SELECT ticket, symbol, trade_type, volume, open_time, close_time, open_price, close_price,
-              stop_loss, take_profit, profit, commission, swap, is_qualified, violations, position_id
+              stop_loss, take_profit, native_sl_tp, profit, commission, swap, is_qualified, violations, position_id
        FROM wp_trades WHERE challenge_id=$1 AND registration_id=$2 ORDER BY close_time DESC LIMIT 100`, [challengeId, registrationId]);
 
     const balanceOps = await db.query(

@@ -12,6 +12,7 @@ export async function migratePullIntegrity() {
     ALTER TABLE trading_registrations ADD COLUMN IF NOT EXISTS history_sync_error TEXT;
     ALTER TABLE trading_registrations ADD COLUMN IF NOT EXISTS history_retry_at TIMESTAMPTZ;
     ALTER TABLE trading_registrations ADD COLUMN IF NOT EXISTS history_retry_attempts INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE wp_trades ADD COLUMN IF NOT EXISTS native_sl_tp JSONB;
     ALTER TABLE wp_deals ADD COLUMN IF NOT EXISTS commission NUMERIC;
     ALTER TABLE wp_deals ADD COLUMN IF NOT EXISTS swap NUMERIC;
     ALTER TABLE wp_deals ADD COLUMN IF NOT EXISTS fee NUMERIC;

@@ -1,4 +1,6 @@
 "use client";
+
+import TradeProtectionLevel from "@/components/TradeProtectionLevel";
 import { balanceOperationTime } from "@/lib/balanceOperationTime";
 import { leaderboardBadges } from "@/lib/leaderboardBadges";
 import MinimumTradesBadge from "@/components/MinimumTradesBadge";
@@ -2040,8 +2042,8 @@ export default function HostDashboardPage() {
                 <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Lots</p><p className="text-white font-semibold">{Number(t.volume).toFixed(2)}</p></div>
                 <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Open</p><p className="text-white">{t.open_price || t.openPrice}</p><p className="text-[10px] text-gray-500">{fmtEAT(t.open_time || t.openTime)}</p></div>
                 <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Close</p><p className="text-white">{t.close_price || t.closePrice}</p><p className="text-[10px] text-gray-500">{fmtEAT(t.close_time || t.closeTime)}</p></div>
-                <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Stop Loss</p>{(t.stop_loss || t.stopLoss) ? <p className="text-white">{t.stop_loss || t.stopLoss}</p> : <p className="text-gray-500">—</p>}</div>
-                <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Take Profit</p>{(t.take_profit || t.takeProfit) ? <p className="text-white">{t.take_profit || t.takeProfit}</p> : <p className="text-gray-500">—</p>}</div>
+                <TradeProtectionLevel trade={t} kind="sl" />
+                <TradeProtectionLevel trade={t} kind="tp" />
                 <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Profit</p><p className={`font-bold ${Number(t.profit) >= 0 ? 'text-profit' : 'text-loss'}`}>{cur(Number(t.profit))}</p></div>
                 <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Commission</p><p className="text-gray-300">{cur(Number(t.commission ?? 0))}</p></div>
               </div>

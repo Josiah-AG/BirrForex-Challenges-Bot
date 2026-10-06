@@ -1645,7 +1645,7 @@ app.get('/api/challenges/:id/user-trades', async (req, res) => {
 
     // Get trades with pagination
     const trades = await db.query(
-      `SELECT ticket, position_id, symbol, trade_type, volume, profit, commission, swap, close_time, open_time, open_price, close_price, stop_loss, take_profit, is_qualified, violations, sl_check_pending, sl_check_result
+      `SELECT ticket, position_id, symbol, trade_type, volume, profit, commission, swap, close_time, open_time, open_price, close_price, stop_loss, take_profit, native_sl_tp, is_qualified, violations, sl_check_pending, sl_check_result
        FROM wp_visible_trades_for($2) WHERE challenge_id = $1 AND registration_id = $2${dateFilter}
        ORDER BY close_time DESC LIMIT ${limit} OFFSET ${offset}`,
       baseParams
@@ -1687,6 +1687,7 @@ app.get('/api/challenges/:id/user-trades', async (req, res) => {
         openTime: t.open_time,
         openPrice: parseFloat(t.open_price) || 0,
         closePrice: parseFloat(t.close_price) || 0,
+        nativeSlTp: t.native_sl_tp || null,
         stopLoss: t.stop_loss ? parseFloat(t.stop_loss) : null,
         takeProfit: t.take_profit ? parseFloat(t.take_profit) : null,
         isQualified: t.is_qualified,
@@ -1744,7 +1745,7 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
     const cStartDate = cDates.rows[0]?.start_date;
     const cEndDate   = cDates.rows[0]?.end_date;
     let tradesQuery = `SELECT ticket, symbol, trade_type, volume, open_time, close_time,
-              open_price, close_price, stop_loss, take_profit, profit, commission, swap, is_qualified, violations, sl_check_pending, sl_check_result, position_id
+              open_price, close_price, stop_loss, take_profit, native_sl_tp, profit, commission, swap, is_qualified, violations, sl_check_pending, sl_check_result, position_id
        FROM wp_visible_trades_for($2)
        WHERE challenge_id = $1 AND registration_id = $2`;
     const tradesParams: any[] = [cId, registrationId];
@@ -1931,6 +1932,7 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
           closeTime: t.close_time,
           openPrice: parseFloat(t.open_price),
           closePrice: parseFloat(t.close_price),
+          nativeSlTp: t.native_sl_tp || null,
           stopLoss: t.stop_loss ? parseFloat(t.stop_loss) : null,
           takeProfit: t.take_profit ? parseFloat(t.take_profit) : null,
           profit: parseFloat(t.profit),
@@ -4820,7 +4822,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/user-trades-mt5`, adminIp
     const user = reg.rows[0] || {};
 
     let mt5TradesQuery = `SELECT ticket, symbol, trade_type, volume, open_time, close_time,
-              open_price, close_price, stop_loss, take_profit,
+              open_price, close_price, stop_loss, take_profit, native_sl_tp,
               profit, commission, swap, comment, is_qualified, violations
        FROM wp_trades WHERE challenge_id = $1 AND registration_id = $2`;
     const mt5TradesParams: any[] = [challengeId, registrationId];
@@ -4925,7 +4927,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/user-trades-xlsx`, adminI
 
     const trades = await db.query(
       `SELECT ticket, symbol, trade_type, volume, open_time, close_time,
-              open_price, close_price, stop_loss, take_profit,
+              open_price, close_price, stop_loss, take_profit, native_sl_tp,
               profit, commission, swap, comment, is_qualified, violations
        FROM wp_trades WHERE challenge_id = $1 AND registration_id = $2
        ORDER BY open_time ASC`,
@@ -6135,7 +6137,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/export-user-trades`, admi
       db.query(`SELECT nickname, account_number, mt5_server, account_type, is_cent FROM trading_registrations WHERE id = $1`, [registrationId]),
       db.query(
         `SELECT ticket, position_id, symbol, trade_type, volume, open_time, close_time,
-                open_price, close_price, stop_loss, take_profit, profit, commission, swap,
+                open_price, close_price, stop_loss, take_profit, native_sl_tp, profit, commission, swap,
                 is_qualified, violations, sl_check_pending,
                 sl_allowed_price, sl_max_adverse_price, sl_check_result
          FROM wp_trades
@@ -6178,6 +6180,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/export-user-trades`, admi
         closeTime:        t.close_time,
         openPrice:        t.open_price,
         closePrice:       t.close_price,
+        nativeSlTp:       t.native_sl_tp || null,
         stopLoss:         t.stop_loss,
         takeProfit:       t.take_profit,
         profit:           t.profit,
@@ -6426,7 +6429,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/raw-trades-csv`, adminIpC
 
     const trades = await db.query(
       `SELECT ticket, position_id, symbol, trade_type, volume, open_time, close_time,
-              open_price, close_price, stop_loss, take_profit, profit, commission, swap,
+              open_price, close_price, stop_loss, take_profit, native_sl_tp, profit, commission, swap,
               comment, is_qualified, violations, sl_check_result, sl_check_pending,
               sl_allowed_price, sl_max_adverse_price, sl_check_attempts, sl_conflict_count
        FROM wp_trades
