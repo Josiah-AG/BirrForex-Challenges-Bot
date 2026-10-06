@@ -107,6 +107,9 @@ interface AccountToPull {
   lastKnownBalance?: number | null; // for smart zero-trade detection
   attempts?: number; // non-credential retry attempts so far this cycle (max MAX_ACCOUNT_ATTEMPTS)
   excludedTerminalId?: number; // set after a -6 — this account must NOT go back to this terminal
+  historyRetryTerminalId?: number; // cache failure, never credential-confirmation evidence
+  historyRetryAt?: number;
+  historyRetries?: number;
   excludedSince?: number; // Date.now() when excludedTerminalId was set (starvation guard)
 }
 
@@ -184,6 +187,8 @@ class SharedQueue {
     const idx = this.queue.findIndex(a => {
       const key = normalizeAccountNumber(a.accountNumber);
       if (key && this.inProgressAccounts.has(key)) return false;
+      if (a.historyRetryTerminalId === terminalId && healthyTerminalCount > 1
+          && Date.now() - (a.historyRetryAt ?? Date.now()) < CONFIRMATION_STARVATION_MS) return false;
       if (a.excludedTerminalId !== undefined && a.excludedTerminalId === terminalId) {
         if (healthyTerminalCount > 1) {
           const waited = a.excludedSince ? Date.now() - a.excludedSince : 0;
@@ -232,6 +237,16 @@ class SharedQueue {
     account.excludedTerminalId = failedTerminalId;
     account.excludedSince = Date.now();
     this.queue.unshift(account);
+  }
+
+  /** One independent cache retry per batch; keep credential confirmation separate. */
+  requeueHistory(account: AccountToPull, terminalId: number): boolean {
+    if ((account.historyRetries ?? 0) >= 1) return false;
+    account.historyRetries = (account.historyRetries ?? 0) + 1;
+    account.historyRetryTerminalId = terminalId;
+    account.historyRetryAt = Date.now();
+    this.requeue(account);
+    return true;
   }
 
   /** Non-credential failure — requeue to the back of the queue.
@@ -801,7 +816,14 @@ export class VpsPullScheduler {
         // runSharedQueueWorkers() returns. This guarantees evaluation never reads a
         // trade with a still-fixable NULL open_time.
       } else if (result.errorCode === 'history_incomplete') {
-        // Durable backoff owns incomplete snapshots; do not amplify VPS work here.
+        // A different terminal has an independent broker cache. Try it once
+        // in this batch before falling back to durable recovery; never relax
+        // reconciliation and never treat this as credential-failure evidence.
+        if (!this.cancelRequested && this.getHealthyTerminalCount() > 1
+            && this.sharedQueue.requeueHistory(account, terminal.id)) {
+          console.log(`History recovery: registration ${account.registrationId} incomplete on T${terminal.id}; queued once on another terminal`);
+          continue;
+        }
         resultsMutex.results.push(result);
         terminal.totalFailed++;
         this.sharedQueue.done(account.registrationId,account.accountNumber);

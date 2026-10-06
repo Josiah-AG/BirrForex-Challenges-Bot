@@ -40,3 +40,31 @@ test('a busy coordinator is respected and a later wake starts the queued job',as
  await s.drainPullJobs();assert.equal(runs,0);assert.equal(s.drainingPullJobs,false);
  available=true;await s.drainPullJobs();await tick();assert.equal(runs,1);
 });
+
+test('incomplete history retries once on an independent terminal and publishes only one result',async()=>{
+ const s=new VpsPullScheduler({});const terminals=[1,2].map(id=>({id,isHealthy:true,totalProcessed:0,totalSuccess:0,totalFailed:0,consecutiveFailures:0}));
+ s.terminals=terminals;const account={registrationId:7,accountNumber:'123'};
+ s.sharedQueue.load([account]);const results={results:[]},seen=[];
+ let firstFailed;const failed=new Promise(r=>firstFailed=r);
+ s.pullSingleAccount=async(a,id)=>{seen.push(id);if(seen.length===1){firstFailed();return {success:false,errorCode:'history_incomplete'}}return {success:true}};
+ const t1=s.terminalWorker(terminals[0],{},1,results);await failed;
+ await new Promise(r=>setImmediate(r));
+ await Promise.all([t1,s.terminalWorker(terminals[1],{},1,results)]);
+ assert.deepEqual(seen,[1,2]);assert.deepEqual(results.results,[{success:true}]);
+ assert.equal(account.excludedTerminalId,undefined);assert.equal(s.sharedQueue.isEmpty,true);
+});
+test('repeat incomplete history is bounded and stays failed, single-terminal pool is not looped',async()=>{
+ for(const count of [1,2]){
+  const s=new VpsPullScheduler({});s.terminals=Array.from({length:count},(_,i)=>({id:i+1,isHealthy:true,totalProcessed:0,totalSuccess:0,totalFailed:0,consecutiveFailures:0}));
+  s.sharedQueue.load([{registrationId:8,accountNumber:'456'}]);let calls=0;const results={results:[]};
+  s.pullSingleAccount=async()=>{calls++;return {success:false,errorCode:'history_incomplete'}};
+  await Promise.all(s.terminals.map(t=>s.terminalWorker(t,{},1,results)));
+  assert.equal(calls,count);assert.equal(results.results.length,1);assert.equal(results.results[0].success,false);
+ }
+});
+test('successful history never gets an additional request',async()=>{
+ const s=new VpsPullScheduler({});s.terminals=[{id:1,isHealthy:true,totalProcessed:0,totalSuccess:0,totalFailed:0,consecutiveFailures:0}];
+ s.sharedQueue.load([{registrationId:9,accountNumber:'789'}]);let calls=0;const results={results:[]};
+ s.pullSingleAccount=async()=>{calls++;return {success:true}};
+ await s.terminalWorker(s.terminals[0],{},1,results);assert.equal(calls,1);
+});
