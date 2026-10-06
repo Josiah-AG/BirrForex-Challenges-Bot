@@ -1,4 +1,5 @@
 "use client";
+import PublicLeaderboard, { canViewPublicLeaderboard } from "@/components/PublicLeaderboard";
 import { balanceOperationTime } from "@/lib/balanceOperationTime";
 import { leaderboardBadges } from "@/lib/leaderboardBadges";
 import MinimumTradesBadge from "@/components/MinimumTradesBadge";
@@ -74,6 +75,7 @@ export default function ChallengeDashboard() {
   const [selectedUserTrades, setSelectedUserTrades] = useState<any[]>([]);
   const [selectedUserBalanceOps, setSelectedUserBalanceOps] = useState<any[]>([]);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [showPublicLeaderboard, setShowPublicLeaderboard] = useState(false);
   const [showLogin, setShowLogin] = useState(false);
   const [loginAccount, setLoginAccount] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
@@ -156,7 +158,7 @@ export default function ChallengeDashboard() {
           const c = (data.challenges || []).find((ch: any) => ch.id === Number(params.id));
           if(cancelled)return;
           if (!c) setError("Challenge unavailable. Return to the challenge list and try again.");
-          if (c) setPreAuthChallenge({ hostDisplayName: c.hostDisplayName, hostMainLink: c.hostMainLink, hostId: c.hostId, registrationMode: c.registrationMode, status: c.displayStatus || c.status, type: c.type, title: c.title });
+          if (c) setPreAuthChallenge({ ...c, status: c.displayStatus || c.status });
         }
       } catch {if(!cancelled)setError("Could not load this challenge. Please refresh and try again.");}
     };
@@ -620,6 +622,7 @@ export default function ChallengeDashboard() {
         </div>
       </header>
 
+      <PublicLeaderboard challenge={showPublicLeaderboard ? {...preAuthChallenge,id:Number(params.id)} : null} onClose={()=>setShowPublicLeaderboard(false)} />
       <div className="container mx-auto px-4 py-6 max-w-6xl relative">
 
         {/* LOADING STATE — hide when register mode waiting for wizard */}
@@ -661,7 +664,7 @@ export default function ChallengeDashboard() {
                     setRegStep(1); setRegError(""); setRegSuccess(false); setMt5Verified(false); setMt5VerifyData(null); setShowRegWizard(true);
                   }} className="w-full flex items-center justify-center gap-2 p-4 rounded-xl bg-royal/20 border border-royal/30 hover:bg-royal/30 text-royal font-semibold transition-all"><Users size={18} />Register Now</button>
                 ) : preAuthChallenge?.status !== 'registration_open' ? (
-                  <button type="button" disabled className="w-full p-4 rounded-xl bg-white/5 border border-white/10 text-gray-500 font-semibold cursor-not-allowed">Registration Closed</button>
+                  <><button type="button" disabled className="w-full p-4 rounded-xl bg-white/5 border border-white/10 text-gray-500 font-semibold cursor-not-allowed">Registration Closed</button>{canViewPublicLeaderboard(preAuthChallenge) && <button type="button" onClick={()=>setShowPublicLeaderboard(true)} className="w-full p-4 rounded-xl border border-emerald-400/30 bg-emerald-500/20 text-emerald-300 font-semibold hover:bg-emerald-500/30">See Leaderboard</button>}</>
                 ) : preAuthChallenge?.hostId ? (
                   <p className="text-sm text-gray-400">Registration is managed by the challenge host.</p>
                 ) : (
@@ -678,6 +681,7 @@ export default function ChallengeDashboard() {
             <div className="glass rounded-3xl border border-white/10 p-8">
               <button onClick={() => setShowLogin(false)} className="text-gray-400 hover:text-white mb-4 flex items-center gap-1 text-sm"><ArrowLeft size={14} /> Back</button>
               <h2 className="text-2xl font-bold text-white mb-2">Sign In</h2>
+              {canViewPublicLeaderboard(preAuthChallenge) && <div className="mb-4"><p className="mb-2 text-xs text-gray-500">Registration Closed</p><button type="button" onClick={()=>setShowPublicLeaderboard(true)} className="w-full p-4 rounded-xl border border-emerald-400/30 bg-emerald-500/20 text-emerald-300 font-semibold hover:bg-emerald-500/30">See Leaderboard</button></div>}
               <p className="text-gray-400 text-sm mb-6">Enter your MT5 credentials</p>
               {loginError && <div className="p-3 rounded-xl bg-loss/10 border border-loss/30 mb-4"><p className="text-sm text-loss">{loginError}</p></div>}
               <div className="space-y-4">

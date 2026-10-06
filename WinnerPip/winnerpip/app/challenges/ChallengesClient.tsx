@@ -1,4 +1,5 @@
 "use client";
+import PublicLeaderboard, { canViewPublicLeaderboard } from "@/components/PublicLeaderboard";
 import RaceCountdown from "@/components/RaceCountdown";
 import RegistrationNotice from "@/components/RegistrationNotice";
 
@@ -70,6 +71,7 @@ interface WinnersData {
 }
 
 export default function ChallengesPage({initialChallenges = []}: {initialChallenges?: Challenge[]}) {
+  const [publicLeaderboard, setPublicLeaderboard] = useState<Challenge | null>(null);
   const [expandedPrizes, setExpandedPrizes] = useState<Record<number, boolean>>({});
   const [challenges, setChallenges] = useState<Challenge[]>(initialChallenges);
   const [loading, setLoading] = useState(initialChallenges.length === 0);
@@ -376,7 +378,11 @@ export default function ChallengesPage({initialChallenges = []}: {initialChallen
           </div>
 
           {/* CTA */}
-          <button type="button" className={`w-full flex items-center justify-between p-3 rounded-xl ${isPast ? 'bg-profit/10 border border-profit/20 group-hover:bg-profit/20' : 'bg-royal/10 border border-royal/20 group-hover:bg-royal/20'} transition-all`}>
+          {canViewPublicLeaderboard(challenge) ? <div className="space-y-2" onClick={e=>e.stopPropagation()}>
+            <p className="text-center text-xs text-gray-500">Registration Closed</p>
+            <button type="button" onClick={e=>{e.preventDefault();e.stopPropagation();setPublicLeaderboard(challenge);}} className="w-full flex items-center justify-center gap-2 rounded-xl bg-emerald-500/20 border border-emerald-400/30 p-3 text-sm font-semibold text-emerald-300 hover:bg-emerald-500/30"><Trophy size={17}/>See Leaderboard</button>
+            {isPast && <button type="button" onClick={()=>handlePastChallengeClick(challenge)} className="w-full p-2 text-sm text-gray-400 hover:text-white">View Winners</button>}
+          </div> : <button type="button" className={`w-full flex items-center justify-between p-3 rounded-xl ${isPast ? 'bg-profit/10 border border-profit/20 group-hover:bg-profit/20' : 'bg-royal/10 border border-royal/20 group-hover:bg-royal/20'} transition-all`}>
             <span className={`text-sm font-semibold ${isPast ? 'text-profit' : 'text-royal'}`}>
               {isPast ? "View Winners" : (() => {
                 const ds = challenge.displayStatus || challenge.status;
@@ -390,7 +396,7 @@ export default function ChallengesPage({initialChallenges = []}: {initialChallen
               })()}
             </span>
             <ArrowRight size={16} className={`${isPast ? 'text-profit' : 'text-royal'} group-hover:translate-x-1 transition-transform`} />
-          </button>
+          </button>}
         </div>
       </article>
     );
@@ -398,6 +404,7 @@ export default function ChallengesPage({initialChallenges = []}: {initialChallen
 
   return (
     <div className="min-h-screen bg-[#0a0e1a]">
+      <PublicLeaderboard challenge={publicLeaderboard} onClose={()=>setPublicLeaderboard(null)} />
       {/* Background */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
         <div className="absolute top-0 left-1/4 w-96 h-96 bg-royal/10 rounded-full blur-3xl animate-float"></div>
