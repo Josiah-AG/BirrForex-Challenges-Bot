@@ -1946,3 +1946,6 @@ The user confirmed that this log must retain the history of application updates 
 
 ## 2026-10-06 — Countdown container progress fill
 - Added full-container blue progress fill driven by challenge start/end timestamps across participant, public cards and public leaderboard countdowns. Clamped 0–100%; at the end the container is fully blue with only Challenge ended. Pre-start countdown remains unchanged. Accessible progress value and reduced-motion support included.
+
+## 2026-10-06 — Public leaderboard disqualification summary
+- Public card leaderboard requests an explicit publicStandings mode that excludes leaderboard/registration disqualifications before pagination and returns the category-wide disqualified count. Popup shows a concise rule-breach summary instead of those participant rows. Missing rank alone is not used as a disqualification flag. Existing signed-in/admin/host requests retain full results. No-result public pages do not fall back to unfiltered registration rows. Backend/frontend TypeScript and whitespace checks passed.

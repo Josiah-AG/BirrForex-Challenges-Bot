@@ -1284,6 +1284,7 @@ app.post('/api/challenges/:id/change-registration', authLimiter, async (req: any
 app.get('/api/challenges/:id/leaderboard', async (req, res) => {
   try {
     const challengeId = parseInt(req.params.id);
+    const publicStandings = req.query.publicStandings === 'true';
     const category = req.query.category as string || 'all'; // 'demo', 'real', 'all'
 
     // Check challenge status — pre-start uses registration-based ranking
@@ -1443,25 +1444,29 @@ app.get('/api/challenges/:id/leaderboard', async (req, res) => {
       params.push(category);
     }
 
+    if (publicStandings) query += ` AND NOT (COALESCE(l.is_disqualified, false) OR COALESCE(r.disqualified, false))`;
+
     query += ` ${leaderboardOrderSql(category, !!challengeStatus.rows[0]?.deposit_mode && challengeStatus.rows[0].deposit_mode !== 'fixed')}`;
     query += ` LIMIT ${limit} OFFSET ${offset}`;
 
     const result = await db.query(query, params);
 
     // No pull data yet — fall back to registration-based pre-start ranking
-    if (result.rows.length === 0 && offset === 0) {
+    if (result.rows.length === 0 && offset === 0 && !publicStandings) {
       return res.json(await buildPreStartResponse());
     }
 
     // Get total count for pagination
-    let countQuery = `SELECT COUNT(*) as total FROM wp_leaderboard l JOIN trading_registrations r ON l.registration_id = r.id AND (r.status IS NULL OR r.status != 'removed') WHERE l.challenge_id = $1`;
+    let countQuery = `SELECT COUNT(*) as total, COUNT(*) FILTER (WHERE COALESCE(l.is_disqualified, false) OR COALESCE(r.disqualified, false)) as disqualified FROM wp_leaderboard l JOIN trading_registrations r ON l.registration_id = r.id AND (r.status IS NULL OR r.status != 'removed') WHERE l.challenge_id = $1`;
     const countParams: any[] = [challengeId];
     if (category === 'demo' || category === 'real') {
       countQuery += ` AND l.account_type = $2`;
       countParams.push(category);
     }
     const countResult = await db.query(countQuery, countParams);
-    const total = parseInt(countResult.rows[0].total);
+    const participantTotal = parseInt(countResult.rows[0].total);
+    const disqualifiedCount = parseInt(countResult.rows[0].disqualified);
+    const total = publicStandings ? participantTotal - disqualifiedCount : participantTotal;
 
     // If nickname provided, fetch user's context (rank-1, rank, rank+1)
     const myNickname = req.query.nickname as string;
@@ -1531,6 +1536,7 @@ app.get('/api/challenges/:id/leaderboard', async (req, res) => {
     return res.json({
       dataFrom,
       total,
+      ...(publicStandings ? { disqualifiedCount, participantTotal } : {}),
       hasMore: offset + limit < total,
       myContext,
       depositMode: await (async () => {

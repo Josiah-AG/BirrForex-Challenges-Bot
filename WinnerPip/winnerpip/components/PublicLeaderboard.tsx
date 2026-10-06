@@ -23,7 +23,7 @@ export default function PublicLeaderboard({ challenge, onClose }: {challenge: an
     const controller = new AbortController();
     setLoading(true); setError(''); setData(null);
     const api = process.env.NEXT_PUBLIC_API_URL || 'https://api.winnerpip.com';
-    fetch(`${api}/api/challenges/${id}/leaderboard?category=${category}&limit=50&offset=${page*50}`, { signal: controller.signal, cache:'no-store' })
+    fetch(`${api}/api/challenges/${id}/leaderboard?publicStandings=true&category=${category}&limit=50&offset=${page*50}`, { signal: controller.signal, cache:'no-store' })
       .then(r => { if (!r.ok) throw new Error('Unable to load leaderboard. Please retry.'); return r.json(); })
       .then(d => { if (!controller.signal.aborted) setData(d); })
       .catch(e => { if (!controller.signal.aborted) setError('Unable to load leaderboard. Please use Refresh to retry.'); })
@@ -52,6 +52,7 @@ export default function PublicLeaderboard({ challenge, onClose }: {challenge: an
               <td className="py-3 text-right whitespace-nowrap font-semibold">{entry.isCent ? `${balance.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}¢` : balance.toLocaleString('en-US',{style:'currency',currency:'USD'})}</td>
             </tr>;})}</tbody></table>}
         </div>
+        {!loading && !error && data?.disqualifiedCount > 0 && <p className="px-5 pb-3 text-xs text-gray-400">{data.disqualifiedCount} {data.disqualifiedCount === 1 ? 'participant disqualified' : 'participants disqualified'} due to challenge rule breaches.</p>}
         <div className="flex items-center justify-between gap-2 border-t border-white/10 px-5 py-3 text-sm text-gray-400">
           <button disabled={page===0||loading} onClick={()=>setPage(p=>p-1)} className="p-2 disabled:opacity-30">Previous</button><span>Page {page+1}{data?.total ? ` · ${data.total} participants`:''}</span><button disabled={!data?.hasMore||loading} onClick={()=>setPage(p=>p+1)} className="p-2 disabled:opacity-30">Next</button>
         </div>
