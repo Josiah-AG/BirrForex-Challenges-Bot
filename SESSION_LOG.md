@@ -1952,3 +1952,6 @@ The user confirmed that this log must retain the history of application updates 
 
 ## 2026-10-06 — Place public disqualification summary after final participant
 - Moved the summary inside the leaderboard scroll area and render it only when hasMore is false. It follows the final participant on the last page instead of remaining pinned above pagination.
+
+## 2026-10-06 — Clickable directory hosts
+- Challenge directory host names now link to their configured main link in a new tab. BirrForex challenges link to the existing contact-winnerpip page. Missing host links remain plain text. Frontend TypeScript checked.
