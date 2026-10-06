@@ -1,4 +1,5 @@
 "use client";
+import { balanceOperationTime } from "@/lib/balanceOperationTime";
 import { leaderboardBadges } from "@/lib/leaderboardBadges";
 import MinimumTradesBadge from "@/components/MinimumTradesBadge";
 import DataRefresh from "@/components/DataRefresh";
@@ -1910,7 +1911,7 @@ export default function HostDashboardPage() {
                             <div key={`op-${op.ticket || idx}`} className={`flex items-center justify-between py-2 px-3 rounded-lg border ${meta.bg} ${meta.border}`}>
                               <div>
                                 <p className="text-xs text-white font-medium">{meta.icon} {meta.label}</p>
-                                <p className="text-[10px] text-gray-500">{fmtDateEAT(op.time || op.closeTime)} {fmtEAT(op.time || op.closeTime)} EAT</p>
+                                <p className="text-[10px] text-gray-500">{balanceOperationTime(op.time || op.closeTime, challengeTz)}</p>
                               </div>
                               <p className={`text-xs font-bold ${meta.textColor}`}>{meta.sign(Number(op.amount))}{c(Math.abs(Number(op.amount)))}</p>
                             </div>
