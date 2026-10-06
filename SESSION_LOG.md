@@ -1961,3 +1961,6 @@ The user confirmed that this log must retain the history of application updates 
 
 ## 2026-10-06 — Restore directory → details → winners flow
 - Corrected the requested navigation: directory View Challenge always opens the existing details page; completed challenge details now offer View Challenge Winners linking to the existing winners popup.
+
+## 2026-10-06 — Team-only details prize blur
+- Challenge details now apply the same 5px blur and selection prevention as challenge cards to team-only prize text. Non-team prizes remain readable.

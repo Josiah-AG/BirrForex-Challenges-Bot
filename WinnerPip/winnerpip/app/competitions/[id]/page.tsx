@@ -11,7 +11,7 @@ export default async function Page({params}:{params:{id:string}}){const c=await 
 <p className="text-yellow-400 mt-8">{statusLabel(c)}</p><h1 className="text-3xl font-bold mt-3">{c.title}</h1>
 <p className="text-xl mt-5">Hosted by <strong>{organizer(c)}</strong></p><p className="text-gray-300 mt-3">WinnerPip provides the competition platform and automated MT5 performance tracking. The organizer of this challenge is {organizer(c)}.</p>
 <dl className="grid gap-5 sm:grid-cols-2 my-8">{[['Account category',c.type==='hybrid'?'Demo and real':c.type],['Registration deadline',dateLabel(c.registrationDeadline)],['Challenge starts',dateLabel(c.startDate)],['Challenge ends',dateLabel(c.endDate)]].map(([label,value])=><div key={label}><dt className="text-gray-400">{label}</dt><dd className="mt-1">{value}</dd></div>)}</dl>
-{c.prizePoolText&&<p className="mb-6">Prizes: {c.prizePoolText}</p>}
+{c.prizePoolText&&<p className="mb-6">Prizes: <span className={c.teamOnly ? "inline-block blur-[5px] select-none" : undefined}>{c.prizePoolText}</span></p>}
 <p className="text-gray-300 mb-6">Review the challenge rules and eligibility requirements before registering. Registration availability is checked when you enter the challenge.</p>
 <Link href={c.status==='completed' ? `/challenges?winners=${c.id}` : `/challenge/${c.id}`} className="inline-block bg-blue-700 rounded-xl px-6 py-3">{c.status==='completed'?'View Challenge Winners':c.status==='registration_open'?'View challenge and registration options':'View challenge'}</Link>
 </article></main>;}
