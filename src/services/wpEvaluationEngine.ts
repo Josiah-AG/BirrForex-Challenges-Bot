@@ -587,8 +587,13 @@ export class WpEvaluationEngine {
 
       const capturedAt = regData.rows[0]?.registered_at ? new Date(regData.rows[0].registered_at).getTime() : 0;
       const preDeposits = allDeposits.rows.filter(d => new Date(d.time).getTime() < csTime && new Date(d.time).getTime() > capturedAt);
+      const setupWithdrawals = String(regData.rows[0]?.funding_origin || '').startsWith('approved_late_initial_deposit:')
+        ? (await db.query(`SELECT ticket, profit, time FROM wp_deals
+            WHERE challenge_id=$1 AND registration_id=$2 AND (deal_type ILIKE '%balance%' OR deal_type='2')
+              AND profit<0 AND time >= $3 AND time < $4 ORDER BY time,ticket`,
+            [challengeId,reg.id,new Date(csTime),regData.rows[0].registered_at])).rows : [];
       const postDeposits = rechargeDepositsForRegistration(
-        allDeposits.rows.filter(d => new Date(d.time).getTime() >= csTime), regData.rows[0], csTime);
+        allDeposits.rows.filter(d => new Date(d.time).getTime() >= csTime), regData.rows[0], csTime, setupWithdrawals);
 
 
       if (savedActual !== null && savedActual !== undefined && parseFloat(savedActual) > 0) {
