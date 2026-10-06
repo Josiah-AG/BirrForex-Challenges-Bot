@@ -1,3 +1,4 @@
+import { challengeBalanceHistorySql } from '../utils/challengeBalanceHistory';
 import { qualifiedBalanceSeries } from '../utils/qualifiedBalanceSeries';
 import { leaderboardOrderSql } from '../utils/qualifiedRanking';
 import { queuedPullProgress } from '../utils/queuedPullProgress';
@@ -1652,10 +1653,7 @@ app.get('/api/challenges/:id/user-trades', async (req, res) => {
 
     // Fetch withdrawal/deposit ops for this registration
     const balanceOps = await db.query(
-      `SELECT deal_ticket, op_time, amount, op_type, comment
-       FROM wp_visible_balance_ops_for($2)
-       WHERE challenge_id = $1 AND registration_id = $2
-       ORDER BY op_time DESC`,
+      challengeBalanceHistorySql,
       [challengeId, registrationId]
     ).catch(() => ({ rows: [] }));
 

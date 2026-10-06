@@ -1,4 +1,5 @@
 "use client";
+import { balanceOperationTime } from "@/lib/balanceOperationTime";
 import { leaderboardBadges } from "@/lib/leaderboardBadges";
 import MinimumTradesBadge from "@/components/MinimumTradesBadge";
 import DataRefresh from "@/components/DataRefresh";
@@ -1608,7 +1609,7 @@ export default function AdminDashboard() {
                             <div key={`op-${op.ticket}`} className={`flex items-center justify-between py-2 px-3 rounded-lg border ${meta.bg} ${meta.border}`}>
                               <div>
                                 <p className="text-xs text-white font-medium">{meta.icon} {meta.label}</p>
-                                <p className="text-[10px] text-gray-500">{fmtDateEAT(op.closeTime)} {fmtEAT(op.closeTime)} EAT{op.comment ? ` · ${op.comment}` : ''}</p>
+                                <p className="text-[10px] text-gray-500">{balanceOperationTime(op.closeTime, selectedChall?.timezone || 'Africa/Addis_Ababa')}{op.comment ? ` · ${op.comment}` : ''}</p>
                               </div>
                               <p className={`text-xs font-bold ${meta.textColor}`}>{meta.sign(op.amount)}{c(Math.abs(op.amount))}</p>
                             </div>

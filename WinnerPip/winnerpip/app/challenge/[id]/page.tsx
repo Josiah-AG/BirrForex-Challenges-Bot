@@ -1,4 +1,5 @@
 "use client";
+import { balanceOperationTime } from "@/lib/balanceOperationTime";
 import { leaderboardBadges } from "@/lib/leaderboardBadges";
 import MinimumTradesBadge from "@/components/MinimumTradesBadge";
 import RegistrationNotice from "@/components/RegistrationNotice";
@@ -1659,7 +1660,7 @@ export default function ChallengeDashboard() {
                       feed.push({ kind: 'trade', group, sortTime: group[0].openTime ? new Date(group[0].openTime).getTime() : 0 });
                     });
                     for (const op of selectedUserBalanceOps) {
-                      feed.push({ kind: 'op', op, sortTime: op.op_time ? new Date(op.op_time).getTime() : 0 });
+                      feed.push({ kind: 'op', op, sortTime: op.closeTime ? new Date(op.closeTime).getTime() : 0 });
                     }
                     feed.sort((a, b) => b.sortTime - a.sortTime);
                     const opIcon = (t: string) => t === 'deposit' ? '💰' : t === 'withdrawal' ? '🚪' : t === 'swap' ? '🔄' : '📊';
@@ -1674,15 +1675,15 @@ export default function ChallengeDashboard() {
                             if (item.kind === 'op') {
                               const op = item.op;
                               return (
-                                <div key={`op-${op.deal_ticket}`} className="py-2 px-3 rounded-lg bg-white/5 flex items-center justify-between">
+                                <div key={`op-${op.ticket}`} className="py-2 px-3 rounded-lg bg-white/5 flex items-center justify-between">
                                   <div className="flex items-center gap-2">
-                                    <span className="text-sm">{opIcon(op.op_type)}</span>
+                                    <span className="text-sm">{opIcon(op.opType)}</span>
                                     <div>
-                                      <p className="text-xs text-white font-medium capitalize">{op.op_type}</p>
-                                      <p className="text-[10px] text-gray-500">{op.op_time ? new Date(op.op_time).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''}{op.comment ? ` • ${op.comment}` : ''}</p>
+                                      <p className="text-xs text-white font-medium capitalize">{op.opType}</p>
+                                      <p className="text-[10px] text-gray-500">{balanceOperationTime(op.closeTime, challengeTz)}{op.comment ? ` • ${op.comment}` : ''}</p>
                                     </div>
                                   </div>
-                                  <p className={`text-xs font-bold ${opColor(op.op_type)}`}>{op.amount >= 0 ? '+' : ''}{cur(op.amount)}</p>
+                                  <p className={`text-xs font-bold ${opColor(op.opType)}`}>{op.amount >= 0 ? '+' : ''}{cur(op.amount)}</p>
                                 </div>
                               );
                             }
