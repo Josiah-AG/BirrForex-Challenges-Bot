@@ -1943,3 +1943,6 @@ The user confirmed that this log must retain the history of application updates 
 
 ## 2026-10-06 — Replace expired countdown
 - At user request, challenge end countdowns now render only Challenge ended once zero is reached; the four numeric tiles are removed on dashboard, challenge cards and public leaderboard. Pre-start countdown behavior unchanged.
+
+## 2026-10-06 — Countdown container progress fill
+- Added full-container blue progress fill driven by challenge start/end timestamps across participant, public cards and public leaderboard countdowns. Clamped 0–100%; at the end the container is fully blue with only Challenge ended. Pre-start countdown remains unchanged. Accessible progress value and reduced-motion support included.

@@ -18,17 +18,21 @@ export default function RaceCountdown({ startDate, endDate, compact = false }: {
     };
   }, [target]);
   if (!Number.isFinite(target)) return null;
-  if (endDate && remaining === 0) return (
-    <div role="status" className={compact ? "py-2 text-lg font-semibold text-gold" : "mb-3 sm:mb-5 rounded-xl border border-royal/30 bg-gradient-to-br from-royal/15 to-gold/5 p-3 sm:p-4 text-center font-semibold text-blue-300"}>
-      Challenge ended
-    </div>
-  );
+  const ended = !!endDate && remaining === 0;
+  const start = Date.parse(startDate || "");
+  const progress = ended ? 100 : remaining !== null && endDate && Number.isFinite(start) && target > start
+    ? Math.max(0, Math.min(100, (1 - remaining * 1000 / (target - start)) * 100)) : 0;
   const values = remaining === null ? null : [
     Math.floor(remaining / 86400), Math.floor(remaining / 3600) % 24,
     Math.floor(remaining / 60) % 60, remaining % 60,
   ];
   return (
-    <div className={compact ? "min-w-0" : "mb-3 sm:mb-5 rounded-xl border border-royal/30 bg-gradient-to-br from-royal/15 to-gold/5 p-3 sm:p-4"}>
+    <div className={`relative isolate overflow-hidden rounded-xl ${compact ? "min-w-0 p-2" : "mb-3 sm:mb-5 border border-royal/30 p-3 sm:p-4"} ${endDate ? "bg-blue-950/40" : "bg-gradient-to-br from-royal/15 to-gold/5"}`}>
+      {endDate && <div role="progressbar" aria-label="Challenge time elapsed" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress)} className="pointer-events-none absolute inset-0 -z-10">
+        <div className="h-full bg-gradient-to-r from-blue-700/70 to-blue-500/70 transition-[width] duration-1000 motion-reduce:transition-none" style={{ width: `${progress}%` }} />
+      </div>}
+      {ended ? <p role="status" className="py-3 text-center text-lg font-semibold text-white">Challenge ended</p> : <>
+
       {!compact && <div className="mb-2 sm:mb-3 flex items-center gap-2 text-xs font-semibold text-blue-300">
         <Timer size={15} aria-hidden="true" />
         <span>{endDate ? (remaining === 0 ? "Challenge ended" : "Challenge ends in") : (remaining === 0 ? "Scheduled start reached" : "Race starts in")}</span>
@@ -42,6 +46,7 @@ export default function RaceCountdown({ startDate, endDate, compact = false }: {
         ))}
       </div>
       {compact && remaining === 0 && <p className="mt-1 text-xs text-gray-400">{endDate ? "Challenge ended" : "Scheduled start reached"}</p>}
+      </>}
     </div>
   );
 }

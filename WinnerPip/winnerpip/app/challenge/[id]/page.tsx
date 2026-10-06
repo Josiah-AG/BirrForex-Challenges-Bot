@@ -1074,7 +1074,7 @@ export default function ChallengeDashboard() {
               </div>
               <div className="glass rounded-2xl p-4 md:p-5 border border-white/10">
                 <div className="flex items-center gap-2 mb-2"><Clock size={16} className="text-gold" /><p className="text-[10px] text-gray-400 uppercase tracking-wider font-medium">{daysLeftLabel}</p></div>
-                <RaceCountdown compact startDate={isNotStarted ? challenge.startDate : undefined} endDate={!isNotStarted ? challenge.endDate : undefined} />
+                <RaceCountdown compact startDate={challenge.startDate} endDate={!isNotStarted ? challenge.endDate : undefined} />
               </div>
             </div>
 

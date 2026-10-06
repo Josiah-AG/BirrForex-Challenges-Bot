@@ -286,7 +286,7 @@ export default function ChallengesPage({initialChallenges = []}: {initialChallen
           )}
 
           {!isPast && ["active", "ongoing"].includes(challenge.displayStatus || challenge.status) && (
-            <RaceCountdown endDate={challenge.endDate} />
+            <RaceCountdown startDate={challenge.startDate} endDate={challenge.endDate} />
           )}
 
           {/* Details */}
