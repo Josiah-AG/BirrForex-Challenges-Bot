@@ -1,3 +1,4 @@
+import { rechargeDepositsForRegistration } from '../utils/approvedLateFunding';
 import { riskViolationDisplay, riskViolationTime } from '../utils/riskViolationDisplay';
 import { reconcilePrestart } from '../utils/prestartReconciliation';
 import { startingBalanceProblem } from '../utils/startingBalancePolicy';
@@ -586,7 +587,8 @@ export class WpEvaluationEngine {
 
       const capturedAt = regData.rows[0]?.registered_at ? new Date(regData.rows[0].registered_at).getTime() : 0;
       const preDeposits = allDeposits.rows.filter(d => new Date(d.time).getTime() < csTime && new Date(d.time).getTime() > capturedAt);
-      const postDeposits = allDeposits.rows.filter(d => new Date(d.time).getTime() >= csTime);
+      const postDeposits = rechargeDepositsForRegistration(
+        allDeposits.rows.filter(d => new Date(d.time).getTime() >= csTime), regData.rows[0], csTime);
 
 
       if (savedActual !== null && savedActual !== undefined && parseFloat(savedActual) > 0) {
