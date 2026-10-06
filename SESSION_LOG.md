@@ -1958,3 +1958,6 @@ The user confirmed that this log must retain the history of application updates 
 
 ## 2026-10-06 — Directory winners action
 - Completed directory cards now offer View Challenge Winners linking directly to the existing winners popup on the past-challenges tab. Reuses published winners endpoint and existing team privacy display. Active challenges retain details rather than implying final winners.
+
+## 2026-10-06 — Restore directory → details → winners flow
+- Corrected the requested navigation: directory View Challenge always opens the existing details page; completed challenge details now offer View Challenge Winners linking to the existing winners popup.

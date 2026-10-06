@@ -13,5 +13,5 @@ export default async function Page({params}:{params:{id:string}}){const c=await 
 <dl className="grid gap-5 sm:grid-cols-2 my-8">{[['Account category',c.type==='hybrid'?'Demo and real':c.type],['Registration deadline',dateLabel(c.registrationDeadline)],['Challenge starts',dateLabel(c.startDate)],['Challenge ends',dateLabel(c.endDate)]].map(([label,value])=><div key={label}><dt className="text-gray-400">{label}</dt><dd className="mt-1">{value}</dd></div>)}</dl>
 {c.prizePoolText&&<p className="mb-6">Prizes: {c.prizePoolText}</p>}
 <p className="text-gray-300 mb-6">Review the challenge rules and eligibility requirements before registering. Registration availability is checked when you enter the challenge.</p>
-<Link href={`/challenge/${c.id}`} className="inline-block bg-blue-700 rounded-xl px-6 py-3">{c.status==='registration_open'?'View challenge and registration options':'View challenge'}</Link>
+<Link href={c.status==='completed' ? `/challenges?winners=${c.id}` : `/challenge/${c.id}`} className="inline-block bg-blue-700 rounded-xl px-6 py-3">{c.status==='completed'?'View Challenge Winners':c.status==='registration_open'?'View challenge and registration options':'View challenge'}</Link>
 </article></main>;}
