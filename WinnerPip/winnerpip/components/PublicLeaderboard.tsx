@@ -51,8 +51,8 @@ export default function PublicLeaderboard({ challenge, onClose }: {challenge: an
               <td className="py-3 pr-3"><div className={`break-words font-medium ${badges.highlight?'text-emerald-300':'text-white'}`}><span className="mr-2 text-gray-400">#{entry.rank || '—'}</span>{badges.trophy&&<span aria-label="Prize position">🏆 </span>}{entry.nickname}</div><div className="mt-1 text-xs text-gray-400">{entry.totalTrades || 0} trades · {entry.qualifiedTrades || 0} qualified{entry.isDisqualified?' · Disqualified':entry.isWithdrawn?' · Exited':''}</div></td>
               <td className="py-3 text-right whitespace-nowrap font-semibold">{entry.isCent ? `${balance.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}¢` : balance.toLocaleString('en-US',{style:'currency',currency:'USD'})}</td>
             </tr>;})}</tbody></table>}
+        {!loading && !error && data?.hasMore === false && data?.disqualifiedCount > 0 && <p className="pt-4 pb-2 text-xs text-gray-400">{data.disqualifiedCount} {data.disqualifiedCount === 1 ? 'participant disqualified' : 'participants disqualified'} due to challenge rule breaches.</p>}
         </div>
-        {!loading && !error && data?.disqualifiedCount > 0 && <p className="px-5 pb-3 text-xs text-gray-400">{data.disqualifiedCount} {data.disqualifiedCount === 1 ? 'participant disqualified' : 'participants disqualified'} due to challenge rule breaches.</p>}
         <div className="flex items-center justify-between gap-2 border-t border-white/10 px-5 py-3 text-sm text-gray-400">
           <button disabled={page===0||loading} onClick={()=>setPage(p=>p-1)} className="p-2 disabled:opacity-30">Previous</button><span>Page {page+1}{data?.total ? ` · ${data.total} participants`:''}</span><button disabled={!data?.hasMore||loading} onClick={()=>setPage(p=>p+1)} className="p-2 disabled:opacity-30">Next</button>
         </div>

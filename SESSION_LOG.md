@@ -1949,3 +1949,6 @@ The user confirmed that this log must retain the history of application updates 
 
 ## 2026-10-06 — Public leaderboard disqualification summary
 - Public card leaderboard requests an explicit publicStandings mode that excludes leaderboard/registration disqualifications before pagination and returns the category-wide disqualified count. Popup shows a concise rule-breach summary instead of those participant rows. Missing rank alone is not used as a disqualification flag. Existing signed-in/admin/host requests retain full results. No-result public pages do not fall back to unfiltered registration rows. Backend/frontend TypeScript and whitespace checks passed.
+
+## 2026-10-06 — Place public disqualification summary after final participant
+- Moved the summary inside the leaderboard scroll area and render it only when hasMore is false. It follows the final participant on the last page instead of remaining pinned above pagination.
