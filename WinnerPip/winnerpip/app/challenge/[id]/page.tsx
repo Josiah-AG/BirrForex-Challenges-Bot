@@ -1,5 +1,6 @@
 "use client";
 
+import RaceCountdown from "@/components/RaceCountdown";
 import TradeProtectionLevel from "@/components/TradeProtectionLevel";
 import PublicLeaderboard, { canViewPublicLeaderboard } from "@/components/PublicLeaderboard";
 import { balanceOperationTime } from "@/lib/balanceOperationTime";
@@ -561,11 +562,6 @@ export default function ChallengeDashboard() {
   const isNotStarted = challenge && (challenge.status === "registration_open" || challenge.status === "draft" || challenge.status === "scheduled");
   const isActive = challenge && challenge.status === "active";
   const isCompleted = challenge && (challenge.status === "completed" || challenge.status === "submission_open" || challenge.status === "reviewing");
-  const daysLeft = challenge
-    ? isNotStarted
-      ? Math.max(0, Math.ceil((new Date(challenge.startDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
-      : Math.max(0, Math.ceil((new Date(challenge.endDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
-    : 0;
   const daysLeftLabel = isNotStarted ? "Time to Start" : "Time Left";
   // Show progress bar if has trades OR pre-start with a known balance
   const showProgressBar = myStats && !isBlownAccount && !myStats.disqualified &&
@@ -1078,8 +1074,7 @@ export default function ChallengeDashboard() {
               </div>
               <div className="glass rounded-2xl p-4 md:p-5 border border-white/10">
                 <div className="flex items-center gap-2 mb-2"><Clock size={16} className="text-gold" /><p className="text-[10px] text-gray-400 uppercase tracking-wider font-medium">{daysLeftLabel}</p></div>
-                <p className="text-3xl md:text-4xl font-bold text-gold">{daysLeft}</p>
-                <p className="text-xs text-gray-500 mt-1">days remaining</p>
+                <RaceCountdown compact startDate={isNotStarted ? challenge.startDate : undefined} endDate={!isNotStarted ? challenge.endDate : undefined} />
               </div>
             </div>
 

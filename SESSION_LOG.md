@@ -1937,3 +1937,6 @@ The user confirmed that this log must retain the history of application updates 
 
 ## 2026-10-06 — Simplify SL/TP display labels
 - At user request, removed the recovered-level EA caption and its explanatory tooltip from the shared client/admin/host trade detail component. Stop Loss and Take Profit values and missing-data indicators remain; recovery and evaluation logic are unchanged.
+
+## 2026-10-06 — Live challenge end countdown
+- Added second-by-second day/hour/minute/second countdown to the participant Time Left card, active public challenge cards, and public leaderboard popup. Shared RaceCountdown uses the supplied end timestamp, clamps at zero with Challenge ended, refreshes on tab visibility, and cleans up its timer. Pre-start dashboard retains start countdown. Compact dashboard units fit narrow mobile cards. Frontend TypeScript and whitespace checks passed.

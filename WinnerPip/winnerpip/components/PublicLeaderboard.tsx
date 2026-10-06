@@ -1,4 +1,5 @@
 "use client";
+import RaceCountdown from "./RaceCountdown";
 import { useEffect, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { Loader2, RefreshCw, Trophy, X } from 'lucide-react';
@@ -38,6 +39,7 @@ export default function PublicLeaderboard({ challenge, onClose }: {challenge: an
           <Dialog.Description className="mt-1 text-sm text-gray-400">{challenge?.title} · Public standings</Dialog.Description>
           <Dialog.Close aria-label="Close leaderboard" className="absolute right-3 top-3 p-2 rounded-lg text-gray-400 hover:bg-white/10 hover:text-white"><X size={21}/></Dialog.Close>
         </div>
+        <div className="px-5 pt-3"><RaceCountdown endDate={challenge?.endDate} /></div>
         <div className="flex items-center justify-between gap-3 px-5 py-3">
           {challenge?.type === 'hybrid' ? <div className="flex gap-2">{['demo','real'].map(c=><button key={c} onClick={()=>{setCategory(c);setPage(0);}} aria-pressed={category===c} className={`rounded-lg px-3 py-2 text-sm capitalize ${category===c?'bg-emerald-500/20 text-emerald-300':'bg-white/5 text-gray-400'}`}>{c}</button>)}</div> : <span className="text-sm text-gray-400 capitalize">{category} accounts</span>}
           <button onClick={()=>setRevision(v=>v+1)} disabled={loading} className="flex items-center gap-1.5 text-sm text-emerald-300 disabled:opacity-50"><RefreshCw size={15}/>Refresh</button>

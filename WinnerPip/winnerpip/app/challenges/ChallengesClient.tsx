@@ -285,6 +285,10 @@ export default function ChallengesPage({initialChallenges = []}: {initialChallen
             <RaceCountdown startDate={challenge.startDate} />
           )}
 
+          {!isPast && ["active", "ongoing"].includes(challenge.displayStatus || challenge.status) && (
+            <RaceCountdown endDate={challenge.endDate} />
+          )}
+
           {/* Details */}
           <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 sm:gap-3 mb-3 sm:mb-5">
             <div className="col-span-2 flex items-center gap-2 p-2.5 sm:p-3 rounded-xl bg-white/5 border border-white/10">
