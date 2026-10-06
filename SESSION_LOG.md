@@ -1955,3 +1955,6 @@ The user confirmed that this log must retain the history of application updates 
 
 ## 2026-10-06 — Clickable directory hosts
 - Challenge directory host names now link to their configured main link in a new tab. BirrForex challenges link to the existing contact-winnerpip page. Missing host links remain plain text. Frontend TypeScript checked.
+
+## 2026-10-06 — Directory winners action
+- Completed directory cards now offer View Challenge Winners linking directly to the existing winners popup on the past-challenges tab. Reuses published winners endpoint and existing team privacy display. Active challenges retain details rather than implying final winners.

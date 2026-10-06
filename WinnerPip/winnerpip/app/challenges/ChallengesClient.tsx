@@ -70,7 +70,7 @@ interface WinnersData {
   teamOnly?: boolean;
 }
 
-export default function ChallengesPage({initialChallenges = []}: {initialChallenges?: Challenge[]}) {
+export default function ChallengesPage({initialChallenges = [], winnersId}: {initialChallenges?: Challenge[]; winnersId?: number}) {
   const [publicLeaderboard, setPublicLeaderboard] = useState<Challenge | null>(null);
   const [expandedPrizes, setExpandedPrizes] = useState<Record<number, boolean>>({});
   const [challenges, setChallenges] = useState<Challenge[]>(initialChallenges);
@@ -179,6 +179,16 @@ export default function ChallengesPage({initialChallenges = []}: {initialChallen
     }
     setWinnersLoading(false);
   };
+
+  const openedWinnersId = useRef<number | null>(null);
+  useEffect(() => {
+    if (!winnersId || openedWinnersId.current === winnersId) return;
+    const challenge = challenges.find(c => c.id === winnersId && c.status === "completed");
+    if (!challenge) return;
+    openedWinnersId.current = winnersId;
+    setActiveTab("past");
+    void handlePastChallengeClick(challenge);
+  }, [winnersId, challenges]);
 
   const medalEmoji = (rank: number) => {
     if (rank === 1) return "🥇";
