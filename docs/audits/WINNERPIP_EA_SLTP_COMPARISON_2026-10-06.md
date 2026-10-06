@@ -47,3 +47,7 @@ Final evaluation results are appended after the full comparison completes. Any o
 - Thirty pending candle checks across 14 accounts remained pending in both variants. These are not verified passes and prevent an unconditional claim that every trade's risk check is complete.
 
 Recommendation: recovered SL/TP has useful display coverage on this dataset. Preserve provenance and original entry values, keep recovery optional/nonfatal, and run a challenge-lane integration benchmark before promising a production duration. The separate pre-start snapshot timing discrepancy warrants its own diagnosis; this assessment did not modify it.
+
+## Correction following live UTC verification
+
+The apparent pre-start funding timestamp problem above was a local audit artifact: the Mac PostgreSQL client interpreted legacy timestamp-without-zone columns in Africa/Addis_Ababa. The production challenge starts at 06:00 UTC, not 03:00 UTC; the 04:02 UTC snapshot precedes it correctly. There is no evidence here of a production funding timestamp error. The shadow comparison remains conditional because it skipped the funding gate; its in-challenge counts also require revalidation with UTC parsing and must not be treated as production-verified counts. Raw recovery and measured request durations are unaffected.

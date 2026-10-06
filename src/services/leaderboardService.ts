@@ -1,3 +1,4 @@
+import { rebuildChallengeWithdrawalsSql } from '../utils/challengeWithdrawals';
 import { qualifiedRankingSql } from '../utils/qualifiedRanking';
 import { beginPullJournal, checkpointPullJournal } from './pullRollbackJournal';
 import { snapshotWinnerPipResults } from './winnerSelection';
@@ -349,12 +350,7 @@ export class LeaderboardService {
     );
 
     // Rebuild withdrawal state after insert too: ingestion may precede the first live row.
-    await db.query(`UPDATE wp_leaderboard l SET total_withdrawn=ledger.total,
-      is_withdrawn=(ledger.total>0 AND l.current_balance<=0)
-      FROM (SELECT r.id,COALESCE(SUM(ABS(o.amount)) FILTER(WHERE o.op_type='withdrawal' AND o.op_time>=r.registered_at),0) AS total
-        FROM trading_registrations r LEFT JOIN wp_balance_ops o ON o.registration_id=r.id AND o.challenge_id=r.challenge_id
-        WHERE r.challenge_id=$1 GROUP BY r.id) ledger
-      WHERE l.registration_id=ledger.id AND l.challenge_id=$1${registrationId == null ? '' : ' AND l.registration_id=$2'}`,args);
+    await db.query(rebuildChallengeWithdrawalsSql(registrationId != null), args);
 
     // Clear staging after flush
     // Rows were consumed atomically by DELETE ... RETURNING above.
