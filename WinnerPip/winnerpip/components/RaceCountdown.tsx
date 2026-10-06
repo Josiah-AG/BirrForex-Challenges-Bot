@@ -18,6 +18,11 @@ export default function RaceCountdown({ startDate, endDate, compact = false }: {
     };
   }, [target]);
   if (!Number.isFinite(target)) return null;
+  if (endDate && remaining === 0) return (
+    <div role="status" className={compact ? "py-2 text-lg font-semibold text-gold" : "mb-3 sm:mb-5 rounded-xl border border-royal/30 bg-gradient-to-br from-royal/15 to-gold/5 p-3 sm:p-4 text-center font-semibold text-blue-300"}>
+      Challenge ended
+    </div>
+  );
   const values = remaining === null ? null : [
     Math.floor(remaining / 86400), Math.floor(remaining / 3600) % 24,
     Math.floor(remaining / 60) % 60, remaining % 60,

@@ -1940,3 +1940,6 @@ The user confirmed that this log must retain the history of application updates 
 
 ## 2026-10-06 — Live challenge end countdown
 - Added second-by-second day/hour/minute/second countdown to the participant Time Left card, active public challenge cards, and public leaderboard popup. Shared RaceCountdown uses the supplied end timestamp, clamps at zero with Challenge ended, refreshes on tab visibility, and cleans up its timer. Pre-start dashboard retains start countdown. Compact dashboard units fit narrow mobile cards. Frontend TypeScript and whitespace checks passed.
+
+## 2026-10-06 — Replace expired countdown
+- At user request, challenge end countdowns now render only Challenge ended once zero is reached; the four numeric tiles are removed on dashboard, challenge cards and public leaderboard. Pre-start countdown behavior unchanged.
