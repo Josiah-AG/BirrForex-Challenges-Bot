@@ -1,4 +1,5 @@
 "use client";
+import {challengeTimestamp} from "@/lib/challengeTime";
 import {nextPullTime} from "@/lib/nextPullTime";
 import NoTargetOverviewCard from "@/components/NoTargetOverviewCard";
 
@@ -373,6 +374,7 @@ export default function AdminDashboard() {
 
   // Currency helper — shows ¢ for cent-only real challenges, $ otherwise
   const selectedChall = challenges.find(c => String(c.id) === selectedChallengeId);
+  const challengeTz = selectedChall?.timezone || "Africa/Nairobi";
   const isCentChallenge = (overviewData?.onlyCentAccount) && selectedChall?.type !== 'demo';
   const cur = (amount: number | string | null | undefined, userIsCent?: boolean) => {
     if (amount == null) return "—";
@@ -405,7 +407,7 @@ export default function AdminDashboard() {
     demoBalance: od?.balance?.demo?.toFixed(2) || "0.00",
     aboveTarget: od?.aboveTarget ?? od?.qualified ?? 0,
     qualifiedCount: od?.qualified || 0,
-    lastPullTime: od?.pulls?.lastPullAt ? (() => { const d = new Date(new Date(od.pulls.lastPullAt).getTime() + 3*60*60*1000); return `${String(d.getUTCHours()).padStart(2,"0")}:${String(d.getUTCMinutes()).padStart(2,"0")} EAT`; })() : "—",
+    lastPullTime: challengeTimestamp(od?.pulls?.lastPullAt, challengeTz),
     nextPullTime: nextPullTime(selectedChall),
     metrics: od?.metrics || null,
   };
@@ -514,10 +516,10 @@ export default function AdminDashboard() {
           const data = await res.json();
           if (cancelled) return;
           const pulls = (data.pulls || []).map((p: any) => {
-            const startEAT = new Date(new Date(p.started_at).getTime() + 3*60*60*1000);
+            const startedAt = p.started_at;
             const duration = p.durationSec;
             return {
-              time: `${startEAT.getUTCHours().toString().padStart(2,'0')}:${startEAT.getUTCMinutes().toString().padStart(2,'0')}`,
+              time: challengeTimestamp(startedAt, challengeTz),
               success: p.successful || 0,
               failed: p.failed || 0,
               passwordChanged: 0,
@@ -630,7 +632,7 @@ export default function AdminDashboard() {
           </div>
         </div>
       </header>
-      <DataRefresh state={dataRefresh} />
+      <DataRefresh state={dataRefresh} timezone={challengeTz} />
 
       <div className="container mx-auto px-4 py-6 max-w-7xl relative">
         {pendingApprovals.length>0 && <section className="mb-6 p-4 rounded-xl border border-gold/30 bg-gold/5">
@@ -872,7 +874,7 @@ export default function AdminDashboard() {
 
         {/* ==================== PULL HISTORY + TERMINALS ==================== */}
         {activeSection === "pulls" && (
-          <PullsTab key={selectedChallengeId} challengeId={selectedChallengeId} pullHistory={pullHistory} terminalStatus={terminalStatus} slFailures={slFailures} onPullFinished={() => { fetchPullsRef.current(); fetchLeaderboardRef.current(); }} />
+          <PullsTab challenge={selectedChall} key={selectedChallengeId} challengeId={selectedChallengeId} pullHistory={pullHistory} terminalStatus={terminalStatus} slFailures={slFailures} onPullFinished={() => { fetchPullsRef.current(); fetchLeaderboardRef.current(); }} />
         )}
 
         {/* ==================== PARTICIPANTS (Find User + Export) ==================== */}
@@ -915,17 +917,17 @@ export default function AdminDashboard() {
                   <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500">Account #</p><p className="text-sm font-semibold text-white">{foundUser.accountNumber}</p></div>
                   <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500">Server</p><p className="text-sm font-semibold text-white">{foundUser.server}</p></div>
                   <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500">Telegram ID</p><p className="text-sm font-semibold text-white">{foundUser.telegramId}</p></div>
-                  <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500">Registered</p><p className="text-sm font-semibold text-white">{foundUser.registeredAt ? (() => { const d = new Date(new Date(foundUser.registeredAt).getTime() + 3*60*60*1000); return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,"0")}-${String(d.getUTCDate()).padStart(2,"0")} ${String(d.getUTCHours()).padStart(2,"0")}:${String(d.getUTCMinutes()).padStart(2,"0")} EAT`; })() : "—"}</p></div>
-                  <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500">Last Pull</p><p className="text-sm font-semibold text-white">{foundUser.lastPull ? (() => { const d = new Date(new Date(foundUser.lastPull).getTime() + 3*60*60*1000); return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,"0")}-${String(d.getUTCDate()).padStart(2,"0")} ${String(d.getUTCHours()).padStart(2,"0")}:${String(d.getUTCMinutes()).padStart(2,"0")} EAT`; })() : "—"}</p></div>
+                  <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500">Registered</p><p className="text-sm font-semibold text-white">{challengeTimestamp(foundUser.registeredAt, challengeTz, true)}</p></div>
+                  <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500">Last Pull</p><p className="text-sm font-semibold text-white">{challengeTimestamp(foundUser.lastPull, challengeTz, true)}</p></div>
                   <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500">Partner</p><p className="text-sm font-semibold text-profit">{foundUser.partnerStatus}</p></div>
                 </div>
                 {foundUser.violations && foundUser.violations.length > 0 && (<div className="px-5 pb-3"><p className="text-xs font-semibold text-loss mb-2">Violations ({foundUser.violations.length})</p><div className="space-y-1">{foundUser.violations.map((v: string, i: number) => (<div key={i} className="flex items-center gap-2 p-2 bg-loss/5 rounded-lg border border-loss/10"><AlertTriangle size={12} className="text-loss flex-shrink-0" /><p className="text-xs text-gray-300">{v}</p></div>))}</div></div>)}
                 <div className="px-5 pb-3"><p className="text-xs font-semibold text-gray-300 mb-2">Recent Trades</p>{foundUser.recentTrades && foundUser.recentTrades.length > 0 ? <div className="space-y-2">{foundUser.recentTrades.map((t: any, i: number) => (<div key={i} className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10"><div className="flex items-center gap-3"><span className={`px-2 py-1 rounded text-[10px] font-bold ${t.type === "Buy" ? "bg-profit/10 text-profit" : "bg-loss/10 text-loss"}`}>{t.type}</span><div><p className="text-sm text-white font-semibold">{t.symbol}</p><p className="text-[10px] text-gray-500">{t.volume} lots</p></div></div><div className="text-right"><p className={`text-sm font-bold ${t.profit >= 0 ? "text-profit" : "text-loss"}`}>{cur(t.profit, foundUser.isCent)}</p></div></div>))}</div> : <p className="text-sm text-gray-500">No trades yet</p>}</div>
                 <div className="p-5 border-t border-white/10 space-y-2">
                   <button onClick={() => { setActiveSection("leaderboard"); setLeaderboardCategory(foundUser.accountType === 'demo' ? 'demo' : foundUser.accountType === 'real' ? 'real' : 'all'); setTimeout(() => { const entry = leaderboard.find((e: any) => e.nickname === foundUser.nickname || e.accountNumber === foundUser.accountNumber); if (entry) setSelectedParticipant(entry); else setSelectedParticipant({ ...foundUser, registrationId: foundUser.id, adjustedBalance: foundUser.adjustedBalance ?? 0, qualifiedProfit: foundUser.qualifiedProfit || 0, grossProfit: foundUser.grossProfit || 0, profitRemoved: foundUser.profitRemoved || 0, totalTrades: foundUser.totalTrades || 0, qualifiedTrades: foundUser.qualifiedTrades || 0, flaggedTrades: foundUser.flaggedTrades || 0, isCent: foundUser.isCent || false, accountType: foundUser.accountType, nickname: foundUser.nickname, rank: foundUser.rank }); }, 500); }} className="w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-gold/20 border border-gold/30 hover:bg-gold/30 text-gold font-semibold transition-all text-sm"><Trophy size={16} />View on Leaderboard #{foundUser.rank || '—'}</button>
-                  <button onClick={() => { const data = foundUser; const toEAT = (d:string) => { if(!d) return "—"; const dt = new Date(new Date(d).getTime()+3*60*60*1000); return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth()+1).padStart(2,"0")}-${String(dt.getUTCDate()).padStart(2,"0")} ${String(dt.getUTCHours()).padStart(2,"0")}:${String(dt.getUTCMinutes()).padStart(2,"0")} EAT`; }; const rows = [["Field","Value"],["Nickname",data.nickname],["Username",data.username],["Email",data.email],["Account",data.accountNumber],["Type",data.accountType],["Server",data.server],["Balance",data.balance != null ? data.balance : "N/A"],["Qualified Profit",data.qualifiedProfit],["Gross Profit",data.grossProfit],["Profit Removed",data.profitRemoved],["Trades",data.totalTrades],["Flagged",data.flaggedTrades],["Active Days",data.activeDays],["Rank",data.rank || "N/A"],["Registered (EAT)",toEAT(data.registeredAt)],["Last Pull (EAT)",toEAT(data.lastPull)],["Partner",data.partnerStatus]]; const csv=rows.map((r:any)=>r.join(",")).join("\n"); const blob=new Blob([csv],{type:"text/csv"}); const url=URL.createObjectURL(blob); const a=document.createElement("a"); a.href=url; a.download=`${data.nickname}_${data.accountNumber}_summary.csv`; a.click(); }} className="w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-royal/20 border border-royal/30 hover:bg-royal/30 text-royal font-semibold transition-all text-sm"><FileText size={16} />Export User Summary (CSV)</button>
+                  <button onClick={() => { const data = foundUser; const toEAT = (d:string) => challengeTimestamp(d, challengeTz, true); const rows = [["Field","Value"],["Nickname",data.nickname],["Username",data.username],["Email",data.email],["Account",data.accountNumber],["Type",data.accountType],["Server",data.server],["Balance",data.balance != null ? data.balance : "N/A"],["Qualified Profit",data.qualifiedProfit],["Gross Profit",data.grossProfit],["Profit Removed",data.profitRemoved],["Trades",data.totalTrades],["Flagged",data.flaggedTrades],["Active Days",data.activeDays],["Rank",data.rank || "N/A"],[`Registered (${challengeTz})`,toEAT(data.registeredAt)],[`Last Pull (${challengeTz})`,toEAT(data.lastPull)],["Partner",data.partnerStatus]]; const csv=rows.map((r:any)=>r.join(",")).join("\n"); const blob=new Blob([csv],{type:"text/csv"}); const url=URL.createObjectURL(blob); const a=document.createElement("a"); a.href=url; a.download=`${data.nickname}_${data.accountNumber}_summary.csv`; a.click(); }} className="w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-royal/20 border border-royal/30 hover:bg-royal/30 text-royal font-semibold transition-all text-sm"><FileText size={16} />Export User Summary (CSV)</button>
                   <button onClick={async () => { const data = foundUser; if(!data.id){ alert("No user data"); return; } try { const _api = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com"; const _path = "management"; const res = await fetch(`/api/management/challenge/${selectedChallengeId}/user-evaluation?registration_id=${data.id}`); if (!res.ok) { alert("Failed to fetch evaluation"); return; } const result = await res.json(); const blob = new Blob([result.report], {type:"text/plain"}); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `${data.nickname || data.accountNumber}_evaluation_report.txt`; a.click(); } catch { alert("Export failed"); } }} className="w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-profit/20 border border-profit/30 hover:bg-profit/30 text-profit font-semibold transition-all text-sm"><FileText size={16} />Export Evaluation Report</button>
-                  <button onClick={async () => { const data = foundUser; if(!data.id){ alert("No user data"); return; } try { const _api = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com"; const _path = "management"; const res = await fetch(`/api/management/challenge/${selectedChallengeId}/export-user-trades?registration_id=${data.id}`); if (!res.ok) { alert("Export failed"); return; } const result = await res.json(); const html = generateTradesHTML(result); const blob = new Blob([html], {type:"text/html"}); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `${result.user?.nickname || data.nickname || data.accountNumber}_MT5_history.html`; a.click(); URL.revokeObjectURL(url); } catch { alert("Export failed"); } }} className="w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 text-gray-300 font-semibold transition-all text-sm"><FileText size={16} />Export MT5 Trade History</button>
+                  <button onClick={async () => { const data = foundUser; if(!data.id){ alert("No user data"); return; } try { const _api = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com"; const _path = "management"; const res = await fetch(`/api/management/challenge/${selectedChallengeId}/export-user-trades?registration_id=${data.id}`); if (!res.ok) { alert("Export failed"); return; } const result = await res.json(); const html = generateTradesHTML({...result, challenge: {...result.challenge, timezone: challengeTz}}); const blob = new Blob([html], {type:"text/html"}); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `${result.user?.nickname || data.nickname || data.accountNumber}_MT5_history.html`; a.click(); URL.revokeObjectURL(url); } catch { alert("Export failed"); } }} className="w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 text-gray-300 font-semibold transition-all text-sm"><FileText size={16} />Export MT5 Trade History</button>
                   <button onClick={async () => { const data = foundUser; if(!data.id){ alert("No user data"); return; } try { const _api = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com"; const _path = "management"; const res = await fetch(`/api/management/challenge/${selectedChallengeId}/raw-trades-csv?registration_id=${data.id}`); if (!res.ok) { alert("Export failed"); return; } const csv = await res.text(); const blob = new Blob([csv], {type:"text/csv"}); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `${data.nickname || data.accountNumber}_raw_trades.csv`; a.click(); URL.revokeObjectURL(url); } catch { alert("Export failed"); } }} className="w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 text-gray-300 font-semibold transition-all text-sm"><FileText size={16} />Download Raw Trade Data (CSV)</button>
                 </div>
                 {/* Admin Actions */}
@@ -994,7 +996,7 @@ export default function AdminDashboard() {
                           <td className="py-2 px-3 text-xs text-gray-400 max-w-[120px] truncate">{p.email || "—"}</td>
                           <td className="py-2 px-3 text-xs text-gray-300">{p.accountNumber}</td>
                           <td className="py-2 px-3"><span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${p.accountType === "real" ? "bg-gold/10 text-gold" : "bg-royal/10 text-royal"}`}>{p.accountType}</span></td>
-                          <td className="py-2 px-3 text-right"><span className="text-sm text-white font-medium">{cur(p.balance, p.isCent)}</span>{p.adjustedBalance != null && <p className="text-[9px] text-gray-400">Adj: {cur(p.adjustedBalance, p.isCent)}</p>}{p.lastPullAt && <p className="text-[9px] text-gray-500">{(() => { const d = new Date(new Date(p.lastPullAt).getTime() + 3*60*60*1000); return `${String(d.getUTCHours()).padStart(2,"0")}:${String(d.getUTCMinutes()).padStart(2,"0")} EAT`; })()}</p>}</td>
+                          <td className="py-2 px-3 text-right"><span className="text-sm text-white font-medium">{cur(p.balance, p.isCent)}</span>{p.adjustedBalance != null && <p className="text-[9px] text-gray-400">Adj: {cur(p.adjustedBalance, p.isCent)}</p>}{p.lastPullAt && <p className="text-[9px] text-gray-500">{challengeTimestamp(p.lastPullAt, challengeTz)}</p>}</td>
                           <td className={`py-2 px-3 text-right text-sm font-medium ${(p.qualifiedProfit ?? 0) >= 0 ? "text-profit" : "text-loss"}`}>{p.qualifiedProfit != null ? cur(p.qualifiedProfit, p.isCent) : "—"}</td>
                           <td className="py-2 px-3 text-center text-xs text-gray-400">{p.totalTrades}</td>
                           <td className="py-2 px-3 text-center" onClick={(e) => e.stopPropagation()}>
@@ -1084,7 +1086,7 @@ export default function AdminDashboard() {
                             <p className="text-sm text-white font-semibold">@{u.username || "unknown"}</p>
                             <p className="text-[10px] text-gray-400">{u.account_number} • {u.account_type} • {u.email || "no email"}</p>
                           </div>
-                          <p className="text-[10px] text-gray-400">{u.partner_warned_at ? (() => { const d = new Date(new Date(u.partner_warned_at).getTime() + 3*60*60*1000); return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,"0")}-${String(d.getUTCDate()).padStart(2,"0")} EAT`; })() : "—"}</p>
+                          <p className="text-[10px] text-gray-400">{challengeTimestamp(u.partner_warned_at, challengeTz, true)}</p>
                         </div>
                       ))}
                     </div>
@@ -1501,7 +1503,7 @@ export default function AdminDashboard() {
 
       {/* ==================== HEALTH TAB ==================== */}
       {activeSection === "health" && (
-        <HealthCheckPanel />
+        <HealthCheckPanel challengeTz={challengeTz} />
       )}
 
       {/* ==================== PARTICIPANT DETAIL MODAL ==================== */}
@@ -1568,8 +1570,8 @@ export default function AdminDashboard() {
                 );
               })()}
               {(selectedParticipantTrades.length > 0 || selectedParticipantBalanceOps.length > 0) && (() => {
-                const fmtEAT = (d: string) => new Date(new Date(d).getTime() + 3*60*60*1000).toISOString().substring(11,16);
-                const fmtDateEAT = (d: string) => { const dt = new Date(new Date(d).getTime() + 3*60*60*1000); return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); };
+                const fmtEAT = (d: string) => challengeTimestamp(d, challengeTz);
+                const fmtDateEAT = (d: string) => challengeTimestamp(d, challengeTz, true).slice(0,10);
                 const c = (v: number) => selectedParticipant.isCent ? `${v.toFixed(2)}¢` : `$${v.toFixed(2)}`;
                 const opMeta: Record<string, { icon: string; label: string; bg: string; border: string; textColor: string; sign: (a: number) => string }> = {
                   deposit:    { icon: '💰', label: 'Deposit',    bg: 'bg-profit/10', border: 'border-profit/20', textColor: 'text-profit',      sign: () => '+' },
@@ -1689,7 +1691,7 @@ export default function AdminDashboard() {
                       const res = await fetch(`/api/management/challenge/${selectedChallengeId}/export-user-trades?registration_id=${selectedParticipant.registrationId}`);
                       if (!res.ok) { alert("Export failed"); return; }
                       const data = await res.json();
-                      const html = generateTradesHTML(data);
+                      const html = generateTradesHTML({...data, challenge: {...data.challenge, timezone: challengeTz}});
                       const blob = new Blob([html], { type: "text/html" });
                       const url  = URL.createObjectURL(blob);
                       const a    = document.createElement("a");
@@ -1714,7 +1716,7 @@ export default function AdminDashboard() {
         const t = selectedTrade;
         const isGroup = (t as any)._isGroupHeader === true;
         const group: any[] = (t as any)._group || [];
-        const fmtEAT = (s: string) => s ? new Date(new Date(s).getTime()+3*60*60*1000).toISOString().substring(0,16).replace("T"," ")+" EAT" : "—";
+        const fmtEAT = (s: string) => challengeTimestamp(s, challengeTz, true);
         const isCent = selectedParticipant?.isCent ?? false;
         const cur = (v: number) => isCent ? `${Number(v).toFixed(2)}¢` : `$${Number(v).toFixed(2)}`;
         const parseViolations = (x: any): string[] => Array.isArray(x.violations) ? x.violations : (typeof x.violations === 'string' ? JSON.parse(x.violations || '[]') : []);
@@ -2223,7 +2225,7 @@ async function getWorkloadJson(path: string, signal: AbortSignal) {
   return response.json();
 }
 
-function HealthCheckPanel() {
+function HealthCheckPanel({challengeTz}:{challengeTz:string}) {
   const [healthData, setHealthData] = useState<any>(null);
   const [healthClock, setHealthClock] = useState(Date.now());
   useEffect(() => { const timer = setInterval(() => setHealthClock(Date.now()), 1000); return () => clearInterval(timer); }, []);
@@ -2263,7 +2265,7 @@ function HealthCheckPanel() {
       if (res.ok) {
         const data = await res.json();
         setHealthData(data);
-        setLastChecked(new Date().toLocaleTimeString());
+        setLastChecked(challengeTimestamp(new Date(), challengeTz));
       } else {
         setError("Failed to fetch health data");
       }
@@ -2393,7 +2395,7 @@ function HealthCheckPanel() {
                           <p className={`text-sm font-bold ${passed ? "text-profit" : failed ? "text-loss" : "text-gray-500"}`}>
                             {passed ? "✓" : failed ? "✗" : "—"}
                           </p>
-                          {passed && <span title={result?.ea?.checked_at ? `Last EA verification: ${new Date(result.ea.checked_at * 1000).toLocaleTimeString()}. Last recovery since worker start: ${result.ea.last_recovery_at ? new Date(result.ea.last_recovery_at * 1000).toLocaleString() : "None yet"}` : `EA status: ${result?.ea?.status || 'not checked'}`} className={`block mt-1 text-[9px] rounded px-1 py-0.5 ${eaVerified ? 'bg-profit/20 text-profit' : 'text-gray-400'}`}>{eaVerified ? '✓ ' : ''}{eaLabel}</span>}
+                          {passed && <span title={result?.ea?.checked_at ? `Last EA verification: ${challengeTimestamp(result.ea.checked_at * 1000, challengeTz)}. Last recovery since worker start: ${result.ea.last_recovery_at ? challengeTimestamp(result.ea.last_recovery_at * 1000, challengeTz, true) : "None yet"}` : `EA status: ${result?.ea?.status || 'not checked'}`} className={`block mt-1 text-[9px] rounded px-1 py-0.5 ${eaVerified ? 'bg-profit/20 text-profit' : 'text-gray-400'}`}>{eaVerified ? '✓ ' : ''}{eaLabel}</span>}
                         </div>
                       );
                     })}
@@ -2472,7 +2474,7 @@ function HealthCheckPanel() {
                       <div className={`w-2 h-2 rounded-full ${b.status === "completed" ? "bg-profit" : b.status === "running" ? "bg-gold animate-pulse" : "bg-loss"}`}></div>
                       <div>
                         <p className="text-xs text-white font-medium">
-                          {new Date(new Date(b.startedAt).getTime() + 3*60*60*1000).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })} EAT
+                          {challengeTimestamp(b.startedAt, challengeTz)}
                         </p>
                         <p className="text-[10px] text-gray-500">{b.totalAccounts} accounts</p>
                       </div>
@@ -2500,12 +2502,12 @@ function HealthCheckPanel() {
 
       {/* VPS Usage Report — always visible, below the health-check container.
           Running a health check renders results above and pushes this down. */}
-      <VpsReportSection data={reportData} loading={reportLoading} error={reportError} onRefresh={loadVpsReport} />
+      <VpsReportSection challengeTz={challengeTz} data={reportData} loading={reportLoading} error={reportError} onRefresh={loadVpsReport} />
     </div>
   );
 }
 
-function VpsReportSection({ data, loading, error, onRefresh }: { data: any; loading: boolean; error: string; onRefresh: () => void }) {
+function VpsReportSection({ challengeTz, data, loading, error, onRefresh }: { challengeTz: string; data: any; loading: boolean; error: string; onRefresh: () => void }) {
   const cur = data?.current || null;
   const lane = cur?.requests_by_lane || {};
   const total = Number(cur?.requests_total || 0);
@@ -2641,12 +2643,12 @@ function VpsReportSection({ data, loading, error, onRefresh }: { data: any; load
             <h4 className="text-sm font-bold text-white mb-3">Snapshots (4x/day)</h4>
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
-                <thead><tr className="text-gray-400 text-left"><th className="py-1 px-2">Captured (EAT)</th><th className="py-1 px-2 text-right">Requests</th><th className="py-1 px-2 text-right">myFXpath</th><th className="py-1 px-2 text-right">WinnerPip</th><th className="py-1 px-2 text-right">myFXpath fail</th><th className="py-1 px-2 text-right">WinnerPip fail</th></tr></thead>
+                <thead><tr className="text-gray-400 text-left"><th className="py-1 px-2">Captured ({challengeTz})</th><th className="py-1 px-2 text-right">Requests</th><th className="py-1 px-2 text-right">myFXpath</th><th className="py-1 px-2 text-right">WinnerPip</th><th className="py-1 px-2 text-right">myFXpath fail</th><th className="py-1 px-2 text-right">WinnerPip fail</th></tr></thead>
                 <tbody>
                   {snapshots.length ? [...snapshots].reverse().map((s: any, i: number) => {
                     const l = s.requests_by_lane || {};
                     const fl = s.failures_by_lane || {};
-                    const t = s.captured_at ? new Date(Number(s.captured_at) * 1000).toLocaleString("en-GB", { timeZone: "Africa/Nairobi", weekday: "short", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }) : "?";
+                    const t = s.captured_at ? new Date(Number(s.captured_at) * 1000).toLocaleString("en-GB", { timeZone: challengeTz, weekday: "short", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }) : "?";
                     const mf = Number(fl.myfxpath || 0);
                     const wp = Number(fl.challenge || 0);
                     return (
@@ -4079,7 +4081,8 @@ function AboveTargetList({ challengeId }: { challengeId: string }) {
   );
 }
 
-function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPullFinished }: { challengeId: string; pullHistory: any[]; terminalStatus: any[]; slFailures: any[]; onPullFinished?: () => void }) {
+function PullsTab({ challenge, challengeId, pullHistory, terminalStatus, slFailures, onPullFinished }: { challenge: any; challengeId: string; pullHistory: any[]; terminalStatus: any[]; slFailures: any[]; onPullFinished?: () => void }) {
+  const challengeTz = challenge?.timezone || "Africa/Nairobi";
   const [failedAccounts, setFailedAccounts] = useState<any[]>([]);
   const [credentialFailures, setCredentialFailures] = useState<any[]>([]);
   const [skippedAccounts, setSkippedAccounts] = useState<any[]>([]);
@@ -4128,10 +4131,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
     setReconcileLoading(false);
   };
 
-  const formatEAT = (dateStr: string) => {
-    const d = new Date(new Date(dateStr).getTime() + 3 * 60 * 60 * 1000);
-    return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,"0")}-${String(d.getUTCDate()).padStart(2,"0")} ${String(d.getUTCHours()).padStart(2,"0")}:${String(d.getUTCMinutes()).padStart(2,"0")} EAT`;
-  };
+  const formatEAT = (dateStr: string) => challengeTimestamp(dateStr, challengeTz, true);
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
   const secretPath = "management";
@@ -4626,7 +4626,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
       {/* Last Completed Pull Summary */}
       {pullProgress && !pullProgress.isRunning && pullProgress.lastBatch && (() => {
         const lb = pullProgress.lastBatch;
-        const completedEAT = lb.completedAt ? (() => { const d = new Date(new Date(lb.completedAt).getTime() + 3*60*60*1000); return `${String(d.getUTCHours()).padStart(2,"0")}:${String(d.getUTCMinutes()).padStart(2,"0")} EAT`; })() : "";
+        const completedEAT = challengeTimestamp(lb.completedAt, challengeTz);
         const balanceCheck = lb.isBalanceCheck;
         const allOk = lb.failed === 0 && (balanceCheck || lb.reconciled);
         return (
@@ -4942,7 +4942,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
                       {indivResult.tradeChanges.slice(0, 10).map((tc: any, i: number) => (
                         <div key={i} className="bg-white/5 rounded-lg p-2 text-[10px]">
                           <p className="text-gray-300 font-semibold mb-1">{tc.symbol} · #{tc.ticket}</p>
-                          {tc.changes.open_time && <p className="text-gray-400">Open Time: <span className="text-gray-500 line-through">{new Date(tc.changes.open_time.before).toLocaleString()}</span> → <span className="text-white">{new Date(tc.changes.open_time.after).toLocaleString()}</span></p>}
+                          {tc.changes.open_time && <p className="text-gray-400">Open Time: <span className="text-gray-500 line-through">{challengeTimestamp(tc.changes.open_time.before, challengeTz, true)}</span> → <span className="text-white">{challengeTimestamp(tc.changes.open_time.after, challengeTz, true)}</span></p>}
                           {tc.changes.open_price && <p className="text-gray-400">Open Price: <span className="text-gray-500">{tc.changes.open_price.before}</span> → <span className="text-white">{tc.changes.open_price.after}</span></p>}
                           {tc.changes.is_qualified && <p className="text-gray-400">Status: <span className={tc.changes.is_qualified.before ? "text-profit" : "text-loss"}>{tc.changes.is_qualified.before ? "Qualified" : "Flagged"}</span> → <span className={tc.changes.is_qualified.after ? "text-profit" : "text-loss"}>{tc.changes.is_qualified.after ? "Qualified ✓" : "Flagged ✗"}</span></p>}
                           {tc.changes.stop_loss && <p className="text-gray-400">SL: {tc.changes.stop_loss.before} → {tc.changes.stop_loss.after}</p>}
@@ -5071,7 +5071,7 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
             const f = ptResult.fresh; const d = ptResult.db; const diff = ptResult.diff || {};
             const fe = ptResult.freshEval || {};
             const hasDiff = Object.keys(diff).length > 0;
-            const fmtEAT = (s: string) => s ? new Date(new Date(s).getTime()+3*60*60*1000).toISOString().substring(0,16).replace("T"," ")+" EAT" : "—";
+            const fmtEAT = (s: string) => challengeTimestamp(s, challengeTz, true);
             const diffFields = new Set(Object.keys(diff));
             const EvalSection = ({ isQualified, violations, slCheckResult, slWillRecheck, borderClass }: { isQualified: boolean | null; violations: string[]; slCheckResult: string | null; slWillRecheck?: boolean; borderClass: string }) => (
               <div className={`mt-2 pt-2 border-t ${borderClass}`}>
@@ -5301,12 +5301,12 @@ function PullsTab({ challengeId, pullHistory, terminalStatus, slFailures, onPull
         <div className="glass rounded-2xl border border-white/10 overflow-hidden">
           <div className="p-4 border-b border-white/5 flex items-center justify-between">
             <h3 className="text-sm font-semibold text-white flex items-center gap-2"><Clock size={16} className="text-royal" /> Pull Batch History</h3>
-            <span className="text-[10px] text-gray-400">Next pull: <span className="text-royal font-semibold">{(() => { const now = new Date(Date.now() + 3*60*60*1000); const h = now.getUTCHours(); const schedule = [0,4,8,12,16,20]; const next = schedule.find(s => s > h); return next !== undefined ? `${String(next).padStart(2,"0")}:00 EAT` : "00:00 EAT"; })()}</span></span>
+            <span className="text-[10px] text-gray-400">Next pull: <span className="text-royal font-semibold">{nextPullTime(challenge)}</span></span>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full min-w-[500px]">
               <thead><tr className="border-b border-white/5">
-                <th className="text-left py-3 px-4 text-[10px] text-gray-400 uppercase">Time (EAT)</th>
+                <th className="text-left py-3 px-4 text-[10px] text-gray-400 uppercase">Time ({challengeTz})</th>
                 <th className="text-center py-3 px-4 text-[10px] text-gray-400 uppercase">Success</th>
                 <th className="text-center py-3 px-4 text-[10px] text-gray-400 uppercase">Failed</th>
                 <th className="text-center py-3 px-4 text-[10px] text-gray-400 uppercase">New Trades / Warnings</th>
@@ -5371,12 +5371,9 @@ function VerifyButton({ challengeId, registrationId, onResult }: { challengeId: 
 // ==================== MT5 TRADE HISTORY HTML EXPORT ====================
 function generateTradesHTML(data: any): string {
   const { challenge, user, trades } = data;
+  const exportTz = challenge?.timezone || "Africa/Nairobi";
   const cur = (v: any) => user?.isCent ? `${Number(v || 0).toFixed(2)}¢` : `$${Number(v || 0).toFixed(2)}`;
-  const fmtEAT = (iso: string) => {
-    if (!iso) return "—";
-    const d = new Date(new Date(iso).getTime() + 3 * 60 * 60 * 1000);
-    return d.toISOString().replace("T", " ").substring(0, 19) + " EAT";
-  };
+  const fmtEAT = (iso: string) => challengeTimestamp(iso, exportTz, true, true);
   const duration = (open: string, close: string) => {
     if (!open || !close) return "—";
     const totalSec = Math.round((new Date(close).getTime() - new Date(open).getTime()) / 1000);
@@ -5509,8 +5506,7 @@ function generateTradesHTML(data: any): string {
 
   // Active trading days (unique EAT calendar dates with at least one close)
   const tradingDays = new Set(tradeList.map((t: any) => {
-    const d = new Date(new Date(t.closeTime).getTime() + 3 * 60 * 60 * 1000);
-    return d.toISOString().substring(0, 10);
+    return challengeTimestamp(t.closeTime, exportTz, true).slice(0,10);
   })).size;
 
   // Gather all violation texts and group by type
@@ -5637,7 +5633,7 @@ function generateTradesHTML(data: any): string {
 <table>
 <thead><tr>
   <th>#</th><th>Ticket</th><th>Symbol</th><th>Type</th>
-  <th>Open (EAT)</th><th>Close (EAT)</th><th>Duration</th><th>Lots</th>
+  <th>Open (${exportTz})</th><th>Close (${exportTz})</th><th>Duration</th><th>Lots</th>
   <th>Open Price</th><th>Close Price</th>
   <th>SL Set</th><th>Allowed SL</th><th>Max Adverse</th><th>SL Check</th>
   <th>Profit</th><th>Comm / Swap</th><th>Qualified</th><th>Violations</th>
@@ -5660,7 +5656,7 @@ function generateTradesHTML(data: any): string {
     ${statCard('Total Positions', String(totalPositions), `${totalDeals} closing deal${totalDeals !== 1 ? 's' : ''}`, '#f9fafb')}
     ${statCard('Qualified', String(qualifiedPositions), `${qualifiedDeals} of ${totalDeals} deals`, '#22c55e')}
     ${statCard('Flagged', String(flaggedPositions), flaggedPositions > 0 ? `${totalDeals - qualifiedDeals} flagged deal${(totalDeals - qualifiedDeals) !== 1 ? 's' : ''}` : 'No violations', flaggedPositions > 0 ? '#ef4444' : '#22c55e')}
-    ${statCard('Trading Days', String(tradingDays), 'unique EAT calendar days', '#60a5fa')}
+    ${statCard('Trading Days', String(tradingDays), 'unique challenge calendar days', '#60a5fa')}
     ${statCard('SL Checks Pending', String(slPendingCount), slPendingCount > 0 ? 'awaiting candle data' : 'all resolved', slPendingCount > 0 ? '#f59e0b' : '#22c55e')}
   </div>
 
@@ -5693,7 +5689,7 @@ function generateTradesHTML(data: any): string {
   <table class="eval-table">
     <thead><tr>
       <th>#</th><th>Ticket / Position</th><th>Symbol</th><th>Type</th>
-      <th>Open (EAT)</th><th>Close (EAT)</th><th>Lots</th>
+      <th>Open (${exportTz})</th><th>Close (${exportTz})</th><th>Lots</th>
       <th style="text-align:right">Profit</th><th style="text-align:center">SL Check</th>
       <th style="text-align:center">Result</th><th>Violation (summary)</th>
     </tr></thead>

@@ -27,3 +27,11 @@ export function wallClockToUtcISO(local: string, timezone: string): string {
   if (matches.size !== 1) throw new Error(matches.size ? 'This time occurs twice when clocks change. Choose an unambiguous time.' : 'This local time does not exist when clocks change. Choose another time.');
   return new Date(Array.from(matches)[0]).toISOString();
 }
+
+/** Display stored instants in the selected challenge zone, never the browser zone. */
+export function challengeTimestamp(value: string | Date | number | null | undefined, timezone='Africa/Nairobi', date=false, seconds=false): string {
+ if(value==null || value==='')return '—';
+ const instant=new Date(value); if(!Number.isFinite(instant.getTime()))return '—';
+ const time=new Intl.DateTimeFormat('en-GB',{timeZone:timezone,hour:'2-digit',minute:'2-digit',hourCycle:'h23',...(seconds ? {second:'2-digit' as const}:{}),timeZoneName:'short'}).format(instant);
+ return date ? `${utcToWallClock(instant,timezone).slice(0,10)} ${time}` : time;
+}

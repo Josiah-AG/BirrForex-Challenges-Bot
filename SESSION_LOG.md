@@ -1987,3 +1987,9 @@ The user confirmed that this log must retain the history of application updates 
 - Last Pull/Last Update cards now show Next pull/Next update below the last time. Both use actual configured pull slots and challenge timezone, with next-day labeling; completed/locked challenges show Not scheduled. Exposed schedule fields through existing admin/host challenge lists.
 - Winners links from public challenge details preserve the detail destination and replace the temporary winners route on close, avoiding a navigation loop. Normal past-challenge winners still close onto their list. Added top Back controls to challenge directory, challenge details, host information and participant challenge page.
 - Backend type check and frontend production build passed; custom slots, timezone, midnight rollover and completed-state schedule checks passed. No pull/evaluation logic changed.
+- Release b4cacce: Railway backend and frontend both SUCCESS. No running pull batches before release.
+
+## 2026-10-07 — Challenge timezone display consistency
+- Replaced fixed EAT conversions in admin overview, pull history, completion summaries, participant/trade detail timestamps, pull errors and trade exports with challenge-zone formatting. Host last update now formats its raw timestamp at render time in the selected challenge zone. Refresh timestamps, health timestamps and host screening timestamps also use the selected zone.
+- Trade exports label their actual zone and calculate displayed trading-day counts in that zone. No scheduling, stored timestamps or evaluation rules changed.
+- Frontend production build/type check passed; GMT+2 conversion (17:04 EAT to16:04 GMT+2), midnight rollover, DST and missing timestamps checked.

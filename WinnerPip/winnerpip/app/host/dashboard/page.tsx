@@ -1,4 +1,5 @@
 "use client";
+import {challengeTimestamp} from "@/lib/challengeTime";
 import {nextPullTime} from "@/lib/nextPullTime";
 import NoTargetOverviewCard from "@/components/NoTargetOverviewCard";
 
@@ -217,7 +218,7 @@ export default function HostDashboardPage() {
             pullsToday: data.pullsToday || 0,
             pullsSuccess: data.pullsSuccess || 0,
             pullsFailed: data.pullsFailed || 0,
-            lastPullTime: data.lastPull?.started_at ? fmtTime(data.lastPull.started_at) : "—",
+            lastPullAt: data.lastPull?.started_at,
             topViolations: data.topViolations || [],
             realBalance: data.realBalance || 0,
             demoBalance: data.demoBalance || 0,
@@ -434,7 +435,7 @@ export default function HostDashboardPage() {
     setActionLoading(false);
   };
 
-  const fmtTime = (d: string) => d ? new Date(d).toLocaleString("en-US", { timeZone: challengeTz, month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: true }) : "—";
+  const fmtTime = (d: string) => d ? new Date(d).toLocaleString("en-US", { timeZone: challengeTz, month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: true, timeZoneName: "short" }) : "—";
 
   // Short timezone label for the challenge's zone (e.g. "EAT", "GMT+4").
   const tzAbbr = (() => {
@@ -498,7 +499,7 @@ export default function HostDashboardPage() {
           </div>
         </div>
       </header>
-      <DataRefresh state={dataRefresh} />
+      <DataRefresh state={dataRefresh} timezone={challengeTz} />
 
       {showAccountSettings ? (
         <div className="container mx-auto px-4 py-6 max-w-2xl">
@@ -623,7 +624,7 @@ export default function HostDashboardPage() {
               <StatCard icon={<Target size={16} />} label="Total Balance" value={`$${Number(overview.realBalance || 0).toFixed(2)}`} sub={`Real: $${Number(overview.realBalance || 0).toFixed(2)} | Demo: $${Number(overview.demoBalance || 0).toFixed(2)}`} color="text-profit" />
               <StatCard icon={<Zap size={16} />} label="Updates Today" value={String(overview.pullsToday || 0)} sub={`Next: ${nextPullTime(selectedChallenge)}`} color="text-royal" />
               <StatCard icon={<Shield size={16} />} label="Update Success" value={String(overview.pullsSuccess || 0)} sub={`Failed: ${overview.pullsFailed || 0} | PW Changed: ${overview.passwordChanged || 0}`} color="text-profit" />
-              <StatCard icon={<Clock size={16} />} label="Last Update" value={overview.lastPullTime || "—"} next={`Next update: ${nextPullTime(selectedChallenge)}`} sub={`${overview.pullsSuccess || 0} ok · ${overview.pullsFailed || 0} failed`} color="text-gray-300" />
+              <StatCard icon={<Clock size={16} />} label="Last Update" value={challengeTimestamp(overview.lastPullAt, challengeTz)} next={`Next update: ${nextPullTime(selectedChallenge)}`} sub={`${overview.pullsSuccess || 0} ok · ${overview.pullsFailed || 0} failed`} color="text-gray-300" />
             </div>
 
             {/* Top Violations Breakdown */}
@@ -879,7 +880,7 @@ export default function HostDashboardPage() {
                   <div className="px-5 pb-3"><p className="text-xs font-semibold text-gray-300 mb-2">Recent Trades</p>{foundUser.recentTrades && foundUser.recentTrades.length > 0 ? <div className="space-y-2">{foundUser.recentTrades.map((t: any, i: number) => (<div key={i} className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10"><div className="flex items-center gap-3"><span className={`px-2 py-1 rounded text-[10px] font-bold ${(t.type || t.trade_type || '').toLowerCase() === "buy" ? "bg-profit/10 text-profit" : "bg-loss/10 text-loss"}`}>{t.type || t.trade_type}</span><div><p className="text-sm text-white font-semibold">{t.symbol}</p><p className="text-[10px] text-gray-500">{t.volume} lots</p></div></div><div className="text-right"><p className={`text-sm font-bold ${Number(t.profit) >= 0 ? "text-profit" : "text-loss"}`}>{cur(Number(t.profit), foundUser.isCent)}</p></div></div>))}</div> : <p className="text-sm text-gray-500">No trades yet</p>}</div>
                   <div className="p-5 border-t border-white/10 space-y-2">
                     <button onClick={() => { setActiveTab("leaderboard"); setLeaderboardCategory(foundUser.accountType === 'demo' ? 'demo' : 'real'); setTimeout(() => { const entry = leaderboard.find((e: any) => e.nickname === foundUser.nickname || e.accountNumber === foundUser.accountNumber); if (entry) setSelectedParticipant(entry); }, 500); }} className="w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-gold/20 border border-gold/30 hover:bg-gold/30 text-gold font-semibold transition-all text-sm"><Trophy size={16} />View on Leaderboard #{foundUser.rank || '—'}</button>
-                    <button onClick={async () => { if (!foundUser.id) return; try { const regId = foundUser.id; const res = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/export-user-trades?registration_id=${regId}`, { headers: { Authorization: `Bearer ${getToken()}` } }); if (!res.ok) { alert("Export failed"); return; } const data = await res.json(); const html = generateTradesHTML(data); const blob = new Blob([html], {type:"text/html"}); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `${data.user?.nickname || foundUser.nickname}_MT5_history.html`; a.click(); URL.revokeObjectURL(url); } catch { alert("Export failed"); } }} className="w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 text-gray-300 font-semibold transition-all text-sm"><FileText size={16} />Export MT5 Trade History</button>
+                    <button onClick={async () => { if (!foundUser.id) return; try { const regId = foundUser.id; const res = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/export-user-trades?registration_id=${regId}`, { headers: { Authorization: `Bearer ${getToken()}` } }); if (!res.ok) { alert("Export failed"); return; } const data = await res.json(); const html = generateTradesHTML({...data, challenge: {...data.challenge, timezone: challengeTz}}); const blob = new Blob([html], {type:"text/html"}); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `${data.user?.nickname || foundUser.nickname}_MT5_history.html`; a.click(); URL.revokeObjectURL(url); } catch { alert("Export failed"); } }} className="w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 text-gray-300 font-semibold transition-all text-sm"><FileText size={16} />Export MT5 Trade History</button>
                   </div>
                   <div className="p-5 border-t border-white/10 space-y-2">
                     <p className="text-[10px] text-gray-500 uppercase tracking-wider font-semibold mb-2">Actions</p>
@@ -948,7 +949,7 @@ export default function HostDashboardPage() {
                             <td className="py-2 px-3 text-xs text-gray-400 max-w-[120px] truncate">{p.email || "—"}</td>
                             <td className="py-2 px-3 text-xs text-gray-300">{p.accountNumber}</td>
                             <td className="py-2 px-3"><span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${p.accountType === "real" ? "bg-gold/10 text-gold" : "bg-royal/10 text-royal"}`}>{p.accountType}</span></td>
-                            <td className="py-2 px-3 text-right"><span className="text-sm text-white font-medium">{p.lastKnownBalance ? cur(p.lastKnownBalance, p.isCent) : "—"}</span>{p.lastPullAt && <p className="text-[9px] text-gray-500">{(() => { const d = new Date(p.lastPullAt); return d.toLocaleTimeString("en-US", { timeZone: challengeTz, hour: "2-digit", minute: "2-digit", hour12: false }) + " " + (challengeTz.includes("Nairobi") ? "EAT" : ""); })()}</p>}</td>
+                            <td className="py-2 px-3 text-right"><span className="text-sm text-white font-medium">{p.lastKnownBalance ? cur(p.lastKnownBalance, p.isCent) : "—"}</span>{p.lastPullAt && <p className="text-[9px] text-gray-500">{challengeTimestamp(p.lastPullAt, challengeTz)}</p>}</td>
                             <td className={`py-2 px-3 text-right text-sm font-medium ${(p.qualifiedProfit ?? 0) >= 0 ? "text-profit" : "text-loss"}`}>{p.qualifiedProfit != null ? cur(p.qualifiedProfit, p.isCent) : "—"}</td>
                             <td className="py-2 px-3 text-center text-xs text-gray-400">{p.totalTrades || 0}</td>
                             <td className="py-2 px-3 text-center" onClick={(e) => e.stopPropagation()}>
@@ -1231,7 +1232,7 @@ export default function HostDashboardPage() {
           )}
 
           {/* ===== SCREENING ===== */}
-          {activeTab === "screening" && <ScreeningTab key={`${selectedChallengeId}:${dataRefresh.revision}`} challengeId={selectedChallengeId!} getToken={getToken} />}
+          {activeTab === "screening" && <ScreeningTab challengeTz={challengeTz} key={`${selectedChallengeId}:${dataRefresh.revision}`} challengeId={selectedChallengeId!} getToken={getToken} />}
 
           {/* ===== RULES ===== */}
           {activeTab === "rules" && (
@@ -2003,7 +2004,7 @@ export default function HostDashboardPage() {
                       const res = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/export-user-trades?registration_id=${regId}`, { headers: { Authorization: `Bearer ${getToken()}` } });
                       if (!res.ok) { alert("Export failed"); return; }
                       const data = await res.json();
-                      const html = generateTradesHTML(data);
+                      const html = generateTradesHTML({...data, challenge: {...data.challenge, timezone: challengeTz}});
                       const blob = new Blob([html], { type: "text/html" });
                       const url = URL.createObjectURL(blob);
                       const a = document.createElement("a");
@@ -2159,7 +2160,7 @@ function MetricCard({ title, value, sub, user, color }: { title: string; value: 
   );
 }
 
-function ScreeningTab({ challengeId, getToken }: { challengeId: number; getToken: () => string }) {
+function ScreeningTab({ challengeId, getToken, challengeTz }: { challengeTz:string; challengeId: number; getToken: () => string }) {
   const [results, setResults] = useState<any[]>([]);
   const [history, setHistory] = useState<any[]>([]);
   const [enabled, setEnabled] = useState(true);
@@ -2197,7 +2198,7 @@ function ScreeningTab({ challengeId, getToken }: { challengeId: number; getToken
       <button onClick={runScreening} disabled={loading || !enabled} className="px-5 py-2.5 rounded-xl bg-gold/10 text-gold text-sm font-semibold border border-gold/20 hover:bg-gold/20 disabled:opacity-50 mb-4">{loading ? "Checking..." : "Run Screening"}</button>
       {!enabled && <p className="text-sm text-gray-400 mb-4">Screening is skipped because broker integration is not configured.</p>}
       <p className="text-xs text-gray-400 mb-4">Manual checks show partnership status without changing eligibility. Automatic checks run twice daily and apply challenge rules.</p>
-      {history.length > 0 && <div className="mb-5 space-y-2"><h4 className="text-sm text-white">Automatic screening history</h4>{history.map(run=><details key={run.slot} className="rounded-lg bg-white/5 p-3 text-xs"><summary className="cursor-pointer text-gray-300">{run.slot} · {run.state} · {new Date(run.updated_at).toLocaleString()}</summary><div className="mt-2 space-y-2">{run.results.map((r:any)=><div key={r.id} className="flex justify-between gap-3"><span>{r.nickname}</span><span>{({allocated:'Allocated',changing:'Partner change pending',not_allocated:'Left partnership',check_failed:'Unverified',no_email:'Missing email'} as Record<string,string>)[r.status] || 'Unverified'}</span></div>)}</div></details>)}</div>}
+      {history.length > 0 && <div className="mb-5 space-y-2"><h4 className="text-sm text-white">Automatic screening history</h4>{history.map(run=><details key={run.slot} className="rounded-lg bg-white/5 p-3 text-xs"><summary className="cursor-pointer text-gray-300">{run.slot} · {run.state} · {challengeTimestamp(run.updated_at, challengeTz, true)}</summary><div className="mt-2 space-y-2">{run.results.map((r:any)=><div key={r.id} className="flex justify-between gap-3"><span>{r.nickname}</span><span>{({allocated:'Allocated',changing:'Partner change pending',not_allocated:'Left partnership',check_failed:'Unverified',no_email:'Missing email'} as Record<string,string>)[r.status] || 'Unverified'}</span></div>)}</div></details>)}</div>}
       {error && <p className="text-loss text-sm mb-3">{error}</p>}
       {stats && (
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-4">
@@ -3212,8 +3213,7 @@ function generateTradesHTML(data: any): string {
 
   // Active trading days (unique EAT calendar dates with at least one close)
   const tradingDays = new Set(tradeList.map((t: any) => {
-    const d = new Date(new Date(t.closeTime).getTime() + 3 * 60 * 60 * 1000);
-    return d.toISOString().substring(0, 10);
+    return challengeTimestamp(t.closeTime, exportTz, true).slice(0,10);
   })).size;
 
   // Gather all violation texts and group by type
@@ -3340,7 +3340,7 @@ function generateTradesHTML(data: any): string {
 <table>
 <thead><tr>
   <th>#</th><th>Ticket</th><th>Symbol</th><th>Type</th>
-  <th>Open (EAT)</th><th>Close (EAT)</th><th>Duration</th><th>Lots</th>
+  <th>Open (${exportTz})</th><th>Close (${exportTz})</th><th>Duration</th><th>Lots</th>
   <th>Open Price</th><th>Close Price</th>
   <th>SL Set</th><th>Allowed SL</th><th>Max Adverse</th><th>SL Check</th>
   <th>Profit</th><th>Comm / Swap</th><th>Qualified</th><th>Violations</th>
@@ -3363,7 +3363,7 @@ function generateTradesHTML(data: any): string {
     ${statCard('Total Positions', String(totalPositions), `${totalDeals} closing deal${totalDeals !== 1 ? 's' : ''}`, '#f9fafb')}
     ${statCard('Qualified', String(qualifiedPositions), `${qualifiedDeals} of ${totalDeals} deals`, '#22c55e')}
     ${statCard('Flagged', String(flaggedPositions), flaggedPositions > 0 ? `${totalDeals - qualifiedDeals} flagged deal${(totalDeals - qualifiedDeals) !== 1 ? 's' : ''}` : 'No violations', flaggedPositions > 0 ? '#ef4444' : '#22c55e')}
-    ${statCard('Trading Days', String(tradingDays), 'unique EAT calendar days', '#60a5fa')}
+    ${statCard('Trading Days', String(tradingDays), 'unique challenge calendar days', '#60a5fa')}
     ${statCard('SL Checks Pending', String(slPendingCount), slPendingCount > 0 ? 'awaiting candle data' : 'all resolved', slPendingCount > 0 ? '#f59e0b' : '#22c55e')}
   </div>
 
@@ -3396,7 +3396,7 @@ function generateTradesHTML(data: any): string {
   <table class="eval-table">
     <thead><tr>
       <th>#</th><th>Ticket / Position</th><th>Symbol</th><th>Type</th>
-      <th>Open (EAT)</th><th>Close (EAT)</th><th>Lots</th>
+      <th>Open (${exportTz})</th><th>Close (${exportTz})</th><th>Lots</th>
       <th style="text-align:right">Profit</th><th style="text-align:center">SL Check</th>
       <th style="text-align:center">Result</th><th>Violation (summary)</th>
     </tr></thead>
