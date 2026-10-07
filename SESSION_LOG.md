@@ -1993,3 +1993,8 @@ The user confirmed that this log must retain the history of application updates 
 - Replaced fixed EAT conversions in admin overview, pull history, completion summaries, participant/trade detail timestamps, pull errors and trade exports with challenge-zone formatting. Host last update now formats its raw timestamp at render time in the selected challenge zone. Refresh timestamps, health timestamps and host screening timestamps also use the selected zone.
 - Trade exports label their actual zone and calculate displayed trading-day counts in that zone. No scheduling, stored timestamps or evaluation rules changed.
 - Frontend production build/type check passed; GMT+2 conversion (17:04 EAT to16:04 GMT+2), midnight rollover, DST and missing timestamps checked.
+
+## 2026-10-07 — Small timezone labels on trade timestamps
+- Added shared TimeWithZone display with smaller, lighter timezone suffix. Client trade tables, partial closes, leaderboard participant histories and trade details now include their challenge timezone; corrected client leaderboard date fragments to that same zone. Admin/host timestamp and next-update displays reuse the compact suffix.
+- Client start/sync timestamps now include timezone; relative ages and durations retain their natural units. Export templates remain plain timestamp strings.
+- Frontend production build/type check and server-rendered suffix checks passed (GMT+2 rendered small; AM/PM and empty placeholders not mistaken for zones).

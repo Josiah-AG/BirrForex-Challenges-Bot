@@ -1,4 +1,5 @@
 "use client";
+import TimeWithZone from "@/components/TimeWithZone";
 import {challengeTimestamp} from "@/lib/challengeTime";
 import {nextPullTime} from "@/lib/nextPullTime";
 import NoTargetOverviewCard from "@/components/NoTargetOverviewCard";
@@ -668,7 +669,7 @@ export default function AdminDashboard() {
             <StatCard icon={<Target size={16} />} label="Total Balance" value={`$${overview.realBalance}`} sub={`Real: $${overview.realBalance} | Demo: $${overview.demoBalance}`} color="text-profit" />
             <StatCard icon={<Zap size={16} />} label="Pulls Today" value={overview.pullsToday.toString()} sub={`Next: ${overview.nextPullTime}`} color="text-royal" />
             <StatCard icon={<Shield size={16} />} label="Pull Success" value={overview.pullsSuccess.toString()} sub={`Failed: ${overview.pullsFailed} | PW Changed: ${overview.passwordChanged}`} color="text-profit" />
-            <StatCard icon={<Clock size={16} />} label="Last Pull" value={overview.lastPullTime} next={`Next pull: ${overview.nextPullTime}`} sub={`${overview.pullsSuccess} ok · ${overview.pullsFailed} failed`} color="text-gray-300" />
+            <StatCard icon={<Clock size={16} />} label="Last Pull" value={<TimeWithZone text={overview.lastPullTime}/>} next={`Next pull: ${overview.nextPullTime}`} sub={`${overview.pullsSuccess} ok · ${overview.pullsFailed} failed`} color="text-gray-300" />
           </div>
 
           {/* Top Violations Breakdown */}
@@ -917,8 +918,8 @@ export default function AdminDashboard() {
                   <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500">Account #</p><p className="text-sm font-semibold text-white">{foundUser.accountNumber}</p></div>
                   <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500">Server</p><p className="text-sm font-semibold text-white">{foundUser.server}</p></div>
                   <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500">Telegram ID</p><p className="text-sm font-semibold text-white">{foundUser.telegramId}</p></div>
-                  <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500">Registered</p><p className="text-sm font-semibold text-white">{challengeTimestamp(foundUser.registeredAt, challengeTz, true)}</p></div>
-                  <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500">Last Pull</p><p className="text-sm font-semibold text-white">{challengeTimestamp(foundUser.lastPull, challengeTz, true)}</p></div>
+                  <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500">Registered</p><p className="text-sm font-semibold text-white"><TimeWithZone text={challengeTimestamp(foundUser.registeredAt, challengeTz, true)}/></p></div>
+                  <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500">Last Pull</p><p className="text-sm font-semibold text-white"><TimeWithZone text={challengeTimestamp(foundUser.lastPull, challengeTz, true)}/></p></div>
                   <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500">Partner</p><p className="text-sm font-semibold text-profit">{foundUser.partnerStatus}</p></div>
                 </div>
                 {foundUser.violations && foundUser.violations.length > 0 && (<div className="px-5 pb-3"><p className="text-xs font-semibold text-loss mb-2">Violations ({foundUser.violations.length})</p><div className="space-y-1">{foundUser.violations.map((v: string, i: number) => (<div key={i} className="flex items-center gap-2 p-2 bg-loss/5 rounded-lg border border-loss/10"><AlertTriangle size={12} className="text-loss flex-shrink-0" /><p className="text-xs text-gray-300">{v}</p></div>))}</div></div>)}
@@ -996,7 +997,7 @@ export default function AdminDashboard() {
                           <td className="py-2 px-3 text-xs text-gray-400 max-w-[120px] truncate">{p.email || "—"}</td>
                           <td className="py-2 px-3 text-xs text-gray-300">{p.accountNumber}</td>
                           <td className="py-2 px-3"><span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${p.accountType === "real" ? "bg-gold/10 text-gold" : "bg-royal/10 text-royal"}`}>{p.accountType}</span></td>
-                          <td className="py-2 px-3 text-right"><span className="text-sm text-white font-medium">{cur(p.balance, p.isCent)}</span>{p.adjustedBalance != null && <p className="text-[9px] text-gray-400">Adj: {cur(p.adjustedBalance, p.isCent)}</p>}{p.lastPullAt && <p className="text-[9px] text-gray-500">{challengeTimestamp(p.lastPullAt, challengeTz)}</p>}</td>
+                          <td className="py-2 px-3 text-right"><span className="text-sm text-white font-medium">{cur(p.balance, p.isCent)}</span>{p.adjustedBalance != null && <p className="text-[9px] text-gray-400">Adj: {cur(p.adjustedBalance, p.isCent)}</p>}{p.lastPullAt && <p className="text-[9px] text-gray-500"><TimeWithZone text={challengeTimestamp(p.lastPullAt, challengeTz)}/></p>}</td>
                           <td className={`py-2 px-3 text-right text-sm font-medium ${(p.qualifiedProfit ?? 0) >= 0 ? "text-profit" : "text-loss"}`}>{p.qualifiedProfit != null ? cur(p.qualifiedProfit, p.isCent) : "—"}</td>
                           <td className="py-2 px-3 text-center text-xs text-gray-400">{p.totalTrades}</td>
                           <td className="py-2 px-3 text-center" onClick={(e) => e.stopPropagation()}>
@@ -1086,7 +1087,7 @@ export default function AdminDashboard() {
                             <p className="text-sm text-white font-semibold">@{u.username || "unknown"}</p>
                             <p className="text-[10px] text-gray-400">{u.account_number} • {u.account_type} • {u.email || "no email"}</p>
                           </div>
-                          <p className="text-[10px] text-gray-400">{challengeTimestamp(u.partner_warned_at, challengeTz, true)}</p>
+                          <p className="text-[10px] text-gray-400"><TimeWithZone text={challengeTimestamp(u.partner_warned_at, challengeTz, true)}/></p>
                         </div>
                       ))}
                     </div>
@@ -1631,7 +1632,7 @@ export default function AdminDashboard() {
                                   <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${t.type?.toLowerCase() === 'buy' ? 'bg-profit/20 text-profit' : 'bg-loss/20 text-loss'}`}>{t.type}</span>
                                   <div>
                                     <p className="text-xs text-white font-medium">{t.symbol}</p>
-                                    <p className="text-[10px] text-gray-500">{t.openTime ? fmtDateEAT(t.openTime) : ''} {t.openTime ? fmtEAT(t.openTime) : ''} → {t.closeTime ? fmtEAT(t.closeTime) : ''}</p>
+                                    <p className="text-[10px] text-gray-500">{t.openTime ? fmtDateEAT(t.openTime) : ''} <TimeWithZone text={t.openTime ? fmtEAT(t.openTime) : ''}/> → <TimeWithZone text={t.closeTime ? fmtEAT(t.closeTime) : ''}/></p>
                                   </div>
                                 </div>
                                 <div className="text-right">
@@ -1656,7 +1657,7 @@ export default function AdminDashboard() {
                                   <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${first.type?.toLowerCase() === 'buy' ? 'bg-profit/20 text-profit' : 'bg-loss/20 text-loss'}`}>{first.type}</span>
                                   <div>
                                     <p className="text-xs text-white font-medium">{first.symbol} <span className="text-gray-500 font-normal">{group.length} closes</span></p>
-                                    <p className="text-[10px] text-gray-500">{first.openTime ? fmtDateEAT(first.openTime) : ''} {first.openTime ? fmtEAT(first.openTime) : ''}</p>
+                                    <p className="text-[10px] text-gray-500">{first.openTime ? fmtDateEAT(first.openTime) : ''} <TimeWithZone text={first.openTime ? fmtEAT(first.openTime) : ''}/></p>
                                   </div>
                                 </div>
                                 <div className="text-right">
@@ -1668,7 +1669,7 @@ export default function AdminDashboard() {
                             {group.map((t: any) => (
                               <div key={t.ticket} onClick={() => setSelectedTrade(t)} className={`py-1.5 px-3 pl-6 border-t border-white/5 cursor-pointer hover:brightness-125 transition-all ${!t.isQualified ? 'bg-loss/5' : ''}`}>
                                 <div className="flex items-center justify-between">
-                                  <p className="text-[10px] text-gray-500">└ → {fmtEAT(t.closeTime)} · {t.volume} lot</p>
+                                  <p className="text-[10px] text-gray-500">└ → <TimeWithZone text={fmtEAT(t.closeTime)}/> · {t.volume} lot</p>
                                   <p className={`text-[10px] font-semibold ${t.profit >= 0 ? 'text-profit' : 'text-loss'}`}>{c(t.profit)}</p>
                                 </div>
                                 {!t.isQualified && t.violations?.length > 0 && <p className="text-[10px] text-loss mt-1 pl-2">⚠️ {typeof t.violations[0] === 'string' ? t.violations[0] : (t.violations[0] as any)?.detail || 'Rule violation'}</p>}
@@ -1740,8 +1741,8 @@ export default function AdminDashboard() {
               <div className="grid grid-cols-2 gap-2 text-xs">
                 <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Direction</p><span className={`px-2 py-0.5 rounded font-bold text-[10px] ${t.type?.toLowerCase()==='buy' ? 'bg-profit/20 text-profit' : 'bg-loss/20 text-loss'}`}>{t.type?.toUpperCase()}</span></div>
                 <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">{isGroup ? 'Total Lots' : 'Lots'}</p><p className="text-white font-semibold">{t.openingVolume && t.openingVolume > Number(t.volume) ? `${Number(t.volume).toFixed(2)} / ${Number(t.openingVolume).toFixed(2)}` : Number(t.volume).toFixed(2)}</p></div>
-                <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Open</p><p className="text-white">{t.openPrice}</p><p className="text-[10px] text-gray-500">{fmtEAT(t.openTime)}</p></div>
-                {!isGroup && <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Close</p><p className="text-white">{t.closePrice}</p><p className="text-[10px] text-gray-500">{fmtEAT(t.closeTime)}</p></div>}
+                <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Open</p><p className="text-white">{t.openPrice}</p><p className="text-[10px] text-gray-500"><TimeWithZone text={fmtEAT(t.openTime)}/></p></div>
+                {!isGroup && <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Close</p><p className="text-white">{t.closePrice}</p><p className="text-[10px] text-gray-500"><TimeWithZone text={fmtEAT(t.closeTime)}/></p></div>}
                 <TradeProtectionLevel trade={t} kind="sl" />
                 <TradeProtectionLevel trade={t} kind="tp" />
                 <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">{isGroup ? 'Total Profit' : 'Profit'}</p><p className={`font-bold ${t.profit >= 0 ? 'text-profit' : 'text-loss'}`}>{cur(t.profit)}</p></div>
@@ -1752,7 +1753,7 @@ export default function AdminDashboard() {
                   <p className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider">Partial Closes</p>
                   {group.map((x: any) => (
                     <div key={x.ticket} className={`flex justify-between items-center px-3 py-2 rounded-lg text-xs ${x.isQualified === false ? 'bg-loss/10 border border-loss/20' : 'bg-white/5'}`}>
-                      <div><p className="text-gray-400">#{x.ticket} · {fmtEAT(x.closeTime)}</p><p className="text-[10px] text-gray-600">{x.volume} lot</p></div>
+                      <div><p className="text-gray-400">#{x.ticket} · <TimeWithZone text={fmtEAT(x.closeTime)}/></p><p className="text-[10px] text-gray-600">{x.volume} lot</p></div>
                       <p className={`font-bold ${x.profit >= 0 ? 'text-profit' : 'text-loss'}`}>{cur(x.profit)}{x.isQualified === false ? ' 🚩' : ''}</p>
                     </div>
                   ))}
@@ -1831,13 +1832,13 @@ export default function AdminDashboard() {
   );
 }
 
-function StatCard({ icon, label, value, sub, next, color, onClick }: { icon: React.ReactNode; label: string; value: string; sub: string; next?: string; color: string; onClick?: () => void }) {
+function StatCard({ icon, label, value, sub, next, color, onClick }: { icon: React.ReactNode; label: string; value: React.ReactNode; sub: string; next?: string; color: string; onClick?: () => void }) {
   const Wrapper = onClick ? 'button' : 'div';
   return (
     <Wrapper onClick={onClick} className={`glass rounded-xl sm:rounded-2xl p-3 sm:p-4 border border-white/10 text-left ${onClick ? 'hover:border-gold/30 cursor-pointer transition-all' : ''}`}>
       <div className={`flex items-center gap-1.5 mb-1.5 ${color}`}>{icon}<p className="text-[9px] sm:text-[10px] text-gray-400 uppercase tracking-wider font-medium">{label}</p></div>
       <p className={`text-lg sm:text-2xl md:text-3xl font-bold ${color} truncate`}>{value}</p>
-      {next && <p className="text-[10px] text-blue-300 mt-1">{next}</p>}
+      {next && <p className="text-[10px] text-blue-300 mt-1"><TimeWithZone text={next}/></p>}
       <p className="text-[9px] sm:text-[10px] text-gray-500 mt-1 truncate">{sub}</p>
     </Wrapper>
   );
@@ -2474,7 +2475,7 @@ function HealthCheckPanel({challengeTz}:{challengeTz:string}) {
                       <div className={`w-2 h-2 rounded-full ${b.status === "completed" ? "bg-profit" : b.status === "running" ? "bg-gold animate-pulse" : "bg-loss"}`}></div>
                       <div>
                         <p className="text-xs text-white font-medium">
-                          {challengeTimestamp(b.startedAt, challengeTz)}
+                          <TimeWithZone text={challengeTimestamp(b.startedAt, challengeTz)}/>
                         </p>
                         <p className="text-[10px] text-gray-500">{b.totalAccounts} accounts</p>
                       </div>
@@ -4942,7 +4943,7 @@ function PullsTab({ challenge, challengeId, pullHistory, terminalStatus, slFailu
                       {indivResult.tradeChanges.slice(0, 10).map((tc: any, i: number) => (
                         <div key={i} className="bg-white/5 rounded-lg p-2 text-[10px]">
                           <p className="text-gray-300 font-semibold mb-1">{tc.symbol} · #{tc.ticket}</p>
-                          {tc.changes.open_time && <p className="text-gray-400">Open Time: <span className="text-gray-500 line-through">{challengeTimestamp(tc.changes.open_time.before, challengeTz, true)}</span> → <span className="text-white">{challengeTimestamp(tc.changes.open_time.after, challengeTz, true)}</span></p>}
+                          {tc.changes.open_time && <p className="text-gray-400">Open Time: <span className="text-gray-500 line-through"><TimeWithZone text={challengeTimestamp(tc.changes.open_time.before, challengeTz, true)}/></span> → <span className="text-white"><TimeWithZone text={challengeTimestamp(tc.changes.open_time.after, challengeTz, true)}/></span></p>}
                           {tc.changes.open_price && <p className="text-gray-400">Open Price: <span className="text-gray-500">{tc.changes.open_price.before}</span> → <span className="text-white">{tc.changes.open_price.after}</span></p>}
                           {tc.changes.is_qualified && <p className="text-gray-400">Status: <span className={tc.changes.is_qualified.before ? "text-profit" : "text-loss"}>{tc.changes.is_qualified.before ? "Qualified" : "Flagged"}</span> → <span className={tc.changes.is_qualified.after ? "text-profit" : "text-loss"}>{tc.changes.is_qualified.after ? "Qualified ✓" : "Flagged ✗"}</span></p>}
                           {tc.changes.stop_loss && <p className="text-gray-400">SL: {tc.changes.stop_loss.before} → {tc.changes.stop_loss.after}</p>}

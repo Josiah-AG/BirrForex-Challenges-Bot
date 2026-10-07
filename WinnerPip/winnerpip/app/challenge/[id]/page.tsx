@@ -1,5 +1,6 @@
 "use client";
 
+import TimeWithZone from "@/components/TimeWithZone";
 import BackButton from "@/components/BackButton";
 import RaceCountdown from "@/components/RaceCountdown";
 import TradeProtectionLevel from "@/components/TradeProtectionLevel";
@@ -474,10 +475,10 @@ export default function ChallengeDashboard() {
   // Format date helper (uses challenge timezone)
   const challengeTz = challenge?.timezone || 'Africa/Nairobi';
   const formatDate = (dateStr: string) => {
-    return new Date(dateStr).toLocaleString("en-US", { timeZone: challengeTz, month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
+    return <TimeWithZone text={new Date(dateStr).toLocaleString("en-US", { timeZone: challengeTz, month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false, timeZoneName: "short" })} timezone={challengeTz}/>;
   };
   const formatTimeEAT = (dateStr: string) => {
-    return new Date(dateStr).toLocaleString("en-US", { timeZone: challengeTz, hour: "2-digit", minute: "2-digit", hour12: false });
+    return <TimeWithZone text={new Date(dateStr).toLocaleString("en-US", { timeZone: challengeTz, hour: "2-digit", minute: "2-digit", hour12: false, timeZoneName: "short" })} timezone={challengeTz}/>;
   };
   const groupTradesByPosition = (trades: Trade[]) => {
     const map = new Map<number, Trade[]>();
@@ -762,7 +763,7 @@ export default function ChallengeDashboard() {
                   <p className="text-sm font-semibold text-white">All Trades</p>
                   <p className="text-xs text-gray-500">Tap a trade for details</p>
                 </div>
-                <p className="text-[10px] text-gray-600 mt-1">Trades closed before {myStats.lastPullAt ? new Date(myStats.lastPullAt).toLocaleString("en-US", { timeZone: challengeTz, hour: "2-digit", minute: "2-digit", hour12: false }) : "last sync"} • Next sync: {getNextPullTime()}</p>
+                <p className="text-[10px] text-gray-600 mt-1">Trades closed before {myStats.lastPullAt ? new Date(myStats.lastPullAt).toLocaleString("en-US", { timeZone: challengeTz, hour: "2-digit", minute: "2-digit", hour12: false, timeZoneName: "short" }) : "last sync"} • Next sync: <TimeWithZone text={getNextPullTime()} timezone={challengeTz}/></p>
               </div>
               {recentTrades.length === 0 ? (
                 <div className="p-8 text-center">
@@ -1000,7 +1001,7 @@ export default function ChallengeDashboard() {
               <Clock size={16} className="text-gold flex-shrink-0" />
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold text-gold">Challenge hasn&apos;t started yet</p>
-                <p className="text-xs text-gray-400">Starts {new Date(challenge.startDate).toLocaleString("en-US", { timeZone: challengeTz, weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</p>
+                <p className="text-xs text-gray-400">Starts {new Date(challenge.startDate).toLocaleString("en-US", { timeZone: challengeTz, weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" })}</p>
               </div>
               <button onClick={() => setShowRules(true)} className="flex-shrink-0 px-3 py-1.5 rounded-lg bg-gold/20 border border-gold/30 text-gold text-xs font-semibold hover:bg-gold/30 transition-all">📋 Rules</button>
             </div>
@@ -1046,9 +1047,9 @@ export default function ChallengeDashboard() {
               <Clock size={16} className="text-gold flex-shrink-0" />
               <div>
                 {myStats.currentBalance <= 0 ? (
-                  <p className="text-xs text-gray-300">Your account balance is <span className="text-gold font-semibold">$0.00</span>. Please deposit to start trading. Next data sync: <span className="text-gold font-semibold">{getNextPullTime()}</span></p>
+                  <p className="text-xs text-gray-300">Your account balance is <span className="text-gold font-semibold">$0.00</span>. Please deposit to start trading. Next data sync: <span className="text-gold font-semibold"><TimeWithZone text={getNextPullTime()} timezone={challengeTz}/></span></p>
                 ) : (
-                  <p className="text-xs text-gray-300">No trade data yet. Data syncs every 4 hours. Next update: <span className="text-gold font-semibold">{getNextPullTime()}</span></p>
+                  <p className="text-xs text-gray-300">No trade data yet. Data syncs every 4 hours. Next update: <span className="text-gold font-semibold"><TimeWithZone text={getNextPullTime()} timezone={challengeTz}/></span></p>
                 )}
               </div>
             </div>
@@ -1219,7 +1220,7 @@ export default function ChallengeDashboard() {
                   <p className="text-sm font-semibold text-white">Recent Trades</p>
                   <p className="text-xs text-gray-500">Tap a trade for details</p>
                 </div>
-                <p className="text-[10px] text-gray-600 mt-1">Trades closed before {myStats.lastPullAt ? new Date(myStats.lastPullAt).toLocaleString("en-US", { timeZone: challengeTz, hour: "2-digit", minute: "2-digit", hour12: false }) : "last sync"} • Next sync: {getNextPullTime()}</p>
+                <p className="text-[10px] text-gray-600 mt-1">Trades closed before {myStats.lastPullAt ? new Date(myStats.lastPullAt).toLocaleString("en-US", { timeZone: challengeTz, hour: "2-digit", minute: "2-digit", hour12: false, timeZoneName: "short" }) : "last sync"} • Next sync: <TimeWithZone text={getNextPullTime()} timezone={challengeTz}/></p>
               </div>
               {recentTrades.length === 0 ? (
                 <div className="p-8 text-center">
@@ -1288,7 +1289,7 @@ export default function ChallengeDashboard() {
               </div>
               )}
               <div className="p-3 border-t border-white/5 text-center">
-                <p className="text-xs text-gray-600">Last updated: {myStats.lastPullAt ? formatRelativeTime(myStats.lastPullAt) : 'Never'} • Next update: {getNextPullTime()}</p>
+                <p className="text-xs text-gray-600">Last updated: {myStats.lastPullAt ? formatRelativeTime(myStats.lastPullAt) : 'Never'} • Next update: <TimeWithZone text={getNextPullTime()} timezone={challengeTz}/></p>
               </div>
             </div>
             )}
@@ -1298,7 +1299,7 @@ export default function ChallengeDashboard() {
             <div className="glass rounded-2xl border border-white/10 overflow-hidden">
               <div className="p-4 border-b border-white/5 flex items-center justify-between">
                 <div className="flex items-center gap-2"><Trophy size={16} className="text-gold" /><p className="text-sm font-semibold text-white">{leaderboardPreStart ? "Pre-start Ranking" : `Leaderboard${myStats?.accountType === 'demo' ? ' — Demo Category' : myStats?.accountType === 'real' ? ' — Real Category' : ''}`}</p></div>
-                {leaderboardPreStart ? <span className="text-[10px] text-gold/70 font-semibold uppercase tracking-wider">Based on account balance</span> : <p className="text-xs text-gray-500">Next update: {getNextPullTime()}</p>}
+                {leaderboardPreStart ? <span className="text-[10px] text-gold/70 font-semibold uppercase tracking-wider">Based on account balance</span> : <p className="text-xs text-gray-500">Next update: <TimeWithZone text={getNextPullTime()} timezone={challengeTz}/></p>}
               </div>
               {leaderboardPreStart && challenge && (
                 <div className="px-4 py-3 bg-amber-500/5 border-b border-amber-500/20">
@@ -1668,7 +1669,7 @@ export default function ChallengeDashboard() {
                     feed.sort((a, b) => b.sortTime - a.sortTime);
                     const opIcon = (t: string) => t === 'deposit' ? '💰' : t === 'withdrawal' ? '🚪' : t === 'swap' ? '🔄' : '📊';
                     const opColor = (t: string) => t === 'deposit' ? 'text-profit' : t === 'withdrawal' ? 'text-loss' : t === 'swap' ? 'text-amber-400' : 'text-blue-400';
-                    const fmtEAT = (d: string) => new Date(d).toLocaleString("en-US", { timeZone: challengeTz, hour: "2-digit", minute: "2-digit", hour12: false });
+                    const fmtEAT = (d: string) => formatTimeEAT(d);
                     const cur = (v: number) => selectedUser!.isCent ? `${v.toFixed(2)}¢` : `$${v.toFixed(2)}`;
                     return (
                       <div className="mt-4">
@@ -1701,7 +1702,7 @@ export default function ChallengeDashboard() {
                                       <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${t.type?.toLowerCase() === 'buy' ? 'bg-profit/20 text-profit' : 'bg-loss/20 text-loss'}`}>{t.type}</span>
                                       <div>
                                         <p className="text-xs text-white font-medium">{t.symbol}</p>
-                                        <p className="text-[10px] text-gray-500">{t.openTime ? new Date(t.openTime).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''} {t.openTime ? fmtEAT(t.openTime) : ''} → {t.closeTime ? fmtEAT(t.closeTime) : ''}</p>
+                                        <p className="text-[10px] text-gray-500">{t.openTime ? new Date(t.openTime).toLocaleDateString('en-US', { timeZone: challengeTz, month: 'short', day: 'numeric' }) : ''} {t.openTime ? fmtEAT(t.openTime) : ''} → {t.closeTime ? fmtEAT(t.closeTime) : ''}</p>
                                       </div>
                                     </div>
                                     <div className="text-right">
@@ -1727,7 +1728,7 @@ export default function ChallengeDashboard() {
                                       <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${first.type?.toLowerCase() === 'buy' ? 'bg-profit/20 text-profit' : 'bg-loss/20 text-loss'}`}>{first.type}</span>
                                       <div>
                                         <p className="text-xs text-white font-medium">{first.symbol} <span className="text-gray-500 font-normal">{group.length} closes</span></p>
-                                        <p className="text-[10px] text-gray-500">{first.openTime ? new Date(first.openTime).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''} {first.openTime ? fmtEAT(first.openTime) : ''}</p>
+                                        <p className="text-[10px] text-gray-500">{first.openTime ? new Date(first.openTime).toLocaleDateString('en-US', { timeZone: challengeTz, month: 'short', day: 'numeric' }) : ''} {first.openTime ? fmtEAT(first.openTime) : ''}</p>
                                       </div>
                                     </div>
                                     <div className="text-right">
@@ -1845,7 +1846,7 @@ export default function ChallengeDashboard() {
                 <p className="text-sm text-gray-300">
                   <span className="text-white font-semibold">{challenge.title}</span> starts on{" "}
                   <span className="text-gold font-semibold">
-                    {new Date(challenge.startDate).toLocaleString("en-US", { timeZone: "Africa/Nairobi", weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })} EAT
+                    {new Date(challenge.startDate).toLocaleString("en-US", { timeZone: challengeTz, weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" })}
                   </span>
                 </p>
                 <p className="text-xs text-gray-500 mt-1">Registered as <span className="text-white">{myStats.nickname}</span> · {formatSubtype(myStats.accountSubtype, myStats.accountType)}</p>
@@ -2223,7 +2224,7 @@ function TabBtn({ active, onClick, label, count }: { active: boolean; onClick: (
 function RuleItem({ code, text }: { code: string; text: string }) {
   return (<div className="flex gap-3 items-start"><span className="px-2 py-1 bg-royal/20 text-royal text-xs font-bold rounded flex-shrink-0">{code}</span><p className="text-sm text-gray-300">{text}</p></div>);
 }
-function DRow({ label, value, color }: { label: string; value: string; color?: string }) {
+function DRow({ label, value, color }: { label: string; value: React.ReactNode; color?: string }) {
   return (<div className="bg-white/5 rounded-lg p-3"><p className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">{label}</p><p className={`text-sm font-semibold ${color || "text-white"}`}>{value}</p></div>);
 }
 
