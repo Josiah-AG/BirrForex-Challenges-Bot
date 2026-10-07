@@ -1,4 +1,5 @@
 "use client";
+import NoTargetOverviewCard from "@/components/NoTargetOverviewCard";
 
 import TradeProtectionLevel from "@/components/TradeProtectionLevel";
 import { balanceOperationTime } from "@/lib/balanceOperationTime";
@@ -594,6 +595,7 @@ export default function HostDashboardPage() {
               <StatCard icon={<Activity size={16} />} label="Total Trades" value={(overview.totalTrades || 0).toLocaleString()} sub={overview.challenge?.type === 'demo' ? `Demo: ${overview.demoTrades || 0} (${overview.demoVolume || 0} lots)` : overview.challenge?.type === 'real' ? `Real: ${overview.realTrades || 0} (${overview.realVolume || 0} lots)` : `Demo: ${overview.demoTrades || 0} (${overview.demoVolume || 0} lots) | Real: ${overview.realTrades || 0} (${overview.realVolume || 0} lots)`} color="text-white" />
               <StatCard icon={<AlertTriangle size={16} />} label="Violations" value={String(overview.totalViolations || 0)} sub={`${overview.violationRate || 0}% violation rate`} color="text-loss" />
               {(() => {
+                if (overview.noTargetCard) return <NoTargetOverviewCard summary={overview.noTargetCard}/>;
                 const c = overview.challenge || {};
                 const isSplit = c.split_category_settings && c.type === 'hybrid';
                 const sharedOn = c.target_enabled !== false;

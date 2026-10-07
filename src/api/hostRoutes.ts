@@ -341,6 +341,7 @@ router.get('/challenge/:id/full-overview', async (req: any, res: Response) => {
       violationRate: totalTrades > 0 ? ((totalViolations / totalTrades) * 100).toFixed(1) : '0',
       aboveTarget: parseInt(aboveTarget.rows[0]?.cnt || '0'),
       qualified: parseInt(qualifiedCount.rows[0]?.cnt || '0'),
+      noTargetCard: targetCounts.noTargetCard || null,
       realAboveTarget, demoAboveTarget, realQualified, demoQualified,
       passwordChanged: parseInt(pwChanged.rows[0]?.cnt || '0'),
       pullsToday: parseInt(pullsToday.rows[0]?.cnt || '0'),

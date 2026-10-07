@@ -1,4 +1,5 @@
 "use client";
+import NoTargetOverviewCard from "@/components/NoTargetOverviewCard";
 
 import TradeProtectionLevel from "@/components/TradeProtectionLevel";
 import { balanceOperationTime } from "@/lib/balanceOperationTime";
@@ -653,7 +654,7 @@ export default function AdminDashboard() {
             <StatCard icon={<Users size={16} />} label="Participants" value={overview.totalParticipants.toLocaleString()} sub={`Demo: ${overview.demoParticipants} | Real: ${overview.realParticipants}`} color="text-royal" />
             <StatCard icon={<Activity size={16} />} label="Total Trades" value={overview.totalTrades.toLocaleString()} sub={`Demo: ${overview.demoTrades} (${overview.demoVolume} lots) | Real: ${overview.realTrades} (${overview.realVolume} lots)`} color="text-white" />
             <StatCard icon={<AlertTriangle size={16} />} label="Violations" value={overview.totalViolations.toString()} sub={`${overview.violationRate}% violation rate`} color="text-loss" />
-            {(selectedChall as any)?.targetEnabled === false ? (
+            {od?.noTargetCard ? <NoTargetOverviewCard summary={od.noTargetCard}/> : (selectedChall as any)?.targetEnabled === false ? (
               <StatCard icon={<Trophy size={16} />} label="Qualified" value={overview.qualifiedCount.toString()} sub={`${overview.totalParticipants > 0 ? ((overview.qualifiedCount / overview.totalParticipants) * 100).toFixed(1) : 0}% • ranked by growth`} color="text-gold" onClick={() => setShowAboveTarget(true)} />
             ) : (
               <StatCard icon={<Trophy size={16} />} label="Above Target" value={overview.aboveTarget.toString()} sub={`${((overview.aboveTarget / overview.totalParticipants) * 100).toFixed(1)}% qualified`} color="text-gold" onClick={() => setShowAboveTarget(true)} />
