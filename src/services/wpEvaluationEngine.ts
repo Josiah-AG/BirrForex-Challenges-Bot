@@ -1,3 +1,4 @@
+import { negativeBalanceResetTickets } from '../utils/negativeBalanceReset';
 import { rechargeDepositsForRegistration } from '../utils/approvedLateFunding';
 import { riskViolationDisplay, riskViolationTime } from '../utils/riskViolationDisplay';
 import { reconcilePrestart } from '../utils/prestartReconciliation';
@@ -571,7 +572,7 @@ export class WpEvaluationEngine {
       // Always query deposits — needed both for determining actualStartBalance
       // AND for detecting post-start recharging (which must always run).
       const allDeposits = await db.query(
-        `SELECT ticket, profit, time FROM wp_deals
+        `SELECT ticket, profit, time, comment FROM wp_deals
          WHERE challenge_id = $1 AND registration_id = $2
            AND (deal_type ILIKE '%balance%' OR deal_type = '2')
            AND profit > 0
@@ -584,6 +585,16 @@ export class WpEvaluationEngine {
          ORDER BY time ASC`,
         [challengeId, reg.id]
       );
+
+      // D-NULL is a broker negative-balance reset, but verify its cash effect
+      // against the complete, verified ledger before exempting it from recharging.
+      if (allDeposits.rows.some(d => String(d.comment || '').trim().toUpperCase() === 'D-NULL')) {
+        const history = await db.query(`SELECT ticket,time,deal_type,profit,commission,swap,fee,comment FROM wp_deals
+          WHERE challenge_id=$1 AND registration_id=$2 ORDER BY time,ticket`, [challengeId,reg.id]);
+        const row = regData.rows[0];
+        const resets = negativeBalanceResetTickets(history.rows, row.history_verified_balance == null ? NaN : Number(row.history_verified_balance), row.history_verified_through, row.history_sync_state);
+        allDeposits.rows = allDeposits.rows.filter(d => !resets.has(String(d.ticket)));
+      }
 
       const capturedAt = regData.rows[0]?.registered_at ? new Date(regData.rows[0].registered_at).getTime() : 0;
       const preDeposits = allDeposits.rows.filter(d => new Date(d.time).getTime() < csTime && new Date(d.time).getTime() > capturedAt);

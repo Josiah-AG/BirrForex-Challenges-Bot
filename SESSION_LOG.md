@@ -1964,3 +1964,7 @@ The user confirmed that this log must retain the history of application updates 
 
 ## 2026-10-06 — Team-only details prize blur
 - Challenge details now apply the same 5px blur and selection prevention as challenge cards to team-only prize text. Non-team prizes remain readable.
+
+## 2026-10-07 — Broker negative-balance reset classification
+- Inspected all seven skipped challenge-38 registrations. Otst (5263), YamZAR (5284), Thandolwethu (5287) have D-NULL broker balance entries for 21.79, 645.48 and 17.65; reverse reconstruction from verified balances proves each exactly clears the corresponding negative balance to zero. PenName has two genuine D-trial USD 1000 deposits into positive balances; three other DQs are credential related.
+- Added strict verified-ledger negative-reset detection (includes commission, swap, fees; excludes credit from cash balance; fails closed for invalid/cancelled data). Only proven D-NULL resets are removed from recharge candidates; they remain in financial history. Existing blown skip/ranking behavior retained. Added explicit Blown account text in public leaderboard. Eight reset/late-funding tests pass; backend/frontend TypeScript validation run. Live correction follows with journal and guarded transaction.
