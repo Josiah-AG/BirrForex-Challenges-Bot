@@ -2002,3 +2002,6 @@ The user confirmed that this log must retain the history of application updates 
 ## 2026-10-07 — Responsive overview card contents
 - Admin/host overview cards now place pipe-separated breakdowns on individual lines, keeping demo and real lot sizes visible on narrow mobile cards. Removed ellipsis truncation from values and helper text.
 - Added min-width zero, max-width bounds and anywhere wrapping to stat, metric and no-target cards; icons retain their width. Frontend production build and whitespace checks passed.
+
+## 2026-10-07 — Fit-based overview breakdown wrapping
+- Refined admin/host stat breakdowns to a wrapping flex row: categories share a line whenever actual card width permits and flow onto additional lines when needed. Oversized individual segments still wrap within the card. Frontend TypeScript and whitespace checks passed.

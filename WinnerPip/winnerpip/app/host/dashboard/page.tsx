@@ -2145,7 +2145,7 @@ function StatCard({ icon, label, value, sub, next, color }: { icon: React.ReactN
       <div className={`flex items-center gap-1.5 mb-1.5 [&>svg]:shrink-0 ${color}`}>{icon}<p className="text-[9px] sm:text-[10px] text-gray-400 uppercase tracking-wider font-medium">{label}</p></div>
       <p className={`text-lg sm:text-2xl md:text-3xl font-bold ${color} leading-snug`}>{value}</p>
       {next && <p className="text-[10px] text-blue-300 mt-1"><TimeWithZone text={next}/></p>}
-      {sub && <p className="text-[9px] sm:text-[10px] text-gray-500 mt-1 leading-snug">{sub.split("|").map((line, index) => <span key={index} className="block">{line.trim()}</span>)}</p>}
+      {sub && <p className="text-[9px] sm:text-[10px] text-gray-500 mt-1 leading-snug flex flex-wrap gap-x-3 gap-y-0.5">{sub.split("|").map((line, index) => <span key={index} className="min-w-0 max-w-full">{line.trim()}</span>)}</p>}
     </div>
   );
 }
