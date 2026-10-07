@@ -1835,18 +1835,18 @@ export default function AdminDashboard() {
 function StatCard({ icon, label, value, sub, next, color, onClick }: { icon: React.ReactNode; label: string; value: React.ReactNode; sub: string; next?: string; color: string; onClick?: () => void }) {
   const Wrapper = onClick ? 'button' : 'div';
   return (
-    <Wrapper onClick={onClick} className={`glass rounded-xl sm:rounded-2xl p-3 sm:p-4 border border-white/10 text-left ${onClick ? 'hover:border-gold/30 cursor-pointer transition-all' : ''}`}>
-      <div className={`flex items-center gap-1.5 mb-1.5 ${color}`}>{icon}<p className="text-[9px] sm:text-[10px] text-gray-400 uppercase tracking-wider font-medium">{label}</p></div>
-      <p className={`text-lg sm:text-2xl md:text-3xl font-bold ${color} truncate`}>{value}</p>
+    <Wrapper onClick={onClick} className={`min-w-0 max-w-full [overflow-wrap:anywhere] glass rounded-xl sm:rounded-2xl p-3 sm:p-4 border border-white/10 text-left ${onClick ? 'hover:border-gold/30 cursor-pointer transition-all' : ''}`}>
+      <div className={`flex items-center gap-1.5 mb-1.5 [&>svg]:shrink-0 ${color}`}>{icon}<p className="text-[9px] sm:text-[10px] text-gray-400 uppercase tracking-wider font-medium">{label}</p></div>
+      <p className={`text-lg sm:text-2xl md:text-3xl font-bold ${color} leading-snug`}>{value}</p>
       {next && <p className="text-[10px] text-blue-300 mt-1"><TimeWithZone text={next}/></p>}
-      <p className="text-[9px] sm:text-[10px] text-gray-500 mt-1 truncate">{sub}</p>
+      <p className="text-[9px] sm:text-[10px] text-gray-500 mt-1 leading-snug">{sub.split("|").map((line, index) => <span key={index} className="block">{line.trim()}</span>)}</p>
     </Wrapper>
   );
 }
 
 function MetricCard({ title, value, sub, user, username, color }: { title: string; value: string; sub: string; user?: string; username?: string; color: string }) {
   return (
-    <div className="p-2.5 rounded-xl bg-white/5 border border-white/10">
+    <div className="min-w-0 max-w-full [overflow-wrap:anywhere] p-2.5 rounded-xl bg-white/5 border border-white/10">
       <p className="text-[9px] text-gray-400 uppercase mb-0.5">{title}</p>
       <p className={`text-sm font-bold ${color}`}>{value}</p>
       <p className="text-[9px] text-gray-500">{sub}</p>

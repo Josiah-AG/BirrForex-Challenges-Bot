@@ -1998,3 +1998,7 @@ The user confirmed that this log must retain the history of application updates 
 - Added shared TimeWithZone display with smaller, lighter timezone suffix. Client trade tables, partial closes, leaderboard participant histories and trade details now include their challenge timezone; corrected client leaderboard date fragments to that same zone. Admin/host timestamp and next-update displays reuse the compact suffix.
 - Client start/sync timestamps now include timezone; relative ages and durations retain their natural units. Export templates remain plain timestamp strings.
 - Frontend production build/type check and server-rendered suffix checks passed (GMT+2 rendered small; AM/PM and empty placeholders not mistaken for zones).
+
+## 2026-10-07 — Responsive overview card contents
+- Admin/host overview cards now place pipe-separated breakdowns on individual lines, keeping demo and real lot sizes visible on narrow mobile cards. Removed ellipsis truncation from values and helper text.
+- Added min-width zero, max-width bounds and anywhere wrapping to stat, metric and no-target cards; icons retain their width. Frontend production build and whitespace checks passed.
