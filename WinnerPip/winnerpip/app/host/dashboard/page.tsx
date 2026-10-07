@@ -1218,7 +1218,7 @@ export default function HostDashboardPage() {
                           <span className="text-profit font-semibold">{b.successful} {b.isBalanceCheck ? "checked" : "updated"}</span>
                           {b.failed > 0 && <span className="text-loss font-semibold">{b.failed} failed</span>}
                           <span className="text-gray-500">{b.total_accounts} processed</span>
-                          <span className="text-gray-500">{durationSec != null ? `${durationSec}s` : b.status === "running" ? "Running…" : "Duration unavailable"}</span>
+                          <span className="text-gray-500">{durationSec != null ? `${durationSec}s` : b.status === "running" ? "Running…" : b.status === "interrupted" ? "Interrupted" : "Duration unavailable"}</span>
                         </div>
                       </div>
                       );

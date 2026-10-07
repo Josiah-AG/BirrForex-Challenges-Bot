@@ -861,6 +861,7 @@ class ResolveOpensRequest(BaseModel):
 
 
 class CandlesRequest(BaseModel):
+    max_terminals:    Optional[int] = None  # bounded WinnerPip recovery; existing callers unchanged
     symbol:           str
     timeframe:        str = "M1"
     from_time:        str
@@ -1525,7 +1526,10 @@ async def _resolve_trades_impl(req: ResolveTradesRequest):
 
 @app.post("/api/v1/candles")
 async def get_candles(req: CandlesRequest):
-    data = await _get_candles_impl(req)
+    try:
+        data = await asyncio.wait_for(_get_candles_impl(req), timeout=40) if req.max_terminals is not None else await _get_candles_impl(req)
+    except asyncio.TimeoutError:
+        data = {"success": False, "error_type": "timeout", "message": "Candle recovery deadline reached; retry on next update"}
     _record_metrics(data, lane=("myfxpath" if req.priority else "challenge"), req_type="candles")
     return data
 
@@ -1547,15 +1551,18 @@ async def _get_candles_impl(req: CandlesRequest):
     if req.terminal_id and 1 <= req.terminal_id <= NUM_WORKERS:
         candidates = [req.terminal_id] + [c for c in candidates if c != req.terminal_id]
 
+    bounded = req.max_terminals is not None
+    if bounded:
+        candidates = candidates[:max(1, min(2, req.max_terminals))]
     tried = set()
     for wid in candidates:
         if wid in tried:
             continue
         tried.add(wid)
 
-        for retry in range(MAX_RETRIES_SAME_TERMINAL + 1):
+        for retry in range(1 if bounded else MAX_RETRIES_SAME_TERMINAL + 1):
             try:
-                async with httpx.AsyncClient(timeout=60.0) as client:
+                async with httpx.AsyncClient(timeout=15.0 if bounded else 60.0) as client:
                     resp = await _dispatch_post(client, lane=("myfxpath" if getattr(req, "priority", False) else "challenge"), url=
                         f"{worker_url(wid)}/candles",
                         json={
@@ -1572,8 +1579,7 @@ async def _get_candles_impl(req: CandlesRequest):
                         worker_healthy[wid - 1] = True
                         data["terminal_used"] = wid
                         return data
-                    # Empty candles — worker may have fetched from wrong account, try next
-                    worker_healthy[wid - 1] = False
+                    # Empty market data is not evidence that a terminal is unhealthy.
                     break
             except Exception:
                 worker_healthy[wid - 1] = False

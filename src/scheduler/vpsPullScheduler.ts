@@ -1,3 +1,4 @@
+import { tradeCandleRanges } from '../utils/tradeCandleRanges';
 import { validatedNativeLevels } from '../utils/nativeTradeLevels';
 import { recoverMissingCandles } from '../services/candleFallback';
 import { isNonCredentialPullFailure } from '../utils/pullFailure';
@@ -465,6 +466,10 @@ export class VpsPullScheduler {
       ownsCoordinator=lock.rows[0].locked;
       if(!ownsCoordinator)return;
       if(this.isRunning)return;
+      await db.query(`UPDATE wp_pull_batches SET status='interrupted',error_log=COALESCE(error_log || E'\n','') || 'Previous pull interrupted before final completion was recorded'
+        WHERE status='running' AND error_log IS NULL`);
+      await db.query(`UPDATE challenge_pull_jobs SET state=CASE WHEN attempts>=3 THEN 'failed' ELSE 'pending' END,
+        error='Previous worker interrupted',updated_at=NOW() WHERE state='running'`);
       const job=await db.transaction(async()=>{
         const rows=await db.query(`SELECT j.* FROM challenge_pull_jobs j JOIN trading_challenges c ON c.id=j.challenge_id
           WHERE (j.state='pending' OR (j.state='running' AND j.updated_at<NOW()-INTERVAL '2 hours'))
@@ -604,6 +609,8 @@ export class VpsPullScheduler {
       const phaseTimes: { pull: number; resolve: number; settle: number; ohlc: number; evaluate: number } = { pull: 0, resolve: 0, settle: 0, ohlc: 0, evaluate: 0 };
       phaseTimes.pull = Math.round((Date.now() - startTime) / 1000);
 
+      await db.query('UPDATE wp_pull_batches SET phase_times=$1 WHERE id=$2',[JSON.stringify(phaseTimes),batchId]);
+
       const successfulAccounts = accounts.filter(a => successful.some(r => r.registrationId === a.registrationId));
 
       // Phase 2: Resolve
@@ -620,12 +627,16 @@ export class VpsPullScheduler {
       }
 
       }
+      await db.query('UPDATE wp_pull_batches SET phase_times=$1 WHERE id=$2',[JSON.stringify(phaseTimes),batchId]);
+
       // Phase 3: Settle
       const settleStart = Date.now();
       await db.query(`UPDATE wp_pull_batches SET phase = 'settling', phase_started_at = NOW() WHERE id = $1`, [batchId]).catch(() => {});
       console.log('📊 VPS Pull: Settling terminals for 30 seconds before OHLC...');
       await this.delay(30000);
       phaseTimes.settle = Math.round((Date.now() - settleStart) / 1000);
+
+      await db.query('UPDATE wp_pull_batches SET phase_times=$1 WHERE id=$2',[JSON.stringify(phaseTimes),batchId]);
 
       // Phase 4: OHLC
       const ohlcStart = Date.now();
@@ -634,6 +645,8 @@ export class VpsPullScheduler {
         console.error('⚠️ OHLC update error (non-fatal):', e)
       );
       phaseTimes.ohlc = Math.round((Date.now() - ohlcStart) / 1000);
+
+      await db.query('UPDATE wp_pull_batches SET phase_times=$1 WHERE id=$2',[JSON.stringify(phaseTimes),batchId]);
 
       // Phase 5: Evaluate
       const evalStart = Date.now();
@@ -3234,142 +3247,12 @@ export class VpsPullScheduler {
   // ==================== OHLC CANDLE STORAGE ====================
 
   async updateOhlcCandles(challenge: TradingChallenge): Promise<void> {
-    // Collect all distinct symbols traded in this challenge
-    const symbolResult = await db.query(
-      `SELECT DISTINCT symbol FROM wp_trades WHERE challenge_id = $1 AND symbol IS NOT NULL AND symbol != ''`,
-      [challenge.id]
-    );
-    if (symbolResult.rows.length === 0) return;
-
-    const symbols: string[] = symbolResult.rows.map((r: any) => r.symbol);
-    const challengeStart = new Date(challenge.start_date).toISOString();
-    const now = new Date().toISOString();
-
-    // Remap to base account format: strip trailing lowercase suffix, add 'm'.
-    const remapToBase = (s: string) => s.replace(/[a-z]$/, '') + 'm';
-
-    // === PASS 1: Forward-fill (fetch from last candle to now) ===
-    const symbolRanges: Array<{ symbol: string; from_time: string; to_time: string }> = [];
-    const seenFetchSymbols = new Set<string>();
-    for (const symbol of symbols) {
-      const fetchSymbol = remapToBase(symbol);
-      if (seenFetchSymbols.has(fetchSymbol)) continue;
-      seenFetchSymbols.add(fetchSymbol);
-      const lastRow = await db.query(
-        `SELECT MAX(time) as last_time FROM ohlc_candles WHERE challenge_id = $1 AND symbol = $2`,
-        [challenge.id, fetchSymbol]
-      );
-      const lastTime = lastRow.rows[0]?.last_time;
-      const fromTime = lastTime
-        ? new Date(new Date(lastTime).getTime() + 60 * 1000).toISOString()
-        : challengeStart;
-      if (new Date(fromTime) >= new Date(now)) continue;
-      symbolRanges.push({ symbol: fetchSymbol, from_time: fromTime, to_time: now });
-    }
-
-    if (symbolRanges.length > 0 && this.baseUrl) {
-      console.log(`📊 OHLC: Pass 1 — Forward-fill for ${symbolRanges.length} symbol(s)...`);
-      await this.fetchAndStoreCandles(challenge.id, symbolRanges);
-    }
-
-    // === PASS 2: Gap-fill (detect missing ranges from challenge start and fill them) ===
-    const gapRanges: Array<{ symbol: string; from_time: string; to_time: string }> = [];
-    for (const fetchSymbol of seenFetchSymbols) {
-      const firstRow = await db.query(
-        `SELECT MIN(time) as first_time FROM ohlc_candles WHERE challenge_id = $1 AND symbol = $2`,
-        [challenge.id, fetchSymbol]
-      );
-      const firstTime = firstRow.rows[0]?.first_time;
-      if (!firstTime) {
-        // No candles at all — entire range is a gap
-        gapRanges.push({ symbol: fetchSymbol, from_time: challengeStart, to_time: now });
-        continue;
-      }
-      // If first stored candle is more than 2 minutes after challenge start, there's a gap at the beginning
-      const firstMs = new Date(firstTime).getTime();
-      const startMs = new Date(challengeStart).getTime();
-      if (firstMs - startMs > 2 * 60 * 1000) {
-        gapRanges.push({
-          symbol: fetchSymbol,
-          from_time: challengeStart,
-          to_time: new Date(firstMs - 60 * 1000).toISOString(),
-        });
-      }
-    }
-
-    if (gapRanges.length > 0 && this.baseUrl) {
-      console.log(`📊 OHLC: Pass 2 — Gap-fill for ${gapRanges.length} symbol(s) missing early data...`);
-      // Wait 3s before retry — gives VPS terminal time to load new symbol charts
-      await this.delay(3000);
-      await this.fetchAndStoreCandles(challenge.id, gapRanges);
-
-      // Pass 3: If any symbols STILL have 0 candles, try one more time with a longer wait
-      const stillEmpty: Array<{ symbol: string; from_time: string; to_time: string }> = [];
-      for (const range of gapRanges) {
-        const check = await db.query(
-          `SELECT COUNT(*) as cnt FROM ohlc_candles WHERE challenge_id = $1 AND symbol = $2`,
-          [challenge.id, range.symbol]
-        );
-        if (parseInt(check.rows[0].cnt) === 0) {
-          stillEmpty.push(range);
-        }
-      }
-      if (stillEmpty.length > 0 && this.baseUrl) {
-        console.log(`📊 OHLC: Pass 3 — Retry ${stillEmpty.length} symbol(s) that returned 0 (waiting 5s for chart load)...`);
-        await this.delay(5000);
-        await this.fetchAndStoreCandles(challenge.id, stillEmpty);
-      }
-    }
-
-    // Final count
-    const totalResult = await db.query(
-      `SELECT COUNT(*) as total FROM ohlc_candles WHERE challenge_id = $1`, [challenge.id]
-    );
-    console.log(`✅ OHLC: Total candles stored for challenge ${challenge.id}: ${totalResult.rows[0].total}`);
-
-    // === COVERAGE CHECK: Retry any symbol below 80% coverage (max 3 retries) ===
-    const MIN_COVERAGE = 0.80;
-    const MAX_COVERAGE_RETRIES = 3;
-    const challengeStartMs = new Date(challengeStart).getTime();
-    const nowMs = new Date(now).getTime();
-
-    for (let retry = 1; retry <= MAX_COVERAGE_RETRIES; retry++) {
-      const lowCoverageRanges: Array<{ symbol: string; from_time: string; to_time: string }> = [];
-
-      for (const fetchSymbol of seenFetchSymbols) {
-        const countResult = await db.query(
-          `SELECT COUNT(*) as cnt FROM ohlc_candles WHERE challenge_id = $1 AND symbol = $2`,
-          [challenge.id, fetchSymbol]
-        );
-        const actualCandles = parseInt(countResult.rows[0].cnt);
-        // Expected = total minutes in the challenge period (M1 candles)
-        // Only count market hours: ~5 days/week × ~24h for forex. Use raw minutes as upper bound.
-        const totalMinutes = Math.floor((nowMs - challengeStartMs) / 60000);
-        const coverage = totalMinutes > 0 ? actualCandles / totalMinutes : 1;
-
-        if (coverage < MIN_COVERAGE && totalMinutes > 60) {
-          // Find the gap: fetch from last stored candle to now (forward-fill catch-up)
-          const lastRow = await db.query(
-            `SELECT MAX(time) as last_time FROM ohlc_candles WHERE challenge_id = $1 AND symbol = $2`,
-            [challenge.id, fetchSymbol]
-          );
-          const lastTime = lastRow.rows[0]?.last_time;
-          const fromTime = lastTime
-            ? new Date(new Date(lastTime).getTime() + 60 * 1000).toISOString()
-            : challengeStart;
-          if (new Date(fromTime) < new Date(now)) {
-            lowCoverageRanges.push({ symbol: fetchSymbol, from_time: fromTime, to_time: now });
-          }
-          console.log(`⚠️ OHLC: ${fetchSymbol} coverage ${(coverage * 100).toFixed(1)}% < 80% (${actualCandles}/${totalMinutes} candles) — retry ${retry}/${MAX_COVERAGE_RETRIES}`);
-        }
-      }
-
-      if (lowCoverageRanges.length === 0) break; // All symbols >= 80%
-
-      // Wait before retry — let terminal chart data load
-      await this.delay(5000);
-      await this.fetchAndStoreCandles(challenge.id, lowCoverageRanges);
-    }
+    const trades=await db.query(`SELECT symbol,open_time,close_time FROM wp_trades
+      WHERE challenge_id=$1 AND symbol IS NOT NULL AND open_time IS NOT NULL AND close_time IS NOT NULL`,[challenge.id]);
+    const ranges=tradeCandleRanges(trades.rows);
+    if(!ranges.length)return;
+    console.log(`📊 OHLC: Fetching complete trade windows for ${ranges.length} symbols (closed-session minutes outside trades are not gaps)`);
+    await this.fetchAndStoreCandles(challenge.id,ranges);
   }
 
   /**
@@ -3381,13 +3264,14 @@ export class VpsPullScheduler {
   ): Promise<number> {
     if (!this.baseUrl || symbolRanges.length === 0) return 0;
 
+    const recoveryDeadline=Date.now()+120000;
     let response: any;
     try {
       const res = await axios.post(`${this.baseUrl}/ohlc-bulk`, {
         symbols: symbolRanges,
         timeframe: 'M1',
         api_key: this.apiKey,
-      }, { timeout: 180000 });
+      }, { timeout: 60000 });
       response = res.data;
     } catch (e: any) {
       console.error(`⚠️ OHLC: Bulk request failed; trying alternate-worker route:`, e?.message || e);
@@ -3399,9 +3283,11 @@ export class VpsPullScheduler {
     }
 
     response.results = await recoverMissingCandles(symbolRanges, response.results, async range => {
+      const remaining=recoveryDeadline-Date.now();
+      if(remaining<=0)throw new Error('Candle recovery budget exhausted; retry next update');
       const res = await axios.post(`${this.baseUrl}/candles`, {
-        ...range, timeframe:'M1', required_subtype:'standard', api_key:this.apiKey,
-      }, {timeout:180000});
+        ...range, timeframe:'M1', required_subtype:'standard', max_terminals:2, api_key:this.apiKey,
+      }, {timeout:Math.min(45000,remaining)});
       return res.data;
     }, message => console.warn(message));
 

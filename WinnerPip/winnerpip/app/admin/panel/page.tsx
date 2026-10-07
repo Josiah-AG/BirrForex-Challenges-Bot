@@ -521,7 +521,7 @@ export default function AdminDashboard() {
               failed: p.failed || 0,
               passwordChanged: 0,
               newTrades: p.new_trades_found || 0,
-              duration: duration != null ? `${duration}s` : p.status === "running" ? "Running…" : "Unavailable",
+              duration: duration != null ? `${duration}s` : p.status === "running" ? "Running…" : p.status === "interrupted" ? "Interrupted" : "Unavailable",
               status: p.status,
               isPreStart: p.error_log === 'pre_start_check',
               isBalanceCheck: p.isBalanceCheck,
