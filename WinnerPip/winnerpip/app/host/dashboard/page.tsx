@@ -1,4 +1,5 @@
 "use client";
+import {nextPullTime} from "@/lib/nextPullTime";
 import NoTargetOverviewCard from "@/components/NoTargetOverviewCard";
 
 import TradeProtectionLevel from "@/components/TradeProtectionLevel";
@@ -620,9 +621,9 @@ export default function HostDashboardPage() {
             </div>
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 mb-6">
               <StatCard icon={<Target size={16} />} label="Total Balance" value={`$${Number(overview.realBalance || 0).toFixed(2)}`} sub={`Real: $${Number(overview.realBalance || 0).toFixed(2)} | Demo: $${Number(overview.demoBalance || 0).toFixed(2)}`} color="text-profit" />
-              <StatCard icon={<Zap size={16} />} label="Updates Today" value={String(overview.pullsToday || 0)} sub={`Next: ${(() => { const hourInTz = parseInt(new Intl.DateTimeFormat('en-US', { timeZone: challengeTz, hour: '2-digit', hour12: false }).format(new Date()).replace('24','0')); const schedule = [0,4,8,12,16,20]; const next = schedule.find(s => s > hourInTz); return `${String(next !== undefined ? next : 0).padStart(2,"0")}:00${tzAbbr ? ' ' + tzAbbr : ''}`; })()}`} color="text-royal" />
+              <StatCard icon={<Zap size={16} />} label="Updates Today" value={String(overview.pullsToday || 0)} sub={`Next: ${nextPullTime(selectedChallenge)}`} color="text-royal" />
               <StatCard icon={<Shield size={16} />} label="Update Success" value={String(overview.pullsSuccess || 0)} sub={`Failed: ${overview.pullsFailed || 0} | PW Changed: ${overview.passwordChanged || 0}`} color="text-profit" />
-              <StatCard icon={<Clock size={16} />} label="Last Update" value={overview.lastPullTime || "—"} sub={`${overview.pullsSuccess || 0} ok · ${overview.pullsFailed || 0} failed`} color="text-gray-300" />
+              <StatCard icon={<Clock size={16} />} label="Last Update" value={overview.lastPullTime || "—"} next={`Next update: ${nextPullTime(selectedChallenge)}`} sub={`${overview.pullsSuccess || 0} ok · ${overview.pullsFailed || 0} failed`} color="text-gray-300" />
             </div>
 
             {/* Top Violations Breakdown */}
@@ -2136,11 +2137,12 @@ function StatusBadge({ status }: { status: string }) {
   return <span className={`px-2.5 py-1 rounded-full text-[10px] font-semibold border ${colors[status] || 'bg-white/10 text-gray-400 border-white/20'}`}>{labels[status] || status}</span>;
 }
 
-function StatCard({ icon, label, value, sub, color }: { icon: React.ReactNode; label: string; value: any; sub: string; color: string }) {
+function StatCard({ icon, label, value, sub, next, color }: { icon: React.ReactNode; label: string; value: any; sub: string; next?: string; color: string }) {
   return (
     <div className="glass rounded-xl sm:rounded-2xl p-3 sm:p-4 border border-white/10">
       <div className={`flex items-center gap-1.5 mb-1.5 ${color}`}>{icon}<p className="text-[9px] sm:text-[10px] text-gray-400 uppercase tracking-wider font-medium">{label}</p></div>
       <p className={`text-lg sm:text-2xl md:text-3xl font-bold ${color} truncate`}>{value}</p>
+      {next && <p className="text-[10px] text-blue-300 mt-1">{next}</p>}
       {sub && <p className="text-[9px] sm:text-[10px] text-gray-500 mt-1 truncate">{sub}</p>}
     </div>
   );

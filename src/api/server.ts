@@ -3302,7 +3302,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenges`, adminIpCheck, async (req, 
               split_category_settings, demo_starting_balance, demo_target_balance, real_starting_balance, real_target_balance,
               demo_deposit_mode, real_deposit_mode, demo_target_percent, real_target_percent, deposit_mode, target_percent,
               target_enabled, allow_below_start, demo_target_enabled, real_target_enabled,
-              demo_allow_below_start, real_allow_below_start, host_id, real_prizes, demo_prizes, timezone
+              demo_allow_below_start, real_allow_below_start, host_id, real_prizes, demo_prizes, timezone, pull_times, leaderboard_locked_at, winners_posted_at
        FROM trading_challenges
        WHERE status != 'deleted'
        ORDER BY created_at DESC`
@@ -3310,6 +3310,9 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenges`, adminIpCheck, async (req, 
 
     const challenges = result.rows.map((c: any) => ({
       id: c.id,
+      pullTimes: c.pull_times,
+      leaderboard_locked_at: c.leaderboard_locked_at,
+      winners_posted_at: c.winners_posted_at,
       title: c.title,
       type: c.type,
       status: c.status,

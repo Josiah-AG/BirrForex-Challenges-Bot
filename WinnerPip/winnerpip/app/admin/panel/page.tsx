@@ -1,4 +1,5 @@
 "use client";
+import {nextPullTime} from "@/lib/nextPullTime";
 import NoTargetOverviewCard from "@/components/NoTargetOverviewCard";
 
 import TradeProtectionLevel from "@/components/TradeProtectionLevel";
@@ -405,7 +406,7 @@ export default function AdminDashboard() {
     aboveTarget: od?.aboveTarget ?? od?.qualified ?? 0,
     qualifiedCount: od?.qualified || 0,
     lastPullTime: od?.pulls?.lastPullAt ? (() => { const d = new Date(new Date(od.pulls.lastPullAt).getTime() + 3*60*60*1000); return `${String(d.getUTCHours()).padStart(2,"0")}:${String(d.getUTCMinutes()).padStart(2,"0")} EAT`; })() : "—",
-    nextPullTime: (() => { const now = new Date(Date.now() + 3*60*60*1000); const h = now.getUTCHours(); const schedule = [0,4,8,12,16,20]; const next = schedule.find(s => s > h); return next !== undefined ? `${String(next).padStart(2,"0")}:00 EAT` : "00:00 EAT"; })(),
+    nextPullTime: nextPullTime(selectedChall),
     metrics: od?.metrics || null,
   };
 
@@ -665,7 +666,7 @@ export default function AdminDashboard() {
             <StatCard icon={<Target size={16} />} label="Total Balance" value={`$${overview.realBalance}`} sub={`Real: $${overview.realBalance} | Demo: $${overview.demoBalance}`} color="text-profit" />
             <StatCard icon={<Zap size={16} />} label="Pulls Today" value={overview.pullsToday.toString()} sub={`Next: ${overview.nextPullTime}`} color="text-royal" />
             <StatCard icon={<Shield size={16} />} label="Pull Success" value={overview.pullsSuccess.toString()} sub={`Failed: ${overview.pullsFailed} | PW Changed: ${overview.passwordChanged}`} color="text-profit" />
-            <StatCard icon={<Clock size={16} />} label="Last Pull" value={overview.lastPullTime} sub={`${overview.pullsSuccess} ok · ${overview.pullsFailed} failed`} color="text-gray-300" />
+            <StatCard icon={<Clock size={16} />} label="Last Pull" value={overview.lastPullTime} next={`Next pull: ${overview.nextPullTime}`} sub={`${overview.pullsSuccess} ok · ${overview.pullsFailed} failed`} color="text-gray-300" />
           </div>
 
           {/* Top Violations Breakdown */}
@@ -1828,12 +1829,13 @@ export default function AdminDashboard() {
   );
 }
 
-function StatCard({ icon, label, value, sub, color, onClick }: { icon: React.ReactNode; label: string; value: string; sub: string; color: string; onClick?: () => void }) {
+function StatCard({ icon, label, value, sub, next, color, onClick }: { icon: React.ReactNode; label: string; value: string; sub: string; next?: string; color: string; onClick?: () => void }) {
   const Wrapper = onClick ? 'button' : 'div';
   return (
     <Wrapper onClick={onClick} className={`glass rounded-xl sm:rounded-2xl p-3 sm:p-4 border border-white/10 text-left ${onClick ? 'hover:border-gold/30 cursor-pointer transition-all' : ''}`}>
       <div className={`flex items-center gap-1.5 mb-1.5 ${color}`}>{icon}<p className="text-[9px] sm:text-[10px] text-gray-400 uppercase tracking-wider font-medium">{label}</p></div>
       <p className={`text-lg sm:text-2xl md:text-3xl font-bold ${color} truncate`}>{value}</p>
+      {next && <p className="text-[10px] text-blue-300 mt-1">{next}</p>}
       <p className="text-[9px] sm:text-[10px] text-gray-500 mt-1 truncate">{sub}</p>
     </Wrapper>
   );

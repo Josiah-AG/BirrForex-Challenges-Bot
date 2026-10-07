@@ -70,7 +70,7 @@ interface WinnersData {
   teamOnly?: boolean;
 }
 
-export default function ChallengesPage({initialChallenges = [], winnersId}: {initialChallenges?: Challenge[]; winnersId?: number}) {
+export default function ChallengesPage({initialChallenges = [], winnersId, returnTo}: {initialChallenges?: Challenge[]; winnersId?: number; returnTo?: string}) {
   const [publicLeaderboard, setPublicLeaderboard] = useState<Challenge | null>(null);
   const [expandedPrizes, setExpandedPrizes] = useState<Record<number, boolean>>({});
   const [challenges, setChallenges] = useState<Challenge[]>(initialChallenges);
@@ -178,6 +178,11 @@ export default function ChallengesPage({initialChallenges = [], winnersId}: {ini
       setWinnersData({ hasWinners: false, real: [], demo: [] });
     }
     setWinnersLoading(false);
+  };
+
+  const closeWinners = () => {
+    if (selectedPastChallenge?.id === winnersId && returnTo === `/competitions/${winnersId}`) window.location.replace(returnTo);
+    else setSelectedPastChallenge(null);
   };
 
   const openedWinnersId = useRef<number | null>(null);
@@ -516,14 +521,14 @@ export default function ChallengesPage({initialChallenges = [], winnersId}: {ini
 
       {/* Winners Modal */}
       {selectedPastChallenge && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setSelectedPastChallenge(null)}>
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={closeWinners}>
           <div className="glass rounded-2xl max-w-lg w-full max-h-[85vh] overflow-y-auto border border-white/10" onClick={e => e.stopPropagation()}>
             <div className="sticky top-0 glass p-4 border-b border-white/10 flex items-center justify-between z-10 rounded-t-2xl">
               <div className="flex items-center gap-3">
                 <Trophy size={20} className="text-gold" />
                 <h3 className="text-lg font-bold text-white">{selectedPastChallenge.title}</h3>
               </div>
-              <button onClick={() => setSelectedPastChallenge(null)} className="p-2 hover:bg-white/10 rounded-lg">
+              <button onClick={closeWinners} className="p-2 hover:bg-white/10 rounded-lg">
                 <X size={18} className="text-gray-400" />
               </button>
             </div>

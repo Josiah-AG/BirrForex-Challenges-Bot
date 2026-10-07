@@ -1,5 +1,6 @@
 "use client";
 
+import BackButton from "@/components/BackButton";
 import RaceCountdown from "@/components/RaceCountdown";
 import TradeProtectionLevel from "@/components/TradeProtectionLevel";
 import PublicLeaderboard, { canViewPublicLeaderboard } from "@/components/PublicLeaderboard";
@@ -602,7 +603,7 @@ export default function ChallengeDashboard() {
         <div className="container mx-auto px-4 py-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <Link href="/challenges"><button className="p-2 text-gray-400 hover:text-white hover:bg-white/5 rounded-xl transition-all"><ArrowLeft size={20} /></button></Link>
+              <BackButton fallback="/challenges"/>
               <div className="flex items-center gap-2">
                 <Image src="/winnerpip-icon.png" alt="WinnerPip" width={32} height={32} className="rounded-lg" />
                 <div className="hidden sm:block">

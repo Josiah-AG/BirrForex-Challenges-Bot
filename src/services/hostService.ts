@@ -218,7 +218,7 @@ class HostService {
   async getHostChallenges(hostId: number): Promise<any[]> {
     const result = await db.query(
       `SELECT id, title, type, status, start_date, end_date, pre_start_check_started_at, starting_balance, target_balance,
-              deposit_mode, target_percent, timezone, registration_mode, created_at, prize_pool_text, real_winners_count, demo_winners_count, real_prizes, demo_prizes,
+              deposit_mode, target_percent, timezone, pull_times, leaderboard_locked_at, winners_posted_at, registration_mode, created_at, prize_pool_text, real_winners_count, demo_winners_count, real_prizes, demo_prizes,
               split_category_settings, demo_starting_balance, demo_target_balance,
               real_starting_balance, real_target_balance,
               demo_deposit_mode, real_deposit_mode, demo_target_percent, real_target_percent,
