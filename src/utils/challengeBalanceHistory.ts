@@ -4,8 +4,9 @@ import {brokerCashOperationType} from './brokerCashOperation';
 /** Display only published cash operations within the challenge's UTC window.
  * Keep the complete underlying ledger intact for reconciliation.
  */
-export const challengeBalanceHistorySql = `SELECT o.deal_ticket, o.op_time, o.amount, o.op_type, o.comment
+export const challengeBalanceHistorySql = `SELECT o.deal_ticket, o.op_time, o.amount, o.op_type, o.comment, d.deal_type
   FROM wp_visible_balance_ops_for($2) o
+  LEFT JOIN wp_deals d ON d.registration_id=o.registration_id AND d.ticket=o.deal_ticket
   JOIN trading_challenges c ON c.id=o.challenge_id
   WHERE o.challenge_id=$1 AND o.registration_id=$2
     AND o.op_time >= (c.start_date AT TIME ZONE 'UTC')
@@ -25,5 +26,5 @@ export async function labelBalanceHistory(registrationId: number, rows: any[]): 
       resets=negativeBalanceResetTickets(deals,registration.history_verified_balance==null ? NaN : Number(registration.history_verified_balance),registration.history_verified_through,registration.history_sync_state);
     }
   }
-  return rows.map(o=>({...o,op_type:resets.has(String(o.deal_ticket)) ? 'negative_balance_reset' : brokerCashOperationType(o.op_type,o.comment)}));
+  return rows.map(o=>({...o,op_type:resets.has(String(o.deal_ticket)) ? 'negative_balance_reset' : brokerCashOperationType(o.op_type,o.comment,o.deal_type)}));
 }

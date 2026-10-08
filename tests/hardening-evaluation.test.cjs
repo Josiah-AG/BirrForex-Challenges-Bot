@@ -23,7 +23,7 @@ async function evaluate(rules, trades, options={}) {
   if (sql.includes('SELECT time,deal_type,profit')) return {rows:options.ledger || []};
   if (sql.includes('FROM wp_deals')) return {rows:options.deposits || []};
   if (sql.includes('FROM trading_registrations')) return {rows:[{registration_balance:options.regBalance ?? 1000,actual_starting_balance:options.savedActual === undefined ? 1000 : options.savedActual,last_known_balance:1000,disqualified:false,last_known_equity:1000,...options.snapshot}]};
-  if (sql.includes("o.op_type='dividend'")) return {rows:[{total:options.dividendAdjustment || 0}]};
+  if (sql.includes("o.op_type IN ('dividend'")) return {rows:[{total:options.dividendAdjustment || 0}]};
   if (sql.includes('FROM wp_balance_ops')) return {rows:options.balanceOps || []};
   if (sql.includes('FROM wp_pull_errors')) return {rows:[]};
   if (sql.includes('wp_ohlc')) return {rows:[]};
@@ -125,4 +125,13 @@ test('signed standalone dividends affect balances once, without adding trades or
  assert.equal(Math.round(result.summary.adjustedBalance*100),133796);
  assert.equal(result.summary.grossProfit,338.47);
  assert.equal(result.summary.totalTrades,1);
+});
+
+test('trade commission and swap can turn a gross gain into a net loss',async()=>{
+ const r=await evaluate(base(),[trade(1,{profit:5,commission:-4,swap:-3})]);
+ assert.equal(r.summary.grossProfit,-2);assert.equal(r.summary.currentBalance,998);
+});
+test('standalone costs are applied once without changing trade count',async()=>{
+ const r=await evaluate(base(),[trade(1,{profit:100,commission:-6,swap:-2})],{dividendAdjustment:-9});
+ assert.equal(r.summary.currentBalance,1083);assert.equal(r.summary.totalTrades,1);assert.equal(r.summary.grossProfit,92);
 });

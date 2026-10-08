@@ -1582,6 +1582,7 @@ export default function AdminDashboard() {
                 };
                 opMeta.adjustment = { ...opMeta.dividend, icon: '🔄', label: 'Broker adjustment' };
                 opMeta.negative_balance_reset = { ...opMeta.dividend, icon: '🔄', label: 'Negative balance reset' };
+                for (const [kind,label] of Object.entries({commission:'Commission',fee:'Broker fee',interest:'Interest',tax:'Tax'})) opMeta[kind] = {...opMeta.dividend,label};
                 // Group trades by positionId
                 const posMap = new Map<number, any[]>();
                 for (const t of selectedParticipantTrades) {
@@ -1748,7 +1749,8 @@ export default function AdminDashboard() {
                 <TradeProtectionLevel trade={t} kind="sl" />
                 <TradeProtectionLevel trade={t} kind="tp" />
                 <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">{isGroup ? 'Total Profit' : 'Profit'}</p><p className={`font-bold ${t.profit >= 0 ? 'text-profit' : 'text-loss'}`}>{cur(t.profit)}</p></div>
-                {!isGroup && <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Commission</p><p className="text-gray-300">{cur(t.commission ?? 0)}</p></div>}
+                {!isGroup && <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Commission &amp; fees</p><p className="text-gray-300">{cur(t.commission ?? 0)}</p></div>}
+                {!isGroup && <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Swap</p><p className="text-gray-300">{cur(t.swap ?? 0)}</p></div>}
               </div>
               {isGroup && (
                 <div className="space-y-1">

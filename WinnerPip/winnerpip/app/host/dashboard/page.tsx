@@ -1885,6 +1885,7 @@ export default function HostDashboardPage() {
                 };
                 opMeta.adjustment = { ...opMeta.dividend, icon: '🔄', label: 'Broker adjustment' };
                 opMeta.negative_balance_reset = { ...opMeta.dividend, icon: '🔄', label: 'Negative balance reset' };
+                for (const [kind,label] of Object.entries({commission:'Commission',fee:'Broker fee',interest:'Interest',tax:'Tax'})) opMeta[kind] = {...opMeta.dividend,label};
                 // Group trades by positionId
                 const posMap = new Map<number, any[]>();
                 for (const t of selectedParticipantTrades) {
@@ -2052,7 +2053,7 @@ export default function HostDashboardPage() {
                 <TradeProtectionLevel trade={t} kind="sl" />
                 <TradeProtectionLevel trade={t} kind="tp" />
                 <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Profit</p><p className={`font-bold ${Number(t.profit) >= 0 ? 'text-profit' : 'text-loss'}`}>{cur(Number(t.profit))}</p></div>
-                <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Commission</p><p className="text-gray-300">{cur(Number(t.commission ?? 0))}</p></div>
+                <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Commission &amp; fees</p><p className="text-gray-300">{cur(Number(t.commission ?? 0))}</p></div>
               </div>
               <div className="grid grid-cols-2 gap-2 text-xs">
                 <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Status</p><p className={`font-semibold ${!isQualified ? 'text-loss' : 'text-profit'}`}>{!isQualified ? '🚩 Flagged' : '✓ Qualified'}</p></div>

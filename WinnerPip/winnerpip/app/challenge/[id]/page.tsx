@@ -26,7 +26,7 @@ interface Trade {
   ticket: number; positionId?: number; symbol: string; type: string; volume: number;
   openingVolume?: number | null;
   openPrice: number; closePrice: number; openTime: string; closeTime: string;
-  profit: number; commission: number; swap: number;
+  profit: number; grossProfit?: number; commission: number; swap: number;
   stopLoss?: number | null; takeProfit?: number | null;
   isQualified: boolean; violations: string[]; slCheckPending?: boolean; slCheckResult?: string | null;
 }
@@ -500,7 +500,7 @@ export default function ChallengeDashboard() {
     ...recentBalanceOps.map(op => ({ kind: 'operation' as const, op, at: Date.parse(op.closeTime) })),
   ].sort((a,b) => b.at-a.at);
   const balanceOperationRow = (op: BalanceOperation) => {
-    const labels: Record<string,string> = { deposit: 'Deposit', withdrawal: 'Withdrawal', dividend: 'Dividend adjustment', negative_balance_reset: 'Negative balance reset', adjustment: 'Broker history adjustment', swap: 'Swap' };
+    const labels: Record<string,string> = { deposit: 'Deposit', withdrawal: 'Withdrawal', dividend: 'Dividend adjustment', negative_balance_reset: 'Negative balance reset', adjustment: 'Broker history adjustment', swap: 'Swap', commission: 'Commission', fee: 'Broker fee', interest: 'Interest', tax: 'Tax' };
     return <tr key={`cash-${op.ticket}`} className="border-b border-white/5 bg-blue-500/5">
       <td className="py-3 px-4 text-xs text-gray-400">{balanceOperationTime(op.closeTime, challengeTz)}</td>
       <td colSpan={2} className="py-3 px-4"><p className="text-xs font-semibold text-blue-300">{labels[op.opType] || 'Broker adjustment'}</p>{op.comment && <p className="text-[10px] text-gray-500 break-words">{op.comment}</p>}</td>
@@ -1498,6 +1498,9 @@ export default function ChallengeDashboard() {
                 <DRow label="Exit" value={selectedTrade.closePrice.toString()} />
                 <TradeProtectionLevel trade={selectedTrade} kind="sl" />
                 <TradeProtectionLevel trade={selectedTrade} kind="tp" />
+                <DRow label="Gross Profit/Loss" value={formatBalance(selectedTrade.grossProfit ?? selectedTrade.profit, myStats?.accountType || 'demo', effectiveIsCent)} />
+                <DRow label="Commission & fees" value={formatBalance(selectedTrade.commission || 0, myStats?.accountType || 'demo', effectiveIsCent)} />
+                <DRow label="Swap" value={formatBalance(selectedTrade.swap || 0, myStats?.accountType || 'demo', effectiveIsCent)} />
               </div>
               <div className="bg-white/5 rounded-lg p-4 flex items-center justify-between">
                 <span className="text-sm text-gray-400">Net Profit/Loss</span>
@@ -1529,7 +1532,7 @@ export default function ChallengeDashboard() {
                   <p className="text-sm text-profit font-semibold flex items-center gap-2"><Shield size={16} />Qualified — counts toward your balance</p>
                 ) : (
                   <div>
-                    <p className="text-sm text-loss font-semibold flex items-center gap-2 mb-2"><AlertTriangle size={16} />{selectedTrade.profit + (selectedTrade.commission || 0) + (selectedTrade.swap || 0) > 0 ? 'Flagged — profit removed' : 'Flagged — actual loss still counts'}</p>
+                    <p className="text-sm text-loss font-semibold flex items-center gap-2 mb-2"><AlertTriangle size={16} />{selectedTrade.profit > 0 ? 'Flagged — profit removed' : 'Flagged — actual loss still counts'}</p>
                     {selectedTrade.violations.length > 0 && <p className="text-sm text-white">{selectedTrade.violations.join(", ")}</p>}
                   </div>
                 )}

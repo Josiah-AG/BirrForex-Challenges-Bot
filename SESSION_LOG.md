@@ -2021,3 +2021,9 @@ The user confirmed that this log must retain the history of application updates 
 - Authenticated dashboard now includes published, challenge-window balance operations with the same verified labels as leaderboard histories.
 - Active and completed participant trade tables merge operations chronologically with grouped trades. Signed amounts, comments and challenge-zone timestamps displayed; dividend/reset/history adjustments have neutral labels and no trade-detail action.
 - Operations remain separate from trades for counts, violations and performance metrics. Backend build, frontend typecheck and label/time regressions passed.
+
+## 2026-10-08 — Commission, swap and standalone charge verification
+- Confirmed VPS history_snapshot.py SHA256 matches local tested reader (2fd72a8cb6ed62584eadc63566ab6dd7fd51c307a51f7b9b7b436e1041ccb21f). No VPS changes/restarts.
+- Native MT5 charge/commission/interest/dividend/tax deal codes now drive balance operation labels at ingestion and history display. Recognized standalone signed costs affect evaluated balances once, separately from trade counts; generic archived corrections are not guessed as costs.
+- Participant dashboard profit now equals gross+commission/fees+swap, consistent with evaluation; trade detail shows breakdown. Leaderboard history API supplies breakdown; admin/host details label combined Commission & fees and show Swap.
+- Synthetic reader tests: entry/exit fees allocated across partial closes once, positive/negative swap, separate cost types reconcile balance, zero-cost behavior unchanged (3 passed). 21 classification/evaluation/reset-label tests passed; backend build and frontend typecheck passed. Live raw-history audit has 0 commissions/fees and 8 swap records; challenge-period audit checked separately. No test trades added to production.

@@ -1373,17 +1373,17 @@ export class WpEvaluationEngine {
     }
 
     const qualifiedProfit = grossProfit - profitRemoved;
-    // Standalone broker dividends are signed balance adjustments, not customer
+    // Standalone broker dividends and charges are signed balance adjustments, not customer
     // funding or trades. Include them once without inflating qualified trade P/L.
-    const dividendResult = await db.query(`SELECT COALESCE(SUM(o.amount),0) AS total
+    const cashAdjustmentResult = await db.query(`SELECT COALESCE(SUM(o.amount),0) AS total
       FROM wp_balance_ops o JOIN trading_registrations r ON r.id=o.registration_id
       JOIN trading_challenges c ON c.id=o.challenge_id
-      WHERE o.challenge_id=$1 AND o.registration_id=$2 AND o.op_type='dividend'
+      WHERE o.challenge_id=$1 AND o.registration_id=$2 AND o.op_type IN ('dividend','commission','fee','interest','tax','swap')
       AND o.op_time >= (GREATEST(c.start_date,r.registered_at) AT TIME ZONE 'UTC')
       AND o.op_time <= (c.end_date AT TIME ZONE 'UTC')`, [challengeId,reg.id]);
-    const dividendAdjustment = Number(dividendResult.rows[0]?.total || 0);
-    const adjustedBalance = effectiveStartBalance + qualifiedProfit + dividendAdjustment;
-    const currentBalance = effectiveStartBalance + grossProfit + dividendAdjustment;
+    const cashAdjustment = Number(cashAdjustmentResult.rows[0]?.total || 0);
+    const adjustedBalance = effectiveStartBalance + qualifiedProfit + cashAdjustment;
+    const currentBalance = effectiveStartBalance + grossProfit + cashAdjustment;
     const qualifiedTrades = allTrades.length - flaggedCount;
     const tradeDays = new Set(allTrades.map(t => getLocalTime(new Date(t.close_time), challengeTimezone).dateStr));
     const activeDays = tradeDays.size;
