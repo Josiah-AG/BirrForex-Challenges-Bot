@@ -1884,6 +1884,7 @@ export default function HostDashboardPage() {
                   dividend:   { icon: '📊', label: 'Dividend adjustment',   bg: 'bg-royal/10',  border: 'border-royal/20',  textColor: 'text-royal',       sign: (a) => a < 0 ? '-' : '+' },
                 };
                 opMeta.adjustment = { ...opMeta.dividend, icon: '🔄', label: 'Broker adjustment' };
+                opMeta.negative_balance_reset = { ...opMeta.dividend, icon: '🔄', label: 'Negative balance reset' };
                 // Group trades by positionId
                 const posMap = new Map<number, any[]>();
                 for (const t of selectedParticipantTrades) {

@@ -1,4 +1,4 @@
-import { challengeBalanceHistorySql } from '../utils/challengeBalanceHistory';
+import { challengeBalanceHistorySql, labelBalanceHistory } from '../utils/challengeBalanceHistory';
 import { qualifiedBalanceSeries } from '../utils/qualifiedBalanceSeries';
 import { leaderboardOrderSql } from '../utils/qualifiedRanking';
 import { queuedPullProgress } from '../utils/queuedPullProgress';
@@ -1703,7 +1703,7 @@ app.get('/api/challenges/:id/user-trades', async (req, res) => {
       };
     });
 
-    const balanceOpRows = balanceOps.rows.map((b: any) => ({
+    const balanceOpRows = (await labelBalanceHistory(Number(registrationId), balanceOps.rows)).map((b: any) => ({
       _isBalanceOp: true,
       ticket: b.deal_ticket,
       opType: b.op_type,

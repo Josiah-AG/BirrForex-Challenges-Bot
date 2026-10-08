@@ -2012,3 +2012,5 @@ The user confirmed that this log must retain the history of application updates 
 - Admin, host and client history labels say Dividend adjustment; debit signs fixed. Unknown operations no longer default to Deposit.
 - Audit: 14 DIV operations / 12 registrations; current challenge affects Pow_aaah (-2.23,+1.72) and Trader Manzini (+1.31). Historical completed results remain locked.
 - Validation: backend build, frontend typecheck, 17 classification/evaluation tests passed. Live correction/deployment verification follows.
+
+- Follow-up: history API uses the same verified negative-balance ledger test as recharge evaluation to label confirmed D-NULL credits Negative balance reset. No change to reset accounting/DQ policy. Admin/host/client neutral labels added; unverified D-NULL remains a deposit. Regression test covers verified versus unproven reset and dividend labels.
