@@ -2014,3 +2014,10 @@ The user confirmed that this log must retain the history of application updates 
 - Validation: backend build, frontend typecheck, 17 classification/evaluation tests passed. Live correction/deployment verification follows.
 
 - Follow-up: history API uses the same verified negative-balance ledger test as recharge evaluation to label confirmed D-NULL credits Negative balance reset. No change to reset accounting/DQ policy. Admin/host/client neutral labels added; unverified D-NULL remains a deposit. Regression test covers verified versus unproven reset and dividend labels.
+
+- Live verification: backend/frontend cf60ee3 successful; dividend ingestion/evaluation commit 2f07953. Transactional backed-up correction reclassified 14 DIV rows across 12 registrations; active-only replay updated Pow_aaah to 10337.96, withdrawals 0, rank 13 unchanged; Trader Manzini 9949.94, rank 46 unchanged. No DQ state changed. Completed rankings preserved. All 6 D-NULL entries in challenge 38 verified and labeled negative_balance_reset by production helper. Tests: 17 dividend/evaluation and 5 reset/label checks passed.
+
+## 2026-10-08 — Participant dashboard balance activity
+- Authenticated dashboard now includes published, challenge-window balance operations with the same verified labels as leaderboard histories.
+- Active and completed participant trade tables merge operations chronologically with grouped trades. Signed amounts, comments and challenge-zone timestamps displayed; dividend/reset/history adjustments have neutral labels and no trade-detail action.
+- Operations remain separate from trades for counts, violations and performance metrics. Backend build, frontend typecheck and label/time regressions passed.

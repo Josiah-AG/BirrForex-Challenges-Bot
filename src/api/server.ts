@@ -1767,6 +1767,9 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
     }
     tradesQuery += ` ORDER BY close_time DESC`;
     const trades = await db.query(tradesQuery, tradesParams);
+    const dashboardBalanceOps = await labelBalanceHistory(Number(registrationId),
+      (await db.query(challengeBalanceHistorySql, [cId, registrationId])).rows);
+
 
     // Batch lookup opening volumes for partial close detection
     const positionIds = [...new Set(trades.rows.map((t: any) => t.position_id).filter(Boolean))];
@@ -1924,6 +1927,10 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
         isQualified: leaderboard?.is_qualified || false,
         lastUpdated: leaderboard?.last_updated || null,
       },
+      balanceOps: dashboardBalanceOps.map((b: any) => ({
+        ticket: b.deal_ticket, opType: b.op_type, amount: Number(b.amount),
+        closeTime: b.op_time, comment: b.comment || '',
+      })),
       recentTrades: trades.rows.map((t: any) => {
         const posId = t.position_id || t.ticket;
         const openVol = openingVolumes.get(posId);

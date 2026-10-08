@@ -20,6 +20,7 @@ import BalanceChart from "@/components/BalanceChart";
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
 
 // ==================== TYPES ====================
+interface BalanceOperation { ticket: string; opType: string; amount: number; closeTime: string; comment: string; }
 interface Trade {
   nativeSlTp?: { source: string; sl: number; tp: number; time_msc: number } | null;
   ticket: number; positionId?: number; symbol: string; type: string; volume: number;
@@ -106,6 +107,7 @@ export default function ChallengeDashboard() {
   const [challenge, setChallenge] = useState<ChallengeInfo | null>(null);
   const [myStats, setMyStats] = useState<MyStats | null>(null);
   const [recentTrades, setRecentTrades] = useState<Trade[]>([]);
+  const [recentBalanceOps, setRecentBalanceOps] = useState<BalanceOperation[]>([]);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [leaderboardLoading, setLeaderboardLoading] = useState(false);
   const [leaderboardPreStart, setLeaderboardPreStart] = useState(false);
@@ -257,6 +259,7 @@ export default function ChallengeDashboard() {
       myStatsRef.current = statsObj;
       setMyStats(statsObj);
       setRecentTrades(data.recentTrades || []);
+      setRecentBalanceOps(data.balanceOps || []);
       setError("");
     } catch {
       if (!valid()) return;
@@ -492,6 +495,20 @@ export default function ChallengeDashboard() {
       .map(([pid, g]) => ({ positionId: pid, trades: g }))
       .sort((a, b) => new Date(b.trades[b.trades.length - 1].closeTime).getTime() - new Date(a.trades[a.trades.length - 1].closeTime).getTime());
   };
+  const recentActivity = [
+    ...groupTradesByPosition(recentTrades).map(g => ({ kind: 'trade' as const, group: g, at: Math.max(...g.trades.map(t => Date.parse(t.closeTime))) })),
+    ...recentBalanceOps.map(op => ({ kind: 'operation' as const, op, at: Date.parse(op.closeTime) })),
+  ].sort((a,b) => b.at-a.at);
+  const balanceOperationRow = (op: BalanceOperation) => {
+    const labels: Record<string,string> = { deposit: 'Deposit', withdrawal: 'Withdrawal', dividend: 'Dividend adjustment', negative_balance_reset: 'Negative balance reset', adjustment: 'Broker history adjustment', swap: 'Swap' };
+    return <tr key={`cash-${op.ticket}`} className="border-b border-white/5 bg-blue-500/5">
+      <td className="py-3 px-4 text-xs text-gray-400">{balanceOperationTime(op.closeTime, challengeTz)}</td>
+      <td colSpan={2} className="py-3 px-4"><p className="text-xs font-semibold text-blue-300">{labels[op.opType] || 'Broker adjustment'}</p>{op.comment && <p className="text-[10px] text-gray-500 break-words">{op.comment}</p>}</td>
+      <td className={`py-3 px-4 text-right text-sm font-bold ${op.amount >= 0 ? 'text-profit' : 'text-loss'}`}>{op.amount >= 0 ? '+' : ''}{formatBalance(op.amount, myStats?.accountType || "demo", effectiveIsCent)}</td>
+      <td colSpan={2} className="py-3 px-4 text-center text-[10px] text-gray-500">Balance operation</td>
+    </tr>;
+  };
+
   const groupWorstStatus = (g: Trade[]) => {
     if (g.some(t => !t.isQualified)) return 'flagged';
     if (g.some(t => t.slCheckResult === 'conflicting')) return 'conflicting';
@@ -760,15 +777,15 @@ export default function ChallengeDashboard() {
             <div className="glass rounded-2xl border border-white/10 overflow-hidden">
               <div className="p-4 border-b border-white/5">
                 <div className="flex items-center justify-between">
-                  <p className="text-sm font-semibold text-white">All Trades</p>
+                  <p className="text-sm font-semibold text-white">Trades & Balance Operations</p>
                   <p className="text-xs text-gray-500">Tap a trade for details</p>
                 </div>
                 <p className="text-[10px] text-gray-600 mt-1">Trades closed before {myStats.lastPullAt ? new Date(myStats.lastPullAt).toLocaleString("en-US", { timeZone: challengeTz, hour: "2-digit", minute: "2-digit", hour12: false, timeZoneName: "short" }) : "last sync"} • Next sync: <TimeWithZone text={getNextPullTime()} timezone={challengeTz}/></p>
               </div>
-              {recentTrades.length === 0 ? (
+              {recentActivity.length === 0 ? (
                 <div className="p-8 text-center">
                   <Activity className="w-10 h-10 text-gray-600 mx-auto mb-2" />
-                  <p className="text-gray-400 text-sm">No trades recorded.</p>
+                  <p className="text-gray-400 text-sm">No trades or balance operations recorded.</p>
                 </div>
               ) : (
               <div className="overflow-x-auto">
@@ -777,11 +794,13 @@ export default function ChallengeDashboard() {
                     <th className="text-left py-3 px-4 text-[10px] text-gray-400 font-medium uppercase">Date</th>
                     <th className="text-left py-3 px-4 text-[10px] text-gray-400 font-medium uppercase">Symbol</th>
                     <th className="text-left py-3 px-4 text-[10px] text-gray-400 font-medium uppercase">Type</th>
-                    <th className="text-right py-3 px-4 text-[10px] text-gray-400 font-medium uppercase">Profit</th>
+                    <th className="text-right py-3 px-4 text-[10px] text-gray-400 font-medium uppercase">Profit / Amount</th>
                     <th className="text-center py-3 px-4 text-[10px] text-gray-400 font-medium uppercase">Vol</th>
                     <th className="text-center py-3 px-4 text-[10px] text-gray-400 font-medium uppercase">Status</th>
                   </tr></thead>
-                  <tbody>{groupTradesByPosition(recentTrades).map(({ positionId, trades: group }) => {
+                  <tbody>{recentActivity.map(item => {
+                    if (item.kind === 'operation') return balanceOperationRow(item.op);
+                    const { positionId, trades: group } = item.group;
                     if (group.length === 1) {
                       const t = group[0];
                       return (
@@ -1217,12 +1236,12 @@ export default function ChallengeDashboard() {
             <div className="glass rounded-2xl border border-white/10 overflow-hidden">
               <div className="p-4 border-b border-white/5">
                 <div className="flex items-center justify-between">
-                  <p className="text-sm font-semibold text-white">Recent Trades</p>
+                  <p className="text-sm font-semibold text-white">Recent Trades & Balance Operations</p>
                   <p className="text-xs text-gray-500">Tap a trade for details</p>
                 </div>
                 <p className="text-[10px] text-gray-600 mt-1">Trades closed before {myStats.lastPullAt ? new Date(myStats.lastPullAt).toLocaleString("en-US", { timeZone: challengeTz, hour: "2-digit", minute: "2-digit", hour12: false, timeZoneName: "short" }) : "last sync"} • Next sync: <TimeWithZone text={getNextPullTime()} timezone={challengeTz}/></p>
               </div>
-              {recentTrades.length === 0 ? (
+              {recentActivity.length === 0 ? (
                 <div className="p-8 text-center">
                   <Activity className="w-10 h-10 text-gray-600 mx-auto mb-2" />
                   <p className="text-gray-400 text-sm">No trades recorded yet.</p>
@@ -1234,11 +1253,13 @@ export default function ChallengeDashboard() {
                     <th className="text-left py-3 px-4 text-[10px] text-gray-400 font-medium uppercase">Date</th>
                     <th className="text-left py-3 px-4 text-[10px] text-gray-400 font-medium uppercase">Symbol</th>
                     <th className="text-left py-3 px-4 text-[10px] text-gray-400 font-medium uppercase">Type</th>
-                    <th className="text-right py-3 px-4 text-[10px] text-gray-400 font-medium uppercase">Profit</th>
+                    <th className="text-right py-3 px-4 text-[10px] text-gray-400 font-medium uppercase">Profit / Amount</th>
                     <th className="text-center py-3 px-4 text-[10px] text-gray-400 font-medium uppercase">Vol</th>
                     <th className="text-center py-3 px-4 text-[10px] text-gray-400 font-medium uppercase">Status</th>
                   </tr></thead>
-                  <tbody>{groupTradesByPosition(recentTrades).map(({ positionId, trades: group }) => {
+                  <tbody>{recentActivity.map(item => {
+                    if (item.kind === 'operation') return balanceOperationRow(item.op);
+                    const { positionId, trades: group } = item.group;
                     if (group.length === 1) {
                       const t = group[0];
                       return (
