@@ -1,3 +1,4 @@
+import { brokerCashOperationType } from '../utils/brokerCashOperation';
 import { tradeCandleRanges } from '../utils/tradeCandleRanges';
 import { validatedNativeLevels } from '../utils/nativeTradeLevels';
 import { recoverMissingCandles } from '../services/candleFallback';
@@ -1802,7 +1803,7 @@ export class VpsPullScheduler {
         `INSERT INTO wp_balance_ops (challenge_id, registration_id, account_number, deal_ticket, op_time, amount, op_type, comment)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
          ON CONFLICT (challenge_id, registration_id, deal_ticket) DO UPDATE SET op_time=EXCLUDED.op_time,amount=EXCLUDED.amount,op_type=EXCLUDED.op_type,comment=EXCLUDED.comment`,
-        [challengeId, registrationId, accountNumber, op.ticket, op.time, op.amount, op.op_type, op.comment || null]
+        [challengeId, registrationId, accountNumber, op.ticket, op.time, op.amount, brokerCashOperationType(op.op_type, op.comment), op.comment || null]
       );
     }
     // Raw ingestion never changes published results. Withdrawal state is rebuilt

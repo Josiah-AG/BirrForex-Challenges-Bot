@@ -2005,3 +2005,10 @@ The user confirmed that this log must retain the history of application updates 
 
 ## 2026-10-07 — Fit-based overview breakdown wrapping
 - Refined admin/host stat breakdowns to a wrapping flex row: categories share a line whenever actual card width permits and flow onto additional lines when needed. Oversized individual segments still wrap within the card. Frontend TypeScript and whitespace checks passed.
+
+## 2026-10-08 — Broker dividend classification
+- Explicit native dividends and DIV-instrument-reference balance entries normalize to dividend on ingestion; signed amounts remain intact.
+- Dividend adjustments are included once in current/qualified balances within the challenge/registration window, without adding trade counts or trade P/L. True withdrawals remain separate.
+- Admin, host and client history labels say Dividend adjustment; debit signs fixed. Unknown operations no longer default to Deposit.
+- Audit: 14 DIV operations / 12 registrations; current challenge affects Pow_aaah (-2.23,+1.72) and Trader Manzini (+1.31). Historical completed results remain locked.
+- Validation: backend build, frontend typecheck, 17 classification/evaluation tests passed. Live correction/deployment verification follows.

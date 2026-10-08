@@ -1578,8 +1578,9 @@ export default function AdminDashboard() {
                   deposit:    { icon: '💰', label: 'Deposit',    bg: 'bg-profit/10', border: 'border-profit/20', textColor: 'text-profit',      sign: () => '+' },
                   withdrawal: { icon: '🚪', label: 'Withdrawal', bg: 'bg-loss/10',   border: 'border-loss/20',   textColor: 'text-loss',        sign: () => '-' },
                   swap:       { icon: '🔄', label: 'Swap',       bg: 'bg-amber-500/10', border: 'border-amber-500/20', textColor: 'text-amber-400', sign: (a) => a < 0 ? '-' : '+' },
-                  dividend:   { icon: '📊', label: 'Dividend',   bg: 'bg-royal/10',  border: 'border-royal/20',  textColor: 'text-royal',       sign: () => '+' },
+                  dividend:   { icon: '📊', label: 'Dividend adjustment',   bg: 'bg-royal/10',  border: 'border-royal/20',  textColor: 'text-royal',       sign: (a) => a < 0 ? '-' : '+' },
                 };
+                opMeta.adjustment = { ...opMeta.dividend, icon: '🔄', label: 'Broker adjustment' };
                 // Group trades by positionId
                 const posMap = new Map<number, any[]>();
                 for (const t of selectedParticipantTrades) {
@@ -1611,7 +1612,7 @@ export default function AdminDashboard() {
                           const isDeposit = op.opType === 'deposit';
                           const meta = (isDeposit && isPostStart)
                             ? { icon: '⚠️', label: 'Deposit (Post-Start)', bg: 'bg-loss/10', border: 'border-loss/20', textColor: 'text-loss', sign: () => '+' }
-                            : (opMeta[op.opType] || opMeta.deposit);
+                            : (opMeta[op.opType] || opMeta.adjustment);
                           return (
                             <div key={`op-${op.ticket}`} className={`flex items-center justify-between py-2 px-3 rounded-lg border ${meta.bg} ${meta.border}`}>
                               <div>

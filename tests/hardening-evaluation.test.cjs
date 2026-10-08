@@ -23,6 +23,7 @@ async function evaluate(rules, trades, options={}) {
   if (sql.includes('SELECT time,deal_type,profit')) return {rows:options.ledger || []};
   if (sql.includes('FROM wp_deals')) return {rows:options.deposits || []};
   if (sql.includes('FROM trading_registrations')) return {rows:[{registration_balance:options.regBalance ?? 1000,actual_starting_balance:options.savedActual === undefined ? 1000 : options.savedActual,last_known_balance:1000,disqualified:false,last_known_equity:1000,...options.snapshot}]};
+  if (sql.includes("o.op_type='dividend'")) return {rows:[{total:options.dividendAdjustment || 0}]};
   if (sql.includes('FROM wp_balance_ops')) return {rows:options.balanceOps || []};
   if (sql.includes('FROM wp_pull_errors')) return {rows:[]};
   if (sql.includes('wp_ohlc')) return {rows:[]};
@@ -117,3 +118,11 @@ for (const state of ['verified','published','incomplete','evaluation_failed']) {
   } else await assert.rejects(run,/awaits verified broker history/);
  });
 }
+
+test('signed standalone dividends affect balances once, without adding trades or trade profit',async()=>{
+ const result=await evaluate(base(),[trade(1,{profit:338.47})],{dividendAdjustment:-.51});
+ assert.equal(Math.round(result.summary.currentBalance*100),133796);
+ assert.equal(Math.round(result.summary.adjustedBalance*100),133796);
+ assert.equal(result.summary.grossProfit,338.47);
+ assert.equal(result.summary.totalTrades,1);
+});

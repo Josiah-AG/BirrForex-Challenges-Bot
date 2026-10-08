@@ -1683,7 +1683,7 @@ export default function ChallengeDashboard() {
                                   <div className="flex items-center gap-2">
                                     <span className="text-sm">{opIcon(op.opType)}</span>
                                     <div>
-                                      <p className="text-xs text-white font-medium capitalize">{op.opType}</p>
+                                      <p className="text-xs text-white font-medium capitalize">{op.opType === 'dividend' ? 'Dividend adjustment' : op.opType === 'adjustment' ? 'Broker adjustment' : op.opType}</p>
                                       <p className="text-[10px] text-gray-500">{balanceOperationTime(op.closeTime, challengeTz)}{op.comment ? ` • ${op.comment}` : ''}</p>
                                     </div>
                                   </div>
