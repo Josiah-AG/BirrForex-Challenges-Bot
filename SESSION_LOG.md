@@ -2046,3 +2046,6 @@ The user confirmed that this log must retain the history of application updates 
 - Removed the long explanatory paragraph from the commercial modal. Revenue amounts are green, USD volume blue; confirmed/estimated breakdown is compact.
 - Mobile uses participant cards with challenge-account/all-MT5 comparisons, avoiding sideways table scrolling; desktop retains a table. Coverage is expandable on mobile.
 - Verified existing access: admin-only authenticated routes include hosted real/hybrid challenges and use the host's Exness integration. Host UI/routes remain disabled. Six commercial/access regressions passed; frontend production build passed.
+
+## 2026-10-10 — Compact commercial rows on mobile
+- Replaced tall mobile participant cards with compact three-column rows: participant, challenge account, all MT5 accounts. Green revenue and blue volume stay visible; tap a row for full metrics and coverage. Desktop table and access rules unchanged. Frontend production build and diff checks passed.
