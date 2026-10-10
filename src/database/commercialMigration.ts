@@ -11,5 +11,6 @@ export async function migrateCommercial() {
     CREATE TABLE IF NOT EXISTS wp_commercial_orders (
     challenge_id INTEGER NOT NULL, scope TEXT NOT NULL, account TEXT NOT NULL,
     order_id TEXT NOT NULL, partner_account TEXT NOT NULL, data JSONB NOT NULL,
-    PRIMARY KEY(challenge_id,scope,account,order_id,partner_account));`);
+    PRIMARY KEY(challenge_id,scope,account,order_id,partner_account));
+    ALTER TABLE wp_commercial_reports ADD COLUMN IF NOT EXISTS account_ids TEXT[] NOT NULL DEFAULT '{}';`);
 }

@@ -78,8 +78,9 @@ export async function refreshCommercial(challengeId:number, full=false) {
     // Unspecified platform is verified against the MT5 server prefix on each transaction.
     const linked=directory.filter(a=>a.platform==='mt5'||a.platform==null);
     const accounts=[...new Set([...valid.map(r=>account(r.account_number)),...linked.map(a=>String(a.client_account))])];
-    const prior=(await db.query('SELECT scope,scanned_through FROM wp_commercial_reports WHERE challenge_id=$1',[challengeId])).rows[0];
-    const scanStart=!full&&prior?.scope===scope&&prior.scanned_through
+    const prior=(await db.query('SELECT scope,scanned_through,account_ids FROM wp_commercial_reports WHERE challenge_id=$1',[challengeId])).rows[0];
+    const newAccounts=accounts.some(a=>!prior?.account_ids?.includes(a));
+    const scanStart=!full&&!newAccounts&&prior?.scope===scope&&prior.scanned_through
       ? Math.max(start,+new Date(prior.scanned_through)-3*86400000) : start;
     let cursor=Date.parse(day(scanStart));const scanEnd=Date.parse(day(now));
     while(cursor<=scanEnd) {
@@ -149,7 +150,7 @@ export async function refreshCommercial(challengeId:number, full=false) {
       challenge:commercialSummary([...totalChallenge.values()]),all:commercialSummary([...totalAll.values()]),rows,
       warnings:[...warnings,...(rows.some(r=>r.issues.length)?['Some participants have incomplete account coverage; see participant details.']:[])],
       notice:'All-account totals include challenge accounts. Other-account activity is limited to available Exness MT5 reports; unreported transactions may be missing. Top instrument is by normalized lots. Estimates use recent confirmed same-account/instrument rates, not guaranteed commission. Revenues include disqualified and blown accounts.'};
-    await db.query(`UPDATE wp_commercial_reports SET scope=$2,report=$3,scanned_through=$4,updated_at=NOW(),started_at=NULL,error=NULL WHERE challenge_id=$1`,[challengeId,scope,JSON.stringify(report),new Date(now).toISOString()]);
+    await db.query(`UPDATE wp_commercial_reports SET scope=$2,report=$3,scanned_through=$4,account_ids=$5,updated_at=NOW(),started_at=NULL,error=NULL WHERE challenge_id=$1`,[challengeId,scope,JSON.stringify(report),new Date(now).toISOString(),accounts]);
   } catch(e:any) {
     if(locked)await db.query('UPDATE wp_commercial_reports SET error=$2,started_at=NULL WHERE challenge_id=$1',[challengeId,cleanError(e)]);
     console.error('[commercial]',challengeId,cleanError(e));
@@ -165,8 +166,16 @@ export async function readCommercial(id:number) {
   const c=(await db.query('SELECT type,status FROM trading_challenges WHERE id=$1',[id])).rows[0];
   if(!c)return null;
   if(c.type==='demo'||c.status==='deleted')return {enabled:false};
-  const row=(await db.query('SELECT report,updated_at,started_at,error FROM wp_commercial_reports WHERE challenge_id=$1',[id])).rows[0];
+  const row=(await db.query(`SELECT CASE WHEN report IS NULL THEN NULL ELSE (report - 'rows') ||
+    jsonb_build_object('rows',COALESCE((SELECT jsonb_agg(r - 'trades') FROM jsonb_array_elements(report->'rows') r),'[]')) END AS report,
+    updated_at,started_at,error FROM wp_commercial_reports WHERE challenge_id=$1`,[id])).rows[0];
   return {...(row?.report||{enabled:true,rows:[]}),refreshing:queue.has(id)||Boolean(row?.started_at),error:row?.error||null,hasData:Boolean(row?.report)};
+}
+export async function readCommercialTrades(challengeId:number,registrationId:number) {
+  const row=(await db.query(`SELECT r->'trades' AS trades FROM wp_commercial_reports c
+    CROSS JOIN LATERAL jsonb_array_elements(c.report->'rows') r
+    WHERE c.challenge_id=$1 AND r->>'registrationId'=$2`,[challengeId,String(registrationId)])).rows[0];
+  return row?.trades || [];
 }
 export function startCommercialScheduler() {
   const run=async()=>{try{const cs=await db.query(`SELECT id FROM trading_challenges WHERE type IN('real','hybrid') AND status IN('active','completed','reviewing','submission_open') ORDER BY CASE WHEN status='active' THEN 0 ELSE 1 END,id DESC`);for(const c of cs.rows)queueCommercial(c.id);}catch{console.error('[commercial] schedule unavailable');}};
