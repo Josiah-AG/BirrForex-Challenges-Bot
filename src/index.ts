@@ -1,3 +1,4 @@
+import {startCommercialScheduler} from './services/commercialAnalytics';
 import { Bot } from './bot/bot';
 import { Scheduler } from './scheduler/scheduler';
 import { TradingScheduler } from './scheduler/tradingScheduler';
@@ -46,6 +47,7 @@ async function main() {
 
     // Start WinnerPip API server (serves api.winnerpip.com endpoints)
     startApiServer();
+    startCommercialScheduler();
 
     // Pass schedulers to bot for testing
     bot.setScheduler(scheduler);

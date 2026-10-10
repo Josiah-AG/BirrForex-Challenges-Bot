@@ -1,3 +1,4 @@
+import {readCommercial,queueCommercial} from '../services/commercialAnalytics';
 import { challengeBalanceHistorySql, labelBalanceHistory } from '../utils/challengeBalanceHistory';
 import { qualifiedBalanceSeries } from '../utils/qualifiedBalanceSeries';
 import { leaderboardOrderSql } from '../utils/qualifiedRanking';
@@ -3603,6 +3604,49 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/disqualify`, adminIpChec
  * GET /api/admin/:secretPath/challenge/:id/overview
  * Full challenge overview for admin
  */
+app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/participant/:registrationId/trades`, adminIpCheck, async (req,res)=>{
+  try {
+    const id=Number(req.params.id), registrationId=Number(req.params.registrationId);
+    const requested=Number(req.query.page || 1);
+    if(![id,registrationId,requested].every(n=>Number.isSafeInteger(n)&&n>0))return res.status(400).json({error:'Invalid page or participant'});
+    const registration=(await db.query('SELECT account_type,is_cent FROM trading_registrations WHERE id=$1 AND challenge_id=$2',[registrationId,id])).rows[0];
+    if(!registration)return res.status(404).json({error:'Participant not found'});
+    const args=[id,registrationId];
+    const base=`FROM wp_visible_trades_for($2) WHERE challenge_id=$1 AND registration_id=$2
+      AND close_time >= (SELECT start_date - INTERVAL '3 hours' FROM trading_challenges WHERE id=$1)
+      AND close_time <= (SELECT end_date + INTERVAL '27 hours' FROM trading_challenges WHERE id=$1)`;
+    const stats=(await db.query(`SELECT COUNT(*) AS total,
+      COUNT(*) FILTER(WHERE is_qualified IS NOT FALSE AND profit+COALESCE(commission,0)+COALESCE(swap,0)>0) AS wins,
+      COUNT(*) FILTER(WHERE profit+COALESCE(commission,0)+COALESCE(swap,0)<0) AS losses,
+      AVG(profit+COALESCE(commission,0)+COALESCE(swap,0)) FILTER(WHERE is_qualified IS NOT FALSE AND profit+COALESCE(commission,0)+COALESCE(swap,0)>0) AS average_win,
+      AVG(profit+COALESCE(commission,0)+COALESCE(swap,0)) FILTER(WHERE profit+COALESCE(commission,0)+COALESCE(swap,0)<0) AS average_loss ${base}`,args)).rows[0];
+    const total=Number(stats.total);
+    const pages=Math.max(1,Math.ceil(total/20)),page=Math.min(requested,pages);
+    const trades=(await db.query(`SELECT * ${base} ORDER BY close_time DESC NULLS LAST,ticket DESC LIMIT 20 OFFSET $3`,[...args,(page-1)*20])).rows;
+    const report=registration.account_type==='real'?await readCommercial(id):null;
+    const rewards=report?.rows?.find((r:any)=>Number(r.registrationId)===registrationId)?.trades || [];
+    const balanceOps=await labelBalanceHistory(registrationId,(await db.query(challengeBalanceHistorySql,args)).rows);
+    return res.json({total,page,pages,stats,isCent:registration.is_cent,commercial:registration.account_type==='real',trades:trades.map((t:any)=>{
+      const matches=rewards.filter((r:any)=>String(r.ticket)===String(t.ticket));
+      return {...t,ticket:String(t.ticket),generatedRevenue:matches.length?{
+        confirmed:matches.filter((r:any)=>r.state==='confirmed').reduce((s:number,r:any)=>s+Number(r.revenue),0),
+        estimated:matches.filter((r:any)=>r.state==='estimated').reduce((s:number,r:any)=>s+Number(r.revenue),0),
+        pending:matches.some((r:any)=>r.state==='pending'),method:matches.map((r:any)=>r.method).join('; ')
+      }:null};
+    }),balanceOps});
+  }catch{return res.status(503).json({error:'Participant history unavailable. Please try again.'});}
+});
+
+app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/commercial`, adminIpCheck, async (req,res)=>{
+  try {const report=await readCommercial(Number(req.params.id));return report?res.json({...report,rows:report.rows?.map(({trades,...r}:any)=>r)}):res.status(404).json({error:'Challenge not found'});}
+  catch {return res.status(503).json({error:'Commercial report unavailable'});}
+});
+app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/commercial-refresh`, adminIpCheck, async (req,res)=>{
+  const id=Number(req.params.id);if(!Number.isSafeInteger(id)||id<=0)return res.status(400).json({error:'Invalid challenge'});
+  try {const report=await readCommercial(id);if(!report?.enabled)return res.status(400).json({error:'Real challenge required'});
+  queueCommercial(id);return res.status(202).json({queued:true});}catch{return res.status(503).json({error:'Commercial refresh unavailable'});}
+});
+
 app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, async (req, res) => {
   try {
     const challengeId = parseInt(req.params.id);

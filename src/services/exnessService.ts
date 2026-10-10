@@ -98,6 +98,23 @@ export class ExnessService {
     return { Authorization: `JWT ${this.token}` };
   }
 
+  /** Read-only paginated partner reports. Never expose credentials or axios config in errors. */
+  async commercialReport(path: string, params: Record<string, any>): Promise<any> {
+    if (!['/api/reports/clients/accounts/', '/api/reports/orders/'].includes(path)) throw new Error('Unsupported commercial report');
+    if (!await this.ensureAuth()) throw new Error('Exness authentication unavailable');
+    for (let attempt=0; attempt<3; attempt++) {
+      try { return (await axios.get(this.baseUrl+path,{headers:this.getHeaders(),params,timeout:25000})).data; }
+      catch (e:any) {
+        const status=e.response?.status;
+        if (attempt<2 && [429,502,503,504].includes(status)) {await new Promise(r=>setTimeout(r,2000*(attempt+1)));continue;}
+        throw new Error(`Exness report unavailable (${status || 'timeout'})`);
+      }
+    }
+  }
+  commercialScope(): string {
+    return require('crypto').createHash('sha256').update(this.credentials.email+'\n'+this.credentials.password).digest('hex');
+  }
+
   /**
    * Check if email is allocated under BirrForex partnership
    */

@@ -1,11 +1,12 @@
 "use client";
+import CommercialOverview from "@/components/CommercialOverview";
+import AdminParticipantTrades from "@/components/AdminParticipantTrades";
 import TimeWithZone from "@/components/TimeWithZone";
 import {challengeTimestamp} from "@/lib/challengeTime";
 import {nextPullTime} from "@/lib/nextPullTime";
 import NoTargetOverviewCard from "@/components/NoTargetOverviewCard";
 
 import TradeProtectionLevel from "@/components/TradeProtectionLevel";
-import { balanceOperationTime } from "@/lib/balanceOperationTime";
 import { leaderboardBadges } from "@/lib/leaderboardBadges";
 import MinimumTradesBadge from "@/components/MinimumTradesBadge";
 import DataRefresh from "@/components/DataRefresh";
@@ -28,8 +29,6 @@ export default function AdminDashboard() {
   const [loginLoading, setLoginLoading] = useState(false);
   const [activeSection, setActiveSection] = useState<"overview" | "leaderboard" | "violations" | "pulls" | "screening" | "participants" | "rules" | "health" | "create" | "settings" | "hosts">("overview");
   const [selectedParticipant, setSelectedParticipant] = useState<any>(null);
-  const [selectedParticipantTrades, setSelectedParticipantTrades] = useState<any[]>([]);
-  const [selectedParticipantBalanceOps, setSelectedParticipantBalanceOps] = useState<any[]>([]);
   const [selectedTrade, setSelectedTrade] = useState<any>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [foundUser, setFoundUser] = useState<any>(null);
@@ -92,23 +91,6 @@ export default function AdminDashboard() {
     else document.body.style.overflow = "";
     return () => { document.body.style.overflow = ""; };
   }, [selectedParticipant]);
-
-  // Fetch trades for selected participant
-  useEffect(() => {
-    if (!selectedParticipant || !selectedParticipant.nickname) {
-      setSelectedParticipantTrades([]);
-      setSelectedParticipantBalanceOps([]);
-      return;
-    }
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com";
-    fetch(`${apiUrl}/api/challenges/${selectedChallengeId}/user-trades?nickname=${encodeURIComponent(selectedParticipant.nickname)}`)
-      .then(r => r.ok ? r.json() : { trades: [], balanceOps: [] })
-      .then(d => {
-        setSelectedParticipantTrades(d.trades || []);
-        setSelectedParticipantBalanceOps(d.balanceOps || []);
-      })
-      .catch(() => { setSelectedParticipantTrades([]); setSelectedParticipantBalanceOps([]); });
-  }, [selectedParticipant, selectedChallengeId]);
 
   const handleAdminLogin = async () => {
     setLoginError(""); setLoginLoading(true);
@@ -673,6 +655,7 @@ export default function AdminDashboard() {
           </div>
 
           {/* Top Violations Breakdown */}
+          {selectedChall?.type !== 'demo' && <CommercialOverview key={selectedChallengeId} challengeId={selectedChallengeId} timezone={challengeTz}/>}
           <div className="glass rounded-2xl border border-white/10 p-5 mb-6">
             <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2"><AlertTriangle size={16} className="text-loss" /> Top Rule Violations</h3>
             <div className="space-y-3">
@@ -923,7 +906,7 @@ export default function AdminDashboard() {
                   <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500">Partner</p><p className="text-sm font-semibold text-profit">{foundUser.partnerStatus}</p></div>
                 </div>
                 {foundUser.violations && foundUser.violations.length > 0 && (<div className="px-5 pb-3"><p className="text-xs font-semibold text-loss mb-2">Violations ({foundUser.violations.length})</p><div className="space-y-1">{foundUser.violations.map((v: string, i: number) => (<div key={i} className="flex items-center gap-2 p-2 bg-loss/5 rounded-lg border border-loss/10"><AlertTriangle size={12} className="text-loss flex-shrink-0" /><p className="text-xs text-gray-300">{v}</p></div>))}</div></div>)}
-                <div className="px-5 pb-3"><p className="text-xs font-semibold text-gray-300 mb-2">Recent Trades</p>{foundUser.recentTrades && foundUser.recentTrades.length > 0 ? <div className="space-y-2">{foundUser.recentTrades.map((t: any, i: number) => (<div key={i} className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10"><div className="flex items-center gap-3"><span className={`px-2 py-1 rounded text-[10px] font-bold ${t.type === "Buy" ? "bg-profit/10 text-profit" : "bg-loss/10 text-loss"}`}>{t.type}</span><div><p className="text-sm text-white font-semibold">{t.symbol}</p><p className="text-[10px] text-gray-500">{t.volume} lots</p></div></div><div className="text-right"><p className={`text-sm font-bold ${t.profit >= 0 ? "text-profit" : "text-loss"}`}>{cur(t.profit, foundUser.isCent)}</p></div></div>))}</div> : <p className="text-sm text-gray-500">No trades yet</p>}</div>
+                <div className="px-5 pb-3"><AdminParticipantTrades key={`${selectedChallengeId}:${foundUser.id}`} challengeId={selectedChallengeId} registrationId={foundUser.id} timezone={challengeTz}/></div>
                 <div className="p-5 border-t border-white/10 space-y-2">
                   <button onClick={() => { setActiveSection("leaderboard"); setLeaderboardCategory(foundUser.accountType === 'demo' ? 'demo' : foundUser.accountType === 'real' ? 'real' : 'all'); setTimeout(() => { const entry = leaderboard.find((e: any) => e.nickname === foundUser.nickname || e.accountNumber === foundUser.accountNumber); if (entry) setSelectedParticipant(entry); else setSelectedParticipant({ ...foundUser, registrationId: foundUser.id, adjustedBalance: foundUser.adjustedBalance ?? 0, qualifiedProfit: foundUser.qualifiedProfit || 0, grossProfit: foundUser.grossProfit || 0, profitRemoved: foundUser.profitRemoved || 0, totalTrades: foundUser.totalTrades || 0, qualifiedTrades: foundUser.qualifiedTrades || 0, flaggedTrades: foundUser.flaggedTrades || 0, isCent: foundUser.isCent || false, accountType: foundUser.accountType, nickname: foundUser.nickname, rank: foundUser.rank }); }, 500); }} className="w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-gold/20 border border-gold/30 hover:bg-gold/30 text-gold font-semibold transition-all text-sm"><Trophy size={16} />View on Leaderboard #{foundUser.rank || '—'}</button>
                   <button onClick={() => { const data = foundUser; const toEAT = (d:string) => challengeTimestamp(d, challengeTz, true); const rows = [["Field","Value"],["Nickname",data.nickname],["Username",data.username],["Email",data.email],["Account",data.accountNumber],["Type",data.accountType],["Server",data.server],["Balance",data.balance != null ? data.balance : "N/A"],["Qualified Profit",data.qualifiedProfit],["Gross Profit",data.grossProfit],["Profit Removed",data.profitRemoved],["Trades",data.totalTrades],["Flagged",data.flaggedTrades],["Active Days",data.activeDays],["Rank",data.rank || "N/A"],[`Registered (${challengeTz})`,toEAT(data.registeredAt)],[`Last Pull (${challengeTz})`,toEAT(data.lastPull)],["Partner",data.partnerStatus]]; const csv=rows.map((r:any)=>r.join(",")).join("\n"); const blob=new Blob([csv],{type:"text/csv"}); const url=URL.createObjectURL(blob); const a=document.createElement("a"); a.href=url; a.download=`${data.nickname}_${data.accountNumber}_summary.csv`; a.click(); }} className="w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-royal/20 border border-royal/30 hover:bg-royal/30 text-royal font-semibold transition-all text-sm"><FileText size={16} />Export User Summary (CSV)</button>
@@ -1555,136 +1538,7 @@ export default function AdminDashboard() {
                 />
               )}
               <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Account Type</p><span className={`px-3 py-1 rounded text-xs font-semibold ${selectedParticipant.accountType === "real" ? "bg-gold/10 text-gold" : "bg-royal/10 text-royal"}`}>{selectedParticipant.accountType}</span></div>
-              {selectedParticipantTrades.length > 0 && (() => {
-                const _wins = selectedParticipantTrades.filter((t: any) => t.profit > 0 && t.isQualified !== false);
-                const _losses = selectedParticipantTrades.filter((t: any) => t.profit < 0);
-                const _decided = _wins.length + _losses.length;
-                const _wr = _decided > 0 ? Math.round((_wins.length / _decided) * 100) : 0;
-                const _aw = _wins.length > 0 ? _wins.reduce((s: number, t: any) => s + t.profit, 0) / _wins.length : 0;
-                const _al = _losses.length > 0 ? Math.abs(_losses.reduce((s: number, t: any) => s + t.profit, 0) / _losses.length) : 0;
-                const _rr = _al > 0 ? _aw / _al : 0;
-                return (
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500 mb-1">Win Rate (Qualified)</p><p className={`text-lg font-bold ${_wr >= 50 ? "text-profit" : "text-loss"}`}>{_wr}%</p></div>
-                    <div className="bg-white/5 rounded-xl p-3 text-center"><p className="text-[10px] text-gray-500 mb-1">Avg RR</p><p className="text-lg font-bold text-royal">{_rr > 0 ? _rr.toFixed(2) : "—"}</p></div>
-                  </div>
-                );
-              })()}
-              {(selectedParticipantTrades.length > 0 || selectedParticipantBalanceOps.length > 0) && (() => {
-                const fmtEAT = (d: string) => challengeTimestamp(d, challengeTz);
-                const fmtDateEAT = (d: string) => challengeTimestamp(d, challengeTz, true).slice(0,10);
-                const c = (v: number) => selectedParticipant.isCent ? `${v.toFixed(2)}¢` : `$${v.toFixed(2)}`;
-                const opMeta: Record<string, { icon: string; label: string; bg: string; border: string; textColor: string; sign: (a: number) => string }> = {
-                  deposit:    { icon: '💰', label: 'Deposit',    bg: 'bg-profit/10', border: 'border-profit/20', textColor: 'text-profit',      sign: () => '+' },
-                  withdrawal: { icon: '🚪', label: 'Withdrawal', bg: 'bg-loss/10',   border: 'border-loss/20',   textColor: 'text-loss',        sign: () => '-' },
-                  swap:       { icon: '🔄', label: 'Swap',       bg: 'bg-amber-500/10', border: 'border-amber-500/20', textColor: 'text-amber-400', sign: (a) => a < 0 ? '-' : '+' },
-                  dividend:   { icon: '📊', label: 'Dividend adjustment',   bg: 'bg-royal/10',  border: 'border-royal/20',  textColor: 'text-royal',       sign: (a) => a < 0 ? '-' : '+' },
-                };
-                opMeta.adjustment = { ...opMeta.dividend, icon: '🔄', label: 'Broker adjustment' };
-                opMeta.negative_balance_reset = { ...opMeta.dividend, icon: '🔄', label: 'Negative balance reset' };
-                for (const [kind,label] of Object.entries({commission:'Commission',fee:'Broker fee',interest:'Interest',tax:'Tax'})) opMeta[kind] = {...opMeta.dividend,label};
-                // Group trades by positionId
-                const posMap = new Map<number, any[]>();
-                for (const t of selectedParticipantTrades) {
-                  const key = t.positionId ?? t.ticket;
-                  if (!posMap.has(key)) posMap.set(key, []);
-                  posMap.get(key)!.push(t);
-                }
-                Array.from(posMap.values()).forEach(g => g.sort((a: any, b: any) => new Date(a.closeTime).getTime() - new Date(b.closeTime).getTime()));
-                // Build unified feed: each entry has a sortTime and a type
-                type FeedItem = { sortTime: number } & ({ kind: 'trade'; group: any[] } | { kind: 'op'; op: any });
-                const feed: FeedItem[] = [];
-                posMap.forEach(group => {
-                  feed.push({ kind: 'trade', group, sortTime: new Date(group[0].closeTime).getTime() });
-                });
-                for (const op of selectedParticipantBalanceOps) {
-                  feed.push({ kind: 'op', op, sortTime: new Date(op.closeTime).getTime() });
-                }
-                // Newest first — most recent trades at top
-                feed.sort((a, b) => b.sortTime - a.sortTime);
-                const tradeCount = posMap.size;
-                return (
-                  <div className="mt-2">
-                    <p className="text-xs font-semibold text-gray-400 mb-2">Account History · {tradeCount} trade{tradeCount !== 1 ? 's' : ''}</p>
-                    <div className="space-y-2 max-h-[360px] overflow-y-auto">
-                      {feed.map((item, idx) => {
-                        if (item.kind === 'op') {
-                          const op = item.op;
-                          const isPostStart = selectedChall?.startDate && new Date(op.closeTime) >= new Date(selectedChall.startDate);
-                          const isDeposit = op.opType === 'deposit';
-                          const meta = (isDeposit && isPostStart)
-                            ? { icon: '⚠️', label: 'Deposit (Post-Start)', bg: 'bg-loss/10', border: 'border-loss/20', textColor: 'text-loss', sign: () => '+' }
-                            : (opMeta[op.opType] || opMeta.adjustment);
-                          return (
-                            <div key={`op-${op.ticket}`} className={`flex items-center justify-between py-2 px-3 rounded-lg border ${meta.bg} ${meta.border}`}>
-                              <div>
-                                <p className="text-xs text-white font-medium">{meta.icon} {meta.label}</p>
-                                <p className="text-[10px] text-gray-500">{balanceOperationTime(op.closeTime, selectedChall?.timezone || 'Africa/Addis_Ababa')}{op.comment ? ` · ${op.comment}` : ''}</p>
-                              </div>
-                              <p className={`text-xs font-bold ${meta.textColor}`}>{meta.sign(op.amount)}{c(Math.abs(op.amount))}</p>
-                            </div>
-                          );
-                        }
-                        const group = item.group;
-                        if (group.length === 1) {
-                          const t = group[0];
-                          return (
-                            <div key={`t-${t.ticket}-${idx}`} onClick={() => setSelectedTrade(t)} className={`py-2 px-3 rounded-lg cursor-pointer hover:brightness-125 transition-all ${t.slCheckResult === 'conflicting' ? 'bg-amber-500/5 border border-amber-400/20' : !t.isQualified ? 'bg-loss/10 border border-loss/20' : 'bg-white/5'}`}>
-                              <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                  <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${t.type?.toLowerCase() === 'buy' ? 'bg-profit/20 text-profit' : 'bg-loss/20 text-loss'}`}>{t.type}</span>
-                                  <div>
-                                    <p className="text-xs text-white font-medium">{t.symbol}</p>
-                                    <p className="text-[10px] text-gray-500">{t.openTime ? fmtDateEAT(t.openTime) : ''} <TimeWithZone text={t.openTime ? fmtEAT(t.openTime) : ''}/> → <TimeWithZone text={t.closeTime ? fmtEAT(t.closeTime) : ''}/></p>
-                                  </div>
-                                </div>
-                                <div className="text-right">
-                                  <p className={`text-xs font-bold ${t.profit >= 0 ? 'text-profit' : 'text-loss'}`}>{c(t.profit)}</p>
-                                  <p className="text-[10px] text-gray-500">{t.volume} lot {t.slCheckResult === 'conflicting' ? <span className="text-amber-400 ml-1">?</span> : t.slCheckPending ? <span className="text-gold ml-1" title="Max risk check pending — result may change">?</span> : !t.isQualified ? <span className="text-loss">🚩</span> : null}</p>
-                                </div>
-                              </div>
-                              {!t.isQualified && t.violations?.length > 0 && <p className="text-[10px] text-loss mt-1 pl-7">⚠️ {typeof t.violations[0] === 'string' ? t.violations[0] : (t.violations[0] as any)?.detail || 'Rule violation'}</p>}
-                            </div>
-                          );
-                        }
-                        const totalProfit = group.reduce((s: number, t: any) => s + Number(t.profit), 0);
-                        const totalVol = group.reduce((s: number, t: any) => s + Number(t.volume), 0);
-                        const anyFlagged = group.some((t: any) => !t.isQualified);
-                        const anyConflict = group.some((t: any) => t.slCheckResult === 'conflicting');
-                        const first = group[0];
-                        return (
-                          <div key={`g-${first.positionId ?? first.ticket}-${idx}`} className={`rounded-lg overflow-hidden ${anyFlagged ? 'border border-loss/20' : anyConflict ? 'border border-amber-400/20' : 'border border-white/10'}`}>
-                            <div onClick={() => setSelectedTrade({ ...first, ticket: first.positionId ?? first.ticket, _isGroupHeader: true, _group: group, profit: totalProfit, volume: totalVol })} className={`py-2 px-3 cursor-pointer hover:brightness-125 transition-all ${anyFlagged ? 'bg-loss/10' : anyConflict ? 'bg-amber-500/5' : 'bg-white/5'}`}>
-                              <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                  <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${first.type?.toLowerCase() === 'buy' ? 'bg-profit/20 text-profit' : 'bg-loss/20 text-loss'}`}>{first.type}</span>
-                                  <div>
-                                    <p className="text-xs text-white font-medium">{first.symbol} <span className="text-gray-500 font-normal">{group.length} closes</span></p>
-                                    <p className="text-[10px] text-gray-500">{first.openTime ? fmtDateEAT(first.openTime) : ''} <TimeWithZone text={first.openTime ? fmtEAT(first.openTime) : ''}/></p>
-                                  </div>
-                                </div>
-                                <div className="text-right">
-                                  <p className={`text-xs font-bold ${totalProfit >= 0 ? 'text-profit' : 'text-loss'}`}>{c(totalProfit)}</p>
-                                  <p className="text-[10px] text-gray-500">{totalVol.toFixed(2)} lot {anyFlagged ? <span className="text-loss">🚩</span> : anyConflict ? <span className="text-amber-400">?</span> : null}</p>
-                                </div>
-                              </div>
-                            </div>
-                            {group.map((t: any) => (
-                              <div key={t.ticket} onClick={() => setSelectedTrade(t)} className={`py-1.5 px-3 pl-6 border-t border-white/5 cursor-pointer hover:brightness-125 transition-all ${!t.isQualified ? 'bg-loss/5' : ''}`}>
-                                <div className="flex items-center justify-between">
-                                  <p className="text-[10px] text-gray-500">└ → <TimeWithZone text={fmtEAT(t.closeTime)}/> · {t.volume} lot</p>
-                                  <p className={`text-[10px] font-semibold ${t.profit >= 0 ? 'text-profit' : 'text-loss'}`}>{c(t.profit)}</p>
-                                </div>
-                                {!t.isQualified && t.violations?.length > 0 && <p className="text-[10px] text-loss mt-1 pl-2">⚠️ {typeof t.violations[0] === 'string' ? t.violations[0] : (t.violations[0] as any)?.detail || 'Rule violation'}</p>}
-                              </div>
-                            ))}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                );
-              })()}
+              {selectedParticipant.registrationId && <AdminParticipantTrades key={`${selectedChallengeId}:${selectedParticipant.registrationId}`} challengeId={selectedChallengeId} registrationId={selectedParticipant.registrationId} timezone={challengeTz}/>}
               {/* Export MT5 Trade History */}
               {selectedParticipant.registrationId && (
                 <button

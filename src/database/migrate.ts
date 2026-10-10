@@ -1,3 +1,4 @@
+import {migrateCommercial} from './commercialMigration';
 import {installWorkloadTelemetry} from '../services/workloadTelemetry';
 import { migratePullIntegrity } from './pullIntegrityMigration';
 import { migrateHardening } from './hardeningMigration';
@@ -485,6 +486,7 @@ async function migrate() {
     await db.query(`ALTER TABLE trading_challenges ADD COLUMN IF NOT EXISTS real_allow_below_start BOOLEAN;`).catch(() => {});
     console.log('✅ Optional-target columns OK');
 
+    await migrateCommercial();
     await migrateHardening();
     await migratePullIntegrity();
     try {await installWorkloadTelemetry((sql,args)=>db.query(sql,args),false);}catch {console.error('[workload-telemetry] migration failed; capture unavailable');}

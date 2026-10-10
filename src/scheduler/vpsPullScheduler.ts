@@ -1,3 +1,4 @@
+import {captureCommercialCoverage} from '../services/commercialAnalytics';
 import { brokerCashOperationType } from '../utils/brokerCashOperation';
 import { tradeCandleRanges } from '../utils/tradeCandleRanges';
 import { validatedNativeLevels } from '../utils/nativeTradeLevels';
@@ -1013,6 +1014,7 @@ export class VpsPullScheduler {
           history_verified_through=$4::timestamptz,history_verified_balance=$2,history_verified_at=NOW(),history_sync_state='verified',
           history_sync_error=NULL,history_retry_at=NOW()+INTERVAL '2 minutes',history_retry_attempts=0,reconciliation_status='resolved'
           WHERE id=$1`,[account.registrationId,data.balance,data.equity,data.source_cutoff]);
+        await captureCommercialCoverage(account.registrationId,data.source_cutoff);
         await checkpointPullJournal(account.registrationId);
       });
       return {...base,success:true,tradesCount:insertedTrades,dealsCount:data.deals.length,balance:data.balance,equity:data.equity,balance_ops:data.balance_ops,positionIds:data.position_ids};
