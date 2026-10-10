@@ -2041,3 +2041,8 @@ The user confirmed that this log must retain the history of application updates 
 - Admin participant search/details now include full challenge-account revenue prominently and all linked MT5-account revenue below, explicitly inclusive and scoped to the challenge period/verified coverage. Confirmed, estimated and pending amounts remain distinct; totals are independent of pagination.
 - Simplified trade rows: instrument/direction, net P/L, lots/status, timestamp, generated revenue and a Details control. Moved tickets and revenue breakdown into expanded detail while preserving SL/TP, fees, swap, violations and 20-trade pagination. Commercial metrics remain real-account/admin-only.
 - Backend/frontend builds and seven commercial regression tests passed.
+
+## 2026-10-10 — Simplified commercial participant metrics
+- Removed the long explanatory paragraph from the commercial modal. Revenue amounts are green, USD volume blue; confirmed/estimated breakdown is compact.
+- Mobile uses participant cards with challenge-account/all-MT5 comparisons, avoiding sideways table scrolling; desktop retains a table. Coverage is expandable on mobile.
+- Verified existing access: admin-only authenticated routes include hosted real/hybrid challenges and use the host's Exness integration. Host UI/routes remain disabled. Six commercial/access regressions passed; frontend production build passed.
