@@ -2036,3 +2036,8 @@ The user confirmed that this log must retain the history of application updates 
 - Validation: backend and frontend production builds passed; 187-test suite passed, plus additional volume-deduplication regression. Deployment and historical report checks follow.
 - Release 4239bdf deployed successfully to backend and frontend. Production history smoke: 328 trades, 17 pages, 20/20/8 first/second/final pages, no overlap; unauthenticated requests 401 and wrong challenge/participant 404. Historical confirmed revenue matched prior Exness audit for the completed challenges checked.
 - Follow-up hardening: overview excludes per-trade payloads; participant pages load only their own reward records. Newly discovered linked accounts trigger a complete challenge-period rescan before returning to incremental hourly refresh.
+
+## 2026-10-10 — Participant revenue summary and clearer mobile trade cards
+- Admin participant search/details now include full challenge-account revenue prominently and all linked MT5-account revenue below, explicitly inclusive and scoped to the challenge period/verified coverage. Confirmed, estimated and pending amounts remain distinct; totals are independent of pagination.
+- Simplified trade rows: instrument/direction, net P/L, lots/status, timestamp, generated revenue and a Details control. Moved tickets and revenue breakdown into expanded detail while preserving SL/TP, fees, swap, violations and 20-trade pagination. Commercial metrics remain real-account/admin-only.
+- Backend/frontend builds and seven commercial regression tests passed.

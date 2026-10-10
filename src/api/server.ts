@@ -1,4 +1,4 @@
-import {readCommercial,readCommercialTrades,queueCommercial} from '../services/commercialAnalytics';
+import {readCommercial,readCommercialParticipant,queueCommercial} from '../services/commercialAnalytics';
 import { challengeBalanceHistorySql, labelBalanceHistory } from '../utils/challengeBalanceHistory';
 import { qualifiedBalanceSeries } from '../utils/qualifiedBalanceSeries';
 import { leaderboardOrderSql } from '../utils/qualifiedRanking';
@@ -3623,9 +3623,11 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/participant/:registration
     const total=Number(stats.total);
     const pages=Math.max(1,Math.ceil(total/20)),page=Math.min(requested,pages);
     const trades=(await db.query(`SELECT * ${base} ORDER BY close_time DESC NULLS LAST,ticket DESC LIMIT 20 OFFSET $3`,[...args,(page-1)*20])).rows;
-    const rewards=registration.account_type==='real'?await readCommercialTrades(id,registrationId):[];
+    const commercialParticipant=registration.account_type==='real'?await readCommercialParticipant(id,registrationId):null;
+    const rewards=commercialParticipant?.trades || [];
+    const revenueSummary=commercialParticipant ? {challenge:commercialParticipant.challenge,all:commercialParticipant.all,cutoff:commercialParticipant.cutoff,updatedAt:commercialParticipant.updatedAt,issues:commercialParticipant.issues} : null;
     const balanceOps=await labelBalanceHistory(registrationId,(await db.query(challengeBalanceHistorySql,args)).rows);
-    return res.json({total,page,pages,stats,isCent:registration.is_cent,commercial:registration.account_type==='real',trades:trades.map((t:any)=>{
+    return res.json({total,page,pages,stats,revenueSummary,isCent:registration.is_cent,commercial:registration.account_type==='real',trades:trades.map((t:any)=>{
       const matches=rewards.filter((r:any)=>String(r.ticket)===String(t.ticket));
       return {...t,ticket:String(t.ticket),generatedRevenue:matches.length?{
         confirmed:matches.filter((r:any)=>r.state==='confirmed').reduce((s:number,r:any)=>s+Number(r.revenue),0),

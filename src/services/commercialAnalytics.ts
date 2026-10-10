@@ -171,11 +171,11 @@ export async function readCommercial(id:number) {
     updated_at,started_at,error FROM wp_commercial_reports WHERE challenge_id=$1`,[id])).rows[0];
   return {...(row?.report||{enabled:true,rows:[]}),refreshing:queue.has(id)||Boolean(row?.started_at),error:row?.error||null,hasData:Boolean(row?.report)};
 }
-export async function readCommercialTrades(challengeId:number,registrationId:number) {
-  const row=(await db.query(`SELECT r->'trades' AS trades FROM wp_commercial_reports c
+export async function readCommercialParticipant(challengeId:number,registrationId:number) {
+  const row=(await db.query(`SELECT r AS participant, c.updated_at FROM wp_commercial_reports c
     CROSS JOIN LATERAL jsonb_array_elements(c.report->'rows') r
     WHERE c.challenge_id=$1 AND r->>'registrationId'=$2`,[challengeId,String(registrationId)])).rows[0];
-  return row?.trades || [];
+  return row ? {...row.participant,updatedAt:row.updated_at} : null;
 }
 export function startCommercialScheduler() {
   const run=async()=>{try{const cs=await db.query(`SELECT id FROM trading_challenges WHERE type IN('real','hybrid') AND status IN('active','completed','reviewing','submission_open') ORDER BY CASE WHEN status='active' THEN 0 ELSE 1 END,id DESC`);for(const c of cs.rows)queueCommercial(c.id);}catch{console.error('[commercial] schedule unavailable');}};
