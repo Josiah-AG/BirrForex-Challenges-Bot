@@ -2049,3 +2049,6 @@ The user confirmed that this log must retain the history of application updates 
 
 ## 2026-10-10 — Compact commercial rows on mobile
 - Replaced tall mobile participant cards with compact three-column rows: participant, challenge account, all MT5 accounts. Green revenue and blue volume stay visible; tap a row for full metrics and coverage. Desktop table and access rules unchanged. Frontend production build and diff checks passed.
+
+## 2026-10-10 — Commercial rank status colors
+- Commercial participant ranks are red for disqualified participants and green for active participants on mobile and desktop. Other statuses remain neutral. Frontend typecheck and diff checks passed.
