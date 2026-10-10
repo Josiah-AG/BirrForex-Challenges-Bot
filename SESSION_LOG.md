@@ -2052,3 +2052,6 @@ The user confirmed that this log must retain the history of application updates 
 
 ## 2026-10-10 — Commercial rank status colors
 - Commercial participant ranks are red for disqualified participants and green for active participants on mobile and desktop. Other statuses remain neutral. Frontend typecheck and diff checks passed.
+
+## 2026-10-10 — Volume in participant commercial summary
+- Added blue USD volume and normalized lots below revenue for both the challenge account and all linked MT5 accounts. Uses existing full-period summary data, independent of trade pagination; unavailable volume stays pending. Frontend typecheck and diff checks passed.

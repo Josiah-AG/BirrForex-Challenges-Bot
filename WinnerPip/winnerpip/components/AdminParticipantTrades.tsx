@@ -5,6 +5,13 @@ import TimeWithZone from './TimeWithZone';
 import {ChevronDown} from 'lucide-react';
 import TradeProtectionLevel from './TradeProtectionLevel';
 
+function ParticipantVolume({value}:{value:any}) {
+  const amount=value?.volumeUSD;
+  return <div className="mt-2 text-xs">
+    <p className="flex flex-wrap gap-x-2 gap-y-1"><span className="text-gray-400">Volume</span><strong className="text-blue-300 tabular-nums">{amount==null?'Pending':Number(amount).toLocaleString('en-US',{style:'currency',currency:'USD',maximumFractionDigits:2})}</strong>{value&&<span className="text-gray-400">· {Number(value.lots||0).toLocaleString(undefined,{maximumFractionDigits:4})} lots</span>}</p>
+    {value?.volumePending>0&&<p className="text-[10px] text-amber-400 mt-1">{value.volumePending} trade volumes pending</p>}
+  </div>;
+}
 export default function AdminParticipantTrades({challengeId,registrationId,timezone}:{challengeId:string;registrationId:number;timezone:string}) {
   const [page,setPage]=useState(1),[data,setData]=useState<any>(null),[error,setError]=useState(''),[loading,setLoading]=useState(false);
   useEffect(()=>{const controller=new AbortController();setLoading(true);setError('');
@@ -23,10 +30,10 @@ export default function AdminParticipantTrades({challengeId,registrationId,timez
     {data&& !data.commercial&&<p className="rounded-xl bg-white/5 px-3 py-2 text-xs text-gray-400">Demo account · These trades do not generate partner revenue.</p>}
     {data?.commercial&&<div className="rounded-2xl border border-blue-400/20 bg-blue-400/5 p-4 space-y-3">
       <div><p className="text-xs text-gray-400">Revenue · Challenge account</p><p className="text-2xl font-semibold text-blue-300 mt-1">{data.revenueSummary?revenue(data.revenueSummary.challenge.total):'Pending'}</p>
-      {data.revenueSummary&&<p className="text-[11px] text-gray-400 mt-1">{breakdown(data.revenueSummary.challenge)}</p>}</div>
+      {data.revenueSummary&&<p className="text-[11px] text-gray-400 mt-1">{breakdown(data.revenueSummary.challenge)}</p>}<ParticipantVolume value={data.revenueSummary?.challenge}/></div>
       <div className="border-t border-white/10 pt-3 text-xs"><div className="flex flex-wrap items-center justify-between gap-2"><span className="text-gray-400">All MT5 accounts</span><strong>{data.revenueSummary?revenue(data.revenueSummary.all.total):'Pending'}</strong></div>
       <p className="text-[11px] text-gray-500 mt-1">During this challenge · Includes the challenge account</p>
-      {data.revenueSummary&&<p className="text-[11px] text-gray-400 mt-1">{breakdown(data.revenueSummary.all)}</p>}</div>
+      {data.revenueSummary&&<p className="text-[11px] text-gray-400 mt-1">{breakdown(data.revenueSummary.all)}</p>}<ParticipantVolume value={data.revenueSummary?.all}/></div>
       {data.revenueSummary?.all.pending>0&&<p className="text-xs text-amber-400">{data.revenueSummary.all.pending} trade revenues pending</p>}
       {data.revenueSummary?.cutoff&&<p className="text-[10px] text-gray-500">Through {time(data.revenueSummary.cutoff)} · Totals cover all pages</p>}
       {data.revenueSummary?.issues?.map((issue:string)=><p key={issue} className="text-xs text-amber-400">{issue}</p>)}
