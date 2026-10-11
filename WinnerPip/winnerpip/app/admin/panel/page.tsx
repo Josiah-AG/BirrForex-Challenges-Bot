@@ -1,4 +1,5 @@
 "use client";
+import {withWinnerPipSocials} from "@/lib/htmlExportSocials";
 import {rulesExportSummary} from "@/lib/rulesExportSummary";
 import CommercialOverview from "@/components/CommercialOverview";
 import AdminParticipantTrades from "@/components/AdminParticipantTrades";
@@ -912,7 +913,7 @@ export default function AdminDashboard() {
                   <button onClick={() => { setActiveSection("leaderboard"); setLeaderboardCategory(foundUser.accountType === 'demo' ? 'demo' : foundUser.accountType === 'real' ? 'real' : 'all'); setTimeout(() => { const entry = leaderboard.find((e: any) => e.nickname === foundUser.nickname || e.accountNumber === foundUser.accountNumber); if (entry) setSelectedParticipant(entry); else setSelectedParticipant({ ...foundUser, registrationId: foundUser.id, adjustedBalance: foundUser.adjustedBalance ?? 0, qualifiedProfit: foundUser.qualifiedProfit || 0, grossProfit: foundUser.grossProfit || 0, profitRemoved: foundUser.profitRemoved || 0, totalTrades: foundUser.totalTrades || 0, qualifiedTrades: foundUser.qualifiedTrades || 0, flaggedTrades: foundUser.flaggedTrades || 0, isCent: foundUser.isCent || false, accountType: foundUser.accountType, nickname: foundUser.nickname, rank: foundUser.rank }); }, 500); }} className="w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-gold/20 border border-gold/30 hover:bg-gold/30 text-gold font-semibold transition-all text-sm"><Trophy size={16} />View on Leaderboard #{foundUser.rank || '—'}</button>
                   <button onClick={() => { const data = foundUser; const toEAT = (d:string) => challengeTimestamp(d, challengeTz, true); const rows = [["Field","Value"],["Nickname",data.nickname],["Username",data.username],["Email",data.email],["Account",data.accountNumber],["Type",data.accountType],["Server",data.server],["Balance",data.balance != null ? data.balance : "N/A"],["Qualified Profit",data.qualifiedProfit],["Gross Profit",data.grossProfit],["Profit Removed",data.profitRemoved],["Trades",data.totalTrades],["Flagged",data.flaggedTrades],["Active Days",data.activeDays],["Rank",data.rank || "N/A"],[`Registered (${challengeTz})`,toEAT(data.registeredAt)],[`Last Pull (${challengeTz})`,toEAT(data.lastPull)],["Partner",data.partnerStatus]]; const csv=rows.map((r:any)=>r.join(",")).join("\n"); const blob=new Blob([csv],{type:"text/csv"}); const url=URL.createObjectURL(blob); const a=document.createElement("a"); a.href=url; a.download=`${data.nickname}_${data.accountNumber}_summary.csv`; a.click(); }} className="w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-royal/20 border border-royal/30 hover:bg-royal/30 text-royal font-semibold transition-all text-sm"><FileText size={16} />Export User Summary (CSV)</button>
                   <button onClick={async () => { const data = foundUser; if(!data.id){ alert("No user data"); return; } try { const _api = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com"; const _path = "management"; const res = await fetch(`/api/management/challenge/${selectedChallengeId}/user-evaluation?registration_id=${data.id}`); if (!res.ok) { alert("Failed to fetch evaluation"); return; } const result = await res.json(); const blob = new Blob([result.report], {type:"text/plain"}); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `${data.nickname || data.accountNumber}_evaluation_report.txt`; a.click(); } catch { alert("Export failed"); } }} className="w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-profit/20 border border-profit/30 hover:bg-profit/30 text-profit font-semibold transition-all text-sm"><FileText size={16} />Export Evaluation Report</button>
-                  <button onClick={async () => { const data = foundUser; if(!data.id){ alert("No user data"); return; } try { const _api = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com"; const _path = "management"; const res = await fetch(`/api/management/challenge/${selectedChallengeId}/export-user-trades?registration_id=${data.id}`); if (!res.ok) { alert("Export failed"); return; } const result = await res.json(); const html = generateTradesHTML({...result, challenge: {...result.challenge, timezone: challengeTz}}); const blob = new Blob([html], {type:"text/html"}); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `${result.user?.nickname || data.nickname || data.accountNumber}_MT5_history.html`; a.click(); URL.revokeObjectURL(url); } catch { alert("Export failed"); } }} className="w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 text-gray-300 font-semibold transition-all text-sm"><FileText size={16} />Export MT5 Trade History</button>
+                  <button onClick={async () => { const data = foundUser; if(!data.id){ alert("No user data"); return; } try { const _api = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com"; const _path = "management"; const res = await fetch(`/api/management/challenge/${selectedChallengeId}/export-user-trades?registration_id=${data.id}`); if (!res.ok) { alert("Export failed"); return; } const result = await res.json(); const html = generateTradesHTML({...result, challenge: {...result.challenge, timezone: challengeTz}}); const blob = new Blob([withWinnerPipSocials(html)], {type:"text/html"}); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `${result.user?.nickname || data.nickname || data.accountNumber}_MT5_history.html`; a.click(); URL.revokeObjectURL(url); } catch { alert("Export failed"); } }} className="w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 text-gray-300 font-semibold transition-all text-sm"><FileText size={16} />Export MT5 Trade History</button>
                   <button onClick={async () => { const data = foundUser; if(!data.id){ alert("No user data"); return; } try { const _api = process.env.NEXT_PUBLIC_API_URL || "https://api.winnerpip.com"; const _path = "management"; const res = await fetch(`/api/management/challenge/${selectedChallengeId}/raw-trades-csv?registration_id=${data.id}`); if (!res.ok) { alert("Export failed"); return; } const csv = await res.text(); const blob = new Blob([csv], {type:"text/csv"}); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `${data.nickname || data.accountNumber}_raw_trades.csv`; a.click(); URL.revokeObjectURL(url); } catch { alert("Export failed"); } }} className="w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 text-gray-300 font-semibold transition-all text-sm"><FileText size={16} />Download Raw Trade Data (CSV)</button>
                 </div>
                 {/* Admin Actions */}
@@ -1551,7 +1552,7 @@ export default function AdminDashboard() {
                       if (!res.ok) { alert("Export failed"); return; }
                       const data = await res.json();
                       const html = generateTradesHTML({...data, challenge: {...data.challenge, timezone: challengeTz}});
-                      const blob = new Blob([html], { type: "text/html" });
+                      const blob = new Blob([withWinnerPipSocials(html)], { type: "text/html" });
                       const url  = URL.createObjectURL(blob);
                       const a    = document.createElement("a");
                       a.href     = url;
@@ -3578,7 +3579,7 @@ function downloadRulesHTML(challenge: any, rulesList: string[], isCent: boolean)
 </div>
 </body></html>`;
 
-  const blob = new Blob([html], { type: 'text/html' });
+  const blob = new Blob([withWinnerPipSocials(html)], { type: 'text/html' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a'); a.href = url; a.download = `${(challenge.title || 'challenge').replace(/\s+/g, '_')}_rules.html`; a.click();
   URL.revokeObjectURL(url);
@@ -3648,7 +3649,7 @@ function downloadLeaderboardHTML(challenge: any, lb: any[], categoryLabel?: stri
 </div>
 </body></html>`;
 
-  const blob = new Blob([html], { type: 'text/html' });
+  const blob = new Blob([withWinnerPipSocials(html)], { type: 'text/html' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a'); a.href = url; a.download = `${(challenge.title || 'challenge').replace(/\s+/g, '_')}_leaderboard.html`; a.click();
   URL.revokeObjectURL(url);
@@ -3792,7 +3793,7 @@ body{font-family:'Inter',system-ui,-apple-system,sans-serif;background:#0a0e1a}
 </div>
 </body></html>`;
 
-  const blob = new Blob([html], { type: 'text/html' });
+  const blob = new Blob([withWinnerPipSocials(html)], { type: 'text/html' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a'); a.href = url; a.download = `${(challenge.title || 'challenge').replace(/\s+/g, '_')}_stats.html`; a.click();
   URL.revokeObjectURL(url);
