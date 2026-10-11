@@ -14,6 +14,13 @@ export async function updateChallengeSettings(id: number, fields: any, hostId?: 
     const current=result.rows[0];
     if(!current || (hostId!==undefined && current.host_id!==hostId))throw new ConfigurationError('Challenge not found');
     fields=normalizeChallengeInput(fields);
+    for(const key of ['pdf_url','video_url'])if(key in fields){
+      const value=typeof fields[key]==='string'?fields[key].trim():fields[key];
+      if(value==='' || value==null){fields[key]=null;continue;}
+      try{if(typeof value!=='string' || !['https:','http:'].includes(new URL(value).protocol))throw new Error();}
+      catch{throw new ConfigurationError(`${key==='pdf_url'?'PDF rules':'Video'} link must be a valid http or https URL`);}
+      fields[key]=value;
+    }
     const unknown=Object.keys(fields).filter(k=>!editable.includes(k));
     if(unknown.length)throw new ConfigurationError(`Unsupported settings: ${unknown.join(', ')}`);
     const frozen=current.configuration_frozen_at || !['draft','pending_approval','registration_open'].includes(current.status);

@@ -2079,3 +2079,9 @@ The user confirmed that this log must retain the history of application updates 
 ## 2026-10-11 — Preserve original evening reaction wording
 - Restored the original “How was the Day, traders?” / “React below” text and all four original emoji choices verbatim, as requested. Five-day scheduling, start artwork and varied surrounding posts remain unchanged.
 - Backend build and 12 focused posting/delivery tests passed, including an exact original-text assertion.
+
+## 2026-10-11 — Rules export modes, optional resource links and minimum registration check
+- Rules HTML now displays challenge type and actual balance mode: Sprint 1 shows Hybrid Challenge, $10 or above, and 50% growth instead of the unused $60 fallback. Fixed/max/no-target, cent-only and independent hybrid summaries are covered.
+- Admin Settings now loads, adds, updates and clears optional PDF rules/video links for draft and started challenges. Admin API includes the saved links; settings validate HTTP(S) URLs while preserving competition-setting locks.
+- Verified live Sprint 1 uses min_limit, $10, 50%, decimal policy. Tests reject $9.99 and accept $10/above (cent equivalent 1,000 USC), in demo/real and web/native/CSV/account-change paths; no live registrations were created.
+- Backend build, frontend typecheck and 228 tests passed. Rendered and visually checked the HTML using current Sprint rules.

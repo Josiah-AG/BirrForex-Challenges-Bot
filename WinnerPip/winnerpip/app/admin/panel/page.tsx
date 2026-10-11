@@ -1,4 +1,5 @@
 "use client";
+import {rulesExportSummary} from "@/lib/rulesExportSummary";
 import CommercialOverview from "@/components/CommercialOverview";
 import AdminParticipantTrades from "@/components/AdminParticipantTrades";
 import TimeWithZone from "@/components/TimeWithZone";
@@ -3090,6 +3091,8 @@ function ChallengeSettingsPanel({ challengeId, challenges, onRefresh }: { challe
   function formatDateForInput(iso:string):string{return utcToWallClock(iso,challengeTimezone);}
   function dateToUTC(local:string):string | undefined{return local?wallClockToUtcISO(local,challengeTimezone):undefined;}
   const [editForm, setEditForm] = useState({
+    pdf_url: challenge?.pdfUrl || "",
+    video_url: challenge?.videoUrl || "",
     deposit_mode: challenge?.depositMode ?? 'fixed',
     target_percent: challenge?.targetPercent ?? 0,
     allow_below_start: challenge?.allowBelowStart ?? false,
@@ -3120,6 +3123,8 @@ function ChallengeSettingsPanel({ challengeId, challenges, onRefresh }: { challe
   useEffect(() => {
     if (!challenge) return;
     setEditForm({
+      pdf_url: challenge.pdfUrl || "",
+      video_url: challenge.videoUrl || "",
       deposit_mode: challenge.depositMode ?? 'fixed',
       target_percent: challenge.targetPercent ?? 0,
       allow_below_start: challenge.allowBelowStart ?? false,
@@ -3157,7 +3162,9 @@ function ChallengeSettingsPanel({ challengeId, challenges, onRefresh }: { challe
       const res = await fetch(`/api/management/challenge/${challengeId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(!['draft','pending_approval','registration_open'].includes(challenge?.status) ? {title:editForm.title,prize_pool_text:editForm.prize_pool_text} : {
+        body: JSON.stringify(!['draft','pending_approval','registration_open'].includes(challenge?.status) ? {title:editForm.title,prize_pool_text:editForm.prize_pool_text,pdf_url:editForm.pdf_url.trim() || null,video_url:editForm.video_url.trim() || null} : {
+          pdf_url: editForm.pdf_url.trim() || null,
+          video_url: editForm.video_url.trim() || null,
           deposit_mode: editForm.deposit_mode,
           target_percent: editForm.target_percent,
           allow_below_start: editForm.allow_below_start,
@@ -3330,6 +3337,12 @@ function ChallengeSettingsPanel({ challengeId, challenges, onRefresh }: { challe
           )}
 
           {!challenge?.hostId && <div><label className="text-xs text-gray-400 font-medium mb-1 block">Prize Pool Text</label><input value={editForm.prize_pool_text} onChange={e => setEditForm({...editForm, prize_pool_text: e.target.value})} className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>}
+          <div className="rounded-xl border border-white/10 p-4 space-y-3">
+            <h4 className="text-sm font-semibold text-white">Challenge rules &amp; video</h4>
+            <p className="text-xs text-gray-400">Optional. Add or update links here, or clear a field to remove its link.</p>
+            <div><label htmlFor="challenge-pdf-url" className="text-xs text-gray-400 mb-1 block">PDF rules link</label><input id="challenge-pdf-url" type="url" placeholder="https://…/rules.pdf" value={editForm.pdf_url} onChange={e=>setEditForm({...editForm,pdf_url:e.target.value})} className="w-full min-w-0 p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
+            <div><label htmlFor="challenge-video-url" className="text-xs text-gray-400 mb-1 block">Video link</label><input id="challenge-video-url" type="url" placeholder="https://…" value={editForm.video_url} onChange={e=>setEditForm({...editForm,video_url:e.target.value})} className="w-full min-w-0 p-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm outline-none" /></div>
+          </div>
           <button onClick={handleSave} disabled={saving} className="w-full py-3 rounded-xl bg-gradient-brand text-white font-semibold hover:opacity-90 transition-all disabled:opacity-50">{saving ? "Saving..." : "Save Changes"}</button>
         </div>
 
@@ -3519,7 +3532,8 @@ function ChallengeSettingsPanel({ challengeId, challenges, onRefresh }: { challe
 // ==================== SOCIAL MEDIA HTML EXPORTS ====================
 
 function downloadRulesHTML(challenge: any, rulesList: string[], isCent: boolean) {
-  const unit = isCent ? '¢' : '$';
+  const summary=rulesExportSummary(challenge,isCent);
+  const summaryHTML=summary.rows.map(row=>`<div class="info-item"><div class="info-label">${row.category?row.category+' · ':''}${row.mode}</div><div class="info-value">${row.start}</div></div><div class="info-item"><div class="info-label">${row.category?row.category+' · ':''}Target</div><div class="info-value gold">${row.target}</div></div>`).join('');
   const startDate = challenge.start_date ? new Date(challenge.start_date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) : '—';
   const endDate = challenge.end_date ? new Date(challenge.end_date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) : '—';
 
@@ -3533,7 +3547,7 @@ function downloadRulesHTML(challenge: any, rulesList: string[], isCent: boolean)
 .title{font-size:48px;font-weight:800;color:#fff;margin-bottom:12px}
 .subtitle{font-size:20px;color:#94a3b8;font-weight:500}
 .badge{display:inline-block;padding:8px 20px;border-radius:20px;background:rgba(31,111,235,0.2);border:1px solid rgba(31,111,235,0.4);color:#1F6FEB;font-size:14px;font-weight:700;margin-top:16px}
-.info-row{display:flex;justify-content:center;gap:40px;margin-bottom:50px}
+.info-row{display:flex;flex-wrap:wrap;justify-content:center;gap:40px;margin-bottom:50px}
 .info-item{text-align:center}.info-label{font-size:13px;color:#64748b;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px}
 .info-value{font-size:28px;font-weight:700;color:#fff}
 .info-value.gold{color:#F5B400}
@@ -3550,15 +3564,15 @@ function downloadRulesHTML(challenge: any, rulesList: string[], isCent: boolean)
 </style></head><body>
 <div class="page">
 <div class="glow glow1"></div><div class="glow glow2"></div>
-<div class="header"><div style="display:flex;align-items:center;justify-content:center;gap:16px;margin-bottom:14px"><img src="https://winnerpip.com/birrforex-logo.png" style="width:44px;height:44px;border-radius:10px" onerror="this.style.display='none'" /><img src="https://winnerpip.com/winnerpip-icon.png" style="width:44px;height:44px;border-radius:10px" onerror="this.style.display='none'" /></div><div class="title">${challenge.title || 'Trading Challenge'}</div><div class="subtitle">Challenge Rules</div>${isCent ? '<div class="badge">CENT ACCOUNT ONLY</div>' : ''}</div>
-<div class="info-row"><div class="info-item"><div class="info-label">Starting Balance</div><div class="info-value">${unit}${challenge.starting_balance || 0}</div></div><div class="info-item"><div class="info-label">Target</div><div class="info-value gold">${unit}${challenge.target_balance || 0}</div></div><div class="info-item"><div class="info-label">Period</div><div class="info-value" style="font-size:20px">${startDate} → ${endDate}</div></div></div>
+<div class="header"><div style="display:flex;align-items:center;justify-content:center;gap:16px;margin-bottom:14px"><img src="https://winnerpip.com/birrforex-logo.png" style="width:44px;height:44px;border-radius:10px" onerror="this.style.display='none'" /><img src="https://winnerpip.com/winnerpip-icon.png" style="width:44px;height:44px;border-radius:10px" onerror="this.style.display='none'" /></div><div class="title">${challenge.title || 'Trading Challenge'}</div><div class="subtitle">Challenge Rules · ${summary.type}</div>${isCent ? '<div class="badge">CENT ACCOUNT ONLY</div>' : ''}</div>
+<div class="info-row">${summaryHTML}<div class="info-item"><div class="info-label">Period</div><div class="info-value" style="font-size:20px">${startDate} → ${endDate}</div></div></div>
 <div class="rules-grid">${rulesList.map((r, i) => `<div class="rule-card${i === rulesList.length - 1 && rulesList.length % 2 !== 0 ? " centered" : ""}"><div class="rule-num">${i + 1}</div><div class="rule-text">${r}</div></div>`).join('')}</div>
 <div class="footer"><div class="footer-text">Trades that break the rules will have profits removed. Losses still count.</div><div class="brand">BirrForex • WinnerPip</div></div>
 </div>
 <div class="page landscape">
 <div class="glow glow1"></div><div class="glow glow2"></div>
-<div class="header"><div class="title" style="font-size:42px">${challenge.title || 'Trading Challenge'}</div><div class="subtitle">Challenge Rules</div>${isCent ? '<div class="badge">CENT ACCOUNT ONLY</div>' : ''}</div>
-<div class="info-row"><div class="info-item"><div class="info-label">Starting Balance</div><div class="info-value">${unit}${challenge.starting_balance || 0}</div></div><div class="info-item"><div class="info-label">Target</div><div class="info-value gold">${unit}${challenge.target_balance || 0}</div></div><div class="info-item"><div class="info-label">Period</div><div class="info-value" style="font-size:20px">${startDate} → ${endDate}</div></div></div>
+<div class="header"><div class="title" style="font-size:42px">${challenge.title || 'Trading Challenge'}</div><div class="subtitle">Challenge Rules · ${summary.type}</div>${isCent ? '<div class="badge">CENT ACCOUNT ONLY</div>' : ''}</div>
+<div class="info-row">${summaryHTML}<div class="info-item"><div class="info-label">Period</div><div class="info-value" style="font-size:20px">${startDate} → ${endDate}</div></div></div>
 <div class="rules-grid">${rulesList.map((r, i) => `<div class="rule-card${i === rulesList.length - 1 && rulesList.length % 2 !== 0 ? " centered" : ""}"><div class="rule-num">${i + 1}</div><div class="rule-text">${r}</div></div>`).join('')}</div>
 <div class="footer"><div class="footer-text">Trades that break the rules will have profits removed. Losses still count.</div><div class="brand">BirrForex • WinnerPip</div></div>
 </div>

@@ -39,3 +39,12 @@ test('decimal boundary is consistent for hosted/admin registration and replaceme
   await assert.rejects(()=>validate(1,'real',verified({balance:99.99}),mode),/below/);
  }
 });
+test('Sprint minimum $10 accepts the boundary and above, rejects below, on every entry path and category',async()=>{
+ for(const mode of ['web','native','change','csv'])for(const category of ['demo','real'])for(const cent of [false,true]){
+  reset();Object.assign(challenge,{type:'hybrid',starting_balance:10,target_balance:60,target_percent:50,deposit_mode:'min_limit',starting_balance_policy:'decimal'});
+  const result=balance=>verified({balance,currency:cent?'USC':'USD',trade_mode:category==='demo'?0:2});
+  const minimum=cent?1000:10;
+  for(const balance of [minimum,minimum+0.01,minimum*2])await validate(39,category,result(balance),mode);
+  for(const balance of [0,minimum-0.01,minimum/2])await assert.rejects(()=>validate(39,category,result(balance),mode),/below/);
+ }
+});
