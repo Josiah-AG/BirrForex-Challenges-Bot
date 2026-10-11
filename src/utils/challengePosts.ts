@@ -121,8 +121,9 @@ export function renderDaily(c:any,day:number,total:number,slot:PostSlot,body:str
  const zone=c.timezone||'Africa/Nairobi';
  const end=new Intl.DateTimeFormat('en-GB',{timeZone:zone,timeZoneName:'short'}).formatToParts(new Date(c.end_date)).find(p=>p.type==='timeZoneName')?.value;
  const heading=day===total?'🏁 FINAL TRADING DAY':slot==='morning'?'☀️ TRADING DAY':'🌙 DAILY REVIEW';
+ const reactions=slot==='evening'?'\n\n<b>How was your day, traders? React below:</b>\n🔥 A strong day — followed my plan\n😎 A steady day — room to improve\n👍 A tough day — staying disciplined\n✍️ Reached my daily drawdown limit':'';
  const links=[c.pdf_url?`📄 <a href="${escapePost(c.pdf_url)}">Challenge rules</a>`:'',c.video_url?`🎥 <a href="${escapePost(c.video_url)}">Challenge guide</a>`:''].filter(Boolean).join('\n');
- return `<b>${heading} — ${day} OF ${total}</b>\n<b>${escapePost(c.title)}</b>\n\n${body}\n\n📅 Ends ${escapePost(formatInTimezone(c.end_date,zone))} ${end}.\n\n${dashboardCTA}${links?'\n\n'+links:''}`;
+ return `<b>${heading} — ${day} OF ${total}</b>\n<b>${escapePost(c.title)}</b>\n\n${body}${reactions}\n\n📅 Ends ${escapePost(formatInTimezone(c.end_date,zone))} ${end}.\n\n${dashboardCTA}${links?'\n\n'+links:''}`;
 }
 export function challengeBalanceSummary(c:any):string{
  return (c.type==='hybrid'?['real','demo']:[c.type]).map(category=>{
@@ -150,4 +151,9 @@ export function dailySlots(c:any,date:string,time:string):PostSlot[]{
 
 export function postDate(date:Date|string,timezone='Africa/Nairobi'):string {
  return new Date(date).toLocaleString('en-US',{timeZone:timezone,month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit',timeZoneName:'short'});
+}
+
+/** Caption for the existing challenge-start artwork, sent by the durable lifecycle worker. */
+export function renderChallengeStart(c:any):string {
+ return `<b>🚀 CHALLENGE HAS STARTED!</b>\n\n<b>${escapePost(c.title)}</b> is officially <b>LIVE!</b> 🔥\n\nThe race begins NOW!\n\n💪 Stay focused, follow the rules, and trade smart.\nThis is your journey — make every trade count!\n\n📅 Ends ${escapePost(postDate(c.end_date,c.timezone || 'Africa/Nairobi'))}.\n\n${dashboardCTA}\nSign in with your MT5 account number and the investor password you registered with.\n\n<i>Good luck, traders!</i> 🍀`;
 }

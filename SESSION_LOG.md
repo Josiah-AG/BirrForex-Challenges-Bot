@@ -2070,3 +2070,8 @@ The user confirmed that this log must retain the history of application updates 
 - Moved pre-start credential DQ from the early balance snapshot to actual challenge start; 24-hour in-challenge expiry checks now run each minute.
 - Backend/frontend typechecks and 222 tests passed. PostgreSQL temporary-table migration test passed. Read-only shadow: 95 active accounts, zero errors, six explained risk corrections; representative demo/real/cent checks passed. No live test messages or shadow writes.
 - Audit: docs/audits/SPRINT_1_EVALUATION_NOTICES_2026-10-11.md; expected result deltas saved in adjacent shadow JSON. Completed leaderboards remain locked.
+
+## 2026-10-11 — Restore start artwork and evening emoji reactions
+- Restored the existing Challenge Start.png announcement through the active durable lifecycle worker; the older photo method was no longer called. Per-channel receipts prevent repeat photos on successful deliveries while a failed channel retries.
+- Restored emoji reaction prompts in every evening message, alongside varied day-specific text, the exact deadline and dashboard link. First/final-only dual-channel routing remains intact.
+- Backend build and 224 tests passed, including photo delivery/retry receipts and evening reactions for all five Sprint days. No test messages posted to Telegram.

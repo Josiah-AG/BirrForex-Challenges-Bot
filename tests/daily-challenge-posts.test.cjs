@@ -40,3 +40,11 @@ test('short challenge sessions adjust daily hours and do not replay old posts',(
 test('midnight end does not invent another trading day',()=>{
  assert.equal(challengeDates({...sprint,end_date:'2026-10-23T21:00:00Z'},true).length,5);
 });
+test('evening posts preserve emoji voting on every day including final day; mornings do not',()=>{
+ for(let day=1;day<=5;day++){
+ const evening=renderDaily(sprint,day,5,'evening','Review your plan.');
+ assert.match(evening,/React below/);for(const emoji of ['🔥','😎','👍','✍️'])assert(evening.includes(emoji));
+ assert.doesNotMatch(evening,/WEEK 2|NO WEEKEND TRADING/);
+ assert.doesNotMatch(renderDaily(sprint,day,5,'morning','Plan your day.'),/React below/);
+ }
+});

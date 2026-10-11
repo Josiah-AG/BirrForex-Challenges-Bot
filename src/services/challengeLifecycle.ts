@@ -1,4 +1,6 @@
-import {dashboardCTA} from '../utils/challengePosts';
+import {dashboardCTA,renderChallengeStart} from '../utils/challengePosts';
+import path from 'path';
+import fs from 'fs';
 import { db } from '../database/db';
 import { config } from '../config';
 import { formatInTimezone } from '../utils/timezone';
@@ -23,7 +25,13 @@ export async function deliverLifecycleEvents(telegram: any): Promise<void> {
         };
         const text=started ? `🚀 ${c.title} has started. Follow your progress on WinnerPip. Ends ${formatInTimezone(c.end_date,c.timezone)}.` : `🏁 ${c.title} has ended. Final history synchronization and evaluation are in progress.`;
         if(!c.host_id && c.source!=='discord'){
-          for(const channel of new Set([config.mainChannelId,config.challengeChannelId]))await deliver(`telegram:${channel}`,()=>telegram.sendMessage(channel,`${text}\n\n${dashboardCTA}`));
+          for(const channel of new Set([config.mainChannelId,config.challengeChannelId]))await deliver(`telegram:${channel}`,async()=>{
+            if(!started)return telegram.sendMessage(channel,`${text}\n\n${dashboardCTA}`);
+            const caption=renderChallengeStart(c),artwork=path.join(process.cwd(),'assets','Challenge Start.png');
+            if(fs.existsSync(artwork))return telegram.sendPhoto(channel,{source:artwork},{caption,parse_mode:'HTML'});
+            // A missing local asset can fall back safely. Delivery errors use the existing retry queue.
+            return telegram.sendMessage(channel,caption,{parse_mode:'HTML',link_preview_options:{is_disabled:true}});
+          });
         }
         if(c.source==='discord' && process.env.DISCORD_CHALLENGE_WEBHOOK){
           await deliver('discord',()=>require('axios').post(process.env.DISCORD_CHALLENGE_WEBHOOK,{content:text,allowed_mentions:{parse:[]}},{timeout:10000}));
