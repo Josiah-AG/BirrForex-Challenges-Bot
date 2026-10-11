@@ -486,6 +486,12 @@ async function migrate() {
     await db.query(`ALTER TABLE trading_challenges ADD COLUMN IF NOT EXISTS real_allow_below_start BOOLEAN;`).catch(() => {});
     console.log('✅ Optional-target columns OK');
 
+    await db.query(`CREATE TABLE IF NOT EXISTS challenge_daily_posts (
+      id BIGSERIAL PRIMARY KEY, challenge_id INTEGER NOT NULL REFERENCES trading_challenges(id),
+      post_date DATE NOT NULL, slot TEXT NOT NULL, phase TEXT NOT NULL, template_id TEXT NOT NULL,
+      body TEXT NOT NULL, delivered JSONB NOT NULL DEFAULT '{}'::jsonb, error TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), UNIQUE(challenge_id,post_date,slot)
+    )`);
     await migrateCommercial();
     await migrateHardening();
     await migratePullIntegrity();

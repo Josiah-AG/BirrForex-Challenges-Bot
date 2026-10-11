@@ -1,3 +1,4 @@
+import {dashboardCTA} from '../utils/challengePosts';
 import { db } from '../database/db';
 import { config } from '../config';
 import { formatInTimezone } from '../utils/timezone';
@@ -22,7 +23,7 @@ export async function deliverLifecycleEvents(telegram: any): Promise<void> {
         };
         const text=started ? `🚀 ${c.title} has started. Follow your progress on WinnerPip. Ends ${formatInTimezone(c.end_date,c.timezone)}.` : `🏁 ${c.title} has ended. Final history synchronization and evaluation are in progress.`;
         if(!c.host_id && c.source!=='discord'){
-          for(const channel of new Set([config.mainChannelId,config.challengeChannelId]))await deliver(`telegram:${channel}`,()=>telegram.sendMessage(channel,text));
+          for(const channel of new Set([config.mainChannelId,config.challengeChannelId]))await deliver(`telegram:${channel}`,()=>telegram.sendMessage(channel,`${text}\n\n${dashboardCTA}`));
         }
         if(c.source==='discord' && process.env.DISCORD_CHALLENGE_WEBHOOK){
           await deliver('discord',()=>require('axios').post(process.env.DISCORD_CHALLENGE_WEBHOOK,{content:text,allowed_mentions:{parse:[]}},{timeout:10000}));

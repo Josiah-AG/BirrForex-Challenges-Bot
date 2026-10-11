@@ -1,3 +1,4 @@
+import {dashboardCTA,challengeBalanceSummary,postDate} from '../utils/challengePosts';
 import {readCommercial,readCommercialParticipant,queueCommercial} from '../services/commercialAnalytics';
 import { challengeBalanceHistorySql, labelBalanceHistory } from '../utils/challengeBalanceHistory';
 import { qualifiedBalanceSeries } from '../utils/qualifiedBalanceSeries';
@@ -4770,15 +4771,12 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/announce`, adminIpCheck,
     } else {
       // Post Telegram announcement to both channels
       try {
-        const toEAT = (d: Date) => new Date(new Date(d).getTime() + 3 * 60 * 60 * 1000);
-        const startStr = toEAT(challenge.start_date).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
-        const endStr = toEAT(challenge.end_date).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
+        const startStr=postDate(challenge.start_date,challenge.timezone||config.timezone);
+        const endStr=postDate(challenge.end_date,challenge.timezone||config.timezone);
 
         // Check if cent account challenge
         const rulesCheck = await db.query(`SELECT parameters FROM wp_challenge_rules WHERE challenge_id = $1 AND rule_code = CASE WHEN EXISTS (SELECT 1 FROM trading_challenges rc WHERE rc.id=$1 AND rc.type='hybrid' AND rc.split_category_settings=true) THEN 'config_real' ELSE 'config' END`, [challengeId]);
         const isCent = rulesCheck.rows[0]?.parameters?.only_cent_account && challenge.type !== 'demo';
-        const balUnit = isCent ? '¢' : '';
-        const balPrefix = isCent ? '' : '$';
         const centNote = isCent ? '\n📋 <b>Cent Account Only</b>' : '';
 
         let prizeText = '';
@@ -4791,8 +4789,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/announce`, adminIpCheck,
         const text = `<b>🎯 NEW CHALLENGE — Registration Open!</b>\n\n` +
           `<b>${challenge.title}</b>\n\n` +
           `A new trading challenge is here. Think you've got what it takes?${centNote}\n\n` +
-          `💰 <b>Starting Balance:</b> ${balPrefix}${challenge.starting_balance}${balUnit}\n` +
-          `🎯 <b>Target:</b> ${balPrefix}${challenge.target_balance}${balUnit}\n` +
+          `${challengeBalanceSummary(challenge)}\n` +
           `📅 <b>Start:</b> ${startStr}\n` +
           `🏁 <b>End:</b> ${endStr}\n` +
           prizeText + links +
@@ -4810,8 +4807,8 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/announce`, adminIpCheck,
         ]);
 
         const opts = { parse_mode: 'HTML' as const, ...keyboard, link_preview_options: { is_disabled: true } };
-        await tempBot.telegram.sendMessage(config.mainChannelId, text, opts);
-        await tempBot.telegram.sendMessage(config.challengeChannelId, text, opts);
+        await tempBot.telegram.sendMessage(config.mainChannelId, `${text}\n\n${dashboardCTA}`, opts);
+        await tempBot.telegram.sendMessage(config.challengeChannelId, `${text}\n\n${dashboardCTA}`, opts);
       } catch (e) {
         console.error('Telegram announce error:', e);
       }

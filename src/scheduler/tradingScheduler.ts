@@ -1,3 +1,5 @@
+import {dailyCalendar,deliverDailyPost} from '../services/dailyChallengePosts';
+import {challengeDates,challengeBalanceSummary,dashboardCTA,dailySlots,postDate} from '../utils/challengePosts';
 import { startingBalanceProblem, preStartLeadHours } from '../utils/startingBalancePolicy';
 import { runBalanceWarningCheck } from '../services/prestartBalanceChecks';
 import { runPartnerScreening, deliverPartnerNotices, screeningSlot } from '../services/partnerScreening';
@@ -58,7 +60,6 @@ export class TradingScheduler {
       // Daily cleanup at 00:00 EAT — clear all deduplication Sets to prevent memory leaks
       if (timeStr === '00:00') {
         this.countdownPostedToday.clear();
-        this.dailyPostsPosted.clear();
 
         this.abandonedChecked.clear();
         this.screeningStarted.clear();
@@ -94,7 +95,7 @@ export class TradingScheduler {
           }
           if (c.status === 'active') {
             const tradingDay = this.getTradingDay(c, dateStr);
-            console.log(`  📊 Trading day: ${tradingDay}/10`);
+            console.log(`  📊 Trading day: ${tradingDay}/${challengeDates(c).length}`);
             if (dayOfWeek >= 1 && dayOfWeek <= 5) {
               console.log(`  ☀️ Morning post: 08:00 EAT`);
               console.log(`  🌙 Evening post: 20:00 EAT`);
@@ -160,7 +161,7 @@ export class TradingScheduler {
   }
 
   async postCountdown(challenge: TradingChallenge, daysLeft: number) {
-    const startStr = toEAT(challenge.start_date, challenge.timezone || config.timezone).toLocaleString('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
+    const startStr = postDate(challenge.start_date,challenge.timezone||config.timezone);
     const botInfo = await this.bot.bot.telegram.getMe();
 
     let header = '';
@@ -181,7 +182,7 @@ export class TradingScheduler {
     if (challenge.video_url) links += `\n🎥 Challenge Guide: <a href="${challenge.video_url}">Watch Video</a>`;
 
     const prizeText = this.getPrizeSummary(challenge);
-    const text = `${header}\n\n${body}\n\n📅 <b>Start:</b> ${startStr}\n💰 $${challenge.starting_balance} → 🎯 $${challenge.target_balance}\n${prizeText}\n${links}\n\n👉 <b>Tap "Join Challenge" below to register!</b>`;
+    const text = `${header}\n\n${body}\n\n📅 <b>Start:</b> ${startStr}\n${challengeBalanceSummary(challenge)}\n${prizeText}\n${links}\n\n👉 <b>Tap "Join Challenge" below to register!</b>`;
 
     const keyboard = Markup.inlineKeyboard([
       [Markup.button.url('🚀 Join Challenge', `https://t.me/${botInfo.username}?start=tc_register_${challenge.id}`)],
@@ -191,8 +192,8 @@ export class TradingScheduler {
     const opts = { parse_mode: 'HTML' as const, ...keyboard, link_preview_options: { is_disabled: true } };
 
     try {
-      await this.bot.bot.telegram.sendMessage(config.mainChannelId, text, opts);
-      await this.bot.bot.telegram.sendMessage(config.challengeChannelId, text, opts);
+      await this.bot.bot.telegram.sendMessage(config.mainChannelId, `${text}\n\n${dashboardCTA}`, opts);
+      await this.bot.bot.telegram.sendMessage(config.challengeChannelId, `${text}\n\n${dashboardCTA}`, opts);
       console.log(`✅ Trading countdown posted: ${daysLeft} days for ${challenge.title}`);
     } catch (e) {
       console.error('Error posting countdown:', e);
@@ -464,124 +465,31 @@ export class TradingScheduler {
 
   // ==================== DAILY POSTS ====================
 
-  private dailyPostsPosted: Set<string> = new Set();
-
-  private async checkDailyPosts(challenge: TradingChallenge, dateStr: string, timeStr: string, dayOfWeek: number) {
-    if (challenge.status !== 'active') return;
-    if ((challenge as any).source === 'discord') return; // Discord challenges don't post to Telegram
-    if ((challenge as any).host_id) return; // Host challenges don't post to admin channels
-    if (dayOfWeek === 0 || dayOfWeek === 6) return;
-
-    const tradingDay = this.getTradingDay(challenge, dateStr);
-    if (tradingDay < 1 || tradingDay > 10) return;
-
-    const hour = parseInt(timeStr.split(':')[0]);
-    const minute = parseInt(timeStr.split(':')[1]);
-
-    // Morning: 08:00-08:04
-    const morningKey = `morning_${challenge.id}_${dateStr}`;
-    if (hour === 8 && minute <= 4 && !this.dailyPostsPosted.has(morningKey)) {
-      this.dailyPostsPosted.add(morningKey);
-      console.log(`☀️ Trading morning post: Day ${tradingDay} for ${challenge.title}`);
-      await this.postMorningMessage(challenge, tradingDay);
-    }
-
-    // Evening: 20:00-20:04
-    const eveningKey = `evening_${challenge.id}_${dateStr}`;
-    if (hour === 20 && minute <= 4 && !this.dailyPostsPosted.has(eveningKey)) {
-      this.dailyPostsPosted.add(eveningKey);
-      console.log(`🌙 Trading evening post: Day ${tradingDay} for ${challenge.title}`);
-      await this.postEveningMessage(challenge, tradingDay);
+  private async checkDailyPosts(challenge: TradingChallenge, dateStr: string, timeStr: string, _dayOfWeek: number) {
+    if(challenge.status!=='active' || (challenge as any).host_id || (challenge as any).source==='discord')return;
+    const now=Date.now();
+    if(now<new Date(challenge.start_date).getTime() || now>=new Date(challenge.end_date).getTime())return;
+    const slots=dailySlots(challenge,dateStr,timeStr);
+    if(!slots.length)return;
+    const dates=await dailyCalendar(challenge),day=dates.indexOf(dateStr)+1;
+    if(!day)return;
+    // Bounded catch-up permits retries without replaying old days on deployment.
+    for(const slot of slots){
+      try {await deliverDailyPost(this.bot.bot.telegram,challenge,day,slot,dates);}
+      catch(e){console.error(`Daily ${slot} post for challenge ${challenge.id}:`,(e as Error).message);}
     }
   }
 
   private getTradingDay(challenge: TradingChallenge, currentDateStr: string): number {
-    const start = this.localDateStrings(challenge.start_date, challenge.timezone || config.timezone);
-    const startDate = new Date(start.dateStr);
-    const currentDate = new Date(currentDateStr);
-    let tradingDay = 0;
-    const d = new Date(startDate);
-
-    while (d <= currentDate) {
-      const dow = d.getDay();
-      if (dow !== 0 && dow !== 6) tradingDay++;
-      const dStr = `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, '0')}-${d.getDate().toString().padStart(2, '0')}`;
-      if (dStr === currentDateStr) break;
-      d.setDate(d.getDate() + 1);
-    }
-    return tradingDay;
+    return challengeDates(challenge).indexOf(currentDateStr)+1;
   }
 
   async postMorningMessage(challenge: TradingChallenge, day: number) {
-    const morningMessages: { [key: number]: { emoji: string; text: string } } = {
-      1: { emoji: '📈', text: '\n\nYour first trading day! Make it count.\nPlan your trades, manage your risk, and stay disciplined.\n\n<i>Every pip matters</i> 🎯' },
-      2: { emoji: '📈', text: '\n\nNew day, new opportunities!\nStay disciplined and stick to your strategy.\n\n<i>Consistency beats luck every time</i> 🎯' },
-      3: { emoji: '📊', text: '\n\nMidweek momentum! Keep your eyes on the target.\nEvery pip counts towards your goal 🎯\n\n<i>Trade smart, not hard</i> 💡' },
-      4: { emoji: '💪', text: '\n\nAlmost through the first week!\nStay patient, protect your capital, and trust the process.\n\n<i>The best traders are the most disciplined ones</i> 🏆' },
-      5: { emoji: '🏁', text: '\n\nLast trading day of Week 1!\nFinish the week strong and set yourself up for Week 2.\n\n<i>Have a great weekend!</i> 🌟' },
-      6: { emoji: '🚀', text: '\n\nWelcome back! Week 2 is here.\n5 more trading days to hit your target!\n\n<i>Stay focused and finish strong</i> 💪' },
-      7: { emoji: '🔥', text: '\n\nSecond week is heating up!\nReview your trades, learn from mistakes, and adapt.\n\n<i>The market rewards those who stay sharp</i> 📈' },
-      8: { emoji: '⚡', text: '\n\nOnly 3 days left! The finish line is in sight.\nKeep your risk tight and your mind focused.\n\n<i>Champions are made in the final stretch</i> 🏆' },
-      9: { emoji: '🎯', text: '\n\nTomorrow is the FINAL DAY!\nProtect your gains and position yourself for a strong finish.\n\n<i>You\'ve come this far — don\'t let up now</i> 💪' },
-      10: { emoji: '🏁', text: '\n\nThis is it! Last trading day of the challenge.\nMake it count and finish strong!\n\n⚠️ <b>Challenge closes tonight at 11:59 PM</b>\n\nGive it everything you\'ve got! 🔥' },
-    };
-
-    const msg = morningMessages[day];
-    if (!msg) return;
-
-    let header = '';
-    if (day === 1) header = `<b>${msg.emoji} DAY 1 OF 10</b>\n\n<b>${challenge.title}</b>${msg.text}`;
-    else if (day === 6) header = `<b>${msg.emoji} WEEK 2 — DAY ${day} OF 10</b>\n\n<b>${challenge.title}</b>${msg.text}`;
-    else if (day === 10) header = `<b>${msg.emoji} FINAL DAY!</b>\n\n<b>${challenge.title}</b> — <b>DAY ${day} OF 10</b>${msg.text}`;
-    else header = `<b>${msg.emoji} DAY ${day} OF 10</b>\n\n<b>${challenge.title}</b>${msg.text}`;
-
-    let links = '';
-    if (challenge.pdf_url) links += `\n📄 Rules: <a href="${challenge.pdf_url}">Download PDF</a>`;
-    if (challenge.video_url) links += `\n🎥 Guide: <a href="${challenge.video_url}">Watch Video</a>`;
-
-    const text = `${header}\n\n📊 <b>Track your progress</b> on <b>winnerpip.com</b>\nSign in with your MT5 account number and investor password.\n${links}\n\n@${config.mainChannelUsername}`;
-    const opts = { parse_mode: 'HTML' as const, link_preview_options: { is_disabled: true } };
-
-    const bothChannels = day === 1 || day === 6 || day === 10;
-
-    try {
-      if (bothChannels) {
-        await this.bot.bot.telegram.sendMessage(config.mainChannelId, text, opts);
-      }
-      await this.bot.bot.telegram.sendMessage(config.challengeChannelId, text, opts);
-    } catch (e) {
-      console.error(`Error posting morning Day ${day}:`, e);
-    }
+    await deliverDailyPost(this.bot.bot.telegram,challenge,day,'morning');
   }
 
   async postEveningMessage(challenge: TradingChallenge, day: number) {
-    const dayWords = ['', 'ONE', 'TWO', 'THREE', 'FOUR', 'FIVE', 'SIX', 'SEVEN', 'EIGHT', 'NINE', 'TEN'];
-
-    let links = '';
-    if (challenge.pdf_url) links = `\n📄 Rules: <a href="${challenge.pdf_url}">Download PDF</a>`;
-
-    let text = '';
-    if (day === 5) {
-      text = `<b>🔥 WEEK 1 IS ALMOST OVER!</b>\n\nHow was the week, traders?\n\nReact below:\n🔥 If you crushed it this week!\n😎 If it was decent, but there's room for more\n👍 If you had a tough week, but still in the game\n✍️ If you hit your drawdown limit\n\nEnjoy the weekend and come back stronger! 💪\n\n<b>DON'T FORGET — NO WEEKEND TRADING!</b>\n${links}\n\n@${config.mainChannelUsername}`;
-    } else if (day === 9) {
-      text = `<b>🔥 DAY ${dayWords[day]} IS ALMOST OVER</b>\n\nHow was the Day, traders?\n\nReact below:\n🔥 If you crushed it today!\n😎 If it was decent, but there's room for more\n👍 If you had a tough day, but still in the game\n✍️ If you hit your daily drawdown\n\n<b>TOMORROW IS THE FINAL DAY!</b> 🏁\n${links}\n\n@${config.mainChannelUsername}`;
-    } else if (day === 10) {
-      text = `<b>⏰ CHALLENGE IS ALMOST OVER!</b>\n\n<b>${challenge.title}</b>\n\nWrap it up, traders!\nThe challenge closes in a few hours.\n\nMake your final trades and secure your position.\n\n⚠️ <b>No trades after the challenge ends will be counted.</b>\n\n<i>Good luck on your final trades!</i> 🍀\n${links}\n\n@${config.mainChannelUsername}`;
-    } else {
-      text = `<b>🔥 DAY ${dayWords[day]} IS ALMOST OVER</b>\n\nHow was the Day, traders?\n\nReact below:\n🔥 If you crushed it today!\n😎 If it was decent, but there's room for more\n👍 If you had a tough day, but still in the game\n✍️ If you hit your daily drawdown\n\nLet's keep pushing 💪\n\n<b>DON'T FORGET TO KEEP THE RULES!</b>\n${links}\n\n@${config.mainChannelUsername}`;
-    }
-
-    const opts = { parse_mode: 'HTML' as const, link_preview_options: { is_disabled: true } };
-    const bothChannels = day === 5 || day === 10;
-
-    try {
-      if (bothChannels) {
-        await this.bot.bot.telegram.sendMessage(config.mainChannelId, text, opts);
-      }
-      await this.bot.bot.telegram.sendMessage(config.challengeChannelId, text, opts);
-    } catch (e) {
-      console.error(`Error posting evening Day ${day}:`, e);
-    }
+    await deliverDailyPost(this.bot.bot.telegram,challenge,day,'evening');
   }
 
   // ==================== CHALLENGE END ====================
@@ -683,8 +591,8 @@ export class TradingScheduler {
       const opts = { parse_mode: 'HTML' as const, link_preview_options: { is_disabled: true } };
 
       try {
-        await this.bot.bot.telegram.sendMessage(config.mainChannelId, text, opts);
-        await this.bot.bot.telegram.sendMessage(config.challengeChannelId, text, opts);
+        await this.bot.bot.telegram.sendMessage(config.mainChannelId, `${text}\n\n${dashboardCTA}`, opts);
+        await this.bot.bot.telegram.sendMessage(config.challengeChannelId, `${text}\n\n${dashboardCTA}`, opts);
       } catch (e) {
         console.error('Error posting deadline message:', e);
       }

@@ -2055,3 +2055,10 @@ The user confirmed that this log must retain the history of application updates 
 
 ## 2026-10-10 — Volume in participant commercial summary
 - Added blue USD volume and normalized lots below revenue for both the challenge account and all linked MT5 accounts. Uses existing full-period summary data, independent of trade pagination; unavailable volume stays pending. Frontend typecheck and diff checks passed.
+
+
+## 2026-10-11 — Sprint 1 readiness and Telegram calendar
+- Audited production Sprint 1 (#39), five EAT trading dates, hybrid rules, 50% growth target, lifecycle scheduling, and enabled rule display. Draft and participant settings preserved.
+- Added 60 stage-specific morning/evening messages, actual-date day counting, first/final-only dual-channel routing, persistent per-channel receipts/retries, and cross-challenge message rotation.
+- Corrected percentage-target announcements, challenge-timezone dates, and public Telegram dashboard CTAs; duration-aware daily-post controls.
+- Verified backend build, 199 automated tests, Telegram posting permissions in both channels, and live VPS health; no public test messages sent. Details: docs/audits/SPRINT_1_READINESS_2026-10-11.md.
