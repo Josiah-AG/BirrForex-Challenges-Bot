@@ -43,7 +43,7 @@ test('midnight end does not invent another trading day',()=>{
 test('evening posts preserve emoji voting on every day including final day; mornings do not',()=>{
  for(let day=1;day<=5;day++){
  const evening=renderDaily(sprint,day,5,'evening','Review your plan.');
- assert.match(evening,/React below/);for(const emoji of ['🔥','😎','👍','✍️'])assert(evening.includes(emoji));
+ assert.match(evening,/React below/);assert(evening.includes("🔥 If you crushed it today!\n😎 If it was decent, but there's room for more\n👍 If you had a tough day, but still in the game\n✍️ If you hit your daily drawdown"));for(const emoji of ['🔥','😎','👍','✍️'])assert(evening.includes(emoji));
  assert.doesNotMatch(evening,/WEEK 2|NO WEEKEND TRADING/);
  assert.doesNotMatch(renderDaily(sprint,day,5,'morning','Plan your day.'),/React below/);
  }

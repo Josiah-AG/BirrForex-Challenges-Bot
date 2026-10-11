@@ -121,7 +121,7 @@ export function renderDaily(c:any,day:number,total:number,slot:PostSlot,body:str
  const zone=c.timezone||'Africa/Nairobi';
  const end=new Intl.DateTimeFormat('en-GB',{timeZone:zone,timeZoneName:'short'}).formatToParts(new Date(c.end_date)).find(p=>p.type==='timeZoneName')?.value;
  const heading=day===total?'🏁 FINAL TRADING DAY':slot==='morning'?'☀️ TRADING DAY':'🌙 DAILY REVIEW';
- const reactions=slot==='evening'?'\n\n<b>How was your day, traders? React below:</b>\n🔥 A strong day — followed my plan\n😎 A steady day — room to improve\n👍 A tough day — staying disciplined\n✍️ Reached my daily drawdown limit':'';
+ const reactions=slot==='evening'?'\n\n<b>How was the Day, traders?</b>\n\nReact below:\n🔥 If you crushed it today!\n😎 If it was decent, but there\'s room for more\n👍 If you had a tough day, but still in the game\n✍️ If you hit your daily drawdown':'';
  const links=[c.pdf_url?`📄 <a href="${escapePost(c.pdf_url)}">Challenge rules</a>`:'',c.video_url?`🎥 <a href="${escapePost(c.video_url)}">Challenge guide</a>`:''].filter(Boolean).join('\n');
  return `<b>${heading} — ${day} OF ${total}</b>\n<b>${escapePost(c.title)}</b>\n\n${body}${reactions}\n\n📅 Ends ${escapePost(formatInTimezone(c.end_date,zone))} ${end}.\n\n${dashboardCTA}${links?'\n\n'+links:''}`;
 }

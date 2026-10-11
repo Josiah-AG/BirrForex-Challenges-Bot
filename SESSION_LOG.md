@@ -2075,3 +2075,7 @@ The user confirmed that this log must retain the history of application updates 
 - Restored the existing Challenge Start.png announcement through the active durable lifecycle worker; the older photo method was no longer called. Per-channel receipts prevent repeat photos on successful deliveries while a failed channel retries.
 - Restored emoji reaction prompts in every evening message, alongside varied day-specific text, the exact deadline and dashboard link. First/final-only dual-channel routing remains intact.
 - Backend build and 224 tests passed, including photo delivery/retry receipts and evening reactions for all five Sprint days. No test messages posted to Telegram.
+
+## 2026-10-11 — Preserve original evening reaction wording
+- Restored the original “How was the Day, traders?” / “React below” text and all four original emoji choices verbatim, as requested. Five-day scheduling, start artwork and varied surrounding posts remain unchanged.
+- Backend build and 12 focused posting/delivery tests passed, including an exact original-text assertion.
