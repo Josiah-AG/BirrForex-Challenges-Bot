@@ -1639,7 +1639,7 @@ app.get('/api/challenges/:id/user-trades', async (req, res) => {
       baseParams.push(graceStart.toISOString());
     }
     if (endDate) {
-      const graceEnd = new Date(new Date(endDate).getTime() + 27 * 60 * 60 * 1000);
+      const graceEnd = new Date(endDate);
       dateFilter += ` AND close_time <= $${baseParams.length + 1}`;
       baseParams.push(graceEnd.toISOString());
     }
@@ -1764,7 +1764,7 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
       tradesParams.push(graceStart.toISOString());
     }
     if (cEndDate) {
-      const graceEnd = new Date(new Date(cEndDate).getTime() + 27 * 60 * 60 * 1000);
+      const graceEnd = new Date(cEndDate);
       tradesQuery += ` AND close_time <= $${tradesParams.length + 1}`;
       tradesParams.push(graceEnd.toISOString());
     }
@@ -4450,7 +4450,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/finduser`, adminIpCheck, 
       lookupTradesParams.push(graceStart.toISOString());
     }
     if (lookupEnd) {
-      const graceEnd = new Date(new Date(lookupEnd).getTime() + 27 * 60 * 60 * 1000);
+      const graceEnd = new Date(lookupEnd);
       lookupTradesQuery += ` AND close_time <= $${lookupTradesParams.length + 1}`;
       lookupTradesParams.push(graceEnd.toISOString());
     }
@@ -4874,7 +4874,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/user-trades-mt5`, adminIp
       mt5TradesParams.push(graceStart.toISOString());
     }
     if (user.end_date) {
-      const graceEnd = new Date(new Date(user.end_date).getTime() + 27 * 60 * 60 * 1000);
+      const graceEnd = new Date(user.end_date);
       mt5TradesQuery += ` AND close_time <= $${mt5TradesParams.length + 1}`;
       mt5TradesParams.push(graceEnd.toISOString());
     }
@@ -6202,7 +6202,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/export-user-trades`, admi
     const filteredTrades = (() => {
       if (!challengeStart || !challengeEnd) return tradesRes.rows;
       const graceStart = new Date(challengeStart.getTime() - 3 * 60 * 60 * 1000);
-      const graceEnd = new Date(challengeEnd.getTime() + 27 * 60 * 60 * 1000);
+      const graceEnd = new Date(challengeEnd);
       return tradesRes.rows.filter((t: any) => {
         const closeMs = new Date(t.close_time).getTime();
         return closeMs >= graceStart.getTime() && closeMs <= graceEnd.getTime();
@@ -8542,7 +8542,7 @@ app.get('/api/me/balance-history', authMiddleware, async (req: any, res) => {
       tradesParams.push(graceStart.toISOString());
     }
     if (reg.end_date) {
-      const graceEnd = new Date(new Date(reg.end_date).getTime() + 27 * 60 * 60 * 1000);
+      const graceEnd = new Date(reg.end_date);
       dateFilter += ` AND close_time <= $${tradesParams.length + 1}`;
       tradesParams.push(graceEnd.toISOString());
     }
@@ -8601,7 +8601,7 @@ async function managementBalanceHistory(req: any, res: any) {
       tradesParams.push(graceStart.toISOString());
     }
     if (reg.end_date) {
-      const graceEnd = new Date(new Date(reg.end_date).getTime() + 27 * 60 * 60 * 1000);
+      const graceEnd = new Date(reg.end_date);
       dateFilter += ` AND close_time <= $${tradesParams.length + 1}`;
       tradesParams.push(graceEnd.toISOString());
     }

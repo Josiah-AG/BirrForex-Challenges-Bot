@@ -19,9 +19,12 @@ async function evaluate(rules, trades, options={}) {
   if (/^(UPDATE|INSERT|DELETE)/.test(sql.trim())) {writes.push({sql,params});return {rows:[],rowCount:1};}
   if (sql.includes('FROM trading_challenges')) return {rows:[challenge]};
   if (sql.includes('FROM wp_trades')) return {rows:trades};
-  if (sql.includes('FROM wp_deals')) return {rows:[]};
-  if (sql.includes('FROM trading_registrations')) return {rows:[{registration_balance:1000,actual_starting_balance:1000,last_known_balance:1000,disqualified:false,last_known_equity:1000}]};
-  if (sql.includes('FROM wp_balance_ops')) return {rows:options.balanceOps || []};
+  if (sql.includes('FROM wp_deals')) return {rows:sql.includes('position_id') ? trades.flatMap(t=>[
+   {ticket:t.ticket*10,position_id:t.position_id,entry:0,volume:t.volume,time:t.open_time,deal_type:0,profit:0},
+   {ticket:t.ticket*10+1,position_id:t.position_id,entry:1,volume:t.volume,time:t.close_time,deal_type:0,profit:t.profit,commission:t.commission,swap:t.swap}
+  ]) : []};
+  if (sql.includes('FROM trading_registrations')) return {rows:[{history_sync_state:"verified",history_verified_through:"2026-09-26T00:00:00Z",history_verified_balance:1000+trades.reduce((n,t)=>n+Number(t.profit)+Number(t.commission||0)+Number(t.swap||0),0),registration_balance:1000,actual_starting_balance:1000,last_known_balance:1000,disqualified:false,last_known_equity:1000}]};
+  if (sql.includes('FROM wp_balance_ops')) return {rows:sql.includes("o.op_type='withdrawal'") ? [{total:options.withdrawn||0}] : options.balanceOps || []};
   if (sql.includes('FROM wp_pull_errors')) return {rows:[]};
   if (sql.includes('wp_ohlc')) return {rows:[]};
   throw new Error(`Unexpected test query: ${sql}`);
@@ -137,4 +140,9 @@ test('manual engine excludes rule-breaking losses from the qualified minimum wit
  const result=evaluateAccount({},[p],[],990,cfg);
  assert.equal(result.adjustedBalance,990);assert.equal(result.isQualified,false);
  assert(result.disqualifyReasons.some(r=>r.includes('qualified trades')));
+});
+
+test('withdrawals reduce growth and qualification without double-deducting stored adjusted balance',async()=>{
+ const r=await evaluate(base(),[trade(1,{profit:100})],{withdrawn:200});
+ assert.equal(r.summary.adjustedBalance,1100);assert.equal(r.summary.growthPercent,-10);
 });

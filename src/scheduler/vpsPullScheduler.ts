@@ -693,6 +693,8 @@ export class VpsPullScheduler {
         await leaderboardService.ensureAllParticipantsHaveEntries(challengeToPull.id,overrideLock);
         await leaderboardService.updateRankings(challengeToPull.id, true, overrideLock);
         await this.completePullBatch(batchId!, evaluatedAccounts.length, accounts.length-evaluatedAccounts.length, newTrades, evaluatedAccounts.length===accounts.length?'completed':'partial');
+        if(!failedOnly && challengeToPull.status==='reviewing' && evaluatedAccounts.length===accounts.length && accounts.length>0)
+          await db.query('UPDATE wp_pull_batches SET final_full_sync=true WHERE id=$1',[batchId]);
       });
       batchId=null;
       console.log(`📊 VPS Pull: Staging flushed to live — leaderboard updated`);
@@ -1411,7 +1413,7 @@ export class VpsPullScheduler {
       // Count how many pull batches have run since challenge ended
       const postEndPulls = await db.query(
         `SELECT COUNT(*) as cnt FROM wp_pull_batches 
-         WHERE challenge_id = $1 AND started_at > $2 AND status = 'completed'`,
+         WHERE challenge_id = $1 AND started_at > $2 AND status = 'completed' AND final_full_sync=true AND COALESCE(failed,0)=0 AND successful=total_accounts AND successful>0`,
         [recentlyEnded.id, new Date(recentlyEnded.end_date).toISOString()]
       );
       const pullsSinceEnd = parseInt(postEndPulls.rows[0]?.cnt || '0');

@@ -1,3 +1,4 @@
+import {balancesAtEntry, qualifiedPositionCounts} from '../utils/evaluationIntegrity';
 import {dailyDrawdown} from '../utils/dailyDrawdown';
 import {declaredStopRisk,allowedRiskPrice} from '../utils/tradeRiskUnits';
 import {queueParticipantNotice} from './participantNotices';
@@ -447,7 +448,7 @@ export class WpEvaluationEngine {
       params.push(graceStart.toISOString());
     }
     if (challengeEnd) {
-      const graceEnd = new Date(new Date(challengeEnd).getTime() + 27 * 60 * 60 * 1000);
+      const graceEnd = new Date(challengeEnd); // Recovery time never extends the competition window.
       startFilter += ` AND close_time <= $${params.length + 1}`;
       params.push(graceEnd.toISOString());
     }
@@ -835,45 +836,30 @@ export class WpEvaluationEngine {
     const ticketSlOutcomes = new Map<number, PositionSlOutcome>();
 
     // === Percentage-based SL risk: compute balance at each position's open time ===
-    const isRiskPercentMode = rules.max_risk_mode === 'percentage' && rules.max_risk_percent;
+    const isRiskPercentMode = isRiskRuleEnabled(rules) && rules.max_risk_mode === 'percentage' && rules.max_risk_percent;
     // Map: positionId → effective max risk dollars for that position (computed from balance at open)
     const positionEffectiveMaxRisk = new Map<number, number>();
     const positionRiskBalance = new Map<number, number>();
 
     if (isRiskPercentMode) {
-      // Build running balance timeline: for each position, determine balance when it was opened
-      // Sort all trades by open_time to build a timeline of balance changes
-      const tradesByOpen = [...allTrades].sort((a, b) => new Date(a.open_time).getTime() - new Date(b.open_time).getTime());
-      // Track which positions we've already computed
-      const computedPositions = new Set<number>();
-      let balanceTimeline = effectiveStartBalance;
-      // Sort trades by CLOSE time to track actual balance progression
-      const tradesByClose = [...allTrades].sort((a, b) => new Date(a.close_time).getTime() - new Date(b.close_time).getTime());
-      let closeIdx = 0;
-
-      for (const t of tradesByOpen) {
-        const posId = (t as any).position_id ?? t.ticket;
-        if (computedPositions.has(posId)) continue;
-        computedPositions.add(posId);
-        const openMs = new Date(t.open_time).getTime();
-
-        // Advance balance timeline: add profit of all trades that closed BEFORE this trade opened
-        while (closeIdx < tradesByClose.length && new Date(tradesByClose[closeIdx].close_time).getTime() <= openMs) {
-          const ct = tradesByClose[closeIdx];
-          balanceTimeline += parseFloat(String(ct.profit)) + parseFloat(String(ct.commission || 0)) + parseFloat(String(ct.swap || 0));
-          closeIdx++;
-        }
-
-        const effectiveRisk = balanceTimeline * (rules.max_risk_percent! / 100);
-        positionEffectiveMaxRisk.set(posId, effectiveRisk);
-        positionRiskBalance.set(posId, balanceTimeline);
+      const snapshot=(await db.query(`SELECT history_verified_balance,history_verified_through,history_sync_state
+        FROM trading_registrations WHERE id=$1`,[reg.id])).rows[0];
+      if(!snapshot || !['verified','published'].includes(snapshot.history_sync_state))throw Error('Risk allowance awaits verified broker history');
+      const ledger=(await db.query(`SELECT ticket,position_id,entry,time,deal_type,profit,commission,swap,fee
+        FROM wp_deals WHERE challenge_id=$1 AND registration_id=$2 ORDER BY time,ticket`,[challengeId,reg.id])).rows;
+      const balances=balancesAtEntry(allTrades,ledger,Number(snapshot.history_verified_balance),snapshot.history_verified_through);
+      for(const t of allTrades){
+        const posId=t.position_id??t.ticket;
+        const balance=balances.get(String(posId))!;
+        positionEffectiveMaxRisk.set(posId,balance*Number(rules.max_risk_percent)/100);
+        positionRiskBalance.set(posId,balance);
       }
     }
 
     // Helper: get effective max risk dollars for a position (percentage or fixed)
     const getEffectiveMaxRisk = (posId: number): number => {
       if (isRiskPercentMode) {
-        return positionEffectiveMaxRisk.get(posId) || (effectiveStartBalance * (rules.max_risk_percent! / 100));
+        return positionEffectiveMaxRisk.get(posId) ?? (effectiveStartBalance * (rules.max_risk_percent! / 100));
       }
       return rules.max_risk_dollars || 0;
     };
@@ -1011,6 +997,7 @@ export class WpEvaluationEngine {
       }
     }
 
+    const qualifiedTickets = new Set<string>();
     // Evaluate each trade
     const slCheckFailures: { ticket: number; symbol: string; tradeId: number }[] = [];
     for (const trade of allTrades) {
@@ -1223,6 +1210,7 @@ export class WpEvaluationEngine {
 
       // Apply
       const isQualified = violations.length === 0;
+      if(isQualified)qualifiedTickets.add(String(trade.ticket));
       if (!isQualified) {
         flaggedCount++;
         if (slPenaltyDollars > 0) {
@@ -1270,7 +1258,17 @@ export class WpEvaluationEngine {
     const cashAdjustment = Number(cashAdjustmentResult.rows[0]?.total || 0);
     const adjustedBalance = effectiveStartBalance + qualifiedProfit + cashAdjustment;
     const currentBalance = effectiveStartBalance + grossProfit + cashAdjustment;
-    const qualifiedTrades = allTrades.length - flaggedCount;
+    const withdrawals=await db.query(`SELECT COALESCE(SUM(ABS(o.amount)),0) AS total FROM wp_balance_ops o
+      JOIN trading_registrations r ON r.id=o.registration_id JOIN trading_challenges c ON c.id=o.challenge_id
+      WHERE o.challenge_id=$1 AND o.registration_id=$2 AND o.op_type='withdrawal'
+      AND o.op_time >= (GREATEST(c.start_date,r.registered_at) AT TIME ZONE 'UTC')
+      AND o.op_time <= (c.end_date AT TIME ZONE 'UTC')`,[challengeId,reg.id]);
+    // Storage keeps withdrawals separate; eligibility and growth must use the
+    // same net balance already displayed and ranked by qualifiedRankingSql.
+    const rankingBalance=adjustedBalance-Number(withdrawals.rows[0]?.total||0);
+
+    const positionCounts=qualifiedPositionCounts(allTrades,qualifiedTickets,positionDeals.filter(d=>!challengeEnd || new Date(d.time).getTime()<=new Date(challengeEnd).getTime()));
+    const qualifiedTrades = positionCounts.qualified;
     const tradeDays = new Set(allTrades.map(t => getLocalTime(new Date(t.close_time), challengeTimezone).dateStr));
     const activeDays = tradeDays.size;
 
@@ -1344,7 +1342,7 @@ export class WpEvaluationEngine {
     // === QUALIFICATION CHECK — depends on deposit mode ===
     // Growth percent: how much the account grew relative to the user's actual starting balance
     const growthPercent = effectiveStartBalance > 0
-      ? ((adjustedBalance - effectiveStartBalance) / effectiveStartBalance) * 100
+      ? ((rankingBalance - effectiveStartBalance) / effectiveStartBalance) * 100
       : 0;
 
     let isQualified: boolean;
@@ -1354,14 +1352,14 @@ export class WpEvaluationEngine {
       // not by hitting any $ target or growth %. Still respects min active days.
       // Floor: unless allowBelowStart is on, accounts that ended BELOW their
       // starting balance (a net loss) are excluded from winner eligibility.
-      const meetsFloor = allowBelowStart ? true : (adjustedBalance >= effectiveStartBalance);
+      const meetsFloor = allowBelowStart ? true : (rankingBalance >= effectiveStartBalance);
       isQualified = meetsFloor && activeDays >= minDaysRequired;
     } else if (depositMode !== 'fixed' && targetPercent) {
       // max_limit or min_limit: qualify by growth percentage
       isQualified = growthPercent >= targetPercent && activeDays >= minDaysRequired;
     } else {
       // fixed: qualify by absolute balance (current behavior)
-      isQualified = adjustedBalance >= targetBalance && activeDays >= minDaysRequired;
+      isQualified = rankingBalance >= targetBalance && activeDays >= minDaysRequired;
     }
 
     if (qualifiedTrades < (isRuleEnabled(rules, 'min_total_trades') ? (rules.min_total_trades || 0) : 0)) isQualified = false;
@@ -1370,7 +1368,7 @@ export class WpEvaluationEngine {
 
     await this.upsertLeaderboard(challengeId, reg, effectiveStartBalance, {
       currentBalance, adjustedBalance, qualifiedProfit, grossProfit, profitRemoved,
-      totalTrades: allTrades.length, qualifiedTrades, flaggedTrades: flaggedCount,
+      totalTrades: positionCounts.total, qualifiedTrades, flaggedTrades: positionCounts.flagged,
       activeDays, isQualified, growthPercent, lastTradeTime: lastTrade?.close_time || null,
     });
 
@@ -1603,7 +1601,7 @@ export class WpEvaluationEngine {
     if (cfg.min_trade_duration_minutes && isRuleEnabled(cfg, 'min_trade_duration')) rules.push(`⏱️ Minimum trade duration: ${cfg.min_trade_duration_minutes} minutes`);
     if (!cfg.weekend_trading && isRuleEnabled(cfg, 'weekend_trading')) rules.push('🚫 No weekend trading');
     if (cfg.min_active_days && isRuleEnabled(cfg, 'min_active_days')) rules.push(`📅 Minimum ${cfg.min_active_days} active trading days to qualify`);
-    if (cfg.min_total_trades && isRuleEnabled(cfg, 'min_total_trades')) rules.push(`📊 Minimum ${cfg.min_total_trades} qualified trades to qualify`);
+    if (cfg.min_total_trades && isRuleEnabled(cfg, 'min_total_trades')) rules.push(`📊 Minimum ${cfg.min_total_trades} fully closed qualified positions to qualify (partial closes count once)`);
     // Track whether any enforcement rules are active (rules above this line, not the always-shown ones)
     const hasActiveRules = rules.length > 0;
     rules.push('🚫 No recharging (additional deposits) allowed during the challenge');

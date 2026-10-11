@@ -307,6 +307,7 @@ async function migrate() {
     // direction-flip routine was not idempotent and could flip the same trade on
     // every deploy. Historical repairs must be explicit and journaled.
 
+    await db.query(`ALTER TABLE wp_pull_batches ADD COLUMN IF NOT EXISTS final_full_sync BOOLEAN NOT NULL DEFAULT false`);
     // Phase 2 (null open_time resolution) progress tracking on pull batches
     await db.query(`ALTER TABLE wp_pull_batches ADD COLUMN IF NOT EXISTS phase VARCHAR(20) DEFAULT 'pulling';`).catch(() => {});
     await db.query(`ALTER TABLE wp_pull_batches ADD COLUMN IF NOT EXISTS phase2_total INTEGER DEFAULT 0;`).catch(() => {});

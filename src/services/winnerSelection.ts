@@ -31,6 +31,7 @@ async function selectLiveWinners(challengeId: number,category: string,count: num
     JOIN trading_registrations r ON r.id=l.registration_id
     WHERE l.challenge_id=$1 AND l.account_type=$2 AND l.is_qualified=true
     AND l.is_disqualified=false AND r.disqualified=false AND r.status IS DISTINCT FROM 'removed'
+    AND l.zero_balance_at IS NULL AND COALESCE(l.is_withdrawn,false)=false
     AND l.rank IS NOT NULL ORDER BY l.rank ASC,l.registration_id ASC LIMIT $3`,[challengeId,category,count]);
   return result.rows;
 }

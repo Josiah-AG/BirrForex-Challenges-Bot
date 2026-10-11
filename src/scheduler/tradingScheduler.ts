@@ -532,8 +532,20 @@ export class TradingScheduler {
       await db.transaction(async()=>{
         const current=await db.query('SELECT leaderboard_locked_at,end_date FROM trading_challenges WHERE id=$1 FOR UPDATE',[challenge.id]);
         if(!current.rows[0] || current.rows[0].leaderboard_locked_at)return;
-        const batches=await db.query(`SELECT COUNT(*) AS cnt FROM wp_pull_batches WHERE challenge_id=$1 AND status='completed' AND COALESCE(failed,0)=0 AND successful>0 AND error_log IS DISTINCT FROM 'evaluate_only' AND started_at>$2`,[challenge.id,current.rows[0].end_date]);
+        const batches=await db.query(`SELECT COUNT(*) AS cnt FROM wp_pull_batches WHERE challenge_id=$1 AND status='completed' AND COALESCE(failed,0)=0 AND successful>0 AND successful=total_accounts AND final_full_sync=true AND error_log IS DISTINCT FROM 'evaluate_only' AND started_at>$2`,[challenge.id,current.rows[0].end_date]);
         if(Number(batches.rows[0].cnt)<2)return;
+        // Every remaining contender needs a verified final snapshot and resolved risk checks.
+        const unresolved=await db.query(`SELECT r.id FROM trading_registrations r
+          LEFT JOIN wp_leaderboard l ON l.registration_id=r.id AND l.challenge_id=r.challenge_id
+          WHERE r.challenge_id=$1 AND r.status IS DISTINCT FROM 'removed' AND r.disqualified=false
+          AND l.zero_balance_at IS NULL AND COALESCE(l.is_withdrawn,false)=false
+          AND (r.history_sync_state IS DISTINCT FROM 'published' OR r.history_verified_through IS NULL
+            OR r.history_verified_through < $2 OR l.id IS NULL OR EXISTS(
+              SELECT 1 FROM wp_trades t WHERE t.registration_id=r.id AND t.challenge_id=r.challenge_id
+              AND t.close_time <= $2 AND t.open_time >= (SELECT start_date FROM trading_challenges WHERE id=$1)
+              AND (t.sl_check_pending=true OR t.sl_check_result IN ('check_failed','conflicting')))) LIMIT 1`,[challenge.id,current.rows[0].end_date]);
+        if(unresolved.rows.length)return;
+
         // Completed cycles already publish atomically. Unpublished staging may belong to a failed cycle.
         const {leaderboardService}=require('../services/leaderboardService');
         await leaderboardService.updateRankings(challenge.id,true);
