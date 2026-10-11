@@ -48,3 +48,12 @@ test('Sprint minimum $10 accepts the boundary and above, rejects below, on every
   for(const balance of [0,minimum-0.01,minimum/2])await assert.rejects(()=>validate(39,category,result(balance),mode),/below/);
  }
 });
+test('maximum balance rejects even one currency cent above the cap on all entry paths',async()=>{
+ for(const mode of ['web','native','change','csv'])for(const category of ['demo','real'])for(const cent of [false,true]){
+  reset();Object.assign(challenge,{type:'hybrid',starting_balance:10,target_balance:60,target_percent:50,deposit_mode:'max_limit',starting_balance_policy:'decimal'});
+  const result=balance=>verified({balance,currency:cent?'USC':'USD',trade_mode:category==='demo'?0:2});
+  const maximum=cent?1000:10;
+  for(const balance of [maximum/2,maximum-0.01,maximum])await validate(39,category,result(balance),mode);
+  for(const balance of [maximum+0.01,maximum+0.99,maximum*2])await assert.rejects(()=>validate(39,category,result(balance),mode),/at most/);
+ }
+});

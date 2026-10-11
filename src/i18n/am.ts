@@ -111,6 +111,11 @@ export const am: Record<string, string> = {
 
   // VPS verification — account type / balance checks
   acct_subtype_not_allowed: '❌ <b>የአካውንት ዓይነት አይፈቀድም</b>\n\nአካውንትዎ <b>{subtype}</b> ነው። ይህ ቻሌንጅ <b>{accepted}</b> አካውንቶችን ብቻ ይቀበላል።\n\n📋 <b>Standard አካውንት ለመፍጠር:</b>\n1. Exness → My Accounts ይክፈቱ\n2. Create New Account → "Standard" ይምረጡ\n3. MT5 ይምረጡ\n\nሲዘጋጁ አካውንትዎን ያስገቡ:',
+  balance_minimum_demo: '❌ <b>ባላንስ ዝቅተኛ ነው</b>\n\nየDemo አካውንትዎ ባላንስ <b>{actual}</b> ነው። ቢያንስ <b>{expected}</b> ያስፈልጋል። ባላንስዎን ወደ {expected} ወይም ከዚያ በላይ ያድርጉና እንደገና ይሞክሩ።',
+  balance_maximum_demo: '❌ <b>ባላንስ ከፍ ያለ ነው</b>\n\nየDemo አካውንትዎ ባላንስ <b>{actual}</b> ነው። ከፍተኛው የሚፈቀደው <b>{expected}</b> ነው። ባላንስዎን ወደ {expected} ወይም ከዚያ በታች ያድርጉና እንደገና ይሞክሩ።',
+  balance_minimum_account: '❌ ባላንስዎ <b>{actual}</b> ነው። ቢያንስ <b>{expected}</b> ያስፈልጋል። ባላንስዎን ወደ {expected} ወይም ከዚያ በላይ ያድርጉና ይሞክሩ።',
+  balance_maximum_account: '❌ ባላንስዎ <b>{actual}</b> ነው። ከፍተኛው ገደብ <b>{expected}</b> ነው። ባላንስዎን ወደ {expected} ወይም ከዚያ በታች ያድርጉና ይሞክሩ።',
+  balance_fixed_account: '❌ ባላንስዎ <b>{actual}</b> ነው። የሚፈለገው መነሻ ባላንስ <b>{expected}</b> ነው። አስተካክለው እንደገና ይሞክሩ።',
   balance_mismatch_demo: '❌ <b>ባላንስ አይዛመድም</b>\n\nየDemo አካውንትዎ ባላንስ <b>{actual}</b> ነው ግን ቻሌንጁ <b>{expected}</b> ይፈልጋል።\n\nእባክዎ ባላንስዎን ወደ <b>{expected}</b> ያድርጉና እንደገና ይሞክሩ።',
   only_cent_allowed: '❌ <b>Cent አካውንቶች ብቻ ይፈቀዳሉ</b>\n\nይህ ቻሌንጅ <b>Cent Account</b> (ምንዛሬ: USC) ይፈልጋል።\n\nአካውንትዎ Standard (ምንዛሬ: USD) ይመስላል።\n\n📋 <b>Cent Account ለመፍጠር:</b>\n1. Exness → My Accounts ይክፈቱ\n2. Create New Account → "Standard Cent" ይምረጡ\n3. MT5 ይምረጡ\n4. ገንዘብ ያስገቡ\n\nሲዘጋጁ Cent አካውንትዎን ያስገቡ:',
   balance_too_high: '❌ <b>ባላንስ ከፍ ያለ ነው</b>\n\nየአካውንትዎ ባላንስ <b>{balance}</b> ነው ይህም ከመጀመሪያ ባላንስ <b>{limit}</b> ይበልጣል።\n\nእባክዎ ባላንስዎን ወደ <b>{limit}</b> ወይም ከዚያ በታች ያውርዱ ከዚያ እንደገና ይመዝገቡ።',

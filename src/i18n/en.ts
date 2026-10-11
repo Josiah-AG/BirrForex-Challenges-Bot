@@ -111,6 +111,11 @@ export const en: Record<string, string> = {
 
   // VPS verification — account type / balance checks
   acct_subtype_not_allowed: '❌ <b>Account Type Not Allowed</b>\n\nYour account is a <b>{subtype}</b> account. This challenge only accepts <b>{accepted}</b> accounts.\n\n📋 <b>How to create a Standard Account:</b>\n1. Open Exness → My Accounts\n2. Create New Account → Choose "Standard"\n3. Select MT5 platform\n\nOnce ready, submit your standard account:',
+  balance_minimum_demo: '❌ <b>Balance Too Low</b>\n\nYour demo account balance is <b>{actual}</b>. This challenge requires <b>at least {expected}</b>. Set your demo balance to {expected} or more, then try again.',
+  balance_maximum_demo: '❌ <b>Balance Too High</b>\n\nYour demo account balance is <b>{actual}</b>. This challenge allows <b>at most {expected}</b>. Set your demo balance to {expected} or less, then try again.',
+  balance_minimum_account: '❌ Your balance is <b>{actual}</b>. The minimum is <b>{expected}</b>. Increase your balance to at least {expected}, then try again.',
+  balance_maximum_account: '❌ Your balance is <b>{actual}</b>. The maximum is <b>{expected}</b>. Reduce your balance to {expected} or less, then try again.',
+  balance_fixed_account: '❌ Your balance is <b>{actual}</b>. Adjust it to the required starting balance of <b>{expected}</b>, then try again.',
   balance_mismatch_demo: '❌ <b>Balance Mismatch</b>\n\nYour demo account balance is <b>{actual}</b> but the challenge requires exactly <b>{expected}</b>.\n\nPlease set your balance to <b>{expected}</b> and try again.',
   only_cent_allowed: '❌ <b>Only Cent Accounts Allowed</b>\n\nThis challenge requires a <b>Cent Account</b> (currency: USC).\n\nYour account appears to be a Standard account (currency: USD).\n\n📋 <b>How to create a Cent Account:</b>\n1. Open Exness → My Accounts\n2. Create New Account → Choose "Standard Cent"\n3. Select MT5 platform\n4. Fund the account\n\nOnce ready, submit your cent account:',
   balance_too_high: '❌ <b>Balance Too High</b>\n\nYour account balance is <b>{balance}</b> which exceeds the starting balance of <b>{limit}</b>.\n\nPlease withdraw or transfer funds so your balance is at or below <b>{limit}</b>, then try registering again.\n\nThis ensures fair competition for all participants.',

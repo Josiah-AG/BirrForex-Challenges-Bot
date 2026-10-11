@@ -10,6 +10,7 @@ export function startingBalanceProblem(balance: number, required: number, mode =
   const actual = Math.round((balance + Number.EPSILON) * 100);
   const minimum = Math.round((required + Number.EPSILON) * 100);
   const upperExclusive = (Math.floor(minimum / 100) + 1) * 100;
+  if (mode === 'max_limit') return actual > minimum ? 'high' : null;
   if (mode !== 'max_limit' && actual < minimum) return 'low';
   if (mode !== 'min_limit' && actual >= upperExclusive) return 'high';
   return null;

@@ -428,7 +428,7 @@ export default function ChallengeDashboard() {
     if (mode !== 'fixed' && challenge.targetPercent) {
       // Growth-% mode: progress as fraction of the target growth %
       const base = challenge.myStartingBalance ?? challenge.startingBalance;
-      const gPct = base > 0 ? ((myStats.adjustedBalance - base) / base) * 100 : 0;
+      const gPct = base > 0 ? ((myStats.adjustedBalance - (myStats.totalWithdrawn || 0) - base) / base) * 100 : 0;
       return (gPct / challenge.targetPercent) * 100;
     }
     const denom = challenge.targetBalance - challenge.startingBalance;
@@ -439,7 +439,7 @@ export default function ChallengeDashboard() {
   // (and safe against a zero/near-zero denominator).
   const growthBase = challenge ? (challenge.myStartingBalance ?? challenge.startingBalance) : 0;
   const growthPercent = challenge && myStats && growthBase > 0
-    ? ((myStats.adjustedBalance - growthBase) / growthBase) * 100
+    ? ((myStats.adjustedBalance - (myStats.totalWithdrawn || 0) - growthBase) / growthBase) * 100
     : 0;
   const isBlownAccount = myStats && myStats.totalTrades > 0 && myStats.currentBalance <= 0;
 
@@ -727,8 +727,9 @@ export default function ChallengeDashboard() {
                 <p className="text-xs text-gray-500 mt-1">of {totalParticipants || "—"}</p>
               </button>
               <div className="glass rounded-2xl p-4 md:p-5 border border-white/10">
-                <div className="flex items-center gap-2 mb-2"><TrendingUp size={16} className="text-profit" /><p className="text-[10px] text-gray-400 uppercase tracking-wider font-medium">Final Profit</p></div>
-                <p className={`text-3xl md:text-4xl font-bold ${myStats.qualifiedProfit >= 0 ? "text-profit" : "text-loss"}`}>{formatBalance(myStats.qualifiedProfit, myStats.accountType, effectiveIsCent)}</p>
+                <div className="flex items-center gap-2 mb-2"><TrendingUp size={16} className="text-profit" /><p className="text-[10px] text-gray-400 uppercase tracking-wider font-medium">{isGrowthMode ? "Final Account Growth" : "Final Profit"}</p></div>
+                <p className={`text-3xl md:text-4xl font-bold break-words ${(isGrowthMode ? growthPercent : myStats.qualifiedProfit) >= 0 ? "text-profit" : "text-loss"}`}>{isGrowthMode ? `${growthPercent > 0 ? '+' : ''}${growthPercent.toFixed(2)}%` : formatBalance(myStats.qualifiedProfit, myStats.accountType, effectiveIsCent)}</p>
+                {isGrowthMode && <p className="text-sm font-semibold text-gray-300 mt-1">({formatBalance(myStats.qualifiedProfit, myStats.accountType, effectiveIsCent)})</p>}
                 <p className="text-xs text-gray-500 mt-1">Total P&L: {formatBalance(myStats.grossProfit, myStats.accountType, effectiveIsCent)}</p>
               </div>
               <div className="glass rounded-2xl p-4 md:p-5 border border-white/10">
@@ -1084,8 +1085,9 @@ export default function ChallengeDashboard() {
                 <p className="text-xs text-gray-500 mt-1">of {totalParticipants || "—"}</p>
               </button>
               <div className="glass rounded-2xl p-4 md:p-5 border border-white/10">
-                <div className="flex items-center gap-2 mb-2"><TrendingUp size={16} className="text-profit" /><p className="text-[10px] text-gray-400 uppercase tracking-wider font-medium">Profit</p></div>
-                <p className={`text-3xl md:text-4xl font-bold ${myStats.qualifiedProfit >= 0 ? "text-profit" : "text-loss"}`}>{formatBalance(myStats.qualifiedProfit, myStats.accountType, effectiveIsCent)}</p>
+                <div className="flex items-center gap-2 mb-2"><TrendingUp size={16} className="text-profit" /><p className="text-[10px] text-gray-400 uppercase tracking-wider font-medium">{isGrowthMode ? "Account Growth" : "Profit"}</p></div>
+                <p className={`text-3xl md:text-4xl font-bold break-words ${(isGrowthMode ? growthPercent : myStats.qualifiedProfit) >= 0 ? "text-profit" : "text-loss"}`}>{isGrowthMode ? `${growthPercent > 0 ? '+' : ''}${growthPercent.toFixed(2)}%` : formatBalance(myStats.qualifiedProfit, myStats.accountType, effectiveIsCent)}</p>
+                {isGrowthMode && <p className="text-sm font-semibold text-gray-300 mt-1">({formatBalance(myStats.qualifiedProfit, myStats.accountType, effectiveIsCent)})</p>}
                 <p className="text-xs text-gray-500 mt-1">Total P&L: {formatBalance(myStats.grossProfit, myStats.accountType, effectiveIsCent)}</p>
               </div>
               <div className="glass rounded-2xl p-4 md:p-5 border border-white/10">
@@ -1102,7 +1104,7 @@ export default function ChallengeDashboard() {
             {isNotStarted && challenge.balanceCheckDeadline && (
               <div className={`glass rounded-2xl p-4 md:p-5 border mb-6 ${myStats.balanceWarning ? 'border-amber-500/30 bg-amber-500/5' : 'border-white/10'}`}>
                 <p className="text-sm font-bold text-amber-400 mb-2">{myStats.balanceWarning ? 'Balance needs attention' : 'Starting balance verification'}</p>
-                <p className="text-sm text-gray-300">{myStats.accountType === 'demo' ? 'Reset your demo balance' : 'Adjust your account balance'} to {challenge.depositMode === 'min_limit' ? 'at least ' : challenge.depositMode === 'max_limit' ? '' : ''}<b>{formatBalance(challenge.startingBalance, myStats.accountType, effectiveIsCent)}</b> before <b>{new Date(challenge.balanceCheckDeadline).toLocaleString(undefined, {timeZone: challenge.timezone || 'Africa/Addis_Ababa', dateStyle: 'medium', timeStyle: 'short'})} ({challenge.timezone || 'Africa/Addis_Ababa'})</b>.</p>
+                <p className="text-sm text-gray-300">{myStats.accountType === 'demo' ? 'Reset your demo balance' : 'Adjust your account balance'} to {challenge.depositMode === 'min_limit' ? 'at least ' : challenge.depositMode === 'max_limit' ? 'at most ' : ''}<b>{formatBalance(challenge.startingBalance, myStats.accountType, effectiveIsCent)}</b> before <b>{new Date(challenge.balanceCheckDeadline).toLocaleString(undefined, {timeZone: challenge.timezone || 'Africa/Addis_Ababa', dateStyle: 'medium', timeStyle: 'short'})} ({challenge.timezone || 'Africa/Addis_Ababa'})</b>.</p>
                 {challenge.depositMode !== 'min_limit' && <p className="text-xs text-gray-400 mt-2">A balance above the permitted starting amount at the final check will lead to disqualification.</p>}
               </div>
             )}
@@ -1324,7 +1326,7 @@ export default function ChallengeDashboard() {
               </div>
               {leaderboardPreStart && challenge && (
                 <div className="px-4 py-3 bg-amber-500/5 border-b border-amber-500/20">
-                  <p className="text-xs text-amber-300"><span className="font-semibold">⚠️ Balance must be {isMinLimit ? '≥' : '≤'} {formatBalance(challenge.startingBalance, myStats.accountType, effectiveIsCent)}</span> before the challenge starts. Lower balances receive a reminder only; balances above the permitted maximum will be disqualified.</p>
+                  <p className="text-xs text-amber-300"><span className="font-semibold">⚠️ Balance must be {isMinLimit ? '≥' : challenge.depositMode === 'max_limit' ? '≤' : '='} {formatBalance(challenge.startingBalance, myStats.accountType, effectiveIsCent)}</span> before the challenge starts. Balances that do not meet the challenge’s starting requirement at the final check will lead to disqualification.</p>
                 </div>
               )}
               {leaderboardLoading ? (
@@ -1552,7 +1554,7 @@ export default function ChallengeDashboard() {
             </div>
             {leaderboardPreStart && challenge && (
               <div className="px-4 py-3 bg-amber-500/5 border-b border-amber-500/20">
-                <p className="text-xs text-amber-300"><span className="font-semibold">⚠️ Balance must be {isMinLimit ? '≥' : '≤'} {formatBalance(challenge.startingBalance, myStats?.accountType || 'real', effectiveIsCent)}</span> before the challenge starts. Lower balances receive a reminder only; balances above the permitted maximum will be disqualified.</p>
+                <p className="text-xs text-amber-300"><span className="font-semibold">⚠️ Balance must be {isMinLimit ? '≥' : challenge.depositMode === 'max_limit' ? '≤' : '='} {formatBalance(challenge.startingBalance, myStats?.accountType || 'real', effectiveIsCent)}</span> before the challenge starts. Balances that do not meet the challenge’s starting requirement at the final check will lead to disqualification.</p>
               </div>
             )}
             {!selectedUser ? (

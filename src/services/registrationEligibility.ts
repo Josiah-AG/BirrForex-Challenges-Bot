@@ -31,6 +31,7 @@ export async function validateVerifiedRegistration(challengeId: number, category
   const limit=settings.startingBalance*accountUnitMultiplier(challenge,rules,cent);
   const problem=startingBalanceProblem(Number(result.balance),limit,settings.depositMode,challenge.starting_balance_policy);
   if(problem==='invalid')throw new ConfigurationError('Valid balance is required');
+  if(problem==='high' && settings.depositMode==='max_limit')throw new ConfigurationError(`Balance must be at most ${limit} ${result.currency}; your balance is ${result.balance}`);
   if(problem==='high')throw new ConfigurationError(`Balance exceeds the allowed maximum: reset to ${limit} account-currency units; only the decimal portion may differ`);
   if(problem==='low')throw new ConfigurationError(`Balance is below the required ${settings.depositMode==='min_limit'?'minimum':'fixed starting balance'} (${limit} account-currency units)`);
 

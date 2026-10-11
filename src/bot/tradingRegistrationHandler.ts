@@ -1220,36 +1220,13 @@ export class TradingRegistrationHandler {
         const expectedBalance = isCentAccount ? (startingBalance * 100) : startingBalance;
         const balanceProblem = startingBalanceProblem(vpsBalance, expectedBalance, depositMode3);
 
-        let demoBalanceOk = true;
-        let demoRejectReason = '';
-
-        if (depositMode3 === 'fixed') {
-          // Fixed: must be exactly the starting balance
-          if (balanceProblem !== null) {
-            demoBalanceOk = false;
-            const displayExpected = isCentAccount ? `${startingBalance * 100}¢ ($${startingBalance})` : `$${startingBalance}`;
-            const displayActual = isCentAccount ? `${vpsBalance}¢ ($${(vpsBalance/100).toFixed(2)})` : `$${vpsBalance.toFixed(2)}`;
-            demoRejectReason = `balance_mismatch_demo`;
-          }
-        } else if (depositMode3 === 'max_limit') {
-          // Max limit: must be ≤ limit
-          if (balanceProblem !== null) {
-            demoBalanceOk = false;
-          }
-        } else if (depositMode3 === 'min_limit') {
-          // Min limit: must be ≥ limit
-          if (balanceProblem !== null) {
-            demoBalanceOk = false;
-          }
-        }
-
-        if (!demoBalanceOk) {
+        if (balanceProblem !== null) {
           session.step = 'tc_enter_account_number';
           const lang: Lang = session.data.lang || 'en';
           const displayExpected = isCentAccount ? `${startingBalance * 100}¢ ($${startingBalance})` : `$${startingBalance}`;
           const displayActual = isCentAccount ? `${vpsBalance}¢ ($${(vpsBalance/100).toFixed(2)})` : `$${vpsBalance.toFixed(2)}`;
           await ctx.reply(
-            t(lang, 'balance_mismatch_demo', { expected: displayExpected, actual: displayActual }),
+            t(lang, depositMode3 === 'min_limit' ? 'balance_minimum_demo' : depositMode3 === 'max_limit' ? 'balance_maximum_demo' : 'balance_mismatch_demo', { expected: displayExpected, actual: displayActual }),
             { parse_mode: 'HTML', ...Markup.inlineKeyboard([
               [Markup.button.callback(t(lang, 'submit_another_acct_btn'), `tc_new_real_acct_${session.data.challenge_id}`)],
             ]) }
@@ -1300,11 +1277,11 @@ export class TradingRegistrationHandler {
         session.step = 'tc_enter_account_number';
         const lang: Lang = session.data.lang || 'en';
         await ctx.reply(
-          `Balance ${balanceDisplay} does not meet the ${depositMode3} starting requirement ${startDisplay}. Please adjust it and try again.`,
+          t(lang, depositMode3 === 'min_limit' ? 'balance_minimum_account' : depositMode3 === 'max_limit' ? 'balance_maximum_account' : 'balance_fixed_account', { expected: startDisplay, actual: balanceDisplay }),
           { parse_mode: 'HTML' }
         );
         return;
-      } else if (vpsBalance === 0) {
+      } else if (vpsBalance === 0 && depositMode3 !== 'max_limit') {
         // Zero balance — accept with warning
         const lang: Lang = session.data.lang || 'en';
         session.data.registration_balance = vpsBalance;
@@ -1312,7 +1289,7 @@ export class TradingRegistrationHandler {
           t(lang, 'balance_zero_warning', { zero: isCentAccount ? '¢0.00' : '$0.00' }),
           { parse_mode: 'HTML' }
         );
-      } else if (vpsBalance < compareBalance) {
+      } else if (vpsBalance < compareBalance && depositMode3 !== 'max_limit') {
         // Below starting balance — accept with info
         const lang: Lang = session.data.lang || 'en';
         session.data.registration_balance = vpsBalance;
