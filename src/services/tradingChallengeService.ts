@@ -172,6 +172,8 @@ class TradingChallengeService {
       const {transitionChallenge}=require('./challengeState');
       await transitionChallenge(id,'registration_open');
       await db.query('UPDATE trading_challenges SET announcement_posted=true WHERE id=$1',[id]);
+      // Telegram admin flow already delivered its selected channels before calling this.
+      await db.query("UPDATE challenge_registration_posts SET completed_at=NOW() WHERE challenge_id=$1 AND post_key='announcement'",[id]);
     });
   }
 

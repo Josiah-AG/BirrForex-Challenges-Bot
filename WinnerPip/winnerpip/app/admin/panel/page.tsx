@@ -3253,7 +3253,8 @@ function ChallengeSettingsPanel({ challengeId, challenges, onRefresh }: { challe
     try {
       const response=await fetch(`/api/management/challenge/${challengeId}/announce`, { method: "POST" });
       if(!response.ok){const error=await response.json();setMsg(`❌ ${error.error || 'Announcement failed'}`);return;}
-      setMsg("✅ Challenge announced — registration open");
+      const result=await response.json();
+      setMsg(`✅ ${result.message || "Challenge announced — registration open"}`);
       onRefresh();
     } catch { setMsg("❌ Failed"); }
   };

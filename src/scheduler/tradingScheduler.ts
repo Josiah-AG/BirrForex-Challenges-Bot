@@ -1,3 +1,4 @@
+import {deliverRegistrationPost} from '../services/registrationPosts';
 import {deliverParticipantNotices} from '../services/participantNotices';
 import {dailyCalendar,deliverDailyPost} from '../services/dailyChallengePosts';
 import {challengeDates,challengeBalanceSummary,dashboardCTA,dailySlots,postDate} from '../utils/challengePosts';
@@ -113,6 +114,10 @@ export class TradingScheduler {
         if (['draft','completed','pending_approval','rejected','deleted'].includes(challenge.status)) continue;
         const {dateStr,timeStr,eatTime,dayOfWeek}=this.getChallengeTime(challenge.timezone || config.timezone);
 
+        if(challenge.status==='registration_open' && !(challenge as any).host_id && (challenge as any).source!=='discord') {
+          const pending=await db.query("SELECT 1 FROM challenge_registration_posts WHERE challenge_id=$1 AND post_key='announcement' AND completed_at IS NULL",[challenge.id]);
+          if(pending.rowCount)try{await deliverRegistrationPost(this.bot.bot.telegram,challenge);}catch(e){console.error('Registration announcement retry:',e);}
+        }
         await this.checkCountdowns(challenge, dateStr, timeStr, eatTime);
         await this.checkPreStartSnapshot(challenge);
 
@@ -144,7 +149,7 @@ export class TradingScheduler {
     if ((challenge as any).host_id) return; // Host challenges don't post to admin channels
     const hour = eatTime.getUTCHours();
     const minute = eatTime.getUTCMinutes();
-    if (hour !== 8 || minute > 4) return;
+    if (hour < 8) return;
 
     const start = this.localDateStrings(challenge.start_date, challenge.timezone || config.timezone);
     const startMs = new Date(start.dateStr).getTime();
@@ -157,8 +162,9 @@ export class TradingScheduler {
 
     if (diffDays >= 1 && diffDays <= 3) {
       console.log(`⏰ Trading countdown: ${diffDays} days before ${challenge.title} (${dateStr} ${timeStr} EAT)`);
-      await this.postCountdown(challenge, diffDays);
-      this.countdownPostedToday.add(key);
+      try {
+        if(await deliverRegistrationPost(this.bot.bot.telegram,challenge,`countdown:${dateStr}`,diffDays))this.countdownPostedToday.add(key);
+      } catch(e) { console.error('Countdown delivery pending:',e); }
     }
   }
 

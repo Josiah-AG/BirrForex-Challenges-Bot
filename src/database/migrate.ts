@@ -494,6 +494,11 @@ async function migrate() {
       body TEXT NOT NULL, delivered JSONB NOT NULL DEFAULT '{}'::jsonb, error TEXT,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), UNIQUE(challenge_id,post_date,slot)
     )`);
+    await db.query(`CREATE TABLE IF NOT EXISTS challenge_registration_posts (
+      challenge_id INTEGER NOT NULL REFERENCES trading_challenges(id), post_key TEXT NOT NULL,
+      delivered JSONB NOT NULL DEFAULT '{}'::jsonb, error TEXT, completed_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), PRIMARY KEY(challenge_id,post_key)
+    )`);
     await migrateCommercial();
     await migrateHardening();
     await migratePullIntegrity();
