@@ -499,6 +499,11 @@ async function migrate() {
       delivered JSONB NOT NULL DEFAULT '{}'::jsonb, error TEXT, completed_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), PRIMARY KEY(challenge_id,post_key)
     )`);
+    await db.query(`CREATE TABLE IF NOT EXISTS registration_manual_reviews (
+      id BIGSERIAL PRIMARY KEY, user_id BIGINT NOT NULL, challenge_id INTEGER NOT NULL REFERENCES trading_challenges(id),
+      details JSONB NOT NULL, legacy_key TEXT UNIQUE, status TEXT NOT NULL DEFAULT 'pending', reason TEXT, reviewer_id BIGINT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`);
     await migrateCommercial();
     await migrateHardening();
     await migratePullIntegrity();

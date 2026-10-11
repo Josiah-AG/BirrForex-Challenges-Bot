@@ -55,6 +55,7 @@ export interface VerifyAccountResult {
 export class ExnessService {
   private clientIds: Promise<string[]> | null = null;
   private clientIdsAt = 0;
+  private authPending: Promise<boolean> | null = null;
   private token: string | null = null;
   private tokenExpiry: Date | null = null;
   private baseUrl: string;
@@ -64,6 +65,11 @@ export class ExnessService {
   }
 
   private async authenticate(): Promise<boolean> {
+    if(!this.authPending)this.authPending=this.authenticateOnce().finally(()=>{this.authPending=null;});
+    return this.authPending;
+  }
+
+  private async authenticateOnce(): Promise<boolean> {
     if (!this.credentials.email || !this.credentials.password) {
       console.error('❌ Exness API credentials not configured');
       return false;
@@ -94,6 +100,16 @@ export class ExnessService {
     return true;
   }
 
+  private async verificationRequest(method: 'get'|'post', endpoint: string, data?: any): Promise<any> {
+    for(let attempt=0;attempt<2;attempt++) {
+      try {return await axios.request({method,url:this.baseUrl+endpoint,headers:{...this.getHeaders(),'Content-Type':'application/json'},timeout:15000,...(method==='get'?{params:data}:{data})});}
+      catch(error:any) {
+        if(attempt===0 && error.response?.status===401 && await this.authenticate())continue;
+        throw error;
+      }
+    }
+  }
+
   private getHeaders() {
     return { Authorization: `JWT ${this.token}` };
   }
@@ -122,11 +138,7 @@ export class ExnessService {
     if (!await this.ensureAuth()) return null;
 
     try {
-      const response = await axios.post<AffiliationResponse>(
-        `${this.baseUrl}/api/partner/affiliation/`,
-        { email },
-        { headers: { ...this.getHeaders(), 'Content-Type': 'application/json' }, timeout: 10000 }
-      );
+      const response = await this.verificationRequest('post','/api/partner/affiliation/',{email});
       return response.data;
     } catch (error: any) {
       console.error('❌ Allocation check error:', error.response?.status || error.message);
@@ -141,13 +153,20 @@ export class ExnessService {
     if (!await this.ensureAuth()) return null;
 
     try {
-      if (!this.clientIds || Date.now()-this.clientIdsAt>300000) {
+      if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(shortUid)) return shortUid;
+      const cached=!!this.clientIds && Date.now()-this.clientIdsAt<=300000;
+      const load=()=>{
         this.clientIdsAt=Date.now();
-        this.clientIds=axios.get(`${this.baseUrl}/api/v2/reports/clients/filters/`,{headers:this.getHeaders(),timeout:10000})
+        this.clientIds=this.verificationRequest('get','/api/v2/reports/clients/filters/')
           .then(response=>response.data?.client_uid || []).catch(error=>{this.clientIds=null;throw error;});
-      }
-      const ids=await this.clientIds;
-      const matches=ids.filter((uid:string)=>uid===shortUid || uid.startsWith(shortUid));
+        return this.clientIds;
+      };
+      let ids=await (cached?this.clientIds!:load());
+      const match=(values:string[])=>values.filter(uid=>uid===shortUid || uid.startsWith(shortUid));
+      let matches=match(ids);
+      // A new partner client can appear while the five-minute report cache is warm.
+      if(matches.length===0 && cached){ids=await load();matches=match(ids);}
+      if(matches.length!==1)console.warn('Exness client lookup unresolved',{matches:matches.length,cached});
       return matches.length===1 ? matches[0] : null;
     } catch (error: any) {
       console.error('❌ Get full UUID error:', error.response?.status || error.message);
@@ -162,11 +181,7 @@ export class ExnessService {
     if (!await this.ensureAuth()) return null;
 
     try {
-      const response = await axios.get(`${this.baseUrl}/api/v2/reports/clients/`, {
-        headers: this.getHeaders(),
-        params: { client_uid: fullUuid, limit: 1 },
-        timeout: 10000,
-      });
+      const response = await this.verificationRequest('get','/api/v2/reports/clients/',{client_uid:fullUuid,limit:1});
 
       const data = response.data?.data;
       if (data && data.length > 0) {
@@ -220,7 +235,7 @@ export class ExnessService {
     // Step 1: Check allocation
     const affiliation = await this.checkAllocation(email);
     if (!affiliation) {
-      return { success: false, status: 'api_error', message: 'API error' };
+      return { success: false, status: 'api_error', message: 'Exness partnership lookup or authentication unavailable' };
     }
 
     if (!affiliation.affiliation) {
@@ -235,13 +250,13 @@ export class ExnessService {
     // Step 2: Get full UUID
     const fullUuid = await this.getFullUuid(shortUid);
     if (!fullUuid) {
-      return { success: false, status: 'api_error', message: 'Could not resolve UUID' };
+      return { success: false, status: 'api_error', message: 'Exness client identifier is missing or ambiguous in the partner report' };
     }
 
     // Step 3: Get KYC status
     const clientInfo = await this.getKycStatus(fullUuid);
     if (!clientInfo) {
-      return { success: false, status: 'api_error', message: 'Could not get KYC status' };
+      return { success: false, status: 'api_error', message: 'Exness verification report is unavailable or has not listed this client yet' };
     }
 
     if (!clientInfo.kyc_passed) {

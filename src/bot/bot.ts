@@ -1388,12 +1388,15 @@ export class Bot {
     this.bot.on('text', async (ctx) => {
       const telegramId = ctx.from.id;
 
+      if (await require('./tradingRegistrationHandler').tradingRegistrationHandler.handleReviewReason(ctx,ctx.message.text)) return;
+
       // Check if admin has active evaluation session (find/delete)
       if (isAdmin(telegramId) && evaluationHandler.hasActiveSession(telegramId)) {
         await evaluationHandler.handleTextForEval(ctx, ctx.message.text);
         return;
       }
       
+
       // Check if admin has active trading challenge session
       if (isAdmin(telegramId) && tradingAdminHandler.hasActiveSession(telegramId)) {
         // Check if this is a forwarded message (for manual verify)

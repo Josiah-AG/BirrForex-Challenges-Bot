@@ -1,3 +1,4 @@
+import {escapePost} from '../utils/challengePosts';
 import { validateVerifiedRegistration } from '../services/registrationEligibility';
 import { startingBalanceProblem } from '../utils/startingBalancePolicy';
 import { Context, Markup } from 'telegraf';
@@ -27,7 +28,7 @@ const userSessions = new Map<number, UserSession>();
 const knownUsers = new Map<number, { username: string | null; firstName: string | null }>();
 
 // Store pending manual review data for approve/reject callbacks
-const pendingManualReviews = new Map<number, any>();
+const pendingRejectionReasons = new Map<number, number>();
 
 /** Save active registration sessions to disk */
 function saveSessionsToDisk() {
@@ -642,37 +643,57 @@ export class TradingRegistrationHandler {
     }
     if (data === 'tc_submit_override_no') { userSessions.delete(telegramId); await ctx.answerCbQuery(); await ctx.reply('✅ Your previous submission has been kept.'); return true; }
 
-    // Manual review approve/reject
-    if (data.startsWith('tc_mr_approve_')) {
-      const userId = parseInt(data.replace('tc_mr_approve_', ''));
-      const review = pendingManualReviews.get(userId);
-      if (!review) { await ctx.answerCbQuery('Review data expired. Use /manualverify instead.'); return true; }
-      try {
-        await tradingChallengeService.registerUser(review);
-        const statField = review.account_type === 'demo' ? 'demo_registrations' : 'real_registrations';
-        await tradingChallengeService.updateDailyStat(review.challenge_id, 'new_registrations');
-        await tradingChallengeService.updateDailyStat(review.challenge_id, statField);
-        pendingManualReviews.delete(userId);
-        await ctx.answerCbQuery('Approved!');
-        await ctx.reply(`✅ <b>Approved!</b> @${review.username || 'user'} has been registered.`, { parse_mode: 'HTML' });
-        const challenge = await tradingChallengeService.getChallengeById(review.challenge_id);
-        const acctLabel = review.account_type === 'demo' ? 'Demo' : 'Real';
-        try {
-          await ctx.telegram.sendMessage(userId, `✅ <b>Registration Approved!</b>\n\nYou have been registered for <b>${challenge?.title || 'the challenge'}</b>.\n\n📋 <b>Your Registration:</b>\n📧 <b>Email:</b> ${review.email}\n🏦 <b>${acctLabel} Account:</b> ${review.account_number}\n🖥️ <b>Server:</b> ${review.mt5_server || 'N/A'}\n📊 <b>Type:</b> ${acctLabel}\n\n⚠️ <i>Please read the rules before starting!</i>`, { parse_mode: 'HTML' });
-        } catch (e) { await ctx.reply('⚠️ Registered but could not notify user.'); }
-      } catch (e: any) {
-        if (e.code === '23505') { await ctx.reply('⚠️ User is already registered.'); }
-        else { await ctx.reply('❌ Error registering user.'); }
-        pendingManualReviews.delete(userId);
+    // Recover old notices from the bot's own message only when the challenge is unambiguous.
+    if(data.startsWith('tc_mr_approve_') || data.startsWith('tc_mr_reject_')) {
+      if(telegramId!==Number(config.adminUserId)){await ctx.answerCbQuery('Admin only');return true;}
+      const message=(ctx.callbackQuery as any)?.message;
+      const userId=Number(data.split('_').pop());
+      const details=require('../utils/manualReviewNotice').parseManualReviewNotice(message?.text || message?.caption || '',userId);
+      if(!details || message?.from?.id!==ctx.botInfo?.id){await ctx.answerCbQuery('Cannot recover this review. Ask the user to restart registration.');return true;}
+      const legacyKey=`${message.chat.id}:${message.message_id}`;
+      let review=(await db.query('SELECT * FROM registration_manual_reviews WHERE legacy_key=$1',[legacyKey])).rows[0];
+      if(!review){
+        const candidates=(await db.query("SELECT id FROM trading_challenges WHERE status='registration_open' AND host_id IS NULL AND source='telegram' AND created_at<=to_timestamp($1) AND start_date>NOW() AND (registration_deadline IS NULL OR registration_deadline>NOW())",[message.date])).rows;
+        if(candidates.length!==1){await ctx.answerCbQuery('Challenge is ambiguous or closed. Ask the user to restart registration.');return true;}
+        details.challenge_id=candidates[0].id;
+        review=(await db.query('INSERT INTO registration_manual_reviews(user_id,challenge_id,details,legacy_key) VALUES($1,$2,$3::jsonb,$4) ON CONFLICT(legacy_key) DO UPDATE SET legacy_key=EXCLUDED.legacy_key RETURNING *',[userId,details.challenge_id,JSON.stringify(details),legacyKey])).rows[0];
       }
+      data=`tc_review_${data.startsWith('tc_mr_approve_')?'approve':'reject'}_${review.id}`;
+    }
+    if(data==='tc_review_cancel') {
+      if(telegramId===Number(config.adminUserId))pendingRejectionReasons.delete(telegramId);
+      await ctx.answerCbQuery('Cancelled');return true;
+    }
+    if(data.startsWith('tc_review_continue_')) {
+      const id=Number(data.replace('tc_review_continue_',''));
+      const review=(await db.query("SELECT * FROM registration_manual_reviews WHERE id=$1 AND user_id=$2 AND status='approved'",[id,telegramId])).rows[0];
+      if(!review){await ctx.answerCbQuery('Approved review not found');return true;}
+      const challenge=await tradingChallengeService.getChallengeById(review.challenge_id);
+      if(!challenge || challenge.status!=='registration_open' || Date.now()>=Math.min(new Date((challenge as any).registration_deadline || challenge.start_date).getTime(),new Date(challenge.start_date).getTime())) {await ctx.answerCbQuery('Registration is closed');return true;}
+      if(await tradingChallengeService.getRegistration(review.challenge_id,telegramId)){await ctx.answerCbQuery('You are already registered');return true;}
+      userSessions.set(telegramId,{step:'tc_enter_account_number',data:{...review.details,challenge_id:review.challenge_id,manual_review_id:review.id}});
+      await ctx.answerCbQuery();
+      await ctx.reply('✅ Email verification approved. Continue registration below.\n\nPlease enter your MT5 account number. We will verify its connection, account type and balance, then ask you to choose a nickname.');
       return true;
     }
-    if (data.startsWith('tc_mr_reject_')) {
-      const userId = parseInt(data.replace('tc_mr_reject_', ''));
-      pendingManualReviews.delete(userId);
-      await ctx.answerCbQuery('Rejected');
-      await ctx.reply(`❌ <b>Rejected.</b> User has been notified.`, { parse_mode: 'HTML' });
-      try { await ctx.telegram.sendMessage(userId, `❌ <b>Registration Rejected</b>\n\nYour manual verification request was not approved.\n\n<i>Contact @birrFXadmin if you believe this is an error.</i>`, { parse_mode: 'HTML' }); } catch (e) {}
+    if(data.startsWith('tc_review_approve_') || data.startsWith('tc_review_reject_')) {
+      if(telegramId!==Number(config.adminUserId)){await ctx.answerCbQuery('Admin only');return true;}
+      const approve=data.startsWith('tc_review_approve_');
+      const id=Number(data.replace(approve?'tc_review_approve_':'tc_review_reject_',''));
+      const review=(await db.query('SELECT * FROM registration_manual_reviews WHERE id=$1',[id])).rows[0];
+      if(!review || (review.status!=='pending' && !(approve&&review.status==='approved'))){await ctx.answerCbQuery('Review is no longer pending');return true;}
+      if(!approve){
+        pendingRejectionReasons.set(telegramId,id);await ctx.answerCbQuery();
+        await ctx.reply(`Enter the rejection reason for account ${review.details.account_number}. This exact reason will be sent to the participant.`,Markup.inlineKeyboard([[Markup.button.callback('Cancel','tc_review_cancel')]]));return true;
+      }
+      const challenge=await tradingChallengeService.getChallengeById(review.challenge_id);
+      if(!challenge || challenge.status!=='registration_open' || Date.now()>=Math.min(new Date((challenge as any).registration_deadline || challenge.start_date).getTime(),new Date(challenge.start_date).getTime())){await ctx.answerCbQuery('Registration is closed');return true;}
+      await db.query("UPDATE registration_manual_reviews SET status='approved',reviewer_id=$2,updated_at=NOW() WHERE id=$1 AND status IN ('pending','approved')",[id,telegramId]);
+      await ctx.answerCbQuery('Verification approved');
+      try{
+        await ctx.telegram.sendMessage(review.user_id,'✅ Your manual verification has been approved.\n\nYou are not registered yet. Tap Continue Registration to verify your MT5 account and choose your nickname.',Markup.inlineKeyboard([[Markup.button.callback('Continue Registration',`tc_review_continue_${id}`)]]));
+        await ctx.reply('✅ Verification approved. The participant was invited to continue registration; no incomplete registration was created.');
+      }catch{await ctx.reply('⚠️ Verification approved, but the user notification failed. Click Approve again to retry sending the continuation button.');}
       return true;
     }
 
@@ -691,6 +712,21 @@ export class TradingRegistrationHandler {
   }
 
   // ==================== TEXT INPUT ====================
+
+  async handleReviewReason(ctx:Context,text:string):Promise<boolean> {
+    const admin=ctx.from!.id,id=pendingRejectionReasons.get(admin);
+    if(admin!==Number(config.adminUserId) || !id)return false;
+    const reason=text.trim();
+    if(reason.length<3 || reason.length>1000){await ctx.reply('Please enter a reason between 3 and 1,000 characters, or tap Cancel.');return true;}
+    const review=(await db.query("SELECT * FROM registration_manual_reviews WHERE id=$1 AND status='pending'",[id])).rows[0];
+    if(!review){pendingRejectionReasons.delete(admin);await ctx.reply('This review is no longer pending.');return true;}
+    try {
+      await ctx.telegram.sendMessage(review.user_id,`❌ <b>Manual Verification Rejected</b>\n\n<b>Reason:</b> ${escapePost(reason)}\n\nPlease correct the issue and restart registration.`,{parse_mode:'HTML'});
+    }catch{await ctx.reply('Could not notify the participant. The review is still pending. Send the reason again to retry.');return true;}
+    await db.query("UPDATE registration_manual_reviews SET status='rejected',reason=$2,reviewer_id=$3,updated_at=NOW() WHERE id=$1 AND status='pending'",[id,reason,admin]);
+    pendingRejectionReasons.delete(admin);
+    await ctx.reply('✅ Rejected. The participant received your reason.');return true;
+  }
 
   async handleTextInput(ctx: Context, text: string) {
     const telegramId = ctx.from!.id;
@@ -1406,6 +1442,8 @@ export class TradingRegistrationHandler {
         return;
       }
 
+      session.data.verification_error = result.message;
+      console.warn('Registration email verification unavailable',{userId:telegramId,challengeId:session.data.challenge_id,attempt,reason:result.message});
       // API error — retry
       if (attempt < maxRetries) {
         await ctx.reply(attempt === 1 ? t(lang, 'system_busy_retry') : t(lang, 'system_busy_retry'));
@@ -1901,7 +1939,8 @@ export class TradingRegistrationHandler {
     const reviewData = {
       challenge_id: session.data.challenge_id,
       user_id: telegramId,
-      investor_password:session.data.investor_password,
+      lang: session.data.lang || 'en',
+      verification_error: session.data.verification_error || 'Exness verification unavailable',
       username: ctx.from!.username || null,
       nickname: session.data.nickname || null,
       account_type: session.data.account_type,
@@ -1910,14 +1949,14 @@ export class TradingRegistrationHandler {
       mt5_server: session.data.mt5_server || null,
       client_uid: session.data.client_uid || null,
     };
-    pendingManualReviews.set(telegramId, reviewData);
+    const review=(await db.query('INSERT INTO registration_manual_reviews(user_id,challenge_id,details) VALUES($1,$2,$3::jsonb) RETURNING id',[telegramId,session.data.challenge_id,JSON.stringify(reviewData)])).rows[0];
     userSessions.delete(telegramId);
 
     await ctx.reply('✅ <b>Submission received!</b>\n\nYour registration is pending manual review.\n<i>You\'ll be notified once approved.</i>', { parse_mode: 'HTML' });
 
     const acctLabel = session.data.account_type === 'demo' ? 'Demo' : 'Real';
-    const adminText = `<b>📋 MANUAL REVIEW REQUIRED</b>\n\n👤 @${ctx.from!.username || 'unknown'} (ID: <code>${telegramId}</code>)\n🏷️ Nickname: ${session.data.nickname || 'N/A'}\n📧 ${session.data.email}\n🏦 ${session.data.account_number}\n🖥️ ${session.data.mt5_server || 'N/A'}\n📊 ${acctLabel}\n\n⚠️ Auto-verification failed`;
-    const keyboard = Markup.inlineKeyboard([[Markup.button.callback('✅ Approve', `tc_mr_approve_${telegramId}`)], [Markup.button.callback('❌ Reject', `tc_mr_reject_${telegramId}`)]]);
+    const adminText = `<b>📋 MANUAL REVIEW REQUIRED</b>\n\n👤 @${ctx.from!.username || 'unknown'} (ID: <code>${telegramId}</code>)\n🏷️ Nickname: ${session.data.nickname || 'N/A'}\n📧 ${session.data.email}\n🏦 ${session.data.account_number}\n🖥️ ${session.data.mt5_server || 'N/A'}\n📊 ${acctLabel}\n\n⚠️ ${escapePost(reviewData.verification_error)}`;
+    const keyboard = Markup.inlineKeyboard([[Markup.button.callback('✅ Approve', `tc_review_approve_${review.id}`)], [Markup.button.callback('❌ Reject', `tc_review_reject_${review.id}`)]]);
 
     try {
       if (session.data.screenshot_file_id) {

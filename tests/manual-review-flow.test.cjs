@@ -1,0 +1,16 @@
+const {test}=require('node:test'),assert=require('node:assert/strict');require('ts-node/register/transpile-only');
+const {db}=require('../src/database/db'),{config}=require('../src/config'),{tradingChallengeService:service}=require('../src/services/tradingChallengeService');
+const {tradingRegistrationHandler:h}=require('../src/bot/tradingRegistrationHandler');config.adminUserId='1';
+let review,notices,replies,registerCalls,sendFails=false;
+function reset(){review={id:7,user_id:2,challenge_id:39,status:'pending',details:{email:'test@example.invalid',account_type:'demo',account_number:'123',lang:'en'}};notices=[];replies=[];registerCalls=0;sendFails=false;}
+db.query=async(sql,args)=>{if(sql.startsWith('SELECT * FROM registration_manual_reviews'))return {rows:(sql.includes('user_id=$2')&&args[1]!==review.user_id)||(sql.includes("status='approved'")&&review.status!=='approved')?[]:[review]};if(sql.includes("SET status='approved'"))review.status='approved';if(sql.includes("SET status='rejected'")){review.status='rejected';review.reason=args[1];}return {rows:[]};};
+service.getChallengeById=async()=>({status:'registration_open',start_date:'2099-01-01'});service.getRegistration=async()=>null;service.registerUser=async()=>{registerCalls++;throw Error('Must not register at approval');};
+const ctx=id=>({from:{id},answerCbQuery:async()=>{},reply:async(...a)=>replies.push(a),telegram:{sendMessage:async(...a)=>{if(sendFails)throw Error('Blocked');notices.push(a);}}});
+test('approval verifies only; participant resumes registration without creating an account',async()=>{reset();await h.handleCallback(ctx(1),'tc_review_approve_7');assert.equal(review.status,'approved');assert.equal(registerCalls,0);assert.match(notices[0][1],/not registered yet/);await h.handleCallback(ctx(2),'tc_review_continue_7');assert.ok(h.hasActiveSession(2));assert.match(replies.at(-1)[0],/nickname/);assert.equal(registerCalls,0);});
+test('rejection asks for reason, then sends the escaped reason before recording rejection',async()=>{reset();await h.handleCallback(ctx(1),'tc_review_reject_7');assert.equal(review.status,'pending');assert.equal(notices.length,0);await h.handleReviewReason(ctx(1),'Screenshot <missing>');assert.equal(review.status,'rejected');assert.equal(review.reason,'Screenshot <missing>');assert.match(notices[0][1],/Screenshot &lt;missing&gt;/);});
+test('failed rejection notification remains retryable; non-admin cannot approve',async()=>{reset();await h.handleCallback(ctx(2),'tc_review_approve_7');assert.equal(review.status,'pending');await h.handleCallback(ctx(1),'tc_review_reject_7');sendFails=true;await h.handleReviewReason(ctx(1),'Proof missing');assert.equal(review.status,'pending');sendFails=false;await h.handleReviewReason(ctx(1),'Proof missing');assert.equal(review.status,'rejected');});
+test('older review parser recovers only matching recipient and complete account fields',()=>{
+ const {parseManualReviewNotice:parse}=require('../src/utils/manualReviewNotice');
+ const text='📋 MANUAL REVIEW REQUIRED\n👤 @Nyther_X (ID: 8082102747)\n🏷️ Nickname: N/A\n📧 test@example.invalid\n🏦 477555630\n🖥️ Exness-MT5Trial9\n📊 Demo';
+ assert.equal(parse(text,8082102747).account_number,'477555630');assert.equal(parse(text,8082102747).account_type,'demo');assert.equal(parse(text,1),null);assert.equal(parse('unrelated',8082102747),null);
+});
