@@ -17,6 +17,13 @@ export async function transitionChallenge(id: number, destination: string, expec
       validateChallenge({...challenge,rules:rules.config,rules_demo:rules.config_demo,rules_real:rules.config_real});
     }
     await db.query(`UPDATE trading_challenges SET status=$1::varchar, updated_at=NOW(), configuration_frozen_at=CASE WHEN $1::varchar IN ('active','reviewing','completed') THEN COALESCE(configuration_frozen_at,NOW()) ELSE configuration_frozen_at END WHERE id=$2`,[destination,id]);
+    if(destination==='active'){
+      await db.query(`UPDATE trading_registrations SET disqualified=true,disqualified_at=NOW(),
+        disqualified_source='credential_failure',disqualified_reason='Account access was not restored before challenge start'
+        WHERE challenge_id=$1 AND disqualified=false AND status IS DISTINCT FROM 'removed'
+          AND pull_status IN ('password_changed','invalid_credentials')
+          AND EXISTS(SELECT 1 FROM trading_challenges WHERE id=$1 AND start_date<=NOW())`,[id]);
+    }
     if(['active','reviewing'].includes(destination)){
       await db.query(`INSERT INTO challenge_lifecycle_events(challenge_id,destination,payload) VALUES($1,$2,$3) ON CONFLICT DO NOTHING`,[id,destination,JSON.stringify({...challenge,status:destination})]);
       await db.query(`INSERT INTO challenge_pull_jobs(challenge_id,slot) VALUES($1,$2) ON CONFLICT DO NOTHING`,[id,`lifecycle:${destination}`]);

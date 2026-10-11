@@ -297,7 +297,7 @@ export default function AdminDashboard() {
 
       const data = await res.json();
       if (data.success) {
-        setActionResult(`✅ ${type === 'unverify' ? 'Registration removed' : 'Participant disqualified'}${data.dmSent ? ' (DM sent)' : data.dmSent === false ? ' (DM failed)' : ''}`);
+        setActionResult(`✅ ${type === 'unverify' ? 'Registration removed' : 'Participant disqualified'}${data.notificationQueued ? ' (notification queued)' : data.dmSent ? ' (DM sent)' : data.dmSent === false ? ' (DM failed)' : ''}`);
         // Refresh participants list after action
         setTimeout(() => { setActionModal(null); setActionMessage(""); setActionResult(""); setParticipantsPage(participantsPage); }, 1500);
       } else {

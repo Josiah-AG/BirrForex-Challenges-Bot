@@ -3570,29 +3570,8 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/disqualify`, adminIpChec
       [reason, registrationId]
     );
 
-    // DM the user
-    let dmSent = false;
-    const isDiscordUser = user.source === 'discord';
-    if (!isDiscordUser && user.user_id) {
-      try {
-        const telegram = getTelegram();
-        if (telegram) {
-          await telegram.sendMessage(
-            user.user_id,
-            `🚫 <b>Disqualified</b>\n<b>${user.title}</b>\n\n` +
-            `Your account ${user.account_number} has been disqualified from the challenge.\n\n` +
-            `📛 <b>Reason:</b> ${reason}\n\n` +
-            `<i>If you believe this is an error, contact @birrFXadmin.</i>`,
-            { parse_mode: 'HTML' }
-          );
-          dmSent = true;
-        }
-      } catch (e: any) {
-        console.error(`Failed to DM disqualify notice: ${e.message}`);
-      }
-    }
-
-    return res.json({ success: true, dmSent, user: user.nickname || user.username, isDiscord: isDiscordUser });
+    // The transactional registration trigger queued the notice for the correct delivery channel.
+    return res.json({ success: true, notificationQueued: true, user: user.nickname || user.username, isDiscord: user.source === 'discord' });
   } catch (error) {
     console.error('Admin disqualify error:', error);
     if ((error as any)?.code === '23505') return res.status(409).json({error:'Account, email or nickname is already registered'});

@@ -1,3 +1,6 @@
+import {dailyDrawdown} from '../utils/dailyDrawdown';
+import {declaredStopRisk,allowedRiskPrice} from '../utils/tradeRiskUnits';
+import {queueParticipantNotice} from './participantNotices';
 import { negativeBalanceResetTickets } from '../utils/negativeBalanceReset';
 import { rechargeDepositsForRegistration } from '../utils/approvedLateFunding';
 import { riskViolationDisplay, riskViolationTime } from '../utils/riskViolationDisplay';
@@ -26,50 +29,6 @@ import { debugLog } from '../utils/debugLog';
  */
 
 // ==================== INSTRUMENT INFO ====================
-
-function getInstrumentInfo(symbol: string): { pipSize: number; contractSize: number; isCent: boolean } {
-  const isCent = symbol.endsWith('m') || symbol.endsWith('c');
-  const sym = symbol.replace(/[mczr]$/, '').replace(/_x\d+m?$/, '').toUpperCase();
-  const hasX100 = symbol.includes('_x100');
-  let pipSize: number;
-  let contractSize: number;
-
-  if (sym.includes('XAUUSD') || sym === 'XAU' || sym.includes('GOLD')) { pipSize = 0.01; contractSize = 100; }
-  else if (sym.includes('XAGUSD') || sym === 'XAG') { pipSize = 0.01; contractSize = 5000; }
-  else if (sym.includes('USTEC') || sym.includes('US500') || sym.includes('AUS200') || sym.includes('FR40')) { pipSize = 0.1; contractSize = hasX100 ? 100 : 1; }
-  else if (sym.includes('US30') || sym.includes('DE30') || sym.includes('HK50') || sym.includes('JP225')) { pipSize = 1; contractSize = hasX100 ? 100 : 1; }
-  else if (sym.includes('BTC') || sym.includes('ETH')) { pipSize = 0.1; contractSize = 1; }
-  else if (sym.includes('UKOIL') || sym.includes('USOIL') || sym.includes('BRENT') || sym.includes('WTI')) { pipSize = 0.01; contractSize = 1000; }
-  else if (sym.includes('XNGUSD') || sym.includes('NATGAS')) { pipSize = 0.01; contractSize = 10000; }
-  else if (sym.includes('JPY')) { pipSize = 0.01; contractSize = 100000; }
-  else if (sym === 'DXY') { pipSize = 0.0001; contractSize = 1000; }
-  else { pipSize = 0.0001; contractSize = 100000; }
-
-  if (isCent) contractSize = contractSize / 100;
-  return { pipSize, contractSize, isCent };
-}
-
-/**
- * Calculate SL risk in account currency using the ratio method.
- * Works for ALL pairs regardless of quote currency — no VPS call needed.
- *
- * Logic: The ratio of (entry→SL distance) to (entry→close distance) tells us
- * what the loss WOULD have been if SL was hit, relative to the actual P/L.
- *
- * For trades where close ≈ entry (profit ≈ 0), we fall back to the old pip-based method
- * which is accurate for USD-quoted pairs and approximate for others.
- */
-function calculateSlDollars(symbol: string, volume: number, entryPrice: number, slPrice: number, closePrice?: number, actualProfit?: number, isPartialPosition?: boolean): number {
-  if (!slPrice || slPrice === 0) return 0;
-
-  // Always use pip-based calculation — it's more reliable than the ratio method
-  // which breaks for partial closes (profit is for a portion, SL risk is for full lot).
-  const { pipSize, contractSize } = getInstrumentInfo(symbol);
-  const slDistance = Math.abs(entryPrice - slPrice);
-  const pips = slDistance / pipSize;
-  const pipValue = volume * contractSize * pipSize;
-  return pips * pipValue;
-}
 
 // ==================== TYPES ====================
 
@@ -212,36 +171,6 @@ async function fetchCandles(
  *
  * Fallback: pip-based formula (accurate for USD-quoted pairs only).
  */
-function calculateMaxSlPrice(
-  symbol: string, volume: number, entryPrice: number, maxRiskDollars: number, isBuy: boolean,
-  closePrice?: number, actualProfit?: number
-): number {
-  // Ratio method — derive price move from actual trade data
-  if (closePrice !== undefined && actualProfit !== undefined) {
-    const closeDistance = Math.abs(entryPrice - closePrice);
-    const absProfit = Math.abs(actualProfit);
-    if (closeDistance > 0 && absProfit > 0) {
-      // $1 in account currency = closeDistance / absProfit price units
-      const slPriceMove = closeDistance * (maxRiskDollars / absProfit);
-      if (slPriceMove > 0 && isFinite(slPriceMove)) {
-        return isBuy ? entryPrice - slPriceMove : entryPrice + slPriceMove;
-      }
-    }
-  }
-
-  // Fallback: pip-based (accurate for USD-quoted pairs)
-  const sym = symbol.replace(/[mczr]$/, '').replace(/_x\d+m?$/, '').toUpperCase();
-  let contractSize: number;
-  if (sym.includes('XAUUSD') || sym === 'XAU' || sym.includes('GOLD')) contractSize = 100;
-  else if (sym.includes('XAGUSD') || sym === 'XAG') contractSize = 5000;
-  else if (sym.includes('JPY')) contractSize = 100000;
-  else contractSize = 100000;
-
-  const priceMove = maxRiskDollars / (volume * contractSize);
-  if (priceMove <= 0 || !isFinite(priceMove)) return 0;
-  return isBuy ? entryPrice - priceMove : entryPrice + priceMove;
-}
-
 /**
  * Adaptive timeframe selection based on trade hold duration.
  * Returns the timeframe string and period in milliseconds.
@@ -299,8 +228,8 @@ async function validateSlWithCandles(
   const effectiveMaxRisk = maxRiskDollars * 1.10;
 
   // Ratio method for correct non-USD conversion; fallback to pip-based
-  const maxSlPrice = calculateMaxSlPrice(trade.symbol, volume, openPrice, effectiveMaxRisk, isBuy, closePrice, tradeNet);
-  if (maxSlPrice <= 0) return SL_SKIPPED;
+  const maxSlPrice = allowedRiskPrice(trade.symbol,volume,openPrice,effectiveMaxRisk,isBuy,closePrice,Number(trade.profit),Number(trade.volume));
+  if (maxSlPrice===null || maxSlPrice<=0) return {violation:'FAILED',slAllowedPrice:null,slMaxAdversePrice:null,slCheckResult:'no_candles'};
 
   const windowFrom = opts?.windowStart ?? new Date(trade.open_time);
   const windowTo   = opts?.windowEnd   ?? new Date(trade.close_time);
@@ -875,61 +804,18 @@ export class WpEvaluationEngine {
       });
     }
 
-    // Daily drawdown tracking
-    const dailyDrawdownFlagged = new Set<number>();
-    let drawdownBreachTime: string | null = null;
-    let drawdownBreachDay: string | null = null;
-    let drawdownBreachCap: number = 0; // Store the effective cap at breach for violation message
-
-    const isDailyLossPercentMode = rules.daily_loss_mode === 'percentage' && rules.daily_loss_percent;
-    const hasDailyLossRule = isDailyLossPercentMode || rules.daily_loss_cap;
-
-    if (hasDailyLossRule && isRuleEnabled(rules, 'daily_loss_cap')) {
-      const tradesByDay = new Map<string, TradeRow[]>();
-      allTrades.forEach(t => {
-        const day = getLocalTime(new Date(t.close_time), challengeTimezone).dateStr;
-        if (!tradesByDay.has(day)) tradesByDay.set(day, []);
-        tradesByDay.get(day)!.push(t);
-      });
-
-      // Prior-day withdrawals/adjustments affect actual next-day opening balance.
-      // Deposits are handled by funding/recharge policy; never count initial funding twice.
-      const adjustments=(await db.query(`SELECT op_time,amount FROM wp_balance_ops WHERE challenge_id=$1 AND registration_id=$2
-        AND op_type<>'deposit' AND op_time>=$3 ORDER BY op_time,deal_ticket`,[challengeId,reg.id,challengeStart || new Date(0)])).rows;
-      let adjustmentIndex=0;
-      let runningBalance = effectiveStartBalance;
-      const sortedDays = [...tradesByDay.keys()].sort();
-      for (const day of sortedDays) {
-        while(adjustmentIndex<adjustments.length && getLocalTime(new Date(adjustments[adjustmentIndex].op_time),challengeTimezone).dateStr<day){
-          runningBalance+=Number(adjustments[adjustmentIndex++].amount);
-        }
-        const dayOpenBalance = runningBalance;
-        // Calculate effective daily cap: percentage of day's opening balance OR fixed amount
-        const effectiveDailyCap = isDailyLossPercentMode
-          ? dayOpenBalance * (rules.daily_loss_percent! / 100)
-          : rules.daily_loss_cap!;
-        let drawdownBreached = false;
-
-        for (const t of tradesByDay.get(day)!.slice().sort((a,b)=>new Date(a.close_time).getTime()-new Date(b.close_time).getTime() || a.ticket-b.ticket)) {
-          const tradeNet = parseFloat(String(t.profit)) + parseFloat(String(t.commission || 0)) + parseFloat(String(t.swap || 0));
-          runningBalance += tradeNet;
-          const drawdown = dayOpenBalance - runningBalance;
-
-          if (drawdown >= effectiveDailyCap && !drawdownBreached) {
-            drawdownBreached = true;
-            drawdownBreachDay = day;
-            drawdownBreachCap = effectiveDailyCap;
-            // Get the time of the trade that caused the breach
-            const breachTimeUTC = new Date(t.close_time);
-            const { formatTimeInTimezone } = require('../utils/timezone');
-            drawdownBreachTime = formatTimeInTimezone(breachTimeUTC, challengeTimezone);
-          }
-
-          if (drawdownBreached && tradeNet > 0) {
-            dailyDrawdownFlagged.add(t.ticket);
-          }
-        }
-      }
+    // Daily realized losses include attached costs and separate broker fees in time order.
+    let dailyDrawdownFlagged=new Set<number>();
+    let drawdownBreaches=new Map<string,{time:string;cap:number}>();
+    const isDailyLossPercentMode=rules.daily_loss_mode==='percentage' && rules.daily_loss_percent;
+    if((isDailyLossPercentMode || rules.daily_loss_cap) && isRuleEnabled(rules,'daily_loss_cap')){
+      const adjustments=(await db.query(`SELECT o.op_time,o.amount,o.op_type,o.deal_ticket FROM wp_balance_ops o
+        JOIN trading_registrations r ON r.id=o.registration_id JOIN trading_challenges c ON c.id=o.challenge_id
+        WHERE o.challenge_id=$1 AND o.registration_id=$2 AND o.op_type<>'deposit'
+        AND o.op_time >= (GREATEST(c.start_date,r.registered_at) AT TIME ZONE 'UTC')
+        AND o.op_time <= (c.end_date AT TIME ZONE 'UTC') ORDER BY o.op_time,o.deal_ticket`,[challengeId,reg.id])).rows;
+      const drawdown=dailyDrawdown(allTrades,adjustments,effectiveStartBalance,challengeTimezone,rules.daily_loss_cap,isDailyLossPercentMode?Number(rules.daily_loss_percent):null);
+      dailyDrawdownFlagged=drawdown.flagged;drawdownBreaches=drawdown.breaches;
     }
 
     // === Position-level SL pre-check ===
@@ -1014,16 +900,14 @@ export class WpEvaluationEngine {
         const hasSl = sl !== 0 && !isNaN(sl);
         const posEffectiveRisk = getEffectiveMaxRisk(posId);
         if (hasSl && posEffectiveRisk > 0) {
-          const entryNet = parseFloat(String(entryTrade.profit)) + parseFloat(String(entryTrade.commission || 0)) + parseFloat(String(entryTrade.swap || 0));
-          const isPartialPosition = isPartialClose || totalLot > closedLot;
-          const slDollars = calculateSlDollars(
+          const slDollars = declaredStopRisk(
             entryTrade.symbol, totalLot,
             parseFloat(String(entryTrade.open_price)), sl,
-            parseFloat(String(entryTrade.close_price)), entryNet,
-            isPartialPosition
+            parseFloat(String(entryTrade.close_price)), Number(entryTrade.profit),
+            Number(entryTrade.volume)
           );
           const tolerance = posEffectiveRisk * 0.10;
-          if (slDollars > posEffectiveRisk + tolerance) {
+          if (slDollars !== null && slDollars > posEffectiveRisk + tolerance) {
             layerABreach = true;
             const riskDisplay = isRiskPercentMode
               ? `${currency}${slDollars.toFixed(2)} exceeds max ${rules.max_risk_percent}% (${currency}${posEffectiveRisk.toFixed(2)})`
@@ -1161,10 +1045,12 @@ export class WpEvaluationEngine {
       }
 
       // Daily loss cap
-      if (dailyDrawdownFlagged.has(trade.ticket)) {
+      if (dailyDrawdownFlagged.has(Number(trade.ticket))) {
         const currency = reg.is_cent ? '¢' : '$';
+        const tradeDay=getLocalTime(new Date(trade.close_time),challengeTimezone).dateStr;
+        const dayCap=drawdownBreaches.get(tradeDay)?.cap ?? 0;
         const capDisplay = isDailyLossPercentMode
-          ? `${rules.daily_loss_percent}% (${currency}${drawdownBreachCap.toFixed(2)})`
+          ? `${rules.daily_loss_percent}% (${currency}${dayCap.toFixed(2)})`
           : (rules.daily_loss_cap ? `${currency}${(rules.daily_loss_cap).toFixed(2)}` : '');
         violations.push(`Profit after daily ${capDisplay} drawdown breach`);
       }
@@ -1354,9 +1240,9 @@ export class WpEvaluationEngine {
       );
     }
 
-    // === DAILY DRAWDOWN NOTIFICATION ===
-    if (drawdownBreachDay && drawdownBreachTime) {
-      await this.notifyDailyDrawdown(challengeId, reg, drawdownBreachDay, drawdownBreachTime, rules.daily_loss_cap!);
+    // Enqueued with evaluation; delivered only after the transaction commits.
+    for(const [day,breach] of drawdownBreaches){
+      await this.notifyDailyDrawdown(challengeId,reg,day,breach.time,breach.cap,challengeTimezone,isDailyLossPercentMode?rules.daily_loss_percent:null);
     }
 
     // === SL CHECK FAILURE LOGGING ===
@@ -1508,119 +1394,15 @@ export class WpEvaluationEngine {
       }
     }
 
-    // === DQ EMAIL NOTIFICATION for hosted challenge participants ===
-    // Check if the user was just DQ'd in this evaluation cycle and send email if applicable
-    // Only send once — check if we already notified via wp_pull_errors 'dq_email_sent' marker
-    try {
-      const dqCheck = await db.query(`SELECT disqualified, disqualified_reason, disqualified_source FROM trading_registrations WHERE id = $1`, [reg.id]);
-      if (dqCheck.rows[0]?.disqualified) {
-        const alreadySent = await db.query(
-          `SELECT 1 FROM wp_pull_errors WHERE registration_id = $1 AND error_code = 'dq_email_sent'`, [reg.id]
-        );
-        if (alreadySent.rows.length === 0) {
-          await this.notifyDqByEmail(reg.id, challengeId, dqCheck.rows[0].disqualified_reason || 'Rule violation');
-          await db.query(
-            `INSERT INTO wp_pull_errors (registration_id, account_number, error_code, error_message) VALUES ($1, $2, 'dq_email_sent', $3)`,
-            [reg.id, reg.account_number, dqCheck.rows[0].disqualified_reason || 'DQ']
-          );
-        }
-      }
-    } catch {}
-
     return { flaggedCount, isQualified };
   }
 
   // ==================== DAILY DRAWDOWN NOTIFICATION ====================
 
-  private async notifyDailyDrawdown(challengeId: number, reg: any, day: string, time: string, cap: number) {
-    // Check if already notified today
-    const existing = await db.query(
-      `SELECT 1 FROM wp_pull_errors WHERE registration_id = $1 AND error_code = 'drawdown_notified' AND created_at::date = $2::date`,
-      [reg.id, day]
-    );
-    if (existing.rows.length > 0) return; // Already notified today
-
-    const currency = reg.is_cent ? '¢' : '$';
-
-    // Record notification
-    await db.query(
-      `INSERT INTO wp_pull_errors (registration_id, account_number, error_code, error_message)
-       VALUES ($1, $2, 'drawdown_notified', $3)`,
-      [reg.id, reg.account_number, `Drawdown ${currency}${cap} reached at ${time} EAT on ${day}`]
-    );
-
-    // Send Telegram notification (only for Telegram users — skip Discord users)
-    if (this.bot) {
-      // Check source — Discord user IDs are > 10 digits, or check source column
-      const source = reg.source || 'telegram';
-
-      // Email notification for hosted challenge participants (winnerpip/csv registrations)
-      if (source === 'winnerpip' || source === 'csv') {
-        try {
-          // Get participant email
-          const emailResult = await db.query(`SELECT email FROM trading_registrations WHERE id = $1`, [reg.id]);
-          const participantEmail = emailResult.rows[0]?.email;
-          if (participantEmail) {
-            const { emailService } = require('./emailService');
-            const challengeResult = await db.query(`SELECT title FROM trading_challenges WHERE id = $1`, [challengeId]);
-            await emailService.sendGeneric(participantEmail,
-              `Daily Drawdown Reached — ${challengeResult.rows[0]?.title || 'Challenge'}`,
-              `<h2 style="color: #d97706; font-size: 18px; margin: 0 0 12px;">Daily Drawdown Reached</h2>
-               <p style="color: #374151; font-size: 14px; line-height: 1.6;">Hi <strong>${reg.nickname}</strong>, you hit your daily loss limit of <strong>${currency}${cap}</strong> at <strong>${time} EAT</strong>.</p>
-               <p style="color: #6b7280; font-size: 13px; margin-top: 12px;">Any profits you make for the rest of today will NOT be counted toward your qualified balance. You can continue trading tomorrow with a fresh start.</p>`
-            );
-          }
-        } catch (emailErr) { console.error('Drawdown email error:', emailErr); }
-        return;
-      }
-
-      if (source !== 'telegram') return; // Don't try to DM Discord users via Telegram
-
-      try {
-        await this.bot.bot.telegram.sendMessage(
-          reg.user_id,
-          `⚠️ <b>Daily Drawdown Reached</b>\n\n` +
-          `You hit your daily loss limit of <b>${currency}${cap}</b> at <b>${time} EAT</b>.\n\n` +
-          `🛑 Cool it down — any profits you make for the rest of today will <b>NOT be counted</b> toward your qualified balance.\n\n` +
-          `You can continue trading tomorrow with a fresh start.\n\n` +
-          `<i>Losses still count. Take a break and come back stronger tomorrow.</i> 💪`,
-          { parse_mode: 'HTML' }
-        );
-      } catch (e) {
-        console.error(`Could not notify user ${reg.user_id} about drawdown:`, e);
-      }
-    }
-  }
-
-  // ==================== HELPERS ====================
-
-  /**
-   * Send DQ email notification for hosted challenge participants
-   * Called after any disqualification — checks if participant is web/csv registered and sends email
-   */
-  private async notifyDqByEmail(regId: number, challengeId: number, reason: string): Promise<void> {
-    try {
-      const regResult = await db.query(
-        `SELECT r.source, r.email, r.nickname, c.title as challenge_title
-         FROM trading_registrations r
-         JOIN trading_challenges c ON r.challenge_id = c.id
-         WHERE r.id = $1`,
-        [regId]
-      );
-      const reg = regResult.rows[0];
-      if (!reg) return;
-      if (reg.source !== 'winnerpip' && reg.source !== 'csv') return;
-      if (!reg.email) return;
-
-      const { emailService } = require('./emailService');
-      await emailService.sendDisqualification(reg.email, {
-        nickname: reg.nickname,
-        challengeTitle: reg.challenge_title,
-        reason,
-      });
-    } catch (err) {
-      console.error(`DQ email notification error for reg ${regId}:`, err);
-    }
+  private async notifyDailyDrawdown(challengeId: number, reg: any, day: string, time: string, cap: number, timezone: string, percent?: number | null) {
+    // Historical reevaluations must not spam participants with old daily warnings.
+    if(day!==getLocalTime(new Date(),timezone).dateStr)return;
+    await queueParticipantNotice(reg.id,challengeId,'drawdown',day,{day,time,cap,isCent:!!reg.is_cent,percent});
   }
 
   private isWeekend(d: Date, timezone?: string): boolean {

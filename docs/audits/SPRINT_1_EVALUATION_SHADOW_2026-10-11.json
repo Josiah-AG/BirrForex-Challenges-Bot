@@ -1,0 +1,153 @@
+{
+  "accounts": 95,
+  "changed": [
+    {
+      "category": "demo",
+      "registrationId": 5272,
+      "before": {
+        "status": {
+          "flaggedCount": 20,
+          "isQualified": false
+        },
+        "adjustedBalance": 8377.7755,
+        "qualifiedTrades": 46,
+        "grossProfit": 283.81,
+        "qualifiedProfit": -1622.2244999999998
+      },
+      "after": {
+        "status": {
+          "flaggedCount": 21,
+          "isQualified": false
+        },
+        "adjustedBalance": 7962.0555,
+        "qualifiedTrades": 45,
+        "grossProfit": 283.81,
+        "qualifiedProfit": -2037.9445
+      }
+    },
+    {
+      "category": "demo",
+      "registrationId": 5277,
+      "before": {
+        "status": {
+          "flaggedCount": 25,
+          "isQualified": false
+        },
+        "adjustedBalance": 8014.5579,
+        "qualifiedTrades": 34,
+        "grossProfit": 28.330000000000183,
+        "qualifiedProfit": -1985.4420999999998
+      },
+      "after": {
+        "status": {
+          "flaggedCount": 29,
+          "isQualified": false
+        },
+        "adjustedBalance": 6516.1079,
+        "qualifiedTrades": 30,
+        "grossProfit": 28.330000000000183,
+        "qualifiedProfit": -3483.8921
+      }
+    },
+    {
+      "category": "demo",
+      "registrationId": 5282,
+      "before": {
+        "status": {
+          "flaggedCount": 4,
+          "isQualified": true
+        },
+        "adjustedBalance": 10489.07,
+        "qualifiedTrades": 14,
+        "grossProfit": 972.07,
+        "qualifiedProfit": 489.07000000000005
+      },
+      "after": {
+        "status": {
+          "flaggedCount": 5,
+          "isQualified": false
+        },
+        "adjustedBalance": 9854.07,
+        "qualifiedTrades": 13,
+        "grossProfit": 972.07,
+        "qualifiedProfit": -145.92999999999995
+      }
+    },
+    {
+      "category": "demo",
+      "registrationId": 5291,
+      "before": {
+        "status": {
+          "flaggedCount": 10,
+          "isQualified": false
+        },
+        "adjustedBalance": 7866.530000000001,
+        "qualifiedTrades": 11,
+        "grossProfit": -2132.6099999999997,
+        "qualifiedProfit": -2133.47
+      },
+      "after": {
+        "status": {
+          "flaggedCount": 12,
+          "isQualified": false
+        },
+        "adjustedBalance": 7509.290000000001,
+        "qualifiedTrades": 9,
+        "grossProfit": -2132.6099999999997,
+        "qualifiedProfit": -2490.7099999999996
+      }
+    },
+    {
+      "category": "demo",
+      "registrationId": 5292,
+      "before": {
+        "status": {
+          "flaggedCount": 29,
+          "isQualified": false
+        },
+        "adjustedBalance": 6465.564399999999,
+        "qualifiedTrades": 14,
+        "grossProfit": -1721.1500000000005,
+        "qualifiedProfit": -3534.4356000000007
+      },
+      "after": {
+        "status": {
+          "flaggedCount": 31,
+          "isQualified": false
+        },
+        "adjustedBalance": 5832.064399999999,
+        "qualifiedTrades": 12,
+        "grossProfit": -1721.1500000000005,
+        "qualifiedProfit": -4167.935600000001
+      }
+    },
+    {
+      "category": "demo",
+      "registrationId": 5330,
+      "before": {
+        "status": {
+          "flaggedCount": 6,
+          "isQualified": true
+        },
+        "adjustedBalance": 11657.33,
+        "qualifiedTrades": 12,
+        "grossProfit": 1654.1,
+        "qualifiedProfit": 1653.3999999999999
+      },
+      "after": {
+        "status": {
+          "flaggedCount": 5,
+          "isQualified": true
+        },
+        "adjustedBalance": 11658.03,
+        "qualifiedTrades": 13,
+        "grossProfit": 1654.1,
+        "qualifiedProfit": 1654.1
+      }
+    }
+  ],
+  "errors": [],
+  "simulatedWrites": 12954,
+  "productionWrites": 0,
+  "notificationsSent": 0
+}

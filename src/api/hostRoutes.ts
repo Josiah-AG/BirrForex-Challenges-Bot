@@ -601,10 +601,6 @@ router.post('/challenge/:id/disqualify', async (req: any, res: Response) => {
     const { registrationId, reason } = req.body;
     if (!registrationId) return res.status(400).json({ error: 'registrationId required' });
 
-    // Get participant info + host name
-    const participant = await db.query(`SELECT nickname, email FROM trading_registrations WHERE id=$1 AND challenge_id=$2`, [registrationId, challengeId]);
-    const challengeInfo = await db.query(`SELECT c.title, h.display_name as host_name, h.support_link as host_support_link, h.main_link as host_main_link FROM trading_challenges c LEFT JOIN hosts h ON h.id = c.host_id WHERE c.id=$1`, [challengeId]);
-
     await db.query(
       `UPDATE trading_registrations SET disqualified=true, disqualified_at=NOW(),disqualified_source='manual',disqualified_reason=$1 WHERE id=$2 AND challenge_id=$3`,
       [reason || 'Disqualified by host', registrationId, challengeId]);
@@ -612,21 +608,7 @@ router.post('/challenge/:id/disqualify', async (req: any, res: Response) => {
       `UPDATE wp_leaderboard SET is_disqualified=true, disqualify_reason=$1 WHERE registration_id=$2 AND challenge_id=$3`,
       [reason || 'Disqualified by host', registrationId, challengeId]);
 
-    // Send disqualification email
-    const p = participant.rows[0];
-    if (p?.email) {
-      try {
-        const { emailService } = require('../services/emailService');
-        emailService.sendDisqualification(p.email, {
-          nickname: p.nickname || 'Participant',
-          challengeTitle: challengeInfo.rows[0]?.title || 'Trading Challenge',
-          reason: reason || 'Disqualified by host',
-          hostName: challengeInfo.rows[0]?.host_name || null,
-          hostLink: challengeInfo.rows[0]?.host_support_link || null,
-          hostMainLink: challengeInfo.rows[0]?.host_main_link || null,
-        });
-      } catch {}
-    }
+    // The registration transition queues the participant notice transactionally.
 
     return res.json({ success: true });
   } catch (error) {

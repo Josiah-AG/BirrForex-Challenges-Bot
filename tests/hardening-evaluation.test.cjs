@@ -13,7 +13,7 @@ const base = () => ({ max_lot_size:.02,max_open_trades:1,pair_limit:1,stop_loss_
 const trade = (id, overrides={}) => ({id,ticket:id,position_id:id,symbol:'XAUUSDm',trade_type:'sell',volume:.1,profit:10,commission:0,swap:0,open_time:'2026-09-25T08:03:00Z',close_time:'2026-09-25T08:17:00Z',open_price:4270.279,close_price:4280.13,stop_loss:0,...overrides});
 async function evaluate(rules, trades, options={}) {
  const engine = new WpEvaluationEngine();
- const writes=[]; let summary;
+ const writes=[]; const notices=[]; let summary;
  const challenge={start_date:'2026-09-01T00:00:00Z',end_date: options.ended ? '2026-09-26T00:00:00Z' : '2099-01-01T00:00:00Z',status:options.ended?'completed':'active',timezone:options.timezone || 'UTC',starting_balance_policy:'decimal'};
  query=async(sql,params=[])=>{
   if (/^(UPDATE|INSERT|DELETE)/.test(sql.trim())) {writes.push({sql,params});return {rows:[],rowCount:1};}
@@ -30,10 +30,10 @@ async function evaluate(rules, trades, options={}) {
   throw new Error(`Unexpected test query: ${sql}`);
  };
  engine.upsertLeaderboard=async(_c,_r,_b,data)=>{summary=data;};
- engine.notifyDailyDrawdown=async()=>{};
+ engine.notifyDailyDrawdown=async(...args)=>{notices.push(args);};
  engine.notifyDqByEmail=async()=>{};
  const result=await engine.evaluateAccount(1,{id:1,account_number:'test',nickname:'test',account_type:'real',is_cent:false},rules,options.startingBalance || 1000,1000,'fixed',null,false,true);
- return {result,summary,writes,flags:writes.filter(w=>w.sql.startsWith('UPDATE wp_trades SET is_qualified')).flatMap(w=>JSON.parse(w.params[1]))};
+ return {result,summary,writes,notices,flags:writes.filter(w=>w.sql.startsWith('UPDATE wp_trades SET is_qualified')).flatMap(w=>JSON.parse(w.params[1]))};
 }
 
 test('unchanged late funding remains valid on repeated evaluations',async()=>{
@@ -134,4 +134,23 @@ test('trade commission and swap can turn a gross gain into a net loss',async()=>
 test('standalone costs are applied once without changing trade count',async()=>{
  const r=await evaluate(base(),[trade(1,{profit:100,commission:-6,swap:-2})],{dividendAdjustment:-9});
  assert.equal(r.summary.currentBalance,1083);assert.equal(r.summary.totalTrades,1);assert.equal(r.summary.grossProfit,92);
+});
+
+test('percentage drawdown records each day cap separately in labels and notices',async()=>{
+ const r=base();r.rules_enabled.daily_loss_cap=true;r.daily_loss_mode='percentage';r.daily_loss_percent=10;
+ const result=await evaluate(r,[trade(1,{profit:-200}),trade(2,{profit:20,close_time:'2026-09-25T09:00:00Z'}),trade(3,{profit:-100,close_time:'2026-09-26T08:00:00Z'}),trade(4,{profit:2,close_time:'2026-09-26T09:00:00Z'})]);
+ assert(result.flags.some(f=>f.includes('10% ($100.00)')));assert(result.flags.some(f=>f.includes('10% ($82.00)')));
+ assert.deepEqual(result.notices.map(n=>n[4]),[100,82]);
+});
+test('attached commission and swap contribute to daily realized loss',async()=>{
+ const r=base();r.rules_enabled.daily_loss_cap=true;r.daily_loss_cap=10;
+ const result=await evaluate(r,[trade(1,{profit:-5,commission:-3,swap:-3}),trade(2,{profit:1,close_time:'2026-09-25T09:00:00Z'})]);
+ assert(result.flags.some(f=>f.includes('drawdown breach')));assert.equal(result.notices[0][4],10);
+});
+
+test('PostgreSQL bigint ticket strings retain daily drawdown flags',async()=>{
+ const r=base();r.rules_enabled.daily_loss_cap=true;r.daily_loss_cap=10;
+ const result=await evaluate(r,[trade(1,{ticket:'2770801352',profit:-15}),trade(2,{ticket:'2770801353',profit:10,close_time:'2026-09-25T12:00:00Z'})]);
+ assert(result.flags.some(f=>f.includes('drawdown breach')));
+ assert.equal(result.result.flaggedCount,1);
 });

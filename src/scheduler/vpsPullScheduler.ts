@@ -1,3 +1,4 @@
+import {queueParticipantNotice} from '../services/participantNotices';
 import {captureCommercialCoverage} from '../services/commercialAnalytics';
 import { brokerCashOperationType } from '../utils/brokerCashOperation';
 import { tradeCandleRanges } from '../utils/tradeCandleRanges';
@@ -369,8 +370,8 @@ export class VpsPullScheduler {
     cron.schedule('* * * * *', () => this.retryCredentialRecoveries(), { timezone: 'UTC' });
     cron.schedule('* * * * *', () => this.retryIncompleteHistory(), { timezone: 'UTC' });
 
-    // Check for 48h disqualifications every hour
-    cron.schedule('30 * * * *', () => this.checkDisqualifications(), { timezone: 'UTC' });
+    // Enforce the 24-hour credential deadline within one scheduler minute.
+    cron.schedule('* * * * *', () => this.checkDisqualifications(), { timezone: 'UTC' });
 
     // Read-only monitoring continues during pulls; one snapshot every 30 seconds.
     cron.schedule('*/30 * * * * *', () => this.recheckUnhealthyTerminals(), { timezone: 'UTC' });
@@ -1826,79 +1827,7 @@ export class VpsPullScheduler {
       [`Detected at ${new Date().toISOString()}`, failure.registrationId]
     );
 
-    const source = reg.rows[0]?.source || 'telegram';
-
-    // Notify via Telegram (for telegram users only)
-    if (source === 'telegram') {
-      const botInfo = await this.bot.bot.telegram.getMe();
-      try {
-        await this.bot.bot.telegram.sendMessage(
-          failure.userId,
-          `⚠️ <b>Account Access Issue — ${challenge.title}</b>\n\n` +
-          `We could not access your MT5 account <b>${failure.accountNumber}</b>.\n\n` +
-          `It appears your <b>investor password has been changed</b>.\n\n` +
-          `🔑 Please update your investor password using the button below.\n\n` +
-          `⏰ <b>You have 24 hours to update.</b>\n` +
-          `After 24 hours, your registration will be disqualified.\n\n` +
-          `<i>If you did not change your password, contact @birrFXadmin immediately.</i>`,
-          {
-            parse_mode: 'HTML',
-            ...Markup.inlineKeyboard([
-              [Markup.button.url('🔑 Update Investor Password', `https://t.me/${botInfo.username}?start=tc_update_password_${failure.registrationId}`)],
-            ]),
-          }
-        );
-      } catch (e) {
-        console.error(`Could not notify Telegram user ${failure.userId}:`, e);
-      }
-    }
-
-    // Notify via Discord DM queue (for discord users)
-    if (source === 'discord') {
-      try {
-        await db.query(
-          `INSERT INTO discord_dm_queue
-             (discord_user_id, registration_id, challenge_id, notification_type, message_title, message_body)
-           VALUES ($1, $2, $3, 'password_changed', $4, $5)`,
-          [
-            String(failure.userId),
-            failure.registrationId,
-            challenge.id,
-            '⚠️ Account Access Issue — Action Required',
-            `We could not access your MT5 account **${failure.accountNumber}** for **${challenge.title}**.\n\nYour **investor password** appears to have been changed.\n\n🔑 Please update it on WinnerPip:\nhttps://winnerpip.com/challenge/${challenge.id}\n\nSign in → you will see a banner to update your password.\n\n⏰ **You have 24 hours to fix this or your registration will be disqualified.**\n\nIf you did not change your password, contact an admin immediately.`,
-          ]
-        );
-        console.log(`📬 Discord DM queued for user ${failure.userId} (password_changed)`);
-      } catch (e) {
-        console.error(`Could not queue Discord DM for user ${failure.userId}:`, e);
-      }
-    }
-
-    // Notify via email (for winnerpip/web-registered users)
-    if (source === 'winnerpip' || source === 'csv') {
-      try {
-        const regData = await db.query(
-          `SELECT r.email, r.nickname, c.title as challenge_title, c.id as challenge_id,
-                  h.display_name as host_name, h.support_link as host_link
-           FROM trading_registrations r
-           JOIN trading_challenges c ON c.id = r.challenge_id
-           LEFT JOIN hosts h ON h.id = c.host_id
-           WHERE r.id = $1`, [failure.registrationId]);
-        if (regData.rows[0]?.email) {
-          const { emailService } = require('../services/emailService');
-          await emailService.sendCredentialFailure(regData.rows[0].email, {
-            nickname: regData.rows[0].nickname,
-            challengeTitle: regData.rows[0].challenge_title,
-            challengeId: regData.rows[0].challenge_id,
-            hostName: regData.rows[0].host_name || null,
-            hostLink: regData.rows[0].host_link || null,
-          });
-          console.log(`📧 Credential failure email sent to ${regData.rows[0].email}`);
-        }
-      } catch (e) {
-        console.error(`Could not send credential failure email for reg ${failure.registrationId}:`, e);
-      }
-    }
+    // The database trigger queues a participant notice atomically with this state change.
   }
 
   // ==================== CREDENTIAL RECOVERY ====================
@@ -2005,52 +1934,8 @@ export class VpsPullScheduler {
   }
 
   private async notifyAccountRecovered(registrationId: number, challengeId: number, source: 'user' | 'admin') {
-    try {
-      const regResult = await db.query(
-        `SELECT r.user_id, r.account_number, r.source AS notify_source, c.title
-         FROM trading_registrations r JOIN trading_challenges c ON c.id = r.challenge_id
-         WHERE r.id = $1`,
-        [registrationId]
-      );
-      if (regResult.rows.length === 0) return;
-      const reg = regResult.rows[0];
-      const notifySource = reg.notify_source || 'telegram';
-      const byAdminText = source === 'admin' ? ' by an admin' : '';
-
-      if (notifySource === 'telegram') {
-        try {
-          await this.bot.bot.telegram.sendMessage(
-            reg.user_id,
-            `✅ <b>Account Access Restored — ${reg.title}</b>\n\n` +
-            `Your investor password was updated${byAdminText} and verified successfully.\n\n` +
-            `Account <b>${reg.account_number}</b> is back online. We've already pulled and evaluated your full trade history, ` +
-            `so any trades made while access was down are now reflected on the leaderboard.`,
-            { parse_mode: 'HTML' }
-          );
-        } catch (e) {
-          console.error(`Could not notify Telegram user ${reg.user_id} of recovery:`, e);
-        }
-      } else if (notifySource === 'discord') {
-        try {
-          await db.query(
-            `INSERT INTO discord_dm_queue
-               (discord_user_id, registration_id, challenge_id, notification_type, message_title, message_body)
-             VALUES ($1, $2, $3, 'password_recovered', $4, $5)`,
-            [
-              String(reg.user_id),
-              registrationId,
-              challengeId,
-              '✅ Account Access Restored',
-              `Your investor password was updated${byAdminText} and verified for **${reg.title}**.\n\nAccount **${reg.account_number}** is back online — we've already pulled your full trade history so nothing is missed on the leaderboard.`,
-            ]
-          );
-        } catch (e) {
-          console.error(`Could not queue Discord recovery DM for user ${reg.user_id}:`, e);
-        }
-      }
-    } catch (e) {
-      console.error(`notifyAccountRecovered failed for reg ${registrationId}:`, e);
-    }
+    const reg=(await db.query('SELECT connection_verified_at FROM trading_registrations WHERE id=$1 AND challenge_id=$2',[registrationId,challengeId])).rows[0];
+    if(reg?.connection_verified_at)await queueParticipantNotice(registrationId,challengeId,'credential_recovered',new Date(reg.connection_verified_at).toISOString(),{source});
   }
 
   // ==================== DISQUALIFICATION CHECK ====================
@@ -2064,7 +1949,7 @@ export class VpsPullScheduler {
         `SELECT id, user_id, username, account_number, source, email, nickname
          FROM trading_registrations
          WHERE challenge_id = $1
-           AND pull_status = 'password_changed'
+           AND pull_status IN ('password_changed','invalid_credentials')
            AND status IS DISTINCT FROM 'removed'
            AND disqualified = false
            AND credential_failure_detected_at < NOW() - INTERVAL '${PASSWORD_WARNING_HOURS} hours'`,
@@ -2073,25 +1958,13 @@ export class VpsPullScheduler {
 
       for (const reg of result.rows) {
         const marked=await db.query(
-          `UPDATE trading_registrations SET disqualified = true, disqualified_at = NOW(), disqualified_source = 'credential_failure', disqualified_reason = 'Investor password changed — no update within 24h' WHERE id = $1 AND disqualified=false AND status IS DISTINCT FROM 'removed' AND pull_status='password_changed' AND credential_failure_detected_at<NOW()-INTERVAL '${PASSWORD_WARNING_HOURS} hours' RETURNING id`,
+          `UPDATE trading_registrations SET disqualified = true, disqualified_at = NOW(), disqualified_source = 'credential_failure', disqualified_reason = 'Account access not restored within 24 hours' WHERE id = $1 AND disqualified=false AND status IS DISTINCT FROM 'removed' AND pull_status IN ('password_changed','invalid_credentials') AND credential_failure_detected_at<NOW()-INTERVAL '${PASSWORD_WARNING_HOURS} hours' RETURNING id`,
           [reg.id]
         );
 
         if(!marked.rows.length)continue; // A concurrent password repair or manual decision wins.
 
-        try {
-          if (reg.source === 'winnerpip' || reg.source === 'csv') {
-            const {emailService}=require('../services/emailService');
-            if(reg.email) await emailService.sendDisqualification(reg.email,{nickname:reg.nickname,challengeTitle:activeChallenge.title,reason:'Account access was not restored within 24 hours.'});
-          } else if (reg.source === 'discord') {
-            await db.query(`INSERT INTO discord_dm_queue(discord_user_id,registration_id,challenge_id,notification_type,message_title,message_body) VALUES($1,$2,$3,'disqualified','Registration disqualified',$4)`,[String(reg.user_id),reg.id,activeChallenge.id,'Account access was not restored within 24 hours.']);
-          } else await this.bot.bot.telegram.sendMessage(reg.user_id,
-            `🚫 <b>Registration Disqualified — ${activeChallenge.title}</b>\n\n` +
-            `Account <b>${reg.account_number}</b> has been disqualified.\n\n` +
-            `📛 <b>Reason:</b> Investor password was changed and not updated within 24 hours.\n\n` +
-            `<i>Contact @birrFXadmin if you believe this is an error.</i>`,
-            { parse_mode: 'HTML' });
-        } catch (e) {}
+        // Participant notice is queued by the same database transaction as the DQ.
 
         try {
           await this.bot.bot.telegram.sendMessage(config.adminUserId,

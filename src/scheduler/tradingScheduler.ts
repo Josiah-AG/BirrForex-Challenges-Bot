@@ -1,3 +1,4 @@
+import {deliverParticipantNotices} from '../services/participantNotices';
 import {dailyCalendar,deliverDailyPost} from '../services/dailyChallengePosts';
 import {challengeDates,challengeBalanceSummary,dashboardCTA,dailySlots,postDate} from '../utils/challengePosts';
 import { startingBalanceProblem, preStartLeadHours } from '../utils/startingBalancePolicy';
@@ -27,6 +28,7 @@ export class TradingScheduler {
   }
 
   start() {
+    cron.schedule('*/5 * * * * *',()=>deliverParticipantNotices(this.bot.bot.telegram).catch(e=>console.error('Participant notice delivery:',e.message)));
     cron.schedule('* * * * *', () => this.checkTradingSchedules());
     cron.schedule('* * * * *', () => {
       void db.query("SELECT id FROM trading_challenges WHERE status='registration_open' AND pre_start_check_started_at IS NULL").then(rows=>{
@@ -260,34 +262,14 @@ export class TradingScheduler {
          AND disqualified = false
          AND investor_password IS NOT NULL
          AND actual_starting_balance IS NULL
-         AND (pull_status IS NULL OR pull_status != 'password_changed')`,
+         AND (pull_status IS NULL OR pull_status NOT IN ('password_changed','invalid_credentials'))`,
       [challenge.id]
     );
 
-    // DQ any accounts still in password_changed status (unresolved credential issues)
-    const unresolvedCreds = await db.query(
-      `SELECT id, account_number, user_id, source, lang
-       FROM trading_registrations
-       WHERE challenge_id = $1
-         AND disqualified = false
-         AND pull_status = 'password_changed'`,
-      [challenge.id]
-    );
+    // Credential repairs remain allowed until the actual start, as promised in notices.
+    // transitionChallenge queues any unresolved credential DQ atomically at start.
+    const credDqd = 0;
 
-    let credDqd = 0;
-    for (const reg of unresolvedCreds.rows) {
-      await db.query(
-        `UPDATE trading_registrations
-         SET disqualified = true, disqualified_at = NOW(), disqualified_reason = $1
-         WHERE id = $2 AND disqualified = false`,
-        ['Account access issue not resolved before challenge start (investor password changed or account deleted)', reg.id]
-      );
-      credDqd++;
-      console.log(`🚫 Pre-start DQ (credential): reg ${reg.id} (${reg.account_number}) — password_changed not resolved`);
-    }
-    if (credDqd > 0) {
-      console.log(`🚫 Pre-start snapshot: ${credDqd} accounts DQ'd for unresolved credential issues`);
-    }
 
     if (pending.rows.length === 0) {
       // All accounts already snapshotted — ensure a batch record exists for Pulls tab visibility

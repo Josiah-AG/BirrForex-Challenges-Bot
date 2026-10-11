@@ -2062,3 +2062,11 @@ The user confirmed that this log must retain the history of application updates 
 - Added 60 stage-specific morning/evening messages, actual-date day counting, first/final-only dual-channel routing, persistent per-channel receipts/retries, and cross-challenge message rotation.
 - Corrected percentage-target announcements, challenge-timezone dates, and public Telegram dashboard CTAs; duration-aware daily-post controls.
 - Verified backend build, 199 automated tests, Telegram posting permissions in both channels, and live VPS health; no public test messages sent. Details: docs/audits/SPRINT_1_READINESS_2026-10-11.md.
+
+## 2026-10-11 — Demo/real/cent evaluation and participant notice hardening
+- Corrected Standard `m` symbol risk scaling, cross-instrument gross-P/L conversion and partial-close exposure; checked hybrid/cent-only monetary unit handling.
+- Added chronological realized drawdown accounting for separate costs, correct per-day percentage labels and challenge-timezone notices.
+- Added transactional participant-notice outbox with source-aware Telegram/email/Discord routing, retries, superseded-state cancellation, DQ trigger and recovered-history notifications. Removed duplicate host DQ emails and unsafe web-to-Telegram routing.
+- Moved pre-start credential DQ from the early balance snapshot to actual challenge start; 24-hour in-challenge expiry checks now run each minute.
+- Backend/frontend typechecks and 222 tests passed. PostgreSQL temporary-table migration test passed. Read-only shadow: 95 active accounts, zero errors, six explained risk corrections; representative demo/real/cent checks passed. No live test messages or shadow writes.
+- Audit: docs/audits/SPRINT_1_EVALUATION_NOTICES_2026-10-11.md; expected result deltas saved in adjacent shadow JSON. Completed leaderboards remain locked.
