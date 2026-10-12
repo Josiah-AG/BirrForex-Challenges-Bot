@@ -2,6 +2,7 @@
 import {withWinnerPipSocials} from "@/lib/htmlExportSocials";
 import {rulesExportSummary} from "@/lib/rulesExportSummary";
 import CommercialOverview from "@/components/CommercialOverview";
+import AdminLeaderboardHistory from "@/components/AdminLeaderboardHistory";
 import AdminParticipantTrades from "@/components/AdminParticipantTrades";
 import TimeWithZone from "@/components/TimeWithZone";
 import {challengeTimestamp} from "@/lib/challengeTime";
@@ -1540,7 +1541,7 @@ export default function AdminDashboard() {
                 />
               )}
               <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Account Type</p><span className={`px-3 py-1 rounded text-xs font-semibold ${selectedParticipant.accountType === "real" ? "bg-gold/10 text-gold" : "bg-royal/10 text-royal"}`}>{selectedParticipant.accountType}</span></div>
-              {selectedParticipant.registrationId && <AdminParticipantTrades key={`${selectedChallengeId}:${selectedParticipant.registrationId}`} challengeId={selectedChallengeId} registrationId={selectedParticipant.registrationId} timezone={challengeTz}/>}
+              {selectedParticipant.registrationId && <AdminLeaderboardHistory key={`${selectedChallengeId}:${selectedParticipant.registrationId}`} challengeId={selectedChallengeId} selectedParticipant={selectedParticipant} selectedChall={selectedChall} challengeTz={challengeTz} setSelectedTrade={setSelectedTrade}/>}
               {/* Export MT5 Trade History */}
               {selectedParticipant.registrationId && (
                 <button
