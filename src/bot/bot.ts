@@ -285,7 +285,7 @@ export class Bot {
     this.bot.command('messageuser', (ctx) => tradingAdminHandler.messageUser(ctx));
     this.bot.command('disqualify', (ctx) => tradingAdminHandler.disqualify(ctx));
     this.bot.command('manualverify', (ctx) => tradingAdminHandler.manualVerify(ctx));
-    this.bot.command('promo', (ctx) => tradingAdminHandler.promo(ctx));
+    this.bot.command(['promo', 'promopost'], (ctx) => tradingAdminHandler.promo(ctx));
     this.bot.command('exportregistrations', (ctx) => tradingAdminHandler.exportRegistrations(ctx));
     this.bot.command('exportsubmissions', (ctx) => tradingAdminHandler.exportSubmissions(ctx));
     this.bot.command('viewsubmissions', (ctx) => tradingAdminHandler.viewSubmissions(ctx));

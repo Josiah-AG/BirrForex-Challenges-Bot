@@ -274,6 +274,17 @@ export class TradingAdminHandler {
 
     // Promo callbacks
     if (data.startsWith('tc_promo_')) {
+      if (!this.checkAdmin(ctx)) return true;
+      if (data.startsWith('tc_promo_choose_')) {
+        const challenge = await tradingChallengeService.getChallengeById(Number(data.replace('tc_promo_choose_', '')));
+        await ctx.answerCbQuery();
+        if (!challenge || !this.isPromoEligible(challenge)) {
+          await ctx.reply('This challenge is not eligible for admin Telegram promotion. Run /promopost again.');
+          return true;
+        }
+        await this.showPromoMessages(ctx, challenge);
+        return true;
+      }
       if (data.startsWith('tc_promo_send_')) {
         const target = data.replace('tc_promo_send_', '');
         await this.handlePromoSend(ctx, target);
@@ -2053,15 +2064,26 @@ export class TradingAdminHandler {
   async promo(ctx: Context) {
     if (!this.checkAdmin(ctx)) return;
 
-    const challenges = await tradingChallengeService.getActiveChallenges();
-    const allChallenges = await tradingChallengeService.getAllChallenges();
-    const promoChallenge = challenges[0] || allChallenges.find(c => c.status === 'registration_open' || c.status === 'draft');
-
-    if (!promoChallenge) {
-      await ctx.reply('❌ No active challenge for promo.');
+    const challenges = (await tradingChallengeService.getAllChallenges()).filter(c => this.isPromoEligible(c));
+    if (!challenges.length) {
+      await ctx.reply('❌ No admin Telegram challenge is available for promotion.');
       return;
     }
+    if (challenges.length > 1) {
+      await ctx.reply('Choose the admin challenge to promote:', Markup.inlineKeyboard(
+        challenges.map(c => [Markup.button.callback(`${c.title} (${c.status})`, `tc_promo_choose_${c.id}`)])
+      ));
+      return;
+    }
+    await this.showPromoMessages(ctx, challenges[0]);
+  }
 
+  private isPromoEligible(c: TradingChallenge & { host_id?: number | null; source?: string }): boolean {
+    return c.host_id == null && (!c.source || c.source === 'telegram') &&
+      ['active', 'registration_open', 'draft'].includes(c.status);
+  }
+
+  private async showPromoMessages(ctx: Context, promoChallenge: TradingChallenge) {
     const telegramId = ctx.from!.id;
     tradingAdminSessions.set(telegramId, {
       step: 'tc_promo_select',
@@ -2423,6 +2445,12 @@ export class TradingAdminHandler {
     const promoNum = parseInt(parts[2]);
     const challengeId = parseInt(parts[3]);
 
+    const challenge = await tradingChallengeService.getChallengeById(challengeId);
+    if (!challenge || !this.isPromoEligible(challenge) || ![1,2,3].includes(promoNum)) {
+      await ctx.answerCbQuery('This promotion is no longer available.');
+      return true;
+    }
+
     const telegramId = ctx.from!.id;
     tradingAdminSessions.set(telegramId, {
       step: 'tc_promo_target',
@@ -2440,12 +2468,17 @@ export class TradingAdminHandler {
 
   // Handle promo send target in handleCallback — add to the promo check
   async handlePromoSend(ctx: Context, target: string) {
+    if (!this.checkAdmin(ctx)) return;
     const telegramId = ctx.from!.id;
     const session = tradingAdminSessions.get(telegramId);
-    if (!session) return;
+    if (!session || session.step !== 'tc_promo_target' || !['main','challenge','both'].includes(target)) return;
 
     const challenge = await tradingChallengeService.getChallengeById(session.data.challenge_id);
-    if (!challenge) return;
+    if (!challenge || !this.isPromoEligible(challenge)) {
+      tradingAdminSessions.delete(telegramId);
+      await ctx.reply('This challenge is not eligible for admin Telegram promotion. Run /promopost again.');
+      return;
+    }
 
     const botInfo = await ctx.telegram.getMe();
     const text = this.generatePromoText(challenge, session.data.promo_num, botInfo.username!);
