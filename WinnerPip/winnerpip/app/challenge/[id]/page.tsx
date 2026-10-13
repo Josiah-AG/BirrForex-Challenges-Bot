@@ -16,6 +16,7 @@ import Image from "next/image";
 import { useParams, useSearchParams } from "next/navigation";
 import { Input } from "@/components/ui/input";
 import { TrendingUp, Trophy, AlertTriangle, Target, Activity, ArrowLeft, FileText, Clock, ChevronDown, ChevronUp, Shield, Award, Hash, Key, Loader2, MessageCircle, ArrowRight, X, RefreshCw, LogOut, Users, CheckCircle } from "lucide-react";
+import ShareProgress from "@/components/ShareProgress";
 import BalanceChart from "@/components/BalanceChart";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
@@ -717,6 +718,7 @@ export default function ChallengeDashboard() {
 
         {/* ==================== COMPLETED STATE — now shows full dashboard with popup ==================== */}
         {!loading && !error && isLoggedIn && !isActive && !isNotStarted && !isCompleted && <div className="glass rounded-xl p-6 text-gray-300">This challenge is not currently available. <a className="text-royal underline" href="/challenges">View challenges</a></div>}
+        {!loading && !error && isLoggedIn && isNotStarted && myStats && challenge && <ShareProgress challenge={challenge} stats={myStats} growth={growthPercent} growthMode={!!isGrowthMode} isCent={effectiveIsCent} host={preAuthChallenge} beforeStart />}
         {!loading && !error && isLoggedIn && isCompleted && myStats && challenge && (<>
 
           {/* FULL DASHBOARD (same as active) */}
@@ -759,6 +761,7 @@ export default function ChallengeDashboard() {
                 <MiniStat label="Removed" value={`${formatBalance(myStats.profitRemoved, myStats.accountType, effectiveIsCent)}`} icon={<Target size={14} />} color="text-royal" />
                 <MiniStat label="Pass%" value={myStats.totalTrades > 0 ? `${Math.round((myStats.qualifiedTrades / myStats.totalTrades) * 100)}%` : "—"} icon={<Shield size={14} />} color="text-profit" />
               </div>
+              <ShareProgress challenge={challenge} stats={myStats} growth={growthPercent} growthMode={!!isGrowthMode} isCent={effectiveIsCent} host={preAuthChallenge} />
               {myStats.totalTrades > 0 ? (
                 <BalanceChart authToken={typeof window !== "undefined" ? localStorage.getItem("wp_token") || undefined : undefined} isCent={effectiveIsCent} height={130} />
               ) : (
@@ -1219,6 +1222,7 @@ export default function ChallengeDashboard() {
                 <MiniStat label="Removed" value={`${formatBalance(myStats.profitRemoved, myStats.accountType, effectiveIsCent)}`} icon={<Target size={14} />} color="text-royal" />
                 <MiniStat label="Pass%" value={myStats.totalTrades > 0 ? `${Math.round((myStats.qualifiedTrades / myStats.totalTrades) * 100)}%` : "—"} icon={<Shield size={14} />} color="text-profit" />
               </div>
+              <ShareProgress challenge={challenge} stats={myStats} growth={growthPercent} growthMode={!!isGrowthMode} isCent={effectiveIsCent} host={preAuthChallenge} />
               {myStats.totalTrades > 0 ? (
                 <BalanceChart authToken={typeof window !== "undefined" ? localStorage.getItem("wp_token") || undefined : undefined} isCent={effectiveIsCent} height={130} />
               ) : (
