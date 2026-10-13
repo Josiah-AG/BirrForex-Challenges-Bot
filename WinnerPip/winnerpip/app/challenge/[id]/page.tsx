@@ -70,6 +70,7 @@ interface MyStats {
   disqualified: boolean; disqualifiedReason: string | null;
   isCent: boolean; lastPullAt: string | null;
   balanceWarning?: boolean;
+  startingBalanceProblem?: string | null;
 }
 
 export default function ChallengeDashboard() {
@@ -260,6 +261,7 @@ export default function ChallengeDashboard() {
         isCent: data.me.isCent || false,
         lastPullAt: data.me.lastPullAt || null,
         balanceWarning: data.me.balanceWarning || false,
+        startingBalanceProblem: data.me.startingBalanceProblem || null,
       };
       myStatsRef.current = statsObj;
       setMyStats(statsObj);
@@ -720,7 +722,6 @@ export default function ChallengeDashboard() {
 
         {/* ==================== COMPLETED STATE — now shows full dashboard with popup ==================== */}
         {!loading && !error && isLoggedIn && !isActive && !isNotStarted && !isCompleted && <div className="glass rounded-xl p-6 text-gray-300">This challenge is not currently available. <a className="text-royal underline" href="/challenges">View challenges</a></div>}
-        {!loading && !error && isLoggedIn && isNotStarted && myStats && challenge && <ShareProgress challenge={challenge} stats={myStats} growth={growthPercent} growthMode={!!isGrowthMode} isCent={effectiveIsCent} host={preAuthChallenge} beforeStart />}
         {!loading && !error && isLoggedIn && isCompleted && myStats && challenge && (<>
 
           {/* FULL DASHBOARD (same as active) */}
@@ -772,7 +773,7 @@ export default function ChallengeDashboard() {
               )}
             </div>
 
-              <ShareProgress challenge={challenge} stats={myStats} growth={growthPercent} growthMode={!!isGrowthMode} isCent={effectiveIsCent} host={preAuthChallenge} />
+              <ShareProgress challenge={challenge} stats={myStats} growth={growthPercent} growthMode={!!isGrowthMode} isCent={effectiveIsCent} host={preAuthChallenge} beforeStart={!!isNotStarted} />
 
             {/* TAB NAVIGATION */}
             <div className="flex gap-1 p-1 glass rounded-xl border border-white/10 mb-6">
@@ -1109,7 +1110,7 @@ export default function ChallengeDashboard() {
               </div>
             </div>
 
-            {isNotStarted && challenge.balanceCheckDeadline && (
+            {isNotStarted && challenge.balanceCheckDeadline && myStats.startingBalanceProblem && (
               <div className={`glass rounded-2xl p-4 md:p-5 border mb-6 ${myStats.balanceWarning ? 'border-amber-500/30 bg-amber-500/5' : 'border-white/10'}`}>
                 <p className="text-sm font-bold text-amber-400 mb-2">{myStats.balanceWarning ? 'Balance needs attention' : 'Starting balance verification'}</p>
                 <p className="text-sm text-gray-300">{myStats.accountType === 'demo' ? 'Reset your demo balance' : 'Adjust your account balance'} to {challenge.depositMode === 'min_limit' ? 'at least ' : challenge.depositMode === 'max_limit' ? 'at most ' : ''}<b>{formatBalance(challenge.startingBalance, myStats.accountType, effectiveIsCent)}</b> before <b>{new Date(challenge.balanceCheckDeadline).toLocaleString(undefined, {timeZone: challenge.timezone || 'Africa/Addis_Ababa', dateStyle: 'medium', timeStyle: 'short'})} ({challenge.timezone || 'Africa/Addis_Ababa'})</b>.</p>
@@ -1234,7 +1235,7 @@ export default function ChallengeDashboard() {
               )}
             </div>
 
-              <ShareProgress challenge={challenge} stats={myStats} growth={growthPercent} growthMode={!!isGrowthMode} isCent={effectiveIsCent} host={preAuthChallenge} />
+              <ShareProgress challenge={challenge} stats={myStats} growth={growthPercent} growthMode={!!isGrowthMode} isCent={effectiveIsCent} host={preAuthChallenge} beforeStart={!!isNotStarted} />
 
             {/* TAB NAVIGATION */}
             <div className="flex gap-1 p-1 glass rounded-xl border border-white/10 mb-6">
@@ -1936,7 +1937,7 @@ export default function ChallengeDashboard() {
                   <p className="text-lg font-bold text-loss">{recentTrades.length > 0 ? formatBalance(Math.min(...recentTrades.map(t => t.profit)), myStats.accountType, effectiveIsCent) : "—"}</p>
                 </div>
               </div>
-              {challenge && myStats.confirmedWinner && <ShareProgress challenge={challenge} stats={myStats} growth={growthPercent} growthMode={!!isGrowthMode} isCent={effectiveIsCent} host={preAuthChallenge} />}
+              {challenge && myStats.confirmedWinner && <ShareProgress challenge={challenge} stats={myStats} growth={growthPercent} growthMode={!!isGrowthMode} isCent={effectiveIsCent} host={preAuthChallenge} beforeStart={!!isNotStarted} />}
               <button onClick={() => setShowCompletedPopup(false)} className="w-full flex items-center justify-center gap-2 p-4 rounded-xl bg-gradient-brand hover:opacity-90 text-white font-semibold transition-all shadow-lg shadow-royal/20">
                 View Full Dashboard
               </button>

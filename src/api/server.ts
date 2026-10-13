@@ -1923,6 +1923,12 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
         actualStartingBalance: actualStartingBalance,
         lastPullAt: registration.last_pull_at || null,
         balanceWarning: registration.balance_warning || false,
+        startingBalanceProblem: (()=>{
+          if(!isPreStart||actualStartingBalance==null)return null;
+          const balances=require('../utils/categorySettings').resolveCategoryBalances({...registration,type:registration.challenge_type},registration.account_type);
+          const required=balances.startingBalance*accountUnitMultiplier({type:registration.challenge_type},{only_cent_account:registration.only_cent_account},registration.is_cent);
+          return require('../utils/startingBalancePolicy').startingBalanceProblem(actualStartingBalance,required,balances.depositMode,registration.starting_balance_policy);
+        })(),
         confirmedWinner,
         rank: computedRank || leaderboard?.rank || null,
         rankChange: (leaderboard?.previous_rank && leaderboard?.rank) ? (leaderboard.previous_rank - leaderboard.rank) : null,
