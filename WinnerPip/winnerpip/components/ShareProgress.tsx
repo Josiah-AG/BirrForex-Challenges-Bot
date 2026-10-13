@@ -16,7 +16,7 @@ export default function ShareProgress({challenge,stats,growth,growthMode,isCent,
    const text=(value:string,x:number,y:number,size:number,color='#eff4ff',bold=false,max=936)=>{c.font=`${bold?700:400} ${size}px Arial`;while(c.measureText(value).width>max&&size>16){size--;c.font=`${bold?700:400} ${size}px Arial`}c.fillStyle=color;c.fillText(value,x,y,max)};
    const logo=async(src:string,x:number,size=90)=>{const img=new Image();img.src=src;await img.decode();const scale=Math.min(size/img.width,size/img.height);c.drawImage(img,x,65,img.width*scale,img.height*scale)};
    if(!host.hostId)await logo('/birrforex-logo.png',72);await logo('/share-winnerpip.png',host.hostId?72:190,110);text('WinnerPip',host.hostId?205:325,125,36,'#fff',true,500);
-   text(`HOSTED BY ${host.hostId?(host.hostDisplayName||'INDEPENDENT HOST'):'BirrForex'}`,72,235,23,'#82baff',false);
+   text(host.hostId?(host.hostDisplayName||'Independent host'):'BirrForex',72,235,23,'#82baff',false);
    text(challenge.title,72,307,64,'#fff',true);text(`${stats.nickname} · ${stats.accountType==='real'?'Real':'Demo'} account`,72,363,30,'#abb9cd');
    const state=stats.disqualified?'Disqualified':beforeStart?'Registered':challenge.status==='active'?'In progress':challenge.status==='completed'?'Completed':'Awaiting final results';
    text(state.toUpperCase(),72,436,24,'#d4b777',true);
