@@ -2994,16 +2994,14 @@ export class TradingAdminHandler {
               supports_streaming: true,
               ...keyboard,
             });
-            await ctx.telegram.sendMessage(channelId,dashboardCTA,{link_preview_options:{is_disabled:true}});
           } else if (session.data.photo_file_id) {
             await ctx.telegram.sendPhoto(channelId, session.data.photo_file_id, {
               caption: session.data.post_text || undefined,
               caption_entities: session.data.post_entities?.length > 0 ? session.data.post_entities : undefined,
               ...keyboard,
             });
-            await ctx.telegram.sendMessage(channelId,dashboardCTA,{link_preview_options:{is_disabled:true}});
           } else {
-            await ctx.telegram.sendMessage(channelId, `${session.data.post_text}\n\n${dashboardCTA}`, {
+            await ctx.telegram.sendMessage(channelId, session.data.post_text, {
               entities: session.data.post_entities?.length > 0 ? session.data.post_entities : undefined,
               link_preview_options: { is_disabled: true },
               ...keyboard,
