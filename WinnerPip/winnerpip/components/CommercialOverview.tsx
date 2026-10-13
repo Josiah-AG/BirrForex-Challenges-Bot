@@ -1,5 +1,6 @@
 "use client";
 import {useEffect,useState} from 'react';
+import {createPortal} from 'react-dom';
 import {challengeTimestamp} from '@/lib/challengeTime';
 const n=(v:any)=>Number(v||0).toLocaleString(undefined,{maximumFractionDigits:4});
 const rankColor=(status:string)=>status==='Disqualified'?'text-red-400':status==='Active'?'text-emerald-400':'text-gray-400';
@@ -8,6 +9,23 @@ function AccountMetrics({v}:{v:any}) {return <div className="space-y-1"><p class
 export default function CommercialOverview({challengeId,timezone}:{challengeId:string;timezone:string}) {
  const [data,setData]=useState<any>(null),[error,setError]=useState(''),[modal,setModal]=useState<'volumeUSD'|'total'|null>(null),[queued,setQueued]=useState(false);
  useEffect(()=>{let active=true;const load=()=>fetch(`/api/management/challenge/${challengeId}/commercial`,{cache:'no-store'}).then(async r=>{if(!r.ok)throw Error('Report unavailable');return r.json();}).then(d=>{if(active){setData(d);setError('');setQueued(false);}}).catch(e=>{if(active)setError(e.message);});load();const timer=setInterval(load,30000);return()=>{active=false;clearInterval(timer);};},[challengeId]);
+ useEffect(()=>{
+  if(!modal)return;
+  const body=document.body,root=document.documentElement;
+  const x=window.scrollX,y=window.scrollY;
+  const previous={position:body.style.position,top:body.style.top,left:body.style.left,width:body.style.width,overflow:body.style.overflow,rootOverflow:root.style.overflow};
+  // Fixed body also prevents background touch scrolling on iOS Safari.
+  Object.assign(body.style,{position:'fixed',top:`-${y}px`,left:`-${x}px`,width:'100%',overflow:'hidden'});
+  root.style.overflow='hidden';
+  const escape=(event:KeyboardEvent)=>{if(event.key==='Escape')setModal(null);};
+  document.addEventListener('keydown',escape);
+  return()=>{
+   Object.assign(body.style,{position:previous.position,top:previous.top,left:previous.left,width:previous.width,overflow:previous.overflow});
+   root.style.overflow=previous.rootOverflow;
+   window.scrollTo(x,y);
+   document.removeEventListener('keydown',escape);
+  };
+ },[modal]);
  if(data?.enabled===false)return null;
  const refresh=async()=>{setQueued(true);try{const r=await fetch(`/api/management/challenge/${challengeId}/commercial-refresh`,{method:'POST'});if(!r.ok)throw Error('Could not queue refresh');}catch(e:any){setError(e.message);setQueued(false);}};
  const rows=[...(data?.rows||[])].sort((a,b)=>Number(b.challenge[modal||'total'])-Number(a.challenge[modal||'total'])||a.registrationId-b.registrationId);
@@ -19,7 +37,7 @@ export default function CommercialOverview({challengeId,timezone}:{challengeId:s
  <button onClick={()=>setModal('volumeUSD')} className="text-left p-5 rounded-2xl border border-white/10 bg-white/5 min-w-0 break-words"><h3 className="text-xs text-gray-400 mb-2">CHALLENGE VOLUME</h3><p className="text-2xl font-bold text-blue-400">${n(data.challenge.volumeUSD)}</p><p>{n(data.challenge.lots)} lots</p><p className="text-xs text-gray-400 mt-2">All participant MT5 accounts: ${n(data.all.volumeUSD)} · {n(data.all.lots)} lots</p>{data.all.volumePending>0&&<p className="text-xs text-amber-400">USD volume pending for {data.all.volumePending} trades</p>}</button>
  <button onClick={()=>setModal('total')} className="text-left p-5 rounded-2xl border border-white/10 bg-white/5 min-w-0 break-words"><h3 className="text-xs text-gray-400 mb-2">CHALLENGE REVENUE</h3><div className="text-2xl text-emerald-400"><Revenue v={data.challenge}/></div><p className="text-xs text-gray-400 mt-3">All participant MT5 accounts</p><Revenue v={data.all}/></button>
  </div>{data.warnings?.map((w:string)=><p key={w} className="text-amber-400 text-xs">{w}</p>)}<p className="text-xs text-gray-500">All-account totals include challenge accounts. Refreshes hourly. Estimates are replaced when confirmed by Exness.</p></>}
- {modal&&<div className="fixed inset-0 z-[100] bg-black/80 flex items-center justify-center p-3" onClick={()=>setModal(null)}><section role="dialog" aria-modal="true" aria-label="Commercial analytics" className="bg-[#111827] border border-white/10 rounded-2xl w-full max-w-6xl max-h-[90vh] overflow-auto p-5" onClick={e=>e.stopPropagation()}>
+ {modal&&createPortal(<div className="fixed inset-0 z-[100] bg-black/80 flex items-center justify-center p-3" onClick={()=>setModal(null)}><section role="dialog" aria-modal="true" aria-label="Commercial analytics" className="bg-[#111827] border border-white/10 rounded-2xl w-full max-w-6xl max-h-[90dvh] overflow-y-auto overscroll-contain touch-pan-y p-5" onClick={e=>e.stopPropagation()}>
  <div className="flex justify-between gap-3 mb-3"><h2 className="font-bold">Participants by challenge {modal==='volumeUSD'?'USD volume':'revenue'}</h2><button aria-label="Close" onClick={()=>setModal(null)}>✕</button></div>
  <div className="md:hidden">
  <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)] gap-2 border-b border-white/10 pb-2 text-[10px] text-gray-400"><span>Participant<br/><span className="text-emerald-400">Revenue</span> · <span className="text-blue-300">Volume</span></span><span className="text-right">Challenge account</span><span className="text-right">All MT5 accounts</span></div>
@@ -31,6 +49,6 @@ export default function CommercialOverview({challengeId,timezone}:{challengeId:s
  <div className="pb-3 text-xs space-y-2"><p className="text-gray-300 break-words">{r.nickname} · {r.status}</p><div className="grid grid-cols-2 gap-3"><AccountMetrics v={r.challenge}/><AccountMetrics v={r.all}/></div><p className="text-[10px] text-gray-500">{r.cutoff?challengeTimestamp(r.cutoff,timezone,true):'No verified coverage'} · {r.linkedAccounts} accounts</p>{r.issues.map((i:string)=><p key={i} className="text-amber-400">{i}</p>)}</div>
  </details>)}
  </div>
- <div className="hidden md:block overflow-auto"><table className="w-full text-xs text-left"><thead><tr className="text-gray-400">{['Participant / rank','Challenge account','All MT5 accounts','Coverage'].map(h=><th key={h} className="p-3">{h}</th>)}</tr></thead><tbody>{rows.map((r:any)=><tr key={r.registrationId} className="border-t border-white/10 align-top"><td className="p-3 min-w-[160px]"><strong>{r.nickname}</strong><p>{r.account}</p><p className={rankColor(r.status)}>Rank {r.rank?`#${r.rank}`:'—'} · {r.status}</p></td>{['challenge','all'].map(scope=><td key={scope} className="p-3 min-w-[210px]"><AccountMetrics v={r[scope]}/></td>)}<td className="p-3 min-w-[180px]"><p>{r.coverageSource}</p><p>{r.cutoff?challengeTimestamp(r.cutoff,timezone,true):'No verified coverage'}</p><p>{r.linkedAccounts} linked MT5 accounts</p>{r.issues.map((i:string)=><p key={i} className="text-amber-400">{i}</p>)}</td></tr>)}</tbody></table></div></section></div>}
+ <div className="hidden md:block overflow-auto"><table className="w-full text-xs text-left"><thead><tr className="text-gray-400">{['Participant / rank','Challenge account','All MT5 accounts','Coverage'].map(h=><th key={h} className="p-3">{h}</th>)}</tr></thead><tbody>{rows.map((r:any)=><tr key={r.registrationId} className="border-t border-white/10 align-top"><td className="p-3 min-w-[160px]"><strong>{r.nickname}</strong><p>{r.account}</p><p className={rankColor(r.status)}>Rank {r.rank?`#${r.rank}`:'—'} · {r.status}</p></td>{['challenge','all'].map(scope=><td key={scope} className="p-3 min-w-[210px]"><AccountMetrics v={r[scope]}/></td>)}<td className="p-3 min-w-[180px]"><p>{r.coverageSource}</p><p>{r.cutoff?challengeTimestamp(r.cutoff,timezone,true):'No verified coverage'}</p><p>{r.linkedAccounts} linked MT5 accounts</p>{r.issues.map((i:string)=><p key={i} className="text-amber-400">{i}</p>)}</td></tr>)}</tbody></table></div></section></div>,document.body)}
  </section>;
 }
