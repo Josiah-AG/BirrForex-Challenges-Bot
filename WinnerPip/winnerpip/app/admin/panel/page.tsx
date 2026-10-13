@@ -439,6 +439,20 @@ export default function AdminDashboard() {
 
   const [expandedViolation, setExpandedViolation] = useState<string | null>(null);
 
+  const [leaderboardCommercial,setLeaderboardCommercial]=useState<{challengeId:string;rows:Record<string,any>}|null>(null);
+  useEffect(()=>{
+    if(!isAdmin||activeSection!=="leaderboard"||!selectedChallengeId)return;
+    let active=true;
+    const load=async()=>{try{
+      const response=await fetch(`/api/management/challenge/${selectedChallengeId}/commercial`,{cache:'no-store'});
+      if(!response.ok)throw Error('Unavailable');
+      const report=await response.json();
+      if(active)setLeaderboardCommercial({challengeId:String(selectedChallengeId),rows:Object.fromEntries((report.rows||[]).map((row:any)=>[String(row.registrationId),row]))});
+    }catch{if(active)setLeaderboardCommercial(null);}};
+    load();const timer=setInterval(load,30000);
+    return()=>{active=false;clearInterval(timer);};
+  },[isAdmin,activeSection,selectedChallengeId,dataRefresh.revision]);
+
   // Fetch leaderboard when leaderboard tab is active
   const fetchLeaderboardRef = useRef<() => void>(() => {});
   useEffect(() => {
@@ -778,14 +792,16 @@ export default function AdminDashboard() {
                   <th className="text-left py-3 px-4 text-[10px] text-gray-400 uppercase">Nickname</th>
                   <th className="text-left py-3 px-4 text-[10px] text-gray-400 uppercase">Account</th>
                   <th className="text-left py-3 px-4 text-[10px] text-gray-400 uppercase">Type</th>
+                  <th className="text-left py-3 px-4 text-[10px] text-gray-400 uppercase">Revenue / Volume (USD)</th>
                   <th className="text-right py-3 px-4 text-[10px] text-gray-400 uppercase">{(selectedChall as any)?.depositMode !== 'fixed' && (selectedChall as any)?.depositMode ? 'Growth / Balance' : 'Balance / Gross'}</th>
                   {!leaderboardPreStart && <><th className="text-center py-3 px-4 text-[10px] text-gray-400 uppercase">Trades</th>
                   <th className="text-center py-3 px-4 text-[10px] text-gray-400 uppercase">Pass%</th>
                   <th className="text-center py-3 px-4 text-[10px] text-gray-400 uppercase">Profit</th>
                   <th className="text-center py-3 px-4 text-[10px] text-gray-400 uppercase">Violations</th></>}
                 </tr></thead>
-                <tbody>{leaderboard.length === 0 ? <tr><td colSpan={leaderboardPreStart ? 5 : 9} className="py-8 text-center text-gray-500">No leaderboard data yet — will populate after VPS pulls and evaluation</td></tr> : leaderboard.map((e: any) => {
+                <tbody>{leaderboard.length === 0 ? <tr><td colSpan={leaderboardPreStart ? 6 : 11} className="py-8 text-center text-gray-500">No leaderboard data yet — will populate after VPS pulls and evaluation</td></tr> : leaderboard.map((e: any) => {
                   const badges = leaderboardBadges(e, { ...selectedChall, onlyCentAccount: leaderboardCentOnly }, leaderboardPreStart);
+                  const commercial = leaderboardCommercial?.challengeId===String(selectedChallengeId)?leaderboardCommercial.rows[String(e.registrationId)]:null;
                   const eIsWinner = badges.trophy;
                   const eIsAboveTarget = badges.highlight;
                   const eDepositMode = selectedChall?.depositMode || (selectedChall as any)?.deposit_mode || 'fixed';
@@ -797,6 +813,13 @@ export default function AdminDashboard() {
                     <td className="py-3 px-4"><p className={`text-sm font-semibold ${eIsWinner ? "text-profit font-bold" : eIsAboveTarget ? "text-profit/80" : "text-white"}`}>{e.nickname}{!leaderboardPreStart && e.isDisqualified ? <span className="ml-2 text-[10px] text-loss">DQ</span> : !leaderboardPreStart && e.isWithdrawn ? <span className="ml-2 text-[10px] text-gray-400" title="User withdrew all funds — out of challenge">🚪 Exited</span> : !leaderboardPreStart && e.isBlown ? <span className="ml-2 text-[10px] text-amber-400" title="Account blown">💀 Blown</span> : ""}</p><p className="text-[10px] text-gray-500 mt-0.5">{e.email || ""}</p></td>
                     <td className="py-3 px-4"><p className="text-xs text-gray-300 font-mono">{e.accountNumber || "—"}</p></td>
                     <td className="py-3 px-4"><span className={`px-2 py-1 rounded text-[10px] font-semibold ${e.accountType === "real" ? "bg-gold/10 text-gold" : "bg-royal/10 text-royal"}`}>{e.accountType}</span></td>
+                    <td className="py-3 px-4 min-w-[220px] text-xs">
+                      {e.accountType!=='real'?<span className="text-gray-500">—</span>:!commercial?<span className="text-gray-500">Unavailable</span>:<div className="space-y-2">{(['challenge','all'] as const).map(scope=><div key={scope}>
+                        <span className="text-[10px] text-gray-400">{scope==='challenge'?'Challenge account':'All MT5 accounts'}</span>
+                        <div className="tabular-nums"><span className="text-emerald-400 font-semibold">${Number(commercial[scope].total||0).toLocaleString(undefined,{maximumFractionDigits:4})}</span><span className="text-gray-500"> · </span><span className="text-blue-300">${Number(commercial[scope].volumeUSD||0).toLocaleString(undefined,{maximumFractionDigits:2})}</span></div>
+                        {(commercial[scope].estimated>0||commercial[scope].pending>0||commercial[scope].volumePending>0)&&<div className="text-[9px] text-amber-400">{commercial[scope].estimated>0?`$${Number(commercial[scope].estimated).toLocaleString(undefined,{maximumFractionDigits:4})} estimated · `:''}{commercial[scope].pending>0?`${commercial[scope].pending} rewards pending `:''}{commercial[scope].volumePending>0?`${commercial[scope].volumePending} volumes pending`:''}</div>}
+                      </div>)}</div>}
+                    </td>
                     <td className="py-3 px-4 text-right">
                       <p className={`text-sm font-bold ${!leaderboardPreStart && e.isDisqualified ? "text-loss" : !leaderboardPreStart && e.isWithdrawn ? "text-gray-500" : eIsWinner ? "text-profit" : eIsAboveTarget ? "text-profit/80" : "text-white"}`}>{!leaderboardPreStart && e.isDisqualified ? "DQ" : !leaderboardPreStart && e.isWithdrawn ? "Exited" : eGrowthMode ? (<span className={Number(e.growthPercent || 0) >= 0 ? "text-profit" : "text-loss"}>{Number(e.growthPercent || 0) >= 0 ? '↑' : '↓'} {Number(e.growthPercent || 0) >= 0 ? '+' : '-'}{Math.abs(Number(e.growthPercent || 0)).toFixed(1)}%</span>) : e.isCent ? `${(Number(e.adjustedBalance) - (e.totalWithdrawn || 0)).toFixed(2)}¢` : `$${(Number(e.adjustedBalance) - (e.totalWithdrawn || 0)).toFixed(2)}`}</p>
                       {!e.isDisqualified && !e.isWithdrawn && <p className="text-[10px] text-gray-500 mt-0.5">{e.isCent ? `${Number(e.currentBalance).toFixed(2)}¢` : `$${Number(e.currentBalance).toFixed(2)}`}</p>}
