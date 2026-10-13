@@ -26,7 +26,7 @@ export default function ShareProgress({challenge,stats,growth,growthMode,isCent,
     const profit=stats.qualifiedProfit/(isCent?100:1);const primary=growthMode?(Number.isFinite(growth)?`${growth>=0?'+':''}${growth.toFixed(2)}%`:'—'):hideMoney?`${stats.qualifiedTrades} qualified trades`:`${profit>=0?'+':'−'}$${Math.abs(profit).toLocaleString(undefined,{maximumFractionDigits:2,minimumFractionDigits:2})}`;
     text(primary,72,650,112,(growthMode?growth:profit)>=0?'#66e0b6':'#ff7c8b',true);
     if(growthMode&&!hideMoney)text(`Qualified profit: ${profit<0?'−':''}$${Math.abs(profit).toFixed(2)} USD`,72,705,29,'#acbdd3');
-    c.fillStyle='#ffffff0a';c.fillRect(72,770,936,180);text('CATEGORY RANK',102,818,21,'#aabbd2');text(!stats.disqualified&&stats.rank?`#${stats.rank}`:'—',102,900,67,'#ffdb90',true,370);text('QUALIFIED TRADES',570,818,21,'#aabbd2');text(String(stats.qualifiedTrades),570,900,67,'#fff',true,400);
+    c.fillStyle='#ffffff0a';c.fillRect(72,770,936,180);text('RANK',102,818,21,'#aabbd2');text(!stats.disqualified&&stats.rank?`#${stats.rank}`:'—',102,900,67,'#ffdb90',true,370);text('QUALIFIED TRADES',570,818,21,'#aabbd2');text(String(stats.qualifiedTrades),570,900,67,'#fff',true,400);
    }
    c.fillStyle='#ffffff22';c.fillRect(72,1020,936,1);text('Follow my challenge.',72,1085,28,'#fff',true);text('winnerpip.com',72,1135,34,'#82baff',true);text('See the standings. Find your next challenge.',72,1175,20,'#aabbd2');
    const stamp=stats.lastUpdated?new Intl.DateTimeFormat('en-GB',{dateStyle:'medium',timeStyle:'short',timeZone:challenge.timezone||'UTC'}).format(new Date(stats.lastUpdated)):'No evaluated trades yet';
