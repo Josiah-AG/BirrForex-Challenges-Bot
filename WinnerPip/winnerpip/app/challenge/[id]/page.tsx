@@ -761,7 +761,6 @@ export default function ChallengeDashboard() {
                 <MiniStat label="Removed" value={`${formatBalance(myStats.profitRemoved, myStats.accountType, effectiveIsCent)}`} icon={<Target size={14} />} color="text-royal" />
                 <MiniStat label="Pass%" value={myStats.totalTrades > 0 ? `${Math.round((myStats.qualifiedTrades / myStats.totalTrades) * 100)}%` : "—"} icon={<Shield size={14} />} color="text-profit" />
               </div>
-              <ShareProgress challenge={challenge} stats={myStats} growth={growthPercent} growthMode={!!isGrowthMode} isCent={effectiveIsCent} host={preAuthChallenge} />
               {myStats.totalTrades > 0 ? (
                 <BalanceChart authToken={typeof window !== "undefined" ? localStorage.getItem("wp_token") || undefined : undefined} isCent={effectiveIsCent} height={130} />
               ) : (
@@ -770,6 +769,8 @@ export default function ChallengeDashboard() {
                 </div>
               )}
             </div>
+
+              <ShareProgress challenge={challenge} stats={myStats} growth={growthPercent} growthMode={!!isGrowthMode} isCent={effectiveIsCent} host={preAuthChallenge} />
 
             {/* TAB NAVIGATION */}
             <div className="flex gap-1 p-1 glass rounded-xl border border-white/10 mb-6">
@@ -1222,7 +1223,6 @@ export default function ChallengeDashboard() {
                 <MiniStat label="Removed" value={`${formatBalance(myStats.profitRemoved, myStats.accountType, effectiveIsCent)}`} icon={<Target size={14} />} color="text-royal" />
                 <MiniStat label="Pass%" value={myStats.totalTrades > 0 ? `${Math.round((myStats.qualifiedTrades / myStats.totalTrades) * 100)}%` : "—"} icon={<Shield size={14} />} color="text-profit" />
               </div>
-              <ShareProgress challenge={challenge} stats={myStats} growth={growthPercent} growthMode={!!isGrowthMode} isCent={effectiveIsCent} host={preAuthChallenge} />
               {myStats.totalTrades > 0 ? (
                 <BalanceChart authToken={typeof window !== "undefined" ? localStorage.getItem("wp_token") || undefined : undefined} isCent={effectiveIsCent} height={130} />
               ) : (
@@ -1231,6 +1231,8 @@ export default function ChallengeDashboard() {
                 </div>
               )}
             </div>
+
+              <ShareProgress challenge={challenge} stats={myStats} growth={growthPercent} growthMode={!!isGrowthMode} isCent={effectiveIsCent} host={preAuthChallenge} />
 
             {/* TAB NAVIGATION */}
             <div className="flex gap-1 p-1 glass rounded-xl border border-white/10 mb-6">
