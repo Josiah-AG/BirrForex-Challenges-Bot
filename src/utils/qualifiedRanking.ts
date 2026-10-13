@@ -15,5 +15,5 @@ export function leaderboardOrderSql(category: string, growth = false): string {
          WHEN ${qualifiedRankingSql()} <= 0 THEN 2 ELSE 0 END,
     ${(category === 'demo' || category === 'real') ? 'l.rank ASC NULLS LAST'
       : `${growth ? 'COALESCE(l.growth_percent,0)' : qualifiedRankingSql()} DESC,
-         l.total_trades DESC, l.last_trade_time ASC NULLS LAST, r.registered_at ASC, r.id ASC`}`;
+         l.qualified_trades DESC, l.last_trade_time ASC NULLS LAST, r.registered_at ASC, r.id ASC`}`;
 }

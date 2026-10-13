@@ -8,7 +8,7 @@ import { db } from '../database/db';
  * Leaderboard Service — Separated from evaluation engine
  *
  * Ranking Tiers (per account_type):
- * Tier 1: Active traders (has trades, balance > 0, not DQ'd) — by adjusted_balance DESC, total_trades DESC, last_trade_time ASC, avg profit/trade DESC
+ * Tier 1: Active traders (has trades, balance > 0, not DQ'd) — by adjusted_balance DESC, qualified_trades DESC, last_trade_time ASC, avg profit/trade DESC
  * Tier 2: Haven't started trading (0 trades, not DQ'd) — by registration date ASC
  * Tier 3: Blown accounts (had trades, balance ≤ 0, not DQ'd) — by zero_balance_at DESC
  * Tier 4: Disqualified — by disqualified_at DESC
@@ -73,7 +73,7 @@ export class LeaderboardService {
       // disqualified account can still show a positive raw broker balance while
       // its qualified balance is deeply negative, and that account belongs in
       // Tier 2 with the other negative accounts, not floating above them here.
-      // Sort: 1) balance DESC  2) trades DESC  3) last trade earliest  4) registered earliest (stable tiebreaker)
+      // Sort: 1) balance DESC  2) qualified trades DESC  3) last trade earliest  4) registered earliest (stable tiebreaker)
       // Tier 1: active accounts with positive effective balance (withdrawn accounts
       // are treated as 0 regardless of their stored adjusted_balance)
       const tier1SortExpr = rankByGrowth
@@ -84,7 +84,7 @@ export class LeaderboardService {
         `UPDATE wp_leaderboard SET rank = sub.rn FROM (
           SELECT l.id, ROW_NUMBER() OVER (
             ORDER BY ${tier1SortExpr},
-                     l.total_trades DESC,
+                     l.qualified_trades DESC,
                      l.last_trade_time ASC NULLS LAST,
                      r.registered_at ASC, l.registration_id ASC
           ) as rn
@@ -112,7 +112,7 @@ export class LeaderboardService {
       // Tier 2a: withdrawn accounts — exited voluntarily, rank above blown, below active
       await db.query(
         `UPDATE wp_leaderboard SET rank = sub.rn FROM (
-          SELECT id, (ROW_NUMBER() OVER (ORDER BY total_trades DESC, registration_id ASC)) + $3 as rn
+          SELECT id, (ROW_NUMBER() OVER (ORDER BY qualified_trades DESC, registration_id ASC)) + $3 as rn
           FROM wp_leaderboard
           WHERE challenge_id=$1 AND account_type=$2 AND is_disqualified=false
             AND COALESCE(is_withdrawn, false) = true
@@ -137,7 +137,7 @@ export class LeaderboardService {
         `UPDATE wp_leaderboard SET rank = sub.rn FROM (
           SELECT id, (ROW_NUMBER() OVER (
             ORDER BY ${tier2bSortExpr},
-                     total_trades DESC, registration_id ASC
+                     qualified_trades DESC, registration_id ASC
           )) + $3 as rn
           FROM wp_leaderboard l
           WHERE challenge_id=$1 AND account_type=$2 AND is_disqualified=false
@@ -166,7 +166,7 @@ export class LeaderboardService {
         `UPDATE wp_leaderboard SET rank = sub.rn FROM (
           SELECT id, (ROW_NUMBER() OVER (
             ORDER BY ${tier2cSortExpr},
-                     total_trades DESC,
+                     qualified_trades DESC,
                      zero_balance_at DESC NULLS LAST, registration_id ASC
           )) + $3 as rn
           FROM wp_leaderboard l
