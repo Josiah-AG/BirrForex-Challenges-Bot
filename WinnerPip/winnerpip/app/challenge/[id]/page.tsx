@@ -59,6 +59,7 @@ interface ChallengeInfo {
   targetPercent?: number | null;
 }
 interface MyStats {
+  confirmedWinner?: {place:number}|null;
   totalWithdrawn?: number;
   nickname: string; email: string; accountNumber: string; accountType: string; accountSubtype: string | null; server: string;
   rank: number | null; currentBalance: number; adjustedBalance: number;
@@ -233,6 +234,7 @@ export default function ChallengeDashboard() {
       if (String(data.challenge?.id) !== String(params.id)) {setIsLoggedIn(false);setLoading(false);return;}
       setChallenge(data.challenge);
       const statsObj = {
+        confirmedWinner: data.me.confirmedWinner || null,
         nickname: data.me.nickname,
         email: data.me.email || '',
         accountNumber: data.me.accountNumber,
@@ -1897,10 +1899,10 @@ export default function ChallengeDashboard() {
 
       {showCompletedPopup && myStats && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-hidden" onClick={() => setShowCompletedPopup(false)}>
-          <div className="glass rounded-2xl max-w-md w-full border border-gold/30 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+          <div className="glass rounded-2xl max-w-md w-full max-h-[90dvh] overflow-y-auto overscroll-contain border border-gold/30" onClick={(e) => e.stopPropagation()}>
             <div className="p-6 text-center">
               <Trophy className="w-16 h-16 text-gold mx-auto mb-4" />
-              <h2 className="text-2xl font-bold text-white mb-2">Challenge Completed</h2>
+              <h2 className="text-2xl font-bold text-white mb-2">{myStats.confirmedWinner ? "You won!" : "Challenge Completed"}</h2>
               <p className="text-gray-400 text-sm mb-6">Final results are in. {myStats.rank ? `You finished #${myStats.rank}` : "Check your final standing below."}</p>
               <div className="grid grid-cols-2 gap-3 mb-4">
                 <div className="bg-white/5 rounded-xl p-3 text-center">
@@ -1934,6 +1936,7 @@ export default function ChallengeDashboard() {
                   <p className="text-lg font-bold text-loss">{recentTrades.length > 0 ? formatBalance(Math.min(...recentTrades.map(t => t.profit)), myStats.accountType, effectiveIsCent) : "—"}</p>
                 </div>
               </div>
+              {challenge && myStats.confirmedWinner && <ShareProgress challenge={challenge} stats={myStats} growth={growthPercent} growthMode={!!isGrowthMode} isCent={effectiveIsCent} host={preAuthChallenge} />}
               <button onClick={() => setShowCompletedPopup(false)} className="w-full flex items-center justify-center gap-2 p-4 rounded-xl bg-gradient-brand hover:opacity-90 text-white font-semibold transition-all shadow-lg shadow-royal/20">
                 View Full Dashboard
               </button>

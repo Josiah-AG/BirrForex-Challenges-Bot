@@ -1824,6 +1824,14 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
 
     // All views use the published rank, including growth mode and deterministic ties.
     const computedRank=leaderboard?.rank ?? null;
+    let confirmedWinner: {place:number}|null=null;
+    const finalState=(await db.query('SELECT status,winners_posted_at FROM trading_challenges WHERE id=$1',[cId])).rows[0];
+    if((finalState?.status==='completed'||finalState?.winners_posted_at)&&!registration.disqualified){
+      const winners=await selectWinnerPipWinners(Number(cId),registration.account_type);
+      const winnerIndex=winners.findIndex((w:any)=>Number(w.registration_id)===Number(registrationId));
+      if(winnerIndex>=0)confirmedWinner={place:winnerIndex+1};
+    }
+
 
     // Determine the user's actual starting balance — never fake with challenge starting_balance
     // For pre-start: prefer last_known_balance (most recent VPS check) — it's the real current balance.
@@ -1915,6 +1923,7 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
         actualStartingBalance: actualStartingBalance,
         lastPullAt: registration.last_pull_at || null,
         balanceWarning: registration.balance_warning || false,
+        confirmedWinner,
         rank: computedRank || leaderboard?.rank || null,
         rankChange: (leaderboard?.previous_rank && leaderboard?.rank) ? (leaderboard.previous_rank - leaderboard.rank) : null,
         // Pre-start: use actualStartingBalance (derived from last_known_balance) over stale leaderboard values

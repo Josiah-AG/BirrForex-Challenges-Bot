@@ -2,36 +2,38 @@
 import {useEffect,useState} from 'react';
 import {createPortal} from 'react-dom';
 import {Share2,Instagram} from 'lucide-react';
-type Props={challenge:{id:number;title:string;status:string;timezone?:string};stats:{nickname:string;accountType:string;rank:number|null;qualifiedProfit:number;qualifiedTrades:number;totalTrades:number;lastUpdated:string|null;disqualified:boolean};growth:number;growthMode:boolean;isCent:boolean;host:{hostId?:number;hostDisplayName?:string}|null;beforeStart?:boolean};
+type Props={challenge:{id:number;title:string;status:string;timezone?:string};stats:{confirmedWinner?:{place:number}|null;nickname:string;accountType:string;rank:number|null;qualifiedProfit:number;qualifiedTrades:number;totalTrades:number;lastUpdated:string|null;disqualified:boolean};growth:number;growthMode:boolean;isCent:boolean;host:{hostId?:number;hostDisplayName?:string}|null;beforeStart?:boolean};
 export default function ShareProgress({challenge,stats,growth,growthMode,isCent,host,beforeStart=false}:Props){
  const [open,setOpen]=useState(false),[hideMoney,setHideMoney]=useState(false),[url,setUrl]=useState(''),[file,setFile]=useState<File|null>(null),[error,setError]=useState(''),[notice,setNotice]=useState('');
- const label=beforeStart?'Share my participation':challenge.status==='completed'?'Share my result':'Share my progress';
+ const winner=!!stats.confirmedWinner&&!stats.disqualified;
+ const label=winner?'Share my win':beforeStart?'Share my participation':challenge.status==='completed'?'Share my result':'Share my progress';
  const link=`https://winnerpip.com/challenge/${challenge.id}`;
- const caption=`${beforeStart?"I’m participating in":"Follow my progress in"} ${challenge.title} on WinnerPip!\nSee the challenge and standings: ${link}\n#winnerpip`;
+ const caption=`${winner?`I finished #${stats.confirmedWinner!.place} in`:beforeStart?"I’m participating in":"Follow my progress in"} ${challenge.title} on WinnerPip!\nSee the challenge and standings: ${link}\n#winnerpip`;
  useEffect(()=>{if(!open)return;const y=window.scrollY;const body=document.body;const old={position:body.style.position,top:body.style.top,width:body.style.width,overflow:body.style.overflow};Object.assign(body.style,{position:'fixed',top:`-${y}px`,width:'100%',overflow:'hidden'});const key=(e:KeyboardEvent)=>{if(e.key==='Escape')setOpen(false)};document.addEventListener('keydown',key);return()=>{Object.assign(body.style,old);window.scrollTo(0,y);document.removeEventListener('keydown',key)}},[open]);
  useEffect(()=>{
   if(!open||!host)return;let cancelled=false,objectUrl='';setFile(null);setUrl('');setError('');
   (async()=>{
    const canvas=document.createElement('canvas');canvas.width=1080;canvas.height=1350;const c=canvas.getContext('2d');if(!c)throw Error('Image creation is unavailable');
-   const gradient=c.createLinearGradient(0,0,1080,1350);gradient.addColorStop(0,'#142c4b');gradient.addColorStop(1,'#080f20');c.fillStyle=gradient;c.fillRect(0,0,1080,1350);
+   const gradient=c.createLinearGradient(0,0,1080,1350);gradient.addColorStop(0,winner?'#40351d':'#142c4b');gradient.addColorStop(1,'#080f20');c.fillStyle=gradient;c.fillRect(0,0,1080,1350);
    const text=(value:string,x:number,y:number,size:number,color='#eff4ff',bold=false,max=936)=>{c.font=`${bold?700:400} ${size}px Arial`;while(c.measureText(value).width>max&&size>16){size--;c.font=`${bold?700:400} ${size}px Arial`}c.fillStyle=color;c.fillText(value,x,y,max)};
    const logo=async(src:string,x:number,size=90)=>{const img=new Image();img.src=src;await img.decode();const scale=Math.min(size/img.width,size/img.height);c.drawImage(img,x,65,img.width*scale,img.height*scale)};
    if(!host.hostId)await logo('/birrforex-logo.png',72);await logo('/share-winnerpip.png',host.hostId?72:190,110);text('WinnerPip',host.hostId?205:325,125,36,'#fff',true,500);
    text(host.hostId?(host.hostDisplayName||'Independent host'):'BirrForex',72,235,23,'#82baff',false);
    text(challenge.title,72,307,64,'#fff',true);text(`${stats.nickname} · ${stats.accountType==='real'?'Real':'Demo'} account`,72,363,30,'#abb9cd');
    const state=stats.disqualified?'Disqualified':beforeStart?'Registered':challenge.status==='active'?'In progress':challenge.status==='completed'?'Completed':'Awaiting final results';
-   text(state.toUpperCase(),72,436,24,'#d4b777',true);
+   text(winner?'CHALLENGE WINNER':state.toUpperCase(),72,436,24,'#d4b777',true);
+   if(winner){c.strokeStyle='#d4b777';c.lineWidth=3;c.strokeRect(35,35,1010,1280);text(`#${stats.confirmedWinner!.place}`,810,460,88,'#ffda80',true,190);}
    if(beforeStart){text('I’m taking',72,600,92,'#fff',true);text('the challenge.',72,708,92,'#66e0b6',true);text('Follow my journey on WinnerPip.',72,805,32,'#b7c7dc');}
    else{
     text(growthMode?'QUALIFIED ACCOUNT GROWTH':hideMoney?'MY CHALLENGE PROGRESS':'QUALIFIED PROFIT',72,520,23,'#aabbd2');
     const profit=stats.qualifiedProfit/(isCent?100:1);const primary=growthMode?(Number.isFinite(growth)?`${growth>=0?'+':''}${growth.toFixed(2)}%`:'—'):hideMoney?`${stats.qualifiedTrades} qualified trades`:`${profit>=0?'+':'−'}$${Math.abs(profit).toLocaleString(undefined,{maximumFractionDigits:2,minimumFractionDigits:2})}`;
     text(primary,72,650,112,(growthMode?growth:profit)>=0?'#66e0b6':'#ff7c8b',true);
     if(growthMode&&!hideMoney)text(`Qualified profit: ${profit<0?'−':''}$${Math.abs(profit).toFixed(2)} USD`,72,705,29,'#acbdd3');
-    c.fillStyle='#ffffff0a';c.fillRect(72,770,936,180);text('RANK',102,818,21,'#aabbd2');text(!stats.disqualified&&stats.rank?`#${stats.rank}`:'—',102,900,67,'#ffdb90',true,370);text('QUALIFIED TRADES',570,818,21,'#aabbd2');text(String(stats.qualifiedTrades),570,900,67,'#fff',true,400);
+    c.fillStyle='#ffffff0a';c.fillRect(72,770,936,180);text(winner?'WINNING PLACE':'RANK',102,818,21,'#aabbd2');text(winner?`#${stats.confirmedWinner!.place}`:!stats.disqualified&&stats.rank?`#${stats.rank}`:'—',102,900,67,'#ffdb90',true,370);text('QUALIFIED TRADES',570,818,21,'#aabbd2');text(String(stats.qualifiedTrades),570,900,67,'#fff',true,400);
    }
-   c.fillStyle='#ffffff22';c.fillRect(72,1020,936,1);text('Follow my challenge.',72,1085,28,'#fff',true);text('winnerpip.com',72,1135,34,'#82baff',true);text('See the standings. Find your next challenge.',72,1175,20,'#aabbd2');
+   c.fillStyle='#ffffff22';c.fillRect(72,1020,936,1);text(winner?'Proud of this finish.':'Follow my challenge.',72,1085,28,'#fff',true);text('winnerpip.com',72,1135,34,'#82baff',true);text('See the standings. Find your next challenge.',72,1175,20,'#aabbd2');
    const stamp=stats.lastUpdated?new Intl.DateTimeFormat('en-GB',{dateStyle:'medium',timeStyle:'short',timeZone:challenge.timezone||'UTC'}).format(new Date(stats.lastUpdated)):'No evaluated trades yet';
-   text(beforeStart?'Registration snapshot':`Stats updated: ${stamp} · ${challenge.timezone||'UTC'}`,72,1255,17,'#889bb5');text('Snapshot of challenge progress · Not a winner announcement',72,1285,17,'#889bb5');
+   text(beforeStart?'Registration snapshot':`Stats updated: ${stamp} · ${challenge.timezone||'UTC'}`,72,1255,17,'#889bb5');text(winner?'Confirmed challenge winner · '+(stats.accountType==='real'?'Real':'Demo')+' category':'Snapshot of challenge progress · Not a winner announcement',72,1285,17,'#889bb5');
    const blob=await new Promise<Blob>((resolve,reject)=>canvas.toBlob(b=>b?resolve(b):reject(Error('Could not create image')),'image/png'));if(cancelled)return;objectUrl=URL.createObjectURL(blob);setUrl(objectUrl);setFile(new File([blob],'winnerpip-progress.png',{type:'image/png'}));
   })().catch(()=>{if(!cancelled)setError('Could not prepare your image. Close and try again.');});return()=>{cancelled=true;if(objectUrl)URL.revokeObjectURL(objectUrl)};
  },[open,hideMoney,challenge,stats,growth,growthMode,isCent,host,beforeStart]);
