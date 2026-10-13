@@ -1,3 +1,4 @@
+import {tradeGrowthContext,withTradeGrowth} from '../services/tradeGrowthDisplay';
 import { queuedPullProgress } from '../utils/queuedPullProgress';
 import { pullBatchReport } from '../utils/pullBatchReport';
 import { countAboveTargets } from '../services/challengeMetrics';
@@ -401,11 +402,12 @@ router.get('/challenge/:id/full-participants', async (req: any, res: Response) =
     if (search && result.rows.length > 0) {
       for (const p of result.rows.slice(0, 1)) {
         const trades = await db.query(
-          `SELECT symbol, trade_type, volume, profit, is_qualified, violations
+          `SELECT symbol, trade_type, volume, profit, commission, swap, is_qualified, violations
            FROM wp_trades WHERE challenge_id=$1 AND registration_id=$2
            ORDER BY close_time DESC LIMIT 10`, [challengeId, p.id]);
+        const growthContext=await tradeGrowthContext(p.id);
         recentTradesMap[p.id] = trades.rows.map((t: any) => ({
-          symbol: t.symbol, type: t.trade_type, volume: parseFloat(t.volume),
+          ...withTradeGrowth(growthContext,t),symbol: t.symbol, type: t.trade_type, volume: parseFloat(t.volume),
           profit: parseFloat(t.profit), isQualified: t.is_qualified, violations: t.violations || [],
         }));
       }
@@ -1050,7 +1052,8 @@ router.get('/challenge/:id/user-trades', async (req: any, res: Response) => {
     const balanceOps = await db.query(
       `SELECT type, amount, time FROM wp_balance_ops WHERE challenge_id=$1 AND registration_id=$2 ORDER BY time DESC LIMIT 50`, [challengeId, registrationId]);
 
-    return res.json({ trades: trades.rows, balanceOps: balanceOps.rows });
+    const growthContext=await tradeGrowthContext(registrationId);
+    return res.json({ trades: trades.rows.map((t:any)=>({...t,...withTradeGrowth(growthContext,t)})), balanceOps: balanceOps.rows });
   } catch (error) {
     return res.json({ trades: [], balanceOps: [] });
   }

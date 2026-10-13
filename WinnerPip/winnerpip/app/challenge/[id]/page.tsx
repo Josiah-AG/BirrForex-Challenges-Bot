@@ -1,4 +1,5 @@
 "use client";
+import TradePnl from '@/components/TradePnl';
 
 import TimeWithZone from "@/components/TimeWithZone";
 import BackButton from "@/components/BackButton";
@@ -22,6 +23,7 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
 // ==================== TYPES ====================
 interface BalanceOperation { ticket: string; opType: string; amount: number; closeTime: string; comment: string; }
 interface Trade {
+  _group?: Trade[]; tradeGrowthMode?: boolean; tradeStartingBalance?: number | null; tradeIsCent?: boolean; netPnl?: number;
   nativeSlTp?: { source: string; sl: number; tp: number; time_msc: number } | null;
   ticket: number; positionId?: number; symbol: string; type: string; volume: number;
   openingVolume?: number | null;
@@ -809,7 +811,7 @@ export default function ChallengeDashboard() {
                           <td className="py-3 px-4 text-xs text-gray-400">{formatDate(t.closeTime)}</td>
                           <td className="py-3 px-4 text-sm text-white font-semibold">{t.symbol}</td>
                           <td className="py-3 px-4"><span className={`px-2 py-1 rounded-md text-[10px] font-semibold ${t.type === "Buy" ? "bg-profit/10 text-profit" : "bg-loss/10 text-loss"}`}>{t.type}</span></td>
-                          <td className={`py-3 px-4 text-right text-sm font-bold ${t.profit >= 0 ? "text-profit" : "text-loss"}`}>{t.profit >= 0 ? "+" : ""}${t.profit.toFixed(2)}</td>
+                          <td className={`py-3 px-4 text-right text-sm font-bold ${t.profit >= 0 ? "text-profit" : "text-loss"}`}><TradePnl trade={t}>{t.profit >= 0 ? "+" : ""}${t.profit.toFixed(2)}</TradePnl></td>
                           <td className="py-3 px-4 text-center text-xs text-gray-400">{t.volume}</td>
                           <td className="py-3 px-4 text-center">{tradeStatusCell(t)}</td>
                         </tr>
@@ -825,7 +827,7 @@ export default function ChallengeDashboard() {
                           <td className="py-2 px-4 text-xs text-gray-400">{formatDate(first.openTime)}</td>
                           <td className="py-2 px-4 text-sm text-white font-semibold">{first.symbol} <span className="text-[10px] text-gray-500 font-normal ml-1">{group.length} closes</span></td>
                           <td className="py-2 px-4"><span className={`px-2 py-1 rounded-md text-[10px] font-semibold ${first.type === "Buy" ? "bg-profit/10 text-profit" : "bg-loss/10 text-loss"}`}>{first.type}</span></td>
-                          <td className={`py-2 px-4 text-right text-sm font-bold ${totalProfit >= 0 ? "text-profit" : "text-loss"}`}>{totalProfit >= 0 ? "+" : ""}${totalProfit.toFixed(2)}</td>
+                          <td className={`py-2 px-4 text-right text-sm font-bold ${totalProfit >= 0 ? "text-profit" : "text-loss"}`}><TradePnl trade={first} group={group}>{totalProfit >= 0 ? "+" : ""}${totalProfit.toFixed(2)}</TradePnl></td>
                           <td className="py-2 px-4 text-center text-xs text-gray-400">{totalVol.toFixed(2)}</td>
                           <td className="py-2 px-4 text-center">{groupStatusCell(status)}</td>
                         </tr>
@@ -834,7 +836,7 @@ export default function ChallengeDashboard() {
                             <tr onClick={() => setSelectedTrade(t)} className={`border-b ${!t.isQualified && t.violations?.length > 0 ? "border-white/0" : "border-white/5"} hover:bg-white/5 cursor-pointer transition-colors ${!t.isQualified ? "bg-loss/5" : ""}`}>
                               <td className="py-2 pl-8 pr-4 text-xs text-gray-500">└ {formatTimeEAT(t.closeTime)}</td>
                               <td></td><td></td>
-                              <td className={`py-2 px-4 text-right text-xs font-semibold ${t.profit >= 0 ? "text-profit" : "text-loss"}`}>{t.profit >= 0 ? "+" : ""}${t.profit.toFixed(2)}</td>
+                              <td className={`py-2 px-4 text-right text-xs font-semibold ${t.profit >= 0 ? "text-profit" : "text-loss"}`}><TradePnl trade={t}>{t.profit >= 0 ? "+" : ""}${t.profit.toFixed(2)}</TradePnl></td>
                               <td className="py-2 px-4 text-center text-xs text-gray-400">{t.volume}</td>
                               <td className="py-2 px-4 text-center">{tradeStatusCell(t)}</td>
                             </tr>
@@ -1269,7 +1271,7 @@ export default function ChallengeDashboard() {
                           <td className="py-3 px-4 text-xs text-gray-400">{formatDate(t.closeTime)}</td>
                           <td className="py-3 px-4 text-sm text-white font-semibold">{t.symbol}</td>
                           <td className="py-3 px-4"><span className={`px-2 py-1 rounded-md text-[10px] font-semibold ${t.type === "Buy" ? "bg-profit/10 text-profit" : "bg-loss/10 text-loss"}`}>{t.type}</span></td>
-                          <td className={`py-3 px-4 text-right text-sm font-bold ${t.profit >= 0 ? "text-profit" : "text-loss"}`}>{t.profit >= 0 ? "+" : ""}${t.profit.toFixed(2)}</td>
+                          <td className={`py-3 px-4 text-right text-sm font-bold ${t.profit >= 0 ? "text-profit" : "text-loss"}`}><TradePnl trade={t}>{t.profit >= 0 ? "+" : ""}${t.profit.toFixed(2)}</TradePnl></td>
                           <td className="py-3 px-4 text-center text-xs text-gray-400">{t.volume}</td>
                           <td className="py-3 px-4 text-center">{tradeStatusCell(t)}</td>
                         </tr>
@@ -1285,7 +1287,7 @@ export default function ChallengeDashboard() {
                           <td className="py-2 px-4 text-xs text-gray-400">{formatDate(first.openTime)}</td>
                           <td className="py-2 px-4 text-sm text-white font-semibold">{first.symbol} <span className="text-[10px] text-gray-500 font-normal ml-1">{group.length} closes</span></td>
                           <td className="py-2 px-4"><span className={`px-2 py-1 rounded-md text-[10px] font-semibold ${first.type === "Buy" ? "bg-profit/10 text-profit" : "bg-loss/10 text-loss"}`}>{first.type}</span></td>
-                          <td className={`py-2 px-4 text-right text-sm font-bold ${totalProfit >= 0 ? "text-profit" : "text-loss"}`}>{totalProfit >= 0 ? "+" : ""}${totalProfit.toFixed(2)}</td>
+                          <td className={`py-2 px-4 text-right text-sm font-bold ${totalProfit >= 0 ? "text-profit" : "text-loss"}`}><TradePnl trade={first} group={group}>{totalProfit >= 0 ? "+" : ""}${totalProfit.toFixed(2)}</TradePnl></td>
                           <td className="py-2 px-4 text-center text-xs text-gray-400">{totalVol.toFixed(2)}</td>
                           <td className="py-2 px-4 text-center">{groupStatusCell(status)}</td>
                         </tr>
@@ -1294,7 +1296,7 @@ export default function ChallengeDashboard() {
                             <tr onClick={() => setSelectedTrade(t)} className={`border-b ${!t.isQualified && t.violations?.length > 0 ? "border-white/0" : "border-white/5"} hover:bg-white/5 cursor-pointer transition-colors ${!t.isQualified ? "bg-loss/5" : ""}`}>
                               <td className="py-2 pl-8 pr-4 text-xs text-gray-500">└ {formatTimeEAT(t.closeTime)}</td>
                               <td></td><td></td>
-                              <td className={`py-2 px-4 text-right text-xs font-semibold ${t.profit >= 0 ? "text-profit" : "text-loss"}`}>{t.profit >= 0 ? "+" : ""}${t.profit.toFixed(2)}</td>
+                              <td className={`py-2 px-4 text-right text-xs font-semibold ${t.profit >= 0 ? "text-profit" : "text-loss"}`}><TradePnl trade={t}>{t.profit >= 0 ? "+" : ""}${t.profit.toFixed(2)}</TradePnl></td>
                               <td className="py-2 px-4 text-center text-xs text-gray-400">{t.volume}</td>
                               <td className="py-2 px-4 text-center">{tradeStatusCell(t)}</td>
                             </tr>
@@ -1506,7 +1508,7 @@ export default function ChallengeDashboard() {
               </div>
               <div className="bg-white/5 rounded-lg p-4 flex items-center justify-between">
                 <span className="text-sm text-gray-400">Net Profit/Loss</span>
-                <span className={`text-lg font-bold ${selectedTrade.profit >= 0 ? "text-profit" : "text-loss"}`}>{selectedTrade.profit >= 0 ? "+" : ""}${selectedTrade.profit.toFixed(2)}</span>
+                <span className={`text-lg font-bold ${selectedTrade.profit >= 0 ? "text-profit" : "text-loss"}`}><TradePnl trade={selectedTrade} group={selectedTrade._group}>{selectedTrade.profit >= 0 ? "+" : ""}${selectedTrade.profit.toFixed(2)}</TradePnl></span>
               </div>
               <div className={`p-4 rounded-xl border ${selectedTrade.slCheckResult === 'conflicting' ? "bg-amber-500/10 border-amber-400/30" : selectedTrade.slCheckPending ? "bg-gold/10 border-gold/30" : selectedTrade.isQualified ? "bg-profit/10 border-profit/20" : "bg-loss/10 border-loss/20"}`}>
                 {selectedTrade.slCheckResult === 'conflicting' ? (
@@ -1732,7 +1734,7 @@ export default function ChallengeDashboard() {
                                       </div>
                                     </div>
                                     <div className="text-right">
-                                      <p className={`text-xs font-bold ${t.profit >= 0 ? 'text-profit' : 'text-loss'}`}>{cur(t.profit)}</p>
+                                      <p className={`text-xs font-bold ${t.profit >= 0 ? 'text-profit' : 'text-loss'}`}><TradePnl trade={t}>{cur(t.profit)}</TradePnl></p>
                                       <p className="text-[10px] text-gray-500">{t.volume} lot {t.slCheckResult === 'conflicting' ? <span title="Under investigation." className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-amber-500/20 border border-amber-400/50 text-amber-400 text-[9px] font-bold cursor-help ml-1">?</span> : t.slCheckPending ? <span title="Max risk check pending — result may change" className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-gold/20 border border-gold/40 text-gold text-[9px] font-bold cursor-help ml-1">?</span> : !t.isQualified ? <span className="text-loss">🚩</span> : null}</p>
                                     </div>
                                   </div>
@@ -1758,7 +1760,7 @@ export default function ChallengeDashboard() {
                                       </div>
                                     </div>
                                     <div className="text-right">
-                                      <p className={`text-xs font-bold ${totalProfit >= 0 ? 'text-profit' : 'text-loss'}`}>{cur(totalProfit)}</p>
+                                      <p className={`text-xs font-bold ${totalProfit >= 0 ? 'text-profit' : 'text-loss'}`}><TradePnl trade={first} group={group}>{cur(totalProfit)}</TradePnl></p>
                                       <p className="text-[10px] text-gray-500">{totalVol.toFixed(2)} lot</p>
                                     </div>
                                   </div>
@@ -1769,7 +1771,7 @@ export default function ChallengeDashboard() {
                                       <p className="text-[10px] text-gray-500">└ → {fmtEAT(t.closeTime)}</p>
                                       <div className="flex items-center gap-3">
                                         <p className="text-[10px] text-gray-500">{t.volume} lot</p>
-                                        <p className={`text-[10px] font-semibold ${t.profit >= 0 ? 'text-profit' : 'text-loss'}`}>{cur(t.profit)}</p>
+                                        <p className={`text-[10px] font-semibold ${t.profit >= 0 ? 'text-profit' : 'text-loss'}`}><TradePnl trade={t}>{cur(t.profit)}</TradePnl></p>
                                         <span>{t.slCheckResult === 'conflicting' ? <span className="text-amber-400 text-[10px]">?</span> : !t.isQualified ? <span className="text-loss text-[10px]">🚩</span> : <span className="text-profit text-[10px]">✓</span>}</span>
                                       </div>
                                     </div>

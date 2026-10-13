@@ -1,4 +1,5 @@
 "use client";
+import TradePnl from '@/components/TradePnl';
 import {withWinnerPipSocials} from "@/lib/htmlExportSocials";
 import {rulesExportSummary} from "@/lib/rulesExportSummary";
 import CommercialOverview from "@/components/CommercialOverview";
@@ -1605,7 +1606,7 @@ export default function AdminDashboard() {
                 {!isGroup && <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Close</p><p className="text-white">{t.closePrice}</p><p className="text-[10px] text-gray-500"><TimeWithZone text={fmtEAT(t.closeTime)}/></p></div>}
                 <TradeProtectionLevel trade={t} kind="sl" />
                 <TradeProtectionLevel trade={t} kind="tp" />
-                <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">{isGroup ? 'Total Profit' : 'Profit'}</p><p className={`font-bold ${t.profit >= 0 ? 'text-profit' : 'text-loss'}`}>{cur(t.profit)}</p></div>
+                <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">{isGroup ? 'Total Profit' : 'Profit'}</p><p className={`font-bold ${t.profit >= 0 ? 'text-profit' : 'text-loss'}`}><TradePnl trade={t} group={t._group}>{cur(t.profit)}</TradePnl></p></div>
                 {!isGroup && <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Commission &amp; fees</p><p className="text-gray-300">{cur(t.commission ?? 0)}</p></div>}
                 {!isGroup && <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Swap</p><p className="text-gray-300">{cur(t.swap ?? 0)}</p></div>}
               </div>
@@ -1615,7 +1616,7 @@ export default function AdminDashboard() {
                   {group.map((x: any) => (
                     <div key={x.ticket} className={`flex justify-between items-center px-3 py-2 rounded-lg text-xs ${x.isQualified === false ? 'bg-loss/10 border border-loss/20' : 'bg-white/5'}`}>
                       <div><p className="text-gray-400">#{x.ticket} · <TimeWithZone text={fmtEAT(x.closeTime)}/></p><p className="text-[10px] text-gray-600">{x.volume} lot</p></div>
-                      <p className={`font-bold ${x.profit >= 0 ? 'text-profit' : 'text-loss'}`}>{cur(x.profit)}{x.isQualified === false ? ' 🚩' : ''}</p>
+                      <p className={`font-bold ${x.profit >= 0 ? 'text-profit' : 'text-loss'}`}><TradePnl trade={x}>{cur(x.profit)}</TradePnl>{x.isQualified === false ? ' 🚩' : ''}</p>
                     </div>
                   ))}
                 </div>
@@ -4832,7 +4833,7 @@ function PullsTab({ challenge, challengeId, pullHistory, terminalStatus, slFailu
                     <div className="bg-profit/5 border border-profit/20 rounded-xl p-3">
                       <p className="text-[10px] text-profit font-semibold uppercase tracking-wider mb-2">New Trades Found ({indivResult.newTrades.length})</p>
                       {indivResult.newTrades.slice(0, 5).map((nt: any, i: number) => (
-                        <p key={i} className="text-[10px] text-gray-300">#{nt.ticket} · {nt.symbol} · {nt.type} · <span className={nt.profit >= 0 ? "text-profit" : "text-loss"}>${nt.profit.toFixed(2)}</span></p>
+                        <p key={i} className="text-[10px] text-gray-300">#{nt.ticket} · {nt.symbol} · {nt.type} · <span className={nt.profit >= 0 ? "text-profit" : "text-loss"}><TradePnl trade={nt}>${nt.profit.toFixed(2)}</TradePnl></span></p>
                       ))}
                     </div>
                   )}

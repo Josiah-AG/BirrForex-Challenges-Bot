@@ -1,4 +1,5 @@
 "use client";
+import TradePnl from '@/components/TradePnl';
 import {useEffect,useState} from 'react';
 import {challengeTimestamp} from '@/lib/challengeTime';
 import {balanceOperationTime} from '@/lib/balanceOperationTime';
@@ -110,7 +111,7 @@ export default function AdminLeaderboardHistory({challengeId,selectedParticipant
                                   </div>
                                 </div>
                                 <div className="text-right">
-                                  <p className={`text-xs font-bold ${t.profit >= 0 ? 'text-profit' : 'text-loss'}`}>{c(t.profit)}</p>
+                                  <p className={`text-xs font-bold ${t.profit >= 0 ? 'text-profit' : 'text-loss'}`}><TradePnl trade={t}>{c(t.profit)}</TradePnl></p>
                                   <p className="text-[10px] text-gray-500">{t.volume} lot {t.slCheckResult === 'conflicting' ? <span className="text-amber-400 ml-1">?</span> : t.slCheckPending ? <span className="text-gold ml-1" title="Max risk check pending — result may change">?</span> : !t.isQualified ? <span className="text-loss">🚩</span> : null}</p>
                                 </div>
                               </div>
@@ -136,7 +137,7 @@ export default function AdminLeaderboardHistory({challengeId,selectedParticipant
                                   </div>
                                 </div>
                                 <div className="text-right">
-                                  <p className={`text-xs font-bold ${totalProfit >= 0 ? 'text-profit' : 'text-loss'}`}>{c(totalProfit)}</p>
+                                  <p className={`text-xs font-bold ${totalProfit >= 0 ? 'text-profit' : 'text-loss'}`}><TradePnl trade={first} group={group}>{c(totalProfit)}</TradePnl></p>
                                   <p className="text-[10px] text-gray-500">{totalVol.toFixed(2)} lot {anyFlagged ? <span className="text-loss">🚩</span> : anyConflict ? <span className="text-amber-400">?</span> : null}</p>
                                 </div>
                               </div>
@@ -145,7 +146,7 @@ export default function AdminLeaderboardHistory({challengeId,selectedParticipant
                               <div key={t.ticket} onClick={() => setSelectedTrade(t)} className={`py-1.5 px-3 pl-6 border-t border-white/5 cursor-pointer hover:brightness-125 transition-all ${!t.isQualified ? 'bg-loss/5' : ''}`}>
                                 <div className="flex items-center justify-between">
                                   <p className="text-[10px] text-gray-500">└ → <TimeWithZone text={fmtEAT(t.closeTime)}/> · {t.volume} lot</p>
-                                  <p className={`text-[10px] font-semibold ${t.profit >= 0 ? 'text-profit' : 'text-loss'}`}>{c(t.profit)}</p>
+                                  <p className={`text-[10px] font-semibold ${t.profit >= 0 ? 'text-profit' : 'text-loss'}`}><TradePnl trade={t}>{c(t.profit)}</TradePnl></p>
                                 </div>
                                 {selectedParticipant.accountType === 'real' && <TradeRevenue value={revenues[String(t.ticket)]} />}
                               {!t.isQualified && t.violations?.length > 0 && <p className="text-[10px] text-loss mt-1 pl-2">⚠️ {typeof t.violations[0] === 'string' ? t.violations[0] : (t.violations[0] as any)?.detail || 'Rule violation'}</p>}

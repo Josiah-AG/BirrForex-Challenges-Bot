@@ -1,3 +1,4 @@
+import {tradeGrowthContext,withTradeGrowth} from '../services/tradeGrowthDisplay';
 import {dashboardCTA,challengeBalanceSummary,postDate} from '../utils/challengePosts';
 import {readCommercial,readCommercialParticipant,queueCommercial} from '../services/commercialAnalytics';
 import { challengeBalanceHistorySql, labelBalanceHistory } from '../utils/challengeBalanceHistory';
@@ -1627,6 +1628,7 @@ app.get('/api/challenges/:id/user-trades', async (req, res) => {
     if (reg.rows.length === 0) return res.json({ trades: [], total: 0, hasMore: false });
 
     const registrationId = reg.rows[0].id;
+    const growthContext=await tradeGrowthContext(registrationId);
     const startDate = reg.rows[0].start_date;
     const endDate = reg.rows[0].end_date;
 
@@ -1684,6 +1686,7 @@ app.get('/api/challenges/:id/user-trades', async (req, res) => {
       const posId = t.position_id || t.ticket;
       const openVol = openingVolsMap.get(posId);
       return {
+        ...withTradeGrowth(growthContext,t),
         ticket: t.ticket,
         positionId: t.position_id,
         symbol: t.symbol,
@@ -1735,6 +1738,7 @@ app.get('/api/challenges/:id/user-trades', async (req, res) => {
 app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
   try {
     const { registrationId } = req.user;
+    const growthContext=await tradeGrowthContext(registrationId);
     if (req.query.challengeId) {
       const context=await db.query('SELECT challenge_id FROM trading_registrations WHERE id=$1',[registrationId]);
       if(String(context.rows[0]?.challenge_id)!==String(req.query.challengeId))return res.status(409).json({error:'Sign in for the selected challenge'});
@@ -1938,7 +1942,8 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
         const posId = t.position_id || t.ticket;
         const openVol = openingVolumes.get(posId);
         return {
-          ticket: t.ticket,
+          ...withTradeGrowth(growthContext,t),
+        ticket: t.ticket,
           positionId: posId,
           symbol: t.symbol,
           type: t.trade_type,
@@ -3594,6 +3599,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/participant/:registration
     const registration=(await db.query('SELECT account_type,is_cent FROM trading_registrations WHERE id=$1 AND challenge_id=$2',[registrationId,id])).rows[0];
     if(!registration)return res.status(404).json({error:'Participant not found'});
     const args=[id,registrationId];
+    const growthContext=await tradeGrowthContext(registrationId);
     const base=`FROM wp_visible_trades_for($2) WHERE challenge_id=$1 AND registration_id=$2
       AND close_time >= (SELECT start_date - INTERVAL '3 hours' FROM trading_challenges WHERE id=$1)
       AND close_time <= (SELECT end_date + INTERVAL '27 hours' FROM trading_challenges WHERE id=$1)`;
@@ -3611,7 +3617,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/participant/:registration
     const balanceOps=await labelBalanceHistory(registrationId,(await db.query(challengeBalanceHistorySql,args)).rows);
     return res.json({total,page,pages,stats,revenueSummary,isCent:registration.is_cent,commercial:registration.account_type==='real',trades:trades.map((t:any)=>{
       const matches=rewards.filter((r:any)=>String(r.ticket)===String(t.ticket));
-      return {...t,ticket:String(t.ticket),generatedRevenue:matches.length?{
+      return {...t,...withTradeGrowth(growthContext,t),ticket:String(t.ticket),generatedRevenue:matches.length?{
         confirmed:matches.filter((r:any)=>r.state==='confirmed').reduce((s:number,r:any)=>s+Number(r.revenue),0),
         estimated:matches.filter((r:any)=>r.state==='estimated').reduce((s:number,r:any)=>s+Number(r.revenue),0),
         pending:matches.some((r:any)=>r.state==='pending'),method:matches.map((r:any)=>r.method).join('; ')

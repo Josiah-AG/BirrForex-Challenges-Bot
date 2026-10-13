@@ -1,4 +1,5 @@
 "use client";
+import TradePnl from '@/components/TradePnl';
 import {useEffect,useState} from 'react';
 import {challengeTimestamp} from '@/lib/challengeTime';
 import TimeWithZone from './TimeWithZone';
@@ -43,7 +44,7 @@ export default function AdminParticipantTrades({challengeId,registrationId,timez
     {loading&&<p className="text-xs text-gray-400">Loading trades…</p>}
     {!loading&&!error&&data?.trades.map((t:any)=><details key={t.ticket} className="rounded-xl border border-white/10 bg-white/5 p-3 text-xs">
       <summary className="cursor-pointer list-none [&::-webkit-details-marker]:hidden">
-        <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="font-semibold text-sm">{t.symbol} <span className={`text-[10px] font-medium ml-1 ${String(t.trade_type).toLowerCase()==='buy'?'text-emerald-400':'text-red-400'}`}>{t.trade_type}</span></p><p className="text-[11px] text-gray-400 mt-1">{Number(t.volume).toLocaleString(undefined,{maximumFractionDigits:4})} lots · {t.is_qualified?'Qualified':'Flagged'}</p></div><div className="text-right shrink-0"><p className="text-[10px] text-gray-500">Net P/L</p><p className={`font-semibold ${Number(t.profit)+Number(t.commission||0)+Number(t.swap||0)>=0?'text-emerald-400':'text-red-400'}`}>{money(Number(t.profit)+Number(t.commission||0)+Number(t.swap||0))}</p></div></div>
+        <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="font-semibold text-sm">{t.symbol} <span className={`text-[10px] font-medium ml-1 ${String(t.trade_type).toLowerCase()==='buy'?'text-emerald-400':'text-red-400'}`}>{t.trade_type}</span></p><p className="text-[11px] text-gray-400 mt-1">{Number(t.volume).toLocaleString(undefined,{maximumFractionDigits:4})} lots · {t.is_qualified?'Qualified':'Flagged'}</p></div><div className="text-right shrink-0"><p className="text-[10px] text-gray-500">Net P/L</p><p className={`font-semibold ${Number(t.profit)+Number(t.commission||0)+Number(t.swap||0)>=0?'text-emerald-400':'text-red-400'}`}><TradePnl trade={t}>{money(Number(t.profit)+Number(t.commission||0)+Number(t.swap||0))}</TradePnl></p></div></div>
         <p className="text-[10px] text-gray-500 mt-2">{time(t.close_time)}</p>
         <div className="flex items-center justify-between gap-2 mt-2 pt-2 border-t border-white/5">
           {data.commercial?<span className="text-blue-300">Revenue <strong>{t.generatedRevenue&&!t.generatedRevenue.pending?revenue(t.generatedRevenue.confirmed+t.generatedRevenue.estimated):'Pending'}</strong>{t.generatedRevenue?.estimated>0&&<span className="text-[10px] text-gray-400 ml-1">· Estimated</span>}</span>:<span className="text-gray-500">#{t.ticket}</span>}

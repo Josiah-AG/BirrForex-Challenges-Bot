@@ -1,4 +1,5 @@
 "use client";
+import TradePnl from '@/components/TradePnl';
 import {withWinnerPipSocials} from "@/lib/htmlExportSocials";
 import TimeWithZone from "@/components/TimeWithZone";
 import {challengeTimestamp} from "@/lib/challengeTime";
@@ -879,7 +880,7 @@ export default function HostDashboardPage() {
                     <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500">Last Pull</p><p className="text-sm font-semibold text-white"><TimeWithZone text={fmtDateTime(foundUser.lastPull)}/></p></div>
                     <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500">Partner</p><p className="text-sm font-semibold text-profit">{foundUser.partnerStatus || "OK"}</p></div>
                   </div>
-                  <div className="px-5 pb-3"><p className="text-xs font-semibold text-gray-300 mb-2">Recent Trades</p>{foundUser.recentTrades && foundUser.recentTrades.length > 0 ? <div className="space-y-2">{foundUser.recentTrades.map((t: any, i: number) => (<div key={i} className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10"><div className="flex items-center gap-3"><span className={`px-2 py-1 rounded text-[10px] font-bold ${(t.type || t.trade_type || '').toLowerCase() === "buy" ? "bg-profit/10 text-profit" : "bg-loss/10 text-loss"}`}>{t.type || t.trade_type}</span><div><p className="text-sm text-white font-semibold">{t.symbol}</p><p className="text-[10px] text-gray-500">{t.volume} lots</p></div></div><div className="text-right"><p className={`text-sm font-bold ${Number(t.profit) >= 0 ? "text-profit" : "text-loss"}`}>{cur(Number(t.profit), foundUser.isCent)}</p></div></div>))}</div> : <p className="text-sm text-gray-500">No trades yet</p>}</div>
+                  <div className="px-5 pb-3"><p className="text-xs font-semibold text-gray-300 mb-2">Recent Trades</p>{foundUser.recentTrades && foundUser.recentTrades.length > 0 ? <div className="space-y-2">{foundUser.recentTrades.map((t: any, i: number) => (<div key={i} className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10"><div className="flex items-center gap-3"><span className={`px-2 py-1 rounded text-[10px] font-bold ${(t.type || t.trade_type || '').toLowerCase() === "buy" ? "bg-profit/10 text-profit" : "bg-loss/10 text-loss"}`}>{t.type || t.trade_type}</span><div><p className="text-sm text-white font-semibold">{t.symbol}</p><p className="text-[10px] text-gray-500">{t.volume} lots</p></div></div><div className="text-right"><p className={`text-sm font-bold ${Number(t.profit) >= 0 ? "text-profit" : "text-loss"}`}><TradePnl trade={t}>{cur(Number(t.profit), foundUser.isCent)}</TradePnl></p></div></div>))}</div> : <p className="text-sm text-gray-500">No trades yet</p>}</div>
                   <div className="p-5 border-t border-white/10 space-y-2">
                     <button onClick={() => { setActiveTab("leaderboard"); setLeaderboardCategory(foundUser.accountType === 'demo' ? 'demo' : 'real'); setTimeout(() => { const entry = leaderboard.find((e: any) => e.nickname === foundUser.nickname || e.accountNumber === foundUser.accountNumber); if (entry) setSelectedParticipant(entry); }, 500); }} className="w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-gold/20 border border-gold/30 hover:bg-gold/30 text-gold font-semibold transition-all text-sm"><Trophy size={16} />View on Leaderboard #{foundUser.rank || '—'}</button>
                     <button onClick={async () => { if (!foundUser.id) return; try { const regId = foundUser.id; const res = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/export-user-trades?registration_id=${regId}`, { headers: { Authorization: `Bearer ${getToken()}` } }); if (!res.ok) { alert("Export failed"); return; } const data = await res.json(); const html = generateTradesHTML({...data, challenge: {...data.challenge, timezone: challengeTz}}); const blob = new Blob([withWinnerPipSocials(html)], {type:"text/html"}); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `${data.user?.nickname || foundUser.nickname}_MT5_history.html`; a.click(); URL.revokeObjectURL(url); } catch { alert("Export failed"); } }} className="w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 text-gray-300 font-semibold transition-all text-sm"><FileText size={16} />Export MT5 Trade History</button>
@@ -1085,7 +1086,7 @@ export default function HostDashboardPage() {
                             <div key={j} className="p-3 bg-loss/5 rounded-lg border border-loss/10">
                               <div className="flex justify-between items-center mb-1">
                                 <span className="text-xs text-white font-medium">{t.symbol} #{t.ticket}</span>
-                                <span className={`text-xs font-bold ${parseFloat(t.profit) >= 0 ? 'text-profit' : 'text-loss'}`}>${parseFloat(t.profit || 0).toFixed(2)}</span>
+                                <span className={`text-xs font-bold ${parseFloat(t.profit) >= 0 ? 'text-profit' : 'text-loss'}`}><TradePnl trade={t}>${parseFloat(t.profit || 0).toFixed(2)}</TradePnl></span>
                               </div>
                               {tradeViolations.map((v: string, k: number) => (
                                 <p key={k} className="text-[10px] text-loss">&#9888;&#65039; {v}</p>
@@ -1947,7 +1948,7 @@ export default function HostDashboardPage() {
                                   </div>
                                 </div>
                                 <div className="text-right">
-                                  <p className={`text-xs font-bold ${Number(t.profit) >= 0 ? 'text-profit' : 'text-loss'}`}>{c(Number(t.profit))}</p>
+                                  <p className={`text-xs font-bold ${Number(t.profit) >= 0 ? 'text-profit' : 'text-loss'}`}><TradePnl trade={t}>{c(Number(t.profit))}</TradePnl></p>
                                   <p className="text-[10px] text-gray-500">{t.volume} lot {!isQualified ? <span className="text-loss">🚩</span> : null}</p>
                                 </div>
                               </div>
@@ -1974,7 +1975,7 @@ export default function HostDashboardPage() {
                                   </div>
                                 </div>
                                 <div className="text-right">
-                                  <p className={`text-xs font-bold ${totalProfit >= 0 ? 'text-profit' : 'text-loss'}`}>{c(totalProfit)}</p>
+                                  <p className={`text-xs font-bold ${totalProfit >= 0 ? 'text-profit' : 'text-loss'}`}><TradePnl trade={first} group={group}>{c(totalProfit)}</TradePnl></p>
                                   <p className="text-[10px] text-gray-500">{totalVol.toFixed(2)} lot {anyFlagged ? <span className="text-loss">🚩</span> : null}</p>
                                 </div>
                               </div>
@@ -1987,7 +1988,7 @@ export default function HostDashboardPage() {
                                 <div key={t.ticket} onClick={() => setSelectedTrade(t)} className={`py-1.5 px-3 pl-6 border-t border-white/5 cursor-pointer hover:brightness-125 transition-all ${!tIsQual ? 'bg-loss/5' : ''}`}>
                                   <div className="flex items-center justify-between">
                                     <p className="text-[10px] text-gray-500">└ → <TimeWithZone text={fmtEAT(tClose)}/> · {t.volume} lot</p>
-                                    <p className={`text-[10px] font-semibold ${Number(t.profit) >= 0 ? 'text-profit' : 'text-loss'}`}>{c(Number(t.profit))}</p>
+                                    <p className={`text-[10px] font-semibold ${Number(t.profit) >= 0 ? 'text-profit' : 'text-loss'}`}><TradePnl trade={t}>{c(Number(t.profit))}</TradePnl></p>
                                   </div>
                                   {!tIsQual && tViolations.length > 0 && <p className="text-[10px] text-loss mt-1 pl-2">⚠️ {tViolations[0]}</p>}
                                 </div>
@@ -2053,7 +2054,7 @@ export default function HostDashboardPage() {
                 <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Close</p><p className="text-white">{t.close_price || t.closePrice}</p><p className="text-[10px] text-gray-500"><TimeWithZone text={fmtEAT(t.close_time || t.closeTime)}/></p></div>
                 <TradeProtectionLevel trade={t} kind="sl" />
                 <TradeProtectionLevel trade={t} kind="tp" />
-                <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Profit</p><p className={`font-bold ${Number(t.profit) >= 0 ? 'text-profit' : 'text-loss'}`}>{cur(Number(t.profit))}</p></div>
+                <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Profit</p><p className={`font-bold ${Number(t.profit) >= 0 ? 'text-profit' : 'text-loss'}`}><TradePnl trade={t} group={t._group}>{cur(Number(t.profit))}</TradePnl></p></div>
                 <div className="bg-white/5 rounded-xl p-3"><p className="text-[10px] text-gray-500 mb-1">Commission &amp; fees</p><p className="text-gray-300">{cur(Number(t.commission ?? 0))}</p></div>
               </div>
               <div className="grid grid-cols-2 gap-2 text-xs">
@@ -3833,7 +3834,7 @@ function IndividualPullBtn({ challengeId, getToken }: { challengeId: number; get
                 <div className="bg-profit/5 border border-profit/20 rounded-xl p-3">
                   <p className="text-[10px] text-profit font-semibold uppercase tracking-wider mb-2">New Trades ({pullResult.newTrades.length})</p>
                   {pullResult.newTrades.slice(0, 5).map((nt: any, i: number) => (
-                    <p key={i} className="text-[10px] text-gray-300">#{nt.ticket} · {nt.symbol} · {nt.type} · <span className={nt.profit >= 0 ? "text-profit" : "text-loss"}>${nt.profit.toFixed(2)}</span></p>
+                    <p key={i} className="text-[10px] text-gray-300">#{nt.ticket} · {nt.symbol} · {nt.type} · <span className={nt.profit >= 0 ? "text-profit" : "text-loss"}><TradePnl trade={nt}>${nt.profit.toFixed(2)}</TradePnl></span></p>
                   ))}
                 </div>
               )}
