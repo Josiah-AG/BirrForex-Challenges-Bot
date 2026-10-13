@@ -8,7 +8,7 @@ export default function ShareProgress({challenge,stats,growth,growthMode,isCent,
  const winner=!!stats.confirmedWinner&&!stats.disqualified;
  const label=winner?'Share my win':beforeStart?'Share my participation':challenge.status==='completed'?'Share my result':'Share my progress';
  const link=`https://winnerpip.com/challenge/${challenge.id}`;
- const caption=`${winner?`I finished #${stats.confirmedWinner!.place} in`:beforeStart?"I’m participating in":"Follow my progress in"} ${challenge.title} on WinnerPip!\nSee the challenge and standings: ${link}\n#winnerpip`;
+ const caption=`${winner?`I finished #${stats.confirmedWinner!.place} in`:beforeStart?"I just joined":"Follow my progress in"} ${challenge.title} on WinnerPip!\nSee the challenge and standings: ${link}\n#winnerpip`;
  useEffect(()=>{if(!open)return;const y=window.scrollY;const body=document.body;const old={position:body.style.position,top:body.style.top,width:body.style.width,overflow:body.style.overflow};Object.assign(body.style,{position:'fixed',top:`-${y}px`,width:'100%',overflow:'hidden'});const key=(e:KeyboardEvent)=>{if(e.key==='Escape')setOpen(false)};document.addEventListener('keydown',key);return()=>{Object.assign(body.style,old);window.scrollTo(0,y);document.removeEventListener('keydown',key)}},[open]);
  useEffect(()=>{
   if(!open||!host)return;let cancelled=false,objectUrl='';setFile(null);setUrl('');setError('');
@@ -23,7 +23,7 @@ export default function ShareProgress({challenge,stats,growth,growthMode,isCent,
    const state=stats.disqualified?'Disqualified':beforeStart?'Registered':challenge.status==='active'?'In progress':challenge.status==='completed'?'Completed':'Awaiting final results';
    text(winner?'CHALLENGE WINNER':state.toUpperCase(),72,436,24,'#d4b777',true);
    if(winner){c.strokeStyle='#d4b777';c.lineWidth=3;c.strokeRect(35,35,1010,1280);text(`#${stats.confirmedWinner!.place}`,810,460,88,'#ffda80',true,190);}
-   if(beforeStart){text('I’m taking',72,600,92,'#fff',true);text('the challenge.',72,708,92,'#66e0b6',true);text('Follow my journey on WinnerPip.',72,805,32,'#b7c7dc');}
+   if(beforeStart){text('Just joined.',72,600,100,'#66e0b6',true);text('Ready for the',72,715,70,'#fff',true);text('challenge.',72,805,70,'#fff',true);}
    else{
     text(growthMode?'QUALIFIED ACCOUNT GROWTH':hideMoney?'MY CHALLENGE PROGRESS':'QUALIFIED PROFIT',72,520,23,'#aabbd2');
     const profit=stats.qualifiedProfit/(isCent?100:1);const primary=growthMode?(Number.isFinite(growth)?`${growth>=0?'+':''}${growth.toFixed(2)}%`:'—'):hideMoney?`${stats.qualifiedTrades} qualified trades`:`${profit>=0?'+':'−'}$${Math.abs(profit).toLocaleString(undefined,{maximumFractionDigits:2,minimumFractionDigits:2})}`;
@@ -31,9 +31,9 @@ export default function ShareProgress({challenge,stats,growth,growthMode,isCent,
 
     c.fillStyle='#ffffff0a';c.fillRect(72,770,936,180);text(winner?'WINNING PLACE':'RANK',102,818,21,'#aabbd2');text(winner?`#${stats.confirmedWinner!.place}`:!stats.disqualified&&stats.rank?`#${stats.rank}`:'—',102,900,67,'#ffdb90',true,370);text('QUALIFIED TRADES',570,818,21,'#aabbd2');text(String(stats.qualifiedTrades),570,900,67,'#fff',true,400);
    }
-   c.fillStyle='#ffffff22';c.fillRect(72,1020,936,1);text(winner?'Proud of this finish.':'Follow my challenge.',72,1085,28,'#fff',true);text('winnerpip.com',72,1135,34,'#82baff',true);text('See the standings. Find your next challenge.',72,1175,20,'#aabbd2');
+   c.fillStyle='#ffffff22';c.fillRect(72,1020,936,1);text(winner?'Proud of this finish.':beforeStart?'My next challenge starts here.':'Follow my challenge.',72,1085,28,'#fff',true);text('winnerpip.com',72,1135,34,'#82baff',true);text(beforeStart?'Follow my journey. Join the competition.':'See the standings. Find your next challenge.',72,1175,20,'#aabbd2');
    const stamp=stats.lastUpdated?new Intl.DateTimeFormat('en-GB',{dateStyle:'medium',timeStyle:'short',timeZone:challenge.timezone||'UTC'}).format(new Date(stats.lastUpdated)):'No evaluated trades yet';
-   text(beforeStart?'Registration snapshot':`Stats updated: ${stamp} · ${challenge.timezone||'UTC'}`,72,1255,17,'#889bb5');text(winner?'Confirmed challenge winner · '+(stats.accountType==='real'?'Real':'Demo')+' category':'Snapshot of challenge progress · Not a winner announcement',72,1285,17,'#889bb5');
+   text(beforeStart?'Registration snapshot':`Stats updated: ${stamp} · ${challenge.timezone||'UTC'}`,72,1255,17,'#889bb5');text(beforeStart?'Challenge has not started yet':winner?'Confirmed challenge winner · '+(stats.accountType==='real'?'Real':'Demo')+' category':'Snapshot of challenge progress · Not a winner announcement',72,1285,17,'#889bb5');
    const blob=await new Promise<Blob>((resolve,reject)=>canvas.toBlob(b=>b?resolve(b):reject(Error('Could not create image')),'image/png'));if(cancelled)return;objectUrl=URL.createObjectURL(blob);setUrl(objectUrl);setFile(new File([blob],'winnerpip-progress.png',{type:'image/png'}));
   })().catch(()=>{if(!cancelled)setError('Could not prepare your image. Close and try again.');});return()=>{cancelled=true;if(objectUrl)URL.revokeObjectURL(objectUrl)};
  },[open,hideMoney,challenge,stats,growth,growthMode,isCent,host,beforeStart]);
