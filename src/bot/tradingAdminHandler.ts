@@ -1033,6 +1033,7 @@ export class TradingAdminHandler {
       }
 
       case 'tc_additional_post_text': {
+        session.data.video_file_id = null;
         session.data.post_text = text;
         session.data.post_entities = (ctx.message as any)?.entities || [];
         session.data.photo_file_id = null;
@@ -2789,7 +2790,8 @@ export class TradingAdminHandler {
       `<b>⏰ Chance for Late</b>\n\nChallenge: <b>${challenge.title}</b>\n\n` +
       `Send your post content now.\n\n` +
       `➡️ Send <b>text</b> for a text-only post\n` +
-      `➡️ Send a <b>photo with caption</b> for a post with image\n\n` +
+      `➡️ Send a <b>photo with caption</b> for a post with image\n` +
+      `➡️ Send a <b>video with caption</b> for a video post\n\n` +
       `<i>Change Account + Switch to Real buttons will be added (6-hour window).</i>`,
       { parse_mode: 'HTML' }
     );
@@ -2816,10 +2818,28 @@ export class TradingAdminHandler {
     await ctx.reply(
       `<b>📝 Additional Post</b>\n\nChallenge: <b>${challenge.title}</b>\n\nSend your post content now.\n\n` +
       `➡️ Send <b>text</b> for a text-only post\n` +
-      `➡️ Send a <b>photo with caption</b> for a post with image\n\n` +
+      `➡️ Send a <b>photo with caption</b> for a post with image\n` +
+      `➡️ Send a <b>video with caption</b> for a video post\n\n` +
       `<i>The Join Challenge and Open Exness Account buttons will be added automatically.</i>`,
       { parse_mode: 'HTML' }
     );
+  }
+
+  async handleVideo(ctx: Context, fileId: string, caption: string) {
+    if (!this.checkAdmin(ctx)) return;
+    const session = tradingAdminSessions.get(ctx.from!.id);
+    if (session?.step !== 'tc_additional_post_text') return;
+    session.data.video_file_id = fileId;
+    session.data.photo_file_id = null;
+    session.data.post_text = caption || '';
+    session.data.post_entities = (ctx.message as any)?.caption_entities || [];
+    session.step = 'tc_additional_post_target';
+    await ctx.reply('🎬 Video received! Where do you want to post?', Markup.inlineKeyboard([
+      [Markup.button.callback('📢 Main Channel', 'tc_addpost_main')],
+      [Markup.button.callback('🎯 Challenge Channel', 'tc_addpost_challenge')],
+      [Markup.button.callback('📢 Both Channels', 'tc_addpost_both')],
+      [Markup.button.callback('❌ Cancel', 'tc_addpost_cancel')],
+    ]));
   }
 
   async handlePhoto(ctx: Context, fileId: string, caption: string) {
@@ -2843,6 +2863,7 @@ export class TradingAdminHandler {
     }
 
     if (session.step === 'tc_additional_post_text') {
+      session.data.video_file_id = null;
       session.data.photo_file_id = fileId;
       session.data.post_text = caption || '';
       session.data.post_entities = (ctx.message as any)?.caption_entities || [];
@@ -2966,7 +2987,15 @@ export class TradingAdminHandler {
 
       try {
         for (const channelId of targets) {
-          if (session.data.photo_file_id) {
+          if (session.data.video_file_id) {
+            await ctx.telegram.sendVideo(channelId, session.data.video_file_id, {
+              caption: session.data.post_text || undefined,
+              caption_entities: session.data.post_entities?.length ? session.data.post_entities : undefined,
+              supports_streaming: true,
+              ...keyboard,
+            });
+            await ctx.telegram.sendMessage(channelId,dashboardCTA,{link_preview_options:{is_disabled:true}});
+          } else if (session.data.photo_file_id) {
             await ctx.telegram.sendPhoto(channelId, session.data.photo_file_id, {
               caption: session.data.post_text || undefined,
               caption_entities: session.data.post_entities?.length > 0 ? session.data.post_entities : undefined,

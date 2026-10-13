@@ -1401,11 +1401,16 @@ export default function AdminDashboard() {
                         </div>
                       </div>
                     </div>
-                    <button onClick={() => !rulesLocked && setRulesConfig({ ...rulesConfig, only_cent_account: !(rulesConfig as any).only_cent_account })} className={`w-12 h-6 rounded-full transition-all ${(rulesConfig as any).only_cent_account ? "bg-profit" : "bg-white/20"}`}>
+                    <button onClick={() => !rulesLocked && setRulesConfig({ ...rulesConfig, only_cent_account: !(rulesConfig as any).only_cent_account, ...(!(rulesConfig as any).only_cent_account ? {allow_professional:false} : {}) })} className={`w-12 h-6 rounded-full transition-all ${(rulesConfig as any).only_cent_account ? "bg-profit" : "bg-white/20"}`}>
                       <div className={`w-5 h-5 bg-white rounded-full transition-transform ${(rulesConfig as any).only_cent_account ? "translate-x-6" : "translate-x-0.5"}`}></div>
                     </button>
                   </div>
                 </div>
+              </div>
+
+              <div className="mt-4 flex items-center justify-between gap-4 p-4 bg-white/5 rounded-xl border border-white/10">
+                <div><p className="text-sm text-white font-medium">Allow Professional Accounts (Pro / Zero / Raw Spread)</p><p className="text-xs text-gray-400 mt-1">Registration filter. Allow these account types alongside Standard and Standard Cent. Editable before the challenge starts.</p>{rulesConfig.only_cent_account && <p className="text-xs text-amber-400 mt-1">Turn off Only Cent Account to allow professional accounts.</p>}</div>
+                <button type="button" role="switch" aria-label="Allow professional accounts" aria-checked={!!rulesConfig.allow_professional} disabled={rulesLocked || rulesConfig.only_cent_account} onClick={() => setRulesConfig({...rulesConfig, allow_professional:!rulesConfig.allow_professional})} className={`shrink-0 w-12 h-6 rounded-full transition-all disabled:opacity-40 ${rulesConfig.allow_professional ? "bg-profit" : "bg-white/20"}`}><span className={`block w-5 h-5 bg-white rounded-full transition-transform ${rulesConfig.allow_professional ? "translate-x-6" : "translate-x-0.5"}`}/></button>
               </div>
 
               {/* Fixed rules info */}

@@ -1458,6 +1458,12 @@ export class Bot {
     });
 
     // Photo handler (for trading challenge screenshots and additional posts)
+    this.bot.on('video', async (ctx) => {
+      if (isAdmin(ctx.from.id) && tradingAdminHandler.hasActiveSession(ctx.from.id)) {
+        await tradingAdminHandler.handleVideo(ctx, ctx.message.video.file_id, ctx.message.caption || '');
+      }
+    });
+
     this.bot.on('photo', async (ctx) => {
       const telegramId = ctx.from.id;
 
