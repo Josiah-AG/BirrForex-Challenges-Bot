@@ -14,9 +14,9 @@ export default function ShareProgress({challenge,stats,growth,growthMode,isCent,
    const canvas=document.createElement('canvas');canvas.width=1080;canvas.height=1350;const c=canvas.getContext('2d');if(!c)throw Error('Image creation is unavailable');
    const gradient=c.createLinearGradient(0,0,1080,1350);gradient.addColorStop(0,'#142c4b');gradient.addColorStop(1,'#080f20');c.fillStyle=gradient;c.fillRect(0,0,1080,1350);
    const text=(value:string,x:number,y:number,size:number,color='#eff4ff',bold=false,max=936)=>{c.font=`${bold?700:400} ${size}px Arial`;while(c.measureText(value).width>max&&size>16){size--;c.font=`${bold?700:400} ${size}px Arial`}c.fillStyle=color;c.fillText(value,x,y,max)};
-   const logo=async(src:string,x:number)=>{const img=new Image();img.src=src;await img.decode();const scale=Math.min(90/img.width,90/img.height);c.drawImage(img,x,65,img.width*scale,img.height*scale)};
-   if(!host.hostId)await logo('/birrforex-logo.png',72);await logo('/share-winnerpip.png',host.hostId?72:190);text('WinnerPip',host.hostId?185:300,125,36,'#fff',true,500);
-   text(host.hostId?`HOSTED BY ${host.hostDisplayName||'INDEPENDENT HOST'}`:'BIRRFOREX CHALLENGE',72,235,23,'#82baff',false);
+   const logo=async(src:string,x:number,size=90)=>{const img=new Image();img.src=src;await img.decode();const scale=Math.min(size/img.width,size/img.height);c.drawImage(img,x,65,img.width*scale,img.height*scale)};
+   if(!host.hostId)await logo('/birrforex-logo.png',72);await logo('/share-winnerpip.png',host.hostId?72:190,110);text('WinnerPip',host.hostId?205:325,125,36,'#fff',true,500);
+   text(`HOSTED BY ${host.hostId?(host.hostDisplayName||'INDEPENDENT HOST'):'BirrForex'}`,72,235,23,'#82baff',false);
    text(challenge.title,72,307,64,'#fff',true);text(`${stats.nickname} · ${stats.accountType==='real'?'Real':'Demo'} account`,72,363,30,'#abb9cd');
    const state=stats.disqualified?'Disqualified':beforeStart?'Registered':challenge.status==='active'?'In progress':challenge.status==='completed'?'Completed':'Awaiting final results';
    text(state.toUpperCase(),72,436,24,'#d4b777',true);
@@ -28,9 +28,9 @@ export default function ShareProgress({challenge,stats,growth,growthMode,isCent,
     if(growthMode&&!hideMoney)text(`Qualified profit: ${profit<0?'−':''}$${Math.abs(profit).toFixed(2)} USD`,72,705,29,'#acbdd3');
     c.fillStyle='#ffffff0a';c.fillRect(72,770,936,180);text('CATEGORY RANK',102,818,21,'#aabbd2');text(!stats.disqualified&&stats.rank?`#${stats.rank}`:'—',102,900,67,'#ffdb90',true,370);text('QUALIFIED TRADES',570,818,21,'#aabbd2');text(String(stats.qualifiedTrades),570,900,67,'#fff',true,400);
    }
-   c.fillStyle='#ffffff22';c.fillRect(72,1020,936,1);text('Follow my challenge.',72,1085,40,'#fff',true);text('winnerpip.com',72,1146,47,'#82baff',true);text('See the standings. Find your next challenge.',72,1190,24,'#aabbd2');
+   c.fillStyle='#ffffff22';c.fillRect(72,1020,936,1);text('Follow my challenge.',72,1085,28,'#fff',true);text('winnerpip.com',72,1135,34,'#82baff',true);text('See the standings. Find your next challenge.',72,1175,20,'#aabbd2');
    const stamp=stats.lastUpdated?new Intl.DateTimeFormat('en-GB',{dateStyle:'medium',timeStyle:'short',timeZone:challenge.timezone||'UTC'}).format(new Date(stats.lastUpdated)):'No evaluated trades yet';
-   text(beforeStart?'Registration snapshot':`Stats updated: ${stamp} · ${challenge.timezone||'UTC'}`,72,1262,19,'#889bb5');text('Snapshot of challenge progress · Not a winner announcement',72,1295,19,'#889bb5');
+   text(beforeStart?'Registration snapshot':`Stats updated: ${stamp} · ${challenge.timezone||'UTC'}`,72,1255,17,'#889bb5');text('Snapshot of challenge progress · Not a winner announcement',72,1285,17,'#889bb5');
    const blob=await new Promise<Blob>((resolve,reject)=>canvas.toBlob(b=>b?resolve(b):reject(Error('Could not create image')),'image/png'));if(cancelled)return;objectUrl=URL.createObjectURL(blob);setUrl(objectUrl);setFile(new File([blob],'winnerpip-progress.png',{type:'image/png'}));
   })().catch(()=>{if(!cancelled)setError('Could not prepare your image. Close and try again.');});return()=>{cancelled=true;if(objectUrl)URL.revokeObjectURL(objectUrl)};
  },[open,hideMoney,challenge,stats,growth,growthMode,isCent,host,beforeStart]);
