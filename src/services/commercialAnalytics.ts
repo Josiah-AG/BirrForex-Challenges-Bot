@@ -163,13 +163,13 @@ async function drain() {
   finally{draining=false;}
 }
 export async function readCommercial(id:number) {
-  const c=(await db.query('SELECT type,status FROM trading_challenges WHERE id=$1',[id])).rows[0];
+  const c=(await db.query('SELECT type,status,start_date FROM trading_challenges WHERE id=$1',[id])).rows[0];
   if(!c)return null;
   if(c.type==='demo'||c.status==='deleted')return {enabled:false};
   const row=(await db.query(`SELECT CASE WHEN report IS NULL THEN NULL ELSE (report - 'rows') ||
     jsonb_build_object('rows',COALESCE((SELECT jsonb_agg(r - 'trades') FROM jsonb_array_elements(report->'rows') r),'[]')) END AS report,
     updated_at,started_at,error FROM wp_commercial_reports WHERE challenge_id=$1`,[id])).rows[0];
-  return {...(row?.report||{enabled:true,rows:[]}),refreshing:queue.has(id)||Boolean(row?.started_at),error:row?.error||null,hasData:Boolean(row?.report)};
+  return {...(row?.report||{enabled:true,rows:[]}),notStarted:Date.now()<new Date(c.start_date).getTime(),refreshing:queue.has(id)||Boolean(row?.started_at),error:row?.error||null,hasData:Boolean(row?.report)};
 }
 export async function readCommercialParticipant(challengeId:number,registrationId:number) {
   const row=(await db.query(`SELECT r AS participant, c.updated_at FROM wp_commercial_reports c
