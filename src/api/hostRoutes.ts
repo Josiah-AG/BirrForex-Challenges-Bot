@@ -479,7 +479,7 @@ router.get('/challenge/:id/failed-accounts', async (req: any, res: Response) => 
 
     const skipped = await db.query(
       `SELECT id, nickname, account_number, account_type, disqualified_reason, pull_status
-       FROM trading_registrations WHERE challenge_id=$1 AND disqualified=true
+       FROM trading_registrations WHERE challenge_id=$1 AND disqualified=true AND status IS DISTINCT FROM 'removed'
        ORDER BY nickname ASC LIMIT 50`, [challengeId]);
 
     return res.json({ failed, credentialFailures, skipped: skipped.rows });

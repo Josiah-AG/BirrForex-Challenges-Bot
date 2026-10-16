@@ -192,6 +192,7 @@ class TradingChallengeService {
   // ==================== REGISTRATIONS ====================
 
   async registerUser(data: {
+    replacement_registration_id?: number;
     challenge_id: number;
     user_id: number;
     username: string | null;
@@ -210,6 +211,15 @@ class TradingChallengeService {
     return db.transaction(async()=>{
       await db.query('SELECT id FROM trading_challenges WHERE id=$1 FOR UPDATE',[data.challenge_id]);
       await validateVerifiedRegistration(data.challenge_id,data.account_type,verified,'native');
+      if (data.replacement_registration_id) {
+        const old = await db.query("SELECT id FROM trading_registrations WHERE id=$1 AND challenge_id=$2 AND user_id=$3 AND status IS DISTINCT FROM 'removed' FOR UPDATE", [data.replacement_registration_id,data.challenge_id,data.user_id]);
+        if (!old.rows.length) throw new ConfigurationError('Your original registration has changed. Please restart the replacement.');
+        // Remove only inside the final transaction: a failed insert restores the original.
+        await db.query("UPDATE trading_registrations SET status='removed',disqualified=true,disqualified_source='removed',disqualified_reason='Registration replaced',disqualified_at=NOW() WHERE id=$1", [data.replacement_registration_id]);
+        await db.query('DELETE FROM wp_leaderboard WHERE registration_id=$1', [data.replacement_registration_id]);
+        await db.query('DELETE FROM wp_leaderboard_staging WHERE registration_id=$1', [data.replacement_registration_id]);
+      }
+
       const result=await db.query(`INSERT INTO trading_registrations
         (challenge_id,user_id,username,nickname,account_type,email,account_number,mt5_server,client_uid,source,
          investor_password,connection_verified,connection_verified_at,is_cent,account_subtype,registration_balance,last_known_balance)
@@ -237,10 +247,10 @@ class TradingChallengeService {
     return result.rows[0] || null;
   }
 
-  async isNicknameTaken(challengeId: number, nickname: string): Promise<boolean> {
+  async isNicknameTaken(challengeId: number, nickname: string, excludeRegistrationId?: number): Promise<boolean> {
     const result = await db.query(
-      "SELECT 1 FROM trading_registrations WHERE challenge_id = $1 AND LOWER(nickname) = LOWER($2) AND status IS DISTINCT FROM 'removed'",
-      [challengeId, nickname.trim()]
+      "SELECT 1 FROM trading_registrations WHERE challenge_id = $1 AND LOWER(nickname) = LOWER($2) AND status IS DISTINCT FROM 'removed' AND ($3::integer IS NULL OR id <> $3)",
+      [challengeId, nickname.trim(), excludeRegistrationId || null]
     );
     return result.rows.length > 0;
   }

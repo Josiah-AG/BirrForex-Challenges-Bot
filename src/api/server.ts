@@ -6262,7 +6262,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/failed-accounts`, adminIp
               l.current_balance, l.zero_balance_at, l.total_trades
        FROM trading_registrations r
        LEFT JOIN wp_leaderboard l ON r.id = l.registration_id
-       WHERE r.challenge_id = $1
+       WHERE r.challenge_id = $1 AND r.status IS DISTINCT FROM 'removed'
          AND r.investor_password IS NOT NULL
          AND r.connection_verified = true
          AND (

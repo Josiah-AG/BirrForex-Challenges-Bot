@@ -558,7 +558,7 @@ export class TradingRegistrationHandler {
       }
       await ctx.answerCbQuery();
       await ctx.reply(
-        `⚠️ <b>Are you sure you want to switch category?</b>\n\nYour current registration will be deleted and you will need to register again.`,
+        `⚠️ <b>Are you sure you want to switch category?</b>\n\nYour current registration stays active until your replacement account is verified and registration is completed.`,
         { parse_mode: 'HTML', ...Markup.inlineKeyboard([[Markup.button.callback('✅ Yes, Switch', `tc_switch_confirm_${challengeId}`)], [Markup.button.callback('❌ Cancel', `tc_switch_cancel`)]]) }
       );
       return true;
@@ -567,9 +567,13 @@ export class TradingRegistrationHandler {
     if (data.startsWith('tc_switch_confirm_')) {
       const challengeId = parseInt(data.replace('tc_switch_confirm_', ''));
       const reg = await tradingChallengeService.getRegistration(challengeId, telegramId);
-      if (reg) { await tradingChallengeService.deleteRegistration(reg.id); await tradingChallengeService.updateDailyStat(challengeId, 'category_switches'); }
+      if (!reg) { await ctx.answerCbQuery('Registration not found'); return true; }
+      const challenge = await tradingChallengeService.getChallengeById(challengeId);
+      if (!challenge || challenge.status !== 'registration_open' || challenge.type !== 'hybrid') { await ctx.answerCbQuery('Category changes are closed'); return true; }
+      userSessions.set(telegramId, { step: 'tc_enter_email', data: { challenge_id: challengeId, replacement_registration_id: reg.id, account_type: reg.account_type === 'demo' ? 'real' : 'demo', lang: (reg as any).lang || 'en' } });
+      saveSessionsToDisk();
       await ctx.answerCbQuery();
-      await this.startRegistration(ctx, challengeId);
+      await ctx.reply('Your current registration remains active until the replacement is complete. Please send your Exness email address:');
       return true;
     }
 
@@ -581,9 +585,10 @@ export class TradingRegistrationHandler {
       const { tradingAdminHandler } = require('./tradingAdminHandler');
       if (!tradingAdminHandler.isLateChangeWindowOpen(challengeId)) { await ctx.answerCbQuery('Window expired'); await ctx.reply('❌ <b>This window has expired.</b>', { parse_mode: 'HTML' }); return true; }
       const reg = await tradingChallengeService.getRegistration(challengeId, telegramId);
-      if (reg) { await tradingChallengeService.deleteRegistration(reg.id); }
+      if (!reg) { await ctx.answerCbQuery('Registration not found'); return true; }
       await ctx.answerCbQuery();
-      userSessions.set(telegramId, { step: 'tc_enter_email', data: { challenge_id: challengeId, account_type: 'real' } });
+      userSessions.set(telegramId, { step: 'tc_enter_email', data: { challenge_id: challengeId, replacement_registration_id: reg.id, account_type: 'real' } });
+      saveSessionsToDisk();
       await ctx.reply('📧 Please send your <b>Exness email address:</b>', { parse_mode: 'HTML' });
       return true;
     }
@@ -754,7 +759,7 @@ export class TradingRegistrationHandler {
           return;
         }
         // Check uniqueness
-        const taken = await tradingChallengeService.isNicknameTaken(session.data.challenge_id, nickname);
+        const taken = await tradingChallengeService.isNicknameTaken(session.data.challenge_id, nickname, session.data.replacement_registration_id);
         if (taken) {
           await ctx.reply(t(lang, 'nickname_taken', { name: nickname }), { parse_mode: 'HTML' });
           return;
@@ -772,7 +777,7 @@ export class TradingRegistrationHandler {
         session.data.email = text.trim().toLowerCase();
         session.data.retry_count = 0;
         const existing = await tradingChallengeService.getRegistrationByEmail(session.data.challenge_id, session.data.email);
-        if (existing) {
+        if (existing && existing.id !== session.data.replacement_registration_id) {
           await ctx.reply(t(lang, 'email_already_registered'),
             { parse_mode: 'HTML', ...Markup.inlineKeyboard([[Markup.button.callback('📧 Submit Another Email', `tc_retry_email_${session.data.challenge_id}`)]]) });
           return;
@@ -1700,6 +1705,7 @@ export class TradingRegistrationHandler {
       if (!challenge) { await ctx.reply('❌ Challenge not found.'); userSessions.delete(telegramId); return; }
 
       const reg = await tradingChallengeService.registerUser({
+        replacement_registration_id: session.data.replacement_registration_id,
         challenge_id: session.data.challenge_id,
         user_id: telegramId,
         username: ctx.from!.username || null,
@@ -1720,7 +1726,7 @@ export class TradingRegistrationHandler {
 
       // Track daily stats
       const statField = session.data.account_type === 'demo' ? 'demo_registrations' : 'real_registrations';
-      await tradingChallengeService.updateDailyStat(session.data.challenge_id, 'new_registrations');
+      await tradingChallengeService.updateDailyStat(session.data.challenge_id, session.data.replacement_registration_id ? 'category_switches' : 'new_registrations');
       await tradingChallengeService.updateDailyStat(session.data.challenge_id, statField);
 
       // Track recoveries
@@ -1937,6 +1943,7 @@ export class TradingRegistrationHandler {
     await tradingChallengeService.updateDailyStat(session.data.challenge_id, 'manual_reviews');
 
     const reviewData = {
+      replacement_registration_id: session.data.replacement_registration_id,
       challenge_id: session.data.challenge_id,
       user_id: telegramId,
       lang: session.data.lang || 'en',
