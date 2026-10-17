@@ -16,7 +16,7 @@ export async function refreshNewClients(){
   const challenges=(await db.query(`SELECT c.*, (SELECT MIN(registered_at) FROM trading_registrations WHERE challenge_id=c.id) first_registration
    FROM trading_challenges c LEFT JOIN wp_new_client_reports n ON n.challenge_id=c.id
    WHERE c.host_id IS NULL AND c.status IN ('registration_open','active','reviewing','completed','submission_open')
-   AND (n.report IS NULL OR c.status='registration_open' OR n.updated_at<c.start_date+INTERVAL '2 days' OR (n.error IS NOT NULL AND n.updated_at<NOW()-INTERVAL '1 hour') OR ((n.report->>'unresolved')::integer>0 AND n.updated_at<NOW()-INTERVAL '1 day'))`)).rows;
+   AND (n.report IS NULL OR NOT(n.report ? 'periodRegistrations') OR c.status='registration_open' OR n.updated_at<c.start_date+INTERVAL '2 days' OR (n.error IS NOT NULL AND n.updated_at<NOW()-INTERVAL '1 hour') OR ((n.report->>'unresolved')::integer>0 AND n.updated_at<NOW()-INTERVAL '1 day'))`)).rows;
   if(!challenges.length)return;
   for(const c of challenges)await db.query('INSERT INTO wp_new_client_reports(challenge_id) VALUES($1) ON CONFLICT DO NOTHING',[c.id]);
   const clients=await exnessService.clientDirectory();

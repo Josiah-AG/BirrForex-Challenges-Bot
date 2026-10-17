@@ -6,6 +6,7 @@ export function newClientReport(c:any,participants:any[],clients:any[],now=Date.
  if(!start||!Number.isFinite(lower)||!Number.isFinite(end))return {rows:[],count:null,partial:true,unresolved:participants.length,notice:'Registration window unavailable',updatedAt:new Date(now).toISOString()};
  const directory=new Map<string,any>();
  for(const client of clients){const uid=String(client.client_uid||'').toLowerCase();if(uid)directory.set(uid,client);}
+ const periodRegistrations=[...directory.values()].filter(client=>{const date=Date.parse(client.reg_date);return Number.isFinite(date)&&date>=lower&&date<upper;}).length;
  let unresolved=0;const matched=new Map<string,any>();
  for(const p of participants){
   if(+new Date(p.registered_at)>=end)continue;
@@ -21,7 +22,7 @@ export function newClientReport(c:any,participants:any[],clients:any[],now=Date.
   matched.set(uid,{nickname:p.nickname||p.username||'Participant',email:p.email||null,accounts:[p.account_number],category:p.account_type,registeredAt:client.reg_date,joinedAt:p.registered_at,balanceRange:balanceRanges[range]||'Unavailable',balanceOrder:balanceRanges[range]?range:0});
  }
  const rows=[...matched.values()].sort((a,b)=>b.balanceOrder-a.balanceOrder||a.nickname.localeCompare(b.nickname));
- return {rows,count:rows.length,partial:!c.registration_opened_at||unresolved>0,unresolved,windowStart:start,windowEnd:new Date(end).toISOString(),historical:!c.registration_opened_at,
+ return {rows,count:rows.length,periodRegistrations,conversionPercent:periodRegistrations>0?Math.round(rows.length/periodRegistrations*10000)/100:null,partial:!c.registration_opened_at||unresolved>0,unresolved,windowStart:start,windowEnd:new Date(end).toISOString(),historical:!c.registration_opened_at,
  notice:!c.registration_opened_at?'Historical partial: counted from the first recorded challenge registration; the original opening time was not saved.':null,
  updatedAt:new Date(now).toISOString(),nextRefreshAt:now<end?new Date(now+3600000).toISOString():null};
 }
