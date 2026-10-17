@@ -1,6 +1,6 @@
 import { getLocalTime, formatInTimezone } from './timezone';
 import { resolveCategoryBalances } from './categorySettings';
-export const dashboardCTA = '📊 Visit winnerpip.com to view your dashboard and track your challenge status.';
+export const dashboardCTA = '📊 Track your progress and challenge status at winnerpip.com';
 export const escapePost = (s: unknown) => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 export type PostSlot = 'morning' | 'evening';
 export type PostPhase = 'first' | 'early' | 'middle' | 'penultimate' | 'final';

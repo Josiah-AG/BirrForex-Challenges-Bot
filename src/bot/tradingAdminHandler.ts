@@ -1,3 +1,4 @@
+import {registrationPost} from '../services/registrationPosts';
 import {dailyCalendar} from '../services/dailyChallengePosts';
 import {getLocalTime} from '../utils/timezone';
 import {dashboardCTA,challengeBalanceSummary,postDate} from '../utils/challengePosts';
@@ -1223,47 +1224,7 @@ export class TradingAdminHandler {
   }
 
   private generateAnnouncementPost(c: TradingChallenge): string {
-    const typeLabel = c.type === 'hybrid' ? 'Hybrid (Demo & Real Account)' :
-      c.type === 'demo' ? 'Demo Account' : 'Real Account';
-
-    const startStr=postDate(c.start_date,c.timezone||config.timezone);
-    const endStr=postDate(c.end_date,c.timezone||config.timezone);
-
-    let prizesSection = '';
-    if (c.prize_pool_text) {
-      prizesSection = `<b>🏆 PRIZE POOL</b>\n\n<b>${c.prize_pool_text}</b>\n`;
-    } else {
-      // Fallback: auto-generate from individual prizes
-      const medals = ['🥇', '🥈', '🥉', '4️⃣', '5️⃣'];
-      if (c.type === 'hybrid' || c.type === 'real') {
-        const prizes = typeof c.real_prizes === 'string' ? JSON.parse(c.real_prizes) : (c.real_prizes || []);
-        prizesSection += '\n<b>Real Account:</b>\n';
-        prizes.forEach((p: number, i: number) => {
-          prizesSection += `${medals[i] || (i+1)+'️⃣'} ${this.getOrdinal(i + 1)} Place: ${this.formatPrize(p)}\n`;
-        });
-      }
-      if (c.type === 'hybrid' || c.type === 'demo') {
-        const prizes = typeof c.demo_prizes === 'string' ? JSON.parse(c.demo_prizes) : (c.demo_prizes || []);
-        prizesSection += '\n<b>Demo Account:</b>\n';
-        prizes.forEach((p: number, i: number) => {
-          prizesSection += `${medals[i] || (i+1)+'️⃣'} ${this.getOrdinal(i + 1)} Place: ${this.formatPrize(p)}\n`;
-        });
-      }
-    }
-
-    let linksText = '';
-    if (c.pdf_url) linksText += `\n📄 Challenge Rules: <a href="${c.pdf_url}">Download PDF</a>`;
-    if (c.video_url) linksText += `\n🎥 Challenge Guide: <a href="${c.video_url}">Watch Video</a>`;
-
-    return `<b>🎯 BIRRFOREX TRADING CHALLENGE</b>\n` +
-      `<b>${c.title}</b>\n\n` +
-      `📊 <b>Type:</b> ${typeLabel}\n` +
-      `📅 <b>Period:</b> ${startStr} - ${endStr}\n` +
-      `${challengeBalanceSummary(c)}\n\n` +
-      prizesSection + '\n' +
-      `⚠️ <i>Please read the challenge rules carefully before you start the challenge!</i>\n` +
-      linksText +
-      `\n\n👉 <b>Tap "Join Challenge" below to register!</b>`;
+    return registrationPost(c,undefined,undefined,false);
   }
 
 
@@ -2508,22 +2469,7 @@ export class TradingAdminHandler {
   }
 
   private generatePromoText(c: TradingChallenge, promoNum: number, botUsername: string): string {
-    const startStr=postDate(c.start_date,c.timezone||config.timezone);
-    const periodStr=`${postDate(c.start_date,c.timezone||config.timezone)} – ${postDate(c.end_date,c.timezone||config.timezone)}`;
-
-    let links = '';
-    if (c.pdf_url) links += `\n📄 Challenge Rules: <a href="${c.pdf_url}">Download PDF</a>`;
-    if (c.video_url) links += `\n🎥 Challenge Guide: <a href="${c.video_url}">Watch Video</a>`;
-
-    const prizePoolSection = c.prize_pool_text ? `\n<b>🏆 PRIZE POOL</b>\n\n<b>${c.prize_pool_text}</b>\n` : '';
-
-    if (promoNum === 1) {
-      return `<b>🎯 BIRRFOREX TRADING CHALLENGE IS HERE!</b>\n\n<b>${c.title}</b>\n\n${challengeBalanceSummary(c)}\n\n📅 <b>Challenge Period:</b> ${periodStr}\n${prizePoolSection}\nOpen to Demo & Real account traders!\nRegister now and show your trading skills 💪\n${links}\n\n👉 <b>Tap \"Join Challenge\" below to register!</b>`;
-    } else if (promoNum === 2) {
-      return `<b>📢 HAVE YOU REGISTERED YET?</b>\n\n<b>${c.title}</b> is coming up!\n${prizePoolSection}\nRegistration is <b>FREE</b> and takes 2 minutes!\n\nDon't miss your chance to compete 🔥\n${links}\n\n👉 <b>Tap \"Join Challenge\" below to register!</b>`;
-    } else {
-      return `<b>⏰ DEADLINE IS APPROACHING!</b>\n\n<b>${c.title}</b> registration is closing soon!\n\n📅 <b>Start:</b> ${startStr}\n${prizePoolSection}\nAfter the challenge starts, registration closes.\nDon't wait until the last minute!\n\nSecure your spot <b>NOW</b> 🚀\n${links}\n\n👉 <b>Tap \"Join Challenge\" below to register!</b>`;
-    }
+    return registrationPost(c,undefined,promoNum,false);
   }
 
 

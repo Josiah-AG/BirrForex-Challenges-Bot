@@ -2,7 +2,7 @@ const {test}=require('node:test');const assert=require('node:assert/strict');req
 const {db}=require('../src/database/db');const {config}=require('../src/config');const {deliverRegistrationPost,registrationPost}=require('../src/services/registrationPosts');
 const c={id:999,title:'Sprint <1> & test',type:'hybrid',status:'registration_open',start_date:'2026-10-18T21:00:00Z',end_date:'2026-10-23T20:59:00Z',timezone:'Africa/Nairobi',real_prizes:[100,100],demo_prizes:[50,50],starting_balance:10,target_balance:60,target_percent:50,deposit_mode:'min_limit'};
 test('registration announcement and countdowns have safe HTML, correct mode, prizes and links',()=>{
- for(const days of [undefined,3,2,1]){const s=registrationPost(c,days);assert.ok(s.includes('Sprint &lt;1&gt; &amp; test'));assert.ok(s.includes('Hybrid'));assert.ok(s.includes('$100'));assert.ok(s.includes('$50'));assert.ok(s.includes('winnerpip.com'));assert.ok(s.includes('50%'));assert.ok(s.length<4096);}
+ for(const days of [undefined,3,2,1]){const s=registrationPost(c,days);assert.ok(s.includes('Sprint &lt;1&gt; &amp; test'));assert.ok(s.includes('Hybrid'));assert.ok(s.includes('$300'));assert.ok(s.includes('Minimum Starting Balance'));assert.ok(s.includes('winnerpip.com'));assert.ok(s.includes('50%'));assert.ok(s.length<4096);}
 });
 test('channel failure retries only the failed destination; completed posts survive another call',async()=>{
  let row={delivered:{},completed_at:null},calls=[],fail=true,marked=false;
@@ -20,3 +20,5 @@ test('channel failure retries only the failed destination; completed posts survi
 test('hosted, Discord and started challenges never post registration messages',async()=>{
  for(const overrides of [{host_id:1},{source:'discord'},{status:'active'}])assert.equal(await deliverRegistrationPost({}, {...c,...overrides}),false);
 });
+
+test('countdown style and optional resources follow challenge configuration',()=>{const text=registrationPost({...c,pdf_url:'https://example.com/rules',video_url:'https://example.com/video'},2);assert.match(text,/2 DAYS LEFT!/);assert.match(text,/Download PDF/);assert.match(text,/Watch Video/);assert.match(text,/October 19/);assert.doesNotMatch(text,/\$60/);const demo=registrationPost({...c,type:'demo',deposit_mode:'max_limit'},1);assert.match(demo,/1 DAY LEFT!/);assert.match(demo,/Maximum Starting Balance/);assert.match(demo,/Prize Pool:<\/b> \$100/);assert.doesNotMatch(demo,/Download PDF|Watch Video|Demo & Real/);});

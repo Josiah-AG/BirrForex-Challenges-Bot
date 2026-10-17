@@ -1,20 +1,37 @@
+import {resolveCategoryBalances} from '../utils/categorySettings';
 import {db} from '../database/db';
 import {config} from '../config';
 import {challengeBalanceSummary,dashboardCTA,postDate} from '../utils/challengePosts';
 export const escapePost = (value:any) => String(value ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-export function registrationPost(c:any,days?:number):string {
+export function registrationPost(c:any,days?:number,promo?:number,includeCTA=true):string {
  const title=escapePost(c.title),tz=c.timezone||config.timezone;
- const heading=days ? (days===1?'🚨 LAST CHANCE TO REGISTER!':`⏰ ${days} DAYS REMAINING!`) : '🎯 NEW CHALLENGE — Registration Open!';
- const type=c.type==='hybrid'?'Hybrid (Demo & Real Account)':c.type==='demo'?'Demo Account':'Real Account';
- let prizes=escapePost(c.prize_pool_text);
- if(!prizes)for(const category of ['real','demo'])if(c.type===category||c.type==='hybrid'){
-   const values=typeof c[`${category}_prizes`]==='string'?JSON.parse(c[`${category}_prizes`]):c[`${category}_prizes`]||[];
-   prizes+=`\n${category==='real'?'Real':'Demo'} Account: `+values.map((v:any,i:number)=>`${i+1}. $${escapePost(v)}`).join(' · ');
- }
+ const heading=days ? `⏰ ${days} ${days===1?'DAY':'DAYS'} LEFT! ${title} is Almost Here! 🔥`
+   : promo===2?`🔥 Ready to Take Part? ${title} is Calling!`
+   : promo===3?`🚀 Your Next Challenge Awaits! ${title}`
+   : `📣 Registration is OPEN! ${title} is Here! 🔥`;
+ const type=c.type==='hybrid'?'Hybrid Challenge (Demo & Real)':c.type==='demo'?'Demo Account Challenge':'Real Account Challenge';
+ const date=(value:any)=>new Date(value).toLocaleDateString('en-US',{timeZone:tz,month:'long',day:'numeric'});
+ const balance=(category:string)=>{
+   const b=resolveCategoryBalances(c,category);
+   const label=b.depositMode==='min_limit'?'Minimum Starting Balance':b.depositMode==='max_limit'?'Maximum Starting Balance':'Starting Balance';
+   const target=!b.targetEnabled?'No target — ranked by performance':b.depositMode==='fixed'?`$${b.targetBalance} balance`:`${b.targetPercent}% account growth`;
+   return `💰 <b>${label}:</b> $${b.startingBalance}\n🎯 <b>${b.targetEnabled?'Target':'Ranking'}:</b> ${target}`;
+ };
+ const real=c.type==='hybrid'?balance('real'):'';
+ const demo=c.type==='hybrid'?balance('demo'):'';
+ const balances=c.type==='hybrid'?(real===demo?real:`<b>Real Accounts</b>\n${real}\n\n<b>Demo Accounts</b>\n${demo}`):balance(c.type);
+ const categories=c.type==='hybrid'?['real','demo']:[c.type];
+ const prizes=categories.flatMap((category:string)=>{
+   let values=c[`${category}_prizes`]||[];
+   if(typeof values==='string'){try{values=JSON.parse(values)}catch{values=[]}}
+   return Array.isArray(values)?values:[];
+ });
+ const numeric=prizes.length>0&&prizes.every((v:any)=>/^\d+(\.\d+)?$/.test(String(v).trim()));
+ const pool=numeric?`$${prizes.reduce((sum:number,v:any)=>sum+Number(v),0).toLocaleString('en-US')}`:escapePost(c.prize_pool_text);
  let links='';
  if(c.pdf_url)links+=`\n📄 Rules: <a href="${escapePost(c.pdf_url)}">Download PDF</a>`;
  if(c.video_url)links+=`\n🎥 Guide: <a href="${escapePost(c.video_url)}">Watch Video</a>`;
- return `<b>${heading}</b>\n\n<b>${title}</b>\n${days?`Starts ${days===1?'tomorrow':`in ${days} days`} — register before the challenge begins!\n`:''}\n📊 ${type}${c.only_cent_account?'\n📋 Real accounts: Cent Account Only':''}\n${challengeBalanceSummary(c)}\n📅 <b>Start:</b> ${postDate(c.start_date,tz)}\n🏁 <b>End:</b> ${postDate(c.end_date,tz)}\n🏆 ${prizes}${links}\n\n👉 <b>Tap "Join Challenge" below to register!</b>\n\n${dashboardCTA}`;
+ return `<b>${heading}</b>\n\nThe challenge starts on <b>${date(c.start_date)}</b>! 🏁\n\n📊 <b>${type}</b>${c.only_cent_account?'\n📋 Real accounts: Cent Account Only':''}\n${balances}${pool?`\n🏆 <b>Prize Pool:</b> ${pool}`:''}\n\n📅 <b>Challenge Period:</b> ${date(c.start_date)} – ${date(new Date(new Date(c.end_date).getTime()-1))}\n🕒 ${postDate(c.start_date,tz)} → ${postDate(c.end_date,tz)}${links?'\n'+links:''}\n\n🚀 <b>Haven’t registered yet?</b>\n\n👇 Tap the <b>“Join Challenge”</b> button below and secure your spot!${includeCTA?'\n\n'+dashboardCTA:''}`;
 }
 /** Persist receipts per channel; retry only missing deliveries, including after restarts. */
 export async function deliverRegistrationPost(telegram:any,c:any,key='announcement',days?:number):Promise<boolean>{
