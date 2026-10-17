@@ -18,7 +18,7 @@ export function newClientReport(c:any,participants:any[],clients:any[],now=Date.
   const row=matched.get(uid);
   if(row){if(!row.accounts.includes(p.account_number))row.accounts.push(p.account_number);continue;}
   const range=Number(client.client_balance);
-  matched.set(uid,{nickname:p.nickname||p.username||'Participant',accounts:[p.account_number],category:p.account_type,registeredAt:client.reg_date,joinedAt:p.registered_at,balanceRange:balanceRanges[range]||'Unavailable',balanceOrder:balanceRanges[range]?range:0});
+  matched.set(uid,{nickname:p.nickname||p.username||'Participant',email:p.email||null,accounts:[p.account_number],category:p.account_type,registeredAt:client.reg_date,joinedAt:p.registered_at,balanceRange:balanceRanges[range]||'Unavailable',balanceOrder:balanceRanges[range]?range:0});
  }
  const rows=[...matched.values()].sort((a,b)=>b.balanceOrder-a.balanceOrder||a.nickname.localeCompare(b.nickname));
  return {rows,count:rows.length,partial:!c.registration_opened_at||unresolved>0,unresolved,windowStart:start,windowEnd:new Date(end).toISOString(),historical:!c.registration_opened_at,
