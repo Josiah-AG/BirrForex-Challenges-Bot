@@ -17,6 +17,7 @@ export async function transitionChallenge(id: number, destination: string, expec
       validateChallenge({...challenge,rules:rules.config,rules_demo:rules.config_demo,rules_real:rules.config_real});
     }
     await db.query(`UPDATE trading_challenges SET status=$1::varchar, updated_at=NOW(), configuration_frozen_at=CASE WHEN $1::varchar IN ('active','reviewing','completed') THEN COALESCE(configuration_frozen_at,NOW()) ELSE configuration_frozen_at END WHERE id=$2`,[destination,id]);
+    if(destination==='registration_open')await db.query('UPDATE trading_challenges SET registration_opened_at=COALESCE(registration_opened_at,NOW()) WHERE id=$1',[id]);
     if(destination==='registration_open' && !challenge.host_id && challenge.source!=='discord') {
       await db.query(`INSERT INTO challenge_registration_posts(challenge_id,post_key) VALUES($1,'announcement') ON CONFLICT DO NOTHING`,[id]);
     }

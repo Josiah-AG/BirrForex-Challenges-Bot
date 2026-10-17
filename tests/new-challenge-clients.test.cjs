@@ -1,0 +1,8 @@
+const {test}=require('node:test'),assert=require('node:assert/strict');require('ts-node/register/transpile-only');const {newClientReport}=require('../src/utils/newChallengeClients');
+const c={registration_opened_at:'2026-10-01T10:00:00Z',start_date:'2026-10-10T10:00:00Z'};
+const p=(id)=>({client_uid:id,nickname:id,account_number:id,registered_at:'2026-10-08T12:00:00Z'});
+const client=(id,date,range)=>({client_uid:id,reg_date:date,client_balance:range});
+test('new clients only, deduplicated, sorted by range, unknown last',()=>{const r=newClientReport(c,[p('a'),p('b'),p('a'),p('old'),p('late'),p('missing')],[client('a','2026-10-02T00:00:00Z',2),client('b','2026-10-03T00:00:00Z',6),client('old','2026-09-01',4),client('late','2026-10-09',4)],Date.parse('2026-10-11'));assert.equal(r.count,2);assert.equal(r.rows[0].nickname,'b');assert.equal(r.unresolved,1);});
+test('historical report uses observed lower bound and labels partial',()=>{const r=newClientReport({...c,registration_opened_at:null,first_registration:'2026-10-03'},[p('a')],[client('a','2026-10-02',4)]);assert.equal(r.count,0);assert.equal(r.historical,true);assert.equal(r.partial,true);assert.match(r.notice,/first recorded/);});
+test('ambiguous prefix is not attributed and deadline is exclusive',()=>{const r=newClientReport(c,[p('12345678'),p('end')],[client('12345678-a','2026-10-04',2),client('12345678-b','2026-10-04',2),client('end',c.start_date,3)]);assert.equal(r.count,0);assert.equal(r.unresolved,1);});
+test('no historical opening evidence produces unavailable rather than zero',()=>{const r=newClientReport({start_date:c.start_date},[],[]);assert.equal(r.count,null);});

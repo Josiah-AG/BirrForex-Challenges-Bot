@@ -2,6 +2,7 @@
 import TradePnl from '@/components/TradePnl';
 import {withWinnerPipSocials} from "@/lib/htmlExportSocials";
 import {rulesExportSummary} from "@/lib/rulesExportSummary";
+import NewChallengeClients from "@/components/NewChallengeClients";
 import CommercialOverview from "@/components/CommercialOverview";
 import AdminLeaderboardHistory from "@/components/AdminLeaderboardHistory";
 import AdminParticipantTrades from "@/components/AdminParticipantTrades";
@@ -672,6 +673,7 @@ export default function AdminDashboard() {
             <StatCard icon={<Clock size={16} />} label="Last Pull" value={<TimeWithZone text={overview.lastPullTime}/>} next={`Next pull: ${overview.nextPullTime}`} sub={`${overview.pullsSuccess} ok · ${overview.pullsFailed} failed`} color="text-gray-300" />
           </div>
 
+          <NewChallengeClients key={`new-${selectedChallengeId}`} challengeId={selectedChallengeId} timezone={challengeTz}/>
           {/* Top Violations Breakdown */}
           {selectedChall?.type !== 'demo' && <CommercialOverview key={selectedChallengeId} challengeId={selectedChallengeId} timezone={challengeTz}/>}
           <div className="glass rounded-2xl border border-white/10 p-5 mb-6">

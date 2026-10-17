@@ -1,3 +1,4 @@
+import {readNewClients} from '../services/newChallengeClients';
 import {tradeGrowthContext,withTradeGrowth} from '../services/tradeGrowthDisplay';
 import {dashboardCTA,challengeBalanceSummary,postDate} from '../utils/challengePosts';
 import {readCommercial,readCommercialParticipant,queueCommercial} from '../services/commercialAnalytics';
@@ -3639,6 +3640,10 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/participant/:registration
       }:null};
     }),balanceOps});
   }catch{return res.status(503).json({error:'Participant history unavailable. Please try again.'});}
+});
+
+app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/new-clients`, adminIpCheck, async (req,res)=>{
+ try{const result=await readNewClients(Number(req.params.id));return result?res.json(result):res.status(404).json({error:'Challenge not found'});}catch{return res.status(503).json({error:'Report unavailable'});}
 });
 
 app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/commercial`, adminIpCheck, async (req,res)=>{

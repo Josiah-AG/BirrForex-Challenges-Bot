@@ -127,6 +127,19 @@ export class ExnessService {
       }
     }
   }
+  async clientDirectory(): Promise<any[]> {
+    if (!await this.ensureAuth()) throw new Error('Client report unavailable');
+    const rows:any[]=[], pages=new Set<string>();
+    for(let offset=0;offset<100000;offset+=500){
+      const response=await this.verificationRequest('get','/api/v2/reports/clients/',{limit:500,offset,ordering:'client_uid'});
+      if(!Array.isArray(response.data?.data))throw new Error('Invalid client report');
+      const page=response.data.data;
+      if(page.length){const signature=JSON.stringify(page.map((r:any)=>[r.client_uid,r.partner_account]));if(pages.has(signature))throw new Error('Client report pagination repeated');pages.add(signature);}
+      rows.push(...page);
+      if(page.length<500)return rows;
+    }
+    throw new Error('Client report pagination exceeded');
+  }
   commercialScope(): string {
     return require('crypto').createHash('sha256').update(this.credentials.email+'\n'+this.credentials.password).digest('hex');
   }

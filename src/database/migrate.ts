@@ -1,3 +1,4 @@
+import {migrateNewClients} from '../services/newChallengeClients';
 import {migrateParticipantNotices} from './participantNoticeMigration';
 import {migrateCommercial} from './commercialMigration';
 import {installWorkloadTelemetry} from '../services/workloadTelemetry';
@@ -505,6 +506,7 @@ async function migrate() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )`);
     await migrateCommercial();
+    await migrateNewClients();
     await migrateHardening();
     await migratePullIntegrity();
     await migrateParticipantNotices();
