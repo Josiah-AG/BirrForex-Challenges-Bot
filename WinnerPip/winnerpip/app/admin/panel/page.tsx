@@ -2,6 +2,7 @@
 import TradePnl from '@/components/TradePnl';
 import {withWinnerPipSocials} from "@/lib/htmlExportSocials";
 import {rulesExportSummary} from "@/lib/rulesExportSummary";
+import PullOverviewCard from "@/components/PullOverviewCard";
 import NewChallengeClients from "@/components/NewChallengeClients";
 import CommercialOverview from "@/components/CommercialOverview";
 import AdminLeaderboardHistory from "@/components/AdminLeaderboardHistory";
@@ -668,12 +669,11 @@ export default function AdminDashboard() {
 
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 mb-6">
             <StatCard icon={<Target size={16} />} label="Total Balance" value={`$${overview.realBalance}`} sub={`Real: $${overview.realBalance} | Demo: $${overview.demoBalance}`} color="text-profit" />
-            <StatCard icon={<Zap size={16} />} label="Pulls Today" value={overview.pullsToday.toString()} sub={`Next: ${overview.nextPullTime}`} color="text-royal" />
-            <StatCard icon={<Shield size={16} />} label="Pull Success" value={overview.pullsSuccess.toString()} sub={`Failed: ${overview.pullsFailed} | PW Changed: ${overview.passwordChanged}`} color="text-profit" />
+            <PullOverviewCard today={overview.pullsToday} success={overview.pullsSuccess} failed={overview.pullsFailed} passwordChanged={overview.passwordChanged} next={overview.nextPullTime}/>
+            <NewChallengeClients key={`new-${selectedChallengeId}`} challengeId={selectedChallengeId} timezone={challengeTz}/>
             <StatCard icon={<Clock size={16} />} label="Last Pull" value={<TimeWithZone text={overview.lastPullTime}/>} next={`Next pull: ${overview.nextPullTime}`} sub={`${overview.pullsSuccess} ok · ${overview.pullsFailed} failed`} color="text-gray-300" />
           </div>
 
-          <NewChallengeClients key={`new-${selectedChallengeId}`} challengeId={selectedChallengeId} timezone={challengeTz}/>
           {/* Top Violations Breakdown */}
           {selectedChall?.type !== 'demo' && <CommercialOverview key={selectedChallengeId} challengeId={selectedChallengeId} timezone={challengeTz}/>}
           <div className="glass rounded-2xl border border-white/10 p-5 mb-6">
