@@ -30,9 +30,9 @@ export async function refreshNewClients(){
  finally{if(locked)await lease.query('SELECT pg_advisory_unlock(26101701)');lease.release();}
 }
 export async function readNewClients(id:number){
- const c=(await db.query('SELECT host_id,source,status FROM trading_challenges WHERE id=$1',[id])).rows[0];
+ const c=(await db.query('SELECT host_id,source,status,type FROM trading_challenges WHERE id=$1',[id])).rows[0];
  if(!c)return null;if(c.host_id)return {enabled:false};
  const row=(await db.query('SELECT report,error FROM wp_new_client_reports WHERE challenge_id=$1',[id])).rows[0];
- return {enabled:true,...(row?.report||{count:null,rows:[],notice:'Awaiting first update'}),error:row?.error||null};
+ return {enabled:true,challengeType:c.type,...(row?.report||{count:null,rows:[],notice:'Awaiting first update'}),error:row?.error||null};
 }
 export function startNewClientScheduler(){setTimeout(()=>void refreshNewClients(),30000).unref();setInterval(()=>void refreshNewClients(),3600000).unref();}
