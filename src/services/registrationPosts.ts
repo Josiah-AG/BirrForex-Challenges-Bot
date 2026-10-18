@@ -1,11 +1,12 @@
 import {resolveCategoryBalances} from '../utils/categorySettings';
 import {db} from '../database/db';
 import {config} from '../config';
-import {challengeBalanceSummary,dashboardCTA,postDate} from '../utils/challengePosts';
+import {dashboardCTA} from '../utils/challengePosts';
 export const escapePost = (value:any) => String(value ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 export function registrationPost(c:any,days?:number,promo?:number,includeCTA=true):string {
  const title=escapePost(c.title),tz=c.timezone||config.timezone;
- const heading=days ? `⏰ ${days} ${days===1?'DAY':'DAYS'} LEFT! ${title} is Almost Here! 🔥`
+ const heading=days===1 ? `⏰ LAST DAY TO JOIN! ${title} Starts Tomorrow! 🔥`
+   : days ? `⏰ ${days} DAYS LEFT! ${title} is Almost Here! 🔥`
    : promo===2?`🔥 Ready to Take Part? ${title} is Calling!`
    : promo===3?`🚀 Your Next Challenge Awaits! ${title}`
    : `📣 Registration is OPEN! ${title} is Here! 🔥`;
@@ -31,7 +32,7 @@ export function registrationPost(c:any,days?:number,promo?:number,includeCTA=tru
  let links='';
  if(c.pdf_url)links+=`\n📄 Rules: <a href="${escapePost(c.pdf_url)}">Download PDF</a>`;
  if(c.video_url)links+=`\n🎥 Guide: <a href="${escapePost(c.video_url)}">Watch Video</a>`;
- return `<b>${heading}</b>\n\nThe challenge starts on <b>${date(c.start_date)}</b>! 🏁\n\n📊 <b>${type}</b>${c.only_cent_account?'\n📋 Real accounts: Cent Account Only':''}\n${balances}${pool?`\n🏆 <b>Prize Pool:</b> ${pool}`:''}\n\n📅 <b>Challenge Period:</b> ${date(c.start_date)} – ${date(new Date(new Date(c.end_date).getTime()-1))}\n🕒 ${postDate(c.start_date,tz)} → ${postDate(c.end_date,tz)}${links?'\n'+links:''}\n\n🚀 <b>Haven’t registered yet?</b>\n\n👇 Tap the <b>“Join Challenge”</b> button below and secure your spot!${includeCTA?'\n\n'+dashboardCTA:''}`;
+ return `<b>${heading}</b>\n\nThe challenge starts on <b>${date(c.start_date)}</b>! 🏁\n\n📊 <b>${type}</b>${c.only_cent_account?'\n📋 Real accounts: Cent Account Only':''}\n${balances}${pool?`\n🏆 <b>Prize Pool:</b> ${pool}`:''}\n\n📅 <b>Challenge Period:</b> ${date(c.start_date)} – ${date(new Date(new Date(c.end_date).getTime()-1))}${links?'\n'+links:''}\n\n🚀 <b>Haven’t registered yet?</b>\n\n👇 Tap the <b>“Join Challenge”</b> button below and secure your spot!${includeCTA?'\n\n'+dashboardCTA:''}`;
 }
 /** Persist receipts per channel; retry only missing deliveries, including after restarts. */
 export async function deliverRegistrationPost(telegram:any,c:any,key='announcement',days?:number):Promise<boolean>{

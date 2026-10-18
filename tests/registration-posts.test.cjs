@@ -21,4 +21,9 @@ test('hosted, Discord and started challenges never post registration messages',a
  for(const overrides of [{host_id:1},{source:'discord'},{status:'active'}])assert.equal(await deliverRegistrationPost({}, {...c,...overrides}),false);
 });
 
-test('countdown style and optional resources follow challenge configuration',()=>{const text=registrationPost({...c,pdf_url:'https://example.com/rules',video_url:'https://example.com/video'},2);assert.match(text,/2 DAYS LEFT!/);assert.match(text,/Download PDF/);assert.match(text,/Watch Video/);assert.match(text,/October 19/);assert.doesNotMatch(text,/\$60/);const demo=registrationPost({...c,type:'demo',deposit_mode:'max_limit'},1);assert.match(demo,/1 DAY LEFT!/);assert.match(demo,/Maximum Starting Balance/);assert.match(demo,/Prize Pool:<\/b> \$100/);assert.doesNotMatch(demo,/Download PDF|Watch Video|Demo & Real/);});
+test('countdown style and optional resources follow challenge configuration',()=>{const text=registrationPost({...c,pdf_url:'https://example.com/rules',video_url:'https://example.com/video'},2);assert.match(text,/2 DAYS LEFT!/);assert.match(text,/Download PDF/);assert.match(text,/Watch Video/);assert.match(text,/October 19/);assert.doesNotMatch(text,/\$60/);const demo=registrationPost({...c,type:'demo',deposit_mode:'max_limit'},1);assert.match(demo,/LAST DAY TO JOIN!/);assert.match(demo,/Maximum Starting Balance/);assert.match(demo,/Prize Pool:<\/b> \$100/);assert.doesNotMatch(demo,/Download PDF|Watch Video|Demo & Real/);});
+
+test('announcement, promotions and countdowns show dates without clock times',()=>{
+ for(const days of [undefined,3,2,1]){const text=registrationPost(c,days);assert.match(text,/Challenge Period:<\/b> October 19 – October 23/);assert.doesNotMatch(text,/GMT|UTC|🕒|\d{1,2}:\d{2}/);}
+ const last=registrationPost(c,1);assert.match(last,/LAST DAY TO JOIN!/);assert.match(last,/Starts Tomorrow!/);assert.doesNotMatch(last,/1 DAY LEFT/);
+});
