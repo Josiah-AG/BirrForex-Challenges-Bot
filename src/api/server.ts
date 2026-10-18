@@ -6586,7 +6586,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/pull-status`, adminIpCheck, async (req,
 
     // Check if there's a currently running batch
     const running = await db.query(
-      `SELECT id, challenge_id, total_accounts, successful, failed, started_at, phase, phase2_total, phase2_processed, phase2_round, phase_times, phase_started_at
+      `SELECT id, challenge_id, total_accounts, successful, failed, error_log, started_at, phase, phase2_total, phase2_processed, phase2_round, phase_times, phase_started_at
        FROM wp_pull_batches WHERE status = 'running' AND ($1::integer IS NULL OR challenge_id=$1) ORDER BY started_at DESC LIMIT 1`, [filterChallengeId]
     );
 
@@ -6654,6 +6654,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/pull-status`, adminIpCheck, async (req,
         processed: processedCount,
         percent,
         phase: 'pulling',
+        isPreStart: batch.error_log === 'pre_start_check',
         elapsedSeconds: elapsed,
         startedAt: batch.started_at,
         etaSeconds: pullEta,

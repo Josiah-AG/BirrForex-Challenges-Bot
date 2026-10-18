@@ -351,7 +351,6 @@ export class TradingScheduler {
           `UPDATE trading_registrations SET actual_starting_balance = $1, funding_origin = 'prestart_snapshot', last_known_balance = $1, last_pull_at = NOW(), balance_warning=$3, prestart_snapshot_at=$4, prestart_snapshot_balance=$1, prestart_snapshot_until=$5 WHERE id = $2`,
           [balance, reg.id,!!problem,snapshotAt,new Date()]
         );
-        verified++;
 
         if(disqualifiesStartingBalance(problem, depositMode)) {
           const currency=reg.is_cent?'¢':'$';
@@ -359,10 +358,17 @@ export class TradingScheduler {
             [`Starting balance ${currency}${balance.toFixed(2)} is ${problem==='high'?'above':'below'} the required ${depositMode} balance of ${currency}${limit.toFixed(2)}`,reg.id]);
           dqd++;
         }
+        verified++;
 
       } catch (err) {
         failed++;
         console.error(`Pre-start snapshot error for reg ${reg.id}:`, err);
+      } finally {
+        // Publish each completed attempt, including failed verifications, for live UI progress.
+        if (batchId !== null) await db.query(
+          `UPDATE wp_pull_batches SET successful=$1, failed=$2 WHERE id=$3 AND status='running'`,
+          [verified, failed, batchId]
+        ).catch(error => console.error('Pre-start progress update failed:', error));
       }
     }
 

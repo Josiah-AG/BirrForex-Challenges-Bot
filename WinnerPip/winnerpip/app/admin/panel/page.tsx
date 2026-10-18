@@ -4462,14 +4462,14 @@ function PullsTab({ challenge, challengeId, pullHistory, terminalStatus, slFailu
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold text-white flex items-center gap-2">
               <Loader2 size={16} className="text-royal animate-spin" />
-              {pullProgress.phase === 'queued' ? pullProgress.stepLabel : pullProgress.phase === 'reconciling' ? 'Reconciling Trades' : pullProgress.phase === 'resolving' ? 'Resolving Missing Data' : pullProgress.phase === 'resolving_nulls' ? 'Resolving Open Times' : pullProgress.phase === 'full_pull_open_price' ? 'Fixing Open Prices' : pullProgress.phase === 'balance_reconcile' ? 'Balance Reconciliation' : pullProgress.phase === 'settling' ? 'Settling (30s wait)' : pullProgress.phase === 'ohlc' ? 'Updating OHLC Candles' : pullProgress.phase === 'evaluating' ? 'Evaluating Accounts' : 'Pulling Accounts'}
+              {pullProgress.isPreStart ? 'Checking Starting Balances' : pullProgress.phase === 'queued' ? pullProgress.stepLabel : pullProgress.phase === 'reconciling' ? 'Reconciling Trades' : pullProgress.phase === 'resolving' ? 'Resolving Missing Data' : pullProgress.phase === 'resolving_nulls' ? 'Resolving Open Times' : pullProgress.phase === 'full_pull_open_price' ? 'Fixing Open Prices' : pullProgress.phase === 'balance_reconcile' ? 'Balance Reconciliation' : pullProgress.phase === 'settling' ? 'Settling (30s wait)' : pullProgress.phase === 'ohlc' ? 'Updating OHLC Candles' : pullProgress.phase === 'evaluating' ? 'Evaluating Accounts' : 'Pulling Accounts'}
             </h3>
             <div className="flex items-center gap-3">
               <span className="text-xs text-gray-400">{pullProgress.elapsedSeconds}s elapsed</span>
               {pullProgress.etaSeconds != null && pullProgress.etaSeconds > 0 && (
                 <span className="text-xs text-royal font-semibold">~{pullProgress.etaSeconds < 60 ? `${pullProgress.etaSeconds}s` : `${Math.round(pullProgress.etaSeconds / 60)}m`} left</span>
               )}
-              <button
+              {!pullProgress.isPreStart && <button
                 disabled={pullProgress.isQueued}
                 onClick={async () => {
                   try {
@@ -4484,12 +4484,12 @@ function PullsTab({ challenge, challengeId, pullHistory, terminalStatus, slFailu
                 className="px-3 py-1 rounded-lg bg-loss/10 border border-loss/30 text-loss text-xs font-semibold hover:bg-loss/20 transition-all"
               >
                 ✕ Stop Pull
-              </button>
+              </button>}
             </div>
           </div>
 
-          {/* Phase steps indicator */}
-          <div className="flex items-center gap-1 mb-3">
+          {/* Balance checks have no trade-import phases. */}
+          {!pullProgress.isPreStart && <div className="flex items-center gap-1 mb-3">
             {['pulling', 'resolving', 'settling', 'ohlc', 'evaluating'].map((p, i) => {
               const labels = ['Pull', 'Resolve', 'Settle', 'OHLC', 'Evaluate'];
               const phases = ['pulling', 'resolving', 'settling', 'ohlc', 'evaluating'];
@@ -4505,7 +4505,7 @@ function PullsTab({ challenge, challengeId, pullHistory, terminalStatus, slFailu
                 </div>
               );
             })}
-          </div>
+          </div>}
 
           {/* Main progress bar */}
           <div className="flex items-center gap-2 mb-1">
