@@ -1,5 +1,6 @@
 "use client";
 
+import {hasEnded,isPastChallenge} from "@/lib/challengeListing";
 import ServerDropdown from '../../components/ServerDropdown';
 import PublicLeaderboard, { canViewPublicLeaderboard } from "@/components/PublicLeaderboard";
 import RaceCountdown from "@/components/RaceCountdown";
@@ -26,6 +27,7 @@ interface Challenge {
   type: string;
   status: string;
   displayStatus?: string;
+  winnersPostedAt?: string | null;
   startDate: string;
   endDate: string;
   startingBalance: number;
@@ -121,15 +123,8 @@ export default function ChallengesPage({initialChallenges = [], winnersId, retur
     return () => { window.clearInterval(refresh); document.removeEventListener("visibilitychange", onVisible); };
   }, []);
 
-  const currentChallenges = challenges.filter(c => {
-    const ds = c.displayStatus || c.status;
-    return ds !== "ended" && ds !== "completed";
-  });
-
-  const pastChallenges = challenges.filter(c => {
-    const ds = c.displayStatus || c.status;
-    return ds === "ended" || c.status === "completed";
-  });
+  const currentChallenges = challenges.filter(c => !isPastChallenge(c));
+  const pastChallenges = challenges.filter(c => isPastChallenge(c));
 
   const formatDate = (dateStr: string) => {
     return new Date(dateStr).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
@@ -190,10 +185,10 @@ export default function ChallengesPage({initialChallenges = [], winnersId, retur
   const openedWinnersId = useRef<number | null>(null);
   useEffect(() => {
     if (!winnersId || openedWinnersId.current === winnersId) return;
-    const challenge = challenges.find(c => c.id === winnersId && c.status === "completed");
+    const challenge = challenges.find(c => c.id === winnersId && hasEnded(c));
     if (!challenge) return;
     openedWinnersId.current = winnersId;
-    setActiveTab("past");
+    setActiveTab(isPastChallenge(challenge) ? "past" : "current");
     void handlePastChallengeClick(challenge);
   }, [winnersId, challenges]);
 
@@ -250,7 +245,7 @@ export default function ChallengesPage({initialChallenges = [], winnersId, retur
       <article
         key={challenge.id}
         onClick={() => {
-          if (isPast) return handlePastChallengeClick(challenge);
+          if (hasEnded(challenge)) return handlePastChallengeClick(challenge);
           const ds = challenge.displayStatus || challenge.status;
           if (ds === 'coming_soon' || ds === 'draft') { setShowNotOpenPopup(true); return; }
           handleChallengeClick(challenge);
@@ -399,7 +394,7 @@ export default function ChallengesPage({initialChallenges = [], winnersId, retur
           </div>
 
           {/* CTA */}
-          {canViewPublicLeaderboard(challenge) ? <div className="space-y-2" onClick={e=>e.stopPropagation()}>
+          {hasEnded(challenge) ? <button type="button" onClick={e=>{e.stopPropagation();void handlePastChallengeClick(challenge);}} className="w-full flex items-center justify-center gap-2 rounded-xl bg-profit/20 border border-profit/30 p-3 text-sm font-semibold text-profit hover:bg-profit/30"><Trophy size={17}/>View Winners</button> : canViewPublicLeaderboard(challenge) ? <div className="space-y-2" onClick={e=>e.stopPropagation()}>
             <p className="text-center text-xs text-gray-500">Registration Closed</p>
             <button type="button" onClick={e=>{e.preventDefault();e.stopPropagation();setPublicLeaderboard(challenge);}} className="w-full flex items-center justify-center gap-2 rounded-xl bg-emerald-500/20 border border-emerald-400/30 p-3 text-sm font-semibold text-emerald-300 hover:bg-emerald-500/30"><Trophy size={17}/>See Leaderboard</button>
             {isPast && <button type="button" onClick={()=>handlePastChallengeClick(challenge)} className="w-full p-2 text-sm text-gray-400 hover:text-white">View Winners</button>}
