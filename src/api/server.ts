@@ -1,3 +1,4 @@
+import { tradingChallengeService } from '../services/tradingChallengeService';
 import {readNewClients} from '../services/newChallengeClients';
 import {tradeGrowthContext,withTradeGrowth} from '../services/tradeGrowthDisplay';
 import {dashboardCTA,challengeBalanceSummary,postDate} from '../utils/challengePosts';
@@ -531,7 +532,7 @@ app.get('/api/challenges', async (req, res) => {
     const result = await db.query(
       `SELECT c.id, c.title, c.type, c.status, c.start_date, c.end_date, c.starting_balance, c.target_balance,
               c.real_winners_count, c.demo_winners_count, c.real_prizes, c.demo_prizes, c.prize_pool_text,
-              c.pdf_url, c.video_url, c.announcement_posted, c.evaluation_type, c.winners_posted_at,
+              c.pdf_url, c.video_url, c.announcement_posted, c.evaluation_type, c.winners_posted_at, c.leaderboard_locked_at,
               c.source, c.team_only, c.registration_deadline, c.host_id, c.registration_mode,
               c.deposit_mode, c.target_percent, c.split_category_settings,
               c.demo_starting_balance, c.demo_target_balance, c.real_starting_balance, c.real_target_balance,
@@ -548,19 +549,8 @@ app.get('/api/challenges', async (req, res) => {
     const challenges: any[] = [];
     
     for (const c of result.rows) {
-      // Compute display status
-      let displayStatus = 'coming_soon';
-      if (!c.announcement_posted && c.status === 'draft') displayStatus = 'coming_soon';
-      else if (c.status === 'registration_open') displayStatus = 'registration_open';
-      else if (c.status === 'active') displayStatus = 'ongoing';
-      else if (['submission_open', 'reviewing'].includes(c.status) && !c.winners_posted_at) {
-        // Show "Evaluation" for first 12h after end, then "Ended"
-        const hoursSinceEnd = (Date.now() - new Date(c.end_date).getTime()) / (1000 * 60 * 60);
-        displayStatus = hoursSinceEnd < 12 ? 'evaluation' : 'ended';
-      }
-      else if (c.winners_posted_at) displayStatus = 'ended';
-      else if (c.status === 'completed' && !c.winners_posted_at) displayStatus = 'ended';
-      else displayStatus = c.status;
+      // Final review ends only after verified finalization (or explicit winner publication).
+      const displayStatus = tradingChallengeService.getDisplayStatus(c);
 
       // Visibility filter — only apply when NOT fetching past challenges
       if (!includePast) {

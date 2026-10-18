@@ -444,14 +444,18 @@ export class VpsPullScheduler {
 
   private async scheduleDuePulls() {
       const {getLocalTime}=require('../utils/timezone');
-      const challenges=await db.query(`SELECT id,pull_times,timezone FROM trading_challenges
+      const challenges=await db.query(`SELECT id,pull_times,timezone,status,end_date FROM trading_challenges
         WHERE status IN ('active','reviewing') AND leaderboard_locked_at IS NULL
         AND (status='active' OR (winners_posted_at IS NULL AND end_date>NOW()-INTERVAL '48 hours'))`);
       for(const challenge of challenges.rows){
         const local=getLocalTime(new Date(),challenge.timezone || 'Africa/Nairobi');
         for(const slot of challenge.pull_times || ['00:00','04:00','08:00','12:00','16:00','20:00']){
           if(slot>local.timeStr)continue;
-          await db.query(`INSERT INTO challenge_pull_jobs(challenge_id,slot) VALUES($1,$2) ON CONFLICT DO NOTHING`,[challenge.id,`${local.dateStr} ${slot}`]);
+          // The immediate lifecycle pull covers the deadline. Only later schedule slots
+          // may supply the follow-up final pull; do not replay pre-end slots after restart.
+          const endLocal=getLocalTime(new Date(challenge.end_date),challenge.timezone || 'Africa/Nairobi');
+          if(challenge.status==='reviewing' && `${local.dateStr} ${slot}`<=`${endLocal.dateStr} ${endLocal.timeStr}`)continue;
+          await db.query(`INSERT INTO challenge_pull_jobs(challenge_id,slot,full_history) VALUES($1,$2,$3) ON CONFLICT DO NOTHING`,[challenge.id,`${local.dateStr} ${slot}`,challenge.status==='reviewing']);
         }
       }
   }

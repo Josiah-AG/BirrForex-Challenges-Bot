@@ -30,7 +30,7 @@ export async function transitionChallenge(id: number, destination: string, expec
     }
     if(['active','reviewing'].includes(destination)){
       await db.query(`INSERT INTO challenge_lifecycle_events(challenge_id,destination,payload) VALUES($1,$2,$3) ON CONFLICT DO NOTHING`,[id,destination,JSON.stringify({...challenge,status:destination})]);
-      await db.query(`INSERT INTO challenge_pull_jobs(challenge_id,slot) VALUES($1,$2) ON CONFLICT DO NOTHING`,[id,`lifecycle:${destination}`]);
+      await db.query(`INSERT INTO challenge_pull_jobs(challenge_id,slot,full_history) VALUES($1,$2,$3) ON CONFLICT DO NOTHING`,[id,`lifecycle:${destination}`,destination==='reviewing']);
     }
     return true;
   });

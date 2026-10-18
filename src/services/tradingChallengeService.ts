@@ -716,6 +716,7 @@ class TradingChallengeService {
     if (!challenge.announcement_posted && challenge.status === 'draft') return 'coming_soon';
     if (challenge.status === 'registration_open') return 'registration_open';
     if (challenge.status === 'active') return 'ongoing';
+    if (challenge.winners_posted_at || (challenge as any).leaderboard_locked_at) return 'ended';
     if (['submission_open', 'reviewing'].includes(challenge.status) && !challenge.winners_posted_at) return 'evaluation';
     if (challenge.winners_posted_at) return 'ended';
     if (challenge.status === 'completed' && !challenge.winners_posted_at) return 'ended'; // Legacy
