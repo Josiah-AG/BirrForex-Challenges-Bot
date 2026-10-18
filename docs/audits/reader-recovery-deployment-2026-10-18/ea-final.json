@@ -1,0 +1,110 @@
+[
+    {
+        "terminal":  1,
+        "ea":  {
+                   "status":  "verified",
+                   "checked_at":  1792321982.6657052,
+                   "expires_at":  1792322102.6657052,
+                   "last_recovery_at":  null
+               }
+    },
+    {
+        "terminal":  2,
+        "ea":  {
+                   "status":  "verified",
+                   "checked_at":  1792321982.7615116,
+                   "expires_at":  1792322102.7615116,
+                   "last_recovery_at":  1792321801.5934656
+               }
+    },
+    {
+        "terminal":  3,
+        "ea":  {
+                   "status":  "verified",
+                   "checked_at":  1792321982.834333,
+                   "expires_at":  1792322102.834333,
+                   "last_recovery_at":  null
+               }
+    },
+    {
+        "terminal":  4,
+        "ea":  {
+                   "status":  "verified",
+                   "checked_at":  1792321982.9221098,
+                   "expires_at":  1792322102.9221098,
+                   "last_recovery_at":  null
+               }
+    },
+    {
+        "terminal":  5,
+        "ea":  {
+                   "status":  "verified",
+                   "checked_at":  1792321983.0126538,
+                   "expires_at":  1792322103.0126538,
+                   "last_recovery_at":  null
+               }
+    },
+    {
+        "terminal":  6,
+        "ea":  {
+                   "status":  "verified",
+                   "checked_at":  1792321983.1115956,
+                   "expires_at":  1792322103.1115956,
+                   "last_recovery_at":  null
+               }
+    },
+    {
+        "terminal":  7,
+        "ea":  {
+                   "status":  "verified",
+                   "checked_at":  1792321983.2814224,
+                   "expires_at":  1792322103.2814224,
+                   "last_recovery_at":  null
+               }
+    },
+    {
+        "terminal":  8,
+        "ea":  {
+                   "status":  "verified",
+                   "checked_at":  1792321983.5551984,
+                   "expires_at":  1792322103.5551984,
+                   "last_recovery_at":  null
+               }
+    },
+    {
+        "terminal":  9,
+        "ea":  {
+                   "status":  "verified",
+                   "checked_at":  1792321983.7079136,
+                   "expires_at":  1792322103.7079136,
+                   "last_recovery_at":  null
+               }
+    },
+    {
+        "terminal":  10,
+        "ea":  {
+                   "status":  "verified",
+                   "checked_at":  1792321983.9815748,
+                   "expires_at":  1792322103.9815748,
+                   "last_recovery_at":  null
+               }
+    },
+    {
+        "terminal":  11,
+        "ea":  {
+                   "status":  "verified",
+                   "checked_at":  1792321984.2873583,
+                   "expires_at":  1792322104.2873583,
+                   "last_recovery_at":  null
+               }
+    },
+    {
+        "terminal":  12,
+        "ea":  {
+                   "status":  "verified",
+                   "checked_at":  1792321984.427697,
+                   "expires_at":  1792322104.427697,
+                   "last_recovery_at":  null
+               }
+    }
+]

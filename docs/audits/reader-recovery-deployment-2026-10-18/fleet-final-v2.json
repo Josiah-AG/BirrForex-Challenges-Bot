@@ -1,0 +1,146 @@
+[
+  {
+    "terminal": 1,
+    "health": {
+      "status": "ok",
+      "reader_recovery_version": 2,
+      "reader_recovery_build": "2026-10-18.2",
+      "ipc_connected": true,
+      "recovery_in_progress": false,
+      "busy": false,
+      "dead_mode": false
+    }
+  },
+  {
+    "terminal": 2,
+    "health": {
+      "status": "ok",
+      "reader_recovery_version": 2,
+      "reader_recovery_build": "2026-10-18.2",
+      "ipc_connected": true,
+      "recovery_in_progress": false,
+      "busy": false,
+      "dead_mode": false
+    }
+  },
+  {
+    "terminal": 3,
+    "health": {
+      "status": "ok",
+      "reader_recovery_version": 2,
+      "reader_recovery_build": "2026-10-18.2",
+      "ipc_connected": true,
+      "recovery_in_progress": false,
+      "busy": false,
+      "dead_mode": false
+    }
+  },
+  {
+    "terminal": 4,
+    "health": {
+      "status": "ok",
+      "reader_recovery_version": 2,
+      "reader_recovery_build": "2026-10-18.2",
+      "ipc_connected": true,
+      "recovery_in_progress": false,
+      "busy": false,
+      "dead_mode": false
+    }
+  },
+  {
+    "terminal": 5,
+    "health": {
+      "status": "ok",
+      "reader_recovery_version": 2,
+      "reader_recovery_build": "2026-10-18.2",
+      "ipc_connected": true,
+      "recovery_in_progress": false,
+      "busy": false,
+      "dead_mode": false
+    }
+  },
+  {
+    "terminal": 6,
+    "health": {
+      "status": "ok",
+      "reader_recovery_version": 2,
+      "reader_recovery_build": "2026-10-18.2",
+      "ipc_connected": true,
+      "recovery_in_progress": false,
+      "busy": false,
+      "dead_mode": false
+    }
+  },
+  {
+    "terminal": 7,
+    "health": {
+      "status": "ok",
+      "reader_recovery_version": 2,
+      "reader_recovery_build": "2026-10-18.2",
+      "ipc_connected": true,
+      "recovery_in_progress": false,
+      "busy": false,
+      "dead_mode": false
+    }
+  },
+  {
+    "terminal": 8,
+    "health": {
+      "status": "ok",
+      "reader_recovery_version": 2,
+      "reader_recovery_build": "2026-10-18.2",
+      "ipc_connected": true,
+      "recovery_in_progress": false,
+      "busy": false,
+      "dead_mode": false
+    }
+  },
+  {
+    "terminal": 9,
+    "health": {
+      "status": "ok",
+      "reader_recovery_version": 2,
+      "reader_recovery_build": "2026-10-18.2",
+      "ipc_connected": true,
+      "recovery_in_progress": false,
+      "busy": false,
+      "dead_mode": false
+    }
+  },
+  {
+    "terminal": 10,
+    "health": {
+      "status": "ok",
+      "reader_recovery_version": 2,
+      "reader_recovery_build": "2026-10-18.2",
+      "ipc_connected": true,
+      "recovery_in_progress": false,
+      "busy": false,
+      "dead_mode": false
+    }
+  },
+  {
+    "terminal": 11,
+    "health": {
+      "status": "ok",
+      "reader_recovery_version": 2,
+      "reader_recovery_build": "2026-10-18.2",
+      "ipc_connected": true,
+      "recovery_in_progress": false,
+      "busy": false,
+      "dead_mode": false
+    }
+  },
+  {
+    "terminal": 12,
+    "health": {
+      "status": "ok",
+      "reader_recovery_version": 2,
+      "reader_recovery_build": "2026-10-18.2",
+      "ipc_connected": true,
+      "recovery_in_progress": false,
+      "busy": false,
+      "dead_mode": false
+    }
+  }
+]

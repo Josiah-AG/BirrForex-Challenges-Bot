@@ -1,0 +1,82 @@
+WinnerPip MT5 reader recovery v2 — operations and rollback
+2026-10-18
+
+Scope
+Opt-in per terminal. Production evaluation, trade reconciliation, broker-cost accounting,
+SL/TP evidence rules, and registration logic are unchanged.
+Recovery uses a managed single-reader chart profile, fresh heartbeat or a 20-second settling period before bounded Python
+attachment to the still-running launched process, account/connection validation, nonce reader validation, and up to three
+native-history acknowledgement attempts within bounded budgets. A terminal is not
+advertised as healthy while its reader is unverified or its heartbeat has expired.
+Managed chart cleanup happens only after exact-process termination is verified.
+Existing user profiles, broker history, account caches, and EA binaries are preserved.
+
+Files
+vps/terminal_recovery.py — bounded startup and reader checks
+vps/worker.py — opt-in integration, health gates and operation-lock protection
+vps/reader_recovery_rollout.ps1 — serialized enable/rollback, backups and readiness gate
+vps/reader_recovery_N.enabled — per-terminal opt-in switch
+vps/maintenance_N.drain — dispatcher exclusion while changing that terminal
+
+Backups on VPS
+C:\BirrForex\backups\reader-recovery-20261018\source\ — original production worker/recovery source
+C:\BirrForex\backups\reader-recovery-20261018\terminal-N\ — base config, common config,
+all original chart profiles, manifest and latest rollout result.
+Backups contain private broker configuration; do not publish or copy them into reports.
+Original pre-experiment Terminal 12 profile also remains in
+C:\WinnerPipRecoveryBenchmark\T12\original-charts and original-base_login.ini.
+
+Enable or rollback ONE terminal at a time from the Administrator interactive desktop
+(or an Administrator scheduled task with LogonType Interactive). Never run concurrent
+rollouts on the same terminal. The script verifies that the worker is idle before stopping
+it; never remove maintenance markers manually to bypass a failed readiness check.
+
+Enable example:
+powershell -NoProfile -ExecutionPolicy Bypass -File C:\BirrForex\vps\reader_recovery_rollout.ps1 -TerminalId 12 -Mode Enable
+
+Recommended policy rollback (keeps the functioning minimal chart profile):
+powershell -NoProfile -ExecutionPolicy Bypass -File C:\BirrForex\vps\reader_recovery_rollout.ps1 -TerminalId 12 -Mode Rollback
+
+This removes that terminal's feature flag, restarts only its worker in legacy mode,
+verifies IPC and the EA, then removes its maintenance marker. It does not restart the
+other workers or erase any financial data. This rollback was exercised on Terminal 12.
+
+Optional full original-profile restoration:
+powershell -NoProfile -ExecutionPolicy Bypass -File C:\BirrForex\vps\reader_recovery_rollout.ps1 -TerminalId 12 -Mode Rollback -RestoreProfile
+
+The old multi-chart profile previously produced MDI/EA startup failures. Full-profile
+restoration can reproduce them; the script intentionally keeps that terminal isolated
+if validation fails. Original profile files are preserved, not overwritten by v2.
+For Terminal 12, the deployment manifest records the persisted Default profile; the
+working experimental profile was selected by a separate startup configuration. The
+pre-experiment chart backup is also retained. A policy-only rollback keeps the current
+running chart; a subsequent legacy hard restart may select the old persisted profile.
+
+Full source rollback if needed
+Restore source/worker.py from the VPS backup to C:\BirrForex\vps\worker.py, then run
+Mode Rollback sequentially for each opted-in terminal. Running processes retain their
+loaded code until restarted. terminal_recovery.py can remain on disk unused. The normal
+per-terminal rollback is preferred because it is faster and preserves lock-safety fixes.
+
+Failure handling
+The batch runner stops at the first unsuccessful terminal and attempts its legacy policy
+rollback. If that cannot verify the EA, its maintenance marker is retained for inspection.
+No subsequent terminal is changed. Logs and last-result.json identify the failing phase.
+The stop_worker_N.flag is retained on failure to prevent an uncontrolled BAT restart loop;
+a successful enable or rollback removes it. Never reboot all terminals to fix one failure.
+
+Validation
+94 Python unit/integration tests passed. Terminal 12: complete real protocol-v2 pulls
+before enable, after enable, and after rollback matched history digest, trade hash, balance,
+112 deals, 54 trades and recovered native SL/TP (3 SL / 1 TP). Initial live v2 startup
+verified in 27.109 seconds; rollout overhead brought the change to 35.14 seconds.
+Legacy policy rollback completed in 6.18 seconds. See deployment audit for fleet results.
+
+Limits
+This improves terminal/EA restart recovery. It cannot eliminate downtime while an Exness
+server is unavailable. It does not alter the existing broker-outage backoff policy.
+
+Python-only refresh
+Mode Refresh drains and restarts the worker without restarting MT5. Reader validation
+preserves the currently attached account; it does not require or switch to the home
+account. This avoids interrupting future software-only maintenance after a client pull.

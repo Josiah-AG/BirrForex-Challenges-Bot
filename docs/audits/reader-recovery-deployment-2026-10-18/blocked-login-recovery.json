@@ -1,0 +1,47 @@
+{
+    "seconds":  30.91,
+    "health":  {
+                   "status":  "ok",
+                   "reader_recovery_version":  2,
+                   "reader_recovery_build":  "2026-10-18.2",
+                   "reader_recovery":  {
+                                           "ready":  true,
+                                           "status":  "verified",
+                                           "attempts":  [
+                                                            "requested"
+                                                        ],
+                                           "elapsed_seconds":  24.297,
+                                           "heartbeat_fresh":  true
+                                       },
+                   "resilience_version":  2,
+                   "operation_age_seconds":  0,
+                   "console_dropped_writes":  0,
+                   "git_commit":  "6bcf65b",
+                   "history_protocol":  2,
+                   "history_sync_version":  1,
+                   "mt5_connector_version":  "5.0.5735",
+                   "native_sltp_challenge_supported":  true,
+                   "native_history_enabled":  true,
+                   "busy":  false,
+                   "git_commit_time":  "2026-09-27T00:36:07+03:00",
+                   "terminal_id":  2,
+                   "port":  8002,
+                   "ipc_connected":  true,
+                   "recovery_in_progress":  false,
+                   "idle_recovery":  {
+                                         "version":  1,
+                                         "last_check":  null,
+                                         "result":  "starting",
+                                         "recovered":  0
+                                     },
+                   "consecutive_failures":  0,
+                   "dead_mode":  false,
+                   "dead_since":  null,
+                   "home_account":  "435924397",
+                   "current_account":  "435924397"
+               },
+    "success":  true,
+    "finished":  "2026-10-18T13:08:33.1029108+02:00",
+    "mode":  "Enable",
+    "terminal":  2
+}

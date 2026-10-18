@@ -1,0 +1,17 @@
+MT5 recovery deployment — 2026-10-18
+Build 2026-10-18.2 enabled on all 12 workers, sequentially with idle draining.
+Final router check: 12 healthy, no maintenance terminals. All 12 EA probes verified.
+94 Python tests passed. Remote source hashes matched local files.
+Initial live recovery readiness: 23.015–37.031 seconds, mean 27.78 seconds.
+A rejected broker login exposed a startup dependency during final checks. Added a
+bounded login fallback after 20 seconds, only while the launched terminal remains alive.
+Affected Terminal 2 recovered in 24.297 seconds; complete history matched baseline.
+Baseline, enabled, rollback, and final-fallback pulls matched: 112 deals, 54 trades,
+balance 918983.31, identical history/trade hashes and recovered SL/TP counts.
+Terminal 12 legacy-policy rollback tested successfully in 6.18 seconds, then re-enabled.
+Backups: C:\BirrForex\backups\reader-recovery-20261018 (private configuration retained on VPS).
+Rollback instructions: ../../operations/reader-recovery-rollback.txt
+No evaluation, registration, financial history or Telegram posting changes.
+Observed timings are individual terminal tests, not a guarantee for a simultaneous
+broker-wide outage. External broker availability and existing backoff still apply.
+One-off rollout task removed after successful completion.

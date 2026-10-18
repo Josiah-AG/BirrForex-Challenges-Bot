@@ -1,0 +1,96 @@
+{
+    "current":  11,
+    "status":  "complete",
+    "started":  "2026-10-18T12:51:44.9951529+02:00",
+    "completed":  [
+                      {
+                          "terminal":  1,
+                          "seconds":  30.2,
+                          "history_attempts":  [
+                                                   "requested"
+                                               ],
+                          "recovery_seconds":  23.015
+                      },
+                      {
+                          "terminal":  2,
+                          "seconds":  31.73,
+                          "history_attempts":  [
+                                                   "requested"
+                                               ],
+                          "recovery_seconds":  25.406
+                      },
+                      {
+                          "terminal":  3,
+                          "seconds":  39.65,
+                          "history_attempts":  [
+                                                   "requested"
+                                               ],
+                          "recovery_seconds":  33.078
+                      },
+                      {
+                          "terminal":  4,
+                          "seconds":  31.12,
+                          "history_attempts":  [
+                                                   "requested"
+                                               ],
+                          "recovery_seconds":  25.453
+                      },
+                      {
+                          "terminal":  5,
+                          "seconds":  30.66,
+                          "history_attempts":  [
+                                                   "requested"
+                                               ],
+                          "recovery_seconds":  24.985
+                      },
+                      {
+                          "terminal":  6,
+                          "seconds":  30.62,
+                          "history_attempts":  [
+                                                   "requested"
+                                               ],
+                          "recovery_seconds":  24.906
+                      },
+                      {
+                          "terminal":  7,
+                          "seconds":  34.54,
+                          "history_attempts":  [
+                                                   "requested"
+                                               ],
+                          "recovery_seconds":  26.89
+                      },
+                      {
+                          "terminal":  8,
+                          "seconds":  34.68,
+                          "history_attempts":  [
+                                                   "requested"
+                                               ],
+                          "recovery_seconds":  28.515
+                      },
+                      {
+                          "terminal":  9,
+                          "seconds":  35.34,
+                          "history_attempts":  [
+                                                   "requested"
+                                               ],
+                          "recovery_seconds":  28.86
+                      },
+                      {
+                          "terminal":  10,
+                          "seconds":  34.87,
+                          "history_attempts":  [
+                                                   "requested"
+                                               ],
+                          "recovery_seconds":  28.141
+                      },
+                      {
+                          "terminal":  11,
+                          "seconds":  45.23,
+                          "history_attempts":  [
+                                                   "requested"
+                                               ],
+                          "recovery_seconds":  37.031
+                      }
+                  ],
+    "finished":  "2026-10-18T12:58:52.3311079+02:00"
+}

@@ -1,0 +1,52 @@
+{
+    "current":  12,
+    "status":  "complete",
+    "started":  "2026-10-18T13:10:03.5532689+02:00",
+    "completed":  [
+                      {
+                          "terminal":  1,
+                          "seconds":  9.81
+                      },
+                      {
+                          "terminal":  3,
+                          "seconds":  10.1
+                      },
+                      {
+                          "terminal":  4,
+                          "seconds":  9.51
+                      },
+                      {
+                          "terminal":  5,
+                          "seconds":  9.46
+                      },
+                      {
+                          "terminal":  6,
+                          "seconds":  5.99
+                      },
+                      {
+                          "terminal":  7,
+                          "seconds":  9.63
+                      },
+                      {
+                          "terminal":  8,
+                          "seconds":  5.93
+                      },
+                      {
+                          "terminal":  9,
+                          "seconds":  5.85
+                      },
+                      {
+                          "terminal":  10,
+                          "seconds":  9.48
+                      },
+                      {
+                          "terminal":  11,
+                          "seconds":  9.94
+                      },
+                      {
+                          "terminal":  12,
+                          "seconds":  6.11
+                      }
+                  ],
+    "finished":  "2026-10-18T13:12:20.4487430+02:00"
+}

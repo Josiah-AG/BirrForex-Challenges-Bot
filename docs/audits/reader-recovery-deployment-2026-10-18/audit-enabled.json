@@ -1,0 +1,23 @@
+{
+  "success": true,
+  "complete": true,
+  "balance": 918983.31,
+  "ledger_expected": 918983.31,
+  "history_count": 112,
+  "history_digest": "ce4bb17db1c70d8b4b2089c21af461d44a3b2874a547a844b6dce8cd9e2a8438",
+  "native_recovery": {
+    "status": "ok",
+    "elapsed_ms": 250.0,
+    "requested": 54,
+    "recovered_sl": 3,
+    "recovered_tp": 1
+  },
+  "error_type": null,
+  "message": null,
+  "terminal": 12,
+  "label": "enabled",
+  "seconds": 2.344,
+  "trades": 54,
+  "deals": 112,
+  "trade_hash": "7acca3a9612d9d40dad58aaafad3234e1da6e5d6d3d23fb6d89644208d603599"
+}

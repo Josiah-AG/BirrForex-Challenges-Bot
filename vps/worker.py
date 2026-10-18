@@ -16,6 +16,7 @@ New in v9.0:
 from history_snapshot import collect_snapshot, IncompleteHistory
 from native_sltp import recover as recover_native_levels, probe as probe_native_reader
 from native_history import prime as prime_native_history
+import terminal_recovery as reader_recovery
 import MetaTrader5 as mt5
 import time
 import sys
@@ -175,6 +176,55 @@ _current_account_str = str(BASE_ACCOUNT)
 app = FastAPI(title=f"VPS Worker {TERMINAL_ID}", version="7.0.0")
 
 
+# Per-terminal opt-in: removing the marker immediately restores legacy recovery.
+_reader_state = {"ready": False, "status": "not_checked"}
+_reader_data = None
+
+def _reader_recovery_enabled():
+    return os.path.isfile(os.path.join(os.path.dirname(__file__), f"reader_recovery_{TERMINAL_ID}.enabled"))
+
+def _reader_available():
+    return bool(_reader_state.get('ready') and _reader_data and reader_recovery.heartbeat_fresh(_reader_data))
+
+def _verify_reader(preserve_account=False):
+    global _reader_state, _reader_data, _current_account_str
+    info, account = mt5.terminal_info(), mt5.account_info()
+    if info:
+        _reader_data = info.data_path
+    login, server = (account.login, account.server) if preserve_account and account else (BASE_ACCOUNT, BASE_SERVER)
+    _reader_state = reader_recovery.verify(mt5, login, server, time.monotonic()+12)
+    if _reader_state['ready']:
+        _current_account_str = str(login)
+    return _reader_state['ready']
+
+def _restart_reader():
+    global _reader_state, _reader_data, _ipc_connected, _current_account_str
+    _ipc_connected = False
+    _reader_state = {'ready': False, 'status': 'restarting'}
+    config = _write_base_config()
+    if not config:
+        return False
+    def launch(path):
+        return subprocess.Popen([TERMINAL_PATH, f"/config:{path}"],
+            creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP)
+    def stop_exact_terminal():
+        kill_terminal()
+        escaped = TERMINAL_PATH.replace("\\", "\\\\")
+        check = subprocess.run(["wmic", "process", "where", f"ExecutablePath='{escaped}'",
+                                "get", "ProcessId", "/value"], capture_output=True, text=True, timeout=10)
+        if check.returncode or "ProcessId=" in check.stdout:
+            raise RuntimeError('Terminal still running; profile untouched')
+    _reader_state = reader_recovery.restart(mt5, TERMINAL_PATH, BASE_ACCOUNT,
+        BASE_PASSWORD, BASE_SERVER, config, stop_exact_terminal, launch)
+    info = mt5.terminal_info()
+    if info:
+        _reader_data = info.data_path
+    _ipc_connected = bool(_reader_state['ready'])
+    if _ipc_connected:
+        _current_account_str = str(BASE_ACCOUNT)
+    print(f"  [W{TERMINAL_ID}] Reader recovery: {_reader_state}")
+    return _ipc_connected
+
 # ==================== BASE ACCOUNT RESTORE ====================
 
 def _write_base_config() -> str | None:
@@ -196,6 +246,8 @@ def _write_base_config() -> str | None:
         )
         if os.path.isfile(os.path.join(os.path.dirname(__file__), f"native_sltp_{TERMINAL_ID}.installed")):
             content += "\n[Experts]\nEnabled=1\nAllowLiveTrading=0\nAllowDllImport=0\nAccount=0\nProfile=0\n[StartUp]\nExpert=MyFxPath\\MyFxPathLevels\nSymbol=EURUSDm\nPeriod=M1\nShutdownTerminal=0\n"
+        if _reader_recovery_enabled():
+            content += f"\n[Charts]\nProfileLast={reader_recovery.PROFILE}\n"
         with open(config_path, "w") as f:
             f.write(content)
         print(f"{tag}    config written: {config_path}")
@@ -213,8 +265,10 @@ def _kill_and_restart_terminal() -> bool:
     """
     Kill the terminal process and relaunch it with the base account config file.
     The /config flag tells MT5 to auto-login on startup — no dialog, no manual input.
-    Waits 25s for the broker connection before returning.
+    Legacy mode waits 45s; reader mode waits for verified readiness.
     """
+    if _reader_recovery_enabled():
+        return _restart_reader()
     global _ipc_hard_restarts
     tag = f"  [W{TERMINAL_ID}]"
     print(f"{tag} ── terminal restart with base config ──")
@@ -276,7 +330,8 @@ def _try_initialize_and_login() -> bool:
     _ipc_hard_restarts = 0
     _ipc_connected = True
     print(f"{tag}    mt5.login({BASE_ACCOUNT}) ...")
-    login_ok = mt5.login(BASE_ACCOUNT, password=BASE_PASSWORD, server=BASE_SERVER)
+    login_ok = mt5.login(BASE_ACCOUNT, password=BASE_PASSWORD, server=BASE_SERVER,
+                        **({'timeout': 10000} if _reader_recovery_enabled() else {}))
     print(f"{tag}    mt5.login → {'OK' if login_ok else f'FAILED {mt5.last_error()}'}")
     if not login_ok:
         mt5.shutdown()
@@ -287,6 +342,9 @@ def _try_initialize_and_login() -> bool:
     info = mt5.account_info()
     if info:
         print(f"{tag}    account: {info.login} | balance: {info.balance} | server: {info.server}")
+    if _reader_recovery_enabled() and not _verify_reader():
+        _ipc_connected = False
+        return False
     print(f"{tag} ✓ Base account login SUCCESS")
     return True
 
@@ -304,6 +362,10 @@ def force_login_base_account(reason: str = "", skip_stage1: bool = False) -> boo
         Kill the process, relaunch with base_login.ini so MT5 auto-logs
         in on startup. No dialog, no manual input.
     """
+    if _reader_recovery_enabled():
+        if not skip_stage1 and _try_initialize_and_login():
+            return True
+        return _restart_reader()
     tag = f"  [W{TERMINAL_ID}]"
     print(f"{tag} ── force_login_base_account ── reason: {reason}")
 
@@ -363,6 +425,8 @@ def kill_terminal():
 
 
 def relaunch_terminal() -> bool:
+    if _reader_recovery_enabled():
+        return _restart_reader()
     global _ipc_connected
     _ipc_connected = False
     print(f"  [W{TERMINAL_ID}] Relaunching terminal...")
@@ -403,8 +467,9 @@ def self_heal():
         return False
 
     try:
-        kill_terminal()
-        time.sleep(3)
+        if not _reader_recovery_enabled():
+            kill_terminal()
+            time.sleep(3)
         if relaunch_terminal():
             _consecutive_failures = 0
             _dead_consecutive_heals = 0
@@ -435,16 +500,22 @@ def _dead_mode_recovery_loop():
             break
         print(f"{tag} [dead mode] Attempting periodic recovery...")
         with _recovery_lock:
-            kill_terminal()
-            time.sleep(3)
-            if relaunch_terminal():
-                _dead_mode = False
-                _dead_consecutive_heals = 0
-                _consecutive_failures = 0
-                print(f"{tag} [dead mode] ✓ RECOVERED — resuming normal operation")
-                break
-            else:
-                print(f"{tag} [dead mode] ✗ Still dead — will retry in {DEAD_RETRY_INTERVAL}s")
+            if not _lock.acquire(timeout=5):
+                continue
+            try:
+                if not _reader_recovery_enabled():
+                    kill_terminal()
+                    time.sleep(3)
+                if relaunch_terminal():
+                    _dead_mode = False
+                    _dead_consecutive_heals = 0
+                    _consecutive_failures = 0
+                    print(f"{tag} [dead mode] ✓ RECOVERED — resuming normal operation")
+                    break
+                else:
+                    print(f"{tag} [dead mode] ✗ Still dead — will retry in {DEAD_RETRY_INTERVAL}s")
+            finally:
+                _lock.release()
 
 
 # ==================== IPC MANAGEMENT ====================
@@ -699,8 +770,18 @@ def _async_stage2_recovery(reason: str):
 
 
 def _async_stage2_recovery_impl():
-    """Actual recovery logic — called only when _recovery_in_progress is False."""
+    """Recovery owner holds _recovery_lock and sets _recovery_in_progress."""
     tag = f"  [W{TERMINAL_ID}]"
+
+    if _reader_recovery_enabled():
+        # Never kill or switch an account owned by a live request.
+        if not _lock.acquire(timeout=5):
+            return
+        try:
+            _restart_reader()
+        finally:
+            _lock.release()
+        return
 
     # Write config and kill terminal (no lock needed — subprocess only)
     config_path = _write_base_config()
@@ -709,6 +790,8 @@ def _async_stage2_recovery_impl():
 
     # Shutdown IPC briefly under the lock, then release immediately
     acquired = _lock.acquire(timeout=5)
+    if not acquired:
+        return  # A live operation owns this terminal; never kill it underneath.
     if acquired:
         try:
             global _ipc_connected
@@ -1550,7 +1633,10 @@ class ResolveTradesRequest(BaseModel):
 @app.get("/health")
 def health():
     return {
-        "status":               "stalled" if _lock.age() >= 600 else ("dead" if _dead_mode else "ok"),
+        "status":               "stalled" if _lock.age() >= 600 else ("dead" if _dead_mode else ("recovering" if _reader_recovery_enabled() and not _reader_available() else "ok")),
+        "reader_recovery_version": 2 if _reader_recovery_enabled() else 1,
+        "reader_recovery_build": "2026-10-18.2",
+        "reader_recovery": dict(_reader_state, heartbeat_fresh=bool(_reader_data and reader_recovery.heartbeat_fresh(_reader_data))),
         "resilience_version": 2,
         "operation_age_seconds": round(_lock.age(), 1),
         "console_dropped_writes": sys.stdout.dropped,
@@ -1736,7 +1822,11 @@ def _watchdog_probe():
     if info is None:
         _ipc_connected = False
         return False
-    return bool(info.connected)
+    if not info.connected:
+        return False
+    if _reader_recovery_enabled():
+        return _reader_available() and probe_native_reader(mt5, enabled=True).get('status') == 'verified'
+    return True
 
 def _watchdog_reconnect():
     global _consecutive_failures
@@ -1770,6 +1860,13 @@ if __name__ == "__main__":
         # Controlled Python-only deployment: never kill/relaunch MT5 on startup failure.
         if not ensure_ipc():
             raise SystemExit('Existing terminal attachment failed; deployment must stop')
+        if _reader_recovery_enabled() and not _verify_reader(preserve_account=True):
+            raise SystemExit('Reader verification failed; deployment must stop')
+    elif _reader_recovery_enabled():
+        # One bounded attempt; the idle watchdog owns subsequent retries.
+        # Never fall through to the legacy bare-launch loop while opted in.
+        if not _restart_reader():
+            print(f"  [W{TERMINAL_ID}] Reader not ready; excluded from routing until verified")
     else:
         # Startup loop: try to connect, if IPC keeps failing kill and relaunch the terminal
         for attempt in range(5):
