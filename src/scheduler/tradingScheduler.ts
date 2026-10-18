@@ -1,3 +1,5 @@
+import {escapePost} from '../utils/challengePosts';
+import {deliverRegistrationReminder} from '../services/registrationReminders';
 import {deliverRegistrationPost} from '../services/registrationPosts';
 import {deliverParticipantNotices} from '../services/participantNotices';
 import {dailyCalendar,deliverDailyPost} from '../services/dailyChallengePosts';
@@ -768,26 +770,8 @@ export class TradingScheduler {
     if ((challenge as any).source === 'discord') return; // Discord engagement handled by Discord bot
     if ((challenge as any).host_id) return; // Host challenges don't post to admin channels
 
-    // Only between 8:30 AM and 9:30 PM EAT
-    const hour = eatTime.getUTCHours();
-    const minute = eatTime.getUTCMinutes();
-    const timeMinutes = hour * 60 + minute;
-    if (timeMinutes < 510 || timeMinutes > 1290) return; // 8:30=510, 21:30=1290
-
-    // Only check every 10 minutes (at :00 and :30)
-    if (minute % 10 !== 0) return;
-
-    // Don't run if already running
     if (this.engagementRunning) return;
-
-    // Check if 1 day before start (last chance — DM everyone unconverted)
-    const start = this.localDateStrings(challenge.start_date, challenge.timezone || config.timezone);
-    const startMs = new Date(start.dateStr).getTime();
-    const nowMs = new Date(dateStr).getTime();
-    const daysUntilStart = Math.round((startMs - nowMs) / (1000 * 60 * 60 * 24));
-    const isLastDay = daysUntilStart === 1;
-
-    const dueUsers = await tradingChallengeService.getDueForEngagement(challenge.id, isLastDay);
+    const dueUsers = await tradingChallengeService.getDueForEngagement(challenge.id);
     if (dueUsers.length === 0) return;
 
     // Run in background — don't block scheduler
@@ -808,16 +792,13 @@ export class TradingScheduler {
 
     for (let i = 0; i < users.length; i++) {
       const user = users[i];
-      const message = this.getEngagementMessage(challenge.title, user.failure_type, user.engage_count);
-
-      try {
-        await this.bot.bot.telegram.sendMessage(user.telegram_id, message, { parse_mode: 'HTML', ...keyboard });
-        await tradingChallengeService.markEngaged(challenge.id, user.telegram_id, true);
-        sent++;
-      } catch (e) {
-        await tradingChallengeService.markEngaged(challenge.id, user.telegram_id, false);
-        failed++;
-      }
+      const result = await deliverRegistrationReminder(challenge.id, user.telegram_id, async (fresh, stage) => {
+        const message = this.getEngagementMessage(escapePost(fresh.title), fresh.failure_type, stage === 'final' ? 2 : stage === '1h' ? 0 : 1);
+        return this.bot.bot.telegram.sendMessage(user.telegram_id, message, { parse_mode: 'HTML', ...keyboard });
+      });
+      if (result === 'sent') sent++;
+      if (result === 'failed') failed++;
+      if (result === 'skipped' || result === 'cancelled') continue;
 
       // 2 second delay between messages
       await new Promise(r => setTimeout(r, 2000));
@@ -861,11 +842,11 @@ export class TradingScheduler {
       }
     } else if (failureType === 'vps_timeout' || failureType === 'vps_error') {
       if (variant === 0) {
-        return `👋 <b>Hello from BirrForex Team!</b>\n\n<b>${title}</b> registration is still open!\n\nLast time our server was busy and couldn't verify your account. This has been fixed!\n\nPlease try registering again — it should work smoothly now:${contact}`;
+        return `👋 <b>Hello from BirrForex Team!</b>\n\n<b>${title}</b> registration is still open!\n\nLast time our server was busy and couldn't verify your account.\n\nPlease try registering again — it should work smoothly now:${contact}`;
       } else if (variant === 1) {
-        return `⏰ <b>Reminder from BirrForex!</b>\n\nThe technical issue that prevented your registration for <b>${title}</b> has been resolved.\n\nTry again now and join the challenge! 💪${contact}`;
+        return `⏰ <b>Reminder from BirrForex!</b>\n\nYour registration for <b>${title}</b> is not complete yet.\n\nTry again now and join the challenge! 💪${contact}`;
       } else {
-        return `🚨 <b>Last chance!</b>\n\n<b>${title}</b> starts very soon!\n\nOur systems are running smoothly — register now before it's too late! 🏆${contact}`;
+        return `🚨 <b>Last chance!</b>\n\n<b>${title}</b> starts very soon!\n\nPlease try again before registration closes. 🏆${contact}`;
       }
     } else if (failureType === 'abandoned') {
       if (variant === 0) {

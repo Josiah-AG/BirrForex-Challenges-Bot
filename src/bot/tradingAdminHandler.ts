@@ -1,3 +1,4 @@
+import {deliverRegistrationReminder} from '../services/registrationReminders';
 import {registrationPost} from '../services/registrationPosts';
 import {dailyCalendar} from '../services/dailyChallengePosts';
 import {getLocalTime} from '../utils/timezone';
@@ -1447,14 +1448,14 @@ export class TradingAdminHandler {
     if (!this.checkAdmin(ctx)) return;
 
     const challenges = await tradingChallengeService.getAllChallenges();
-    const challenge = challenges.find(c => ['registration_open', 'active'].includes(c.status)) || challenges[0];
+    const challenge = challenges.find(c => c.status === 'registration_open' && !(c as any).host_id && (c as any).source !== 'discord');
 
     if (!challenge) {
       await ctx.reply('❌ No active challenge found.');
       return;
     }
 
-    const failed = await tradingChallengeService.getEngageableFailedAttempts(challenge.id);
+    const failed = await tradingChallengeService.getDueForEngagement(challenge.id);
 
     if (failed.length === 0) {
       await ctx.reply('✅ No failed users to engage (all recent or already registered).');
@@ -1469,44 +1470,18 @@ export class TradingAdminHandler {
     let sent = { allocation: 0, kyc: 0, real_acct: 0, failed: 0 };
 
     for (const user of failed) {
-      let message = '';
-
-      if (user.failure_type === 'allocation') {
-        message = `👋 <b>Hello from BirrForex Team!</b>\n\n` +
-          `<b>${challenge.title}</b> starting day is approaching fast!\n\n` +
-          `Have you created a new Exness account or changed your partner yet?\n\n` +
-          `If you have, register now before it's too late!\n\n` +
-          `👉 <b>Tap "Register Now" below to join the challenge.</b>`;
-        sent.allocation++;
-      } else if (user.failure_type === 'kyc') {
-        message = `👋 <b>Hello from BirrForex Team!</b>\n\n` +
-          `<b>${challenge.title}</b> starting day is approaching fast!\n\n` +
-          `Have you completed your Exness account verification yet?\n\n` +
-          `If not, verify your account now — it only takes a few minutes!\n` +
-          `➡️ Log in to Exness → Settings → Verification\n\n` +
-          `Once verified, register for the challenge:\n\n` +
-          `👉 <b>Tap "Register Now" below to join.</b>`;
-        sent.kyc++;
-      } else if (user.failure_type === 'real_acct') {
-        message = `👋 <b>Hello from BirrForex Team!</b>\n\n` +
-          `<b>${challenge.title}</b> starting day is approaching fast!\n\n` +
-          `Have you created a new MT5 Real Account within your Exness yet?\n\n` +
-          `Make sure your real account is under the same email you registered with.\n\n` +
-          `If you're ready, register now:\n\n` +
-          `👉 <b>Tap "Register Now" below to join the challenge.</b>`;
-        sent.real_acct++;
-      }
-
-      if (message) {
-        try {
-          await ctx.telegram.sendMessage(user.telegram_id, message, { parse_mode: 'HTML', ...keyboard });
-          await tradingChallengeService.markEngaged(challenge.id, user.telegram_id, true);
-        } catch (e) {
-          sent.failed++;
-        }
-        // Small delay to avoid rate limits
-        await new Promise(r => setTimeout(r, 200));
-      }
+      const result = await deliverRegistrationReminder(challenge.id, user.telegram_id, async (fresh, stage) => {
+        const title = String(fresh.title).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        return ctx.telegram.sendMessage(user.telegram_id,
+          `${stage === 'final' ? '🚨 <b>Registration closes today!</b>' : '⏰ <b>Complete your registration</b>'}\n\nYou started registering for <b>${title}</b>. Tap below to finish before registration closes.`,
+          { parse_mode:'HTML', ...keyboard });
+      });
+      if (result === 'sent') {
+        if (user.failure_type === 'allocation') sent.allocation++;
+        else if (user.failure_type === 'kyc') sent.kyc++;
+        else sent.real_acct++;
+      } else if (result === 'failed') sent.failed++;
+      if (result === 'sent') await new Promise(r => setTimeout(r, 200));
     }
 
     const total = sent.allocation + sent.kyc + sent.real_acct;

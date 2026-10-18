@@ -1,3 +1,4 @@
+import {migrateRegistrationReminders} from '../services/registrationReminders';
 import {migrateNewClients} from '../services/newChallengeClients';
 import {migrateParticipantNotices} from './participantNoticeMigration';
 import {migrateCommercial} from './commercialMigration';
@@ -510,6 +511,7 @@ async function migrate() {
     await migrateHardening();
     await migratePullIntegrity();
     await migrateParticipantNotices();
+    await migrateRegistrationReminders();
     try {await installWorkloadTelemetry((sql,args)=>db.query(sql,args),false);}catch {console.error('[workload-telemetry] migration failed; capture unavailable');}
     console.log('✅ Database migration completed successfully!');
     process.exit(0);

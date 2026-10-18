@@ -486,8 +486,8 @@ class TradingChallengeService {
 
   async logFailedAttempt(challengeId: number, userId: number, username: string | null, email: string | null, failureType: string): Promise<void> {
     await db.query(
-      `INSERT INTO trading_failed_attempts (challenge_id, telegram_id, username, email, failure_type, attempted_at, engaged)
-       VALUES ($1, $2, $3, $4, $5, NOW(), false)
+      `INSERT INTO trading_failed_attempts (challenge_id, telegram_id, username, email, failure_type, attempted_at, engaged, registration_started_at)
+       VALUES ($1, $2, $3, $4, $5, NOW(), false, NOW())
        ON CONFLICT (challenge_id, telegram_id)
        DO UPDATE SET failure_type = $5, email = COALESCE($4, trading_failed_attempts.email), username = COALESCE($3, trading_failed_attempts.username), attempted_at = NOW(), engaged = false`,
       [challengeId, userId, username, email, failureType]
@@ -515,44 +515,17 @@ class TradingChallengeService {
     return result.rows;
   }
 
-  async getDueForEngagement(challengeId: number, isLastDay: boolean): Promise<any[]> {
-    // Engagement schedule:
-    //   1st DM: 24h after failure
-    //   2nd DM: 48h after 1st DM
-    //   3rd DM: 48h after 2nd DM
-    //   Max 3 engagements in normal mode.
-    //   1 day before challenge start: DM ALL unconverted users (even those already engaged 3 times)
-    if (isLastDay) {
-      // Last day: DM everyone who hasn't converted, regardless of engage_count
-      const result = await db.query(
-        `SELECT fa.* FROM trading_failed_attempts fa
-         LEFT JOIN trading_registrations tr ON fa.challenge_id = tr.challenge_id AND fa.telegram_id = tr.user_id
-         WHERE fa.challenge_id = $1
-         AND tr.id IS NULL
-         AND fa.converted = false
-         ORDER BY fa.attempted_at ASC`,
-        [challengeId]
-      );
-      return result.rows;
-    }
-
-    // Normal mode: max 3 engagements, spaced 24h (first) then 48h (subsequent)
-    const result = await db.query(
-      `SELECT fa.* FROM trading_failed_attempts fa
-       LEFT JOIN trading_registrations tr ON fa.challenge_id = tr.challenge_id AND fa.telegram_id = tr.user_id
-       WHERE fa.challenge_id = $1
-       AND tr.id IS NULL
-       AND fa.converted = false
-       AND fa.engage_count < 3
-       AND (
-         (fa.engage_count = 0 AND fa.attempted_at < NOW() - INTERVAL '24 hours')
-         OR
-         (fa.engage_count > 0 AND fa.last_engaged_at < NOW() - INTERVAL '48 hours')
-       )
-       ORDER BY fa.engage_count ASC, fa.attempted_at ASC`,
-      [challengeId]
-    );
-    return result.rows;
+  async getDueForEngagement(challengeId: number): Promise<any[]> {
+    return (await db.query(`SELECT fa.* FROM trading_failed_attempts fa
+      JOIN trading_challenges c ON c.id=fa.challenge_id
+      WHERE fa.challenge_id=$1 AND converted=false AND registration_started_at<=NOW()-INTERVAL '1 hour'
+      AND c.status='registration_open' AND c.configuration_frozen_at IS NULL
+      AND NOW()<LEAST(COALESCE(c.registration_deadline,c.start_date),c.start_date)
+      AND NOT EXISTS(SELECT 1 FROM registration_reminder_history h WHERE h.telegram_id=fa.telegram_id
+        AND h.day=(NOW() AT TIME ZONE COALESCE(c.timezone,'Africa/Nairobi'))::date)
+      AND NOT EXISTS(SELECT 1 FROM trading_registrations r WHERE r.challenge_id=fa.challenge_id
+        AND r.user_id=fa.telegram_id AND r.status IS DISTINCT FROM 'removed')
+      ORDER BY registration_started_at`,[challengeId])).rows;
   }
 
   async getAllFailedAttempts(challengeId: number): Promise<any[]> {

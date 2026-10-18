@@ -1,0 +1,37 @@
+WinnerPip registration reminders — 2026-10-18
+
+Scope: unfinished Telegram registrations for admin challenges; no changes to channel
+countdowns, risk/password notices, host email flows, or completed registrations.
+
+The first Join Challenge action records an immutable registration_started_at in PostgreSQL.
+Retrying registration does not restart this clock. Due slots: +1 hour, +24 hours, +72 hours.
+Calendar days use the challenge timezone. Only the final slot is eligible on the last
+registration day, based on the earlier of registration_deadline and challenge start.
+A midnight closure belongs to the preceding open day. Final is eligible on that day
+once the user has been in the flow for one hour. The scheduler checks every minute.
+A daily collision skips the ordinary reminder; it is not deferred to a different day.
+Missed calendar-day slots are not replayed after downtime.
+
+One reminder per Telegram user per local date, including across challenges. Per-user
+transaction lock and database unique constraints protect concurrent scheduler/manual
+send attempts. Claims are committed before Telegram, and eligibility is checked again
+immediately before sending. Successful registration, closed/frozen challenges, and
+conversion prevent sending. Restart notifications no longer bypass the reminder schedule.
+Manual engagement uses the same rules.
+
+Telegram provides no send idempotency key. Claimed reminders are never retried after an
+ambiguous timeout/process crash, prioritizing no duplicate DMs over guaranteed delivery.
+History states: claimed, sent, uncertain, cancelled, legacy. The history survives restarts.
+
+Migration preserves the most recent old reminder day and old stage counts. For older users,
+the existing attempted_at is the best available start time (the old system overwrote it
+on retries); precise first-start timestamps are recorded for new flows from this release.
+Legacy latest-delivery dates also block same-day sending during transition.
+
+Root cause: the old final-day query ignored both engagement count and last delivery time,
+so the same unfinished users were selected on every scheduler cycle.
+
+Verification: TypeScript build; 280 serial Node tests; local PostgreSQL integration covering
+10 concurrent claims, persistent replay protection, daily cap across challenges, successful
+registration cancellation before delivery, deadline, legacy backfill, repeat starts and
+ambiguous Telegram failure. Tests use synthetic accounts and do not send Telegram DMs.

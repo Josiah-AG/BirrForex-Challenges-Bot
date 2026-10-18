@@ -1,3 +1,4 @@
+import {startRegistrationReminders} from '../services/registrationReminders';
 import {escapePost} from '../utils/challengePosts';
 import { validateVerifiedRegistration } from '../services/registrationEligibility';
 import { startingBalanceProblem } from '../utils/startingBalancePolicy';
@@ -152,6 +153,8 @@ export class TradingRegistrationHandler {
       await ctx.reply(regText, { parse_mode: 'HTML', ...Markup.inlineKeyboard(buttons) });
       return;
     }
+
+    await startRegistrationReminders(challengeId, telegramId, ctx.from!.username || null);
 
     // === USERNAME REQUIREMENT ===
     if (!ctx.from!.username) {
@@ -1856,37 +1859,13 @@ export class TradingRegistrationHandler {
     } catch (e) { console.error('Error sending manual review to admin:', e); }
   }
 
-  /**
-   * On startup: proactively DM users who were mid-registration before restart.
-   * Only notifies users whose session is < 24h old.
-   */
-  async notifyInterruptedUsers(telegram: any) {
-    const interrupted = loadInterruptedSessions();
-    if (interrupted.size === 0) return;
-
-    console.log(`🔄 TG: Notifying ${interrupted.size} users about interrupted registration...`);
-
-    for (const [telegramId, challengeId] of interrupted) {
-      try {
-        const botInfo = await telegram.getMe();
-        await telegram.sendMessage(
-          telegramId,
-          `⚠️ <b>System restarted</b> — your registration session was interrupted.\n\nPlease tap the button below to continue:`,
-          {
-            parse_mode: 'HTML',
-            ...Markup.inlineKeyboard([
-              [Markup.button.url('🚀 Register Again', `https://t.me/${botInfo.username}?start=tc_register_${challengeId}`)],
-            ]),
-          }
-        );
-        await new Promise(r => setTimeout(r, 500)); // Rate limit
-      } catch (e) {
-        console.log(`⚠️ Could not notify TG user ${telegramId}: ${(e as Error).message}`);
-      }
+  /** Recover legacy sessions into the durable schedule, without extra restart DMs. */
+  async notifyInterruptedUsers(_telegram: any) {
+    for (const [telegramId, challengeId] of loadInterruptedSessions()) {
+      await startRegistrationReminders(challengeId, telegramId, null);
     }
-
-    console.log(`✅ TG: Restart notifications sent to ${interrupted.size} users`);
   }
+
 }
 
 export const tradingRegistrationHandler = new TradingRegistrationHandler();
