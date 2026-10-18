@@ -555,15 +555,15 @@ export default function ChallengesPage({initialChallenges = [], winnersId, retur
                       )}
                       <div className="space-y-2">
                         {winnersData.real.map(w => (
-                          <div key={w.rank} className="flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/10">
-                            <div className="flex items-center gap-3">
-                              <span className="text-xl">{medalEmoji(w.rank)}</span>
-                              <div>
-                                <p className="text-sm font-bold text-white">{w.nickname}</p>
+                          <div key={w.rank} className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-4 p-4 rounded-xl bg-white/5 border border-white/10">
+                            <div className="flex items-start gap-3 min-w-0">
+                              <span className="text-xl w-6 shrink-0 text-center">{medalEmoji(w.rank)}</span>
+                              <div className="min-w-0">
+                                <p className="text-sm font-bold text-white break-words">{w.nickname}</p>
                                 <p className="text-[10px] text-gray-500">{w.trades} trades • {w.flagged} flagged</p>
                               </div>
                             </div>
-                            <p className={`text-sm font-bold ${winnersData.teamOnly ? 'blur-[6px] select-none' : ''} text-gold`}>{w.prize}</p>
+                            <p className={`pl-9 sm:pl-0 sm:self-center text-sm leading-relaxed font-semibold break-words ${winnersData.teamOnly ? 'blur-[6px] select-none' : ''} text-gold`}>{w.prize.replace(/^\s*\d+(?:st|nd|rd|th)?\s+place\s*[:–—-]?\s*/i, '')}</p>
                           </div>
                         ))}
                       </div>
@@ -578,15 +578,15 @@ export default function ChallengesPage({initialChallenges = [], winnersId, retur
                       )}
                       <div className="space-y-2">
                         {winnersData.demo.map(w => (
-                          <div key={w.rank} className="flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/10">
-                            <div className="flex items-center gap-3">
-                              <span className="text-xl">{medalEmoji(w.rank)}</span>
-                              <div>
-                                <p className="text-sm font-bold text-white">{w.nickname}</p>
+                          <div key={w.rank} className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-4 p-4 rounded-xl bg-white/5 border border-white/10">
+                            <div className="flex items-start gap-3 min-w-0">
+                              <span className="text-xl w-6 shrink-0 text-center">{medalEmoji(w.rank)}</span>
+                              <div className="min-w-0">
+                                <p className="text-sm font-bold text-white break-words">{w.nickname}</p>
                                 <p className="text-[10px] text-gray-500">{w.trades} trades • {w.flagged} flagged</p>
                               </div>
                             </div>
-                            <p className={`text-sm font-bold ${winnersData.teamOnly ? 'blur-[6px] select-none' : ''} text-gold`}>{w.prize}</p>
+                            <p className={`pl-9 sm:pl-0 sm:self-center text-sm leading-relaxed font-semibold break-words ${winnersData.teamOnly ? 'blur-[6px] select-none' : ''} text-gold`}>{w.prize.replace(/^\s*\d+(?:st|nd|rd|th)?\s+place\s*[:–—-]?\s*/i, '')}</p>
                           </div>
                         ))}
                       </div>
