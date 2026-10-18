@@ -1,3 +1,4 @@
+import {openAdminRegistration, additionalPostEligible} from '../utils/adminRegistrationLinks';
 import {deliverRegistrationReminder} from '../services/registrationReminders';
 import {registrationPost} from '../services/registrationPosts';
 import {dailyCalendar} from '../services/dailyChallengePosts';
@@ -2723,13 +2724,21 @@ export class TradingAdminHandler {
   async additionalPost(ctx: Context) {
     if (!this.checkAdmin(ctx)) return;
 
-    const challenges = await tradingChallengeService.getAllChallenges();
-    if (challenges.length === 0) {
-      await ctx.reply('❌ No trading challenges found. Create one first.');
+    const challenges = (await tradingChallengeService.getAllChallenges()).filter(c => additionalPostEligible(c));
+    if (!challenges.length) {
+      await ctx.reply('❌ No open or active admin challenge is available.');
       return;
     }
+    if (challenges.length > 1) {
+      await ctx.reply('Choose the challenge for this additional post:', Markup.inlineKeyboard(
+        challenges.map(c => [Markup.button.callback(c.title, `tc_addpost_choose_${c.id}`)])
+      ));
+      return;
+    }
+    await this.beginAdditionalPost(ctx, challenges[0]);
+  }
 
-    const challenge = challenges[0]; // Most recent
+  private async beginAdditionalPost(ctx: Context, challenge: TradingChallenge) {
     const telegramId = ctx.from!.id;
     tradingAdminSessions.set(telegramId, {
       step: 'tc_additional_post_text',
@@ -2741,7 +2750,7 @@ export class TradingAdminHandler {
       `➡️ Send <b>text</b> for a text-only post\n` +
       `➡️ Send a <b>photo with caption</b> for a post with image\n` +
       `➡️ Send a <b>video with caption</b> for a video post\n\n` +
-      `<i>The Join Challenge and Open Exness Account buttons will be added automatically.</i>`,
+      `<i>The appropriate challenge link and Open Exness Account buttons will be added automatically.</i>`,
       { parse_mode: 'HTML' }
     );
   }
@@ -2874,6 +2883,17 @@ export class TradingAdminHandler {
   }
 
   private async handleAdditionalPostCallback(ctx: Context, data: string): Promise<boolean> {
+    if (!this.checkAdmin(ctx)) return true;
+    if (data.startsWith('tc_addpost_choose_')) {
+      const challenge = await tradingChallengeService.getChallengeById(Number(data.replace('tc_addpost_choose_', '')));
+      await ctx.answerCbQuery();
+      if (!challenge || !additionalPostEligible(challenge)) {
+        await ctx.reply('Registration is no longer open for this challenge. Run /additionalpost again.');
+        return true;
+      }
+      await this.beginAdditionalPost(ctx, challenge);
+      return true;
+    }
     const telegramId = ctx.from!.id;
     const session = tradingAdminSessions.get(telegramId);
     if (!session || !session.step.startsWith('tc_additional_post')) return false;
@@ -2890,15 +2910,15 @@ export class TradingAdminHandler {
 
       const challengeId = session.data.challenge_id;
       const challenge = await tradingChallengeService.getChallengeById(challengeId);
-      if (!challenge) {
-        await ctx.reply('❌ Challenge not found.');
+      if (!challenge || !additionalPostEligible(challenge)) {
+        await ctx.reply('❌ This challenge is no longer open for registration. Run /additionalpost to choose the current challenge.');
         tradingAdminSessions.delete(telegramId);
         return true;
       }
 
       const botInfo = await ctx.telegram.getMe();
       const keyboard = Markup.inlineKeyboard([
-        [Markup.button.url('🚀 Join Challenge', `https://t.me/${botInfo.username}?start=tc_register_${challengeId}`)],
+        [openAdminRegistration(challenge) ? Markup.button.url('🚀 Join Challenge', `https://t.me/${botInfo.username}?start=tc_register_${challengeId}`) : Markup.button.url('📊 View Challenge', 'https://winnerpip.com')],
         [Markup.button.url('💰 Open Exness Account', config.exnessPartnerSignupLink)],
       ]);
 

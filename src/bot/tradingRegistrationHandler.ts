@@ -1,3 +1,4 @@
+import {openAdminRegistration} from '../utils/adminRegistrationLinks';
 import {startRegistrationReminders} from '../services/registrationReminders';
 import {escapePost} from '../utils/challengePosts';
 import { validateVerifiedRegistration } from '../services/registrationEligibility';
@@ -126,7 +127,12 @@ export class TradingRegistrationHandler {
       if (challenge.status === 'active' || challenge.status === 'submission_open') {
         await ctx.reply('❌ <b>Registration is closed.</b>\nThis challenge has already started.\n\nStay tuned for the next challenge on <b>@BirrForex!</b>', { parse_mode: 'HTML' });
       } else {
-        await ctx.reply('❌ This challenge is not accepting registrations.');
+        const open = (await tradingChallengeService.getAllChallenges()).filter(c => openAdminRegistration(c));
+        const info = open.length ? await ctx.telegram.getMe() : null;
+        await ctx.reply('❌ This post links to a challenge that is not accepting registrations.' +
+          (open.length ? '\n\nChoose a currently open challenge below:' : ''),
+          open.length ? Markup.inlineKeyboard(open.map(c => [Markup.button.url(`Join ${c.title}`,
+            `https://t.me/${info!.username}?start=tc_register_${c.id}`)])) : {});
       }
       return;
     }
