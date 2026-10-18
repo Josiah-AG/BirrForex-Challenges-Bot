@@ -4,7 +4,7 @@ import {deliverRegistrationPost} from '../services/registrationPosts';
 import {deliverParticipantNotices} from '../services/participantNotices';
 import {dailyCalendar,deliverDailyPost} from '../services/dailyChallengePosts';
 import {challengeDates,challengeBalanceSummary,dashboardCTA,dailySlots,postDate} from '../utils/challengePosts';
-import { startingBalanceProblem, preStartLeadHours } from '../utils/startingBalancePolicy';
+import { disqualifiesStartingBalance, startingBalanceProblem, preStartLeadHours } from '../utils/startingBalancePolicy';
 import { runBalanceWarningCheck } from '../services/prestartBalanceChecks';
 import { runPartnerScreening, deliverPartnerNotices, screeningSlot } from '../services/partnerScreening';
 import { getLocalTime } from '../utils/timezone';
@@ -353,7 +353,7 @@ export class TradingScheduler {
         );
         verified++;
 
-        if(problem === 'high') {
+        if(disqualifiesStartingBalance(problem, depositMode)) {
           const currency=reg.is_cent?'¢':'$';
           await db.query(`UPDATE trading_registrations SET disqualified=true,disqualified_at=NOW(),disqualified_reason=$1,disqualified_source='funding' WHERE id=$2 AND disqualified=false`,
             [`Starting balance ${currency}${balance.toFixed(2)} is ${problem==='high'?'above':'below'} the required ${depositMode} balance of ${currency}${limit.toFixed(2)}`,reg.id]);

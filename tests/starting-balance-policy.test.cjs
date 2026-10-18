@@ -9,3 +9,15 @@ test('explicit max/min modes keep their direction, no percentage discount',()=>{
 test('account-unit conversion preserves cent-only and hybrid conventions',()=>{for(const [challenge,rules,cent,target] of [[{type:'real'},{only_cent_account:true},true,100],[{type:'hybrid'},{only_cent_account:true},true,10000],[{type:'demo'},{},true,10000],[{type:'demo'},{},false,100]]){const limit=100*m(challenge,rules,cent);assert.equal(limit,target);assert.equal(p(limit+.1,limit),null);assert.equal(p(limit+1,limit),'high');}});
 test('existing started challenges retain their previous evaluation policy',()=>{assert.equal(p(100500,100000,'fixed','legacy_percent'),null);assert.equal(p(100500,100000,'fixed'),'high');});
 test('warning checks at T-5/T-6, final T-2/T-3, frozen lead survives count changes',()=>{const start=new Date('2099-10-01T12:00:00Z');for(const [count,lead] of [[0,2],[500,2],[501,3],[3000,3]]){const x=t(start,count);assert.equal(+start-+x.finalAt,lead*3600000);assert.equal(+start-+x.warningAt,(lead+3)*3600000);}assert.equal(t(start,501,2).lead,2);assert.equal(t(start,1,3).lead,3);});
+
+test('minimum funding violations disqualify at final check and evaluation, including zero and cent accounts',()=>{
+ const {startingBalanceProblem,disqualifiesStartingBalance}=require('../src/utils/startingBalancePolicy');
+ for(const limit of [10,1000]){
+  for(const amount of [0,limit/2,limit-.01])assert.equal(disqualifiesStartingBalance(startingBalanceProblem(amount,limit,'min_limit'),'min_limit'),true);
+  for(const amount of [limit,limit*10])assert.equal(disqualifiesStartingBalance(startingBalanceProblem(amount,limit,'min_limit'),'min_limit'),false);
+ }
+ assert.equal(disqualifiesStartingBalance('invalid','min_limit'),false); // Unverified data must not disqualify.
+ assert.equal(disqualifiesStartingBalance('low','max_limit'),false);
+ assert.equal(disqualifiesStartingBalance('high','max_limit'),true);
+ assert.equal(disqualifiesStartingBalance('low','fixed'),false); // Existing fixed policy unchanged.
+});

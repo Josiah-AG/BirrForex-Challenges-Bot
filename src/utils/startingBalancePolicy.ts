@@ -23,3 +23,8 @@ export function balanceCheckTimes(start: string | Date, participants: number, sa
   const finalAt = new Date(new Date(start).getTime() - lead * 3600000);
   return {lead, finalAt, warningAt: new Date(finalAt.getTime() - 3 * 3600000)};
 }
+
+/** Minimum-mode funding must meet its floor; maximum/fixed enforcement is unchanged. */
+export function disqualifiesStartingBalance(problem: BalanceProblem, mode: string): boolean {
+  return problem === 'high' || (mode === 'min_limit' && problem === 'low');
+}

@@ -25,7 +25,7 @@ export function balanceNotice(challenge:any,reg:any,balance:number,limit:number,
   const unit=reg.is_cent?'USC':'USD';
   const action=reg.account_type==='demo'?'Reset your demo account balance':'Adjust your account balance';
   const requirement=mode==='min_limit'?`at least ${unit} ${limit.toFixed(2)}`:mode==='max_limit'?`no more than the permitted maximum (target ${unit} ${limit.toFixed(2)})`:`${unit} ${limit.toFixed(2)}`;
-  return `<b>${isFinal?'Final balance notice':'Balance warning'} — ${esc(challenge.title)}</b>\n\nAccount: ${esc(reg.account_number)}\nCurrent balance: ${unit} ${balance.toFixed(2)}\nRequired balance: ${requirement}\n\n${action} to ${requirement} before <b>${esc(deadline)} (${esc(tz)})</b>. ${mode!=='min_limit'?'A balance above the permitted starting amount at the final check will lead to disqualification.':''}`;
+  return `<b>${isFinal?'Final balance notice':'Balance warning'} — ${esc(challenge.title)}</b>\n\nAccount: ${esc(reg.account_number)}\nCurrent balance: ${unit} ${balance.toFixed(2)}\nRequired balance: ${requirement}\n\n${action} to ${requirement} before <b>${esc(deadline)} (${esc(tz)})</b>. ${mode==='min_limit'?'A balance below this minimum at the final check will lead to disqualification.':'A balance above the permitted starting amount at the final check will lead to disqualification.'}`;
 }
 /** Shared daily, final-reminder and manual checks. VPS failures never imply a changed password. */
 export async function runBalanceWarningCheck(challengeId:number,telegram:any,manual=false, registrationId?:number):Promise<any> {

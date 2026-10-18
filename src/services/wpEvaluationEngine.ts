@@ -6,7 +6,7 @@ import { negativeBalanceResetTickets } from '../utils/negativeBalanceReset';
 import { rechargeDepositsForRegistration } from '../utils/approvedLateFunding';
 import { riskViolationDisplay, riskViolationTime } from '../utils/riskViolationDisplay';
 import { reconcilePrestart } from '../utils/prestartReconciliation';
-import { startingBalanceProblem } from '../utils/startingBalancePolicy';
+import { disqualifiesStartingBalance, startingBalanceProblem } from '../utils/startingBalancePolicy';
 import { peakPositionVolume } from '../utils/positionExposure';
 import { getLocalTime } from '../utils/timezone';
 import { validateRules } from '../utils/configValidation';
@@ -591,7 +591,7 @@ export class WpEvaluationEngine {
 
       // Validate the captured starting balance, never the current trading balance.
       const fundingProblem=startingBalanceProblem(actualStartBalance,startingBalance,depositMode,challengeDates.rows[0]?.starting_balance_policy);
-      if(fundingProblem === 'high') {
+      if(disqualifiesStartingBalance(fundingProblem, depositMode)) {
         await db.query(
           `UPDATE trading_registrations SET disqualified=true,disqualified_at=NOW(),disqualified_reason=$1,disqualified_source='funding' WHERE id=$2 AND (disqualified=false OR disqualified_source IN ('min_active_days','min_total_trades'))`,
           [`Starting balance ${currency}${actualStartBalance.toFixed(2)} is ${fundingProblem==='high'?'above':'below'} the required ${depositMode} balance of ${currency}${startingBalance.toFixed(2)}`,reg.id]);
