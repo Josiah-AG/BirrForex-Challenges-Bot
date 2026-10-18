@@ -30,8 +30,10 @@ export function noticeText(r:any):{title:string;body:string}{
     body=`Your daily loss limit of ${unit} ${cap}${percent} was reached on ${p.day} at ${p.time} (${zone}).\n\nProfits from trades closed after this breach on that challenge date do not count toward your qualified balance. Losses still count. The daily limit resets at midnight in the challenge timezone; other eligibility rules still apply.`;
   }else if(r.kind==='credential_failure'){
     title='Account Access Issue';
-    const deadline=new Date(+new Date(p.detectedAt)+24*3600000);
-    body=`The broker rejected access to your MT5 account. Please update your investor password or correct your account details.\n\nRestore access by ${postDate(deadline,zone)}. Your original 24-hour deadline is not extended by reminders. Unresolved access will lead to disqualification. If you did not change your password, contact support.`;
+    const regularDeadline=+new Date(p.detectedAt)+24*3600000;
+    const beforeStart=r.challenge_status==='registration_open';
+    const deadline=new Date(beforeStart ? Math.min(regularDeadline,+new Date(r.start_date)) : regularDeadline);
+    body=`The broker rejected access to your MT5 account. Please update your investor password or correct your account details.\n\nRestore access by ${postDate(deadline,zone)}. ${beforeStart?'Access must be restored before the challenge starts.':'Your original 24-hour deadline is not extended by reminders.'} Unresolved access will lead to disqualification. If you did not change your password, contact support.`;
   }else if(r.kind==='credential_recovered'){
     title='Account Access Restored';body='Your credentials were verified and your recovered trade history was pulled, evaluated, and published. Check your dashboard for your current qualification and account status.';
   }else{
@@ -49,7 +51,7 @@ export async function deliverParticipantNotices(telegram:any):Promise<void>{
  try{
   locked=(await client.query('SELECT pg_try_advisory_lock(26101102,0) AS locked')).rows[0].locked;if(!locked)return;
   const notices=(await db.query(`SELECT n.*,r.source,r.user_id,r.email,r.account_number,r.status AS registration_status,
-    r.disqualified,r.disqualified_reason,r.pull_status,r.credential_failure_detected_at,r.connection_verified_at,c.title AS challenge_title,c.host_id,c.timezone
+    r.disqualified,r.disqualified_reason,r.pull_status,r.credential_failure_detected_at,r.connection_verified_at,c.title AS challenge_title,c.host_id,c.timezone,c.status AS challenge_status,c.start_date
     FROM participant_notice_outbox n JOIN trading_registrations r ON r.id=n.registration_id AND r.challenge_id=n.challenge_id
     JOIN trading_challenges c ON c.id=n.challenge_id
     WHERE n.sent_at IS NULL AND n.cancelled_at IS NULL AND n.available_at<=NOW() ORDER BY n.id LIMIT 25`)).rows;

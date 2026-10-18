@@ -10,7 +10,8 @@ export async function queueCredentialRecovery(registrationId: number, challengeI
 export async function saveVerifiedCredential(registrationId: number, challengeId: number, password: string, source: 'user' | 'admin'): Promise<void> {
   await db.transaction(async () => {
     const saved = await db.query(`UPDATE trading_registrations SET investor_password=$1,pull_status='success',pull_error=NULL,
-      connection_verified=true,connection_verified_at=NOW(),last_pull_at=NULL,credential_failure_detected_at=NULL
+      connection_verified=true,connection_verified_at=NOW(),last_pull_at=NULL,credential_failure_detected_at=NULL,
+      prestart_retry_attempts=0,prestart_retry_at=NULL,prestart_retry_updated_at=NULL
       WHERE id=$2 AND challenge_id=$3 AND status IS DISTINCT FROM 'removed' RETURNING id`, [password,registrationId,challengeId]);
     if (!saved.rows.length) throw new Error('Registration not found or removed');
     await queueCredentialRecovery(registrationId,challengeId,source);

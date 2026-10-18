@@ -1,3 +1,4 @@
+import {recordPrestartSnapshotFailure} from '../services/prestartSnapshotRetry';
 import {escapePost} from '../utils/challengePosts';
 import {deliverRegistrationReminder} from '../services/registrationReminders';
 import {deliverRegistrationPost} from '../services/registrationPosts';
@@ -270,6 +271,8 @@ export class TradingScheduler {
          AND disqualified = false
          AND investor_password IS NOT NULL
          AND actual_starting_balance IS NULL
+         AND status IS DISTINCT FROM 'removed'
+         AND (prestart_retry_at IS NULL OR prestart_retry_at<=NOW() OR connection_verified_at>prestart_retry_updated_at)
          AND (pull_status IS NULL OR pull_status NOT IN ('password_changed','invalid_credentials'))`,
       [challenge.id]
     );
@@ -334,8 +337,9 @@ export class TradingScheduler {
         const snapshotAt = new Date();
         const result = await vpsService.verifyConnection(reg.account_number, reg.mt5_server, reg.investor_password);
         if (!result.success || result.status !== 'connected' || !Number.isFinite(result.balance) || Number(result.balance)<0) {
+          await recordPrestartSnapshotFailure(challenge.id,reg,result.status==='invalid_credentials');
           failed++;
-          console.warn(`⚠️ Pre-start snapshot: VPS failed for reg ${reg.id} (${reg.account_number}) — will retry next minute`);
+          console.warn(`⚠️ Pre-start snapshot: verification failed for reg ${reg.id}; ${result.status==='invalid_credentials'?'waiting for credential update':'retry cooldown scheduled'}`);
           continue;
         }
 
@@ -348,7 +352,7 @@ export class TradingScheduler {
 
         const problem=startingBalanceProblem(balance,limit,depositMode,(challenge as any).starting_balance_policy);
         await db.query(
-          `UPDATE trading_registrations SET actual_starting_balance = $1, funding_origin = 'prestart_snapshot', last_known_balance = $1, last_pull_at = NOW(), balance_warning=$3, prestart_snapshot_at=$4, prestart_snapshot_balance=$1, prestart_snapshot_until=$5 WHERE id = $2`,
+          `UPDATE trading_registrations SET actual_starting_balance = $1, funding_origin = 'prestart_snapshot', last_known_balance = $1, last_pull_at = NOW(), balance_warning=$3, prestart_snapshot_at=$4, prestart_snapshot_balance=$1, prestart_snapshot_until=$5, prestart_retry_attempts=0, prestart_retry_at=NULL, prestart_retry_updated_at=NULL WHERE id = $2`,
           [balance, reg.id,!!problem,snapshotAt,new Date()]
         );
 
@@ -362,6 +366,7 @@ export class TradingScheduler {
 
       } catch (err) {
         failed++;
+        await recordPrestartSnapshotFailure(challenge.id,reg,false).catch(error=>console.error('Pre-start retry persistence failed:',error));
         console.error(`Pre-start snapshot error for reg ${reg.id}:`, err);
       } finally {
         // Publish each completed attempt, including failed verifications, for live UI progress.

@@ -510,6 +510,20 @@ async function migrate() {
     await migrateNewClients();
     await migrateHardening();
     await migratePullIntegrity();
+    await db.query(`ALTER TABLE trading_registrations
+      ADD COLUMN IF NOT EXISTS prestart_retry_attempts INTEGER NOT NULL DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS prestart_retry_at TIMESTAMP,
+      ADD COLUMN IF NOT EXISTS prestart_retry_updated_at TIMESTAMP`);
+    await db.query(`CREATE OR REPLACE FUNCTION reset_prestart_retry_on_credentials() RETURNS trigger AS $$
+      BEGIN
+        IF NEW.investor_password IS DISTINCT FROM OLD.investor_password OR NEW.account_number IS DISTINCT FROM OLD.account_number OR NEW.mt5_server IS DISTINCT FROM OLD.mt5_server THEN
+          NEW.prestart_retry_attempts:=0; NEW.prestart_retry_at:=NULL; NEW.prestart_retry_updated_at:=NULL;
+        END IF;
+        RETURN NEW;
+      END; $$ LANGUAGE plpgsql;
+      DROP TRIGGER IF EXISTS reset_prestart_retry_credentials ON trading_registrations;
+      CREATE TRIGGER reset_prestart_retry_credentials BEFORE UPDATE OF investor_password,account_number,mt5_server
+      ON trading_registrations FOR EACH ROW EXECUTE FUNCTION reset_prestart_retry_on_credentials()`);
     await migrateParticipantNotices();
     await migrateRegistrationReminders();
     try {await installWorkloadTelemetry((sql,args)=>db.query(sql,args),false);}catch {console.error('[workload-telemetry] migration failed; capture unavailable');}

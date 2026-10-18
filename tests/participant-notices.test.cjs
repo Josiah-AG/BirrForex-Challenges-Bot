@@ -37,3 +37,9 @@ test('hosted email failure is not marked delivered, stale DQ is cancelled',async
  rows=[{...base,host_id:2,email:'test@example.invalid'}];writes=[];fail=true;await deliverParticipantNotices(null);assert(writes.some(w=>w.sql.includes('attempts=attempts+1')));assert(!writes.some(w=>w.sql.includes('sent_at=NOW()')));
  fail=false;rows=[{...base,kind:'disqualified',disqualified:false}];writes=[];await deliverParticipantNotices(null);assert(writes.some(w=>w.sql.includes('cancelled_at=NOW()')));
 });
+
+test('pre-start credential notices give the challenge start deadline',()=>{
+ const {noticeText}=require('../src/services/participantNotices');
+ const text=noticeText({kind:'credential_failure',payload:{detectedAt:'2026-10-18T19:00:00Z'},challenge_status:'registration_open',start_date:'2026-10-18T21:00:00Z',timezone:'Africa/Nairobi',challenge_title:'Sprint 1',account_number:'123',challenge_id:39});
+ assert.match(text.body,/before the challenge starts/);assert.doesNotMatch(text.body,/original 24-hour/);
+});
