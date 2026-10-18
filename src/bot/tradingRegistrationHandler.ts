@@ -4,7 +4,7 @@ import { startingBalanceProblem } from '../utils/startingBalancePolicy';
 import { Context, Markup } from 'telegraf';
 import { tradingChallengeService } from '../services/tradingChallengeService';
 import { exnessService } from '../services/exnessService';
-import { vpsService, MT5_SERVERS, fuzzyMatchServer } from '../services/vpsService';
+import { vpsService, MT5_SERVERS, serverChoices } from '../services/vpsService';
 import { config } from '../config';
 import { db } from '../database/db';
 import { t, Lang } from '../i18n';
@@ -433,7 +433,7 @@ export class TradingRegistrationHandler {
       if (!session) return true;
       const server = data.replace('tc_server_', '');
       // Validate the server is in the known list to prevent crafted callbacks
-      const allKnownServers = [...MT5_SERVERS.demo, ...MT5_SERVERS.real];
+      const allKnownServers = session.data.account_type === 'demo' ? MT5_SERVERS.demo : MT5_SERVERS.real;
       if (!allKnownServers.includes(server)) {
         await ctx.answerCbQuery('Invalid server selection.');
         return true;
@@ -463,66 +463,10 @@ export class TradingRegistrationHandler {
       return true;
     }
 
-    // "Type server manually" button
-    if (data === 'tc_server_manual') {
-      const session = userSessions.get(telegramId);
-      if (!session) return true;
-      session.step = 'tc_enter_server_manual';
+    // Old server-entry/confirmation buttons now return to the choice menu.
+    if (['tc_server_manual', 'tc_chg_srv_confirm_yes', 'tc_chg_srv_confirm_no', 'tc_server_confirm_yes', 'tc_server_confirm_no'].includes(data)) {
       await ctx.answerCbQuery();
-      const example = session.data.account_type === 'demo' ? 'Exness-MT5Trial9' : 'Exness-MT5Real9';
-      await ctx.reply(`Type your <b>MT5 server name</b> manually:\nExample: <code>${example}</code>`, { parse_mode: 'HTML' });
-      return true;
-    }
-
-    // Server confirmation (fuzzy match)
-    // Change-account server fuzzy confirm
-    if (data === 'tc_chg_srv_confirm_yes') {
-      const session = userSessions.get(telegramId);
-      if (!session) return true;
-      const newServer = session.data.pending_change_server;
-      delete session.data.pending_change_server;
-      session.data.mt5_server = newServer;
-      session.step = 'tc_change_acct_investor_password';
-      await ctx.answerCbQuery();
-      await ctx.reply(
-        `🖥️ Server: <b>${newServer}</b>\n\n🔑 Enter the <b>Investor (Read-Only) Password</b> for the new account:\n⚠️ <i>NOT your master/trading password.</i>` +
-        (config.investorPasswordGuideLink ? `\n\n📋 <a href="${config.investorPasswordGuideLink}">How to get Investor Password</a>` : ''),
-        { parse_mode: 'HTML', link_preview_options: { is_disabled: true } }
-      );
-      return true;
-    }
-    if (data === 'tc_chg_srv_confirm_no') {
-      const session = userSessions.get(telegramId);
-      if (!session) return true;
-      delete session.data.pending_change_server;
-      await ctx.answerCbQuery();
-      // Show server buttons again (same as registration)
       await this.showServerButtons(ctx, telegramId);
-      return true;
-    }
-
-    if (data === 'tc_server_confirm_yes') {
-      const session = userSessions.get(telegramId);
-      if (!session) return true;
-      session.data.mt5_server = session.data.pending_server;
-      // Detect context: change-account flow vs fresh registration
-      session.step = session.data.registration_id ? 'tc_change_acct_investor_password' : 'tc_enter_investor_password';
-      const lang: Lang = session.data.lang || 'en';
-      await ctx.answerCbQuery();
-      await ctx.reply(
-        t(lang, 'password_prompt') +
-        (config.investorPasswordGuideLink ? `\n\n📋 <a href="${config.investorPasswordGuideLink}">${lang === 'am' ? 'Investor ፓስዎርድ እንዴት ማግኘት ይቻላል' : 'How to get Investor Password'}</a>` : ''),
-        { parse_mode: 'HTML', link_preview_options: { is_disabled: true } }
-      );
-      return true;
-    }
-    if (data === 'tc_server_confirm_no') {
-      const session = userSessions.get(telegramId);
-      if (!session) return true;
-      session.step = 'tc_enter_server_manual';
-      await ctx.answerCbQuery();
-      const example = session.data.account_type === 'demo' ? 'Exness-MT5Trial9' : 'Exness-MT5Real21';
-      await ctx.reply(`Type your <b>MT5 server name</b> again:\nExample: <code>${example}</code>`, { parse_mode: 'HTML' });
       return true;
     }
 
@@ -806,40 +750,13 @@ export class TradingRegistrationHandler {
         break;
       }
 
-      // === SERVER TYPED MANUALLY (fuzzy match with confirmation) ===
-      case 'tc_enter_server_manual': {
-        const input = text.trim();
-        const matched = fuzzyMatchServer(input, session.data.account_type);
-        if (matched) {
-          if (matched.toLowerCase() === input.toLowerCase()) {
-            // Exact match — proceed directly
-            session.data.mt5_server = matched;
-            session.step = 'tc_enter_investor_password';
-            const lang: Lang = session.data.lang || 'en';
-            await ctx.reply(
-              t(lang, 'password_prompt') +
-              (config.investorPasswordGuideLink ? `\n\n📋 <a href="${config.investorPasswordGuideLink}">${lang === 'am' ? 'Investor ፓስዎርድ እንዴት ማግኘት ይቻላል' : 'How to get Investor Password'}</a>` : ''),
-              { parse_mode: 'HTML', link_preview_options: { is_disabled: true } }
-            );
-          } else {
-            // Fuzzy match — ask for confirmation
-            session.data.pending_server = matched;
-            session.step = 'tc_confirm_server';
-            await ctx.reply(
-              `Is your server <b>${matched}</b>?`,
-              { parse_mode: 'HTML', ...Markup.inlineKeyboard([
-                [Markup.button.callback('✅ Yes', `tc_server_confirm_yes`)],
-                [Markup.button.callback('❌ No, let me type again', `tc_server_confirm_no`)],
-              ]) }
-            );
-          }
-        } else {
-          await ctx.reply(
-            `❌ Could not match "<b>${input}</b>" to a known server.\n\nPlease select from the buttons or type the exact server name:`,
-            { parse_mode: 'HTML' }
-          );
-          await this.showServerButtons(ctx, telegramId);
-        }
+      // Typed text only filters choices; selecting a button commits the server.
+      case 'tc_select_server':
+      case 'tc_confirm_server':
+      case 'tc_change_acct_server_confirm':
+      case 'tc_enter_server_manual':
+      case 'tc_change_acct_server': {
+        await this.showServerButtons(ctx, telegramId, text.trim());
         break;
       }
 
@@ -882,41 +799,6 @@ export class TradingRegistrationHandler {
         session.data.new_account_number = newAcct;
         // Show server buttons (same as registration flow)
         await this.showServerButtons(ctx, telegramId);
-        break;
-      }
-
-      case 'tc_change_acct_server': {
-        // Fallback text input for server (if user types instead of using buttons)
-        const input = text.trim();
-        const matched = fuzzyMatchServer(input, session.data.account_type);
-        if (!matched) {
-          await ctx.reply(
-            `❌ Could not match "<b>${input}</b>" to a known server.\n\nPlease select from the list or type the exact server name:\nExample: <code>${session.data.account_type === 'demo' ? 'Exness-MT5Trial9' : 'Exness-MT5Real21'}</code>`,
-            { parse_mode: 'HTML' }
-          );
-          await this.showServerButtons(ctx, telegramId);
-          return;
-        }
-        if (matched.toLowerCase() !== input.toLowerCase()) {
-          session.data.pending_change_server = matched;
-          session.step = 'tc_change_acct_server_confirm';
-          await ctx.reply(
-            `Is your server <b>${matched}</b>?`,
-            { parse_mode: 'HTML', ...Markup.inlineKeyboard([
-              [Markup.button.callback('✅ Yes', 'tc_chg_srv_confirm_yes')],
-              [Markup.button.callback('❌ No, try again', 'tc_chg_srv_confirm_no')],
-            ]) }
-          );
-          return;
-        }
-        // Exact match — go straight to investor password
-        session.data.mt5_server = matched;
-        session.step = 'tc_change_acct_investor_password';
-        await ctx.reply(
-          `🖥️ Server: <b>${matched}</b>\n\n🔑 Enter the <b>Investor (Read-Only) Password</b> for the new account:\n⚠️ <i>NOT your master/trading password.</i>` +
-          (config.investorPasswordGuideLink ? `\n\n📋 <a href="${config.investorPasswordGuideLink}">How to get Investor Password</a>` : ''),
-          { parse_mode: 'HTML', link_preview_options: { is_disabled: true } }
-        );
         break;
       }
 
@@ -1155,11 +1037,12 @@ export class TradingRegistrationHandler {
 
   // ==================== SERVER BUTTONS ====================
 
-  private async showServerButtons(ctx: Context, telegramId: number) {
+  private async showServerButtons(ctx: Context, telegramId: number, search = '') {
     const session = userSessions.get(telegramId);
     if (!session) return;
 
-    const servers = session.data.account_type === 'demo' ? MT5_SERVERS.demo : MT5_SERVERS.real;
+    const matches = serverChoices(search, session.data.account_type);
+    const servers = matches.length ? matches : serverChoices('', session.data.account_type);
     session.step = 'tc_select_server';
 
     // Build buttons in rows of 2
@@ -1171,11 +1054,10 @@ export class TradingRegistrationHandler {
       }
       buttons.push(row);
     }
-    // Add manual entry option
-    buttons.push([Markup.button.callback('✍️ Type Server Manually', 'tc_server_manual')]);
+
 
     await ctx.reply(
-      `🖥️ Select your <b>MT5 Trading Server:</b>`,
+      `🖥️ ${search && !matches.length ? 'No matching server. Select from the list below.' : 'Select your <b>MT5 Trading Server:</b>'}\n\nYou can type a name or number to filter these choices.`,
       { parse_mode: 'HTML', ...Markup.inlineKeyboard(buttons) }
     );
   }

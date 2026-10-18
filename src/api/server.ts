@@ -833,9 +833,10 @@ app.post('/api/challenges/:id/verify-mt5', authLimiter, async (req, res) => {
     if (existingAcct.rows.length > 0) return res.status(409).json({ error: 'This account number is already registered in this challenge' });
 
     // Fuzzy match server
-    const { fuzzyMatchServer, vpsService } = require('../services/vpsService');
-    const matchedServer = fuzzyMatchServer(mt5Server.trim(), accountType);
-    const serverToUse = matchedServer || mt5Server.trim();
+    const { selectedServer, vpsService } = require('../services/vpsService');
+    const matchedServer = selectedServer(mt5Server.trim(), accountType);
+    if (!matchedServer) return res.status(400).json({ error: 'Please select your MT5 server from the available choices.' });
+    const serverToUse = matchedServer;
 
     // VPS verification
     const verifyResult = await vpsService.verifyConnection(accountNumber.trim(), serverToUse, investorPassword.trim());
@@ -930,9 +931,10 @@ app.post('/api/challenges/:id/register', authLimiter, async (req, res) => {
     }
 
     // Fuzzy match MT5 server name
-    const { fuzzyMatchServer } = require('../services/vpsService');
-    const matchedServer = fuzzyMatchServer(mt5Server.trim(), accountType);
-    const serverToUse = matchedServer || mt5Server.trim();
+    const { selectedServer } = require('../services/vpsService');
+    const matchedServer = selectedServer(mt5Server.trim(), accountType);
+    if (!matchedServer) return res.status(400).json({ error: 'Please select your MT5 server from the available choices.' });
+    const serverToUse = matchedServer;
 
     // Verify MT5 connection via VPS
     const { vpsService } = require('../services/vpsService');
@@ -1125,9 +1127,10 @@ app.post('/api/challenges/:id/change-account', authLimiter, async (req, res) => 
     }
 
     // Verify new account via VPS
-    const { fuzzyMatchServer, vpsService } = require('../services/vpsService');
-    const matchedServer = fuzzyMatchServer(newServer.trim(), accountType);
-    const serverToUse = matchedServer || newServer.trim();
+    const { selectedServer, vpsService } = require('../services/vpsService');
+    const matchedServer = selectedServer(newServer.trim(), accountType);
+    if (!matchedServer) return res.status(400).json({ error: 'Please select your MT5 server from the available choices.' });
+    const serverToUse = matchedServer;
     const verifyResult = await vpsService.verifyConnection(newAccountNumber.trim(), serverToUse, newInvestorPassword.trim());
     if (!verifyResult.success) {
       return res.status(400).json({ error: 'New account verification failed. Please check your credentials.' });
@@ -1206,9 +1209,10 @@ app.post('/api/challenges/:id/change-registration', authLimiter, async (req: any
     }
 
     // Verify new account via VPS
-    const { fuzzyMatchServer, vpsService } = require('../services/vpsService');
-    const matchedServer = fuzzyMatchServer(newServer.trim(), newAccountType);
-    const serverToUse = matchedServer || newServer.trim();
+    const { selectedServer, vpsService } = require('../services/vpsService');
+    const matchedServer = selectedServer(newServer.trim(), newAccountType);
+    if (!matchedServer) return res.status(400).json({ error: 'Please select your MT5 server from the available choices.' });
+    const serverToUse = matchedServer;
     const verifyResult = await vpsService.verifyConnection(newAccountNumber.trim(), serverToUse, newInvestorPassword.trim());
     if (!verifyResult.success) {
       const errorMessages: Record<string, string> = {
