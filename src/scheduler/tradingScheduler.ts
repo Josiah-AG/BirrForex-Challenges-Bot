@@ -346,6 +346,7 @@ export class TradingScheduler {
           continue;
         }
 
+        if(result.currency && (result.currency.toUpperCase()==='USC')!==Boolean(reg.is_cent))throw new Error('Broker currency does not match the registered account units; verification deferred');
         const balance   = result.balance as number;
         const categorySettings = resolveCategoryBalances(challenge, reg.account_type);
         const regStartBal = categorySettings.startingBalance;

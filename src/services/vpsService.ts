@@ -110,6 +110,12 @@ class VpsService {
 
           const data = response.data;
 
+          if (data.success && (String(data.login) !== String(accountNumber).trim() || String(data.server || '').trim().toLowerCase() !== String(server).trim().toLowerCase())) {
+            // Login completion can precede the terminal's account-info switch.
+            // Never publish another account's cached balance as verification.
+            lastResult = {message:'Account identity has not synchronized; verification deferred'};
+            continue;
+          }
           if (data.success) {
             return {
               success: true,
