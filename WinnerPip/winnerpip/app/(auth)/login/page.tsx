@@ -226,7 +226,7 @@ function LoginForm() {
                 <div className="space-y-3">
                   <button type="button" disabled className="w-full rounded-xl border border-white/10 bg-white/5 p-4 text-sm font-semibold text-gray-500">Registration Closed</button>
                   {hasEnded(publicChallenge) && <Link href={`/challenges?winners=${challengeId}&returnTo=${encodeURIComponent(`/login?challenge=${challengeId}`)}`} className="flex w-full items-center justify-center gap-2 rounded-xl border border-emerald-400/30 bg-emerald-500/20 p-4 text-sm font-semibold text-emerald-300 hover:bg-emerald-500/30"><Trophy size={18}/>View Winners</Link>}
-                  <button type="button" onClick={()=>setShowPublicLeaderboard(true)} className="w-full rounded-xl border border-emerald-400/30 bg-emerald-500/20 p-4 text-sm font-semibold text-emerald-300 hover:bg-emerald-500/30">See Leaderboard</button>
+                  {!hasEnded(publicChallenge) && <button type="button" onClick={()=>setShowPublicLeaderboard(true)} className="w-full rounded-xl border border-emerald-400/30 bg-emerald-500/20 p-4 text-sm font-semibold text-emerald-300 hover:bg-emerald-500/30">See Leaderboard</button>}
                   <PublicLeaderboard challenge={showPublicLeaderboard ? publicChallenge : null} onClose={()=>setShowPublicLeaderboard(false)} />
                 </div>
               ) : isTeamOnly ? (
