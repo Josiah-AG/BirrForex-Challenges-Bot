@@ -61,6 +61,22 @@ class SnapshotTests(unittest.TestCase):
         with self.assertRaises(IncompleteHistory):
             collect_snapshot(MT([],100),1,'Broker',opening_anchor=a,known_tickets=[123],sleep=lambda _:None)
 
+    def test_empty_zero_cache_cannot_override_verified_positive_opening(self):
+        a={'at':'2020-01-01T00:00:00Z','until':'2020-01-01T00:00:03Z','balance':100,'currency':'USD'}
+        refresh=[]
+        with self.assertRaises(IncompleteHistory):
+            collect_snapshot(MT([],0),1,'Broker',opening_anchor=a,sleep=lambda _:None,refresh_history=lambda:refresh.append(True))
+        self.assertEqual(len(refresh),1)
+    def test_zero_cache_recovers_after_native_refresh(self):
+        a={'at':'2020-01-01T00:00:00Z','until':'2020-01-01T00:00:03Z','balance':100,'currency':'USD'}
+        mt=MT([],0)
+        def refresh():
+            mt.balance=100
+            mt.deals=[deal(1,type=2,profit=100,t=1577836700,position=0)]
+        r=collect_snapshot(mt,1,'Broker',opening_anchor=a,sleep=lambda _:None,refresh_history=refresh)
+        self.assertEqual(r['balance'],100)
+        self.assertEqual(r['history_count'],1)
+
     def test_none_history_never_succeeds(self):
         with self.assertRaises(IncompleteHistory):self.collect(MT(None,1100))
     def test_stable_cold_cache_waits_for_matching_ledger(self):

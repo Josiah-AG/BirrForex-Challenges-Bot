@@ -192,7 +192,23 @@ def collect_snapshot(mt5, account, server, from_date=None, anchor=None, sleep=ti
             candidate = [d for d in history if int(start.timestamp()*1000) < millis(d) <= cutoff_ms]
             candidate_balance = anchor_balance + sum((economic_change(d) for d in candidate), Decimal(0))
             known_present = set(known_tickets or []).issubset({int(d.ticket) for d in history})
-            if known_present and abs(candidate_balance - balance) <= tolerance:
+            # A zero/empty cache must not override a verified opening observation.
+            # Check the anchor even when the lifetime ledger appears to reconcile.
+            opening_matches = True
+            if opening_anchor:
+                ambiguous = any(opening_ms <= millis(d) <= opening_until for d in history)
+                scoped = opening_balance + sum((economic_change(d) for d in history if opening_until < millis(d) <= cutoff_ms), Decimal(0))
+                opening_matches = abs(scoped - balance) <= tolerance
+                # A deal inside the verification interval can precede or follow
+                # its account_info observation. Preserve complete timestamp groups.
+                during = sorted((d for d in history if opening_ms <= millis(d) <= opening_until), key=millis)
+                remaining = sum((economic_change(d) for d in during), Decimal(0))
+                opening_matches = opening_matches or abs(scoped + remaining - balance) <= tolerance
+                for i, d in enumerate(during):
+                    remaining -= economic_change(d)
+                    if i + 1 == len(during) or millis(during[i + 1]) != millis(d):
+                        opening_matches = opening_matches or abs(scoped + remaining - balance) <= tolerance
+            if known_present and opening_matches and abs(candidate_balance - balance) <= tolerance:
                 accepted = history
                 break
             # A verified pre-start observation can cover archived/unexplained OLD
