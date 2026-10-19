@@ -3,7 +3,10 @@ import { MetadataRoute } from "next";
 
 export const revalidate=60;
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
- const challenges=await getPublicCompetitions();
+ const challenges=await getPublicCompetitions().catch(() => {
+   console.warn('Sitemap: competition API unavailable; using static pages until next refresh');
+   return [];
+ });
   return [
  {url:"https://winnerpip.com/competitions",changeFrequency:"daily",priority:0.9},
  ...challenges.map(c=>({url:`https://winnerpip.com/competitions/${c.id}`,changeFrequency:"daily" as const,priority:0.8})),
