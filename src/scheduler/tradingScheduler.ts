@@ -273,7 +273,7 @@ export class TradingScheduler {
        WHERE challenge_id = $1
          AND disqualified = false
          AND investor_password IS NOT NULL
-         AND actual_starting_balance IS NULL
+         AND prestart_snapshot_at IS NULL
          AND status IS DISTINCT FROM 'removed'
          AND (prestart_retry_at IS NULL OR prestart_retry_at<=NOW() OR connection_verified_at>prestart_retry_updated_at)
          AND (pull_status IS NULL OR pull_status NOT IN ('password_changed','invalid_credentials'))`,

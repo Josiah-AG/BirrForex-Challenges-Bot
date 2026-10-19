@@ -519,6 +519,10 @@ async function migrate() {
         IF NEW.investor_password IS DISTINCT FROM OLD.investor_password OR NEW.account_number IS DISTINCT FROM OLD.account_number OR NEW.mt5_server IS DISTINCT FROM OLD.mt5_server THEN
           NEW.prestart_retry_attempts:=0; NEW.prestart_retry_at:=NULL; NEW.prestart_retry_updated_at:=NULL;
         END IF;
+        IF NEW.account_number IS DISTINCT FROM OLD.account_number OR NEW.mt5_server IS DISTINCT FROM OLD.mt5_server THEN
+          NEW.prestart_snapshot_at:=NULL; NEW.prestart_snapshot_until:=NULL; NEW.prestart_snapshot_balance:=NULL;
+          NEW.actual_starting_balance:=NULL; NEW.funding_origin:=NULL;
+        END IF;
         RETURN NEW;
       END; $$ LANGUAGE plpgsql;
       DROP TRIGGER IF EXISTS reset_prestart_retry_credentials ON trading_registrations;

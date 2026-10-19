@@ -1,0 +1,65 @@
+[
+  {
+    "before": {
+      "id": 5809,
+      "nickname": "NeDemo17",
+      "registration_balance": "100",
+      "connection_verified_at": "2026-10-18T19:44:48.135Z",
+      "prestart_snapshot_balance": "100",
+      "prestart_snapshot_at": "2026-10-18T18:39:17.941Z",
+      "prestart_snapshot_until": "2026-10-18T18:39:21.671Z",
+      "actual_starting_balance": "100",
+      "history_verified_balance": "71.22",
+      "history_verified_through": "2026-10-19T01:31:05.523Z",
+      "start_date": "2026-10-18T21:00:00.000Z"
+    },
+    "reconciled": {
+      "actualAtStart": 100,
+      "competitionBalance": 100,
+      "preNonFunding": 0
+    },
+    "reason": "Earlier verified registration/account-update balance reconciles exactly to verified broker ledger; inconsistent final snapshot replaced"
+  },
+  {
+    "before": {
+      "id": 5811,
+      "nickname": "haile12f",
+      "registration_balance": "300",
+      "connection_verified_at": "2026-10-18T18:11:59.293Z",
+      "prestart_snapshot_balance": "30",
+      "prestart_snapshot_at": "2026-10-18T18:29:40.968Z",
+      "prestart_snapshot_until": "2026-10-18T18:29:45.454Z",
+      "actual_starting_balance": "30",
+      "history_verified_balance": "280.91",
+      "history_verified_through": "2026-10-19T01:33:06.382Z",
+      "start_date": "2026-10-18T21:00:00.000Z"
+    },
+    "reconciled": {
+      "actualAtStart": 300,
+      "competitionBalance": 300,
+      "preNonFunding": 0
+    },
+    "reason": "Earlier verified registration/account-update balance reconciles exactly to verified broker ledger; inconsistent final snapshot replaced"
+  },
+  {
+    "before": {
+      "id": 6239,
+      "nickname": "Birr1",
+      "registration_balance": "1000",
+      "connection_verified_at": "2026-10-18T19:59:26.674Z",
+      "prestart_snapshot_balance": "10",
+      "prestart_snapshot_at": "2026-10-18T19:45:00.086Z",
+      "prestart_snapshot_until": "2026-10-18T19:45:03.569Z",
+      "actual_starting_balance": "10",
+      "history_verified_balance": "1000",
+      "history_verified_through": "2026-10-19T01:33:10.840Z",
+      "start_date": "2026-10-18T21:00:00.000Z"
+    },
+    "reconciled": {
+      "actualAtStart": 1000,
+      "competitionBalance": 1000,
+      "preNonFunding": 0
+    },
+    "reason": "Earlier verified registration/account-update balance reconciles exactly to verified broker ledger; inconsistent final snapshot replaced"
+  }
+]
