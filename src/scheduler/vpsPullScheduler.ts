@@ -685,6 +685,8 @@ export class VpsPullScheduler {
         console.log(`🔑 VPS Admin Pull: ${adminCredentialFailures.length} credential failure(s) handled — users notified`);
       }
 
+      // Keep exact batch membership so later recovery can be reported accurately.
+      for (const failure of allResults.filter(r => !r.success)) await this.logPullError(batchId!, failure);
       await this.bulkUpdatePullStatus(allResults);
       await this.reportCandleFailures(challengeToPull.id, 0);
 

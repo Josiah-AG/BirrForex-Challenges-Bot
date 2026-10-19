@@ -526,6 +526,8 @@ export default function AdminDashboard() {
               time: challengeTimestamp(startedAt, challengeTz),
               success: p.successful || 0,
               failed: p.failed || 0,
+              recovered: p.recovered || 0,
+              currentPullFailures: p.currentPullFailures,
               passwordChanged: 0,
               newTrades: p.new_trades_found || 0,
               duration: duration != null ? `${duration}s` : p.status === "running" ? "Running…" : p.status === "interrupted" ? "Interrupted" : "Unavailable",
@@ -4529,17 +4531,24 @@ function PullsTab({ challenge, challengeId, pullHistory, terminalStatus, slFailu
         const lb = pullProgress.lastBatch;
         const completedEAT = challengeTimestamp(lb.completedAt, challengeTz);
         const balanceCheck = lb.isBalanceCheck;
-        const allOk = lb.failed === 0 && (balanceCheck || lb.reconciled);
+        const recovered = Number(lb.recovered || 0);
+        const remainingFailed = lb.remainingFailed ?? lb.failed;
+        const currentlyClear = !balanceCheck && lb.failed > 0 && lb.currentPullFailures === 0;
+        const allOk = (remainingFailed === 0 || currentlyClear) && (balanceCheck || lb.reconciled);
         return (
         <div className={`glass rounded-2xl border p-4 ${allOk ? "border-profit/20" : "border-amber-500/30"}`}>
           <p className={`text-xs font-bold ${allOk ? "text-profit" : "text-amber-400"}`}>
             {balanceCheck
               ? `${lb.failed ? "⚠️" : "✅"} Balance check completed — ${lb.successful} checked, ${lb.failed} failed as of ${completedEAT}`
+              : recovered > 0 && remainingFailed === 0
+              ? `✅ All ${lb.totalAccounts} accounts verified — ${recovered} initially failed, now reconciled`
+              : currentlyClear
+              ? `✅ No current pull failures — ${lb.failed} initially failed in this batch; recovery completed afterward`
               : allOk
               ? `✅ All ${lb.totalAccounts} accounts pulled and evaluated — data up to date as of ${completedEAT}`
-              : `⚠️ ${lb.failed} of ${lb.totalAccounts} account(s) failed — data up to date as of ${completedEAT} (see below)`}
+              : `⚠️ ${remainingFailed} of ${lb.totalAccounts} account(s) still failed — data up to date as of ${completedEAT} (see below)`}
           </p>
-          <p className="text-[11px] text-gray-400 mt-1">{lb.successful}✓ {lb.failed}✗ — {balanceCheck ? `${lb.warningCount} balance warning(s)` : `${lb.newTrades} new trades`} — {lb.durationSec != null ? `${lb.durationSec}s` : "Duration unavailable"}</p>
+          <p className="text-[11px] text-gray-400 mt-1">{lb.successful + recovered}✓ {remainingFailed} {currentlyClear && !recovered ? "initial failure(s), now clear" : "✗"} {recovered > 0 && `(${recovered} reconciled)`} — {balanceCheck ? `${lb.warningCount} balance warning(s)` : `${lb.newTrades} new trades`} — {lb.durationSec != null ? `${lb.durationSec}s` : "Duration unavailable"}</p>
 
           {/* Phase Timing Breakdown */}
           {!balanceCheck && lb.phaseTimes && (
@@ -4565,7 +4574,7 @@ function PullsTab({ challenge, challengeId, pullHistory, terminalStatus, slFailu
 
           {!balanceCheck && <p className={`text-[11px] mt-2.5 font-medium ${lb.reconciled ? "text-profit/80" : "text-amber-400/90"}`}>
             {lb.verifiedHistory
-              ? `History verified for ${lb.successful} account(s); ${lb.failed} account(s) failed this update. See failure details below.`
+              ? currentlyClear && !recovered ? "Subsequent pulls have cleared the current failure list. Original batch counts are retained for history." : `History verified for ${lb.successful + recovered} account(s). ${recovered ? `${recovered} initially failed and subsequently reconciled. ` : ""}${remainingFailed ? `${remainingFailed} still need attention.` : "No unresolved pull failures from this update."}`
               : lb.phase2Total === 0
               ? "✅ Reconciliation: nothing to fix — all trades had open_time on first pass"
               : lb.reconciled
@@ -5221,7 +5230,7 @@ function PullsTab({ challenge, challengeId, pullHistory, terminalStatus, slFailu
                     {p.isBalanceCheck && <span className="ml-2 px-1.5 py-0.5 rounded text-[9px] font-bold bg-gold/20 text-gold border border-gold/30">💰 Balance Check</span>}
                   </td>
                   <td className="py-3 px-4 text-center text-sm text-profit">{p.success}</td>
-                  <td className="py-3 px-4 text-center text-sm text-loss">{p.failed}</td>
+                  <td className="py-3 px-4 text-center text-sm text-loss">{p.recovered ? <span className="text-profit">{p.failed - p.recovered} failed · {p.recovered} reconciled</span> : p.failed > 0 && p.currentPullFailures === 0 ? <span className="text-profit">{p.failed} initial · now clear</span> : p.failed}</td>
                   <td className="py-3 px-4 text-center text-sm text-gray-300">{p.isPreStart ? "—" : p.isBalanceCheck ? `${p.newTrades} warnings` : p.newTrades}</td>
                   <td className="py-3 px-4 text-right text-sm text-gray-400">{p.duration}</td>
                 </tr>

@@ -1,3 +1,4 @@
+import { annotatePullRecovery } from '../services/pullRecoveryReport';
 import { tradingChallengeService } from '../services/tradingChallengeService';
 import {readNewClients} from '../services/newChallengeClients';
 import {tradeGrowthContext,withTradeGrowth} from '../services/tradeGrowthDisplay';
@@ -4082,10 +4083,12 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/pulls`, adminIpCheck, asy
 
     // Pull batch history
     const batches = await db.query(
-      `SELECT id, started_at, completed_at, total_accounts, successful, failed, new_trades_found, status, error_log
+      `SELECT id, challenge_id, started_at, completed_at, total_accounts, successful, failed, new_trades_found, status, error_log
        FROM wp_pull_batches WHERE challenge_id=$1 ORDER BY started_at DESC LIMIT 50`,
       [challengeId]
     );
+
+    await annotatePullRecovery(batches.rows);
 
     // Terminal stats for the most recent batch (if any)
     let terminalStats: any[] = [];
@@ -4328,6 +4331,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/vps-health`, adminIpCheck, async (req, 
           totalAccounts: b.total_accounts,
           successful: b.successful,
           failed: b.failed,
+
           newTrades: b.new_trades_found,
           status: b.status,
           ...pullBatchReport(b),
@@ -6677,6 +6681,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/pull-status`, adminIpCheck, async (req,
     const last = await db.query(lastQuery, lastParams);
 
     if (last.rows.length > 0) {
+      await annotatePullRecovery(last.rows);
       const b = last.rows[0];
 
       // Reconciliation/null-resolution outcome: phase2_total = 0 means nothing
@@ -6726,6 +6731,9 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/pull-status`, adminIpCheck, async (req,
         isRunning: false,
         lastBatch: {
           id: b.id,
+          currentPullFailures: b.currentPullFailures,
+          recovered: b.recovered || 0,
+          remainingFailed: b.remainingFailed ?? b.failed,
           totalAccounts: b.total_accounts,
           successful: b.successful,
           failed: b.failed,
