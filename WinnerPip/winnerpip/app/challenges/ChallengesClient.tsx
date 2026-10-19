@@ -179,7 +179,7 @@ export default function ChallengesPage({initialChallenges = [], winnersId, retur
   };
 
   const closeWinners = () => {
-    if (selectedPastChallenge?.id === winnersId && returnTo === `/competitions/${winnersId}`) window.location.replace(returnTo);
+    if (selectedPastChallenge?.id === winnersId && (returnTo === `/competitions/${winnersId}` || returnTo === `/login?challenge=${winnersId}`)) window.location.replace(returnTo);
     else setSelectedPastChallenge(null);
   };
 
@@ -246,7 +246,7 @@ export default function ChallengesPage({initialChallenges = [], winnersId, retur
       <article
         key={challenge.id}
         onClick={() => {
-          if (hasEnded(challenge)) return handlePastChallengeClick(challenge);
+          if (isPast && hasEnded(challenge)) return handlePastChallengeClick(challenge);
           const ds = challenge.displayStatus || challenge.status;
           if (ds === 'coming_soon' || ds === 'draft') { setShowNotOpenPopup(true); return; }
           handleChallengeClick(challenge);
