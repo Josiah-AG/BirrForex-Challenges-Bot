@@ -1656,7 +1656,7 @@ export class VpsPullScheduler {
     const passwordChangedFilter = "AND (r.pull_status IS NULL OR r.pull_status NOT IN ('password_changed','invalid_credentials'))";
 
     const result = await db.query(
-      `SELECT r.id, r.account_number, r.mt5_server, r.investor_password, r.user_id, r.username, r.nickname, r.last_pull_at, r.last_known_balance, r.pull_status
+      `SELECT r.id, r.account_number, r.mt5_server, r.investor_password, r.user_id, r.username, r.nickname, r.last_pull_at, r.last_known_balance, r.pull_status, r.history_sync_state
        FROM trading_registrations r
        LEFT JOIN wp_leaderboard l ON r.id = l.registration_id
        WHERE r.challenge_id = $1 AND r.status IS DISTINCT FROM 'removed'
@@ -1674,7 +1674,7 @@ export class VpsPullScheduler {
       ? result.rows
       : result.rows.filter((r: any) => !lateExcludeIds.includes(r.id));
 
-    return accounts.filter((r: any) => !failedOnly || isNonCredentialPullFailure(r.pull_status)).map((r: any) => ({
+    return accounts.filter((r: any) => !failedOnly || isNonCredentialPullFailure(r.pull_status) || ['incomplete','evaluation_failed'].includes(r.history_sync_state)).map((r: any) => ({
       registrationId: r.id,
       accountNumber: r.account_number,
       server: r.mt5_server,

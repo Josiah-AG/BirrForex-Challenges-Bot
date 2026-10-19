@@ -1,3 +1,4 @@
+import {reconcilePrestartBatches} from '../services/prestartBatchRecovery';
 import {recordPrestartSnapshotFailure} from '../services/prestartSnapshotRetry';
 import {escapePost} from '../utils/challengePosts';
 import {deliverRegistrationReminder} from '../services/registrationReminders';
@@ -32,6 +33,8 @@ export class TradingScheduler {
   }
 
   start() {
+    void reconcilePrestartBatches().catch(error=>console.error('Pre-start batch recovery:',error));
+    cron.schedule('* * * * *',()=>reconcilePrestartBatches().catch(error=>console.error('Pre-start batch recovery:',error)));
     cron.schedule('*/5 * * * * *',()=>deliverParticipantNotices(this.bot.bot.telegram).catch(e=>console.error('Participant notice delivery:',e.message)));
     cron.schedule('* * * * *', () => this.checkTradingSchedules());
     cron.schedule('* * * * *', () => {
@@ -371,7 +374,7 @@ export class TradingScheduler {
       } finally {
         // Publish each completed attempt, including failed verifications, for live UI progress.
         if (batchId !== null) await db.query(
-          `UPDATE wp_pull_batches SET successful=$1, failed=$2 WHERE id=$3 AND status='running'`,
+          `UPDATE wp_pull_batches SET successful=$1, failed=$2, phase_started_at=NOW() WHERE id=$3 AND status='running'`,
           [verified, failed, batchId]
         ).catch(error => console.error('Pre-start progress update failed:', error));
       }

@@ -400,7 +400,7 @@ export class LeaderboardService {
         r.email,
         r.source,
         r.pull_status,
-        r.pull_error,
+        COALESCE(r.history_sync_error,r.pull_error) AS pull_error,
         r.last_pull_at,
         r.disqualified,
         r.disqualified_reason,
@@ -434,8 +434,8 @@ export class LeaderboardService {
            -- silently disappear into the generic "Skipped" bucket with no way to act.
            OR r.pull_status IN ('password_changed', 'invalid_credentials')
          )
-         AND r.pull_status NOT IN ('success', 'ready', 'never_pulled', 'pending_verify')
-         AND r.pull_status IS NOT NULL
+         AND ((r.pull_status NOT IN ('success', 'ready', 'never_pulled', 'pending_verify') AND r.pull_status IS NOT NULL)
+           OR r.history_sync_state IN ('incomplete','evaluation_failed'))
        ORDER BY
          CASE r.pull_status WHEN 'password_changed' THEN 0 ELSE 1 END,
          r.last_pull_at DESC`,
