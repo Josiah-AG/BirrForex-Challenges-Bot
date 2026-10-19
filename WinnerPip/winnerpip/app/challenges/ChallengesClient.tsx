@@ -395,6 +395,9 @@ export default function ChallengesPage({initialChallenges = [], winnersId, retur
           </div>
 
           {/* CTA */}
+          {!hasEnded(challenge) && canViewPublicLeaderboard(challenge) && (
+            <p className="mb-3 text-center text-xs text-gray-500">Registration Closed</p>
+          )}
           {!isPast && (hasEnded(challenge) || ['active', 'ongoing', 'reviewing', 'evaluation', 'submission_open'].includes(challenge.displayStatus || challenge.status)) && (
             <Link href={`/login?challenge=${challenge.id}`} onClick={e => e.stopPropagation()}
               className="mb-3 w-full flex items-center justify-center gap-2 rounded-xl bg-royal/20 border border-royal/40 p-3 text-sm font-semibold text-blue-300 hover:bg-royal/30 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-400">
@@ -402,7 +405,6 @@ export default function ChallengesPage({initialChallenges = [], winnersId, retur
             </Link>
           )}
           {hasEnded(challenge) ? <button type="button" onClick={e=>{e.stopPropagation();void handlePastChallengeClick(challenge);}} className="w-full flex items-center justify-center gap-2 rounded-xl bg-profit/20 border border-profit/30 p-3 text-sm font-semibold text-profit hover:bg-profit/30"><Trophy size={17}/>View Winners</button> : canViewPublicLeaderboard(challenge) ? <div className="space-y-2" onClick={e=>e.stopPropagation()}>
-            <p className="text-center text-xs text-gray-500">Registration Closed</p>
             <button type="button" onClick={e=>{e.preventDefault();e.stopPropagation();setPublicLeaderboard(challenge);}} className="w-full flex items-center justify-center gap-2 rounded-xl bg-emerald-500/20 border border-emerald-400/30 p-3 text-sm font-semibold text-emerald-300 hover:bg-emerald-500/30"><Trophy size={17}/>See Leaderboard</button>
             {isPast && <button type="button" onClick={()=>handlePastChallengeClick(challenge)} className="w-full p-2 text-sm text-gray-400 hover:text-white">View Winners</button>}
           </div> : <button type="button" className={`w-full flex items-center justify-between p-3 rounded-xl ${isPast ? 'bg-profit/10 border border-profit/20 group-hover:bg-profit/20' : 'bg-royal/10 border border-royal/20 group-hover:bg-royal/20'} transition-all`}>
