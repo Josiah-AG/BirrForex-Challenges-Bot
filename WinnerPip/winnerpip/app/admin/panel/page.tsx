@@ -1,4 +1,5 @@
 "use client";
+import { exportLeaderboardResult, exportMinimumTradesDot, exportLeaderboardAlignment } from '@/lib/leaderboardExport';
 import TradePnl from '@/components/TradePnl';
 import {withWinnerPipSocials} from "@/lib/htmlExportSocials";
 import {rulesExportSummary} from "@/lib/rulesExportSummary";
@@ -3622,11 +3623,7 @@ function downloadLeaderboardHTML(challenge: any, lb: any[], categoryLabel?: stri
   const isAboveTarget = (e: any) => leaderboardBadges(e, challenge).highlight;
 
   const isCent = top10.some((e: any) => e.isCent);
-  const formatBal = (e: any) => {
-    if (e.isDisqualified) return 'DQ';
-    const val = Number(e.adjustedBalance || 0);
-    return e.isCent ? `${val.toFixed(0)}¢` : `$${val.toFixed(2)}`;
-  };
+  const formatBal = (e: any) => exportLeaderboardResult(challenge, e);
 
   const rowsHTML = top10.map((e) => {
     const winner = isWinnerEntry(e);
@@ -3634,7 +3631,7 @@ function downloadLeaderboardHTML(challenge: any, lb: any[], categoryLabel?: stri
     const rowClass = winner ? 'winner' : aboveTarget ? 'above-target' : '';
     const rankLabel = winner ? '🏆' : `${e.rank}`;
     const bal = formatBal(e);
-    return `<div class="lb-row ${rowClass}"><div class="lb-rank">${rankLabel}</div><div class="lb-name">${e.nickname || '—'}</div><div class="lb-type" style="background:${e.accountType === 'real' ? 'rgba(249,115,22,0.15)' : 'rgba(59,130,246,0.15)'};color:${e.accountType === 'real' ? '#fb923c' : '#60a5fa'}">${e.accountType}</div><div class="lb-balance">${bal}</div><div class="lb-trades">${e.totalTrades} trades • <span style="${e.minimumTradesRequired > Number(e.qualifiedTrades || 0) ? 'color:#f87171' : ''}">${Number(e.qualifiedTrades || 0)} qualified${e.minimumTradesRequired > Number(e.qualifiedTrades || 0) ? ' (Minimum qualified trades not met)' : ''}</span></div></div>`;
+    return `<div class="lb-row ${rowClass}"><div class="lb-rank">${rankLabel}</div><div class="lb-name">${e.nickname || '—'}</div><div class="lb-type" style="background:${e.accountType === 'real' ? 'rgba(249,115,22,0.15)' : 'rgba(59,130,246,0.15)'};color:${e.accountType === 'real' ? '#fb923c' : '#60a5fa'}">${e.accountType}</div><div class="lb-balance">${bal}${exportMinimumTradesDot(e)}</div><div class="lb-trades">${e.totalTrades} trades • <span style="${e.minimumTradesRequired > Number(e.qualifiedTrades || 0) ? 'color:#f87171' : ''}">${Number(e.qualifiedTrades || 0)} qualified</span></div></div>`;
   }).join('');
 
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${challenge.title} - Leaderboard</title><style>
@@ -3664,7 +3661,7 @@ function downloadLeaderboardHTML(challenge: any, lb: any[], categoryLabel?: stri
 .lb-trades{font-size:13px;color:#64748b;min-width:80px;text-align:right}
 .footer{text-align:center;margin-top:auto;padding-top:30px}
 .brand{font-size:16px;font-weight:700;color:#475569}
-</style></head><body>
+${exportLeaderboardAlignment}</style></head><body>
 <div class="page">
 <div class="glow glow1"></div><div class="glow glow2"></div>
 <div class="header"><div style="display:flex;align-items:center;justify-content:center;gap:16px;margin-bottom:14px"><img src="https://winnerpip.com/birrforex-logo.png" style="width:44px;height:44px;border-radius:10px" onerror="this.style.display='none'" /><img src="https://winnerpip.com/winnerpip-icon.png" style="width:44px;height:44px;border-radius:10px" onerror="this.style.display='none'" /></div><div class="title">${challenge.title || 'Trading Challenge'}</div><div class="subtitle">Leaderboard — Top 10${categoryLabel ? ` (<span style="color:${categoryLabel === 'Real' ? '#fb923c' : '#60a5fa'}">${categoryLabel} Account</span>)` : ''}</div></div>

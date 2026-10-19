@@ -1,8 +1,9 @@
 "use client";
+import Link from 'next/link';
 import RaceCountdown from "./RaceCountdown";
 import { useEffect, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { Loader2, RefreshCw, Trophy, X } from 'lucide-react';
+import { LogIn, Loader2, RefreshCw, Trophy, X } from 'lucide-react';
 import { leaderboardBadges } from '@/lib/leaderboardBadges';
 
 export function canViewPublicLeaderboard(challenge: any): boolean {
@@ -44,9 +45,9 @@ export default function PublicLeaderboard({ challenge, onClose }: {challenge: an
           <Dialog.Close aria-label="Close leaderboard" className="absolute right-3 top-3 p-2 rounded-lg text-gray-400 hover:bg-white/10 hover:text-white"><X size={21}/></Dialog.Close>
         </div>
         <div className="px-5 pt-3"><RaceCountdown startDate={challenge?.startDate} endDate={challenge?.endDate} /></div>
-        <div className="flex items-center justify-between gap-3 px-5 py-3">
+        <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3">
           {challenge?.type === 'hybrid' ? <div className="flex gap-2">{['demo','real'].map(c=><button key={c} onClick={()=>{setCategory(c);setPage(0);}} aria-pressed={category===c} className={`rounded-lg px-3 py-2 text-sm capitalize ${category===c?'bg-emerald-500/20 text-emerald-300':'bg-white/5 text-gray-400'}`}>{c}</button>)}</div> : <span className="text-sm text-gray-400 capitalize">{category} accounts</span>}
-          <button onClick={()=>setRevision(v=>v+1)} disabled={loading} className="flex items-center gap-1.5 text-sm text-emerald-300 disabled:opacity-50"><RefreshCw size={15}/>Refresh</button>
+          <div className="flex items-center gap-3 flex-wrap"><button onClick={()=>setRevision(v=>v+1)} disabled={loading} className="flex items-center gap-1.5 text-sm text-emerald-300 disabled:opacity-50"><RefreshCw size={15}/>Refresh</button><Link href={`/login?challenge=${id}`} className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-500"><LogIn size={16}/>Sign In</Link></div>
         </div>
         <div className="min-h-24 overflow-auto px-5 pb-4" aria-live="polite">
           {loading ? <p className="flex justify-center gap-2 py-10 text-gray-400"><Loader2 className="animate-spin" size={20}/>Loading standings…</p> : error ? <p role="alert" className="py-8 text-red-400">{error}</p> : !data?.leaderboard?.length ? <p className="py-8 text-center text-gray-400">No published standings yet.</p> :
