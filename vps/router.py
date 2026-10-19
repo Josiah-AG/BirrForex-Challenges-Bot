@@ -823,6 +823,7 @@ class PullRequest(BaseModel):
     protocol_version: int = 1
     native_sltp: bool = False
     request_id: Optional[str] = None
+    opening_anchor: Optional[dict] = None
     anchor_cutoff: Optional[str] = None
     anchor_balance: Optional[float] = None
     prior_digest: Optional[str] = None

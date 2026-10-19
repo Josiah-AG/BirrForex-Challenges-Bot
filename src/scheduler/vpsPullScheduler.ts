@@ -974,6 +974,7 @@ export class VpsPullScheduler {
     const requestId = require('crypto').randomUUID();
     try {
       const registration=(await db.query(`SELECT registered_at,history_verified_through,history_verified_balance,history_retry_attempts,history_verified_at,
+        prestart_snapshot_at,prestart_snapshot_until,prestart_snapshot_balance,connection_verified_at,is_cent,
         (SELECT history_digest FROM wp_history_snapshots s WHERE s.registration_id=trading_registrations.id ORDER BY id DESC LIMIT 1) AS history_digest
         FROM trading_registrations WHERE id=$1`,[account.registrationId])).rows[0];
       // Full audits are required on first import, explicit full pulls and reviewing.
@@ -981,9 +982,15 @@ export class VpsPullScheduler {
         || Number(registration.history_retry_attempts)>0 || (challenge && this.isMidnightRun(challenge));
       const anchor=full?null:registration.history_verified_through;
       const importFrom=new Date(Math.min(new Date(registration.registered_at || challenge.start_date || 0).getTime(),new Date(challenge.start_date || registration.registered_at || 0).getTime()-3*3600000)).toISOString();
+      const knownTickets=(await db.query('SELECT ticket FROM wp_deals WHERE registration_id=$1',[account.registrationId])).rows.map((d:any)=>Number(d.ticket));
+      const openingAnchor = registration.prestart_snapshot_at && registration.prestart_snapshot_until
+        && new Date(registration.prestart_snapshot_at).getTime() >= new Date(registration.connection_verified_at).getTime()
+        && new Date(registration.prestart_snapshot_until).getTime() <= new Date(challenge.start_date).getTime()
+        ? {at:new Date(registration.prestart_snapshot_at).toISOString(),until:new Date(registration.prestart_snapshot_until).toISOString(),
+           balance:Number(registration.prestart_snapshot_balance),currency:registration.is_cent?'USC':'USD'} : null;
       const response=await axios.post(`${this.baseUrl}/pull`,{
         account:normalizeAccountNumber(account.accountNumber),server:account.server,password:account.investorPassword,api_key:this.apiKey,
-        terminal_id:terminalId,protocol_version:2,request_id:requestId,
+        terminal_id:terminalId,protocol_version:2,request_id:requestId,opening_anchor:openingAnchor,known_tickets:knownTickets,
         native_sltp: process.env.WINNERPIP_NATIVE_SLTP !== 'false',
         from_date: anchor ? new Date(anchor).toISOString() : importFrom,
         anchor_cutoff:anchor?new Date(anchor).toISOString():null,
@@ -998,6 +1005,8 @@ export class VpsPullScheduler {
       }
       if(data?.success && data.terminal_used!==terminalId)throw new Error('Snapshot terminal identity mismatch');
       validateHistorySnapshot(data,normalizeAccountNumber(account.accountNumber),account.server,requestId);
+      if(data.reconciliation_basis==='verified_prestart' && (!openingAnchor || JSON.stringify(data.opening_anchor)!==JSON.stringify(openingAnchor)))
+        throw new Error('Verified opening snapshot mismatch');
       // Account-wide history reconciles the cash ledger; challenge operations start at registration.
       const operationsSince = Date.parse(registration.registered_at || challenge.start_date);
       data.balance_ops = data.balance_ops.filter((op:any)=>Date.parse(op.time)>=operationsSince);
@@ -1008,7 +1017,7 @@ export class VpsPullScheduler {
         await beginPullJournal(account.registrationId,challenge.id);
         await db.query(`INSERT INTO wp_history_snapshots(registration_id,challenge_id,request_id,source_cutoff,balance,history_digest,history_count,terminal_id,before_state)
           VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,[account.registrationId,challenge.id,requestId,data.source_cutoff,data.balance,data.history_digest,data.history_count,terminalId,
-          JSON.stringify({operation_journal:'wp_pull_operations'})]);
+          JSON.stringify({operation_journal:'wp_pull_operations',reconciliation_basis:data.reconciliation_basis||'full_history',opening_anchor:data.opening_anchor||null})]);
         // Freeze the last visible history before modifying raw source records.
         await db.query(`INSERT INTO wp_account_publications(registration_id,challenge_id,trades,balance_ops,registration_state)
           VALUES($1,$2,COALESCE((SELECT jsonb_agg(t) FROM wp_trades t WHERE registration_id=$1),'[]'::jsonb),

@@ -105,7 +105,7 @@ def reconstruct_position(deals):
 
 
 def collect_snapshot(mt5, account, server, from_date=None, anchor=None, sleep=time.sleep,
-                     monotonic=time.monotonic, budget=70, known_tickets=None, refresh_history=None):
+                     monotonic=time.monotonic, budget=70, known_tickets=None, refresh_history=None, opening_anchor=None):
     """One account lock must cover this entire operation. No network or login retry here.
     A stable manifest, account identity and signed ledger must all agree.
     """
@@ -137,6 +137,16 @@ def collect_snapshot(mt5, account, server, from_date=None, anchor=None, sleep=ti
     history = None
     known_present = False
     recovery = None
+    reconciliation_basis = 'full_history'
+    opening_ms = opening_until = None
+    if opening_anchor:
+        opening_ms = int(datetime.fromisoformat(opening_anchor['at'].replace('Z', '+00:00')).timestamp()*1000)
+        opening_until = int(datetime.fromisoformat(opening_anchor['until'].replace('Z', '+00:00')).timestamp()*1000)
+        if not 0 < opening_ms <= opening_until <= int(cutoff.timestamp()*1000):
+            raise IncompleteHistory('Invalid verified opening snapshot interval')
+        opening_balance = amount(opening_anchor['balance'])
+        if opening_balance < 0 or opening_anchor['currency'].upper() != before.currency.upper():
+            raise IncompleteHistory('Verified opening snapshot currency/balance mismatch')
     # Deliberately re-read the broker range; None must never become an empty tuple.
     for attempt in range(45):
         if monotonic() >= deadline:
@@ -185,6 +195,17 @@ def collect_snapshot(mt5, account, server, from_date=None, anchor=None, sleep=ti
             if known_present and abs(candidate_balance - balance) <= tolerance:
                 accepted = history
                 break
+            # A verified pre-start observation can cover archived/unexplained OLD
+            # history. Never forgive any movement after it, or ambiguous movement
+            # during the original verification request. Still request native refresh.
+            if opening_anchor and attempt >= 12 and known_present:
+                ambiguous = any(opening_ms <= millis(d) <= opening_until for d in history)
+                scoped = opening_balance + sum((economic_change(d) for d in history if opening_until < millis(d) <= cutoff_ms), Decimal(0))
+                if not ambiguous and abs(scoped - balance) <= tolerance:
+                    accepted = history
+                    reconciliation_basis = 'verified_prestart'
+                    anchor_balance, start = opening_balance, datetime.fromtimestamp(opening_until / 1000, timezone.utc)
+                    break
         sleep(1)
     if accepted is None:
         current = mt5.account_info()
@@ -215,7 +236,7 @@ def collect_snapshot(mt5, account, server, from_date=None, anchor=None, sleep=ti
         pos_deals = [d for d in pos_deals if int(d.position_id) == position and millis(d) <= cutoff_ms]
         # Position query is independently compared with every window deal, including exits.
         window_tickets = {int(d.ticket) for d in accepted if int(d.position_id) == position}
-        position_window_tickets = {int(d.ticket) for d in pos_deals if start_ms <= millis(d) <= cutoff_ms}
+        position_window_tickets = {int(d.ticket) for d in pos_deals if millis(d) <= cutoff_ms}
         if window_tickets != position_window_tickets:
             raise IncompleteHistory('Position and window history disagree')
         built = reconstruct_position(pos_deals)
@@ -263,6 +284,8 @@ def collect_snapshot(mt5, account, server, from_date=None, anchor=None, sleep=ti
                 source_cutoff=cutoff.isoformat(), observed_at=datetime.now(timezone.utc).isoformat(),
                 balance=float(balance), equity=float(after.equity), currency=after.currency,
                 ledger_expected=float(expected), ledger_tolerance=float(tolerance),
+                reconciliation_basis=reconciliation_basis,
+                opening_anchor=opening_anchor if reconciliation_basis == 'verified_prestart' else None,
                 history_recovery=recovery, history_digest=signature(accepted), history_count=len(accepted),
                 trades=trades, deals=raw, balance_ops=operations,
                 position_ids=positions, closing_tickets=sorted(t['ticket'] for t in trades))

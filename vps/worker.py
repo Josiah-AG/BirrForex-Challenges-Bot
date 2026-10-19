@@ -1575,6 +1575,7 @@ class PullRequest(BaseModel):
     priority: bool = False
     native_sltp: bool = False
     request_id: Optional[str] = None
+    opening_anchor: Optional[dict] = None
     anchor_cutoff: Optional[str] = None
     anchor_balance: Optional[float] = None
     prior_digest: Optional[str] = None
@@ -1714,7 +1715,7 @@ def pull(req: PullRequest):
             _consecutive_failures = 0
             anchor = {"cutoff": req.anchor_cutoff, "balance": req.anchor_balance,"digest":req.prior_digest,"repair_from":req.repair_from} if req.anchor_cutoff and req.anchor_balance is not None else None
             result = collect_snapshot(mt5, account_number, req.server, req.from_date, anchor,
-                budget=max(1,90-(time.monotonic()-started)), known_tickets=req.known_tickets,
+                budget=max(1,90-(time.monotonic()-started)), known_tickets=req.known_tickets, opening_anchor=req.opening_anchor,
                 refresh_history=lambda: prime_native_history(mt5, account_number, req.server,
                     enabled=os.path.isfile(os.path.join(os.path.dirname(__file__), f"native_history_{TERMINAL_ID}.enabled"))))
             # Optional closing-level evidence for either app, inside the worker/dispatcher lease.

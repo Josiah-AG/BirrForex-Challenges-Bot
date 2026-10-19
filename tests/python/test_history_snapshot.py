@@ -21,6 +21,46 @@ class MT:
 
 class SnapshotTests(unittest.TestCase):
     def collect(self,mt):return collect_snapshot(mt,1,'Broker',sleep=lambda _:None)
+    def test_verified_prestart_covers_old_missing_funding(self):
+        a={'at':'2020-01-01T00:00:00Z','until':'2020-01-01T00:00:03Z','balance':100,'currency':'USD'}
+        r=collect_snapshot(MT([],100),1,'Broker',opening_anchor=a,sleep=lambda _:None)
+        self.assertEqual(r['reconciliation_basis'],'verified_prestart')
+        self.assertEqual(r['ledger_expected'],100)
+        self.assertEqual(r['balance_ops'],[])
+    def test_verified_prestart_does_not_forgive_later_difference(self):
+        a={'at':'2020-01-01T00:00:00Z','until':'2020-01-01T00:00:03Z','balance':100,'currency':'USD'}
+        with self.assertRaises(IncompleteHistory):
+            collect_snapshot(MT([],99),1,'Broker',opening_anchor=a,sleep=lambda _:None)
+    def test_verified_prestart_checks_later_movements(self):
+        a={'at':'2020-01-01T00:00:00Z','until':'2020-01-01T00:00:03Z','balance':100,'currency':'USD'}
+        r=collect_snapshot(MT([deal(1,type=2,profit=-10,t=1577836810,position=0)],90),1,'Broker',opening_anchor=a,sleep=lambda _:None)
+        self.assertEqual(r['ledger_expected'],90)
+        self.assertEqual(len(r['balance_ops']),1)
+    def test_verified_prestart_rejects_ambiguous_interval_or_currency(self):
+        a={'at':'2020-01-01T00:00:00Z','until':'2020-01-01T00:00:03Z','balance':100,'currency':'USD'}
+        with self.assertRaises(IncompleteHistory):
+            collect_snapshot(MT([deal(1,type=2,profit=5,t=1577836801,position=0)],100),1,'Broker',opening_anchor=a,sleep=lambda _:None)
+        a['currency']='USC'
+        with self.assertRaises(IncompleteHistory):
+            collect_snapshot(MT([],100),1,'Broker',opening_anchor=a,sleep=lambda _:None)
+
+    def test_cent_snapshot_does_not_scale_or_forgive_poststart_cents(self):
+        a={'at':'2020-01-01T00:00:00Z','until':'2020-01-01T00:00:03Z','balance':1000,'currency':'USC'}
+        mt=MT([deal(1,type=2,profit=1000.7,position=0)],1000)
+        original=mt.account_info
+        def info():
+            r=original();r.currency='USC';return r
+        mt.account_info=info
+        r=collect_snapshot(mt,1,'Broker',opening_anchor=a,sleep=lambda _:None)
+        self.assertEqual(r['ledger_expected'],1000)
+        mt.balance=999.3
+        with self.assertRaises(IncompleteHistory):
+            collect_snapshot(mt,1,'Broker',opening_anchor=a,sleep=lambda _:None)
+    def test_anchor_cannot_hide_disappeared_known_ticket(self):
+        a={'at':'2020-01-01T00:00:00Z','until':'2020-01-01T00:00:03Z','balance':100,'currency':'USD'}
+        with self.assertRaises(IncompleteHistory):
+            collect_snapshot(MT([],100),1,'Broker',opening_anchor=a,known_tickets=[123],sleep=lambda _:None)
+
     def test_none_history_never_succeeds(self):
         with self.assertRaises(IncompleteHistory):self.collect(MT(None,1100))
     def test_stable_cold_cache_waits_for_matching_ledger(self):
