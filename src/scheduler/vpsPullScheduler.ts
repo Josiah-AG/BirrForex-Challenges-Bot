@@ -3089,21 +3089,12 @@ export class VpsPullScheduler {
 
       if (pendingTrades.rows.length === 0) return;
 
-      const remapToBase = (s: string) => s.replace(/[a-z]$/, '') + 'm';
-      const symbolRanges: Array<{ symbol: string; from_time: string; to_time: string }> = [];
-
-      for (const row of pendingTrades.rows) {
-        const baseSymbol = remapToBase(row.symbol);
-        // Always fetch for the time range of the pending trades — whether
-        // the symbol has some data or none, we need THIS specific range covered.
-        const from = new Date(new Date(row.earliest_open).getTime() - 60000).toISOString();
-        const to = new Date(row.latest_close).toISOString();
-        symbolRanges.push({ symbol: baseSymbol, from_time: from, to_time: to });
-      }
+      const symbolRanges=tradeCandleRanges(pendingTrades.rows.map(row=>({symbol:row.symbol,open_time:row.earliest_open,close_time:row.latest_close})));
 
       console.log(`📊 Post-eval SL retry: Fetching OHLC for ${symbolRanges.length} symbol(s) with pending trades...`);
       await this.delay(5000);
       await this.fetchAndStoreCandles(challenge.id, symbolRanges);
+      await this.recoverPendingCandleWindows(challenge.id);
 
       // Now re-evaluate accounts that have pending SL trades
       const pendingAccounts = await evaluationEngine.getPendingSlAccounts(challenge.id);
@@ -3146,6 +3137,24 @@ export class VpsPullScheduler {
     if(!ranges.length)return;
     console.log(`📊 OHLC: Fetching complete trade windows for ${ranges.length} symbols (closed-session minutes outside trades are not gaps)`);
     await this.fetchAndStoreCandles(challenge.id,ranges);
+    await this.recoverPendingCandleWindows(challenge.id);
+  }
+
+  /** A non-empty symbol response may still omit a pending trade's window. */
+  private async recoverPendingCandleWindows(challengeId:number):Promise<void>{
+    const missing=await db.query(`SELECT DISTINCT t.symbol,t.open_time,t.close_time FROM wp_trades t
+      WHERE t.challenge_id=$1 AND t.sl_check_pending=true AND t.open_time IS NOT NULL AND t.close_time IS NOT NULL
+      AND t.close_time-t.open_time>=INTERVAL '2 minutes'
+      AND NOT EXISTS(SELECT 1 FROM ohlc_candles c
+        WHERE c.symbol=regexp_replace(t.symbol,'[a-z]$','')||'m'
+        AND c.time>t.open_time AND c.time+INTERVAL '1 minute'<=t.close_time)
+      ORDER BY t.open_time`,[challengeId]);
+    const deadline=Date.now()+120000;
+    for(const row of missing.rows){
+      if(Date.now()>=deadline)break;
+      // Request each missing traded window, not the union including market closures.
+      await this.fetchAndStoreCandles(challengeId,tradeCandleRanges([row]),deadline,true);
+    }
   }
 
   /**
@@ -3153,19 +3162,21 @@ export class VpsPullScheduler {
    */
   private async fetchAndStoreCandles(
     challengeId: number,
-    symbolRanges: Array<{ symbol: string; from_time: string; to_time: string }>
+    symbolRanges: Array<{ symbol: string; from_time: string; to_time: string }>,
+    recoveryDeadline=Date.now()+120000, individualOnly=false
   ): Promise<number> {
     if (!this.baseUrl || symbolRanges.length === 0) return 0;
 
-    const recoveryDeadline=Date.now()+120000;
     let response: any;
     try {
+      if(!individualOnly){
       const res = await axios.post(`${this.baseUrl}/ohlc-bulk`, {
         symbols: symbolRanges,
         timeframe: 'M1',
         api_key: this.apiKey,
       }, { timeout: 60000 });
       response = res.data;
+      }
     } catch (e: any) {
       console.error(`⚠️ OHLC: Bulk request failed; trying alternate-worker route:`, e?.message || e);
     }
