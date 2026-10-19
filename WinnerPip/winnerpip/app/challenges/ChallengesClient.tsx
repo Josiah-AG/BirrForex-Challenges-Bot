@@ -17,6 +17,7 @@ import {
   Sparkles,
   Loader2,
   ArrowRight,
+  LogIn,
   CheckCircle,
   X,
 } from "lucide-react";
@@ -394,6 +395,12 @@ export default function ChallengesPage({initialChallenges = [], winnersId, retur
           </div>
 
           {/* CTA */}
+          {!isPast && (hasEnded(challenge) || ['active', 'ongoing', 'reviewing', 'evaluation', 'submission_open'].includes(challenge.displayStatus || challenge.status)) && (
+            <Link href={`/login?challenge=${challenge.id}`} onClick={e => e.stopPropagation()}
+              className="mb-3 w-full flex items-center justify-center gap-2 rounded-xl bg-royal/20 border border-royal/40 p-3 text-sm font-semibold text-blue-300 hover:bg-royal/30 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-400">
+              <LogIn size={17} />Sign In
+            </Link>
+          )}
           {hasEnded(challenge) ? <button type="button" onClick={e=>{e.stopPropagation();void handlePastChallengeClick(challenge);}} className="w-full flex items-center justify-center gap-2 rounded-xl bg-profit/20 border border-profit/30 p-3 text-sm font-semibold text-profit hover:bg-profit/30"><Trophy size={17}/>View Winners</button> : canViewPublicLeaderboard(challenge) ? <div className="space-y-2" onClick={e=>e.stopPropagation()}>
             <p className="text-center text-xs text-gray-500">Registration Closed</p>
             <button type="button" onClick={e=>{e.preventDefault();e.stopPropagation();setPublicLeaderboard(challenge);}} className="w-full flex items-center justify-center gap-2 rounded-xl bg-emerald-500/20 border border-emerald-400/30 p-3 text-sm font-semibold text-emerald-300 hover:bg-emerald-500/30"><Trophy size={17}/>See Leaderboard</button>
