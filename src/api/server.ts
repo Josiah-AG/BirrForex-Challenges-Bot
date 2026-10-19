@@ -6705,8 +6705,11 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/pull-status`, adminIpCheck, async (req,
          FROM wp_pull_errors pe
          LEFT JOIN trading_registrations r ON r.id = pe.registration_id
          WHERE pe.pull_batch_id = $1
+           AND NOT (COALESCE(r.pull_status='success' AND r.history_sync_state='published'
+             AND r.history_published_at>$2::timestamp AND r.history_verified_through>=$3::timestamp,false)
+             AND pe.error_code <> 'sl_check_failed')
          ORDER BY pe.created_at ASC`,
-        [b.id]
+        [b.id, b.completed_at, b.started_at]
       );
 
       // OHLC candle stats for this challenge
