@@ -368,7 +368,7 @@ export class VpsPullScheduler {
     cron.schedule('* * * * *', () => this.checkPullSchedule(), { timezone: 'UTC' });
     cron.schedule('*/5 * * * * *', () => this.drainPullJobs(), { timezone: 'UTC' });
     cron.schedule('* * * * *', () => this.retryCredentialRecoveries(), { timezone: 'UTC' });
-    cron.schedule('* * * * *', () => this.retryIncompleteHistory(), { timezone: 'UTC' });
+    // Idle pull-queue ticks hand off to history recovery after releasing the coordinator.
 
     // Enforce the 24-hour credential deadline within one scheduler minute.
     cron.schedule('* * * * *', () => this.checkDisqualifications(), { timezone: 'UTC' });
@@ -467,6 +467,7 @@ export class VpsPullScheduler {
     let coordinator: any;
     let ownsCoordinator=false;
     let completedJob=false;
+    let idleQueue=false;
     try {
       coordinator=await db.getClient();
       const lock=await coordinator.query('SELECT pg_try_advisory_lock(26092604,0) AS locked');
@@ -486,7 +487,7 @@ export class VpsPullScheduler {
         await db.query("UPDATE challenge_pull_jobs SET state='running',attempts=attempts+1,updated_at=NOW() WHERE id=$1",[rows.rows[0].id]);
         return rows.rows[0];
       });
-      if(!job)return;
+      if(!job){idleQueue=true;return;}
       try {
         await this.runPullCycleForChallenge(job.challenge_id,job.override_lock,true,job.include_disqualified,job.full_history,job.failed_only);
         await db.query("UPDATE challenge_pull_jobs SET state='completed',updated_at=NOW() WHERE id=$1",[job.id]);
@@ -499,6 +500,7 @@ export class VpsPullScheduler {
       try { if(ownsCoordinator)await coordinator.query('SELECT pg_advisory_unlock(26092604,0)'); }
       finally { coordinator?.release(); this.drainingPullJobs=false; }
       if(completedJob)void this.drainPullJobs();
+      else if(idleQueue)void this.retryIncompleteHistory();
     }
   }
 
@@ -957,7 +959,7 @@ export class VpsPullScheduler {
         }
       }
     } catch(error){console.error('History recovery pending:',(error as Error).message);}
-    finally{if(locked)await lease.query('SELECT pg_advisory_unlock(26092604,0)');lease.release();if(locked)void this.drainPullJobs();}
+    finally{if(locked)await lease.query('SELECT pg_advisory_unlock(26092604,0)');lease.release();}
   }
 
   private async recordHistoryFailure(registrationId:number,challengeId:number,message:string,evaluation=false){
@@ -1380,7 +1382,8 @@ export class VpsPullScheduler {
         return { ...result, evaluated };
       }
 
-      if(result.errorCode==='history_incomplete')return result;
+      // Incomplete history includes transient IPC/busy responses. Another healthy
+      // terminal has an independent cache; retain the existing three-attempt bound.
       if(result.errorCode==='credential_suspect' && account.excludedTerminalId===undefined)account.excludedTerminalId=terminal.id;
       terminalAttempts.push({
         terminalId: terminal.id,
