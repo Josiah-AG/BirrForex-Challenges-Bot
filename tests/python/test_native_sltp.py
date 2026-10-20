@@ -50,6 +50,26 @@ class NativeTests(unittest.TestCase):
             self.assertEqual(status['status'],'timeout');self.assertLess(time.monotonic()-start,.2)
             self.assertNotIn('native_sl_tp',result['trades'][0]);self.assertFalse((folder/'request.csv').exists())
 
+    def test_populated_order_levels_still_request_closing_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder=Path(tmp)/'MQL5'/'Files'/'MyFxPathLevels';folder.mkdir(parents=True)
+            mt5=SimpleNamespace(account_info=lambda:SimpleNamespace(login=42,server='Broker'),terminal_info=lambda:SimpleNamespace(connected=True,data_path=tmp))
+            def reader():
+                for _ in range(100):
+                    if (folder/'request.csv').exists():
+                        header=next(csv.reader((folder/'request.csv').read_text().splitlines()))
+                        (folder/'response.tmp').write_text(response(nonce=header[1],sl='0'))
+                        (folder/'response.tmp').replace(folder/'response.csv');return
+                    time.sleep(.005)
+            thread=threading.Thread(target=reader);thread.start()
+            result={'trades':[{**T,'stop_loss':1.2,'take_profit':1.5}]}
+            status=recover(mt5,result,42,'Broker',enabled=True,timeout=.5);thread.join()
+            self.assertEqual(status['status'],'ok');self.assertEqual(status['requested'],1)
+            self.assertEqual(result['trades'][0]['native_sl_tp']['sl'],0)
+            self.assertEqual(result['trades'][0]['native_sl_tp']['tp'],1.6)
+            self.assertEqual(result['trades'][0]['stop_loss'],1.2)
+            self.assertEqual(result['trades'][0]['take_profit'],1.5)
+
     def test_account_switch_rejects_evidence(self):
         with tempfile.TemporaryDirectory() as tmp:
             f=Path(tmp)/'MQL5'/'Files'/'MyFxPathLevels';f.mkdir(parents=True)

@@ -49,7 +49,8 @@ def recover(mt5, result, account, server, *, enabled=False, timeout=1.5):
     status = dict(status='disabled', elapsed_ms=0, requested=0, recovered_sl=0, recovered_tp=0)
     if not enabled:
         return status
-    candidates = [t for t in result.get('trades', []) if not t.get('stop_loss') or not t.get('take_profit')]
+    # Order levels may predate the final closing SL/TP, even when both are set.
+    candidates = list(result.get('trades', []))
     if not candidates:
         status['status'] = 'not_needed'
         return status

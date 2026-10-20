@@ -111,6 +111,11 @@ export async function refreshCommercial(challengeId:number, full=false) {
     const coverage=(await db.query('SELECT * FROM wp_commercial_coverage WHERE challenge_id=$1',[challengeId])).rows;
     const raw=(await db.query(`SELECT registration_id,ticket::text,symbol,volume,close_time FROM wp_trades WHERE challenge_id=$1
       AND close_time>=$2 AND close_time<=$3 AND registration_id=ANY($4::int[])`,[challengeId,c.start_date,c.end_date,valid.map(r=>r.id)])).rows;
+    // Reuse the exact cohort shown by the admin's new-source registration card.
+    const sourceReport=!c.host_id?(await db.query('SELECT report,error FROM wp_new_client_reports WHERE challenge_id=$1',[challengeId])).rows[0]:null;
+    const sourceReady=sourceReport?.report?.count!=null;
+    const newSourceAccounts=new Set<string>((sourceReport?.report?.rows||[]).flatMap((r:any)=>(r.accounts||[]).map(account)));
+    const newChallenge=new Map<string,any>(),newAll=new Map<string,any>();
     const rows:any[]=[];const totalChallenge=new Map<string,any>(),totalAll=new Map<string,any>();
     for(const r of valid) {
       const number=account(r.account_number);const frozen=coverage.find(x=>x.registration_id===r.id);
@@ -136,6 +141,10 @@ export async function refreshCommercial(challengeId:number, full=false) {
       const allTrades=[...confirmed.filter(o=>o.client_account!==number).map(publicTrade),...challengeTrades];
       for(const t of challengeTrades)totalChallenge.set(t.key,t);
       for(const t of allTrades)totalAll.set(t.key,t);
+      if(sourceReady && newSourceAccounts.has(number)) {
+        for(const t of challengeTrades)newChallenge.set(t.key,t);
+        for(const t of allTrades)newAll.set(t.key,t);
+      }
       const issues:string[]=[];
       if(!r.directoryFound)issues.push('Account not found in current Exness directory');
       if(!r.resolvedUid)issues.push('Linked-account identity unavailable');
@@ -148,6 +157,10 @@ export async function refreshCommercial(challengeId:number, full=false) {
     const report={enabled:true,challengeId,timezone:c.timezone||'Africa/Nairobi',periodStart:c.start_date,periodEnd:c.end_date,
       updatedAt:new Date(now).toISOString(),nextRefreshAt:new Date(now+3600000).toISOString(),
       challenge:commercialSummary([...totalChallenge.values()]),all:commercialSummary([...totalAll.values()]),rows,
+      ...(!c.host_id?{newSourceRevenue:{available:sourceReady,partial:Boolean(sourceReport?.report?.partial),
+        sourceUpdatedAt:sourceReport?.report?.updatedAt||null,error:sourceReport?.error||null,
+        challenge:sourceReady?commercialSummary([...newChallenge.values()]):null,
+        all:sourceReady?commercialSummary([...newAll.values()]):null}}:{}),
       warnings:[...warnings,...(rows.some(r=>r.issues.length)?['Some participants have incomplete account coverage; see participant details.']:[])],
       notice:'All-account totals include challenge accounts. Other-account activity is limited to available Exness MT5 reports; unreported transactions may be missing. Top instrument is by normalized lots. Estimates use recent confirmed same-account/instrument rates, not guaranteed commission. Revenues include disqualified and blown accounts.'};
     await db.query(`UPDATE wp_commercial_reports SET scope=$2,report=$3,scanned_through=$4,account_ids=$5,updated_at=NOW(),started_at=NULL,error=NULL WHERE challenge_id=$1`,[challengeId,scope,JSON.stringify(report),new Date(now).toISOString(),accounts]);
