@@ -1,4 +1,5 @@
 "use client";
+import RecoveryProgress from "@/components/RecoveryProgress";
 import { exportLeaderboardResult, exportMinimumTradesDot, exportLeaderboardAlignment } from '@/lib/leaderboardExport';
 import TradePnl from '@/components/TradePnl';
 import {withWinnerPipSocials} from "@/lib/htmlExportSocials";
@@ -1165,6 +1166,8 @@ export default function HostDashboardPage() {
                   </div>
                 )}
               </div>
+
+              <RecoveryProgress host url={`${API_URL}/api/host/challenge/${selectedChallengeId}/recovery-progress`} token={typeof window === "undefined" ? null : getToken()} />
 
               {/* Credential Failures — collapsed by default */}
               <CredentialFailuresPanel failedAccounts={failedAccounts} doAction={doAction} selectedChallengeId={selectedChallengeId!} />

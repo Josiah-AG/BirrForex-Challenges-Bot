@@ -1,4 +1,5 @@
 "use client";
+import RecoveryProgress from "@/components/RecoveryProgress";
 import { exportLeaderboardResult, exportMinimumTradesDot, exportLeaderboardAlignment } from '@/lib/leaderboardExport';
 import TradePnl from '@/components/TradePnl';
 import {withWinnerPipSocials} from "@/lib/htmlExportSocials";
@@ -4602,6 +4603,8 @@ function PullsTab({ challenge, challengeId, pullHistory, terminalStatus, slFailu
         </div>
         );
       })()}
+
+      <RecoveryProgress url={`/api/management/challenge/${challengeId}/recovery-progress`} />
 
       {/* Filter Tabs */}
       <div className="flex gap-2 mb-2 flex-wrap">

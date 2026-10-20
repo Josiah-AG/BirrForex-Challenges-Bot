@@ -1,3 +1,4 @@
+import { getRecoveryProgress } from '../services/recoveryProgress';
 import { annotatePullRecovery } from '../services/pullRecoveryReport';
 import { tradingChallengeService } from '../services/tradingChallengeService';
 import {readNewClients} from '../services/newChallengeClients';
@@ -6582,6 +6583,14 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/re-evaluate-user`, admin
  * GET /api/admin/:secretPath/pull-status
  * Get current pull cycle status (is it running, progress)
  */
+app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/recovery-progress`, adminIpCheck, async (req, res) => {
+  res.setHeader('Cache-Control','no-store');
+  const id=Number(req.params.id);
+  if(!Number.isInteger(id)||id<=0)return res.status(400).json({error:'Invalid challenge'});
+  try { return res.json(await getRecoveryProgress(id)); }
+  catch { return res.status(500).json({error:'Recovery progress unavailable'}); }
+});
+
 app.get(`/api/admin/${ADMIN_SECRET_PATH}/pull-status`, adminIpCheck, async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   try {

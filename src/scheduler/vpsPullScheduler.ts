@@ -1,3 +1,4 @@
+import { recoveryProgress } from '../services/recoveryProgress';
 import {queueParticipantNotice} from '../services/participantNotices';
 import {captureCommercialCoverage} from '../services/commercialAnalytics';
 import { brokerCashOperationType } from '../utils/brokerCashOperation';
@@ -927,7 +928,7 @@ export class VpsPullScheduler {
    */
   private async retryIncompleteHistory(): Promise<void> {
     if(this.isRunning || process.env.VPS_VERIFIED_HISTORY !== 'true')return;
-    const lease=await db.getClient();let locked=false;
+    const lease=await db.getClient();let locked=false; const recoveryChallenges = new Set<number>();
     try {
       locked=(await lease.query('SELECT pg_try_advisory_lock(26092604,0) AS locked')).rows[0].locked;
       if(!locked || await this.hasPendingPullJobs())return;
@@ -942,7 +943,14 @@ export class VpsPullScheduler {
         await this.refreshTerminalInventory();
       }
       for(const row of rows.rows){
+        if(!recoveryChallenges.has(row.challenge_id)){
+          recoveryChallenges.add(row.challenge_id);
+          recoveryProgress.begin(row.challenge_id, rows.rows.filter(r=>r.challenge_id===row.challenge_id).length);
+        }
+      }
+      for(const row of rows.rows){
         if(await this.hasPendingPullJobs())break;
+        recoveryProgress.checking(row.challenge_id);
         const result=await this.retrySingleAccountUnlocked(row.id,row.challenge_id);
         if(!result.success && !['history_incomplete','evaluation_failed'].includes(result.errorCode||'')){
           await this.recordHistoryFailure(row.id,row.challenge_id,result.errorMessage||'Recovery pending');
@@ -957,9 +965,10 @@ export class VpsPullScheduler {
             await leaderboardService.updateRankings(row.challenge_id,true);
           });
         }
+        recoveryProgress.checked(row.challenge_id, !!(result.success && result.evaluated), result.errorCode==='invalid_credentials');
       }
     } catch(error){console.error('History recovery pending:',(error as Error).message);}
-    finally{if(locked)await lease.query('SELECT pg_advisory_unlock(26092604,0)');lease.release();}
+    finally{for(const id of recoveryChallenges)recoveryProgress.finish(id);if(locked)await lease.query('SELECT pg_advisory_unlock(26092604,0)');lease.release();}
   }
 
   private async recordHistoryFailure(registrationId:number,challengeId:number,message:string,evaluation=false){

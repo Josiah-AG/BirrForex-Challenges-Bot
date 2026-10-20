@@ -1,3 +1,4 @@
+import { getRecoveryProgress } from '../services/recoveryProgress';
 import {tradeGrowthContext,withTradeGrowth} from '../services/tradeGrowthDisplay';
 import { queuedPullProgress } from '../utils/queuedPullProgress';
 import { pullBatchReport } from '../utils/pullBatchReport';
@@ -1232,6 +1233,13 @@ router.get('/challenge/:id/pull-single-status', async (req: any, res: Response) 
 });
 
 // ==================== PULL STATUS (progress) ====================
+router.get('/challenge/:id/recovery-progress', async (req: any, res: Response) => {
+  res.setHeader('Cache-Control','no-store');
+  const id=await verifyOwnership(req,res); if(!id)return;
+  try {return res.json(await getRecoveryProgress(id));}
+  catch {return res.status(500).json({error:'Additional checks unavailable'});}
+});
+
 router.get('/challenge/:id/pull-status', async (req: any, res: Response) => {
   res.setHeader('Cache-Control', 'no-store');
   const challengeId = await verifyOwnership(req, res);
