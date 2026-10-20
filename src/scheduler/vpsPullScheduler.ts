@@ -935,7 +935,7 @@ export class VpsPullScheduler {
         JOIN trading_challenges c ON c.id=r.challenge_id
         WHERE r.history_sync_state IN ('incomplete','verified','evaluation_failed') AND r.history_retry_at<=NOW()
           AND r.status IS DISTINCT FROM 'removed' AND r.connection_verified=true
-          AND r.pull_status IS DISTINCT FROM 'password_changed'
+          AND COALESCE(r.pull_status,'') NOT IN ('password_changed','invalid_credentials')
           AND c.status IN ('active','reviewing') AND c.leaderboard_locked_at IS NULL
         ORDER BY r.history_retry_at LIMIT 3`);
       if(rows.rows.length){
