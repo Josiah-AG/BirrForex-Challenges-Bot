@@ -1,4 +1,4 @@
-/** Closing-deal evidence is display-only: never replace entry/order risk inputs. */
+/** Validate broker closing-deal SL/TP identity before display or declared-risk evaluation. */
 export function validatedNativeLevels(trade: any): any | null {
   const e = trade.native_sl_tp;
   if (!e || e.source !== 'native_closing_deal' || String(e.ticket) !== String(trade.ticket)

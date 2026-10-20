@@ -1,3 +1,4 @@
+import { finalDeclaredRisk } from '../utils/finalDeclaredSl';
 import {balancesAtEntry, qualifiedPositionCounts} from '../utils/evaluationIntegrity';
 import {dailyDrawdown} from '../utils/dailyDrawdown';
 import {declaredStopRisk,allowedRiskPrice} from '../utils/tradeRiskUnits';
@@ -879,19 +880,13 @@ export class WpEvaluationEngine {
         // If only one partial is closed so far, totalLot = closedLot (the current DB state).
         let totalLot = closedLot;
 
-        // Layer A: declared SL too wide — applies to ALL closes of this position
+        // Layer A uses the final closed-position SL, never an older order SL.
         let layerABreach = false;
         let layerAViolation: string | null = null;
-        const sl = parseFloat(String(entryTrade.stop_loss));
-        const hasSl = sl !== 0 && !isNaN(sl);
+        const finalTrade = siblings[siblings.length - 1];
         const posEffectiveRisk = getEffectiveMaxRisk(posId);
-        if (hasSl && posEffectiveRisk > 0) {
-          const slDollars = declaredStopRisk(
-            entryTrade.symbol, totalLot,
-            parseFloat(String(entryTrade.open_price)), sl,
-            parseFloat(String(entryTrade.close_price)), Number(entryTrade.profit),
-            Number(entryTrade.volume)
-          );
+        if (posEffectiveRisk > 0) {
+          const slDollars = finalDeclaredRisk(finalTrade, totalLot);
           const tolerance = posEffectiveRisk * 0.10;
           if (slDollars !== null && slDollars > posEffectiveRisk + tolerance) {
             layerABreach = true;

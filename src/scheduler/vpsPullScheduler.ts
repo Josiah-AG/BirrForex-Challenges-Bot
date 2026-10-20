@@ -1725,8 +1725,8 @@ export class VpsPullScheduler {
       open_price: trade.open_price || 0,
       close_price: trade.close_price || 0,
       native_sl_tp: validatedNativeLevels(trade),
-      stop_loss: trade.stop_loss || null,
-      take_profit: trade.take_profit || null,
+      stop_loss: validatedNativeLevels(trade)?.sl ?? null,
+      take_profit: validatedNativeLevels(trade)?.tp ?? null,
       profit: trade.profit || 0,
       commission: trade.commission || 0,
       swap: trade.swap || 0,
@@ -1746,12 +1746,12 @@ export class VpsPullScheduler {
                           WHEN EXCLUDED.open_price IS NULL OR EXCLUDED.open_price = 0 THEN wp_trades.open_price
                           ELSE EXCLUDED.open_price END,
              close_price = EXCLUDED.close_price,
-             stop_loss = CASE WHEN EXCLUDED.stop_loss IS NULL OR EXCLUDED.stop_loss = 0
-                              THEN COALESCE(wp_trades.stop_loss, EXCLUDED.stop_loss)
-                              ELSE EXCLUDED.stop_loss END,
-             take_profit = CASE WHEN EXCLUDED.take_profit IS NULL OR EXCLUDED.take_profit = 0
-                                THEN COALESCE(wp_trades.take_profit, EXCLUDED.take_profit)
-                                ELSE EXCLUDED.take_profit END,
+             stop_loss = CASE WHEN EXCLUDED.native_sl_tp IS NOT NULL THEN EXCLUDED.stop_loss
+                              WHEN wp_trades.native_sl_tp IS NOT NULL THEN (wp_trades.native_sl_tp->>'sl')::numeric
+                              ELSE NULL END,
+             take_profit = CASE WHEN EXCLUDED.native_sl_tp IS NOT NULL THEN EXCLUDED.take_profit
+                                WHEN wp_trades.native_sl_tp IS NOT NULL THEN (wp_trades.native_sl_tp->>'tp')::numeric
+                                ELSE NULL END,
              native_sl_tp = COALESCE(EXCLUDED.native_sl_tp, wp_trades.native_sl_tp),
              profit = EXCLUDED.profit,
              commission = EXCLUDED.commission,
