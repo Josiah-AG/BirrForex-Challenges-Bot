@@ -4532,6 +4532,7 @@ function PullsTab({ challenge, challengeId, pullHistory, terminalStatus, slFailu
         const completedEAT = challengeTimestamp(lb.completedAt, challengeTz);
         const balanceCheck = lb.isBalanceCheck;
         const recovered = Number(lb.recovered || 0);
+        const credentialCount = Number(lb.credentialFailures || 0);
         const remainingFailed = lb.remainingFailed ?? lb.failed;
         const currentlyClear = !balanceCheck && lb.failed > 0 && lb.currentPullFailures === 0;
         const allOk = (remainingFailed === 0 || currentlyClear) && (balanceCheck || lb.reconciled);
@@ -4540,6 +4541,8 @@ function PullsTab({ challenge, challengeId, pullHistory, terminalStatus, slFailu
           <p className={`text-xs font-bold ${allOk ? "text-profit" : "text-amber-400"}`}>
             {balanceCheck
               ? `${lb.failed ? "⚠️" : "✅"} Balance check completed — ${lb.successful} checked, ${lb.failed} failed as of ${completedEAT}`
+              : credentialCount > 0 && remainingFailed === 0
+              ? `🔑 No unresolved pull failures — ${credentialCount} credential failure(s); update login details below`
               : recovered > 0 && remainingFailed === 0
               ? `✅ All ${lb.totalAccounts} accounts verified — ${recovered} initially failed, now reconciled`
               : currentlyClear
@@ -4548,7 +4551,7 @@ function PullsTab({ challenge, challengeId, pullHistory, terminalStatus, slFailu
               ? `✅ All ${lb.totalAccounts} accounts pulled and evaluated — data up to date as of ${completedEAT}`
               : `⚠️ ${remainingFailed} of ${lb.totalAccounts} account(s) still failed — data up to date as of ${completedEAT} (see below)`}
           </p>
-          <p className="text-[11px] text-gray-400 mt-1">{lb.successful + recovered}✓ {remainingFailed} {currentlyClear && !recovered ? "initial failure(s), now clear" : "✗"} {recovered > 0 && `(${recovered} reconciled)`} — {balanceCheck ? `${lb.warningCount} balance warning(s)` : `${lb.newTrades} new trades`} — {lb.durationSec != null ? `${lb.durationSec}s` : "Duration unavailable"}</p>
+          <p className="text-[11px] text-gray-400 mt-1">{lb.successful + recovered}✓ {remainingFailed} {currentlyClear && !recovered ? "initial failure(s), now clear" : "✗"} {recovered > 0 && `(${recovered} reconciled)`} {credentialCount > 0 && `· ${credentialCount} credential failure(s)`} — {balanceCheck ? `${lb.warningCount} balance warning(s)` : `${lb.newTrades} new trades`} — {lb.durationSec != null ? `${lb.durationSec}s` : "Duration unavailable"}</p>
 
           {/* Phase Timing Breakdown */}
           {!balanceCheck && lb.phaseTimes && (
@@ -5230,7 +5233,7 @@ function PullsTab({ challenge, challengeId, pullHistory, terminalStatus, slFailu
                     {p.isBalanceCheck && <span className="ml-2 px-1.5 py-0.5 rounded text-[9px] font-bold bg-gold/20 text-gold border border-gold/30">💰 Balance Check</span>}
                   </td>
                   <td className="py-3 px-4 text-center text-sm text-profit">{p.success}</td>
-                  <td className="py-3 px-4 text-center text-sm text-loss">{p.recovered ? <span className="text-profit">{p.failed - p.recovered} failed · {p.recovered} reconciled</span> : p.failed > 0 && p.currentPullFailures === 0 ? <span className="text-profit">{p.failed} initial · now clear</span> : p.failed}</td>
+                  <td className="py-3 px-4 text-center text-sm text-loss">{p.recovered ? <span className="text-profit">{p.remainingFailed ?? p.failed - p.recovered} failed · {p.recovered} reconciled{p.credentialFailures > 0 && ` · ${p.credentialFailures} credentials`}</span> : p.credentialFailures > 0 ? <span className="text-gold">{p.remainingFailed} failed · {p.credentialFailures} credentials</span> : p.failed > 0 && p.currentPullFailures === 0 ? <span className="text-profit">{p.failed} initial · now clear</span> : p.failed}</td>
                   <td className="py-3 px-4 text-center text-sm text-gray-300">{p.isPreStart ? "—" : p.isBalanceCheck ? `${p.newTrades} warnings` : p.newTrades}</td>
                   <td className="py-3 px-4 text-right text-sm text-gray-400">{p.duration}</td>
                 </tr>
