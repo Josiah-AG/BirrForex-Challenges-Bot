@@ -1,13 +1,15 @@
 """Opt-in MT5 reader startup. Caller exclusively owns the terminal operation lock.
 
-Only the managed reader chart profile is reset. Account caches/history and user
-profiles are never modified. A connected IPC channel is not a readiness signal.
+Only the managed reader chart profile is reset. Repeated IPC startup timeouts
+receive a longer bounded cold-start window. A connected IPC channel is not
+a readiness signal.
 """
 import os
 import time
 from pathlib import Path
 from native_sltp import probe
 from native_history import prime
+from reader_startup_policy import startup_timeout, record_reader_startup
 
 PROFILE = 'WinnerPipReader'
 OWNER = '.winnerpip-reader-profile'
@@ -80,12 +82,13 @@ def verify(mt5, account, server, deadline):
     return dict(ready=False, status='reader_or_history_pending', attempts=attempts)
 
 
-def restart(mt5, terminal_path, account, password, server, config, kill, launch, timeout=120):
+def restart(mt5, terminal_path, account, password, server, config, kill, launch, timeout=None):
     """Single bounded startup with a delayed IPC fallback for blocked prior logins.
 
     Avoid initialize() auto-spawning a competing MT5 while startup is incomplete.
     Exceptions leave readiness false; callers retain their existing retry policy.
     """
+    timeout = startup_timeout(terminal_path) if timeout is None else timeout
     started = time.monotonic()
     deadline = started + timeout
     result = dict(ready=False, status='starting')
@@ -99,7 +102,10 @@ def restart(mt5, terminal_path, account, password, server, config, kill, launch,
         # A rejected prior login can prevent EA startup until Python restores the
         # home login. Wait for normal startup first, then allow bounded IPC only
         # while our exact launched process remains alive (no immediate auto-spawn).
-        settle_deadline = min(deadline, time.monotonic()+20)
+        # On repeated startup timeouts, let MT5 finish cold startup without
+        # repeated IPC/login attempts. A fresh EA heartbeat ends this wait early.
+        settle_seconds = 480 if timeout >= 600 else 20
+        settle_deadline = min(deadline, time.monotonic()+settle_seconds)
         while time.monotonic() < settle_deadline and not heartbeat_fresh(data, launched):
             if process is not None and process.poll() is not None:
                 result['status'] = 'terminal_exited'
@@ -115,6 +121,8 @@ def restart(mt5, terminal_path, account, password, server, config, kill, launch,
                 attached = mt5.initialize(terminal_path, login=account, password=password,
                                          server=server, timeout=budget)
                 if not attached:
+                    error = mt5.last_error()
+                    result['ipc_error'] = error[0] if isinstance(error, (tuple, list)) and error else None
                     mt5.shutdown()
             if attached:
                 # Missing EA during startup is not success, and not a reason to
@@ -133,4 +141,9 @@ def restart(mt5, terminal_path, account, password, server, config, kill, launch,
         result = dict(ready=False, status='error', error=type(exc).__name__)
         return result
     finally:
+        result['startup_budget_seconds'] = timeout
         result['elapsed_seconds'] = round(time.monotonic()-started, 3)
+        try:
+            record_reader_startup(terminal_path, result)
+        except Exception as exc:
+            print(f"Reader startup tracking unavailable: {type(exc).__name__}")

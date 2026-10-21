@@ -30,7 +30,9 @@ function Start-OwnedWorker([bool]$AttachOnly) {
  Start-Process cmd.exe -WorkingDirectory $repo -ArgumentList "/k call `"$PSScriptRoot\start_vps.bat`" --worker $TerminalId $port"
 }
 function Wait-Ready([int]$Version) {
- $until=(Get-Date).AddSeconds(210)
+ # Enable may use the repeated-timeout cold-start allowance (up to 600s).
+ # Do not declare deployment failure while that bounded recovery is still running.
+ $until=(Get-Date).AddSeconds($(if($Mode -eq 'Enable'){660}else{210}))
  do {
   try {
    $h=Get-Health

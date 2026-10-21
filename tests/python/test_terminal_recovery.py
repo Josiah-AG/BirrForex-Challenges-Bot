@@ -10,6 +10,11 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]/'vps'))
 import terminal_recovery as r
 
 class RecoveryTests(unittest.TestCase):
+    def setUp(self):
+        for name in ("record_reader_startup",):
+            patcher = patch.object(r, name, return_value=None)
+            patcher.start()
+            self.addCleanup(patcher.stop)
     def mt5(self):
         return N(terminal_info=lambda:N(connected=True),account_info=lambda:N(login=1,server='S'))
     def test_history_timeout_retries_without_restart_and_succeeds(self):
@@ -65,6 +70,18 @@ class RecoveryTests(unittest.TestCase):
         with patch.object(r,'data_directory',return_value='data'),patch.object(r,'prepare_profile'),patch.object(r,'heartbeat_fresh',return_value=False),patch.object(r.time,'sleep'):
             mt=Mock();result=r.restart(mt,'terminal',1,'secret','S','config',lambda:None,lambda c:process)
         self.assertEqual(result['status'],'terminal_exited');mt.initialize.assert_not_called()
+    def test_escalated_startup_waits_for_slow_ea_before_ipc(self):
+        clock = [0.0]
+        attached_at = []
+        mt = self.mt5()
+        mt.initialize = lambda *a, **kw: attached_at.append(clock[0]) or True
+        process = Mock()
+        process.poll.return_value = None
+        with patch.object(r, 'startup_timeout', return_value=600), patch.object(r, 'data_directory', return_value='data'), patch.object(r, 'prepare_profile'), patch.object(r, 'heartbeat_fresh', side_effect=lambda *args: clock[0] >= 300), patch.object(r, 'probe', return_value={'status': 'verified'}), patch.object(r, 'verify', return_value={'ready': True, 'status': 'verified'}), patch.object(r.time, 'monotonic', side_effect=lambda: clock[0]), patch.object(r.time, 'sleep', side_effect=lambda n: clock.__setitem__(0, clock[0] + n)):
+            result = r.restart(mt, 'terminal', 1, 'secret', 'S', 'config', lambda: None, lambda c: process)
+        self.assertTrue(result['ready'])
+        self.assertEqual(result['startup_budget_seconds'], 600)
+        self.assertEqual(attached_at, [300])
     def test_python_only_restart_preserves_current_account(self):
         tree=ast.parse((pathlib.Path(__file__).resolve().parents[2]/'vps/worker.py').read_text())
         fn=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='_verify_reader')
