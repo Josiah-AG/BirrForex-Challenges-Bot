@@ -7,7 +7,11 @@ export function qualifiedBalanceSeries(startingBalance: number, startTime: strin
   for (const t of trades) {
     const net = Number(t.profit || 0) + Number(t.commission || 0) + Number(t.swap || 0);
     gross += net;
-    if (t.is_qualified === true || net <= 0) adjusted += net;
+    const penalty = Number(t.evaluation_penalty || 0);
+    // The evaluator replaces a risk-breaching trade's result with the allowed
+    // loss. Apply that exact stored amount at this trade, not at publication.
+    if (t.is_qualified === false && penalty > 0) adjusted -= penalty;
+    else if (t.is_qualified === true || net <= 0) adjusted += net;
     series.push({time:t.close_time,gross:round(gross),adjusted:round(adjusted),label:''});
   }
   if (published) {

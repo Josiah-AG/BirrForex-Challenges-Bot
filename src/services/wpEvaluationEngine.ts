@@ -1218,8 +1218,8 @@ export class WpEvaluationEngine {
       // Only clear sl_check_pending here if it wasn't just set — pending flag is managed above
       const hadSlFailure = slCheckFailures.some((f: any) => f.tradeId === trade.id);
       await db.query(
-        `UPDATE wp_trades SET is_qualified = $1, violations = $2${hadSlFailure ? '' : ', sl_check_pending = false'} WHERE id = $3`,
-        [isQualified, violations.length > 0 ? JSON.stringify(violations) : '[]', trade.id]
+        `UPDATE wp_trades SET is_qualified = $1, violations = $2, evaluation_penalty = $4${hadSlFailure ? '' : ', sl_check_pending = false'} WHERE id = $3`,
+        [isQualified, violations.length > 0 ? JSON.stringify(violations) : '[]', trade.id, isQualified ? 0 : slPenaltyDollars]
       );
     }
 

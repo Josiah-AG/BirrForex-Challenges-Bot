@@ -17,3 +17,17 @@ test('matching published values need no additional adjustment point',()=>{
  const r=qualifiedBalanceSeries(100,'start',[{profit:1,is_qualified:true,close_time:'end'}],{current_balance:101,adjusted_balance:101,last_updated:'end'});
  assert.equal(r.series.length,2);assert.equal(r.adjustmentNote,null);
 });
+test('risk penalty belongs to its trade and later profits rise normally',()=>{
+ const r=qualifiedBalanceSeries(10,'start',[
+  {close_time:'first',profit:5,is_qualified:false,evaluation_penalty:'1.125'},
+  {close_time:'last',profit:2.97,is_qualified:true,evaluation_penalty:0}
+ ],{current_balance:17.97,adjusted_balance:11.85,last_updated:'evaluation'});
+ assert.equal(r.series[1].adjusted,8.88);
+ assert.equal(r.series[2].adjusted,11.85);
+ assert.equal(r.series.length,3);
+ assert.equal(r.adjustmentNote,null);
+});
+test('penalty replaces the trade result rather than double counting a loss',()=>{
+ const r=qualifiedBalanceSeries(10,'start',[{close_time:'trade',profit:-2,is_qualified:false,evaluation_penalty:1}],null);
+ assert.equal(r.series.at(-1).adjusted,9);assert.equal(r.series.at(-1).gross,8);
+});

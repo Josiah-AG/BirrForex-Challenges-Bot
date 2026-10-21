@@ -8558,7 +8558,7 @@ app.get('/api/me/balance-history', authMiddleware, async (req: any, res) => {
     }
 
     const trades = await db.query(
-      `SELECT close_time, profit, commission, swap, is_qualified
+      `SELECT close_time, profit, commission, swap, is_qualified, evaluation_penalty
        FROM wp_trades
        WHERE challenge_id = $1 AND registration_id = $2${dateFilter}
        ORDER BY close_time ASC`,
@@ -8617,7 +8617,7 @@ async function managementBalanceHistory(req: any, res: any) {
     }
 
     const trades = await db.query(
-      `SELECT close_time, profit, commission, swap, is_qualified
+      `SELECT close_time, profit, commission, swap, is_qualified, evaluation_penalty
        FROM wp_trades
        WHERE challenge_id = $1 AND registration_id = $2${dateFilter}
        ORDER BY close_time ASC`,
