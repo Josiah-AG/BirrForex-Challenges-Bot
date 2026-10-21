@@ -528,6 +528,8 @@ export default function AdminDashboard() {
               success: p.successful || 0,
               failed: p.failed || 0,
               recovered: p.recovered || 0,
+              credentialFailures: p.credentialFailures || 0,
+              remainingFailed: p.remainingFailed ?? Math.max(0, (p.failed || 0) - (p.recovered || 0) - (p.credentialFailures || 0)),
               currentPullFailures: p.currentPullFailures,
               passwordChanged: 0,
               newTrades: p.new_trades_found || 0,
@@ -5236,7 +5238,11 @@ function PullsTab({ challenge, challengeId, pullHistory, terminalStatus, slFailu
                     {p.isBalanceCheck && <span className="ml-2 px-1.5 py-0.5 rounded text-[9px] font-bold bg-gold/20 text-gold border border-gold/30">💰 Balance Check</span>}
                   </td>
                   <td className="py-3 px-4 text-center text-sm text-profit">{p.success}</td>
-                  <td className="py-3 px-4 text-center text-sm text-loss">{p.recovered ? <span className="text-profit">{p.remainingFailed ?? p.failed - p.recovered} failed · {p.recovered} reconciled{p.credentialFailures > 0 && ` · ${p.credentialFailures} credentials`}</span> : p.credentialFailures > 0 ? <span className="text-gold">{p.remainingFailed} failed · {p.credentialFailures} credentials</span> : p.failed > 0 && p.currentPullFailures === 0 ? <span className="text-profit">{p.failed} initial · now clear</span> : p.failed}</td>
+                  <td className="py-3 px-4 text-center text-sm">
+                    <span className={p.remainingFailed > 0 ? "text-loss" : "text-profit"}>{p.remainingFailed} failed</span>
+                    {p.credentialFailures > 0 && <span className="text-gold" title="Credential failures"> · {p.credentialFailures} C failure{p.credentialFailures === 1 ? "" : "s"}</span>}
+                    {p.recovered > 0 && <span className="text-profit"> · {p.recovered} reconciled</span>}
+                  </td>
                   <td className="py-3 px-4 text-center text-sm text-gray-300">{p.isPreStart ? "—" : p.isBalanceCheck ? `${p.newTrades} warnings` : p.newTrades}</td>
                   <td className="py-3 px-4 text-right text-sm text-gray-400">{p.duration}</td>
                 </tr>
