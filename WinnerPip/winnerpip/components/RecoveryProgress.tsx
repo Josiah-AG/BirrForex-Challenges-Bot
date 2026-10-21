@@ -8,7 +8,7 @@ export default function RecoveryProgress({url,host=false,token}:{url:string;host
   const poll=async()=>{try{const r=await fetch(url,{cache:'no-store',signal:abort.signal,headers:token?{Authorization:`Bearer ${token}`}:{}});if(!r.ok)throw Error('Unavailable');const d=await r.json();if(!disposed)setData(d);}catch{if(!disposed)setData(null);}finally{if(!disposed)timer=setTimeout(poll,5000);}};
   void poll();return()=>{disposed=true;abort.abort();clearTimeout(timer);};
  },[url,token]);
- if(!data?.visible)return null;
+ if(!data?.visible || data.state==='complete' || data.state==='idle')return null;
  const complete=data.state==='complete';const running=data.state==='running';
  const title=host?(complete?'Additional checks complete':'Additional checks'):(complete?'Recovery complete':'Recovering failed accounts');
  const percent=complete?100:data.total?Math.min(100,100*data.checked/data.total):0;

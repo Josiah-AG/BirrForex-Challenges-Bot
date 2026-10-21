@@ -27,7 +27,7 @@ export async function getRecoveryProgress(challengeId: number) {
   if(round && latest.rows[0] && new Date(latest.rows[0].started_at).getTime()>round.startedAt){rounds.delete(challengeId);round=undefined;}
   const pending=Number(result.rows[0]?.pending||0);
   const active=!!round?.active;
-  return { visible: pending>0 || !!round, state: active?'running':pending>0?'waiting':round?'complete':'idle',
+  return { visible: pending>0 || active, state: active?'running':pending>0?'waiting':round?'complete':'idle',
     total:round?.total||0, checked:round?.checked||0, recovered:round?.recovered||0,
     credentialFailures:round?.credentials||0, pending, nextRetryAt:result.rows[0]?.next_retry_at||null,
     mainPullRunning:latest.rows[0]?.status==='running' };

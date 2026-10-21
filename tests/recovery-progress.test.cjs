@@ -7,7 +7,7 @@ test('progress distinguishes waiting, checking, recovered and credential outcome
  let s=await get(39);assert.equal(s.state,'waiting');assert.equal(s.checked,0);
  p.begin(39,2);p.checking(39);s=await get(39);assert.equal(s.state,'running');assert.equal(s.total,2);
  p.checked(39,true,false);pending=1;s=await get(39);assert.equal(s.recovered,1);assert.equal(s.state,'waiting');
- p.checking(39);p.checked(39,false,true);p.finish(39);pending=0;s=await get(39);assert.equal(s.state,'complete');assert.equal(s.checked,2);assert.equal(s.credentialFailures,1);
+ p.checking(39);p.checked(39,false,true);p.finish(39);pending=0;s=await get(39);assert.equal(s.state,'complete');assert.equal(s.visible,false);assert.equal(s.checked,2);assert.equal(s.credentialFailures,1);
  assert.match(queries[0],/NOT IN \('password_changed','invalid_credentials'\)/);
 });
 test('new pull clears old progress and durable pending state works without a round',async()=>{
