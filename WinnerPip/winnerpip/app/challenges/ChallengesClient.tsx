@@ -317,7 +317,7 @@ export default function ChallengesPage({initialChallenges = [], winnersId, retur
             <div className="min-w-0 flex items-center gap-2 p-2.5 sm:p-3 rounded-xl bg-white/5 border border-white/10">
               <Target size={16} className="text-gold flex-shrink-0" />
               <div>
-                <p className="text-xs text-gray-500">Target</p>
+                <p className="text-xs text-gray-500">Target to qualify</p>
                 {showSplitTarget ? (
                   <div className={`text-sm font-medium space-y-0.5 ${challenge.teamOnly ? 'blur-[5px] select-none' : ''}`}>
                     <p>
