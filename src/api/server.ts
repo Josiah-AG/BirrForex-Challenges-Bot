@@ -4434,7 +4434,8 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/finduser`, adminIpCheck, 
     const challengeId = parseInt(req.params.id);
     const q = (req.query.q as string || '').trim().toLowerCase().replace(/^@/, '');
 
-    if (!q) return res.status(400).json({ error: 'Search query required' });
+    const registrationId = Number(req.query.registration_id) || null;
+    if (!q && !registrationId) return res.status(400).json({ error: 'Search query required' });
 
     const result = await db.query(
       `SELECT r.id, r.nickname, r.username, r.email, r.user_id, r.account_number,
@@ -4446,12 +4447,14 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/finduser`, adminIpCheck, 
               l.is_qualified, l.last_trade_time, l.last_updated as lb_updated
        FROM trading_registrations r
        LEFT JOIN wp_leaderboard l ON r.id = l.registration_id
-       WHERE r.challenge_id = $1 AND (
+       WHERE r.challenge_id = $1 AND (r.status IS NULL OR r.status != 'removed') AND (
+         ($3::integer IS NOT NULL AND r.id = $3) OR ($3::integer IS NULL AND (
          LOWER(r.username) = $2 OR LOWER(r.email) = $2 OR r.account_number = $2
          OR CAST(r.user_id AS TEXT) = $2 OR LOWER(r.nickname) = $2
-       )
+       )))
+       ORDER BY r.registered_at DESC, r.id DESC
        LIMIT 1`,
-      [challengeId, q]
+      [challengeId, q, registrationId]
     );
 
     if (result.rows.length === 0) {

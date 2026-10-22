@@ -471,6 +471,19 @@ export default function HostDashboardPage() {
     return showCent ? `${num.toFixed(2)}¢` : `$${num.toFixed(2)}`;
   };
 
+  const openLeaderboardParticipant = async () => {
+    const id = selectedParticipant?.registrationId || selectedParticipant?.id;
+    if (!id) return;
+    try {
+      const res = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/full-participants?registration_id=${id}`, { headers: { Authorization: `Bearer ${getToken()}` } });
+      const data = await res.json();
+      const participant = data.participants?.[0];
+      if (!res.ok || !participant || String(participant.id) !== String(id)) throw new Error();
+      setFoundUser(participant); setSearchPerformed(true); setSearchQuery("");
+      setActiveTab("participants"); setSelectedParticipant(null);
+    } catch { alert("Could not load this participant. Please try again."); }
+  };
+
   const handleSearch = async () => {
     if (!searchQuery.trim() || !selectedChallengeId) return;
     setSearchPerformed(true); setFoundUser(null);
@@ -884,7 +897,7 @@ export default function HostDashboardPage() {
                   </div>
                   <div className="px-5 pb-3"><p className="text-xs font-semibold text-gray-300 mb-2">Recent Trades</p>{foundUser.recentTrades && foundUser.recentTrades.length > 0 ? <div className="space-y-2">{foundUser.recentTrades.map((t: any, i: number) => (<div key={i} className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10"><div className="flex items-center gap-3"><span className={`px-2 py-1 rounded text-[10px] font-bold ${(t.type || t.trade_type || '').toLowerCase() === "buy" ? "bg-profit/10 text-profit" : "bg-loss/10 text-loss"}`}>{t.type || t.trade_type}</span><div><p className="text-sm text-white font-semibold">{t.symbol}</p><p className="text-[10px] text-gray-500">{t.volume} lots</p></div></div><div className="text-right"><p className={`text-sm font-bold ${Number(t.profit) >= 0 ? "text-profit" : "text-loss"}`}><TradePnl trade={t}>{cur(Number(t.profit), foundUser.isCent)}</TradePnl></p></div></div>))}</div> : <p className="text-sm text-gray-500">No trades yet</p>}</div>
                   <div className="p-5 border-t border-white/10 space-y-2">
-                    <button onClick={() => { setActiveTab("leaderboard"); setLeaderboardCategory(foundUser.accountType === 'demo' ? 'demo' : 'real'); setTimeout(() => { const entry = leaderboard.find((e: any) => e.nickname === foundUser.nickname || e.accountNumber === foundUser.accountNumber); if (entry) setSelectedParticipant(entry); }, 500); }} className="w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-gold/20 border border-gold/30 hover:bg-gold/30 text-gold font-semibold transition-all text-sm"><Trophy size={16} />View on Leaderboard #{foundUser.rank || '—'}</button>
+                    <button onClick={() => { setActiveTab("leaderboard"); setLeaderboardCategory(foundUser.accountType === 'demo' ? 'demo' : 'real'); setTimeout(() => { const entry = leaderboard.find((e: any) => String(e.registrationId || e.id) === String(foundUser.id)); if (entry) setSelectedParticipant(entry); }, 500); }} className="w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-gold/20 border border-gold/30 hover:bg-gold/30 text-gold font-semibold transition-all text-sm"><Trophy size={16} />View on Leaderboard #{foundUser.rank || '—'}</button>
                     <button onClick={async () => { if (!foundUser.id) return; try { const regId = foundUser.id; const res = await fetch(`${API_URL}/api/host/challenge/${selectedChallengeId}/export-user-trades?registration_id=${regId}`, { headers: { Authorization: `Bearer ${getToken()}` } }); if (!res.ok) { alert("Export failed"); return; } const data = await res.json(); const html = generateTradesHTML({...data, challenge: {...data.challenge, timezone: challengeTz}}); const blob = new Blob([withWinnerPipSocials(html)], {type:"text/html"}); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `${data.user?.nickname || foundUser.nickname}_MT5_history.html`; a.click(); URL.revokeObjectURL(url); } catch { alert("Export failed"); } }} className="w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 text-gray-300 font-semibold transition-all text-sm"><FileText size={16} />Export MT5 Trade History</button>
                   </div>
                   <div className="p-5 border-t border-white/10 space-y-2">
@@ -1823,6 +1836,7 @@ export default function HostDashboardPage() {
               <button onClick={() => setSelectedParticipant(null)} className="p-2 hover:bg-white/10 rounded-lg"><X size={18} className="text-gray-400" /></button>
             </div>
             <div className="p-5 space-y-4">
+              <button onClick={openLeaderboardParticipant} className="w-full rounded-xl border border-royal/40 bg-royal/20 px-4 py-3 text-sm font-semibold text-white hover:bg-royal/30">View participant details</button>
               {selectedParticipant.isWithdrawn && (
                 <div className="p-4 rounded-xl bg-gray-500/10 border border-gray-500/20">
                   <p className="text-xs text-gray-400 mb-1">🚪 Account Exited</p>

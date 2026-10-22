@@ -382,6 +382,11 @@ router.get('/challenge/:id/full-participants', async (req: any, res: Response) =
       params.push(search, `%${search}%`);
     }
 
+    if (req.query.registration_id) {
+      params.push(Number(req.query.registration_id));
+      searchFilter += ` AND r.id = $${params.length}`;
+    }
+
     const countResult = await db.query(`SELECT COUNT(*) as total FROM trading_registrations r WHERE r.challenge_id=$1 AND (r.status IS NULL OR r.status != 'removed')${searchFilter}`, params);
     const total = parseInt(countResult.rows[0].total);
 
