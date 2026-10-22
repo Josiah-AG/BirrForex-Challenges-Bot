@@ -175,7 +175,7 @@ router.get('/challenges/:id', async (req: Request, res: Response) => {
       `SELECT COUNT(*) as total,
               COUNT(CASE WHEN account_type = 'demo' THEN 1 END) as demo,
               COUNT(CASE WHEN account_type = 'real' THEN 1 END) as real
-       FROM trading_registrations WHERE challenge_id = $1 AND disqualified = false`,
+       FROM wp_current_registrations WHERE challenge_id = $1 AND disqualified = false`,
       [challengeId]
     );
 
@@ -275,7 +275,7 @@ router.post('/challenges/:id/register', async (req: Request, res: Response) => {
 
     // Check if already registered (by user_id or account_number) — exclude removed registrations
     const existing = await db.query(
-      `SELECT id, status FROM trading_registrations 
+      `SELECT id, status FROM wp_current_registrations
        WHERE challenge_id = $1 AND (user_id = $2 OR account_number = $3)
          AND (status IS NULL OR status != 'removed')`,
       [challengeId, discord_user_id, account_number]
@@ -475,7 +475,7 @@ router.post('/verify-connection', async (req: Request, res: Response) => {
 router.post('/challenges/:id/verify/:registrationId', async (req: Request,res: Response)=>{
   try {
     const challengeId=Number(param(req,'id')), registrationId=Number(param(req,'registrationId'));
-    const registration=(await db.query(`SELECT * FROM trading_registrations WHERE id=$1 AND challenge_id=$2 AND status IS DISTINCT FROM 'removed'`,[registrationId,challengeId])).rows[0];
+    const registration=(await db.query(`SELECT * FROM wp_current_registrations WHERE id=$1 AND challenge_id=$2 AND status IS DISTINCT FROM 'removed'`,[registrationId,challengeId])).rows[0];
     if(!registration)return res.status(404).json({error:'Registration not found'});
     const verified=await vpsService.verifyConnection(registration.account_number,registration.mt5_server,registration.investor_password);
     const {validateVerifiedRegistration,validateHostAllocation}=require('../services/registrationEligibility');
@@ -502,7 +502,7 @@ router.get('/challenges/:id/leaderboard', async (req: Request, res: Response) =>
     let query = `
       SELECT nickname, username, account_type, rank, current_balance, adjusted_balance,
              qualified_profit, gross_profit, total_trades, flagged_trades, is_qualified
-      FROM wp_leaderboard
+      FROM wp_current_leaderboard
       WHERE challenge_id = $1 AND is_disqualified = false
     `;
     const params: any[] = [challengeId];
@@ -555,7 +555,7 @@ router.get('/challenges/:id/winners', async (req: Request, res: Response) => {
               l.qualified_profit, l.current_balance
        FROM trading_winners w
        JOIN trading_registrations r ON w.registration_id = r.id
-       LEFT JOIN wp_leaderboard l ON w.registration_id = l.registration_id
+       LEFT JOIN wp_current_leaderboard l ON w.registration_id = l.registration_id
        WHERE w.challenge_id = $1
        ORDER BY w.category, w.position ASC`,
       [challengeId]
@@ -737,7 +737,7 @@ router.get('/challenges/:id/check-registration/:userId', async (req: Request, re
 
     const result = await db.query(
       `SELECT id, nickname, account_number, account_type, status
-       FROM trading_registrations
+       FROM wp_current_registrations
        WHERE challenge_id = $1 AND user_id = $2
          AND (status IS NULL OR status != 'removed')
        LIMIT 1`,
@@ -775,7 +775,7 @@ router.get('/challenges/:id/check-nickname/:nickname', async (req: Request, res:
     const nickname = param(req, 'nickname').trim();
 
     const result = await db.query(
-      'SELECT 1 FROM trading_registrations WHERE challenge_id = $1 AND LOWER(nickname) = LOWER($2)',
+      'SELECT 1 FROM wp_current_registrations WHERE challenge_id = $1 AND LOWER(nickname) = LOWER($2)',
       [challengeId, nickname]
     );
 
@@ -895,7 +895,7 @@ router.post('/admin/unregister', discordAuth, discordLimiter, async (req: Reques
     // Find the registration by username (case-insensitive)
     const regResult = await db.query(
       `SELECT id, username, email, account_number, user_id, nickname
-       FROM trading_registrations
+       FROM wp_current_registrations
        WHERE challenge_id = $1 AND LOWER(username) = LOWER($2)`,
       [parseInt(challenge_id), username.replace('@', '').trim()]
     );

@@ -17,7 +17,7 @@ export async function getRecoveryProgress(challengeId: number) {
   // Persisted retry state remains authoritative across restarts. Never show a stale
   // in-memory operation as running after a restart or a newer main pull.
   const result=await db.query(`SELECT COUNT(*)::int AS pending, MIN(r.history_retry_at) AS next_retry_at
-    FROM trading_registrations r JOIN trading_challenges c ON c.id=r.challenge_id
+    FROM wp_current_registrations r JOIN trading_challenges c ON c.id=r.challenge_id
     WHERE r.challenge_id=$1 AND r.status IS DISTINCT FROM 'removed' AND r.connection_verified=true
       AND COALESCE(r.pull_status,'') NOT IN ('password_changed','invalid_credentials')
       AND r.history_sync_state IN ('incomplete','verified','evaluation_failed') AND r.history_retry_at IS NOT NULL

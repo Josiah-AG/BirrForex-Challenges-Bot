@@ -128,12 +128,21 @@ function adminIpCheck(req: any, res: any, next: any) {
 }
 
 // One boundary protects every admin endpoint, including future additions.
-app.use('/api/admin', (req: any, res: any, next: any) => {
+app.use('/api/admin', async (req: any, res: any, next: any) => {
   if (!ADMIN_SECRET_PATH || !ADMIN_KEY) return res.status(503).json({ error: 'Admin access is not configured' });
   if (req.method === 'POST' && req.path === `/${ADMIN_SECRET_PATH}/login`) return next();
   const session = verifyManagementSession(req.headers.authorization?.replace(/^Bearer /, ''), 'admin');
   if (!session) return res.status(401).json({ error: 'Admin login required' });
   req.adminSession = session;
+  const challengeMatch = req.path.match(/\/challenge\/(\d+)(?:\/|$)/);
+  const registrationId = req.body?.registrationId ?? req.body?.registration_id ?? req.query.registrationId ?? req.query.registration_id;
+  if (challengeMatch && registrationId != null) {
+    if (!Number.isSafeInteger(Number(registrationId)) || Number(registrationId) <= 0) return res.status(400).json({ error: 'Invalid registration' });
+    try {
+      const current = await db.query('SELECT id FROM wp_current_registrations WHERE id=$1 AND challenge_id=$2', [Number(registrationId), Number(challengeMatch[1])]);
+      if (!current.rows.length) return res.status(404).json({ error: 'Current registration not found' });
+    } catch { return res.status(503).json({ error: 'Registration verification unavailable' }); }
+  }
   next();
 });
 app.get(`/api/admin/${ADMIN_SECRET_PATH}/session`, adminIpCheck, (_req, res) => res.json({ success: true }));
@@ -347,7 +356,7 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
 
     // Build query — if challenge_id provided, scope to that challenge
     let query = `SELECT r.*, c.title as challenge_title, c.status as challenge_status, c.id as challenge_id
-       FROM trading_registrations r
+       FROM wp_current_registrations r
        JOIN trading_challenges c ON r.challenge_id = c.id
        WHERE r.account_number = $1
          AND r.investor_password = $2
@@ -449,7 +458,7 @@ app.post('/api/auth/verify-token', async (req, res) => {
     const result = await db.query(
       `SELECT r.id, r.user_id, r.nickname, r.username, r.account_number, r.account_type, r.mt5_server, r.challenge_id, r.disqualified,
               c.title as challenge_title, c.status as challenge_status
-       FROM trading_registrations r
+       FROM wp_current_registrations r
        JOIN trading_challenges c ON r.challenge_id = c.id
        WHERE r.id = $1 AND (r.status IS NULL OR r.status != 'removed')`,
       [payload.registrationId]
@@ -496,7 +505,7 @@ app.get('/api/stats', async (req, res) => {
       `SELECT COUNT(*) as cnt FROM trading_challenges WHERE status IN ('completed', 'reviewing') OR winners_posted_at IS NOT NULL`
     );
     const participants = await db.query(
-      `SELECT COUNT(*) as cnt FROM trading_registrations WHERE status IS NULL OR status != 'removed'`
+      `SELECT COUNT(*) as cnt FROM wp_current_registrations WHERE status IS NULL OR status != 'removed'`
     );
     // Sum cash prizes from all completed challenges
     const prizes = await db.query(
@@ -618,7 +627,7 @@ app.get('/api/challenges', async (req, res) => {
         `SELECT COUNT(*) as total,
                 COUNT(CASE WHEN account_type = 'demo' THEN 1 END) as demo,
                 COUNT(CASE WHEN account_type = 'real' THEN 1 END) as real
-         FROM trading_registrations WHERE challenge_id = $1 AND (status IS NULL OR status != 'removed')`,
+         FROM wp_current_registrations WHERE challenge_id = $1 AND (status IS NULL OR status != 'removed')`,
         [challenge.id]
       );
       challenge.participants = {
@@ -707,7 +716,7 @@ app.post('/api/challenges/:id/check-allocation', authLimiter, async (req, res) =
 
     // Check if already registered with this email
     const existing = await db.query(
-      `SELECT 1 FROM trading_registrations WHERE challenge_id = $1 AND email = $2 AND (status IS NULL OR status != 'removed')`,
+      `SELECT 1 FROM wp_current_registrations WHERE challenge_id = $1 AND email = $2 AND (status IS NULL OR status != 'removed')`,
       [challengeId, email.toLowerCase().trim()]);
     if (existing.rows.length > 0) return res.status(409).json({ error: 'This email is already registered for this challenge' });
 
@@ -785,7 +794,7 @@ app.post('/api/challenges/:id/check-username', async (req, res) => {
     if (nickname.length < 2 || nickname.length > 30) return res.status(400).json({ error: 'Username must be 2-30 characters' });
 
     const existing = await db.query(
-      `SELECT 1 FROM trading_registrations WHERE challenge_id = $1 AND LOWER(nickname) = $2 AND (status IS NULL OR status != 'removed')`,
+      `SELECT 1 FROM wp_current_registrations WHERE challenge_id = $1 AND LOWER(nickname) = $2 AND (status IS NULL OR status != 'removed')`,
       [challengeId, nickname.toLowerCase().trim()]);
     if (existing.rows.length > 0) return res.status(409).json({ error: 'This username is already taken. Please choose another.' });
 
@@ -820,7 +829,7 @@ app.post('/api/challenges/:id/verify-mt5', authLimiter, async (req, res) => {
 
     // Check if account number already registered
     const existingAcct = await db.query(
-      `SELECT 1 FROM trading_registrations WHERE challenge_id = $1 AND account_number = $2 AND (status IS NULL OR status != 'removed')`,
+      `SELECT 1 FROM wp_current_registrations WHERE challenge_id = $1 AND account_number = $2 AND (status IS NULL OR status != 'removed')`,
       [challengeId, accountNumber.trim()]);
     if (existingAcct.rows.length > 0) return res.status(409).json({ error: 'This account number is already registered in this challenge' });
 
@@ -906,7 +915,7 @@ app.post('/api/challenges/:id/register', authLimiter, async (req, res) => {
 
     // Check if already registered (by email or account number)
     const existing = await db.query(
-      `SELECT 1 FROM trading_registrations WHERE challenge_id = $1 AND (email = $2 OR account_number = $3) AND (status IS NULL OR status != 'removed')`,
+      `SELECT 1 FROM wp_current_registrations WHERE challenge_id = $1 AND (email = $2 OR account_number = $3) AND (status IS NULL OR status != 'removed')`,
       [challengeId, email.toLowerCase().trim(), accountNumber.trim()]
     );
     if (existing.rows.length > 0) {
@@ -915,7 +924,7 @@ app.post('/api/challenges/:id/register', authLimiter, async (req, res) => {
 
     // Check nickname uniqueness within challenge
     const nickCheck = await db.query(
-      `SELECT 1 FROM trading_registrations WHERE challenge_id = $1 AND LOWER(nickname) = $2 AND (status IS NULL OR status != 'removed')`,
+      `SELECT 1 FROM wp_current_registrations WHERE challenge_id = $1 AND LOWER(nickname) = $2 AND (status IS NULL OR status != 'removed')`,
       [challengeId, nickname.toLowerCase().trim()]
     );
     if (nickCheck.rows.length > 0) {
@@ -1051,7 +1060,7 @@ app.post('/api/challenges/:id/change-category', authLimiter, async (req, res) =>
 
     // Find participant
     const reg = await db.query(
-      `SELECT id, email, investor_password, account_type, mt5_server FROM trading_registrations WHERE challenge_id = $1 AND account_number = $2 AND (status IS NULL OR status != 'removed')`,
+      `SELECT id, email, investor_password, account_type, mt5_server FROM wp_current_registrations WHERE challenge_id = $1 AND account_number = $2 AND (status IS NULL OR status != 'removed')`,
       [challengeId, accountNumber.trim()]);
     if (!reg.rows[0]) return res.status(404).json({ error: 'Registration not found' });
     if (reg.rows[0].investor_password !== investorPassword.trim()) {
@@ -1101,7 +1110,7 @@ app.post('/api/challenges/:id/change-account', authLimiter, async (req, res) => 
 
     // Find participant
     const reg = await db.query(
-      `SELECT id, email, investor_password, account_type, mt5_server FROM trading_registrations WHERE challenge_id = $1 AND account_number = $2 AND (status IS NULL OR status != 'removed')`,
+      `SELECT id, email, investor_password, account_type, mt5_server FROM wp_current_registrations WHERE challenge_id = $1 AND account_number = $2 AND (status IS NULL OR status != 'removed')`,
       [challengeId, currentAccountNumber.trim()]);
     if (!reg.rows[0]) return res.status(404).json({ error: 'Registration not found' });
     if (reg.rows[0].investor_password !== investorPassword.trim()) {
@@ -1112,7 +1121,7 @@ app.post('/api/challenges/:id/change-account', authLimiter, async (req, res) => 
 
     // Check new account not already registered
     const existingNew = await db.query(
-      `SELECT 1 FROM trading_registrations WHERE challenge_id = $1 AND account_number = $2 AND (status IS NULL OR status != 'removed')`,
+      `SELECT 1 FROM wp_current_registrations WHERE challenge_id = $1 AND account_number = $2 AND (status IS NULL OR status != 'removed')`,
       [challengeId, newAccountNumber.trim()]);
     if (existingNew.rows.length > 0) {
       return res.status(409).json({ error: 'New account number is already registered in this challenge' });
@@ -1181,7 +1190,7 @@ app.post('/api/challenges/:id/change-registration', authLimiter, async (req: any
 
     // Find existing registration
     const reg = await db.query(
-      `SELECT id, nickname, email, investor_password, account_type FROM trading_registrations WHERE challenge_id = $1 AND account_number = $2 AND (status IS NULL OR status != 'removed')`,
+      `SELECT id, nickname, email, investor_password, account_type FROM wp_current_registrations WHERE challenge_id = $1 AND account_number = $2 AND (status IS NULL OR status != 'removed')`,
       [challengeId, currentAccountNumber.trim()]);
     if (!reg.rows[0]) return res.status(404).json({ error: 'Registration not found' });
     if (reg.rows[0].investor_password !== currentInvestorPassword.trim()) {
@@ -1194,7 +1203,7 @@ app.post('/api/challenges/:id/change-registration', authLimiter, async (req: any
 
     // Check new account not already registered by someone else
     const existingNew = await db.query(
-      `SELECT id FROM trading_registrations WHERE challenge_id = $1 AND account_number = $2 AND (status IS NULL OR status != 'removed') AND id != $3`,
+      `SELECT id FROM wp_current_registrations WHERE challenge_id = $1 AND account_number = $2 AND (status IS NULL OR status != 'removed') AND id != $3`,
       [challengeId, newAccountNumber.trim(), existingRegId]);
     if (existingNew.rows.length > 0) {
       return res.status(409).json({ error: 'New account number is already registered in this challenge' });
@@ -1325,7 +1334,7 @@ app.get('/api/challenges/:id/leaderboard', async (req, res) => {
                     ELSE COALESCE(last_known_balance, actual_starting_balance, registration_balance, 0)
                   END DESC NULLS LAST, registered_at ASC
                 ) as rank
-         FROM trading_registrations
+         FROM wp_current_registrations
          WHERE challenge_id = $1
            AND (status IS NULL OR status != 'removed')
            ${catFilter}
@@ -1334,7 +1343,7 @@ app.get('/api/challenges/:id/leaderboard', async (req, res) => {
         regParams
       );
       const countResult = await db.query(
-        `SELECT COUNT(*) as total FROM trading_registrations WHERE challenge_id = $1 AND (status IS NULL OR status != 'removed')${catFilter}`,
+        `SELECT COUNT(*) as total FROM wp_current_registrations WHERE challenge_id = $1 AND (status IS NULL OR status != 'removed')${catFilter}`,
         regParams
       );
 
@@ -1353,7 +1362,7 @@ app.get('/api/challenges/:id/leaderboard', async (req, res) => {
                       ELSE COALESCE(last_known_balance, actual_starting_balance, registration_balance, 0)
                     END DESC NULLS LAST, registered_at ASC
                   ) as rank
-           FROM trading_registrations
+           FROM wp_current_registrations
            WHERE challenge_id = $1
              AND (status IS NULL OR status != 'removed')
              ${catFilter}
@@ -1433,8 +1442,8 @@ app.get('/api/challenges/:id/leaderboard', async (req, res) => {
              COALESCE(l.growth_percent, 0) as growth_percent,
              r.disqualified as reg_disqualified, r.disqualified_reason as reg_disqualified_reason,
              r.actual_starting_balance, r.registration_balance
-      FROM wp_leaderboard l
-      JOIN trading_registrations r ON l.registration_id = r.id AND (r.status IS NULL OR r.status != 'removed')
+      FROM wp_current_leaderboard l
+      JOIN wp_current_registrations r ON l.registration_id = r.id AND (r.status IS NULL OR r.status != 'removed')
       WHERE l.challenge_id = $1
     `;
     const params: any[] = [challengeId];
@@ -1457,7 +1466,7 @@ app.get('/api/challenges/:id/leaderboard', async (req, res) => {
     }
 
     // Get total count for pagination
-    let countQuery = `SELECT COUNT(*) as total, COUNT(*) FILTER (WHERE COALESCE(l.is_disqualified, false) OR COALESCE(r.disqualified, false)) as disqualified FROM wp_leaderboard l JOIN trading_registrations r ON l.registration_id = r.id AND (r.status IS NULL OR r.status != 'removed') WHERE l.challenge_id = $1`;
+    let countQuery = `SELECT COUNT(*) as total, COUNT(*) FILTER (WHERE COALESCE(l.is_disqualified, false) OR COALESCE(r.disqualified, false)) as disqualified FROM wp_current_leaderboard l JOIN wp_current_registrations r ON l.registration_id = r.id AND (r.status IS NULL OR r.status != 'removed') WHERE l.challenge_id = $1`;
     const countParams: any[] = [challengeId];
     if (category === 'demo' || category === 'real') {
       countQuery += ` AND l.account_type = $2`;
@@ -1482,8 +1491,8 @@ app.get('/api/challenges/:id/leaderboard', async (req, res) => {
                COALESCE(l.total_withdrawn, 0) as total_withdrawn,
                COALESCE(l.growth_percent, 0) as growth_percent,
                r.actual_starting_balance, r.registration_balance
-        FROM wp_leaderboard l
-        JOIN trading_registrations r ON l.registration_id = r.id AND (r.status IS NULL OR r.status != 'removed')
+        FROM wp_current_leaderboard l
+        JOIN wp_current_registrations r ON l.registration_id = r.id AND (r.status IS NULL OR r.status != 'removed')
         WHERE l.challenge_id = $1
       `;
       const contextParams: any[] = [challengeId];
@@ -1617,7 +1626,7 @@ app.get('/api/challenges/:id/user-trades', async (req, res) => {
 
     // Find registration by nickname
     const reg = await db.query(
-      `SELECT r.id, c.start_date, c.end_date FROM trading_registrations r
+      `SELECT r.id, c.start_date, c.end_date FROM wp_current_registrations r
        JOIN trading_challenges c ON r.challenge_id = c.id
        WHERE r.challenge_id = $1 AND LOWER(r.nickname) = LOWER($2) AND (r.status IS NULL OR r.status != 'removed')`,
       [challengeId, nickname]
@@ -1737,19 +1746,19 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
     const { registrationId } = req.user;
     const growthContext=await tradeGrowthContext(registrationId);
     if (req.query.challengeId) {
-      const context=await db.query('SELECT challenge_id FROM trading_registrations WHERE id=$1',[registrationId]);
+      const context=await db.query('SELECT challenge_id FROM wp_current_registrations WHERE id=$1',[registrationId]);
       if(String(context.rows[0]?.challenge_id)!==String(req.query.challengeId))return res.status(409).json({error:'Sign in for the selected challenge'});
     }
 
 
     // Get leaderboard entry
     const lb = await db.query(
-      `SELECT * FROM wp_leaderboard WHERE registration_id = $1`,
+      `SELECT * FROM wp_current_leaderboard WHERE registration_id = $1`,
       [registrationId]
     );
 
     // Get recent trades (within challenge period)
-    const regInfo = await db.query(`SELECT challenge_id FROM trading_registrations WHERE id = $1`, [registrationId]);
+    const regInfo = await db.query(`SELECT challenge_id FROM wp_current_registrations WHERE id = $1`, [registrationId]);
     const cId = regInfo.rows[0]?.challenge_id;
     const cDates = await db.query(`SELECT start_date, end_date FROM trading_challenges WHERE id = $1`, [cId]);
     const cStartDate = cDates.rows[0]?.start_date;
@@ -1801,14 +1810,14 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
               c.demo_deposit_mode, c.real_deposit_mode, c.demo_target_percent, c.real_target_percent, c.deposit_mode, c.target_percent,
               c.target_enabled, c.allow_below_start, c.demo_target_enabled, c.real_target_enabled, c.demo_allow_below_start, c.real_allow_below_start,
               COALESCE((SELECT (parameters->>'only_cent_account')::boolean FROM wp_challenge_rules WHERE challenge_id = c.id AND rule_code = CASE WHEN c.type='hybrid' AND c.split_category_settings THEN 'config_' || r.account_type ELSE 'config' END), false) as only_cent_account
-       FROM trading_registrations r
+       FROM wp_current_registrations r
        JOIN trading_challenges c ON r.challenge_id = c.id
        WHERE r.id = $1`,
       [registrationId]
     );
 
     const registration = reg.rows[0];
-    const preStartParticipants=Number((await db.query('SELECT COUNT(*) AS cnt FROM trading_registrations WHERE challenge_id=$1 AND investor_password IS NOT NULL AND connection_verified=true',[cId])).rows[0].cnt);
+    const preStartParticipants=Number((await db.query('SELECT COUNT(*) AS cnt FROM wp_current_registrations WHERE challenge_id=$1 AND investor_password IS NOT NULL AND connection_verified=true',[cId])).rows[0].cnt);
     const balanceTimes=require('../utils/startingBalancePolicy').balanceCheckTimes(registration.start_date,preStartParticipants,registration.pre_start_lead_hours);
 
     const publishedRegistration=(await db.query('SELECT registration_state FROM wp_account_publications WHERE registration_id=$1',[registrationId])).rows[0]?.registration_state;
@@ -1989,7 +1998,7 @@ app.get('/api/me/dashboard', authMiddleware, async (req: any, res) => {
 
 // ==================== AUTH MIDDLEWARE ====================
 
-function authMiddleware(req: any, res: any, next: any) {
+async function authMiddleware(req: any, res: any, next: any) {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return res.status(401).json({ error: 'Authentication required' });
@@ -2002,6 +2011,10 @@ function authMiddleware(req: any, res: any, next: any) {
     return res.status(401).json({ error: 'Invalid or expired token' });
   }
 
+  try {
+    const current = await db.query('SELECT id FROM wp_current_registrations WHERE id=$1', [payload.registrationId]);
+    if (!current.rows.length) return res.status(401).json({error:'Registration removed or replaced. Please sign in again.'});
+  } catch { return res.status(503).json({error:'Registration verification unavailable'}); }
   req.user = payload;
   next();
 }
@@ -2224,7 +2237,7 @@ app.get('/api/host/challenge/:id/overview', hostAuthMiddleware, async (req: any,
               COUNT(CASE WHEN account_type = 'demo' THEN 1 END) as demo,
               COUNT(CASE WHEN account_type = 'real' THEN 1 END) as real,
               COUNT(CASE WHEN disqualified = true THEN 1 END) as disqualified
-       FROM trading_registrations WHERE challenge_id = $1`,
+       FROM wp_current_registrations WHERE challenge_id = $1`,
       [challengeId]
     );
 
@@ -2233,7 +2246,7 @@ app.get('/api/host/challenge/:id/overview', hostAuthMiddleware, async (req: any,
       `SELECT COUNT(*) as total_ranked,
               COUNT(CASE WHEN is_qualified = true THEN 1 END) as qualified,
               COUNT(CASE WHEN is_disqualified = true THEN 1 END) as dq_on_lb
-       FROM wp_leaderboard WHERE challenge_id = $1`,
+       FROM wp_current_leaderboard WHERE challenge_id = $1`,
       [challengeId]
     );
 
@@ -2291,7 +2304,7 @@ app.get('/api/host/challenge/:id/participants', hostAuthMiddleware, async (req: 
     const result = await db.query(
       `SELECT id, nickname, account_type, account_number, mt5_server, email,
               disqualified, disqualified_reason, registered_at, pull_status, connection_verified
-       FROM trading_registrations
+       FROM wp_current_registrations
        WHERE challenge_id = $1 AND (status IS NULL OR status != 'removed')
        ORDER BY registered_at DESC
        LIMIT $2 OFFSET $3`,
@@ -2299,7 +2312,7 @@ app.get('/api/host/challenge/:id/participants', hostAuthMiddleware, async (req: 
     );
 
     const countResult = await db.query(
-      `SELECT COUNT(*) as total FROM trading_registrations WHERE challenge_id = $1 AND (status IS NULL OR status != 'removed')`,
+      `SELECT COUNT(*) as total FROM wp_current_registrations WHERE challenge_id = $1 AND (status IS NULL OR status != 'removed')`,
       [challengeId]
     );
 
@@ -2375,7 +2388,7 @@ app.get('/api/host/challenge/:id/leaderboard', hostAuthMiddleware, async (req: a
                     ELSE COALESCE(r.last_known_balance, r.actual_starting_balance, r.registration_balance, 0)
                   END DESC NULLS LAST, r.registered_at ASC
                 ) as rank
-         FROM trading_registrations r
+         FROM wp_current_registrations r
          WHERE r.challenge_id = $1
            AND (r.status IS NULL OR r.status != 'removed')
            ${catFilterReg}
@@ -2443,8 +2456,8 @@ app.get('/api/host/challenge/:id/leaderboard', hostAuthMiddleware, async (req: a
               r.account_number, r.email, r.mt5_server, r.account_subtype,
               r.actual_starting_balance, r.registration_balance,
               r.disqualified as reg_disqualified, r.disqualified_reason as reg_dq_reason
-       FROM wp_leaderboard l
-       JOIN trading_registrations r ON l.registration_id = r.id
+       FROM wp_current_leaderboard l
+       JOIN wp_current_registrations r ON l.registration_id = r.id
        WHERE l.challenge_id = $1${catFilter}
        ${leaderboardOrderSql(category, !!statusRow.rows[0]?.deposit_mode && statusRow.rows[0].deposit_mode !== 'fixed')}
        LIMIT 100`,
@@ -2790,7 +2803,7 @@ app.post('/api/host/challenge/:id/screening', hostAuthMiddleware, async (req: an
     // Get all participants with emails
     const participants = await db.query(
       `SELECT id, nickname, email, account_number, account_type, disqualified
-       FROM trading_registrations
+       FROM wp_current_registrations
        WHERE challenge_id = $1 AND (status IS NULL OR status != 'removed')
        ORDER BY nickname ASC`,
       [challengeId]
@@ -2917,12 +2930,12 @@ app.post('/api/host/challenge/:id/upload-csv', hostAuthMiddleware, async (req: a
           try {
             const matchedServer = fuzzyMatchServer(row.mt5_server, row.account_type) || row.mt5_server;
             // Duplicate account
-            const existing = await db.query(`SELECT nickname FROM trading_registrations WHERE challenge_id = $1 AND account_number = $2 AND (status IS NULL OR status != 'removed')`, [challengeId, row.account_number]);
+            const existing = await db.query(`SELECT nickname FROM wp_current_registrations WHERE challenge_id = $1 AND account_number = $2 AND (status IS NULL OR status != 'removed')`, [challengeId, row.account_number]);
             if (existing.rows.length > 0) { await db.query(`UPDATE host_csv_rows SET status = 'failed', error_message = $1 WHERE id = $2`, [`Account #${row.account_number} already registered (as "${existing.rows[0].nickname}")`, row.id]); failedCount++; continue; }
             // Duplicate nickname
             const nickLower = (row.nickname || '').trim().toLowerCase();
             if (processedNicknames.has(nickLower)) { await db.query(`UPDATE host_csv_rows SET status = 'failed', error_message = $1 WHERE id = $2`, [`Nickname "${row.nickname}" already used earlier in this upload`, row.id]); failedCount++; continue; }
-            const existingNick = await db.query(`SELECT account_number FROM trading_registrations WHERE challenge_id = $1 AND LOWER(nickname) = $2 AND (status IS NULL OR status != 'removed')`, [challengeId, nickLower]);
+            const existingNick = await db.query(`SELECT account_number FROM wp_current_registrations WHERE challenge_id = $1 AND LOWER(nickname) = $2 AND (status IS NULL OR status != 'removed')`, [challengeId, nickLower]);
             if (existingNick.rows.length > 0) { await db.query(`UPDATE host_csv_rows SET status = 'failed', error_message = $1 WHERE id = $2`, [`Nickname "${row.nickname}" already taken (acct #${existingNick.rows[0].account_number})`, row.id]); failedCount++; continue; }
             processedNicknames.add(nickLower);
             // VPS verify
@@ -3402,7 +3415,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/participants`, adminIpChe
 
     // Get total count
     const countResult = await db.query(
-      `SELECT COUNT(*) as total FROM trading_registrations WHERE challenge_id = $1`,
+      `SELECT COUNT(*) as total FROM wp_current_registrations WHERE challenge_id = $1`,
       [challengeId]
     );
     const total = parseInt(countResult.rows[0].total);
@@ -3417,8 +3430,8 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/participants`, adminIpChe
               r.registration_balance, r.last_known_balance,
               l.rank, l.current_balance, l.adjusted_balance, l.qualified_profit, l.total_trades, l.flagged_trades,
               c.source as challenge_source
-       FROM trading_registrations r
-       LEFT JOIN wp_leaderboard l ON r.id = l.registration_id
+       FROM wp_current_registrations r
+       LEFT JOIN wp_current_leaderboard l ON r.id = l.registration_id
        LEFT JOIN trading_challenges c ON r.challenge_id = c.id
        WHERE r.challenge_id = $1 AND (r.status IS NULL OR r.status != 'removed')
        ORDER BY l.rank ASC NULLS LAST, r.registered_at ASC
@@ -3492,7 +3505,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/unverify`, adminIpCheck,
 
     const reg = await db.query(
       `SELECT r.user_id, r.source, r.username, r.nickname, r.account_number, c.title, c.source as challenge_source
-       FROM trading_registrations r
+       FROM wp_current_registrations r
        JOIN trading_challenges c ON r.challenge_id = c.id
        WHERE r.id = $1 AND r.challenge_id = $2`,
       [registrationId, challengeId]
@@ -3565,7 +3578,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/disqualify`, adminIpChec
 
     const reg = await db.query(
       `SELECT r.user_id, r.source, r.username, r.nickname, r.account_number, r.source, c.title
-       FROM trading_registrations r
+       FROM wp_current_registrations r
        JOIN trading_challenges c ON r.challenge_id = c.id
        WHERE r.id = $1 AND r.challenge_id = $2`,
       [registrationId, challengeId]
@@ -3608,7 +3621,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/participant/:registration
     const id=Number(req.params.id), registrationId=Number(req.params.registrationId);
     const requested=Number(req.query.page || 1);
     if(![id,registrationId,requested].every(n=>Number.isSafeInteger(n)&&n>0))return res.status(400).json({error:'Invalid page or participant'});
-    const registration=(await db.query('SELECT account_type,is_cent FROM trading_registrations WHERE id=$1 AND challenge_id=$2',[registrationId,id])).rows[0];
+    const registration=(await db.query('SELECT account_type,is_cent FROM wp_current_registrations WHERE id=$1 AND challenge_id=$2',[registrationId,id])).rows[0];
     if(!registration)return res.status(404).json({error:'Participant not found'});
     const args=[id,registrationId];
     const growthContext=await tradeGrowthContext(registrationId);
@@ -3658,7 +3671,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
 
     // Participant counts
     const counts = await db.query(
-      `SELECT COUNT(*) as total, COUNT(CASE WHEN account_type='demo' THEN 1 END) as demo, COUNT(CASE WHEN account_type='real' THEN 1 END) as real, COUNT(CASE WHEN disqualified=true THEN 1 END) as disqualified FROM trading_registrations WHERE challenge_id=$1 AND (status IS NULL OR status != 'removed')`, [challengeId]);
+      `SELECT COUNT(*) as total, COUNT(CASE WHEN account_type='demo' THEN 1 END) as demo, COUNT(CASE WHEN account_type='real' THEN 1 END) as real, COUNT(CASE WHEN disqualified=true THEN 1 END) as disqualified FROM wp_current_registrations WHERE challenge_id=$1 AND (status IS NULL OR status != 'removed')`, [challengeId]);
 
     // Trade stats — only count trades within challenge period
     const challengeDatesForStats = await db.query(`SELECT start_date, end_date FROM trading_challenges WHERE id = $1`, [challengeId]);
@@ -3684,8 +3697,8 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
         COUNT(CASE WHEN r.account_type='real' THEN 1 END) as real_trades,
         COALESCE(SUM(CASE WHEN r.account_type='demo' THEN CASE WHEN r.is_cent THEN t.volume/100.0 ELSE t.volume END END),0) as demo_volume,
         COALESCE(SUM(CASE WHEN r.account_type='real' THEN CASE WHEN r.is_cent THEN t.volume/100.0 ELSE t.volume END END),0) as real_volume
-       FROM wp_trades t
-       JOIN trading_registrations r ON t.registration_id = r.id
+       FROM wp_current_trades t
+       JOIN wp_current_registrations r ON t.registration_id = r.id
        WHERE t.challenge_id=$1${tradeFilter}`, tradeParams);
     if (tradeStats.rows[0]) {
       const ts = tradeStats.rows[0];
@@ -3698,7 +3711,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
 
     // Password changed count
     const pwChanged = await db.query(
-      `SELECT COUNT(*) as cnt FROM trading_registrations WHERE challenge_id=$1 AND pull_status='password_changed'`, [challengeId]);
+      `SELECT COUNT(*) as cnt FROM wp_current_registrations WHERE challenge_id=$1 AND pull_status='password_changed'`, [challengeId]);
 
     const centSetting=await db.query("SELECT (parameters->>'only_cent_account')::boolean AS enabled FROM wp_challenge_rules WHERE challenge_id=$1 AND rule_code='config'",[challengeId]);
     const targetCounts=await countAboveTargets(challengeId);
@@ -3711,8 +3724,8 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
     // no-target / allow-below-start logic). Do NOT derive this from above-target,
     // otherwise no-target challenges (and max/min-limit growth challenges) misreport.
     const qualifiedCount = await db.query(
-      `SELECT COUNT(*) as cnt FROM wp_leaderboard l
-       JOIN trading_registrations r ON r.id = l.registration_id
+      `SELECT COUNT(*) as cnt FROM wp_current_leaderboard l
+       JOIN wp_current_registrations r ON r.id = l.registration_id
        WHERE l.challenge_id=$1
          AND l.is_qualified = true
          AND l.is_disqualified = false
@@ -3722,12 +3735,12 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
 
     // Instruments count + most active day
     const instrumentsCount = await db.query(
-      `SELECT COUNT(DISTINCT REGEXP_REPLACE(symbol, '[a-z]$', '')) as cnt FROM wp_trades WHERE challenge_id = $1`,
+      `SELECT COUNT(DISTINCT REGEXP_REPLACE(symbol, '[a-z]$', '')) as cnt FROM wp_current_trades WHERE challenge_id = $1`,
       [challengeId]);
     const mostActiveDay = await db.query(
       `SELECT TO_CHAR((close_time AT TIME ZONE 'UTC' AT TIME ZONE (SELECT COALESCE(timezone,'Africa/Nairobi') FROM trading_challenges WHERE id=$1)), 'Dy, Mon DD') as day_label,
               COUNT(*) as trade_count
-       FROM wp_trades WHERE challenge_id = $1 AND close_time IS NOT NULL
+       FROM wp_current_trades WHERE challenge_id = $1 AND close_time IS NOT NULL
        GROUP BY DATE((close_time AT TIME ZONE 'UTC' AT TIME ZONE (SELECT COALESCE(timezone,'Africa/Nairobi') FROM trading_challenges WHERE id=$1))),
                 TO_CHAR((close_time AT TIME ZONE 'UTC' AT TIME ZONE (SELECT COALESCE(timezone,'Africa/Nairobi') FROM trading_challenges WHERE id=$1)), 'Dy, Mon DD')
        ORDER BY trade_count DESC LIMIT 1`,
@@ -3765,7 +3778,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
             THEN COALESCE(r.last_known_balance, r.registration_balance, 0)
             ELSE 0 END
         ), 0) as demo_balance
-       FROM trading_registrations r
+       FROM wp_current_registrations r
        WHERE r.challenge_id = $1
          AND r.disqualified = false
          AND r.investor_password IS NOT NULL`,
@@ -3797,69 +3810,69 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
 
     const buildMetricsForCategory = async (category: string | null) => {
       const catJoin = category ? ` AND r.account_type = '${category}'` : '';
-      const catWhere = category ? ` AND t.registration_id IN (SELECT id FROM trading_registrations WHERE challenge_id = ${challengeId} AND account_type = '${category}')` : '';
+      const catWhere = category ? ` AND t.registration_id IN (SELECT id FROM wp_current_registrations WHERE challenge_id = ${challengeId} AND account_type = '${category}')` : '';
 
       const rules2 = category ? await ruleEngine.rulesForAccount(challengeId, category) : null;
 
       const maxProfit = await db.query(
         `SELECT t.profit, t.symbol, t.ticket, r.nickname, r.username, r.email, r.is_cent
-         FROM wp_trades t JOIN trading_registrations r ON t.registration_id = r.id
+         FROM wp_current_trades t JOIN wp_current_registrations r ON t.registration_id = r.id
          WHERE t.challenge_id = $1 AND t.is_qualified = true${catWhere}${tradeFilter}
          ORDER BY t.profit DESC LIMIT 1`, tradeParams.length > 1 ? tradeParams : [challengeId]);
 
       const maxLoss = await db.query(
         `SELECT t.profit, t.symbol, r.nickname, r.username, r.is_cent
-         FROM wp_trades t JOIN trading_registrations r ON t.registration_id = r.id
+         FROM wp_current_trades t JOIN wp_current_registrations r ON t.registration_id = r.id
          WHERE t.challenge_id = $1${catWhere}${tradeFilter}
          ORDER BY t.profit ASC LIMIT 1`, tradeParams.length > 1 ? tradeParams : [challengeId]);
 
       // Best qualified win rate — uses actual counts from wp_trades, cap at 100%
       const bestQualWin = await db.query(
         `SELECT r.nickname, r.username, r.email,
-                (SELECT COUNT(*) FROM wp_trades t2 WHERE t2.registration_id = l.registration_id AND t2.challenge_id = $1) as total_trades,
-                CASE WHEN (SELECT COUNT(*) FROM wp_trades t2 WHERE t2.registration_id = l.registration_id AND t2.challenge_id = $1 AND t2.is_qualified = true) > 0 THEN
+                (SELECT COUNT(*) FROM wp_current_trades t2 WHERE t2.registration_id = l.registration_id AND t2.challenge_id = $1) as total_trades,
+                CASE WHEN (SELECT COUNT(*) FROM wp_current_trades t2 WHERE t2.registration_id = l.registration_id AND t2.challenge_id = $1 AND t2.is_qualified = true) > 0 THEN
                   LEAST(100, ROUND(
-                    (SELECT COUNT(*)::numeric FROM wp_trades t2
+                    (SELECT COUNT(*)::numeric FROM wp_current_trades t2
                      WHERE t2.registration_id = l.registration_id AND t2.challenge_id = $1
                        AND t2.is_qualified = true AND t2.profit > 0)
-                    / NULLIF((SELECT COUNT(*) FROM wp_trades t2
+                    / NULLIF((SELECT COUNT(*) FROM wp_current_trades t2
                      WHERE t2.registration_id = l.registration_id AND t2.challenge_id = $1
                        AND t2.is_qualified = true), 0) * 100))
                 ELSE 0 END as qualified_win_rate
-         FROM wp_leaderboard l JOIN trading_registrations r ON l.registration_id = r.id
+         FROM wp_current_leaderboard l JOIN wp_current_registrations r ON l.registration_id = r.id
          WHERE l.challenge_id = $1 AND r.disqualified = false${catJoin}
-         AND (SELECT COUNT(*) FROM wp_trades t2 WHERE t2.registration_id = l.registration_id AND t2.challenge_id = $1) >= 5
-         ORDER BY qualified_win_rate DESC, (SELECT COUNT(*) FROM wp_trades t2 WHERE t2.registration_id = l.registration_id AND t2.challenge_id = $1) DESC LIMIT 1`, [challengeId]);
+         AND (SELECT COUNT(*) FROM wp_current_trades t2 WHERE t2.registration_id = l.registration_id AND t2.challenge_id = $1) >= 5
+         ORDER BY qualified_win_rate DESC, (SELECT COUNT(*) FROM wp_current_trades t2 WHERE t2.registration_id = l.registration_id AND t2.challenge_id = $1) DESC LIMIT 1`, [challengeId]);
 
       // Best overall win rate — uses actual trade counts from wp_trades (not stale leaderboard)
       const bestOverallWin = await db.query(
         `SELECT r.nickname, r.username, r.email,
-                (SELECT COUNT(*) FROM wp_trades t2 WHERE t2.registration_id = l.registration_id AND t2.challenge_id = $1) as total_trades,
-                CASE WHEN (SELECT COUNT(*) FROM wp_trades t2 WHERE t2.registration_id = l.registration_id AND t2.challenge_id = $1) >= 5 THEN
+                (SELECT COUNT(*) FROM wp_current_trades t2 WHERE t2.registration_id = l.registration_id AND t2.challenge_id = $1) as total_trades,
+                CASE WHEN (SELECT COUNT(*) FROM wp_current_trades t2 WHERE t2.registration_id = l.registration_id AND t2.challenge_id = $1) >= 5 THEN
                   LEAST(100, ROUND(
-                    (SELECT COUNT(*)::numeric FROM wp_trades t2
+                    (SELECT COUNT(*)::numeric FROM wp_current_trades t2
                      WHERE t2.registration_id = l.registration_id AND t2.challenge_id = $1 AND t2.profit > 0)
-                    / NULLIF((SELECT COUNT(*) FROM wp_trades t2
+                    / NULLIF((SELECT COUNT(*) FROM wp_current_trades t2
                      WHERE t2.registration_id = l.registration_id AND t2.challenge_id = $1), 0) * 100))
                 ELSE 0 END as overall_win_rate
-         FROM wp_leaderboard l JOIN trading_registrations r ON l.registration_id = r.id
+         FROM wp_current_leaderboard l JOIN wp_current_registrations r ON l.registration_id = r.id
          WHERE l.challenge_id = $1 AND r.disqualified = false${catJoin}
-         AND (SELECT COUNT(*) FROM wp_trades t2 WHERE t2.registration_id = l.registration_id AND t2.challenge_id = $1) >= 5
-         ORDER BY overall_win_rate DESC, (SELECT COUNT(*) FROM wp_trades t2 WHERE t2.registration_id = l.registration_id AND t2.challenge_id = $1) DESC LIMIT 1`, [challengeId]);
+         AND (SELECT COUNT(*) FROM wp_current_trades t2 WHERE t2.registration_id = l.registration_id AND t2.challenge_id = $1) >= 5
+         ORDER BY overall_win_rate DESC, (SELECT COUNT(*) FROM wp_current_trades t2 WHERE t2.registration_id = l.registration_id AND t2.challenge_id = $1) DESC LIMIT 1`, [challengeId]);
 
       const mostPair = await db.query(
         `SELECT REGEXP_REPLACE(symbol, '[a-z]$', '') as symbol, COUNT(*) as trade_count, COALESCE(SUM(volume), 0) as total_lots
-         FROM wp_trades t WHERE challenge_id = $1${catWhere}${tradeFilter}
+         FROM wp_current_trades t WHERE challenge_id = $1${catWhere}${tradeFilter}
          GROUP BY REGEXP_REPLACE(symbol, '[a-z]$', '') ORDER BY trade_count DESC LIMIT 3`, tradeParams.length > 1 ? tradeParams : [challengeId]);
 
       const leastPair = await db.query(
         `SELECT REGEXP_REPLACE(symbol, '[a-z]$', '') as symbol, COUNT(*) as trade_count, COALESCE(SUM(volume), 0) as total_lots
-         FROM wp_trades t WHERE challenge_id = $1${catWhere}${tradeFilter}
+         FROM wp_current_trades t WHERE challenge_id = $1${catWhere}${tradeFilter}
          GROUP BY REGEXP_REPLACE(symbol, '[a-z]$', '') ORDER BY trade_count ASC LIMIT 1`, tradeParams.length > 1 ? tradeParams : [challengeId]);
 
       const blown = await db.query(
-        `SELECT COUNT(*) as cnt FROM wp_leaderboard l
-         JOIN trading_registrations r ON l.registration_id = r.id
+        `SELECT COUNT(*) as cnt FROM wp_current_leaderboard l
+         JOIN wp_current_registrations r ON l.registration_id = r.id
          WHERE l.challenge_id = $1
            AND COALESCE(l.is_withdrawn, false) = false
            AND (
@@ -3870,8 +3883,8 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
            )${catJoin}`, [challengeId]);
 
       const disqualified = await db.query(
-        `SELECT COUNT(*) as cnt FROM trading_registrations r
-         LEFT JOIN wp_leaderboard l ON l.registration_id = r.id
+        `SELECT COUNT(*) as cnt FROM wp_current_registrations r
+         LEFT JOIN wp_current_leaderboard l ON l.registration_id = r.id
          WHERE r.challenge_id = $1 AND r.disqualified = true${catJoin}
            AND NOT (
              l.zero_balance_at IS NOT NULL
@@ -3885,17 +3898,17 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
 
       const mostDay = await db.query(
         `SELECT DATE((close_time AT TIME ZONE 'UTC' AT TIME ZONE (SELECT COALESCE(timezone,'Africa/Nairobi') FROM trading_challenges WHERE id=$1))) as day, COUNT(*) as trade_count
-         FROM wp_trades t WHERE challenge_id = $1${catWhere}${tradeFilter}${weekendFilter}
+         FROM wp_current_trades t WHERE challenge_id = $1${catWhere}${tradeFilter}${weekendFilter}
          GROUP BY DATE((close_time AT TIME ZONE 'UTC' AT TIME ZONE (SELECT COALESCE(timezone,'Africa/Nairobi') FROM trading_challenges WHERE id=$1))) ORDER BY trade_count DESC LIMIT 1`, tradeParams.length > 1 ? tradeParams : [challengeId]);
 
       const leastDay = await db.query(
         `SELECT DATE((close_time AT TIME ZONE 'UTC' AT TIME ZONE (SELECT COALESCE(timezone,'Africa/Nairobi') FROM trading_challenges WHERE id=$1))) as day, COUNT(*) as trade_count
-         FROM wp_trades t WHERE challenge_id = $1${catWhere}${tradeFilter}${weekendFilter}
+         FROM wp_current_trades t WHERE challenge_id = $1${catWhere}${tradeFilter}${weekendFilter}
          GROUP BY DATE((close_time AT TIME ZONE 'UTC' AT TIME ZONE (SELECT COALESCE(timezone,'Africa/Nairobi') FROM trading_challenges WHERE id=$1))) ORDER BY trade_count ASC LIMIT 1`, tradeParams.length > 1 ? tradeParams : [challengeId]);
 
       const avgTrades = await db.query(
-        `SELECT ROUND(AVG(total_trades), 1) as avg_trades FROM wp_leaderboard l
-         JOIN trading_registrations r ON l.registration_id = r.id
+        `SELECT ROUND(AVG(total_trades), 1) as avg_trades FROM wp_current_leaderboard l
+         JOIN wp_current_registrations r ON l.registration_id = r.id
          WHERE l.challenge_id = $1 AND l.total_trades > 0${catJoin}`, [challengeId]);
 
       // Best & Worst Rule Keeping Rate (RKR = qualified_trades / total_trades)
@@ -3903,8 +3916,8 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
       const rkrQuery = await db.query(
         `SELECT r.nickname, l.qualified_trades, l.total_trades, l.adjusted_balance,
                 ROUND((l.qualified_trades::numeric / NULLIF(l.total_trades, 0)) * 100) as rkr
-         FROM wp_leaderboard l
-         JOIN trading_registrations r ON l.registration_id = r.id
+         FROM wp_current_leaderboard l
+         JOIN wp_current_registrations r ON l.registration_id = r.id
          WHERE l.challenge_id = $1 AND l.total_trades > 0
            AND r.disqualified = false${catJoin}
          ORDER BY rkr DESC, l.adjusted_balance DESC`, [challengeId]);
@@ -3961,7 +3974,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
         `SELECT unnest(string_to_array(
            regexp_replace(violations::text, '\\[|\\]|"', '', 'g'), ','
          )) as rule, COUNT(*) as cnt
-         FROM wp_trades
+         FROM wp_current_trades
          WHERE challenge_id = $1 AND violations IS NOT NULL AND violations != '[]' AND is_qualified = false
          GROUP BY rule
          HAVING COUNT(*) > 0
@@ -4041,11 +4054,11 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/screening`, adminIpCheck,
 
     // Currently changing/warned users
     const changing = await db.query(
-      `SELECT username, email, account_number, account_type, partner_status, partner_warned_at FROM trading_registrations WHERE challenge_id=$1 AND partner_status='CHANGING' AND disqualified=false ORDER BY partner_warned_at DESC`, [challengeId]);
+      `SELECT username, email, account_number, account_type, partner_status, partner_warned_at FROM wp_current_registrations WHERE challenge_id=$1 AND partner_status='CHANGING' AND disqualified=false ORDER BY partner_warned_at DESC`, [challengeId]);
 
     // Disqualified due to partner change
     const disqualified = await db.query(
-      `SELECT username, email, account_number, account_type, disqualified_at, disqualified_reason FROM trading_registrations WHERE challenge_id=$1 AND disqualified=true AND disqualified_reason LIKE '%Partner%' ORDER BY disqualified_at DESC`, [challengeId]);
+      `SELECT username, email, account_number, account_type, disqualified_at, disqualified_reason FROM wp_current_registrations WHERE challenge_id=$1 AND disqualified=true AND disqualified_reason LIKE '%Partner%' ORDER BY disqualified_at DESC`, [challengeId]);
 
     return res.json({
       screeningHistory: results.rows.map(r => ({
@@ -4116,8 +4129,8 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/pulls`, adminIpCheck, asy
               COUNT(t.id) FILTER (WHERE t.sl_check_result = 'check_failed') as trades_failed,
               MAX(t.sl_check_attempts) as max_attempts,
               MAX(t.close_time) as last_seen
-       FROM trading_registrations r
-       JOIN wp_trades t ON t.registration_id = r.id AND t.challenge_id = $1
+       FROM wp_current_registrations r
+       JOIN wp_current_trades t ON t.registration_id = r.id AND t.challenge_id = $1
          AND (t.sl_check_pending = true OR t.sl_check_result = 'check_failed')
        WHERE r.challenge_id = $1
        GROUP BY r.id, r.account_number, r.nickname, r.username, r.account_subtype
@@ -4129,7 +4142,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/pulls`, adminIpCheck, asy
       const tradesDetail = await db.query(
         `SELECT ticket, symbol, open_time, close_time, profit, sl_check_result, sl_check_attempts,
                 EXTRACT(EPOCH FROM (close_time - open_time)) as duration_seconds
-         FROM wp_trades
+         FROM wp_current_trades
          WHERE challenge_id = $1 AND registration_id = $2
            AND (sl_check_pending = true OR sl_check_result = 'check_failed')
          ORDER BY close_time DESC LIMIT 5`,
@@ -4306,7 +4319,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/vps-health`, adminIpCheck, async (req, 
 
     // Get password-changed count
     const pwChanged = await db.query(
-      `SELECT COUNT(*) as cnt FROM trading_registrations WHERE pull_status = 'password_changed' AND disqualified = false`
+      `SELECT COUNT(*) as cnt FROM wp_current_registrations WHERE pull_status = 'password_changed' AND disqualified = false`
     );
 
     // Calculate 24h success rate
@@ -4445,8 +4458,8 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/finduser`, adminIpCheck, 
               l.rank, l.current_balance, l.adjusted_balance, l.total_withdrawn, l.qualified_profit, l.gross_profit,
               l.profit_removed, l.total_trades, l.qualified_trades, l.flagged_trades, l.active_days,
               l.is_qualified, l.last_trade_time, l.last_updated as lb_updated
-       FROM trading_registrations r
-       LEFT JOIN wp_leaderboard l ON r.id = l.registration_id
+       FROM wp_current_registrations r
+       LEFT JOIN wp_current_leaderboard l ON r.id = l.registration_id
        WHERE r.challenge_id = $1 AND (r.status IS NULL OR r.status != 'removed') AND (
          ($3::integer IS NOT NULL AND r.id = $3) OR ($3::integer IS NULL AND (
          LOWER(r.username) = $2 OR LOWER(r.email) = $2 OR r.account_number = $2
@@ -4470,7 +4483,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/finduser`, adminIpCheck, 
     const lookupStart = challengeDatesLookup.rows[0]?.start_date;
     const lookupEnd   = challengeDatesLookup.rows[0]?.end_date;
     let lookupTradesQuery = `SELECT symbol, trade_type, volume, profit, close_time, is_qualified, violations
-       FROM wp_trades WHERE challenge_id = $1 AND registration_id = $2`;
+       FROM wp_current_trades WHERE challenge_id = $1 AND registration_id = $2`;
     const lookupTradesParams: any[] = [challengeId, r.id];
     if (lookupStart) {
       const graceStart = new Date(new Date(lookupStart).getTime() - 3 * 60 * 60 * 1000);
@@ -4553,8 +4566,8 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/violations`, adminIpCheck
               COUNT(t.id) as violation_count,
               COALESCE(SUM(CASE WHEN t.profit > 0 THEN t.profit ELSE 0 END), 0) as profit_removed,
               json_agg(json_build_object('ticket', t.ticket, 'symbol', t.symbol, 'violations', t.violations, 'profit', t.profit)) as flagged_trades
-       FROM wp_trades t
-       JOIN trading_registrations r ON t.registration_id = r.id
+       FROM wp_current_trades t
+       JOIN wp_current_registrations r ON t.registration_id = r.id
        WHERE t.challenge_id = $1 AND t.is_qualified = false
        GROUP BY r.id, r.nickname, r.username, r.account_number, r.account_type
        ORDER BY violation_count DESC
@@ -4823,8 +4836,8 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/export`, adminIpCheck, as
       `SELECT r.nickname, r.username, r.email, r.account_number, r.account_type, r.mt5_server,
               r.registered_at, r.disqualified, r.disqualified_reason, r.source,
               l.rank, l.current_balance, l.qualified_profit, l.total_trades, l.flagged_trades, l.is_qualified
-       FROM trading_registrations r
-       LEFT JOIN wp_leaderboard l ON r.id = l.registration_id
+       FROM wp_current_registrations r
+       LEFT JOIN wp_current_leaderboard l ON r.id = l.registration_id
        WHERE r.challenge_id = $1 AND (r.status IS NULL OR r.status != 'removed')
        ORDER BY l.rank ASC NULLS LAST, r.registered_at ASC`,
       [challengeId]
@@ -4851,7 +4864,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/user-trades-mt5`, adminIp
     const reg = await db.query(
       `SELECT r.nickname, r.account_number, r.mt5_server, r.account_type, r.is_cent,
               c.title, c.start_date, c.end_date
-       FROM trading_registrations r
+       FROM wp_current_registrations r
        JOIN trading_challenges c ON r.challenge_id = c.id
        WHERE r.id = $1`,
       [registrationId]
@@ -4861,7 +4874,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/user-trades-mt5`, adminIp
     let mt5TradesQuery = `SELECT ticket, symbol, trade_type, volume, open_time, close_time,
               open_price, close_price, stop_loss, take_profit, native_sl_tp,
               profit, commission, swap, comment, is_qualified, violations
-       FROM wp_trades WHERE challenge_id = $1 AND registration_id = $2`;
+       FROM wp_current_trades WHERE challenge_id = $1 AND registration_id = $2`;
     const mt5TradesParams: any[] = [challengeId, registrationId];
     if (user.start_date) {
       const graceStart = new Date(new Date(user.start_date).getTime() - 3 * 60 * 60 * 1000);
@@ -4966,7 +4979,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/user-trades-xlsx`, adminI
       `SELECT ticket, symbol, trade_type, volume, open_time, close_time,
               open_price, close_price, stop_loss, take_profit, native_sl_tp,
               profit, commission, swap, comment, is_qualified, violations
-       FROM wp_trades WHERE challenge_id = $1 AND registration_id = $2
+       FROM wp_current_trades WHERE challenge_id = $1 AND registration_id = $2
        ORDER BY open_time ASC`,
       [challengeId, registrationId]
     );
@@ -4974,7 +4987,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/user-trades-xlsx`, adminI
     const reg = await db.query(
       `SELECT r.nickname, r.account_number, r.mt5_server, r.account_type, r.is_cent,
               c.title, c.start_date, c.end_date
-       FROM trading_registrations r
+       FROM wp_current_registrations r
        JOIN trading_challenges c ON r.challenge_id = c.id
        WHERE r.id = $1`,
       [registrationId]
@@ -5128,8 +5141,8 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/export-evaluation`, admin
               r.username, r.email, r.account_number, r.mt5_server,
               r.investor_password, r.source, r.registered_at,
               r.actual_starting_balance, r.registration_balance
-       FROM wp_leaderboard l
-       JOIN trading_registrations r ON l.registration_id = r.id
+       FROM wp_current_leaderboard l
+       JOIN wp_current_registrations r ON l.registration_id = r.id
        WHERE l.challenge_id = $1
        ORDER BY l.account_type, l.rank ASC NULLS LAST`,
       [challengeId]
@@ -5292,8 +5305,8 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/user-evaluation`, adminIp
               l.qualified_profit, l.gross_profit, l.profit_removed,
               l.total_trades, l.qualified_trades, l.flagged_trades, l.active_days,
               l.is_qualified, l.is_disqualified, l.disqualify_reason
-       FROM trading_registrations r
-       LEFT JOIN wp_leaderboard l ON r.id = l.registration_id
+       FROM wp_current_registrations r
+       LEFT JOIN wp_current_leaderboard l ON r.id = l.registration_id
        WHERE r.id = $1 AND r.challenge_id = $2`,
       [registrationId, challengeId]
     );
@@ -5303,7 +5316,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/user-evaluation`, adminIp
     // Get ALL trades (flagged and qualified) — needed for simultaneous group time context
     const allTrades = await db.query(
       `SELECT ticket, symbol, trade_type, volume, open_time, close_time, profit, commission, swap, is_qualified, violations
-       FROM wp_trades WHERE challenge_id = $1 AND registration_id = $2
+       FROM wp_current_trades WHERE challenge_id = $1 AND registration_id = $2
        ORDER BY open_time ASC`,
       [challengeId, registrationId]
     );
@@ -5483,7 +5496,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/export-registrations`, ad
               r.partner_status, r.partner_warned_at,
               r.disqualified, r.disqualified_at, r.disqualified_reason,
               r.registered_at, r.updated_at
-       FROM trading_registrations r
+       FROM wp_current_registrations r
        WHERE r.challenge_id = $1 AND (r.status IS NULL OR r.status != 'removed')
        ORDER BY r.registered_at ASC`,
       [challengeId]
@@ -5544,7 +5557,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/admin-leaderboard`, admin
                     ELSE COALESCE(r.last_known_balance, r.actual_starting_balance, r.registration_balance, 0)
                   END DESC NULLS LAST, r.registered_at ASC
                 ) as rank
-         FROM trading_registrations r
+         FROM wp_current_registrations r
          WHERE r.challenge_id = $1
            AND (r.status IS NULL OR r.status != 'removed')
            ${catFilter}
@@ -5611,8 +5624,8 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/admin-leaderboard`, admin
               COALESCE(l.is_withdrawn, false) as is_withdrawn,
               COALESCE(l.total_withdrawn, 0) as total_withdrawn,
               COALESCE(l.growth_percent, 0) as growth_percent
-       FROM trading_registrations r
-       LEFT JOIN wp_leaderboard l ON l.registration_id = r.id
+       FROM wp_current_registrations r
+       LEFT JOIN wp_current_leaderboard l ON l.registration_id = r.id
        WHERE r.challenge_id = $1
          AND (r.status IS NULL OR r.status != 'removed')
          ${catFilter}
@@ -5701,7 +5714,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/pull-trade`, adminIpChec
     const regResult = await db.query(
       `SELECT r.id, r.account_number, r.mt5_server, r.investor_password, r.nickname,
               r.is_cent, r.account_type, r.account_subtype
-       FROM trading_registrations r
+       FROM wp_current_registrations r
        WHERE r.challenge_id = $1
          AND (r.account_number = $2 OR LOWER(r.email) = LOWER($2))
          AND r.connection_verified = true
@@ -5719,7 +5732,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/pull-trade`, adminIpChec
               open_price, close_price, stop_loss, take_profit, profit,
               commission, swap, comment, is_qualified, violations,
               sl_check_result, sl_check_pending, sl_allowed_price, sl_max_adverse_price, position_id
-       FROM wp_trades
+       FROM wp_current_trades
        WHERE challenge_id = $1 AND registration_id = $2 AND (ticket = $3 OR position_id = $3)
        ORDER BY close_time ASC`,
       [challengeId, reg.id, ticketNum]
@@ -5912,7 +5925,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/pull-trade`, adminIpChec
       // 5. Read back fresh evaluation for all fresh tickets
       const freshTickets = freshTrades.map(f => f.ticket);
       const freshEvalRows = await db.query(
-        `SELECT ticket, is_qualified, violations, sl_check_result FROM wp_trades
+        `SELECT ticket, is_qualified, violations, sl_check_result FROM wp_current_trades
          WHERE challenge_id = $1 AND registration_id = $2 AND ticket = ANY($3)`,
         [challengeId, reg.id, freshTickets]
       );
@@ -6033,7 +6046,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/pull-trade/replace`, adm
     if (!registrationId || !ticket) return res.status(400).json({ error: 'registrationId and ticket are required' });
 
     const regResult = await db.query(
-      `SELECT account_number FROM trading_registrations WHERE id = $1 AND challenge_id = $2`,
+      `SELECT account_number FROM wp_current_registrations WHERE id = $1 AND challenge_id = $2`,
       [registrationId, challengeId]
     );
     if (!regResult.rows.length) return res.status(404).json({ error: 'Registration not found' });
@@ -6108,8 +6121,8 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/export-leaderboard`, admi
               r.username, r.email, r.account_number, r.mt5_server, r.investor_password,
               r.source, r.registration_balance, r.actual_starting_balance,
               r.pull_status, r.last_pull_at, r.registered_at
-       FROM wp_leaderboard l
-       JOIN trading_registrations r ON l.registration_id = r.id
+       FROM wp_current_leaderboard l
+       JOIN wp_current_registrations r ON l.registration_id = r.id
        WHERE l.challenge_id = $1
        ORDER BY l.account_type, l.rank ASC NULLS LAST`,
       [challengeId]
@@ -6171,13 +6184,13 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/export-user-trades`, admi
 
     const [challengeRes, regRes, tradesRes] = await Promise.all([
       db.query(`SELECT title, start_date, end_date FROM trading_challenges WHERE id = $1`, [challengeId]),
-      db.query(`SELECT nickname, account_number, mt5_server, account_type, is_cent FROM trading_registrations WHERE id = $1`, [registrationId]),
+      db.query(`SELECT nickname, account_number, mt5_server, account_type, is_cent FROM wp_current_registrations WHERE id = $1`, [registrationId]),
       db.query(
         `SELECT ticket, position_id, symbol, trade_type, volume, open_time, close_time,
                 open_price, close_price, stop_loss, take_profit, native_sl_tp, profit, commission, swap,
                 is_qualified, violations, sl_check_pending,
                 sl_allowed_price, sl_max_adverse_price, sl_check_result
-         FROM wp_trades
+         FROM wp_current_trades
          WHERE registration_id = $1 AND challenge_id = $2
          ORDER BY close_time ASC`,
         [registrationId, challengeId]
@@ -6267,8 +6280,8 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/failed-accounts`, adminIp
     const skipped = await db.query(
       `SELECT r.id as registration_id, r.account_number, r.username, r.nickname, r.email, r.account_type, r.disqualified, r.disqualified_reason,
               l.current_balance, l.zero_balance_at, l.total_trades
-       FROM trading_registrations r
-       LEFT JOIN wp_leaderboard l ON r.id = l.registration_id
+       FROM wp_current_registrations r
+       LEFT JOIN wp_current_leaderboard l ON r.id = l.registration_id
        WHERE r.challenge_id = $1 AND r.status IS DISTINCT FROM 'removed'
          AND r.investor_password IS NOT NULL
          AND r.connection_verified = true
@@ -6282,7 +6295,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/failed-accounts`, adminIp
 
     // Count incomplete trades for badge display
     const incompleteResult = await db.query(
-      `SELECT COUNT(*) as cnt FROM wp_trades
+      `SELECT COUNT(*) as cnt FROM wp_current_trades
        WHERE challenge_id = $1
          AND (open_time IS NULL OR open_price IS NULL OR open_price = 0 OR
               close_time IS NULL OR close_price IS NULL OR close_price = 0 OR
@@ -6384,7 +6397,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/evaluate-only`, adminIpC
     // ensureAllParticipantsHaveEntries which runs after evaluation.
     const accounts = await db.query(
       `SELECT r.id as registration_id, r.account_number, r.mt5_server, r.investor_password
-       FROM trading_registrations r
+       FROM wp_current_registrations r
        WHERE r.challenge_id = $1
          AND r.disqualified = false
          AND r.investor_password IS NOT NULL
@@ -6469,7 +6482,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/raw-trades-csv`, adminIpC
               open_price, close_price, stop_loss, take_profit, native_sl_tp, profit, commission, swap,
               comment, is_qualified, violations, sl_check_result, sl_check_pending,
               sl_allowed_price, sl_max_adverse_price, sl_check_attempts, sl_conflict_count
-       FROM wp_trades
+       FROM wp_current_trades
        WHERE challenge_id = $1 AND registration_id = $2
        ORDER BY open_time ASC`,
       [challengeId, registrationId]
@@ -6519,7 +6532,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/re-evaluate-user`, admin
     // Get before state
     const beforeResult = await db.query(
       `SELECT l.rank, l.qualified_profit, l.flagged_trades, l.qualified_trades, l.total_trades, l.adjusted_balance
-       FROM wp_leaderboard l WHERE l.challenge_id = $1 AND l.registration_id = $2`,
+       FROM wp_current_leaderboard l WHERE l.challenge_id = $1 AND l.registration_id = $2`,
       [challengeId, registrationId]
     );
     const before = beforeResult.rows[0] || { rank: null, qualified_profit: 0, flagged_trades: 0, qualified_trades: 0, total_trades: 0, adjusted_balance: 0 };
@@ -6552,7 +6565,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/re-evaluate-user`, admin
     // Get after state
     const afterResult = await db.query(
       `SELECT l.rank, l.qualified_profit, l.flagged_trades, l.qualified_trades, l.total_trades, l.adjusted_balance
-       FROM wp_leaderboard l WHERE l.challenge_id = $1 AND l.registration_id = $2`,
+       FROM wp_current_leaderboard l WHERE l.challenge_id = $1 AND l.registration_id = $2`,
       [challengeId, registrationId]
     );
     const after = afterResult.rows[0] || { rank: null, qualified_profit: 0, flagged_trades: 0, qualified_trades: 0, total_trades: 0, adjusted_balance: 0 };
@@ -6704,7 +6717,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/pull-status`, adminIpCheck, async (req,
       let stillNullCount = 0;
       if (b.phase === 'resolving_nulls' || b.phase2_total > 0) {
         const stillNull = await db.query(
-          `SELECT COUNT(*) as cnt FROM wp_trades WHERE challenge_id = $1 AND open_time IS NULL AND close_time >= $2`,
+          `SELECT COUNT(*) as cnt FROM wp_current_trades WHERE challenge_id = $1 AND open_time IS NULL AND close_time >= $2`,
           [b.challenge_id, b.started_at]
         );
         stillNullCount = parseInt(stillNull.rows[0].cnt);
@@ -6715,7 +6728,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/pull-status`, adminIpCheck, async (req,
       const failedDetail = await db.query(
         `SELECT pe.account_number, pe.error_code, pe.error_message, r.nickname, r.username
          FROM wp_pull_errors pe
-         LEFT JOIN trading_registrations r ON r.id = pe.registration_id
+         LEFT JOIN wp_current_registrations r ON r.id = pe.registration_id
          WHERE pe.pull_batch_id = $1
            AND COALESCE(r.pull_status,'') NOT IN ('password_changed','invalid_credentials')
            AND NOT (COALESCE(r.pull_status='success' AND r.history_sync_state='published'
@@ -6870,7 +6883,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/resend-credential-warnin
   try {
     const result = await db.query(`SELECT r.*, c.title AS challenge_title, c.host_id,
       h.display_name AS host_name, h.support_link AS host_link
-      FROM trading_registrations r JOIN trading_challenges c ON c.id=r.challenge_id
+      FROM wp_current_registrations r JOIN trading_challenges c ON c.id=r.challenge_id
       LEFT JOIN hosts h ON h.id=c.host_id WHERE r.id=$1 AND r.challenge_id=$2`, [registrationId, challengeId]);
     const registration = result.rows[0];
     if (!registration) return res.status(404).json({ error: 'Registration not found in this challenge' });
@@ -6921,8 +6934,8 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/incomplete-trades`, admin
               t.open_time, t.close_time, t.open_price, t.close_price, t.profit,
               t.account_number, t.synced_at,
               r.nickname, r.username, r.user_id
-       FROM wp_trades t
-       JOIN trading_registrations r ON t.registration_id = r.id
+       FROM wp_current_trades t
+       JOIN wp_current_registrations r ON t.registration_id = r.id
        WHERE t.challenge_id = $1
          AND (
            t.open_time IS NULL OR
@@ -6996,8 +7009,8 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/resolve-incomplete`, adm
     // Get all accounts that have incomplete trades
     const accountsResult = await db.query(
       `SELECT DISTINCT t.account_number, r.id as registration_id, r.mt5_server, r.investor_password, r.user_id, r.username
-       FROM wp_trades t
-       JOIN trading_registrations r ON t.registration_id = r.id
+       FROM wp_current_trades t
+       JOIN wp_current_registrations r ON t.registration_id = r.id
        WHERE t.challenge_id = $1
          AND (open_time IS NULL OR open_price IS NULL OR open_price = 0)`,
       [challengeId]
@@ -7072,7 +7085,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/resolve-incomplete`, adm
         // After full pulls, run standard resolve-opens as a second pass for any remaining
         // (handles open_time issues that full pull might not catch)
         const stillIncomplete = await db.query(
-          `SELECT COUNT(*) as cnt FROM wp_trades
+          `SELECT COUNT(*) as cnt FROM wp_current_trades
            WHERE challenge_id = $1 AND (open_time IS NULL OR open_price IS NULL OR open_price = 0)`,
           [challengeId]
         );
@@ -7140,9 +7153,9 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/pull-single-account`, ad
     // Snapshot state BEFORE pull
     const before = await db.query(
       `SELECT r.disqualified, r.disqualified_reason, l.rank as prev_rank,
-              (SELECT COUNT(*) FROM wp_trades WHERE registration_id = $1) as trade_count
-       FROM trading_registrations r
-       LEFT JOIN wp_leaderboard l ON l.registration_id = r.id
+              (SELECT COUNT(*) FROM wp_current_trades WHERE registration_id = $1) as trade_count
+       FROM wp_current_registrations r
+       LEFT JOIN wp_current_leaderboard l ON l.registration_id = r.id
        WHERE r.id = $1 AND r.challenge_id = $2`,
       [registrationId, challengeId]
     );
@@ -7160,7 +7173,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/pull-single-account`, ad
     const tradeSnapshotResult = await db.query(
       `SELECT id, ticket, position_id, open_time, close_time, open_price, close_price,
               volume, symbol, trade_type, profit, is_qualified, violations, stop_loss, take_profit
-       FROM wp_trades WHERE challenge_id = $1 AND registration_id = $2
+       FROM wp_current_trades WHERE challenge_id = $1 AND registration_id = $2
        ORDER BY close_time DESC`,
       [challengeId, registrationId]
     );
@@ -7170,7 +7183,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/pull-single-account`, ad
     const lbSnapshot = await db.query(
       `SELECT qualified_profit, gross_profit, profit_removed, total_trades, qualified_trades,
               flagged_trades, adjusted_balance, current_balance, rank
-       FROM wp_leaderboard WHERE registration_id = $1`,
+       FROM wp_current_leaderboard WHERE registration_id = $1`,
       [registrationId]
     );
     const lbBefore = lbSnapshot.rows[0] || {};
@@ -7196,7 +7209,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/pull-single-account`, ad
           await evaluationEngine.evaluateSingleAccount(challengeId, registrationId, true);
           const tradeCountResult = await db.query(
             `SELECT COUNT(*) as total, COUNT(*) FILTER (WHERE is_qualified = false) as flagged
-             FROM wp_trades WHERE registration_id = $1 AND challenge_id = $2`,
+             FROM wp_current_trades WHERE registration_id = $1 AND challenge_id = $2`,
             [registrationId, challengeId]
           );
           totalTrades = parseInt(tradeCountResult.rows[0]?.total || '0');
@@ -7214,7 +7227,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/pull-single-account`, ad
         const currentTradesResult = await db.query(
           `SELECT id, ticket, position_id, open_time, close_time, open_price, close_price,
                   volume, symbol, trade_type, profit, is_qualified, violations, stop_loss, take_profit
-           FROM wp_trades WHERE challenge_id = $1 AND registration_id = $2
+           FROM wp_current_trades WHERE challenge_id = $1 AND registration_id = $2
            ORDER BY close_time DESC`,
           [challengeId, registrationId]
         );
@@ -7257,7 +7270,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/pull-single-account`, ad
         const stagingData = await db.query(
           `SELECT qualified_profit, gross_profit, profit_removed, total_trades, qualified_trades,
                   flagged_trades, adjusted_balance, current_balance, rank
-           FROM wp_leaderboard WHERE registration_id = $1`,
+           FROM wp_current_leaderboard WHERE registration_id = $1`,
           [registrationId]
         );
         const staging = stagingData.rows[0] || {};
@@ -7280,7 +7293,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/pull-single-account`, ad
 
         // Read actual DQ state after evaluation (deposit detection may have DQ'd)
         const dqAfterEval = await db.query(
-          `SELECT disqualified, disqualified_reason FROM trading_registrations WHERE id = $1`,
+          `SELECT disqualified, disqualified_reason FROM wp_current_registrations WHERE id = $1`,
           [registrationId]
         );
         const isDisqualifiedNow = dqAfterEval.rows[0]?.disqualified || false;
@@ -7365,9 +7378,9 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/reconciliation-failures`,
       `SELECT r.id, r.account_number, r.nickname, r.username, r.email, r.is_cent,
               r.last_known_balance,
               COALESCE(r.actual_starting_balance, r.registration_balance, 0) as start_bal,
-              COALESCE((SELECT SUM(COALESCE(profit,0)+COALESCE(commission,0)+COALESCE(swap,0)) FROM wp_trades WHERE challenge_id=$1 AND registration_id=r.id), 0) as trade_net,
+              COALESCE((SELECT SUM(COALESCE(profit,0)+COALESCE(commission,0)+COALESCE(swap,0)) FROM wp_current_trades WHERE challenge_id=$1 AND registration_id=r.id), 0) as trade_net,
               r.reconciliation_status
-       FROM trading_registrations r
+       FROM wp_current_registrations r
        WHERE r.challenge_id = $1 AND r.reconciliation_status = 'failed'
        ORDER BY r.last_known_balance DESC`,
       [challengeId]
@@ -7407,7 +7420,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/prestart-check-balance`,
 
     const regResult = await db.query(
       `SELECT id, account_number, mt5_server, investor_password, is_cent, nickname
-       FROM trading_registrations WHERE id = $1 AND challenge_id = $2`,
+       FROM wp_current_registrations WHERE id = $1 AND challenge_id = $2`,
       [registrationId, challengeId]
     );
     if (regResult.rows.length === 0) return res.status(404).json({ error: 'Registration not found' });
@@ -7460,7 +7473,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/trigger-prestart-snapsho
 
     // Check participant count and time window
     const totalParticipants = await db.query(
-      `SELECT COUNT(*) as cnt FROM trading_registrations
+      `SELECT COUNT(*) as cnt FROM wp_current_registrations
        WHERE challenge_id = $1 AND investor_password IS NOT NULL AND connection_verified = true`,
       [challengeId]
     );
@@ -7575,7 +7588,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/retry-all-credentials`, 
     const failedAccounts = await db.query(
       `SELECT r.id, r.account_number, r.mt5_server, r.investor_password, r.nickname, r.user_id, r.source, r.lang,
               c.title as challenge_title
-       FROM trading_registrations r
+       FROM wp_current_registrations r
        JOIN trading_challenges c ON c.id = r.challenge_id
        WHERE r.challenge_id = $1 AND r.disqualified = false AND r.pull_status = 'password_changed'
          AND r.investor_password IS NOT NULL
@@ -7714,7 +7727,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/update-password`, adminI
 
     // Get account details
     const regResult = await db.query(
-      `SELECT account_number, mt5_server, pull_status, disqualified, disqualified_reason FROM trading_registrations WHERE id = $1 AND challenge_id = $2`,
+      `SELECT account_number, mt5_server, pull_status, disqualified, disqualified_reason FROM wp_current_registrations WHERE id = $1 AND challenge_id = $2`,
       [registrationId, challengeId]
     );
     if (regResult.rows.length === 0) return res.status(404).json({ error: 'Registration not found' });
@@ -7796,7 +7809,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/reinstate-account`, admi
     if (!confirm) return res.json({ success: false, message: 'Reinstatement requires explicit confirmation' });
 
     const regResult = await db.query(
-      `SELECT account_number, disqualified, pull_status FROM trading_registrations WHERE id = $1 AND challenge_id = $2`,
+      `SELECT account_number, disqualified, pull_status FROM wp_current_registrations WHERE id = $1 AND challenge_id = $2`,
       [registrationId, challengeId]
     );
     if (regResult.rows.length === 0) return res.status(404).json({ error: 'Registration not found' });
@@ -7830,7 +7843,7 @@ app.post('/api/me/update-password', authMiddleware, async (req: any, res) => {
     if (!newPassword || newPassword.length < 3) return res.status(400).json({ error: 'Password too short' });
 
     const regResult = await db.query(
-      `SELECT account_number, mt5_server, pull_status, challenge_id FROM trading_registrations WHERE id = $1`,
+      `SELECT account_number, mt5_server, pull_status, challenge_id FROM wp_current_registrations WHERE id = $1`,
       [registrationId]
     );
     if (regResult.rows.length === 0) return res.status(404).json({ error: 'Registration not found' });
@@ -7890,7 +7903,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/verify-account`, adminIp
     if (!registrationId) return res.status(400).json({ error: 'registrationId required' });
 
     const regResult = await db.query(
-      `SELECT account_number, mt5_server, investor_password FROM trading_registrations WHERE id = $1 AND challenge_id = $2`,
+      `SELECT account_number, mt5_server, investor_password FROM wp_current_registrations WHERE id = $1 AND challenge_id = $2`,
       [registrationId, challengeId]
     );
     if (regResult.rows.length === 0) return res.status(404).json({ error: 'Registration not found' });
@@ -7956,12 +7969,12 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/verify-account`, adminIp
 
           // Still no balance? Get from leaderboard
           if (!balance) {
-            const lb = await db.query(`SELECT current_balance FROM wp_leaderboard WHERE registration_id = $1`, [registrationId]);
+            const lb = await db.query(`SELECT current_balance FROM wp_current_leaderboard WHERE registration_id = $1`, [registrationId]);
             if (lb.rows.length > 0 && lb.rows[0].current_balance) balance = parseFloat(lb.rows[0].current_balance);
           }
 
           // Get last pull status for context
-          const pullInfo = await db.query(`SELECT pull_status, pull_error, last_pull_at FROM trading_registrations WHERE id = $1`, [registrationId]);
+          const pullInfo = await db.query(`SELECT pull_status, pull_error, last_pull_at FROM wp_current_registrations WHERE id = $1`, [registrationId]);
           const pullStatus = pullInfo.rows[0]?.pull_status;
           const pullError = pullInfo.rows[0]?.pull_error;
 
@@ -8222,7 +8235,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/host-csv/:uploadId/approve`, adminIpCh
 
         // Check duplicate account number
         const existing = await db.query(
-          `SELECT 1 FROM trading_registrations WHERE challenge_id = $1 AND account_number = $2 AND (status IS NULL OR status != 'removed')`,
+          `SELECT 1 FROM wp_current_registrations WHERE challenge_id = $1 AND account_number = $2 AND (status IS NULL OR status != 'removed')`,
           [challengeId, row.account_number]
         );
         if (existing.rows.length > 0) {
@@ -8239,7 +8252,7 @@ app.post(`/api/admin/${ADMIN_SECRET_PATH}/host-csv/:uploadId/approve`, adminIpCh
           continue;
         }
         const existingNick = await db.query(
-          `SELECT 1 FROM trading_registrations WHERE challenge_id = $1 AND LOWER(nickname) = $2 AND (status IS NULL OR status != 'removed')`,
+          `SELECT 1 FROM wp_current_registrations WHERE challenge_id = $1 AND LOWER(nickname) = $2 AND (status IS NULL OR status != 'removed')`,
           [challengeId, nickLower]
         );
         if (existingNick.rows.length > 0) {
@@ -8493,7 +8506,7 @@ app.get('/api/vps/next-account', async (req, res) => {
 
     const result = await db.query(
       `SELECT account_number, investor_password, mt5_server
-       FROM trading_registrations
+       FROM wp_current_registrations
        WHERE challenge_id = $1
          AND account_subtype = $2
          AND disqualified = false
@@ -8535,7 +8548,7 @@ app.get('/api/me/balance-history', authMiddleware, async (req: any, res) => {
     const regInfo = await db.query(
       `SELECT r.challenge_id, r.actual_starting_balance, r.registration_balance, r.is_cent,
               c.starting_balance, c.start_date, c.end_date
-       FROM trading_registrations r
+       FROM wp_current_registrations r
        JOIN trading_challenges c ON c.id = r.challenge_id
        WHERE r.id = $1`,
       [registrationId]
@@ -8562,7 +8575,7 @@ app.get('/api/me/balance-history', authMiddleware, async (req: any, res) => {
 
     const trades = await db.query(
       `SELECT close_time, profit, commission, swap, is_qualified, evaluation_penalty
-       FROM wp_trades
+       FROM wp_current_trades
        WHERE challenge_id = $1 AND registration_id = $2${dateFilter}
        ORDER BY close_time ASC`,
       tradesParams
@@ -8570,7 +8583,7 @@ app.get('/api/me/balance-history', authMiddleware, async (req: any, res) => {
 
     // Build balance series
     const published = (await db.query(
-      'SELECT current_balance,adjusted_balance,total_withdrawn,last_updated FROM wp_leaderboard WHERE challenge_id=$1 AND registration_id=$2',
+      'SELECT current_balance,adjusted_balance,total_withdrawn,last_updated FROM wp_current_leaderboard WHERE challenge_id=$1 AND registration_id=$2',
       [challengeId,registrationId]
     )).rows[0];
     const chart = qualifiedBalanceSeries(startingBalance, reg.start_date || new Date().toISOString(), trades.rows, published);
@@ -8596,7 +8609,7 @@ async function managementBalanceHistory(req: any, res: any) {
     const regInfo = await db.query(
       `SELECT r.actual_starting_balance, r.registration_balance, r.is_cent,
               c.starting_balance, c.start_date, c.end_date
-       FROM trading_registrations r
+       FROM wp_current_registrations r
        JOIN trading_challenges c ON c.id = r.challenge_id
        WHERE r.id = $1 AND r.challenge_id = $2`,
       [registrationId, challengeId]
@@ -8621,14 +8634,14 @@ async function managementBalanceHistory(req: any, res: any) {
 
     const trades = await db.query(
       `SELECT close_time, profit, commission, swap, is_qualified, evaluation_penalty
-       FROM wp_trades
+       FROM wp_current_trades
        WHERE challenge_id = $1 AND registration_id = $2${dateFilter}
        ORDER BY close_time ASC`,
       tradesParams
     );
 
     const published = (await db.query(
-      'SELECT current_balance,adjusted_balance,total_withdrawn,last_updated FROM wp_leaderboard WHERE challenge_id=$1 AND registration_id=$2',
+      'SELECT current_balance,adjusted_balance,total_withdrawn,last_updated FROM wp_current_leaderboard WHERE challenge_id=$1 AND registration_id=$2',
       [challengeId,registrationId]
     )).rows[0];
     const chart = qualifiedBalanceSeries(startingBalance, reg.start_date || new Date().toISOString(), trades.rows, published);

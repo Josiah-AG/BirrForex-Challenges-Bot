@@ -3474,8 +3474,8 @@ export class TradingAdminHandler {
     try {
       const result = await db.query(
         `SELECT l.*, r.email, r.investor_password, r.user_id, r.username, r.nickname, r.account_number, r.mt5_server, r.account_type, r.is_cent
-         FROM wp_leaderboard l
-         JOIN trading_registrations r ON l.registration_id = r.id
+         FROM wp_current_leaderboard l
+         JOIN wp_current_registrations r ON l.registration_id = r.id
          WHERE l.challenge_id = $1
          ORDER BY l.account_type, l.rank ASC NULLS LAST`,
         [challenge.id]
@@ -3579,7 +3579,7 @@ export class TradingAdminHandler {
         `SELECT registration_id,
                 COUNT(*) FILTER (WHERE profit > 0 AND is_qualified = true) as qual_wins,
                 COUNT(*) FILTER (WHERE profit < 0) as all_losses
-         FROM wp_trades WHERE challenge_id = $1 AND registration_id = ANY($2)
+         FROM wp_current_trades WHERE challenge_id = $1 AND registration_id = ANY($2)
          GROUP BY registration_id`,
         [challengeId, allWinnerIds]
       );
@@ -3830,7 +3830,7 @@ export class TradingAdminHandler {
 
     // DM to all participants (telegram source only)
     const participants = await db.query(
-      `SELECT user_id, nickname FROM trading_registrations
+      `SELECT user_id, nickname FROM wp_current_registrations
        WHERE challenge_id = $1 AND source = 'telegram' AND user_id IS NOT NULL`,
       [challengeId]
     );
@@ -3920,7 +3920,7 @@ export class TradingAdminHandler {
     if (challengeType === 'real') {
       // All real participants (non-DQ, telegram source)
       eligibleQuery = `SELECT r.user_id, r.nickname, r.account_type
-        FROM trading_registrations r
+        FROM wp_current_registrations r
         WHERE r.challenge_id = $1 AND r.source = 'telegram' AND r.user_id IS NOT NULL
           AND r.account_type = 'real'`;
     } else if (challengeType === 'demo') {
@@ -3928,16 +3928,16 @@ export class TradingAdminHandler {
       // respects deposit mode (growth %) and the no-target / allow-below-start logic —
       // not a raw adjusted_balance >= target compare.
       eligibleQuery = `SELECT r.user_id, r.nickname, r.account_type
-        FROM trading_registrations r
-        JOIN wp_leaderboard l ON l.registration_id = r.id
+        FROM wp_current_registrations r
+        JOIN wp_current_leaderboard l ON l.registration_id = r.id
         WHERE r.challenge_id = $1 AND r.source = 'telegram' AND r.user_id IS NOT NULL
           AND r.account_type = 'demo'
           AND l.is_qualified = true AND l.is_disqualified = false`;
     } else {
       // Hybrid: all real + demo who qualified (is_qualified flag, not phantom target compare)
       eligibleQuery = `SELECT r.user_id, r.nickname, r.account_type
-        FROM trading_registrations r
-        LEFT JOIN wp_leaderboard l ON l.registration_id = r.id
+        FROM wp_current_registrations r
+        LEFT JOIN wp_current_leaderboard l ON l.registration_id = r.id
         WHERE r.challenge_id = $1 AND r.source = 'telegram' AND r.user_id IS NOT NULL
           AND (
             r.account_type = 'real'

@@ -21,7 +21,7 @@ export async function refreshNewClients(){
   for(const c of challenges)await db.query('INSERT INTO wp_new_client_reports(challenge_id) VALUES($1) ON CONFLICT DO NOTHING',[c.id]);
   const clients=await exnessService.clientDirectory();
   for(const c of challenges){
-   const participants=(await db.query(`SELECT nickname,username,email,account_number,account_type,client_uid,registered_at FROM trading_registrations WHERE challenge_id=$1 AND status IS DISTINCT FROM 'removed'`,[c.id])).rows;
+   const participants=(await db.query(`SELECT nickname,username,email,account_number,account_type,client_uid,registered_at FROM wp_current_registrations WHERE challenge_id=$1 AND status IS DISTINCT FROM 'removed'`,[c.id])).rows;
    const report=newClientReport(c,participants,clients);
    await db.query(`INSERT INTO wp_new_client_reports(challenge_id,report,updated_at,error) VALUES($1,$2,NOW(),NULL)
     ON CONFLICT(challenge_id) DO UPDATE SET report=EXCLUDED.report,updated_at=NOW(),error=NULL`,[c.id,JSON.stringify(report)]);

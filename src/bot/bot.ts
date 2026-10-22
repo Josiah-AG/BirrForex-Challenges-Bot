@@ -356,7 +356,7 @@ export class Bot {
           text += `⏰ <b>${timeStr} EAT</b> — ${batch.status}\n`;
           text += `   ✅ ${batch.successful || 0} | ❌ ${batch.failed || 0} | 📈 ${batch.new_trades_found || 0} trades | ⏱️ ${duration}s\n\n`;
         }
-        const pwChanged = await db.query(`SELECT COUNT(*) as cnt FROM trading_registrations WHERE pull_status = 'password_changed' AND disqualified = false`);
+        const pwChanged = await db.query(`SELECT COUNT(*) as cnt FROM wp_current_registrations WHERE pull_status = 'password_changed' AND disqualified = false`);
         text += `🔑 Password changed (pending): ${pwChanged.rows[0].cnt}`;
         await ctx.reply(text, { parse_mode: 'HTML' });
       } catch (e) { await ctx.reply('❌ Error fetching pull status.'); }
@@ -645,12 +645,12 @@ export class Bot {
               try {
                 const matchedServer = fuzzyMatchServer(row.mt5_server, row.account_type) || row.mt5_server;
                 // Duplicate account check
-                const existing = await db.query(`SELECT 1 FROM trading_registrations WHERE challenge_id = $1 AND account_number = $2 AND (status IS NULL OR status != 'removed')`, [challengeId, row.account_number]);
+                const existing = await db.query(`SELECT 1 FROM wp_current_registrations WHERE challenge_id = $1 AND account_number = $2 AND (status IS NULL OR status != 'removed')`, [challengeId, row.account_number]);
                 if (existing.rows.length > 0) { await db.query(`UPDATE host_csv_rows SET status = 'failed', error_message = 'Account already registered' WHERE id = $1`, [row.id]); failedCount++; continue; }
                 // Duplicate nickname check
                 const nickLower = (row.nickname || '').trim().toLowerCase();
                 if (processedNicknames.has(nickLower)) { await db.query(`UPDATE host_csv_rows SET status = 'failed', error_message = 'Duplicate nickname' WHERE id = $1`, [row.id]); failedCount++; continue; }
-                const existingNick = await db.query(`SELECT 1 FROM trading_registrations WHERE challenge_id = $1 AND LOWER(nickname) = $2 AND (status IS NULL OR status != 'removed')`, [challengeId, nickLower]);
+                const existingNick = await db.query(`SELECT 1 FROM wp_current_registrations WHERE challenge_id = $1 AND LOWER(nickname) = $2 AND (status IS NULL OR status != 'removed')`, [challengeId, nickLower]);
                 if (existingNick.rows.length > 0) { await db.query(`UPDATE host_csv_rows SET status = 'failed', error_message = 'Nickname taken' WHERE id = $1`, [row.id]); failedCount++; continue; }
                 processedNicknames.add(nickLower);
                 // VPS verify

@@ -323,7 +323,7 @@ export class TradingRegistrationHandler {
     const challenge = await tradingChallengeService.getChallengeById(challengeId);
     if (!challenge) { await ctx.reply('❌ Challenge not found.'); return; }
     // Get user's language preference from their registration
-    const langResult = await db.query('SELECT lang FROM trading_registrations WHERE challenge_id = $1 AND user_id = $2', [challengeId, telegramId]);
+    const langResult = await db.query('SELECT lang FROM wp_current_registrations WHERE challenge_id = $1 AND user_id = $2', [challengeId, telegramId]);
     const lang: Lang = (langResult.rows[0]?.lang as Lang) || 'en';
     if (challenge.status !== 'submission_open') {
       if (challenge.status === 'reviewing' || challenge.status === 'completed') {
@@ -385,7 +385,7 @@ export class TradingRegistrationHandler {
     try {
       const telegramId = ctx.from!.id;
       const sub = await db.query(
-        'SELECT s.*, r.account_number, r.user_id, r.username FROM trading_submissions s JOIN trading_registrations r ON s.registration_id = r.id WHERE s.id = $1',
+        'SELECT s.*, r.account_number, r.user_id, r.username FROM trading_submissions s JOIN wp_current_registrations r ON s.registration_id = r.id WHERE s.id = $1',
         [submissionId]
       );
       if (!sub.rows[0]) { await ctx.reply('❌ Submission not found.'); return; }
@@ -491,7 +491,7 @@ export class TradingRegistrationHandler {
       const reg = await tradingChallengeService.getRegistration(challengeId, telegramId);
       if (!reg) return true;
       // Get lang from registration if stored, otherwise default to 'en'
-      const langResult = await db.query('SELECT lang FROM trading_registrations WHERE id = $1', [reg.id]);
+      const langResult = await db.query('SELECT lang FROM wp_current_registrations WHERE id = $1', [reg.id]);
       const lang: Lang = (langResult.rows[0]?.lang as Lang) || 'en';
       userSessions.set(telegramId, { step: 'tc_change_acct_number', data: { challenge_id: challengeId, registration_id: reg.id, account_type: reg.account_type, lang } });
       await ctx.answerCbQuery();
@@ -923,7 +923,7 @@ export class TradingRegistrationHandler {
           // Check disqualified status BEFORE updating — if the 48h auto-DQ rule already
           // fired on this account, fixing the password does NOT auto-reinstate it. Only
           // an admin can reverse a disqualification (confirmed deliberately, dashboard-side).
-          const dqCheck = await db.query(`SELECT disqualified FROM trading_registrations WHERE id = $1`, [session.data.registration_id]);
+          const dqCheck = await db.query(`SELECT disqualified FROM wp_current_registrations WHERE id = $1`, [session.data.registration_id]);
           const wasDisqualified = dqCheck.rows[0]?.disqualified === true;
 
           // Update password in database and reset pull status. Deliberately leave
@@ -945,7 +945,7 @@ export class TradingRegistrationHandler {
             // until an admin explicitly reinstates it via the dashboard.
           } else {
             // Fetch lang from registration for translated message
-            const langResult = await db.query('SELECT lang FROM trading_registrations WHERE id = $1', [session.data.registration_id]);
+            const langResult = await db.query('SELECT lang FROM wp_current_registrations WHERE id = $1', [session.data.registration_id]);
             const lang: Lang = (langResult.rows[0]?.lang as Lang) || 'en';
             await ctx.reply(
               '✅ <b>Password updated successfully!</b>\n\nYour account is now accessible again. We\'re pulling your full trade history now to backfill anything missed while access was down.\n\n⚠️ <b>Remember:</b> Do NOT change your investor password again until the challenge ends.' +
@@ -1692,7 +1692,7 @@ export class TradingRegistrationHandler {
 
       // Pull investor password from registration record (already collected during signup)
       const regRecord = await db.query(
-        'SELECT investor_password FROM trading_registrations WHERE id = $1',
+        'SELECT investor_password FROM wp_current_registrations WHERE id = $1',
         [session.data.registration_id]
       );
       const investorPassword = regRecord.rows[0]?.investor_password || session.data.investor_password || '';
@@ -1765,7 +1765,7 @@ export class TradingRegistrationHandler {
 
     // Verify this registration belongs to the user
     const result = await db.query(
-      'SELECT * FROM trading_registrations WHERE id = $1 AND user_id = $2',
+      'SELECT * FROM wp_current_registrations WHERE id = $1 AND user_id = $2',
       [registrationId, telegramId]
     );
 
@@ -1796,7 +1796,7 @@ export class TradingRegistrationHandler {
 
     // Verify this registration belongs to the user
     const result = await db.query(
-      'SELECT * FROM trading_registrations WHERE id = $1 AND user_id = $2',
+      'SELECT * FROM wp_current_registrations WHERE id = $1 AND user_id = $2',
       [registrationId, telegramId]
     );
 

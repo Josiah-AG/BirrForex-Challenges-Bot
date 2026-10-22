@@ -19,7 +19,7 @@ export async function labelBalanceHistory(registrationId: number, rows: any[]): 
   let resets = new Set<string>();
   if(rows.some(o=>String(o.comment||'').trim().toUpperCase()==='D-NULL')) {
     const registration=(await db.query(`SELECT history_verified_balance,history_verified_through,history_sync_state
-      FROM trading_registrations WHERE id=$1`,[registrationId])).rows[0];
+      FROM wp_current_registrations WHERE id=$1`,[registrationId])).rows[0];
     if(registration) {
       const deals=(await db.query(`SELECT ticket,time,deal_type,profit,commission,swap,fee,comment
         FROM wp_deals WHERE registration_id=$1 ORDER BY time,ticket`,[registrationId])).rows;

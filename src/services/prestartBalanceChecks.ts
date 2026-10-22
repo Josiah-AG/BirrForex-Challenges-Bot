@@ -43,7 +43,7 @@ export async function runBalanceWarningCheck(challengeId:number,telegram:any,man
     let challenge=(await db.query('SELECT * FROM trading_challenges WHERE id=$1',[challengeId])).rows[0];
     if(!challenge || challenge.status!=='registration_open' || challenge.pre_start_check_started_at)return totals;
     await deliverCredentialNotices(challenge,telegram);
-    const count=Number((await db.query('SELECT COUNT(*) AS cnt FROM trading_registrations WHERE challenge_id=$1 AND investor_password IS NOT NULL AND connection_verified=true',[challengeId])).rows[0].cnt);
+    const count=Number((await db.query('SELECT COUNT(*) AS cnt FROM wp_current_registrations WHERE challenge_id=$1 AND investor_password IS NOT NULL AND connection_verified=true',[challengeId])).rows[0].cnt);
     let times=balanceCheckTimes(challenge.start_date,count,challenge.pre_start_lead_hours);
     if(Date.now()>=times.finalAt.getTime())return totals;
     const isFinal=Date.now()>=times.warningAt.getTime();
@@ -63,7 +63,7 @@ export async function runBalanceWarningCheck(challengeId:number,telegram:any,man
     const scheduleKey=new Date(challenge.start_date).toISOString();
     let slot=`${scheduleKey}:${times.lead}:${isFinal?'final':'daily:'+local.dateStr}`;
     if(registrationId){
-      const verified=(await db.query('SELECT connection_verified_at FROM trading_registrations WHERE id=$1 AND challenge_id=$2',[registrationId,challengeId])).rows[0];
+      const verified=(await db.query('SELECT connection_verified_at FROM wp_current_registrations WHERE id=$1 AND challenge_id=$2',[registrationId,challengeId])).rows[0];
       if(!verified?.connection_verified_at)return totals;
       slot+=`:repair:${registrationId}:${new Date(verified.connection_verified_at).toISOString()}`;
     }
@@ -73,13 +73,13 @@ export async function runBalanceWarningCheck(challengeId:number,telegram:any,man
     // An interrupted round consumes an attempt and waits five minutes on restart.
     if(!manual && (round.attempts>=3 || (round.finished_at && Date.now()-+new Date(round.finished_at)<300000)))return {...totals,exhausted:round.attempts>=3};
     if(allowNew && (round.attempts===0 || manual))await db.query(`INSERT INTO prestart_balance_checks(challenge_id,registration_id,slot)
-      SELECT challenge_id,id,$2 FROM trading_registrations WHERE challenge_id=$1 AND disqualified=false AND investor_password IS NOT NULL AND connection_verified=true AND status IS DISTINCT FROM 'removed'
+      SELECT challenge_id,id,$2 FROM wp_current_registrations WHERE challenge_id=$1 AND disqualified=false AND investor_password IS NOT NULL AND connection_verified=true AND status IS DISTINCT FROM 'removed'
       AND COALESCE(pull_status,'') NOT IN ('password_changed','invalid_credentials')
       AND ($3::integer IS NULL OR id=$3) ON CONFLICT DO NOTHING`,[challengeId,slot,registrationId || null]);
     if(manual)await db.query('UPDATE prestart_balance_rounds SET attempts=0 WHERE challenge_id=$1 AND slot=$2',[challengeId,slot]);
     if(manual)await db.query('UPDATE prestart_balance_checks SET checked_at=NULL,attempted_at=NULL,error=NULL WHERE challenge_id=$1 AND slot=$2',[challengeId,slot]);
     const regs=(await db.query(`SELECT r.id,r.account_number,r.mt5_server,r.investor_password,r.user_id,r.nickname,r.is_cent,r.source,r.account_type,r.lang,r.email,r.pull_status,r.connection_verified_at
-      FROM trading_registrations r JOIN prestart_balance_checks b ON b.registration_id=r.id AND b.slot=$2
+      FROM wp_current_registrations r JOIN prestart_balance_checks b ON b.registration_id=r.id AND b.slot=$2
       WHERE r.challenge_id=$1 AND r.disqualified=false AND r.investor_password IS NOT NULL AND r.connection_verified=true
       AND b.credential_error=false AND COALESCE(r.pull_status,'') NOT IN ('password_changed','invalid_credentials')
       AND r.status IS DISTINCT FROM 'removed'
@@ -194,7 +194,7 @@ async function recordCredentialFailure(challengeId:number,reg:any,slot:string) {
 
 async function deliverCredentialNotices(challenge:any,telegram:any) {
   const rows=(await db.query(`SELECT b.registration_id,b.slot,r.email,r.nickname,r.account_number,r.account_type,r.user_id,r.source
-    FROM prestart_balance_checks b JOIN trading_registrations r ON r.id=b.registration_id
+    FROM prestart_balance_checks b JOIN wp_current_registrations r ON r.id=b.registration_id
     WHERE b.challenge_id=$1 AND b.credential_error=true AND b.credential_notified_at IS NULL
     AND r.pull_status IN ('password_changed','invalid_credentials') AND r.disqualified=false
     AND r.status IS DISTINCT FROM 'removed'

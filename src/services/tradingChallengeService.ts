@@ -212,7 +212,7 @@ class TradingChallengeService {
       await db.query('SELECT id FROM trading_challenges WHERE id=$1 FOR UPDATE',[data.challenge_id]);
       await validateVerifiedRegistration(data.challenge_id,data.account_type,verified,'native');
       if (data.replacement_registration_id) {
-        const old = await db.query("SELECT id FROM trading_registrations WHERE id=$1 AND challenge_id=$2 AND user_id=$3 AND status IS DISTINCT FROM 'removed' FOR UPDATE", [data.replacement_registration_id,data.challenge_id,data.user_id]);
+        const old = await db.query("SELECT id FROM wp_current_registrations WHERE id=$1 AND challenge_id=$2 AND user_id=$3 AND status IS DISTINCT FROM 'removed' FOR UPDATE", [data.replacement_registration_id,data.challenge_id,data.user_id]);
         if (!old.rows.length) throw new ConfigurationError('Your original registration has changed. Please restart the replacement.');
         // Remove only inside the final transaction: a failed insert restores the original.
         await db.query("UPDATE trading_registrations SET status='removed',disqualified=true,disqualified_source='removed',disqualified_reason='Registration replaced',disqualified_at=NOW() WHERE id=$1", [data.replacement_registration_id]);
@@ -233,7 +233,7 @@ class TradingChallengeService {
 
   async getRegistration(challengeId: number, userId: number): Promise<TradingRegistration | null> {
     const result = await db.query(
-      "SELECT * FROM trading_registrations WHERE challenge_id = $1 AND user_id = $2 AND status IS DISTINCT FROM 'removed'",
+      "SELECT * FROM wp_current_registrations WHERE challenge_id = $1 AND user_id = $2 AND status IS DISTINCT FROM 'removed'",
       [challengeId, userId]
     );
     return result.rows[0] || null;
@@ -241,7 +241,7 @@ class TradingChallengeService {
 
   async getRegistrationByEmail(challengeId: number, email: string): Promise<TradingRegistration | null> {
     const result = await db.query(
-      "SELECT * FROM trading_registrations WHERE challenge_id = $1 AND LOWER(email) = LOWER($2) AND status IS DISTINCT FROM 'removed'",
+      "SELECT * FROM wp_current_registrations WHERE challenge_id = $1 AND LOWER(email) = LOWER($2) AND status IS DISTINCT FROM 'removed'",
       [challengeId, email]
     );
     return result.rows[0] || null;
@@ -249,7 +249,7 @@ class TradingChallengeService {
 
   async isNicknameTaken(challengeId: number, nickname: string, excludeRegistrationId?: number): Promise<boolean> {
     const result = await db.query(
-      "SELECT 1 FROM trading_registrations WHERE challenge_id = $1 AND LOWER(nickname) = LOWER($2) AND status IS DISTINCT FROM 'removed' AND ($3::integer IS NULL OR id <> $3)",
+      "SELECT 1 FROM wp_current_registrations WHERE challenge_id = $1 AND LOWER(nickname) = LOWER($2) AND status IS DISTINCT FROM 'removed' AND ($3::integer IS NULL OR id <> $3)",
       [challengeId, nickname.trim(), excludeRegistrationId || null]
     );
     return result.rows.length > 0;
@@ -257,7 +257,7 @@ class TradingChallengeService {
 
   async getAllRegistrations(challengeId: number): Promise<TradingRegistration[]> {
     const result = await db.query(
-      "SELECT * FROM trading_registrations WHERE challenge_id = $1 AND status IS DISTINCT FROM 'removed' ORDER BY registered_at ASC",
+      "SELECT * FROM wp_current_registrations WHERE challenge_id = $1 AND status IS DISTINCT FROM 'removed' ORDER BY registered_at ASC",
       [challengeId]
     );
     return result.rows;
@@ -269,7 +269,7 @@ class TradingChallengeService {
          COUNT(*) as total,
          COUNT(CASE WHEN account_type = 'demo' THEN 1 END) as demo,
          COUNT(CASE WHEN account_type = 'real' THEN 1 END) as real
-       FROM trading_registrations WHERE challenge_id = $1 AND status IS DISTINCT FROM 'removed'`,
+       FROM wp_current_registrations WHERE challenge_id = $1 AND status IS DISTINCT FROM 'removed'`,
       [challengeId]
     );
     const row = result.rows[0];
@@ -291,7 +291,7 @@ class TradingChallengeService {
 
   async deleteRegistrationByUsername(challengeId: number, username: string): Promise<TradingRegistration | null> {
     const result = await db.query(
-      "SELECT * FROM trading_registrations WHERE challenge_id = $1 AND LOWER(username) = LOWER($2) AND status IS DISTINCT FROM 'removed'",
+      "SELECT * FROM wp_current_registrations WHERE challenge_id = $1 AND LOWER(username) = LOWER($2) AND status IS DISTINCT FROM 'removed'",
       [challengeId, username.replace('@', '')]
     );
     const reg = result.rows[0] || null;
@@ -301,7 +301,7 @@ class TradingChallengeService {
 
   async deleteRegistrationByEmail(challengeId: number, email: string): Promise<TradingRegistration | null> {
     const result = await db.query(
-      "SELECT * FROM trading_registrations WHERE challenge_id = $1 AND LOWER(email) = LOWER($2) AND status IS DISTINCT FROM 'removed'",
+      "SELECT * FROM wp_current_registrations WHERE challenge_id = $1 AND LOWER(email) = LOWER($2) AND status IS DISTINCT FROM 'removed'",
       [challengeId, email]
     );
     const reg = result.rows[0] || null;
@@ -311,7 +311,7 @@ class TradingChallengeService {
 
   async deleteRegistrationByAccount(challengeId: number, accountNumber: string): Promise<TradingRegistration | null> {
     const result = await db.query(
-      'SELECT * FROM trading_registrations WHERE challenge_id = $1 AND account_number = $2',
+      'SELECT * FROM wp_current_registrations WHERE challenge_id = $1 AND account_number = $2',
       [challengeId, accountNumber.trim()]
     );
     const reg = result.rows[0] || null;
@@ -369,7 +369,7 @@ class TradingChallengeService {
     const result = await db.query(
       `SELECT s.*, r.user_id, r.username, r.account_type, r.email, r.account_number, r.mt5_server, r.is_cent
        FROM trading_submissions s
-       JOIN trading_registrations r ON s.registration_id = r.id
+       JOIN wp_current_registrations r ON s.registration_id = r.id
        WHERE s.challenge_id = $1
        ORDER BY s.final_balance DESC`,
       [challengeId]
@@ -381,7 +381,7 @@ class TradingChallengeService {
     const result = await db.query(
       `SELECT s.*, r.user_id, r.username, r.account_type, r.email, r.account_number, r.mt5_server, r.is_cent
        FROM trading_submissions s
-       JOIN trading_registrations r ON s.registration_id = r.id
+       JOIN wp_current_registrations r ON s.registration_id = r.id
        WHERE s.challenge_id = $1 AND r.account_type = $2
        ORDER BY s.final_balance DESC`,
       [challengeId, category]
@@ -396,7 +396,7 @@ class TradingChallengeService {
          COUNT(CASE WHEN r.account_type = 'demo' THEN 1 END) as demo,
          COUNT(CASE WHEN r.account_type = 'real' THEN 1 END) as real
        FROM trading_submissions s
-       JOIN trading_registrations r ON s.registration_id = r.id
+       JOIN wp_current_registrations r ON s.registration_id = r.id
        WHERE s.challenge_id = $1`,
       [challengeId]
     );
@@ -504,7 +504,7 @@ class TradingChallengeService {
   async getEngageableFailedAttempts(challengeId: number): Promise<any[]> {
     const result = await db.query(
       `SELECT fa.* FROM trading_failed_attempts fa
-       LEFT JOIN trading_registrations tr ON fa.challenge_id = tr.challenge_id AND fa.telegram_id = tr.user_id
+       LEFT JOIN wp_current_registrations tr ON fa.challenge_id = tr.challenge_id AND fa.telegram_id = tr.user_id
        WHERE fa.challenge_id = $1
        AND fa.attempted_at < NOW() - INTERVAL '24 hours'
        AND tr.id IS NULL
@@ -523,7 +523,7 @@ class TradingChallengeService {
       AND NOW()<LEAST(COALESCE(c.registration_deadline,c.start_date),c.start_date)
       AND NOT EXISTS(SELECT 1 FROM registration_reminder_history h WHERE h.telegram_id=fa.telegram_id
         AND h.day=(NOW() AT TIME ZONE COALESCE(c.timezone,'Africa/Nairobi'))::date)
-      AND NOT EXISTS(SELECT 1 FROM trading_registrations r WHERE r.challenge_id=fa.challenge_id
+      AND NOT EXISTS(SELECT 1 FROM wp_current_registrations r WHERE r.challenge_id=fa.challenge_id
         AND r.user_id=fa.telegram_id AND r.status IS DISTINCT FROM 'removed')
       ORDER BY registration_started_at`,[challengeId])).rows;
   }
@@ -533,7 +533,7 @@ class TradingChallengeService {
       `SELECT fa.*, 
        CASE WHEN tr.id IS NOT NULL THEN true ELSE false END as later_registered
        FROM trading_failed_attempts fa
-       LEFT JOIN trading_registrations tr ON fa.challenge_id = tr.challenge_id AND fa.telegram_id = tr.user_id
+       LEFT JOIN wp_current_registrations tr ON fa.challenge_id = tr.challenge_id AND fa.telegram_id = tr.user_id
        WHERE fa.challenge_id = $1
        ORDER BY fa.attempted_at DESC`,
       [challengeId]
@@ -554,7 +554,7 @@ class TradingChallengeService {
 
   async getActiveRegistrations(challengeId: number): Promise<TradingRegistration[]> {
     const result = await db.query(
-      `SELECT * FROM trading_registrations WHERE challenge_id = $1 AND status IS DISTINCT FROM 'removed' AND disqualified = false ORDER BY id`,
+      `SELECT * FROM wp_current_registrations WHERE challenge_id = $1 AND status IS DISTINCT FROM 'removed' AND disqualified = false ORDER BY id`,
       [challengeId]
     );
     return result.rows;
@@ -625,12 +625,12 @@ class TradingChallengeService {
   async getCumulativePartnerStats(challengeId: number): Promise<{ changed_real: number; changed_demo: number; still_changing_real: number; still_changing_demo: number; cleared: number }> {
     // Changed = disqualified due to partner change
     const disqualified = await db.query(
-      `SELECT account_type, COUNT(*) as cnt FROM trading_registrations WHERE challenge_id = $1 AND disqualified = true AND (disqualified_source='partner_departure' OR disqualified_reason='Partner changed from BirrForex') GROUP BY account_type`,
+      `SELECT account_type, COUNT(*) as cnt FROM wp_current_registrations WHERE challenge_id = $1 AND disqualified = true AND (disqualified_source='partner_departure' OR disqualified_reason='Partner changed from BirrForex') GROUP BY account_type`,
       [challengeId]
     );
     // Still changing = warned but not yet disqualified
     const changing = await db.query(
-      `SELECT account_type, COUNT(*) as cnt FROM trading_registrations WHERE challenge_id = $1 AND partner_status = 'CHANGING' AND disqualified = false GROUP BY account_type`,
+      `SELECT account_type, COUNT(*) as cnt FROM wp_current_registrations WHERE challenge_id = $1 AND partner_status = 'CHANGING' AND disqualified = false GROUP BY account_type`,
       [challengeId]
     );
     // Cleared = sum of warnings_cleared across all screening results
@@ -655,7 +655,7 @@ class TradingChallengeService {
 
   async getStillChangingUsers(challengeId: number): Promise<any[]> {
     const result = await db.query(
-      `SELECT * FROM trading_registrations WHERE challenge_id = $1 AND partner_status = 'CHANGING' AND disqualified = false ORDER BY partner_warned_at ASC`,
+      `SELECT * FROM wp_current_registrations WHERE challenge_id = $1 AND partner_status = 'CHANGING' AND disqualified = false ORDER BY partner_warned_at ASC`,
       [challengeId]
     );
     return result.rows;
@@ -671,7 +671,7 @@ class TradingChallengeService {
 
   async getWarningUsers(challengeId: number): Promise<TradingRegistration[]> {
     const result = await db.query(
-      `SELECT * FROM trading_registrations WHERE challenge_id = $1 AND partner_status = 'CHANGING' AND disqualified = false`,
+      `SELECT * FROM wp_current_registrations WHERE challenge_id = $1 AND partner_status = 'CHANGING' AND disqualified = false`,
       [challengeId]
     );
     return result.rows;
@@ -679,7 +679,7 @@ class TradingChallengeService {
 
   async getNewlyDisqualified(challengeId: number, date: string): Promise<TradingRegistration[]> {
     const result = await db.query(
-      `SELECT * FROM trading_registrations WHERE challenge_id = $1 AND disqualified = true AND disqualified_at::date = $2::date`,
+      `SELECT * FROM wp_current_registrations WHERE challenge_id = $1 AND disqualified = true AND disqualified_at::date = $2::date`,
       [challengeId, date]
     );
     return result.rows;

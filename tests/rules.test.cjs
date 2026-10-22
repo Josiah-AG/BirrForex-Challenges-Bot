@@ -23,7 +23,7 @@ async function evaluate(rules, trades, options={}) {
    {ticket:t.ticket*10,position_id:t.position_id,entry:0,volume:t.volume,time:t.open_time,deal_type:0,profit:0},
    {ticket:t.ticket*10+1,position_id:t.position_id,entry:1,volume:t.volume,time:t.close_time,deal_type:0,profit:t.profit,commission:t.commission,swap:t.swap}
   ]) : []};
-  if (sql.includes('FROM trading_registrations')) return {rows:[{history_sync_state:"verified",history_verified_through:"2026-09-26T00:00:00Z",history_verified_balance:1000+trades.reduce((n,t)=>n+Number(t.profit)+Number(t.commission||0)+Number(t.swap||0),0),registration_balance:1000,actual_starting_balance:1000,last_known_balance:1000,disqualified:false,last_known_equity:1000}]};
+  if (sql.includes('FROM wp_current_registrations')) return {rows:[{history_sync_state:"verified",history_verified_through:"2026-09-26T00:00:00Z",history_verified_balance:1000+trades.reduce((n,t)=>n+Number(t.profit)+Number(t.commission||0)+Number(t.swap||0),0),registration_balance:1000,actual_starting_balance:1000,last_known_balance:1000,disqualified:false,last_known_equity:1000}]};
   if (sql.includes('FROM wp_balance_ops')) return {rows:sql.includes("o.op_type='withdrawal'") ? [{total:options.withdrawn||0}] : options.balanceOps || []};
   if (sql.includes('FROM wp_pull_errors')) return {rows:[]};
   if (sql.includes('wp_ohlc')) return {rows:[]};
@@ -105,7 +105,7 @@ test('cent-account conversion preserves OFF switches and uses the right category
  const challenge={type:'hybrid',split_category_settings:true,starting_balance:1000,target_balance:2000,demo_starting_balance:1000,real_starting_balance:2000,real_target_balance:4000,real_deposit_mode:'fixed',real_target_enabled:true,real_allow_below_start:false};
  const rules=base();query=async(sql,params)=>{
   if(sql.includes('wp_challenge_rules')) {assert.equal(params[1],'config_real');return {rows:[{parameters:rules}]};}
-  if(sql.includes('FROM trading_registrations')) return {rows:[{id:2,account_type:'real',is_cent:true}]};
+  if(sql.includes('FROM wp_current_registrations')) return {rows:[{id:2,account_type:'real',is_cent:true}]};
   return {rows:[challenge]};
  };
  engine.evaluateAccount=async(...args)=>{captured=args;return {flaggedCount:0,isQualified:false};};

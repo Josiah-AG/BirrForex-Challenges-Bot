@@ -349,7 +349,7 @@ export class WpEvaluationEngine {
    * Run full evaluation after a pull cycle
    */
   async evaluate(challengeId: number, overrideLock=false): Promise<{ evaluated: number; flagged: number; qualified: number }> {
-    const registrations=await db.query(`SELECT id FROM trading_registrations WHERE challenge_id=$1 AND status IS DISTINCT FROM 'removed' AND disqualified=false AND investor_password IS NOT NULL`,[challengeId]);
+    const registrations=await db.query(`SELECT id FROM wp_current_registrations WHERE challenge_id=$1 AND status IS DISTINCT FROM 'removed' AND disqualified=false AND investor_password IS NOT NULL`,[challengeId]);
     let flagged=0,qualified=0;
     for(const registration of registrations.rows){
       const result=await this.evaluateSingleAccount(challengeId,registration.id,overrideLock);
@@ -380,7 +380,7 @@ export class WpEvaluationEngine {
 
     const regResult = await db.query(
       `SELECT id, account_number, user_id, username, nickname, account_type, account_subtype, is_cent, source
-       FROM trading_registrations WHERE id = $1 AND challenge_id = $2 AND status IS DISTINCT FROM 'removed'`,
+       FROM wp_current_registrations WHERE id = $1 AND challenge_id = $2 AND status IS DISTINCT FROM 'removed'`,
       [registrationId, challengeId]
     );
     if (regResult.rows.length === 0) return { flaggedCount: 0, isQualified: false };
@@ -491,7 +491,7 @@ export class WpEvaluationEngine {
     let actualStartBalance = startingBalance;
     try {
       const regData = await db.query(
-        `SELECT registration_balance, actual_starting_balance, registered_at, funding_origin, prestart_snapshot_at, prestart_snapshot_until, prestart_snapshot_balance, history_sync_state, history_verified_balance, history_verified_through FROM trading_registrations WHERE id = $1`, [reg.id]
+        `SELECT registration_balance, actual_starting_balance, registered_at, funding_origin, prestart_snapshot_at, prestart_snapshot_until, prestart_snapshot_balance, history_sync_state, history_verified_balance, history_verified_through FROM wp_current_registrations WHERE id = $1`, [reg.id]
       );
       const savedActual = regData.rows[0]?.actual_starting_balance;
       const regBalance  = parseFloat(regData.rows[0]?.registration_balance ?? '0') || 0;
@@ -812,7 +812,7 @@ export class WpEvaluationEngine {
     const isDailyLossPercentMode=rules.daily_loss_mode==='percentage' && rules.daily_loss_percent;
     if((isDailyLossPercentMode || rules.daily_loss_cap) && isRuleEnabled(rules,'daily_loss_cap')){
       const adjustments=(await db.query(`SELECT o.op_time,o.amount,o.op_type,o.deal_ticket FROM wp_balance_ops o
-        JOIN trading_registrations r ON r.id=o.registration_id JOIN trading_challenges c ON c.id=o.challenge_id
+        JOIN wp_current_registrations r ON r.id=o.registration_id JOIN trading_challenges c ON c.id=o.challenge_id
         WHERE o.challenge_id=$1 AND o.registration_id=$2 AND o.op_type<>'deposit'
         AND o.op_time >= (GREATEST(c.start_date,r.registered_at) AT TIME ZONE 'UTC')
         AND o.op_time <= (c.end_date AT TIME ZONE 'UTC') ORDER BY o.op_time,o.deal_ticket`,[challengeId,reg.id])).rows;
@@ -844,7 +844,7 @@ export class WpEvaluationEngine {
 
     if (isRiskPercentMode) {
       const snapshot=(await db.query(`SELECT history_verified_balance,history_verified_through,history_sync_state
-        FROM trading_registrations WHERE id=$1`,[reg.id])).rows[0];
+        FROM wp_current_registrations WHERE id=$1`,[reg.id])).rows[0];
       if(!snapshot || !['verified','published'].includes(snapshot.history_sync_state))throw Error('Risk allowance awaits verified broker history');
       const ledger=(await db.query(`SELECT ticket,position_id,entry,time,deal_type,profit,commission,swap,fee
         FROM wp_deals WHERE challenge_id=$1 AND registration_id=$2 ORDER BY time,ticket`,[challengeId,reg.id])).rows;
@@ -1245,7 +1245,7 @@ export class WpEvaluationEngine {
     // Standalone broker dividends and charges are signed balance adjustments, not customer
     // funding or trades. Include them once without inflating qualified trade P/L.
     const cashAdjustmentResult = await db.query(`SELECT COALESCE(SUM(o.amount),0) AS total
-      FROM wp_balance_ops o JOIN trading_registrations r ON r.id=o.registration_id
+      FROM wp_balance_ops o JOIN wp_current_registrations r ON r.id=o.registration_id
       JOIN trading_challenges c ON c.id=o.challenge_id
       WHERE o.challenge_id=$1 AND o.registration_id=$2 AND o.op_type IN ('dividend','commission','fee','interest','tax','swap')
       AND o.op_time >= (GREATEST(c.start_date,r.registered_at) AT TIME ZONE 'UTC')
@@ -1254,7 +1254,7 @@ export class WpEvaluationEngine {
     const adjustedBalance = effectiveStartBalance + qualifiedProfit + cashAdjustment;
     const currentBalance = effectiveStartBalance + grossProfit + cashAdjustment;
     const withdrawals=await db.query(`SELECT COALESCE(SUM(ABS(o.amount)),0) AS total FROM wp_balance_ops o
-      JOIN trading_registrations r ON r.id=o.registration_id JOIN trading_challenges c ON c.id=o.challenge_id
+      JOIN wp_current_registrations r ON r.id=o.registration_id JOIN trading_challenges c ON c.id=o.challenge_id
       WHERE o.challenge_id=$1 AND o.registration_id=$2 AND o.op_type='withdrawal'
       AND o.op_time >= (GREATEST(c.start_date,r.registered_at) AT TIME ZONE 'UTC')
       AND o.op_time <= (c.end_date AT TIME ZONE 'UTC')`,[challengeId,reg.id]);
@@ -1281,7 +1281,7 @@ export class WpEvaluationEngine {
           // User CAN still meet the requirement — undo any incorrect active-days DQ.
           // Only clears DQs caused by active-days logic; manual DQs (recharge, over-limit) are untouched.
           const currentDq = await db.query(
-            `SELECT disqualified, disqualified_reason, disqualified_source FROM trading_registrations WHERE id = $1`,
+            `SELECT disqualified, disqualified_reason, disqualified_source FROM wp_current_registrations WHERE id = $1`,
             [reg.id]
           );
           const dqRow = currentDq.rows[0];
@@ -1317,7 +1317,7 @@ export class WpEvaluationEngine {
       if (totalTradeCount >= rules.min_total_trades) {
         // User meets the requirement — clear any incorrect min-trades DQ
         const currentDq2 = await db.query(
-          `SELECT disqualified, disqualified_reason, disqualified_source FROM trading_registrations WHERE id = $1`, [reg.id]
+          `SELECT disqualified, disqualified_reason, disqualified_source FROM wp_current_registrations WHERE id = $1`, [reg.id]
         );
         if (currentDq2.rows[0]?.disqualified && currentDq2.rows[0]?.disqualified_source === 'min_total_trades') {
           await db.query(`UPDATE trading_registrations SET disqualified = false, disqualified_at = NULL, disqualified_reason = NULL, disqualified_source = NULL WHERE id = $1 AND disqualified_source = 'min_total_trades'`, [reg.id]);
@@ -1373,7 +1373,7 @@ export class WpEvaluationEngine {
     // shows positive (e.g. open losing positions not yet reflected in closed trades).
     if (allTrades.length > 0) {
       const eqRow = await db.query(
-        `SELECT last_known_equity FROM trading_registrations WHERE id = $1`, [reg.id]
+        `SELECT last_known_equity FROM wp_current_registrations WHERE id = $1`, [reg.id]
       );
       const equity = eqRow.rows[0]?.last_known_equity;
       if (equity !== null && equity !== undefined && parseFloat(equity) <= 0) {
@@ -1619,7 +1619,7 @@ export class WpEvaluationEngine {
   }> {
     try {
       const regResult = await db.query(
-        `SELECT r.*, c.start_date, c.end_date FROM trading_registrations r
+        `SELECT r.*, c.start_date, c.end_date FROM wp_current_registrations r
          JOIN trading_challenges c ON r.challenge_id = c.id
          WHERE r.id = $1 AND r.challenge_id=$2`,
         [registrationId,challengeId]
@@ -1671,7 +1671,7 @@ export class WpEvaluationEngine {
    */
   async getPendingSlAccounts(challengeId: number): Promise<number[]> {
     const result = await db.query(
-      `SELECT DISTINCT registration_id FROM wp_trades
+      `SELECT DISTINCT registration_id FROM wp_current_trades
        WHERE challenge_id = $1 AND sl_check_pending = true`,
       [challengeId]
     );

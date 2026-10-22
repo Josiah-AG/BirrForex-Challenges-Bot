@@ -932,7 +932,7 @@ export class VpsPullScheduler {
     try {
       locked=(await lease.query('SELECT pg_try_advisory_lock(26092604,0) AS locked')).rows[0].locked;
       if(!locked || await this.hasPendingPullJobs())return;
-      const rows=await db.query(`SELECT r.id,r.challenge_id FROM trading_registrations r
+      const rows=await db.query(`SELECT r.id,r.challenge_id FROM wp_current_registrations r
         JOIN trading_challenges c ON c.id=r.challenge_id
         WHERE r.history_sync_state IN ('incomplete','verified','evaluation_failed') AND r.history_retry_at<=NOW()
           AND r.status IS DISTINCT FROM 'removed' AND r.connection_verified=true
@@ -973,6 +973,8 @@ export class VpsPullScheduler {
 
   private async recordHistoryFailure(registrationId:number,challengeId:number,message:string,evaluation=false){
     await db.transaction(async()=>{
+      const active = await db.query('SELECT id FROM wp_current_registrations WHERE id=$1 AND challenge_id=$2 FOR UPDATE',[registrationId,challengeId]);
+      if (!active.rows.length) return;
       await beginPullJournal(registrationId,challengeId);
       await db.query(`UPDATE trading_registrations SET history_sync_state=$3::text,history_sync_error=$2::text,pull_status=$3::text,pull_error=$2::text,
         history_retry_attempts=history_retry_attempts+1,
@@ -988,8 +990,9 @@ export class VpsPullScheduler {
     try {
       const registration=(await db.query(`SELECT registered_at,history_verified_through,history_verified_balance,history_retry_attempts,history_verified_at,
         prestart_snapshot_at,prestart_snapshot_until,prestart_snapshot_balance,connection_verified_at,is_cent,
-        (SELECT history_digest FROM wp_history_snapshots s WHERE s.registration_id=trading_registrations.id ORDER BY id DESC LIMIT 1) AS history_digest
-        FROM trading_registrations WHERE id=$1`,[account.registrationId])).rows[0];
+        (SELECT history_digest FROM wp_history_snapshots s WHERE s.registration_id=wp_current_registrations.id ORDER BY id DESC LIMIT 1) AS history_digest
+        FROM wp_current_registrations WHERE id=$1`,[account.registrationId])).rows[0];
+      if (!registration) return {...base,success:false,errorCode:'registration_removed',errorMessage:'Registration removed or replaced'};
       // Full audits are required on first import, explicit full pulls and reviewing.
       const full=!account.lastPullAt || !registration?.history_verified_through || challenge?.status!=='active'
         || Number(registration.history_retry_attempts)>0 || (challenge && this.isMidnightRun(challenge));
@@ -1026,7 +1029,8 @@ export class VpsPullScheduler {
       let insertedTrades=0;
       await db.transaction(async()=>{
         const current=(await db.query(`SELECT r.history_verified_through,r.history_verified_balance,r.last_pull_at,r.last_known_balance,r.last_known_equity,r.reconciliation_status
-          FROM trading_registrations r WHERE id=$1 FOR UPDATE`,[account.registrationId])).rows[0];
+          FROM wp_current_registrations r WHERE id=$1 FOR UPDATE`,[account.registrationId])).rows[0];
+        if (!current) throw new Error('Registration removed while pull was in progress');
         await beginPullJournal(account.registrationId,challenge.id);
         await db.query(`INSERT INTO wp_history_snapshots(registration_id,challenge_id,request_id,source_cutoff,balance,history_digest,history_count,terminal_id,before_state)
           VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,[account.registrationId,challenge.id,requestId,data.source_cutoff,data.balance,data.history_digest,data.history_count,terminalId,
@@ -1035,7 +1039,7 @@ export class VpsPullScheduler {
         await db.query(`INSERT INTO wp_account_publications(registration_id,challenge_id,trades,balance_ops,registration_state)
           VALUES($1,$2,COALESCE((SELECT jsonb_agg(t) FROM wp_trades t WHERE registration_id=$1),'[]'::jsonb),
           COALESCE((SELECT jsonb_agg(o) FROM wp_balance_ops o WHERE registration_id=$1),'[]'::jsonb),
-          (SELECT jsonb_build_object('actual_starting_balance',actual_starting_balance,'disqualified',disqualified,'disqualified_reason',disqualified_reason) FROM trading_registrations WHERE id=$1)) ON CONFLICT DO NOTHING`,[account.registrationId,challenge.id]);
+          (SELECT jsonb_build_object('actual_starting_balance',actual_starting_balance,'disqualified',disqualified,'disqualified_reason',disqualified_reason) FROM wp_current_registrations WHERE id=$1)) ON CONFLICT DO NOTHING`,[account.registrationId,challenge.id]);
         insertedTrades=(await this.saveTrades(account,data.trades)) || 0;
         await this.saveDeals(account,data.deals);
         await this.storeBalanceOps(challenge.id,account.registrationId,account.accountNumber,data.balance_ops,data.balance);
@@ -1324,7 +1328,7 @@ export class VpsPullScheduler {
   private async retrySingleAccountUnlocked(registrationId: number, challengeId: number, overrideLock=false, evaluate=true): Promise<PullResult & { evaluated?: boolean }> {
     const regResult = await db.query(
       `SELECT id, account_number, mt5_server, investor_password, user_id, username, nickname, last_pull_at
-       FROM trading_registrations WHERE id = $1 AND challenge_id = $2 AND status IS DISTINCT FROM 'removed'`,
+       FROM wp_current_registrations WHERE id = $1 AND challenge_id = $2 AND status IS DISTINCT FROM 'removed'`,
       [registrationId, challengeId]
     );
     if (regResult.rows.length === 0) {
@@ -1680,7 +1684,7 @@ export class VpsPullScheduler {
 
     const result = await db.query(
       `SELECT r.id, r.account_number, r.mt5_server, r.investor_password, r.user_id, r.username, r.nickname, r.last_pull_at, r.last_known_balance, r.pull_status, r.history_sync_state
-       FROM trading_registrations r
+       FROM wp_current_registrations r
        LEFT JOIN wp_leaderboard l ON r.id = l.registration_id
        WHERE r.challenge_id = $1 AND r.status IS DISTINCT FROM 'removed'
          ${disqualifiedFilter}
@@ -1717,7 +1721,7 @@ export class VpsPullScheduler {
 
   private async saveTrades(account: AccountToPull, trades: any[]) {
     // Get challenge_id for this registration
-    const regResult = await db.query(`SELECT challenge_id FROM trading_registrations WHERE id = $1`, [account.registrationId]);
+    const regResult = await db.query(`SELECT challenge_id FROM wp_current_registrations WHERE id = $1`, [account.registrationId]);
     const challengeId = regResult.rows[0]?.challenge_id;
     if (!challengeId) return;
 
@@ -1778,7 +1782,7 @@ export class VpsPullScheduler {
 
   private async saveDeals(account: AccountToPull, deals: any[]) {
     // Get challenge_id for this registration
-    const regResult = await db.query(`SELECT challenge_id FROM trading_registrations WHERE id = $1`, [account.registrationId]);
+    const regResult = await db.query(`SELECT challenge_id FROM wp_current_registrations WHERE id = $1`, [account.registrationId]);
     const challengeId = regResult.rows[0]?.challenge_id;
     if (!challengeId) return;
 
@@ -1848,7 +1852,8 @@ export class VpsPullScheduler {
   // ==================== CREDENTIAL FAILURE HANDLING ====================
 
   private async handleCredentialFailure(failure: PullResult, challenge: TradingChallenge) {
-    const reg = await db.query('SELECT pull_status, source, credential_failure_detected_at FROM trading_registrations WHERE id = $1', [failure.registrationId]);
+    const reg = await db.query('SELECT pull_status, source, credential_failure_detected_at FROM wp_current_registrations WHERE id = $1', [failure.registrationId]);
+    if (!reg.rows.length) return;
     if (reg.rows[0]?.pull_status === 'password_changed' && reg.rows[0]?.credential_failure_detected_at) return;
 
     await db.query(
@@ -1930,14 +1935,14 @@ export class VpsPullScheduler {
   }
 
   private async executeCredentialRecovery(registrationId:number,challengeId:number,source:'user'|'admin'): Promise<PullResult & {evaluated?:boolean}> {
-    const registration = await db.query(`SELECT account_number FROM trading_registrations WHERE id=$1 AND challenge_id=$2 AND status IS DISTINCT FROM 'removed'`,[registrationId,challengeId]);
+    const registration = await db.query(`SELECT account_number FROM wp_current_registrations WHERE id=$1 AND challenge_id=$2 AND status IS DISTINCT FROM 'removed'`,[registrationId,challengeId]);
     if (!registration.rows[0]) throw new Error('Registration not found');
     this.credentialFailureCache.delete(normalizeAccountNumber(registration.rows[0].account_number));
     const prestart=(await db.query('SELECT status,pre_start_check_started_at FROM trading_challenges WHERE id=$1',[challengeId])).rows[0];
     if(prestart?.status==='registration_open' && !prestart.pre_start_check_started_at){
       const {runBalanceWarningCheck}=require('../services/prestartBalanceChecks');
       const outcome=await runBalanceWarningCheck(challengeId,this.bot.bot.telegram,false,registrationId);
-      const latest=(await db.query('SELECT pull_status FROM trading_registrations WHERE id=$1',[registrationId])).rows[0];
+      const latest=(await db.query('SELECT pull_status FROM wp_current_registrations WHERE id=$1',[registrationId])).rows[0];
       const success=!!(outcome.checked || outcome.completed) && !outcome.failed;
       return {registrationId,accountNumber:registration.rows[0].account_number,userId:0,username:null,
         success,evaluated:success,recoveryStopped:outcome.exhausted || ['password_changed','invalid_credentials'].includes(latest?.pull_status)} as PullResult & {evaluated?:boolean};
@@ -1963,7 +1968,7 @@ export class VpsPullScheduler {
   }
 
   private async notifyAccountRecovered(registrationId: number, challengeId: number, source: 'user' | 'admin') {
-    const reg=(await db.query('SELECT connection_verified_at FROM trading_registrations WHERE id=$1 AND challenge_id=$2',[registrationId,challengeId])).rows[0];
+    const reg=(await db.query('SELECT connection_verified_at FROM wp_current_registrations WHERE id=$1 AND challenge_id=$2',[registrationId,challengeId])).rows[0];
     if(reg?.connection_verified_at)await queueParticipantNotice(registrationId,challengeId,'credential_recovered',new Date(reg.connection_verified_at).toISOString(),{source});
   }
 
@@ -1976,7 +1981,7 @@ export class VpsPullScheduler {
 
       const result = await db.query(
         `SELECT id, user_id, username, account_number, source, email, nickname
-         FROM trading_registrations
+         FROM wp_current_registrations
          WHERE challenge_id = $1
            AND pull_status IN ('password_changed','invalid_credentials')
            AND status IS DISTINCT FROM 'removed'
@@ -2012,7 +2017,7 @@ export class VpsPullScheduler {
     for(const result of results){
       if(result.errorCode==='invalid_credentials')continue;
       await db.transaction(async()=>{
-        const reg=(await db.query('SELECT challenge_id FROM trading_registrations WHERE id=$1',[result.registrationId])).rows[0];
+        const reg=(await db.query('SELECT challenge_id FROM wp_current_registrations WHERE id=$1',[result.registrationId])).rows[0];
         if(!reg)return;
         await beginPullJournal(result.registrationId,reg.challenge_id);
         if(result.success)await db.query(`UPDATE trading_registrations SET last_pull_at=COALESCE(history_verified_through,NOW()),pull_status='success',pull_error=NULL WHERE id=$1`,[result.registrationId]);
@@ -2661,7 +2666,7 @@ export class VpsPullScheduler {
                 COALESCE(r.last_known_balance, 0) as vps_balance,
                 COALESCE(trade_sum.net, 0) as trade_net,
                 COALESCE(deposit_sum.total, 0) as deposit_total
-         FROM trading_registrations r
+         FROM wp_current_registrations r
          LEFT JOIN LATERAL (
            SELECT SUM(COALESCE(profit, 0) + COALESCE(commission, 0) + COALESCE(swap, 0)) as net
            FROM wp_trades WHERE challenge_id = $1 AND registration_id = r.id
@@ -2763,7 +2768,7 @@ export class VpsPullScheduler {
                   COALESCE(r.last_known_balance, 0) as vps_balance,
                   COALESCE((SELECT SUM(COALESCE(profit,0)+COALESCE(commission,0)+COALESCE(swap,0)) FROM wp_trades WHERE challenge_id=$1 AND registration_id=r.id), 0) as trade_net,
                   COALESCE((SELECT SUM(profit) FROM wp_deals WHERE challenge_id=$1 AND registration_id=r.id AND (deal_type ILIKE '%balance%' OR deal_type='2') AND profit>0), 0) as deposit_total
-           FROM trading_registrations r WHERE r.id = $2`,
+           FROM wp_current_registrations r WHERE r.id = $2`,
           [challengeId, account.registrationId]
         );
         if (checkResult.rows.length > 0) {
@@ -2782,7 +2787,7 @@ export class VpsPullScheduler {
 
     // Mark remaining unresolved as failed (after all rounds)
     const stillMismatched = await db.query(
-      `SELECT r.id FROM trading_registrations r
+      `SELECT r.id FROM wp_current_registrations r
        LEFT JOIN LATERAL (
          SELECT SUM(COALESCE(profit,0)+COALESCE(commission,0)+COALESCE(swap,0)) as net FROM wp_trades WHERE challenge_id=$1 AND registration_id=r.id
        ) ts ON true
@@ -2967,7 +2972,7 @@ export class VpsPullScheduler {
       const pending = await db.query(
         `SELECT DISTINCT r.id as registration_id, r.account_number, r.nickname, r.account_subtype,
                 COUNT(t.id) as pending_count, MAX(t.sl_check_attempts) as max_attempts
-         FROM trading_registrations r
+         FROM wp_current_registrations r
          JOIN wp_trades t ON t.registration_id = r.id AND t.challenge_id = $1 AND t.sl_check_pending = true
          WHERE r.challenge_id = $1 AND r.status IS DISTINCT FROM 'removed'
          GROUP BY r.id, r.account_number, r.nickname, r.account_subtype`,
@@ -2978,7 +2983,7 @@ export class VpsPullScheduler {
       const escalated = await db.query(
         `SELECT DISTINCT r.id as registration_id, r.account_number, r.nickname, r.account_subtype,
                 COUNT(t.id) as failed_count, MAX(t.sl_check_attempts) as max_attempts
-         FROM trading_registrations r
+         FROM wp_current_registrations r
          JOIN wp_trades t ON t.registration_id = r.id AND t.challenge_id = $1 AND t.sl_check_result = 'check_failed'
          WHERE r.challenge_id = $1 AND r.status IS DISTINCT FROM 'removed'
          GROUP BY r.id, r.account_number, r.nickname, r.account_subtype`,

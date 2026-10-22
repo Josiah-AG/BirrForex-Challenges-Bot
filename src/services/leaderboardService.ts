@@ -38,7 +38,7 @@ export class LeaderboardService {
       `UPDATE wp_leaderboard l
        SET is_disqualified = true,
            disqualify_reason = COALESCE(r.disqualified_reason, l.disqualify_reason)
-       FROM trading_registrations r
+       FROM wp_current_registrations r
        WHERE l.registration_id = r.id AND l.challenge_id = $1
          AND r.disqualified = true AND l.is_disqualified = false
          AND (r.history_sync_state IS NULL OR r.history_sync_state='published' OR r.disqualified_source='manual')`,
@@ -58,7 +58,7 @@ export class LeaderboardService {
     // Clean up: remove leaderboard entries for removed/deleted registrations
     await db.query(
       `DELETE FROM wp_leaderboard WHERE challenge_id = $1 AND registration_id NOT IN (
-        SELECT id FROM trading_registrations WHERE challenge_id = $1 AND (status IS NULL OR status != 'removed')
+        SELECT id FROM wp_current_registrations WHERE challenge_id = $1 AND (status IS NULL OR status != 'removed')
       )`, [challengeId]
     );
 
@@ -89,7 +89,7 @@ export class LeaderboardService {
                      r.registered_at ASC, l.registration_id ASC
           ) as rn
           FROM wp_leaderboard l
-          JOIN trading_registrations r ON r.id = l.registration_id
+          JOIN wp_current_registrations r ON r.id = l.registration_id
           WHERE l.challenge_id=$1 AND l.account_type=$2 AND l.is_disqualified=false AND r.disqualified=false
             AND COALESCE(l.is_withdrawn, false) = false
             AND l.zero_balance_at IS NULL
@@ -100,7 +100,7 @@ export class LeaderboardService {
 
       const tier1Count = await db.query(
         `SELECT COUNT(*) as cnt FROM wp_leaderboard l
-         JOIN trading_registrations r ON r.id = l.registration_id
+         JOIN wp_current_registrations r ON r.id = l.registration_id
          WHERE l.challenge_id=$1 AND l.account_type=$2 AND l.is_disqualified=false AND r.disqualified=false
            AND COALESCE(l.is_withdrawn, false) = false
            AND l.zero_balance_at IS NULL
@@ -191,7 +191,7 @@ export class LeaderboardService {
         `UPDATE wp_leaderboard SET rank = sub.rn FROM (
           SELECT l.id, (ROW_NUMBER() OVER (ORDER BY r.disqualified_at DESC NULLS LAST, l.registration_id ASC)) + $3 as rn
           FROM wp_leaderboard l
-          JOIN trading_registrations r ON l.registration_id = r.id
+          JOIN wp_current_registrations r ON l.registration_id = r.id
           WHERE l.challenge_id=$1 AND l.account_type=$2 AND l.is_disqualified=true
         ) sub WHERE wp_leaderboard.id = sub.id`,
         [challengeId, accountType, offset]
@@ -236,7 +236,7 @@ export class LeaderboardService {
                 ELSE COALESCE(r.actual_starting_balance, r.registration_balance, c.starting_balance)
               END,
               0, 0, 0, 0, 0, 0, 0, false, NOW()
-       FROM trading_registrations r
+       FROM wp_current_registrations r
        JOIN trading_challenges c ON r.challenge_id = c.id
        WHERE r.challenge_id = $1 AND r.status IS DISTINCT FROM 'removed'
          AND r.investor_password IS NOT NULL
@@ -264,7 +264,7 @@ export class LeaderboardService {
                 ELSE COALESCE(r.actual_starting_balance, r.registration_balance, c.starting_balance)
               END,
               0, 0, 0, 0, 0, 0, 0, false, NOW()
-       FROM trading_registrations r
+       FROM wp_current_registrations r
        JOIN trading_challenges c ON r.challenge_id = c.id
        WHERE r.challenge_id = $1 AND r.status IS DISTINCT FROM 'removed'
          AND r.investor_password IS NOT NULL
@@ -279,7 +279,7 @@ export class LeaderboardService {
       `UPDATE wp_leaderboard l
        SET is_disqualified = true,
            disqualify_reason = COALESCE(r.disqualified_reason, l.disqualify_reason)
-       FROM trading_registrations r
+       FROM wp_current_registrations r
        WHERE l.registration_id = r.id
          AND l.challenge_id = $1
          AND r.disqualified = true
@@ -295,7 +295,7 @@ export class LeaderboardService {
              THEN COALESCE(l.adjusted_balance, 0) / 100.0
              ELSE COALESCE(l.adjusted_balance, 0)
            END
-       FROM trading_registrations r
+       FROM wp_current_registrations r
        WHERE l.registration_id = r.id
          AND l.challenge_id = $1
          AND (l.is_cent IS NULL OR l.normalized_balance IS NULL)`,
@@ -312,7 +312,7 @@ export class LeaderboardService {
     return db.transaction(async()=>{
     const lock=await db.query('SELECT leaderboard_locked_at,status FROM trading_challenges WHERE id=$1 FOR UPDATE',[challengeId]);
     if((lock.rows[0]?.leaderboard_locked_at || lock.rows[0]?.status==='completed') && !overrideLock)throw new Error('Results are locked; explicit admin override required');
-    const scope=registrationId == null ? '' : ' AND registration_id=$2';
+    const scope=(registrationId == null ? '' : ' AND registration_id=$2') + ' AND registration_id IN (SELECT id FROM wp_current_registrations WHERE challenge_id=$1)';
     const args=registrationId == null ? [challengeId] : [challengeId,registrationId];
     // Check if staging has data for this challenge
     const stagingCount = await db.query(
@@ -358,13 +358,13 @@ export class LeaderboardService {
     // Registration is the authoritative DQ state; preserve manual causes there.
     await db.query(`UPDATE wp_leaderboard l SET is_disqualified=r.disqualified,
       disqualify_reason=CASE WHEN r.disqualified THEN r.disqualified_reason ELSE NULL END
-      FROM trading_registrations r WHERE l.registration_id=r.id AND l.challenge_id=$1${registrationId == null ? '' : ' AND l.registration_id=$2'}`,args);
+      FROM wp_current_registrations r WHERE l.registration_id=r.id AND l.challenge_id=$1${registrationId == null ? '' : ' AND l.registration_id=$2'}`,args);
 
     await db.query(`INSERT INTO wp_account_publications(registration_id,challenge_id,trades,balance_ops,registration_state)
       SELECT r.id,r.challenge_id,COALESCE((SELECT jsonb_agg(t) FROM wp_trades t WHERE t.registration_id=r.id),'[]'::jsonb),
         COALESCE((SELECT jsonb_agg(o) FROM wp_balance_ops o WHERE o.registration_id=r.id),'[]'::jsonb),
         jsonb_build_object('actual_starting_balance',r.actual_starting_balance,'disqualified',r.disqualified,'disqualified_reason',r.disqualified_reason)
-      FROM trading_registrations r WHERE r.challenge_id=$1 AND r.history_sync_state IN ('verified','published') AND r.id=ANY($2::int[])
+      FROM wp_current_registrations r WHERE r.challenge_id=$1 AND r.history_sync_state IN ('verified','published') AND r.id=ANY($2::int[])
       ON CONFLICT(registration_id) DO UPDATE SET trades=EXCLUDED.trades,balance_ops=EXCLUDED.balance_ops,registration_state=EXCLUDED.registration_state,published_at=NOW()`,[challengeId,publishedIds]);
     await db.query(`UPDATE trading_registrations SET history_sync_state='published',history_published_at=NOW(),history_retry_at=NULL,history_sync_error=NULL
       WHERE challenge_id=$1 AND history_sync_state='verified' AND id=ANY($2::int[])`,[challengeId,publishedIds]);
@@ -411,7 +411,7 @@ export class LeaderboardService {
         dm.sent as dm_sent,
         dm.sent_at as dm_sent_at,
         dm.created_at as dm_queued_at
-       FROM trading_registrations r
+       FROM wp_current_registrations r
        LEFT JOIN LATERAL (
          SELECT error_code, error_message, created_at
          FROM wp_pull_errors
@@ -449,7 +449,7 @@ export class LeaderboardService {
    */
   async getLastCycleFailures(challengeId: number): Promise<number[]> {
     const result = await db.query(
-      `SELECT id FROM trading_registrations
+      `SELECT id FROM wp_current_registrations
        WHERE challenge_id = $1
          AND disqualified = false
          AND investor_password IS NOT NULL

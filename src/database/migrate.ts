@@ -533,6 +533,7 @@ async function migrate() {
     await migrateParticipantNotices();
     await migrateRegistrationReminders();
     try {await installWorkloadTelemetry((sql,args)=>db.query(sql,args),false);}catch {console.error('[workload-telemetry] migration failed; capture unavailable');}
+    await db.query(readFileSync(join(__dirname, 'current_registrations.sql'), 'utf8'));
     console.log('✅ Database migration completed successfully!');
     process.exit(0);
   } catch (error) {

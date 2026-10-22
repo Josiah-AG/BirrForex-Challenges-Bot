@@ -69,7 +69,7 @@ export async function runPartnerScreening(challenge:any,slot:string):Promise<voi
       try {
         await tx.query('BEGIN');
         if(fresh.host_id && !(await tx.query('SELECT 1 FROM hosts WHERE id=$1 AND has_broker_integration=true',[fresh.host_id])).rows.length){await tx.query('COMMIT');return;}
-        const reg=(await tx.query('SELECT * FROM trading_registrations WHERE id=$1 FOR UPDATE',[r.id])).rows[0];
+        const reg=(await tx.query('SELECT * FROM wp_current_registrations WHERE id=$1 FOR UPDATE',[r.id])).rows[0];
         if(!reg || reg.disqualified || reg.status==='removed'){await tx.query('COMMIT');return;}
         const changed=(r.status==='changing' && !reg.partner_warned_at) || r.status==='not_allocated' || (r.status==='allocated' && ['ACTIVE','INACTIVE'].includes(r.brokerStatus) && reg.partner_warned_at);
         if(changed) await tx.query('INSERT INTO partner_screening_changes(registration_id,slot,previous_state,new_status) VALUES($1,$2,$3,$4)',[r.id,slot,JSON.stringify({partner_status:reg.partner_status,partner_warned_at:reg.partner_warned_at,disqualified:reg.disqualified,disqualified_at:reg.disqualified_at,disqualified_source:reg.disqualified_source,disqualified_reason:reg.disqualified_reason}),r.status]);

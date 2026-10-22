@@ -13,7 +13,7 @@ eligibility.validateHostAllocation=async()=>{};
 eligibility.validateVerifiedRegistration=async()=>{};
 db.transaction=async fn=>{const before=structuredClone(rows);try{return await fn()}catch(e){rows=before;throw e}};
 db.query=async(sql,args)=>{
- if(sql.includes('SELECT id FROM trading_registrations'))return {rows:rows.filter(r=>r.id===args[0]&&r.challenge_id===args[1]&&r.user_id===args[2]&&r.status!=='removed')};
+ if(sql.includes('SELECT id FROM wp_current_registrations'))return {rows:rows.filter(r=>r.id===args[0]&&r.challenge_id===args[1]&&r.user_id===args[2]&&r.status!=='removed')};
  if(sql.startsWith('UPDATE trading_registrations')){events.push('remove');rows[0].status='removed';}
  if(sql.startsWith('INSERT INTO trading_registrations')){events.push('insert');if(failInsert)throw Error('duplicate account');const r={id:2,status:'registered'};rows.push(r);return {rows:[r]};}
  return {rows:[]};

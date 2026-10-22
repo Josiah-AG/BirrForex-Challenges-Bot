@@ -243,7 +243,7 @@ export class TradingScheduler {
 
     // Determine lead time: T-3h if >500 total participants, else T-2h
     const totalParticipants = await db.query(
-      `SELECT COUNT(*) as cnt FROM trading_registrations
+      `SELECT COUNT(*) as cnt FROM wp_current_registrations
        WHERE challenge_id = $1 AND investor_password IS NOT NULL AND connection_verified = true`,
       [challenge.id]
     );
@@ -269,7 +269,7 @@ export class TradingScheduler {
     // Check how many accounts still need the snapshot (actual_starting_balance IS NULL)
     const pending = await db.query(
       `SELECT id, account_number, mt5_server, investor_password, is_cent, account_type
-       FROM trading_registrations
+       FROM wp_current_registrations
        WHERE challenge_id = $1
          AND disqualified = false
          AND investor_password IS NOT NULL
@@ -293,12 +293,12 @@ export class TradingScheduler {
       );
       if (existing.rows.length === 0) {
         const done = await db.query(
-          `SELECT COUNT(*) as cnt FROM trading_registrations
+          `SELECT COUNT(*) as cnt FROM wp_current_registrations
            WHERE challenge_id = $1 AND actual_starting_balance IS NOT NULL AND disqualified = false`,
           [challenge.id]
         );
         const dqd = await db.query(
-          `SELECT COUNT(*) as cnt FROM trading_registrations
+          `SELECT COUNT(*) as cnt FROM wp_current_registrations
            WHERE challenge_id = $1 AND disqualified = true
              AND (disqualified_reason ILIKE '%Starting balance%exceeds%' OR disqualified_reason ILIKE '%credential%' OR disqualified_reason ILIKE '%password%')`,
           [challenge.id]
@@ -558,13 +558,13 @@ export class TradingScheduler {
         const batches=await db.query(`SELECT COUNT(*) AS cnt FROM wp_pull_batches WHERE challenge_id=$1 AND status='completed' AND COALESCE(failed,0)=0 AND successful>0 AND successful=total_accounts AND final_full_sync=true AND error_log IS DISTINCT FROM 'evaluate_only' AND started_at>$2`,[challenge.id,current.rows[0].end_date]);
         if(Number(batches.rows[0].cnt)<2)return;
         // Every remaining contender needs a verified final snapshot and resolved risk checks.
-        const unresolved=await db.query(`SELECT r.id FROM trading_registrations r
-          LEFT JOIN wp_leaderboard l ON l.registration_id=r.id AND l.challenge_id=r.challenge_id
+        const unresolved=await db.query(`SELECT r.id FROM wp_current_registrations r
+          LEFT JOIN wp_current_leaderboard l ON l.registration_id=r.id AND l.challenge_id=r.challenge_id
           WHERE r.challenge_id=$1 AND r.status IS DISTINCT FROM 'removed' AND r.disqualified=false
           AND l.zero_balance_at IS NULL AND COALESCE(l.is_withdrawn,false)=false
           AND (r.history_sync_state IS DISTINCT FROM 'published' OR r.history_verified_through IS NULL
             OR r.history_verified_through < $2 OR l.id IS NULL OR EXISTS(
-              SELECT 1 FROM wp_trades t WHERE t.registration_id=r.id AND t.challenge_id=r.challenge_id
+              SELECT 1 FROM wp_current_trades t WHERE t.registration_id=r.id AND t.challenge_id=r.challenge_id
               AND t.close_time <= $2 AND t.open_time >= (SELECT start_date FROM trading_challenges WHERE id=$1)
               AND (t.sl_check_pending=true OR t.sl_check_result IN ('check_failed','conflicting')))) LIMIT 1`,[challenge.id,current.rows[0].end_date]);
         if(unresolved.rows.length)return;
@@ -632,8 +632,8 @@ export class TradingScheduler {
       `SELECT COUNT(*) as total,
               COUNT(CASE WHEN r.account_type = 'real' THEN 1 END) as real,
               COUNT(CASE WHEN r.account_type = 'demo' THEN 1 END) as demo
-       FROM wp_leaderboard l
-       JOIN trading_registrations r ON l.registration_id = r.id
+       FROM wp_current_leaderboard l
+       JOIN wp_current_registrations r ON l.registration_id = r.id
        WHERE l.challenge_id = $1 AND l.zero_balance_at IS NOT NULL`,
       [challenge.id]
     );
@@ -641,7 +641,7 @@ export class TradingScheduler {
       `SELECT COUNT(*) as total,
               COUNT(CASE WHEN account_type = 'real' THEN 1 END) as real,
               COUNT(CASE WHEN account_type = 'demo' THEN 1 END) as demo
-       FROM trading_registrations WHERE challenge_id = $1 AND disqualified = true`,
+       FROM wp_current_registrations WHERE challenge_id = $1 AND disqualified = true`,
       [challenge.id]
     );
     const blown = blownResult.rows[0];

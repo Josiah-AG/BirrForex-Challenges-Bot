@@ -37,7 +37,7 @@ export async function deliverLifecycleEvents(telegram: any): Promise<void> {
           await deliver('discord',()=>require('axios').post(process.env.DISCORD_CHALLENGE_WEBHOOK,{content:text,allowed_mentions:{parse:[]}},{timeout:10000}));
         }
         if(process.env.RESEND_API_KEY){
-          const registrations=await db.query(`SELECT id,email,nickname FROM trading_registrations WHERE challenge_id=$1
+          const registrations=await db.query(`SELECT id,email,nickname FROM wp_current_registrations WHERE challenge_id=$1
             AND source IN ('winnerpip','csv') AND email IS NOT NULL AND status IS DISTINCT FROM 'removed' AND disqualified=false`,[c.id]);
           const {emailService}=require('./emailService');
           for(const r of registrations.rows)await deliver(`email:${r.id}`,()=>started

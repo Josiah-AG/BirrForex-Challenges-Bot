@@ -140,7 +140,7 @@ class EvaluationService {
   async getTopWinners(challengeId: number, accountType: string, limit: number): Promise<(EvaluationRecord & { nickname?: string })[]> {
     const result = await db.query(
       `SELECT e.*, r.nickname FROM trading_evaluations e
-       LEFT JOIN trading_registrations r ON e.registration_id = r.id
+       LEFT JOIN wp_current_registrations r ON e.registration_id = r.id
        WHERE e.challenge_id = $1 AND e.account_type = $2 AND e.is_qualified = true
        ORDER BY e.adjusted_balance DESC LIMIT $3`,
       [challengeId, accountType, limit]
@@ -165,7 +165,7 @@ class EvaluationService {
         COUNT(*) FILTER (WHERE r.account_type = 'real') as real_count,
         COUNT(*) FILTER (WHERE r.account_type = 'demo') as demo_count
        FROM trading_submissions s
-       JOIN trading_registrations r ON s.registration_id = r.id
+       JOIN wp_current_registrations r ON s.registration_id = r.id
        WHERE s.challenge_id = $1`,
       [challengeId]
     );
@@ -198,7 +198,7 @@ class EvaluationService {
     const result = await db.query(
       `SELECT s.*, r.account_number, r.account_type, r.username, r.user_id, r.email
        FROM trading_submissions s
-       JOIN trading_registrations r ON s.registration_id = r.id
+       JOIN wp_current_registrations r ON s.registration_id = r.id
        LEFT JOIN trading_evaluations e ON e.challenge_id = s.challenge_id AND (
          e.account_number = r.account_number 
          OR (LENGTH(REGEXP_REPLACE(r.account_number, '[^0-9]', '', 'g')) >= 4 AND REGEXP_REPLACE(e.account_number, '[^0-9]', '', 'g') = REGEXP_REPLACE(r.account_number, '[^0-9]', '', 'g'))
@@ -225,7 +225,7 @@ class EvaluationService {
     const countResult = await db.query(
       `SELECT r.account_type, COUNT(*) as cnt
        FROM trading_submissions s
-       JOIN trading_registrations r ON s.registration_id = r.id
+       JOIN wp_current_registrations r ON s.registration_id = r.id
        LEFT JOIN trading_evaluations e ON e.challenge_id = s.challenge_id AND ${matchCondition}
        WHERE s.challenge_id = $1 AND e.id IS NULL ${skipCondition}
        GROUP BY r.account_type`,
@@ -240,7 +240,7 @@ class EvaluationService {
     const result = await db.query(
       `SELECT s.*, r.account_number, r.account_type, r.username, r.user_id, r.email, r.mt5_server, s.investor_password
        FROM trading_submissions s
-       JOIN trading_registrations r ON s.registration_id = r.id
+       JOIN wp_current_registrations r ON s.registration_id = r.id
        LEFT JOIN trading_evaluations e ON e.challenge_id = s.challenge_id AND ${matchCondition}
        WHERE s.challenge_id = $1 AND e.id IS NULL AND r.account_type = $2 ${skipCondition}
        ORDER BY s.final_balance DESC
@@ -258,7 +258,7 @@ class EvaluationService {
     const result = await db.query(
       `SELECT s.*, r.account_number, r.account_type, r.username, r.user_id, r.email, r.mt5_server
        FROM trading_submissions s
-       JOIN trading_registrations r ON s.registration_id = r.id
+       JOIN wp_current_registrations r ON s.registration_id = r.id
        WHERE s.challenge_id = $1 AND REGEXP_REPLACE(r.account_number, '[^0-9]', '', 'g') = $2`,
       [challengeId, cleanAcct]
     );
@@ -279,7 +279,7 @@ class EvaluationService {
     const result = await db.query(
       `SELECT s.*, r.account_number, r.account_type, r.username, r.user_id, r.email
        FROM trading_submissions s
-       JOIN trading_registrations r ON s.registration_id = r.id
+       JOIN wp_current_registrations r ON s.registration_id = r.id
        LEFT JOIN trading_evaluations e ON e.challenge_id = s.challenge_id AND (
          e.account_number = r.account_number 
          OR (LENGTH(REGEXP_REPLACE(r.account_number, '[^0-9]', '', 'g')) >= 4 AND REGEXP_REPLACE(e.account_number, '[^0-9]', '', 'g') = REGEXP_REPLACE(r.account_number, '[^0-9]', '', 'g'))
@@ -348,7 +348,7 @@ class EvaluationService {
     const result = await db.query(
       `SELECT s.*, r.account_number, r.account_type, r.username, r.user_id, r.email, r.mt5_server
        FROM trading_submissions s
-       JOIN trading_registrations r ON s.registration_id = r.id
+       JOIN wp_current_registrations r ON s.registration_id = r.id
        WHERE s.challenge_id = $1 AND (
          r.username ILIKE $2 OR
          r.email ILIKE $2 OR

@@ -3,7 +3,7 @@ import {resolveCategoryBalances} from '../utils/categorySettings';
 /** Display metadata only. Baseline and trade amounts both remain in native account units. */
 export async function tradeGrowthContext(registrationId: number) {
  const row=(await db.query(`SELECT c.*,r.account_type,r.is_cent,r.actual_starting_balance,
- l.starting_balance AS evaluated_starting_balance FROM trading_registrations r
+ l.starting_balance AS evaluated_starting_balance FROM wp_current_registrations r
  JOIN trading_challenges c ON c.id=r.challenge_id
  LEFT JOIN wp_leaderboard l ON l.registration_id=r.id WHERE r.id=$1`,[registrationId])).rows[0];
  if(!row)return {};

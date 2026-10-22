@@ -9,7 +9,7 @@ export async function countAboveTargets(challengeId: number): Promise<{demo:numb
   const challenge=saved.rows[0];
   if(!challenge)throw new Error('Challenge not found');
   const entries=await db.query(`SELECT l.account_type,l.adjusted_balance,l.growth_percent,l.total_withdrawn,l.zero_balance_at,l.is_withdrawn,l.is_disqualified,r.actual_starting_balance,r.registration_balance,r.is_cent
-    FROM wp_leaderboard l JOIN trading_registrations r ON r.id=l.registration_id
+    FROM wp_leaderboard l JOIN wp_current_registrations r ON r.id=l.registration_id
     WHERE l.challenge_id=$1 AND r.disqualified=false AND r.status IS DISTINCT FROM 'removed'`,[challengeId]);
   const counts: {demo:number;real:number;total:number;noTargetCard?:{value:string;sub:string}}={demo:0,real:0,total:0};
   const summaries: {category:string;target:boolean;allow:boolean;count:number}[]=[];

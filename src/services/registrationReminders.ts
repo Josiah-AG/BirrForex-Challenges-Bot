@@ -40,7 +40,7 @@ export async function startRegistrationReminders(challengeId: number, userId: nu
     SELECT id,$2,$3,'abandoned',NOW() FROM trading_challenges c
     WHERE id=$1 AND status='registration_open' AND NOT COALESCE(configuration_frozen_at IS NOT NULL,false)
       AND NOW()<LEAST(COALESCE(registration_deadline,start_date),start_date)
-      AND NOT EXISTS(SELECT 1 FROM trading_registrations r WHERE r.challenge_id=c.id AND r.user_id=$2 AND r.status IS DISTINCT FROM 'removed')
+      AND NOT EXISTS(SELECT 1 FROM wp_current_registrations r WHERE r.challenge_id=c.id AND r.user_id=$2 AND r.status IS DISTINCT FROM 'removed')
     ON CONFLICT(challenge_id,telegram_id) DO NOTHING`,[challengeId,userId,username]);
 }
 
@@ -50,7 +50,7 @@ async function eligible(challengeId: number, userId: number) {
     WHERE fa.challenge_id=$1 AND fa.telegram_id=$2 AND fa.converted=false AND c.status='registration_open'
       AND c.host_id IS NULL AND c.source IS DISTINCT FROM 'discord' AND c.configuration_frozen_at IS NULL
       AND NOW()<LEAST(COALESCE(c.registration_deadline,c.start_date),c.start_date)
-      AND NOT EXISTS(SELECT 1 FROM trading_registrations r WHERE r.challenge_id=c.id AND r.user_id=fa.telegram_id AND r.status IS DISTINCT FROM 'removed')`,[challengeId,userId])).rows[0];
+      AND NOT EXISTS(SELECT 1 FROM wp_current_registrations r WHERE r.challenge_id=c.id AND r.user_id=fa.telegram_id AND r.status IS DISTINCT FROM 'removed')`,[challengeId,userId])).rows[0];
 }
 
 /** Commit a durable claim BEFORE Telegram. Ambiguous network failures are not retried:

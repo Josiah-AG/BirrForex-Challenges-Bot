@@ -299,7 +299,7 @@ class EvaluationHandler {
       let wpRegistration: any = null;
       try {
         const regResult = await db.query(
-          'SELECT * FROM trading_registrations WHERE challenge_id = $1 AND account_number = $2 LIMIT 1',
+          'SELECT * FROM wp_current_registrations WHERE challenge_id = $1 AND account_number = $2 LIMIT 1',
           [session.challengeId, accountNumber]
         );
         wpRegistration = regResult.rows[0] || null;
@@ -899,7 +899,7 @@ class EvaluationHandler {
       // Get account number from the evaluation that was just saved
       let acctNum = '';
       try {
-        const regRow = await db.query('SELECT account_number FROM trading_registrations WHERE id = $1', [registrationId]);
+        const regRow = await db.query('SELECT account_number FROM wp_current_registrations WHERE id = $1', [registrationId]);
         acctNum = regRow.rows[0]?.account_number || '';
       } catch {}
 
@@ -1162,12 +1162,12 @@ class EvaluationHandler {
         const { db } = require('../database/db');
         const term = text.replace(/^@/, '').trim();
         const result = await db.query(
-          `SELECT * FROM trading_registrations
+          `SELECT *, user_id AS telegram_id FROM wp_current_registrations
            WHERE challenge_id = $1 AND (
              username ILIKE $2 OR
              email ILIKE $2 OR
              account_number = $3 OR
-             telegram_id::text = $3
+             user_id::text = $3
            ) LIMIT 5`,
           [session.challengeId, '%' + term + '%', term]
         );
@@ -1520,7 +1520,7 @@ class EvaluationHandler {
             );
             // Update in registrations table too
             await db.query(
-              'UPDATE trading_registrations SET username = $1 WHERE telegram_id = $2 AND challenge_id = $3',
+              'UPDATE trading_registrations SET username = $1 WHERE user_id = $2 AND challenge_id = $3 AND status IS DISTINCT FROM \'removed\'',
               [freshUsername, winner.telegram_id, challengeId]
             );
           }
@@ -1837,7 +1837,7 @@ class EvaluationHandler {
 
       // Get all real account registrations
       const { rows: realRegistrations } = await (await import('../database/db')).db.query(
-        'SELECT DISTINCT telegram_id, username FROM trading_registrations WHERE challenge_id = $1 AND account_type = $2 AND telegram_id IS NOT NULL AND telegram_id != 0',
+        'SELECT DISTINCT user_id AS telegram_id, username FROM wp_current_registrations WHERE challenge_id = $1 AND account_type = $2 AND user_id IS NOT NULL AND user_id != 0',
         [challenge.id, 'real']
       );
 
@@ -1935,7 +1935,7 @@ class EvaluationHandler {
 
       // Get all real account registrations
       const { rows: realRegistrations } = await (await import('../database/db')).db.query(
-        'SELECT DISTINCT telegram_id, username FROM trading_registrations WHERE challenge_id = $1 AND account_type = $2 AND telegram_id IS NOT NULL AND telegram_id != 0',
+        'SELECT DISTINCT user_id AS telegram_id, username FROM wp_current_registrations WHERE challenge_id = $1 AND account_type = $2 AND user_id IS NOT NULL AND user_id != 0',
         [challenge.id, 'real']
       );
 
@@ -2475,7 +2475,7 @@ class EvaluationHandler {
 
       const { db } = require('../database/db');
       const regs = await db.query(
-        'SELECT DISTINCT telegram_id, username FROM trading_registrations WHERE challenge_id = $1 AND telegram_id > 0',
+        'SELECT DISTINCT user_id AS telegram_id, username FROM wp_current_registrations WHERE challenge_id = $1 AND user_id > 0',
         [challenge.id]
       );
 
@@ -2492,7 +2492,7 @@ class EvaluationHandler {
           if (newUsername !== oldUsername) {
             // Update in registrations
             await db.query(
-              'UPDATE trading_registrations SET username = $1 WHERE challenge_id = $2 AND telegram_id = $3',
+              'UPDATE trading_registrations SET username = $1 WHERE challenge_id = $2 AND user_id = $3 AND status IS DISTINCT FROM \'removed\'',
               [newUsername, challenge.id, reg.telegram_id]
             );
             // Update in evaluations
@@ -2546,10 +2546,10 @@ class EvaluationHandler {
 
       const { db } = require('../database/db');
       const subs = await db.query(
-        `SELECT DISTINCT r.telegram_id, r.username
+        `SELECT DISTINCT r.user_id AS telegram_id, r.username
          FROM trading_submissions s
-         JOIN trading_registrations r ON s.registration_id = r.id
-         WHERE s.challenge_id = $1 AND r.telegram_id > 0`,
+         JOIN wp_current_registrations r ON s.registration_id = r.id
+         WHERE s.challenge_id = $1 AND r.user_id > 0`,
         [challenge.id]
       );
 
@@ -2565,7 +2565,7 @@ class EvaluationHandler {
 
           if (newUsername !== oldUsername) {
             await db.query(
-              'UPDATE trading_registrations SET username = $1 WHERE challenge_id = $2 AND telegram_id = $3',
+              'UPDATE trading_registrations SET username = $1 WHERE challenge_id = $2 AND user_id = $3 AND status IS DISTINCT FROM \'removed\'',
               [newUsername, challenge.id, reg.telegram_id]
             );
             await db.query(
@@ -2612,7 +2612,7 @@ class EvaluationHandler {
       const subs = await db.query(
         `SELECT s.id as sub_id, r.*, s.final_balance
          FROM trading_submissions s
-         JOIN trading_registrations r ON s.registration_id = r.id
+         JOIN wp_current_registrations r ON s.registration_id = r.id
          WHERE s.challenge_id = $1`,
         [challenge.id]
       );

@@ -4,7 +4,7 @@ import { db } from '../database/db';
 export async function annotatePullRecovery(batches: any[]): Promise<void> {
   const ids = batches.filter(b => Number(b.failed) > 0 && b.completed_at && !b.error_log).map(b => b.id);
   if (!ids.length) return;
-  const current = await db.query(`SELECT challenge_id, COUNT(*)::int AS failures FROM trading_registrations
+  const current = await db.query(`SELECT challenge_id, COUNT(*)::int AS failures FROM wp_current_registrations
     WHERE challenge_id=ANY($1::int[]) AND status IS DISTINCT FROM 'removed'
       AND disqualified=false AND COALESCE(pull_status,'') NOT IN ('password_changed','invalid_credentials') AND (history_sync_state IN ('incomplete','evaluation_failed')
         OR pull_status NOT IN ('success','ready','never_pulled','pending_verify','password_changed','invalid_credentials'))

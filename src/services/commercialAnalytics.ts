@@ -12,7 +12,7 @@ export async function captureCommercialCoverage(registrationId:number, cutoff:st
     SELECT r.id,r.challenge_id,$2::timestamptz,COALESCE((SELECT jsonb_agg(jsonb_build_object(
       'ticket',t.ticket::text,'symbol',t.symbol,'volume',t.volume,'close_time',t.close_time))
       FROM wp_trades t WHERE t.registration_id=r.id AND t.close_time<=($2::timestamptz AT TIME ZONE 'UTC')),'[]')
-    FROM trading_registrations r WHERE r.id=$1 AND r.account_type='real'
+    FROM wp_current_registrations r WHERE r.id=$1 AND r.account_type='real'
     ON CONFLICT(registration_id) DO UPDATE SET cutoff=EXCLUDED.cutoff,trades=EXCLUDED.trades,captured_at=NOW()
     WHERE wp_commercial_coverage.cutoff<=EXCLUDED.cutoff`,[registrationId,cutoff]);
 }
@@ -61,7 +61,7 @@ export async function refreshCommercial(challengeId:number, full=false) {
     const completed=['completed','reviewing','submission_open'].includes(c.status) || now>=end;
     const regs=(await db.query(`SELECT r.id,r.nickname,r.username,r.account_number,r.client_uid,r.is_cent,r.account_subtype,
       r.disqualified,r.last_known_balance,r.history_verified_through,r.history_sync_state,
-      l.rank,l.zero_balance_at FROM trading_registrations r LEFT JOIN wp_leaderboard l
+      l.rank,l.zero_balance_at FROM wp_current_registrations r LEFT JOIN wp_leaderboard l
       ON l.registration_id=r.id AND l.challenge_id=r.challenge_id
       WHERE r.challenge_id=$1 AND r.account_type='real' AND r.status IS DISTINCT FROM 'removed'`,[challengeId])).rows;
     const warnings:string[]=[];

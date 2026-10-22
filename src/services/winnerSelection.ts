@@ -28,7 +28,7 @@ export async function selectWinnerPipWinners(challengeId: number, category: 'dem
 }
 async function selectLiveWinners(challengeId: number,category: string,count: number): Promise<any[]> {
   const result=await db.query(`SELECT l.*,r.username,r.user_id,r.nickname,r.is_cent FROM wp_leaderboard l
-    JOIN trading_registrations r ON r.id=l.registration_id
+    JOIN wp_current_registrations r ON r.id=l.registration_id
     WHERE l.challenge_id=$1 AND l.account_type=$2 AND l.is_qualified=true
     AND l.is_disqualified=false AND r.disqualified=false AND r.status IS DISTINCT FROM 'removed'
     AND l.zero_balance_at IS NULL AND COALESCE(l.is_withdrawn,false)=false
