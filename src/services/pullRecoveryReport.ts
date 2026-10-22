@@ -32,3 +32,19 @@ export async function annotatePullRecovery(batches: any[]): Promise<void> {
     b.remainingFailed = Number(b.failed || 0) - b.recovered - b.credentialFailures;
   }
 }
+
+/** Overview totals use the same verified recovery evidence as batch history. */
+export async function getPullActivitySummary(challengeId: number) {
+  const result = await db.query(`SELECT id,challenge_id,completed_at,successful,failed,new_trades_found,error_log
+    FROM wp_pull_batches WHERE challenge_id=$1 AND started_at > NOW() - INTERVAL '24 hours'`, [challengeId]);
+  await annotatePullRecovery(result.rows);
+  return result.rows.reduce((total, batch) => {
+    total.pulls_today++;
+    total.total_success += Number(batch.successful || 0) + Number(batch.recovered || 0);
+    total.total_failed += Number(batch.remainingFailed ?? batch.failed ?? 0);
+    total.reconciled += Number(batch.recovered || 0);
+    total.credential_failures += Number(batch.credentialFailures || 0);
+    total.new_trades += Number(batch.new_trades_found || 0);
+    return total;
+  }, {pulls_today:0,total_success:0,total_failed:0,reconciled:0,credential_failures:0,new_trades:0});
+}

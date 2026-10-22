@@ -1,5 +1,5 @@
 import { getRecoveryProgress } from '../services/recoveryProgress';
-import { annotatePullRecovery } from '../services/pullRecoveryReport';
+import { annotatePullRecovery, getPullActivitySummary } from '../services/pullRecoveryReport';
 import { tradingChallengeService } from '../services/tradingChallengeService';
 import {readNewClients} from '../services/newChallengeClients';
 import {tradeGrowthContext,withTradeGrowth} from '../services/tradeGrowthDisplay';
@@ -3706,8 +3706,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
     }
 
     // Pull stats (today)
-    const pullStats = await db.query(
-      `SELECT COUNT(*) as pulls_today, COALESCE(SUM(successful),0) as total_success, COALESCE(SUM(failed),0) as total_failed, COALESCE(SUM(new_trades_found),0) as new_trades FROM wp_pull_batches WHERE challenge_id=$1 AND started_at > NOW() - INTERVAL '24 hours'`, [challengeId]);
+    const pullStats = { rows: [await getPullActivitySummary(challengeId)] };
 
     // Password changed count
     const pwChanged = await db.query(
@@ -4118,6 +4117,12 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/pulls`, adminIpCheck, asy
           [latestBatchId]
         );
         terminalStats = tsResult.rows;
+        const latest = batches.rows[0];
+        // Only clear per-terminal initial errors when every batch error has verified recovery.
+        if (Number(latest.failed) > 0 && Number(latest.recovered) === Number(latest.failed)) {
+          terminalStats = terminalStats.map(t => ({ ...t, initial_failed: t.total_failed,
+            total_success: Number(t.total_success) + Number(t.total_failed), total_failed: 0 }));
+        }
       }
     }
 

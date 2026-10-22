@@ -1,3 +1,4 @@
+import { getPullActivitySummary } from '../services/pullRecoveryReport';
 import { getRecoveryProgress } from '../services/recoveryProgress';
 import {tradeGrowthContext,withTradeGrowth} from '../services/tradeGrowthDisplay';
 import { queuedPullProgress } from '../utils/queuedPullProgress';
@@ -121,9 +122,8 @@ router.get('/challenge/:id/full-overview', async (req: any, res: Response) => {
       `SELECT started_at, completed_at, successful, failed, total_accounts, status FROM wp_pull_batches WHERE challenge_id=$1 AND status IN ('completed','partial') AND completed_at IS NOT NULL ORDER BY started_at DESC, id DESC LIMIT 1`, [challengeId]);
 
     // Pull stats — last 24 hours (matching admin)
-    const pullsToday = await db.query(
-      `SELECT COUNT(*) as cnt, COALESCE(SUM(successful),0) as total_success, COALESCE(SUM(failed),0) as total_failed
-       FROM wp_pull_batches WHERE challenge_id=$1 AND started_at > NOW() - INTERVAL '24 hours'`, [challengeId]);
+    const activity = await getPullActivitySummary(challengeId);
+    const pullsToday = { rows: [{...activity, cnt: activity.pulls_today}] };
 
     // Top violations (violations is stored as JSON string, not pg array)
     const rawViolations = await db.query(
