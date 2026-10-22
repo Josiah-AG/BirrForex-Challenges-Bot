@@ -118,7 +118,7 @@ router.get('/challenge/:id/full-overview', async (req: any, res: Response) => {
       `SELECT COUNT(*) as cnt FROM wp_current_registrations WHERE challenge_id=$1 AND pull_status='password_changed'`, [challengeId]);
 
     const lastPull = await db.query(
-      `SELECT started_at, completed_at, successful, failed, total_accounts, status FROM wp_pull_batches WHERE challenge_id=$1 ORDER BY started_at DESC LIMIT 1`, [challengeId]);
+      `SELECT started_at, completed_at, successful, failed, total_accounts, status FROM wp_pull_batches WHERE challenge_id=$1 AND status IN ('completed','partial') AND completed_at IS NOT NULL ORDER BY started_at DESC, id DESC LIMIT 1`, [challengeId]);
 
     // Pull stats — last 24 hours (matching admin)
     const pullsToday = await db.query(

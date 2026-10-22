@@ -3800,7 +3800,7 @@ app.get(`/api/admin/${ADMIN_SECRET_PATH}/challenge/:id/overview`, adminIpCheck, 
 
     // Last pull time
     const lastPull = await db.query(
-      `SELECT completed_at FROM wp_pull_batches WHERE challenge_id=$1 AND status='completed' ORDER BY completed_at DESC LIMIT 1`, [challengeId]);
+      `SELECT completed_at FROM wp_pull_batches WHERE challenge_id=$1 AND status IN ('completed','partial') AND completed_at IS NOT NULL ORDER BY started_at DESC, id DESC LIMIT 1`, [challengeId]);
 
     // === ADDITIONAL METRICS (per category for hybrid, combined for single-type) ===
     const challengeTypeResult = await db.query(`SELECT type FROM trading_challenges WHERE id = $1`, [challengeId]);
